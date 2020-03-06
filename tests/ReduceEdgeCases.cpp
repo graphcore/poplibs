@@ -65,11 +65,10 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
   // Test that we can accumulate in higher precision by adding lots of small
   // values to a large value such that if it were done with half precision
   // accumulation all the smaller terms would be lost.
-  IPUModel ipuModel;
-  ipuModel.tilesPerIPU = 1;
-  auto device = ipuModel.createDevice();
-  const auto &target = device.getTarget();
-  Graph graph(device);
+  auto tdevice = createTestDevice(TEST_TARGET);
+  const auto &target = tdevice.getTarget();
+  Graph graph(target);
+
   popops::addCodelets(graph);
 
   const auto N = 100;
@@ -89,20 +88,21 @@ BOOST_AUTO_TEST_CASE(ReduceIntermediatePrec) {
   graph.createHostRead("out", out);
 
   Engine engine(graph, prog, options);
-  engine.load(device);
+  tdevice.bind([&](const Device &device) {
+    engine.load(device);
+    engine.run(0);
 
-  engine.run(0);
+    std::vector<char> hVal(target.getTypeSize(HALF));
+    float val;
 
-  std::vector<char> hVal(target.getTypeSize(HALF));
-  float val;
+    engine.readTensor("out", hVal.data(), hVal.data() + hVal.size());
 
-  engine.readTensor("out", hVal.data(), hVal.data() + hVal.size());
+    copyDeviceHalfToFloat(target, hVal.data(), &val, 1);
 
-  copyDeviceHalfToFloat(target, hVal.data(), &val, 1);
-
-  // In the half precision range > 8192 the representation will round to
-  // multiples of 8
-  BOOST_CHECK_EQUAL(val, 8192 + ((N - 1) / 8) * 8);
+    // In the half precision range > 8192 the representation will round to
+    // multiples of 8
+    BOOST_CHECK_EQUAL(val, 8192 + ((N - 1) / 8) * 8);
+  });
 }
 
 BOOST_AUTO_TEST_CASE(Reduce_Huge_ADD_float) {

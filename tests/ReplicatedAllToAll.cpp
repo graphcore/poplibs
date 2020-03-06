@@ -23,7 +23,7 @@ namespace pe = popops::expr;
 void RunAllToAll() {
   const unsigned numIpus = 8;
 
-  auto device = createTestDevice(TEST_TARGET, numIpus);
+  auto device = createTestDevice(TEST_TARGET, numIpus, 1);
   Target target = device.getTarget();
 
   Graph graph(target, 0, poplar::replication_factor(numIpus));
@@ -95,7 +95,7 @@ void RunAllGather() {
   const unsigned numIpus = 8;
   const unsigned cubeRootIpus = 2;
 
-  auto device = createTestDevice(TEST_TARGET, numIpus);
+  auto device = createTestDevice(TEST_TARGET, numIpus, 1);
   Target target = device.getTarget();
 
   Graph graph(target, 0, poplar::replication_factor(numIpus));

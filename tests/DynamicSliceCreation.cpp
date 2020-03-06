@@ -14,9 +14,7 @@ using namespace poplar;
 using namespace poplar::program;
 
 int testDim(unsigned sliceDim) {
-  poplar::IPUModel model;
-  model.numIPUs = 1;
-  auto device = createTestDevice(TEST_TARGET, 1, 1216);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   Target target = device.getTarget();
 
   std::cout << "Creating graph" << std::endl;
@@ -65,7 +63,7 @@ int testDim(unsigned sliceDim) {
   graph.createHostWrite("in", input, true);
 
   OptionFlags options{{"showVarStorage", "true"}};
-  // Actually create the engine just to chec that memory has not exploded
+  // Actually create the engine just to check that memory has not exploded
   Engine eng(graph, seq);
   auto &graphProfile = eng.getGraphProfile();
   bool verbose = false;
@@ -79,8 +77,17 @@ int testDim(unsigned sliceDim) {
   return 0;
 }
 
-BOOST_AUTO_TEST_CASE(Dim0) { testDim(0); }
+BOOST_AUTO_TEST_CASE(Dim0,
+                     *boost::unit_test::enable_if<isIpuModel(TEST_TARGET)>()) {
+  testDim(0);
+}
 
-BOOST_AUTO_TEST_CASE(Dim1) { testDim(1); }
+BOOST_AUTO_TEST_CASE(Dim1,
+                     *boost::unit_test::enable_if<isIpuModel(TEST_TARGET)>()) {
+  testDim(1);
+}
 
-BOOST_AUTO_TEST_CASE(Dim2) { testDim(2); }
+BOOST_AUTO_TEST_CASE(Dim2,
+                     *boost::unit_test::enable_if<isIpuModel(TEST_TARGET)>()) {
+  testDim(2);
+}

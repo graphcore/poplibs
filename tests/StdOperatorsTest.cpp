@@ -1505,9 +1505,8 @@ void mapInferTypeTest() {
 }
 
 void addInPlaceTest() {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  Graph graph(device.getTarget());
+  auto tdevice = createTestDevice(deviceType);
+  Graph graph(tdevice.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -1530,16 +1529,17 @@ void addInPlaceTest() {
   setUnaryOpInput(hIn2);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
-  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
-  eng.run();
-  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  tdevice.bind([&](const Device &device) {
+    eng.load(device);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
-
+    if (isIpuModel(deviceType)) {
+      eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
+    }
+  });
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
@@ -1636,9 +1636,8 @@ void addHalfConstScalarTest() {
 }
 
 void binaryConcatTest() {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  Graph graph(device.getTarget());
+  auto tdevice = createTestDevice(deviceType);
+  Graph graph(tdevice.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -1671,17 +1670,19 @@ void binaryConcatTest() {
   setUnaryOpInput(hIn4);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
-  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
-  eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
-  eng.writeTensor("in4", hIn4, &hIn4[DIM_SIZE]);
-  eng.run();
-  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  tdevice.bind([&](const Device &device) {
+    eng.load(device);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.writeTensor("in3", hIn3, &hIn3[DIM_SIZE]);
+    eng.writeTensor("in4", hIn4, &hIn4[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
+    if (isIpuModel(deviceType)) {
+      eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
+    }
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {
@@ -1695,9 +1696,8 @@ void binaryConcatTest() {
 }
 
 void unaryConcatTest() {
-  IPUModel ipuModel;
-  auto device = ipuModel.createDevice();
-  Graph graph(device.getTarget());
+  auto tdevice = createTestDevice(deviceType);
+  Graph graph(tdevice.getTarget());
   popops::addCodelets(graph);
 
   auto prog = Sequence();
@@ -1720,15 +1720,17 @@ void unaryConcatTest() {
   setUnaryOpInput(hIn2);
 
   Engine eng(graph, prog, options);
-  eng.load(device);
-  eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
-  eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
-  eng.run();
-  eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
+  tdevice.bind([&](const Device &device) {
+    eng.load(device);
+    eng.writeTensor("in1", hIn1, &hIn1[DIM_SIZE]);
+    eng.writeTensor("in2", hIn2, &hIn2[DIM_SIZE]);
+    eng.run();
+    eng.readTensor("out", hOut, &hOut[DIM_SIZE]);
 
-  if (isIpuModel(deviceType)) {
-    eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
-  }
+    if (isIpuModel(deviceType)) {
+      eng.printProfileSummary(std::cerr, {{"showExecutionSteps", "true"}});
+    }
+  });
 
   /* Check result */
   for (auto i = 0U; i < DIM_SIZE; ++i) {

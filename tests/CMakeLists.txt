@@ -390,7 +390,7 @@ add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp
               SUITES CpuChecks
               VARIANTS Cpu)
-add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp)
+add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS IpuModel)
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_unit_test(LossTest LossTest.cpp

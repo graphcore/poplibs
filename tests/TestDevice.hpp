@@ -2,6 +2,7 @@
 #ifndef TestDevice_hpp__
 #define TestDevice_hpp__
 
+#include <boost/optional.hpp>
 #include <boost/variant.hpp>
 #include <poplar/DeviceManager.hpp>
 #include <poplar/Engine.hpp>
@@ -21,6 +22,29 @@ constexpr bool isSimulator(DeviceType d) {
 }
 constexpr bool isIpuModel(DeviceType d) {
   return d == DeviceType::IpuModel || d == DeviceType::IpuModel2;
+}
+constexpr bool isHw(DeviceType d) { return d == DeviceType::Hw; }
+
+const char *deviceTypeToIPUName(DeviceType d) {
+  switch (d) {
+  case DeviceType::Sim:
+  case DeviceType::IpuModel:
+    return "ipu1";
+
+  case DeviceType::Sim2:
+  case DeviceType::IpuModel2:
+    return "ipu2";
+
+  case DeviceType::Cpu:
+    throw poplar::poplar_error(
+        "deviceTypeToIPUName(DeviceType::Cpu) not supported");
+  case DeviceType::Hw:
+    throw poplar::poplar_error(
+        "deviceTypeToIPUName(DeviceType::Hw) not supported");
+
+  default:
+    throw poplar::poplar_error("Unknown device type");
+  }
 }
 
 // an abstraction from one or more poplar::Devices that supports lazy attaching.
@@ -110,18 +134,26 @@ private:
   boost::variant<poplar::Device, std::vector<poplar::Device>> device;
 };
 
-inline TestDevice createTestDevice(const DeviceType deviceType,
-                                   const unsigned numIPUs = 1,
-                                   const unsigned tilesPerIPU = 1,
-                                   const bool compileIPUCode = false) {
+// Return a device of the requested type. If requestedTilesPerIPU is boost::none
+// the default number of tiles (all) are used.
+// Set requestedTilesPerIPU to DeviceTypeDefaultTiles to use all tile on the
+// device.
+const auto DeviceTypeDefaultTiles = boost::none;
+inline TestDevice
+createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
+                 const boost::optional<unsigned> requestedTilesPerIPU,
+                 const bool compileIPUCode = false) {
   switch (deviceType) {
   case DeviceType::Cpu:
     return poplar::Device::createCPUDevice();
   case DeviceType::Sim:
   case DeviceType::Sim2: {
-    auto targetName = deviceType == DeviceType::Sim2 ? "ipu2" : "ipu1";
-    auto target =
-        poplar::Target::createIPUTarget(numIPUs, tilesPerIPU, targetName);
+    auto targetName = deviceTypeToIPUName(deviceType);
+    auto target = requestedTilesPerIPU.has_value()
+                      ? poplar::Target::createIPUTarget(
+                            numIPUs, *requestedTilesPerIPU, targetName)
+                      : poplar::Target::createIPUTarget(numIPUs, targetName);
+
     return poplar::Device::createSimulatorDevice(std::move(target));
   }
   case DeviceType::Hw: {
@@ -132,6 +164,9 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
                                  "configuration.");
     }
 
+    // all devices will be for the same target
+    auto tilesPerIPU = requestedTilesPerIPU.get_value_or(
+        devices.front().getTarget().getTilesPerIPU());
     // transform each device into a virtual device if needed.
     for (auto &device : devices) {
       if (tilesPerIPU != device.getTarget().getTilesPerIPU()) {
@@ -143,10 +178,11 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
   }
   case DeviceType::IpuModel:
   case DeviceType::IpuModel2: {
-    auto archName = deviceType == DeviceType::IpuModel2 ? "ipu2" : "ipu1";
-    poplar::IPUModel model(archName);
+    auto targetName = deviceTypeToIPUName(deviceType);
+    poplar::IPUModel model(targetName);
     model.numIPUs = numIPUs;
-    model.tilesPerIPU = tilesPerIPU;
+    if (requestedTilesPerIPU.has_value())
+      model.tilesPerIPU = *requestedTilesPerIPU;
     model.compileIPUCode = compileIPUCode;
     return model.createDevice();
   }
@@ -154,6 +190,17 @@ inline TestDevice createTestDevice(const DeviceType deviceType,
     throw std::logic_error(
         R"XX(deviceType must be "Cpu", "IpuModel", "IpuModel2", "Sim", "Sim2" or "Hw")XX");
   }
+}
+
+// Helper to create a device with a single IPU with a single tile
+inline TestDevice createTestDevice(const DeviceType deviceType) {
+  return createTestDevice(deviceType, 1, 1);
+}
+
+// Helper to create a device with full-sized IPUs
+inline TestDevice createTestDeviceFullSize(const DeviceType deviceType,
+                                           unsigned numIPUs = 1) {
+  return createTestDevice(deviceType, numIPUs, DeviceTypeDefaultTiles);
 }
 
 inline const char *asString(const DeviceType &deviceType) {

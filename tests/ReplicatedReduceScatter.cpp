@@ -20,7 +20,7 @@ BOOST_AUTO_TEST_CASE(ReduceScatterOneIPUPerReplica) {
   const unsigned numIpus = 8;
   const unsigned numReplicas = 8;
 
-  auto device = createTestDevice(TEST_TARGET, numIpus);
+  auto device = createTestDevice(TEST_TARGET, numIpus, 1);
   Target target = device.getTarget();
 
   Graph graph(target, 0, replication_factor(numReplicas));
@@ -174,7 +174,7 @@ BOOST_AUTO_TEST_CASE(ReduceScatterTwoIPUsPerReplica) {
 BOOST_AUTO_TEST_CASE(ReduceScatterWithRank2InputIsInvalid) {
   const unsigned numReplicas = 8;
 
-  auto device = createTestDevice(TEST_TARGET, numReplicas);
+  auto device = createTestDevice(TEST_TARGET, numReplicas, 1);
   Target target = device.getTarget();
 
   Graph graph(target, 0, replication_factor(numReplicas));
