@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10.0)
+cmake_minimum_required(VERSION 3.12)
 project(poplibs)
 
 # Add path for custom modules
@@ -69,6 +69,7 @@ endif()
 find_package(poplar REQUIRED)
 find_package(Boost 1.65.1 REQUIRED regex)
 find_package(TBB REQUIRED)
+find_package(zoltan QUIET)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

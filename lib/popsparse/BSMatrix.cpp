@@ -165,10 +165,11 @@ std::vector<std::vector<int>> BlockDenseMatrix::getBlockIdMatrix() const {
   if (needTranspose) {
     blockIdMatrix = std::vector<std::vector<int>>(
         blockCols, std::vector<int>(blockRows, -1));
-    for (int br = 0, blockCount = 0; br < blockRows; br++)
+    for (int br = 0, blockCount = 0; br < blockRows; br++) {
       for (int bc = 0; bc < blockCols; bc++) {
         blockIdMatrix[bc][br] = blockCount++;
       }
+    }
   } else {
     blockIdMatrix = std::vector<std::vector<int>>(
         blockRows, std::vector<int>(blockCols, -1));

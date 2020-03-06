@@ -5,6 +5,9 @@ find_package(Boost 1.65.1 REQUIRED program_options)
 function(add_tool name)
   add_executable(${name} ${ARGN})
   target_link_libraries(${name} poprand popnn poplin popops popfloat poputil)
+  if(TARGET popsparse)
+    target_link_libraries(${name} popsparse)
+  endif()
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 endfunction()
 
@@ -28,6 +31,13 @@ add_tool(gru_layer gru_layer.cpp)
 target_link_libraries(gru_layer
                       poplibs_test
                       Boost::program_options)
+
+if(TARGET popsparse)
+  add_tool(bs_matmul_test bs_matmul_test.cpp)
+  target_link_libraries(bs_matmul_test
+    poplibs_test
+    Boost::program_options)
+endif()
 
 add_tool(pooling_layer pooling_layer.cpp)
 target_link_libraries(pooling_layer
