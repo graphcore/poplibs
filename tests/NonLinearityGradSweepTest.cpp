@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 // Test for the Non-Linearity Gradient Operations
 // Used to verify the accuracy of Non-Linearity backward processing functions
 // over any part of the Half-Precision range for both inputs.

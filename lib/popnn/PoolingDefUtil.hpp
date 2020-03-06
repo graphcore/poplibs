@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #ifndef poplibs_PoolingDefUtil_hpp_
 #define poplibs_PoolingDefUtil_hpp_
 #include <poplibs_support/Compiler.hpp>

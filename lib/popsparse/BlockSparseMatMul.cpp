@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
 
 #include "popsparse/experimental/BlockSparseMatMul.hpp"
 #include "BSMatrix.hpp"

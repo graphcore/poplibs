@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 
 #ifndef poplibs_test_Norms_hpp
 #define poplibs_test_Norms_hpp

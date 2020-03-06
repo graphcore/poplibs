@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 // No accumulator versions of reduction specialisations 0,1
 // Covering operations such as max, min...

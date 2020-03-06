@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "popops/EncodingConstants.hpp"
 #include <cassert>

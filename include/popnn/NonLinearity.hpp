@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 
 #ifndef popnn_NonLinearity_hpp
 #define popnn_NonLinearity_hpp

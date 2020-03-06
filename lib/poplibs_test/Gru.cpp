@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #include <boost/multi_array.hpp>
 #include <cassert>
 #include <poplibs_test/GeneralMatrixAdd.hpp>

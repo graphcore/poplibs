@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
 
 #ifndef poprand_RandomGen_hpp
 #define poprand_RandomGen_hpp

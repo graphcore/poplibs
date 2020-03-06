@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #include "popops/Operation.hpp"
 
 #include "poputil/exceptions.hpp"

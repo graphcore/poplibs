@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 // Use vector of unsigned chars instead of bools (which are not 1 byte in C++)
 
 const std::vector<std::vector<unsigned char>> in1 = {

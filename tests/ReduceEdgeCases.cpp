@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #define BOOST_TEST_MODULE ReduceEdgeCases
 #include "TestDevice.hpp"
 #include <boost/multi_array.hpp>

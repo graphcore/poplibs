@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 // Simple test case for IPU nonLinearity
 //
 #define BOOST_TEST_MODULE NonLinearityTest

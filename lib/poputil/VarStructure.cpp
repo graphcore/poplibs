@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #include "poputil/VarStructure.hpp"
 
 #include "poplibs_support/Algorithm.hpp"

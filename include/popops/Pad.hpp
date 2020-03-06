@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 #ifndef popops_Pad_hpp
 #define popops_Pad_hpp
 #include <poplar/Graph.hpp>

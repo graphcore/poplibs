@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 
 #ifndef poplin_MeshGrid_hpp
 #define poplin_MeshGrid_hpp

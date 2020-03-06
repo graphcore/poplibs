@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #include <cassert>
 #include <cmath>
 #include <poplar/AvailableVTypes.h>

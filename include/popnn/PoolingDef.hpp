@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
 
 #ifndef popnn_PoolingDef_hpp
 #define popnn_PoolingDef_hpp

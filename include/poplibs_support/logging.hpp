@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #ifndef poplibs_support_logging_logging_hpp
 #define poplibs_support_logging_logging_hpp
 

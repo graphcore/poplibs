@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 #include "ConvValidation.hpp"
 #include "ConvOptions.hpp"
 #include <poputil/exceptions.hpp>

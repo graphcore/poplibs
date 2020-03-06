@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 
 #include "poputil/VertexTemplates.hpp"
 #include <boost/multi_array.hpp>

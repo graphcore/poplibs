@@ -1,4 +1,4 @@
-// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
 
 #ifndef _popfloat_gfloat_expr_util_hpp_
 #define _popfloat_gfloat_expr_util_hpp_

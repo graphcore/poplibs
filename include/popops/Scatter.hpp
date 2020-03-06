@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #ifndef popops_Scatter_hpp
 #define popops_Scatter_hpp
 #include <poplar/Graph.hpp>

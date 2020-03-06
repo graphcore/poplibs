@@ -1,3 +1,4 @@
+// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
 // +/- Max half
 #define MAX_HALF 0x7BFF
 #define MIN_HALF 0xFBFF

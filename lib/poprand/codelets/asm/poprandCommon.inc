@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 #ifndef POPRAND_CONST_H
 #define POPRAND_CONST_H

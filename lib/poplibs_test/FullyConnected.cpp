@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 #include <cassert>
 #include <poplibs_test/FullyConnected.hpp>
 #include <poplibs_test/exceptions.hpp>

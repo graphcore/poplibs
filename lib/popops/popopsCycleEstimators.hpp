@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
 #ifndef __popopsCycleEstimators_hpp__
 #define __popopsCycleEstimators_hpp__
 

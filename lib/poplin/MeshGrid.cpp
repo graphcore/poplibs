@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #include "poplibs_support/logging.hpp"
 #include <poplar/exceptions.hpp>
 #include <poplin/MeshGrid.hpp>

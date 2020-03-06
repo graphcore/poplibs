@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
 #include "poplibs_test/Util.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/VariableMappingMethod.hpp>

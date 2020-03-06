@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 
 #include "PoolPlan.hpp"
 #include "poplibs_support/VectorUtils.hpp"

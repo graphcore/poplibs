@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #ifdef __IPU__
 
 // Assembly implementation of popnn::ReduceMaxClassSparse vertex template

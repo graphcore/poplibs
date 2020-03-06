@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #ifndef popnn_PoolVertices_hpp
 #define popnn_PoolVertices_hpp
 

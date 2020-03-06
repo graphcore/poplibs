@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 // Simple tests for popsolver.
 //
 #include <popsolver/Model.hpp>

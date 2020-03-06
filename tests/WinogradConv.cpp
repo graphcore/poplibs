@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 #define BOOST_TEST_MODULE FullyConnectedTest
 #include "TestDevice.hpp"
 #include <Winograd.hpp>

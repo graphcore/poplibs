@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #ifndef _poplibs_popops_CollectivesProgram_hpp_
 #define _poplibs_popops_CollectivesProgram_hpp_
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 
 #ifndef popnn_Gru_hpp
 #define popnn_Gru_hpp

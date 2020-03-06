@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 
 #ifndef poplin_SpatialSoftMax_hpp
 #define poplin_SpatialSoftMax_hpp

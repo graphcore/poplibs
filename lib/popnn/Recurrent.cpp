@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
 #include <cstdint>
 #include <poplibs_support/logging.hpp>
 #include <poplin/FullyConnected.hpp>

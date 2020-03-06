@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
 #include "TestDevice.hpp"
 #include "popops/Cast.hpp"
 #include "poputil/exceptions.hpp"

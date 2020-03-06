@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #ifndef POPLIBS_SUPPORT_MULTI_ARRAY_HPP
 #define POPLIBS_SUPPORT_MULTI_ARRAY_HPP
 

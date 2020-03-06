@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 // Check that we can handle large tensors on two tiles
 //
 #define BOOST_TEST_MODULE NonLinearityTest

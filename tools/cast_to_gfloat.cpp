@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 
 #include "cast_to_gfloat.hpp"
 #include "poputil/TileMapping.hpp"

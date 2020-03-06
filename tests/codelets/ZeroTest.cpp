@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 // Test for the Zero and Zero2d vertices
 //
 #include <TestDevice.hpp>

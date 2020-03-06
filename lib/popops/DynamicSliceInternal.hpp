@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #ifndef DYNAMIC_SLICE_INTERNAL_HPP
 #define DYNAMIC_SLICE_INTERNAL_HPP
 #include <iostream>

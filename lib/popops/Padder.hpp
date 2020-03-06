@@ -1,4 +1,4 @@
-// Copyright (c) 2018, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #ifndef popops_Padder_hpp
 #define popops_Padder_hpp
 #include "poputil/Broadcast.hpp"

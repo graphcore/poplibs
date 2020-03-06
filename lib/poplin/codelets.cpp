@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
 #include "poplinCycleEstimators.hpp"
 #include <poplibs_support/codelets.hpp>
 #include <poplin/codelets.hpp>

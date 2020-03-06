@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
 #define BOOST_TEST_MODULE ConvOptionsTest
 #include "ConvOptions.hpp"
 #include <boost/test/unit_test.hpp>
