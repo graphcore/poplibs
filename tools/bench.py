@@ -270,7 +270,7 @@ def main():
             expected_value, actual_value, rel_tol=RELATIVE_TOLERANCE
         )
         if changed:
-            pc_diff = actual_value / expected_value * 100
+            pc_diff = actual_value / expected_value * 100 - 100
             print(
                 f"ERROR: {name} usage ({actual_value:,}) differs by "
                 f"{pc_diff:.1f}% from the expected value ({expected_value:,})"
