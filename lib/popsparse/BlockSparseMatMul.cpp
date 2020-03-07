@@ -28,11 +28,10 @@ public:
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
         isRhsSparse(true), isResSparse(false) {
 
-    lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
-                                         blockSize[1], false));
-
     assert(static_cast<int>(rhsSparsity.size()) ==
            dim[1] / blockSize[1] * dim[2] / blockSize[2]);
+    lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
+                                         blockSize[1], false));
     if (!rhsNeedTranspose) {
       rhsMatrix.reset(new BlockSparseMatrix(dim[1], dim[2], blockSize[1],
                                             blockSize[2], rhsNeedTranspose,
@@ -68,10 +67,10 @@ public:
         partialDataType(partialDataTypeIn),
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
         isRhsSparse(false), isResSparse(true) {
+    assert(static_cast<int>(resSparsityIn.size()) ==
+           dim[0] / blockSize[0] * dim[2] / blockSize[2]);
     lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
                                          blockSize[1], false));
-    assert(static_cast<int>(resSparsity.size()) ==
-           dim[0] / blockSize[0] * dim[2] / blockSize[2]);
     rhsMatrix.reset(new BlockDenseMatrix(dim[1], dim[2], blockSize[1],
                                          blockSize[2], false));
     resSparsity = resSparsityIn;

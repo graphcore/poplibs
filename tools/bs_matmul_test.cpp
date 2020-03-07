@@ -22,7 +22,6 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
-#include "TestDevice.hpp"
 #include "poplibs_test/Util.hpp"
 
 using namespace poplar;

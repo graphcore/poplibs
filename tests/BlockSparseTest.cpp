@@ -299,93 +299,93 @@ BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulNoReduction) {
   auto &edgeB = hg.getEdgeB();
   auto &edgeC = hg.getEdgeC();
 
-  BOOST_TEST(nodeA.size() == 4);
-  BOOST_TEST(nodeB.size() == 4);
-  BOOST_TEST(nodeC.size() == 4);
-  BOOST_TEST(nodeV.size() == 4);
+  BOOST_TEST(nodeA.size() == 4U);
+  BOOST_TEST(nodeB.size() == 4U);
+  BOOST_TEST(nodeC.size() == 4U);
+  BOOST_TEST(nodeV.size() == 4U);
 
-  BOOST_TEST(edgeA.size() == 4);
-  BOOST_TEST(edgeB.size() == 4);
-  BOOST_TEST(edgeC.size() == 4);
+  BOOST_TEST(edgeA.size() == 4U);
+  BOOST_TEST(edgeB.size() == 4U);
+  BOOST_TEST(edgeC.size() == 4U);
 
-  BOOST_TEST(nodeV[0].idxA.size() == 2);
-  BOOST_TEST(nodeV[0].idxB.size() == 2);
+  BOOST_TEST(nodeV[0].idxA.size() == 2U);
+  BOOST_TEST(nodeV[0].idxB.size() == 2U);
   BOOST_TEST(nodeV[0].idxA == std::vector<unsigned>({0, 1}));
   BOOST_TEST(nodeV[0].idxB == std::vector<unsigned>({0, 2}));
 
-  BOOST_TEST(nodeV[1].idxA.size() == 2);
-  BOOST_TEST(nodeV[1].idxB.size() == 2);
+  BOOST_TEST(nodeV[1].idxA.size() == 2U);
+  BOOST_TEST(nodeV[1].idxB.size() == 2U);
   BOOST_TEST(nodeV[1].idxA == std::vector<unsigned>({0, 1}));
   BOOST_TEST(nodeV[1].idxB == std::vector<unsigned>({1, 3}));
 
-  BOOST_TEST(nodeV[2].idxA.size() == 2);
-  BOOST_TEST(nodeV[2].idxB.size() == 2);
+  BOOST_TEST(nodeV[2].idxA.size() == 2U);
+  BOOST_TEST(nodeV[2].idxB.size() == 2U);
   BOOST_TEST(nodeV[2].idxA == std::vector<unsigned>({2, 3}));
   BOOST_TEST(nodeV[2].idxB == std::vector<unsigned>({0, 2}));
 
-  BOOST_TEST(nodeV[3].idxA.size() == 2);
-  BOOST_TEST(nodeV[3].idxB.size() == 2);
+  BOOST_TEST(nodeV[3].idxA.size() == 2U);
+  BOOST_TEST(nodeV[3].idxB.size() == 2U);
   BOOST_TEST(nodeV[3].idxA == std::vector<unsigned>({2, 3}));
   BOOST_TEST(nodeV[3].idxB == std::vector<unsigned>({1, 3}));
 
-  BOOST_TEST(edgeA[0].in.size() == 1);
+  BOOST_TEST(edgeA[0].in.size() == 1U);
   BOOST_TEST(edgeA[0].in == std::vector<unsigned>({nodeA[0].id}));
-  BOOST_TEST(edgeA[0].out.size() == 2);
+  BOOST_TEST(edgeA[0].out.size() == 2U);
   BOOST_TEST(edgeA[0].out == std::vector<unsigned>({nodeV[0].id, nodeV[1].id}));
 
-  BOOST_TEST(edgeA[1].in.size() == 1);
+  BOOST_TEST(edgeA[1].in.size() == 1U);
   BOOST_TEST(edgeA[1].in == std::vector<unsigned>({nodeA[1].id}));
-  BOOST_TEST(edgeA[1].out.size() == 2);
+  BOOST_TEST(edgeA[1].out.size() == 2U);
   BOOST_TEST(edgeA[1].out == std::vector<unsigned>({nodeV[0].id, nodeV[1].id}));
 
-  BOOST_TEST(edgeA[2].in.size() == 1);
+  BOOST_TEST(edgeA[2].in.size() == 1U);
   BOOST_TEST(edgeA[2].in == std::vector<unsigned>({nodeA[2].id}));
-  BOOST_TEST(edgeA[2].out.size() == 2);
+  BOOST_TEST(edgeA[2].out.size() == 2U);
   BOOST_TEST(edgeA[2].out == std::vector<unsigned>({nodeV[2].id, nodeV[3].id}));
 
-  BOOST_TEST(edgeA[3].in.size() == 1);
+  BOOST_TEST(edgeA[3].in.size() == 1U);
   BOOST_TEST(edgeA[3].in == std::vector<unsigned>({nodeA[3].id}));
-  BOOST_TEST(edgeA[3].out.size() == 2);
+  BOOST_TEST(edgeA[3].out.size() == 2U);
   BOOST_TEST(edgeA[3].out == std::vector<unsigned>({nodeV[2].id, nodeV[3].id}));
 
-  BOOST_TEST(edgeB[0].in.size() == 1);
+  BOOST_TEST(edgeB[0].in.size() == 1U);
   BOOST_TEST(edgeB[0].in == std::vector<unsigned>({nodeB[0].id}));
-  BOOST_TEST(edgeB[0].out.size() == 2);
+  BOOST_TEST(edgeB[0].out.size() == 2U);
   BOOST_TEST(edgeB[0].out == std::vector<unsigned>({nodeV[0].id, nodeV[2].id}));
 
-  BOOST_TEST(edgeB[1].in.size() == 1);
+  BOOST_TEST(edgeB[1].in.size() == 1U);
   BOOST_TEST(edgeB[1].in == std::vector<unsigned>({nodeB[1].id}));
-  BOOST_TEST(edgeB[1].out.size() == 2);
+  BOOST_TEST(edgeB[1].out.size() == 2U);
   BOOST_TEST(edgeB[1].out == std::vector<unsigned>({nodeV[1].id, nodeV[3].id}));
 
-  BOOST_TEST(edgeB[2].in.size() == 1);
+  BOOST_TEST(edgeB[2].in.size() == 1U);
   BOOST_TEST(edgeB[2].in == std::vector<unsigned>({nodeB[2].id}));
-  BOOST_TEST(edgeB[2].out.size() == 2);
+  BOOST_TEST(edgeB[2].out.size() == 2U);
   BOOST_TEST(edgeB[2].out == std::vector<unsigned>({nodeV[0].id, nodeV[2].id}));
 
-  BOOST_TEST(edgeB[3].in.size() == 1);
+  BOOST_TEST(edgeB[3].in.size() == 1U);
   BOOST_TEST(edgeB[3].in == std::vector<unsigned>({nodeB[3].id}));
-  BOOST_TEST(edgeB[3].out.size() == 2);
+  BOOST_TEST(edgeB[3].out.size() == 2U);
   BOOST_TEST(edgeB[3].out == std::vector<unsigned>({nodeV[1].id, nodeV[3].id}));
 
-  BOOST_TEST(edgeC[0].out.size() == 1);
+  BOOST_TEST(edgeC[0].out.size() == 1U);
   BOOST_TEST(edgeC[0].out == std::vector<unsigned>({nodeC[0].id}));
-  BOOST_TEST(edgeC[0].in.size() == 1);
+  BOOST_TEST(edgeC[0].in.size() == 1U);
   BOOST_TEST(edgeC[0].in == std::vector<unsigned>({nodeV[0].id}));
 
-  BOOST_TEST(edgeC[1].out.size() == 1);
+  BOOST_TEST(edgeC[1].out.size() == 1U);
   BOOST_TEST(edgeC[1].out == std::vector<unsigned>({nodeC[1].id}));
-  BOOST_TEST(edgeC[1].in.size() == 1);
+  BOOST_TEST(edgeC[1].in.size() == 1U);
   BOOST_TEST(edgeC[1].in == std::vector<unsigned>({nodeV[1].id}));
 
-  BOOST_TEST(edgeC[2].out.size() == 1);
+  BOOST_TEST(edgeC[2].out.size() == 1U);
   BOOST_TEST(edgeC[2].out == std::vector<unsigned>({nodeC[2].id}));
-  BOOST_TEST(edgeC[2].in.size() == 1);
+  BOOST_TEST(edgeC[2].in.size() == 1U);
   BOOST_TEST(edgeC[2].in == std::vector<unsigned>({nodeV[2].id}));
 
-  BOOST_TEST(edgeC[3].out.size() == 1);
+  BOOST_TEST(edgeC[3].out.size() == 1U);
   BOOST_TEST(edgeC[3].out == std::vector<unsigned>({nodeC[3].id}));
-  BOOST_TEST(edgeC[3].in.size() == 1);
+  BOOST_TEST(edgeC[3].in.size() == 1U);
   BOOST_TEST(edgeC[3].in == std::vector<unsigned>({nodeV[3].id}));
 }
 
@@ -443,113 +443,113 @@ BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulWReduction) {
   auto &edgeB = hg.getEdgeB();
   auto &edgeC = hg.getEdgeC();
 
-  BOOST_TEST(nodeA.size() == 4);
-  BOOST_TEST(nodeB.size() == 4);
-  BOOST_TEST(nodeC.size() == 4);
-  BOOST_TEST(nodeV.size() == 8);
+  BOOST_TEST(nodeA.size() == 4U);
+  BOOST_TEST(nodeB.size() == 4U);
+  BOOST_TEST(nodeC.size() == 4U);
+  BOOST_TEST(nodeV.size() == 8U);
 
-  BOOST_TEST(edgeA.size() == 4);
-  BOOST_TEST(edgeB.size() == 4);
-  BOOST_TEST(edgeC.size() == 4);
+  BOOST_TEST(edgeA.size() == 4U);
+  BOOST_TEST(edgeB.size() == 4U);
+  BOOST_TEST(edgeC.size() == 4U);
 
-  BOOST_TEST(nodeV[0].idxA.size() == 1);
-  BOOST_TEST(nodeV[0].idxB.size() == 1);
+  BOOST_TEST(nodeV[0].idxA.size() == 1U);
+  BOOST_TEST(nodeV[0].idxB.size() == 1U);
   BOOST_TEST(nodeV[0].idxA == std::vector<unsigned>({0}));
   BOOST_TEST(nodeV[0].idxB == std::vector<unsigned>({0}));
 
-  BOOST_TEST(nodeV[1].idxA.size() == 1);
-  BOOST_TEST(nodeV[1].idxB.size() == 1);
+  BOOST_TEST(nodeV[1].idxA.size() == 1U);
+  BOOST_TEST(nodeV[1].idxB.size() == 1U);
   BOOST_TEST(nodeV[1].idxA == std::vector<unsigned>({1}));
   BOOST_TEST(nodeV[1].idxB == std::vector<unsigned>({2}));
 
-  BOOST_TEST(nodeV[2].idxA.size() == 1);
-  BOOST_TEST(nodeV[2].idxB.size() == 1);
+  BOOST_TEST(nodeV[2].idxA.size() == 1U);
+  BOOST_TEST(nodeV[2].idxB.size() == 1U);
   BOOST_TEST(nodeV[2].idxA == std::vector<unsigned>({0}));
   BOOST_TEST(nodeV[2].idxB == std::vector<unsigned>({1}));
 
-  BOOST_TEST(nodeV[3].idxA.size() == 1);
-  BOOST_TEST(nodeV[3].idxB.size() == 1);
+  BOOST_TEST(nodeV[3].idxA.size() == 1U);
+  BOOST_TEST(nodeV[3].idxB.size() == 1U);
   BOOST_TEST(nodeV[3].idxA == std::vector<unsigned>({1}));
   BOOST_TEST(nodeV[3].idxB == std::vector<unsigned>({3}));
 
-  BOOST_TEST(nodeV[4].idxA.size() == 1);
-  BOOST_TEST(nodeV[4].idxB.size() == 1);
+  BOOST_TEST(nodeV[4].idxA.size() == 1U);
+  BOOST_TEST(nodeV[4].idxB.size() == 1U);
   BOOST_TEST(nodeV[4].idxA == std::vector<unsigned>({2}));
   BOOST_TEST(nodeV[4].idxB == std::vector<unsigned>({0}));
 
-  BOOST_TEST(nodeV[5].idxA.size() == 1);
-  BOOST_TEST(nodeV[5].idxB.size() == 1);
+  BOOST_TEST(nodeV[5].idxA.size() == 1U);
+  BOOST_TEST(nodeV[5].idxB.size() == 1U);
   BOOST_TEST(nodeV[5].idxA == std::vector<unsigned>({3}));
   BOOST_TEST(nodeV[5].idxB == std::vector<unsigned>({2}));
 
-  BOOST_TEST(nodeV[6].idxA.size() == 1);
-  BOOST_TEST(nodeV[6].idxB.size() == 1);
+  BOOST_TEST(nodeV[6].idxA.size() == 1U);
+  BOOST_TEST(nodeV[6].idxB.size() == 1U);
   BOOST_TEST(nodeV[6].idxA == std::vector<unsigned>({2}));
   BOOST_TEST(nodeV[6].idxB == std::vector<unsigned>({1}));
 
-  BOOST_TEST(nodeV[7].idxA.size() == 1);
-  BOOST_TEST(nodeV[7].idxB.size() == 1);
+  BOOST_TEST(nodeV[7].idxA.size() == 1U);
+  BOOST_TEST(nodeV[7].idxB.size() == 1U);
   BOOST_TEST(nodeV[7].idxA == std::vector<unsigned>({3}));
   BOOST_TEST(nodeV[7].idxB == std::vector<unsigned>({3}));
 
-  BOOST_TEST(edgeA[0].in.size() == 1);
+  BOOST_TEST(edgeA[0].in.size() == 1U);
   BOOST_TEST(edgeA[0].in == std::vector<unsigned>({nodeA[0].id}));
-  BOOST_TEST(edgeA[0].out.size() == 2);
+  BOOST_TEST(edgeA[0].out.size() == 2U);
   BOOST_TEST(edgeA[0].out == std::vector<unsigned>({nodeV[0].id, nodeV[2].id}));
 
-  BOOST_TEST(edgeA[1].in.size() == 1);
+  BOOST_TEST(edgeA[1].in.size() == 1U);
   BOOST_TEST(edgeA[1].in == std::vector<unsigned>({nodeA[1].id}));
-  BOOST_TEST(edgeA[1].out.size() == 2);
+  BOOST_TEST(edgeA[1].out.size() == 2U);
   BOOST_TEST(edgeA[1].out == std::vector<unsigned>({nodeV[1].id, nodeV[3].id}));
 
-  BOOST_TEST(edgeA[2].in.size() == 1);
+  BOOST_TEST(edgeA[2].in.size() == 1U);
   BOOST_TEST(edgeA[2].in == std::vector<unsigned>({nodeA[2].id}));
-  BOOST_TEST(edgeA[2].out.size() == 2);
+  BOOST_TEST(edgeA[2].out.size() == 2U);
   BOOST_TEST(edgeA[2].out == std::vector<unsigned>({nodeV[4].id, nodeV[6].id}));
 
-  BOOST_TEST(edgeA[3].in.size() == 1);
+  BOOST_TEST(edgeA[3].in.size() == 1U);
   BOOST_TEST(edgeA[3].in == std::vector<unsigned>({nodeA[3].id}));
-  BOOST_TEST(edgeA[3].out.size() == 2);
+  BOOST_TEST(edgeA[3].out.size() == 2U);
   BOOST_TEST(edgeA[3].out == std::vector<unsigned>({nodeV[5].id, nodeV[7].id}));
 
-  BOOST_TEST(edgeB[0].in.size() == 1);
+  BOOST_TEST(edgeB[0].in.size() == 1U);
   BOOST_TEST(edgeB[0].in == std::vector<unsigned>({nodeB[0].id}));
-  BOOST_TEST(edgeB[0].out.size() == 2);
+  BOOST_TEST(edgeB[0].out.size() == 2U);
   BOOST_TEST(edgeB[0].out == std::vector<unsigned>({nodeV[0].id, nodeV[4].id}));
 
-  BOOST_TEST(edgeB[1].in.size() == 1);
+  BOOST_TEST(edgeB[1].in.size() == 1U);
   BOOST_TEST(edgeB[1].in == std::vector<unsigned>({nodeB[1].id}));
-  BOOST_TEST(edgeB[1].out.size() == 2);
+  BOOST_TEST(edgeB[1].out.size() == 2U);
   BOOST_TEST(edgeB[1].out == std::vector<unsigned>({nodeV[2].id, nodeV[6].id}));
 
-  BOOST_TEST(edgeB[2].in.size() == 1);
+  BOOST_TEST(edgeB[2].in.size() == 1U);
   BOOST_TEST(edgeB[2].in == std::vector<unsigned>({nodeB[2].id}));
-  BOOST_TEST(edgeB[2].out.size() == 2);
+  BOOST_TEST(edgeB[2].out.size() == 2U);
   BOOST_TEST(edgeB[2].out == std::vector<unsigned>({nodeV[1].id, nodeV[5].id}));
 
-  BOOST_TEST(edgeB[3].in.size() == 1);
+  BOOST_TEST(edgeB[3].in.size() == 1U);
   BOOST_TEST(edgeB[3].in == std::vector<unsigned>({nodeB[3].id}));
-  BOOST_TEST(edgeB[3].out.size() == 2);
+  BOOST_TEST(edgeB[3].out.size() == 2U);
   BOOST_TEST(edgeB[3].out == std::vector<unsigned>({nodeV[3].id, nodeV[7].id}));
 
-  BOOST_TEST(edgeC[0].out.size() == 1);
+  BOOST_TEST(edgeC[0].out.size() == 1U);
   BOOST_TEST(edgeC[0].out == std::vector<unsigned>({nodeC[0].id}));
-  BOOST_TEST(edgeC[0].in.size() == 2);
+  BOOST_TEST(edgeC[0].in.size() == 2U);
   BOOST_TEST(edgeC[0].in == std::vector<unsigned>({nodeV[0].id, nodeV[1].id}));
 
-  BOOST_TEST(edgeC[1].out.size() == 1);
+  BOOST_TEST(edgeC[1].out.size() == 1U);
   BOOST_TEST(edgeC[1].out == std::vector<unsigned>({nodeC[1].id}));
-  BOOST_TEST(edgeC[1].in.size() == 2);
+  BOOST_TEST(edgeC[1].in.size() == 2U);
   BOOST_TEST(edgeC[1].in == std::vector<unsigned>({nodeV[2].id, nodeV[3].id}));
 
-  BOOST_TEST(edgeC[2].out.size() == 1);
+  BOOST_TEST(edgeC[2].out.size() == 1U);
   BOOST_TEST(edgeC[2].out == std::vector<unsigned>({nodeC[2].id}));
-  BOOST_TEST(edgeC[2].in.size() == 2);
+  BOOST_TEST(edgeC[2].in.size() == 2U);
   BOOST_TEST(edgeC[2].in == std::vector<unsigned>({nodeV[4].id, nodeV[5].id}));
 
-  BOOST_TEST(edgeC[3].out.size() == 1);
+  BOOST_TEST(edgeC[3].out.size() == 1U);
   BOOST_TEST(edgeC[3].out == std::vector<unsigned>({nodeC[3].id}));
-  BOOST_TEST(edgeC[3].in.size() == 2);
+  BOOST_TEST(edgeC[3].in.size() == 2U);
   BOOST_TEST(edgeC[3].in == std::vector<unsigned>({nodeV[6].id, nodeV[7].id}));
 }
 
@@ -603,83 +603,83 @@ BOOST_AUTO_TEST_CASE(nColC) {
   auto &edgeB = hg.getEdgeB();
   auto &edgeC = hg.getEdgeC();
 
-  BOOST_TEST(nodeA.size() == 4);
-  BOOST_TEST(nodeB.size() == 4);
-  BOOST_TEST(nodeC.size() == 3);
-  BOOST_TEST(nodeV.size() == 3);
+  BOOST_TEST(nodeA.size() == 4U);
+  BOOST_TEST(nodeB.size() == 4U);
+  BOOST_TEST(nodeC.size() == 3U);
+  BOOST_TEST(nodeV.size() == 3U);
 
-  BOOST_TEST(edgeA.size() == 4);
-  BOOST_TEST(edgeB.size() == 4);
-  BOOST_TEST(edgeC.size() == 3);
+  BOOST_TEST(edgeA.size() == 4U);
+  BOOST_TEST(edgeB.size() == 4U);
+  BOOST_TEST(edgeC.size() == 3U);
 
-  BOOST_TEST(nodeV[0].idxA.size() == 2);
-  BOOST_TEST(nodeV[0].idxB.size() == 2);
+  BOOST_TEST(nodeV[0].idxA.size() == 2U);
+  BOOST_TEST(nodeV[0].idxB.size() == 2U);
   BOOST_TEST(nodeV[0].idxA == std::vector<unsigned>({0, 1}));
   BOOST_TEST(nodeV[0].idxB == std::vector<unsigned>({0, 2}));
 
-  BOOST_TEST(nodeV[1].idxA.size() == 2);
-  BOOST_TEST(nodeV[1].idxB.size() == 2);
+  BOOST_TEST(nodeV[1].idxA.size() == 2U);
+  BOOST_TEST(nodeV[1].idxB.size() == 2U);
   BOOST_TEST(nodeV[1].idxA == std::vector<unsigned>({0, 1}));
   BOOST_TEST(nodeV[1].idxB == std::vector<unsigned>({1, 3}));
 
-  BOOST_TEST(nodeV[2].idxA.size() == 2);
-  BOOST_TEST(nodeV[2].idxB.size() == 2);
+  BOOST_TEST(nodeV[2].idxA.size() == 2U);
+  BOOST_TEST(nodeV[2].idxB.size() == 2U);
   BOOST_TEST(nodeV[2].idxA == std::vector<unsigned>({2, 3}));
   BOOST_TEST(nodeV[2].idxB == std::vector<unsigned>({1, 3}));
 
-  BOOST_TEST(edgeA[0].in.size() == 1);
+  BOOST_TEST(edgeA[0].in.size() == 1U);
   BOOST_TEST(edgeA[0].in == std::vector<unsigned>({nodeA[0].id}));
-  BOOST_TEST(edgeA[0].out.size() == 2);
+  BOOST_TEST(edgeA[0].out.size() == 2U);
   BOOST_TEST(edgeA[0].out == std::vector<unsigned>({nodeV[0].id, nodeV[1].id}));
 
-  BOOST_TEST(edgeA[1].in.size() == 1);
+  BOOST_TEST(edgeA[1].in.size() == 1U);
   BOOST_TEST(edgeA[1].in == std::vector<unsigned>({nodeA[1].id}));
-  BOOST_TEST(edgeA[1].out.size() == 2);
+  BOOST_TEST(edgeA[1].out.size() == 2U);
   BOOST_TEST(edgeA[1].out == std::vector<unsigned>({nodeV[0].id, nodeV[1].id}));
 
-  BOOST_TEST(edgeA[2].in.size() == 1);
+  BOOST_TEST(edgeA[2].in.size() == 1U);
   BOOST_TEST(edgeA[2].in == std::vector<unsigned>({nodeA[2].id}));
-  BOOST_TEST(edgeA[2].out.size() == 1);
+  BOOST_TEST(edgeA[2].out.size() == 1U);
   BOOST_TEST(edgeA[2].out == std::vector<unsigned>({nodeV[2].id}));
 
-  BOOST_TEST(edgeA[3].in.size() == 1);
+  BOOST_TEST(edgeA[3].in.size() == 1U);
   BOOST_TEST(edgeA[3].in == std::vector<unsigned>({nodeA[3].id}));
-  BOOST_TEST(edgeA[3].out.size() == 1);
+  BOOST_TEST(edgeA[3].out.size() == 1U);
   BOOST_TEST(edgeA[3].out == std::vector<unsigned>({nodeV[2].id}));
 
-  BOOST_TEST(edgeB[0].in.size() == 1);
+  BOOST_TEST(edgeB[0].in.size() == 1U);
   BOOST_TEST(edgeB[0].in == std::vector<unsigned>({nodeB[0].id}));
-  BOOST_TEST(edgeB[0].out.size() == 1);
+  BOOST_TEST(edgeB[0].out.size() == 1U);
   BOOST_TEST(edgeB[0].out == std::vector<unsigned>({nodeV[0].id}));
 
-  BOOST_TEST(edgeB[1].in.size() == 1);
+  BOOST_TEST(edgeB[1].in.size() == 1U);
   BOOST_TEST(edgeB[1].in == std::vector<unsigned>({nodeB[1].id}));
-  BOOST_TEST(edgeB[1].out.size() == 2);
+  BOOST_TEST(edgeB[1].out.size() == 2U);
   BOOST_TEST(edgeB[1].out == std::vector<unsigned>({nodeV[1].id, nodeV[2].id}));
 
-  BOOST_TEST(edgeB[2].in.size() == 1);
+  BOOST_TEST(edgeB[2].in.size() == 1U);
   BOOST_TEST(edgeB[2].in == std::vector<unsigned>({nodeB[2].id}));
-  BOOST_TEST(edgeB[2].out.size() == 1);
+  BOOST_TEST(edgeB[2].out.size() == 1U);
   BOOST_TEST(edgeB[2].out == std::vector<unsigned>({nodeV[0].id}));
 
-  BOOST_TEST(edgeB[3].in.size() == 1);
+  BOOST_TEST(edgeB[3].in.size() == 1U);
   BOOST_TEST(edgeB[3].in == std::vector<unsigned>({nodeB[3].id}));
-  BOOST_TEST(edgeB[3].out.size() == 2);
+  BOOST_TEST(edgeB[3].out.size() == 2U);
   BOOST_TEST(edgeB[3].out == std::vector<unsigned>({nodeV[1].id, nodeV[2].id}));
 
-  BOOST_TEST(edgeC[0].out.size() == 1);
+  BOOST_TEST(edgeC[0].out.size() == 1U);
   BOOST_TEST(edgeC[0].out == std::vector<unsigned>({nodeC[0].id}));
-  BOOST_TEST(edgeC[0].in.size() == 1);
+  BOOST_TEST(edgeC[0].in.size() == 1U);
   BOOST_TEST(edgeC[0].in == std::vector<unsigned>({nodeV[0].id}));
 
-  BOOST_TEST(edgeC[1].out.size() == 1);
+  BOOST_TEST(edgeC[1].out.size() == 1U);
   BOOST_TEST(edgeC[1].out == std::vector<unsigned>({nodeC[1].id}));
-  BOOST_TEST(edgeC[1].in.size() == 1);
+  BOOST_TEST(edgeC[1].in.size() == 1U);
   BOOST_TEST(edgeC[1].in == std::vector<unsigned>({nodeV[1].id}));
 
-  BOOST_TEST(edgeC[2].out.size() == 1);
+  BOOST_TEST(edgeC[2].out.size() == 1U);
   BOOST_TEST(edgeC[2].out == std::vector<unsigned>({nodeC[2].id}));
-  BOOST_TEST(edgeC[2].in.size() == 1);
+  BOOST_TEST(edgeC[2].in.size() == 1U);
   BOOST_TEST(edgeC[2].in == std::vector<unsigned>({nodeV[2].id}));
 }
 

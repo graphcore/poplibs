@@ -2784,13 +2784,6 @@ add_test_executable (ReductionPatternsTest ReductionPatternsTest.cpp)
 add_test(NAME ReductionPatternsTest
          COMMAND ReductionPatternsTest)
 
-#Check BlockSparse.
-if(${zoltan_FOUND})
-  add_test_executable (BlockSparseTest BlockSparseTest.cpp)
-  add_test(NAME BlockSparseTest
-    COMMAND BlockSparseTest)
-endif()
-
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})

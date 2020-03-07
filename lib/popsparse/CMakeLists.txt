@@ -9,8 +9,6 @@ add_library(popsparse SHARED
   ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
   )
 
-target_link_directories(popsparse PRIVATE ${ZOLTAN_LIB_DIR})
-
 target_link_libraries(popsparse
   PUBLIC
     poplar poputil popops poplin ${CMAKE_DL_LIBS} ZOLTAN::zoltan ZOLTAN::simpi

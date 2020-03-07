@@ -3,9 +3,6 @@ find_package(Boost 1.65.1 REQUIRED unit_test_framework timer system program_opti
 function(add_popsolver_unit_test name)
   set(test_name "popsolver_${name}")
   add_executable(${test_name} ${ARGN})
-  if(${zoltan_FOUND})
-    target_link_directories(${test_name} PRIVATE ${ZOLTAN_LIB_DIR})
-  endif()
   target_link_libraries(${test_name}
                         popsolver
                         Boost::unit_test_framework

@@ -3,6 +3,7 @@
     "boost",
     "poplar",
     "spdlog",
-    "tbb"
+    "tbb",
+    "zoltan"
   ]
 }
