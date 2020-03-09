@@ -1,13 +1,16 @@
 // Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 #include "ReductionPlan.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <numeric>
 
 #include <boost/icl/interval_map.hpp>
 
+#include "poplibs_support/logging.hpp"
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/exceptions.hpp>
@@ -18,6 +21,7 @@
 
 using namespace poplar;
 using namespace poplibs;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -219,6 +223,45 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
     allOutputRegionsSplitIcl += ir.outputRegions(tile);
   }
 
+  // find minimum non-split output region to decide whether to increase
+  // minimum number of columns in a piece.
+  typedef decltype(allOutputRegionsSplitIcl)::interval_type IntervalType;
+  auto getIntervalSize = [](const IntervalType &it) {
+    return it.upper() - it.lower();
+  };
+  const auto minInterval = *std::min_element(
+      allOutputRegionsSplitIcl.begin(), allOutputRegionsSplitIcl.end(),
+      [&](const IntervalType &a, const IntervalType &b) {
+        return getIntervalSize(a) < getIntervalSize(b);
+      });
+  auto minIntervalSize = getIntervalSize(minInterval);
+
+  // Work out the total amount of data. This is the total number of partials
+  // in the reduction.
+  std::size_t totalDataSize = 0;
+  for (auto tile : ir.tiles())
+    totalDataSize += ir.data(tile).numElements();
+
+  // Find the average partials per output in this intermediate reduction stage.
+  // As this is the internediate stage, this gives the average number of
+  // tiles which have partials to contribute to each output. We use the square
+  // root of the average number of tiles as the number of output partials.
+  const auto averageSplit =
+      static_cast<std::size_t>(std::sqrt(totalDataSize / ir.outputSize()));
+
+  // Use a different minimum columns only if the minimum interval size allows
+  // one to be used. This has the effect of increasing the number of reductions
+  // per output and also reducing the amount of exchange size as grain size
+  // per tile is increased.
+  const auto averageGrainFactor = (minIntervalSize / grainSize) / averageSplit;
+  const auto minPieceColsToUse =
+      std::max(minPieceCols, averageGrainFactor * grainSize);
+
+  if (minPieceColsToUse != minPieceCols) {
+    logging::debug("Intermediate stage minimum columns changed from {} -> {}",
+                   minPieceCols, minPieceColsToUse);
+  }
+
   // We should have an output for every element in the final tensor.
   assert(allOutputRegionsSplitIcl.size() == ir.outputSize());
 
@@ -228,18 +271,12 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
   // splitRegions is used here rather than splitRegionsBetweenWorkers
   // because the former never merges regions, and the latter might merge them.
   auto split = poputil::splitRegions(allOutputRegions, grainSize, numPieces,
-                                     minPieceCols);
+                                     minPieceColsToUse);
 
   // Finally if that is not enough, work out the total amount of data, divide
   // it by numPieces to give how much data should be in each piece.
   // Then go through the output intervals and set the number of splits so
   // that each has roughly that amount of data.
-
-  // Work out the total amount of data.
-  std::size_t totalDataSize = 0;
-  for (auto tile : ir.tiles())
-    totalDataSize += ir.data(tile).numElements();
-
   std::size_t idealPieceSize = totalDataSize / numPieces;
   // Avoid division by zero later.
   if (idealPieceSize < 1)
