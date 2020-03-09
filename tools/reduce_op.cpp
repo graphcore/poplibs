@@ -272,7 +272,8 @@ int main(int argc, char **argv) {
   std::vector<std::size_t> shape;
   std::vector<std::size_t> dims;
 
-  IPUModel ipuModel;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
   boost::optional<std::string> jsonProfileOut;
   po::options_description desc("Options");
   // clang-format off
@@ -319,9 +320,9 @@ int main(int argc, char **argv) {
     ("shuffle", po::value(&shuffleString),
       "Dim shuffle to apply to the input tensor with shape initial-shape."
       " e.g. 1,0,2,3")
-    ("tiles-per-ipu", po::value(&ipuModel.tilesPerIPU),
+    ("tiles-per-ipu", po::value(&tilesPerIPU),
      "Number of tiles per IPU")
-    ("ipus", po::value(&ipuModel.numIPUs),
+    ("ipus", po::value(&numIPUs),
      "Number of IPUs");
   // clang-format on
 
@@ -366,23 +367,24 @@ int main(int argc, char **argv) {
   // Set the random model parameters if --seed was specified and they
   // weren't overridden with --tiles-per-ipu or --ipus.
   if (vm.count("seed") != 0) {
-    if (vm.count("tiles-per-ipu") == 0) {
+    if (!tilesPerIPU.has_value()) {
       std::cerr << "Randomly setting tiles-per-ipu.\n";
       const unsigned maxTiles = isSimulator(deviceType)
                                     ? MAX_TILES_TO_USE_SIM_TARGET
                                     : MAX_TILES_TO_USE_DEFAULT;
-      ipuModel.tilesPerIPU = getRandomTilesPerIPU(randomEngine, maxTiles);
+      tilesPerIPU = getRandomTilesPerIPU(randomEngine, maxTiles);
     }
     if (vm.count("ipus") == 0) {
       std::cerr << "Randomly setting ipus.\n";
-      ipuModel.numIPUs = getRandomNumIPUs(randomEngine);
+      numIPUs = getRandomNumIPUs(randomEngine);
     }
   }
 
   std::cerr << "Initializing graph...\n";
 
-  auto device =
-      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = tilesPerIPU.has_value()
+                    ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
+                    : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -410,8 +412,7 @@ int main(int argc, char **argv) {
   if (vm.count("file") == 0) {
     if (vm.count("seed") != 0 && vm.count("shape") == 0) {
       std::cerr << "Randomly setting shape.\n";
-      shape =
-          getRandomShape(randomEngine, ipuModel.tilesPerIPU * ipuModel.numIPUs);
+      shape = getRandomShape(randomEngine, target.getTilesPerIPU() * numIPUs);
     } else {
       shape = parseSizeVector<std::size_t>(shapeString);
     }
@@ -539,8 +540,8 @@ int main(int argc, char **argv) {
   std::cerr << "Scale: " << scale << "\n";
   std::cerr << "Update: " << update << "\n";
   std::cerr << "WithOutput: " << withOutput << "\n";
-  std::cerr << "NumIPUS: " << ipuModel.numIPUs << "\n";
-  std::cerr << "TilesPerIPU: " << ipuModel.tilesPerIPU << "\n";
+  std::cerr << "NumIPUS: " << numIPUs << "\n";
+  std::cerr << "TilesPerIPU: " << target.getTilesPerIPU() << "\n";
   std::cerr << "Type: " << dataType.toString() << "\n";
   std::cerr << "API: " << (computeSetApi ? "vector<ComputeSet>" : "Sequence")
             << "\n";

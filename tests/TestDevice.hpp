@@ -199,8 +199,10 @@ inline TestDevice createTestDevice(const DeviceType deviceType) {
 
 // Helper to create a device with full-sized IPUs
 inline TestDevice createTestDeviceFullSize(const DeviceType deviceType,
-                                           unsigned numIPUs = 1) {
-  return createTestDevice(deviceType, numIPUs, DeviceTypeDefaultTiles);
+                                           unsigned numIPUs = 1,
+                                           bool compileIPUCode = false) {
+  return createTestDevice(deviceType, numIPUs, DeviceTypeDefaultTiles,
+                          compileIPUCode);
 }
 
 inline const char *asString(const DeviceType &deviceType) {

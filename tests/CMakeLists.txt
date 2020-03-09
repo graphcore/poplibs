@@ -6,6 +6,23 @@ find_package(Threads REQUIRED)
 #Controls verbose debug output on creating test cases
 set(DEBUG_TEST_GENERATION FALSE)
 
+# ipu1 is our default arch, so convert ipu1->ipu
+list(TRANSFORM ENABLED_IPU_ARCH_NAMES REPLACE "ipu1" "ipu" OUTPUT_VARIABLE ABBREV_TARGETS)
+list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "Sim" OUTPUT_VARIABLE SIM_VARIANTS)
+list(TRANSFORM SIM_VARIANTS APPEND ":cpp" OUTPUT_VARIABLE SIMCPP_VARIANTS)
+list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "IpuModel" OUTPUT_VARIABLE IPUMODEL_VARIANTS)
+
+set(DEFAULT_TEST_VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw" CACHE STRING
+    "The device variants to run tests on when no variants are set explicitly")
+
+if (DEFINED ENV{POPLAR_SDK_ENABLED})
+set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS}" CACHE STRING
+      "Generate tests for these devices and variants")
+else()
+set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS}" CACHE STRING
+      "Generate tests for these devices and variants")
+endif()
+
 add_subdirectory(popsolver)
 
 # Compile the public headers using C++11.
@@ -273,6 +290,7 @@ function(add_benchmark)
             --name ${BENCHMARK_NAME}
             ${BENCHMARK_BINARY} ${BENCHMARK_PARAMS}
     LABELS ${BENCHMARK_LABEL}
+    #TODO T17190: enable for "${IPUMODEL_VARIANTS}")
     VARIANTS "IpuModel")
 endfunction()
 
@@ -349,23 +367,23 @@ endfunction()
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
-set(TimesOutOnSim "IpuModel;Hw")
+set(TimesOutOnSim "${IPUMODEL_VARIANTS};Hw")
 
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on the Sim:cpp variant due to test timeouts:
-set(TimesOutOnSimCpp "IpuModel;Sim;Hw")
+set(TimesOutOnSimCpp "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 
 # Stochastic rounding and determinism test
 # Sim::cpp not supported for random number generation
 add_unit_test(StochasticRound StochasticRound.cpp
-              VARIANTS IpuModel Sim Hw)
+              VARIANTS ${IPUMODEL_VARIANTS} ${SIM_VARIANTS} Hw)
 configure_file(StochasticRound.cpp StochasticRound.cpp COPYONLY)
 
 # Unit tests
-add_unit_test(AlgorithmTest AlgorithmTest.cpp VARIANTS IpuModel)
+add_unit_test(AlgorithmTest AlgorithmTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(ConvUtilTest ConvUtilTest.cpp)
-add_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS IpuModel)
-add_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS IpuModel)
+add_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(RangeTest RangeTest.cpp)
 add_unit_test(ConvOptionsTest ConvOptionsTest.cpp)
 add_unit_test(ConvPlanTest ConvPlanTest.cpp)
@@ -373,9 +391,9 @@ add_unit_test(ConvTest ConvTest.cpp)
 add_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
 # GraphFunctionTest is variant-independent
 add_unit_test(GraphFunctionTest GraphFunctionTest.cpp
-              VARIANTS IpuModel Sim)
+              VARIANTS ${IPUMODEL_VARIANTS} ${SIM_VARIANTS})
 add_unit_test(CloneNTest CloneNTest.cpp
-              VARIANTS IpuModel Sim)
+              VARIANTS ${IPUMODEL_VARIANTS} ${SIM_VARIANTS})
 add_unit_test(WinogradConvolution WinogradConv.cpp
               VARIANTS ${TimesOutOnSim})
 add_unit_test(NonLinearityTest NonLinearityTest.cpp)
@@ -390,15 +408,15 @@ add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp
               SUITES CpuChecks
               VARIANTS Cpu)
-add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS IpuModel)
+add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
 add_unit_test(LossTest LossTest.cpp
               SUITES ArgMinMax TopK SUM_SQUARED_LOSS_suite
                      CROSS_ENTROPY_LOSS_suite Accuracy)
 add_unit_test(EncodingTest EncodingTest.cpp)
-add_unit_test(GatherTest GatherTest.cpp VARIANTS IpuModel)
-add_unit_test(GatherSimpleTest GatherSimpleTest.cpp VARIANTS IpuModel)
+add_unit_test(GatherTest GatherTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(GatherSimpleTest GatherSimpleTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(AllTrueTest AllTrueTest.cpp)
 add_unit_test(ScatterTest ScatterTest.cpp)
 add_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
@@ -406,9 +424,9 @@ add_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 add_unit_test(PaddingTest PaddingTest.cpp)
 add_unit_test(PlanConstraintsTest PlanConstraintsTest.cpp
               VARIANTS NoTarget)
-add_unit_test(ElementWiseUtilTest ElementWiseUtilTest.cpp VARIANTS IpuModel)
-add_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS IpuModel)
-add_unit_test(VarStructureTest VarStructureTest.cpp VARIANTS IpuModel)
+add_unit_test(ElementWiseUtilTest ElementWiseUtilTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(TileMappingTest TileMappingTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(VarStructureTest VarStructureTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(SortTest SortTest.cpp)
 add_unit_test(GraphReplication GraphReplication.cpp)
 add_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
@@ -1514,7 +1532,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                      --seed ${n}
                      --ipus 2
                      --binary $<TARGET_FILE:single_conv_layer>
-             VARIANTS "Hw;IpuModel")
+             VARIANTS "Hw;${IPUMODEL_VARIANTS}")
     if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
       set_tests_properties(Hw_default_multi_ipu_conv_random_${n} PROPERTIES RUN_SERIAL TRUE)
     endif()
@@ -2575,7 +2593,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_1
                  --num-io-tiles=4
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"0\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_2
          COMMAND single_conv_layer
@@ -2597,7 +2615,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_2
                  --num-io-tiles=2
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"34\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_3
          COMMAND single_conv_layer
@@ -2619,7 +2637,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_3
                  --num-io-tiles=0
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"72\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_4
          COMMAND single_conv_layer
@@ -2642,7 +2660,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_4
                  --enable-shared-structures
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"8\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_5
          COMMAND single_conv_layer
@@ -2664,7 +2682,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_5
                  --num-io-tiles=2
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"58\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_6
          COMMAND single_conv_layer
@@ -2687,7 +2705,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --enable-shared-structures
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_7
          COMMAND single_conv_layer
@@ -2709,7 +2727,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_7
                  --num-io-tiles=4
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_8
          COMMAND single_conv_layer
@@ -2731,7 +2749,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_8
                  --num-io-tiles=0
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_9
          COMMAND single_conv_layer
@@ -2754,7 +2772,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_9
                  --enable-shared-structures
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_10
          COMMAND single_conv_layer
@@ -2777,7 +2795,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
                  --enable-shared-structures
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"8\"}
-         VARIANTS "Hw;IpuModel;Sim")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 #Check reduction patterns.
 add_test_executable (ReductionPatternsTest ReductionPatternsTest.cpp)
@@ -2796,7 +2814,7 @@ set(NUM_REDUCE_RANDOM_TESTS 15)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME multi_ipu_reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus=2
-           VARIANTS "Hw;IpuModel")
+           VARIANTS "Hw;${IPUMODEL_VARIANTS}")
   if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
     set_tests_properties(Hw_default_multi_ipu_reduce_random_${n} PROPERTIES RUN_SERIAL TRUE)
   endif()
@@ -2827,7 +2845,7 @@ foreach(collective reduce_scatter
                 --method=${method}
                 --shuffle-mapping=true
         LABELS Collectives
-        VARIANTS IpuModel)
+        VARIANTS ${IPUMODEL_VARIANTS})
     endforeach()
   endforeach()
 endforeach()
@@ -2846,7 +2864,7 @@ foreach(collective all_reduce)
               --elements=1024
               --shuffle-mapping=true
       LABELS Collectives
-      VARIANTS IpuModel)
+      VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
 
@@ -2869,7 +2887,7 @@ foreach(collective all_reduce)
                 --method=${method}
                 --shuffle-mapping=true
         LABELS Collectives
-        VARIANTS IpuModel)
+        VARIANTS ${IPUMODEL_VARIANTS})
     endforeach()
   endforeach()
 
@@ -2886,7 +2904,7 @@ foreach(collective all_reduce)
               --elements=1291
               --shuffle-mapping=true
       LABELS Collectives
-      VARIANTS IpuModel)
+      VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 
   foreach(ipus_per_rank 1 2 4)
@@ -2924,7 +2942,7 @@ add_multitarget_test(NAME replicated_collectives_few_elements
                              --elements=1
                              --shuffle-mapping=false
                       LABELS Collectives;CE_reproducers
-                      VARIANTS IpuModel)
+                      VARIANTS ${IPUMODEL_VARIANTS})
 
 add_multitarget_test(NAME replicated_collectives_force_mapping
                       COMMAND replicated_collectives
@@ -2938,7 +2956,7 @@ add_multitarget_test(NAME replicated_collectives_force_mapping
                               --shuffle-mapping=false
                               --force-mapping=0
                        LABELS Collectives
-                       VARIANTS IpuModel)
+                       VARIANTS ${IPUMODEL_VARIANTS})
 
 
 foreach(operator ADD MUL MIN MAX)
@@ -2953,7 +2971,7 @@ foreach(operator ADD MUL MIN MAX)
             --method=auto
             --shuffle-mapping=true
     LABELS Collectives
-    VARIANTS IpuModel)
+    VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
 # Test each method with multi ipu rank
@@ -2974,7 +2992,7 @@ foreach(collective all_reduce)
                 --method=${method}
                 --shuffle-mapping=true
         LABELS Collectives
-        VARIANTS IpuModel)
+        VARIANTS ${IPUMODEL_VARIANTS})
 
   endforeach()
 endforeach()
@@ -2991,7 +3009,7 @@ add_multitarget_test(
                 --elements=1
                 --method=meet_in_middle_ring
         LABELS Collectives
-        VARIANTS IpuModel)
+        VARIANTS ${IPUMODEL_VARIANTS})
 
 # Basic convolution to test profiling option
 add_multitarget_test(NAME conv_profile
@@ -4368,7 +4386,7 @@ foreach(rf 1 2 4 8 16)
             --padding=1
             --batch-size=${bs}
             --replication-factor=${rf}
-    VARIANTS IpuModel)
+    VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
 add_multitarget_test(
@@ -5152,7 +5170,7 @@ add_multitarget_test(NAME avg_pool_half_single_channel
                 --batch-size=1
                 --pooling-type=avg
                 --data-type=half
-                VARIANTS IpuModel;Cpu)
+                VARIANTS ${IPUMODEL_VARIANTS};Cpu)
 
 # the ignore data option disables validation, this test basically just checks
 # that the option or any of the profiling options do not cause a crash.
@@ -5936,7 +5954,7 @@ add_multitarget_test(
                  --half-data-type=true
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_uniform_int
@@ -5949,7 +5967,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40000
                  --tiles-per-ipu=2
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_uniform_int_max_range
@@ -5962,7 +5980,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_uniform_float
@@ -5975,7 +5993,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_uniform_float_1_0
@@ -5988,7 +6006,7 @@ add_multitarget_test(
                  --seed-modifier=1243547
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_half
@@ -6001,7 +6019,7 @@ add_multitarget_test(
                  --seed-modifier=24543
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_float
@@ -6013,7 +6031,7 @@ add_multitarget_test(
                  --seed-modifier=1234
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_int
@@ -6025,7 +6043,7 @@ add_multitarget_test(
                  --seed-modifier=8643232
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_float_prob0
@@ -6037,7 +6055,7 @@ add_multitarget_test(
                  --seed-modifier=6765354
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_bernoulli_int_prob1
@@ -6049,7 +6067,7 @@ add_multitarget_test(
                  --seed-modifier=89766465
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_normal_half
@@ -6063,7 +6081,7 @@ add_multitarget_test(
                  --seed-modifier=7665654
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_normal_float
@@ -6076,7 +6094,7 @@ add_multitarget_test(
                  --seed-modifier=7861245
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_truncated_normal_half
@@ -6091,7 +6109,7 @@ add_multitarget_test(
                  --seed-modifier=985436
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_truncated_normal_float
@@ -6105,7 +6123,7 @@ add_multitarget_test(
                  --seed-modifier=249065
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_dropout_float
@@ -6117,7 +6135,7 @@ add_multitarget_test(
                  --seed-modifier=575329
                  --in-size=40000
                  --tiles-per-ipu=2
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_dropout_half
@@ -6130,7 +6148,7 @@ add_multitarget_test(
                  --seed-modifier=709815
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 
 add_multitarget_test(
@@ -6142,21 +6160,21 @@ add_multitarget_test(
                  --percent-error=5.0
                  --in-size=40000
                  --tiles-per-ipu=1
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_set_seeds
          COMMAND random_generator
                  --rand-test=SetSeeds
                  --tiles-per-ipu=16
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_set_hw_seeds
          COMMAND random_generator
                  --rand-test=SetHwSeeds
                  --tiles-per-ipu=16
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME conv_T10392
@@ -6196,7 +6214,7 @@ add_multitarget_test(NAME conv5x200_1_in_100_out
                  --data-type=half
                  --tiles-per-ipu=16
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":false,\"expandDims\":[1]}}}
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
          COMMAND single_conv_layer
@@ -6208,14 +6226,14 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
                  --data-type=half
                  --tiles-per-ipu=16
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
-                 VARIANTS IpuModel;Sim;Hw)
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
          COMMAND cast_to_gfloat
                  --input-size=40000
                  --tiles-per-ipu=16
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_bias30_no_inf_RA
@@ -6225,7 +6243,7 @@ add_multitarget_test(
                  --tiles-per-ipu=32
                  --bias=30
                  --enable-infs-and-nans=0
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN_quantise
@@ -6238,7 +6256,7 @@ add_multitarget_test(
                  --round-mode=RN
                  --tiles-per-ipu=16
                  --storage-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN_gfloat_as_int
@@ -6250,7 +6268,7 @@ add_multitarget_test(
                  --enable-denorms=0
                  --round-mode=RN
                  --tiles-per-ipu=32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_quantise
@@ -6263,7 +6281,7 @@ add_multitarget_test(
                  --round-mode=RD
                  --tiles-per-ipu=16
                  --storage-type=FP16
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_gfloat_as_int
@@ -6275,7 +6293,7 @@ add_multitarget_test(
                  --enable-infs-and-nans=0
                  --round-mode=RD
                  --tiles-per-ipu=16
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_quantise_fp32_calc_type
@@ -6289,7 +6307,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --storage-type=FP16
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_gfloat_as_int_fp32_calc_type
@@ -6302,7 +6320,7 @@ add_multitarget_test(
                  --round-mode=RD
                  --tiles-per-ipu=32
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA_quantise
@@ -6316,7 +6334,7 @@ add_multitarget_test(
                  --round-mode=RA
                  --tiles-per-ipu=16
                  --storage-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA_gfloat_as_int
@@ -6329,7 +6347,7 @@ add_multitarget_test(
                  --enable-denorms=0
                  --round-mode=RA
                  --tiles-per-ipu=32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_quantise
@@ -6342,7 +6360,7 @@ add_multitarget_test(
                  --round-mode=RD
                  --storage-type=FP16
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_gfloat_as_int
@@ -6354,7 +6372,7 @@ add_multitarget_test(
                  --enable-infs-and-nans=0
                  --round-mode=RD
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_quantise_fp32_calc_type
@@ -6368,7 +6386,7 @@ add_multitarget_test(
                  --storage-type=FP16
                  --calc-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_gfloat_as_int_fp32_calc_type
@@ -6381,7 +6399,7 @@ add_multitarget_test(
                  --round-mode=RD
                  --calc-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_quantise
@@ -6394,7 +6412,7 @@ add_multitarget_test(
                  --round-mode=RD
                  --tiles-per-ipu=100
                  --storage-type=FP16
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_gfloat_as_int
@@ -6406,7 +6424,7 @@ add_multitarget_test(
                  --enable-nanoo-mode=1
                  --round-mode=RD
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_quantise_fp32_calc_type
@@ -6420,7 +6438,7 @@ add_multitarget_test(
                  --tiles-per-ipu=100
                  --storage-type=FP16
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_gfloat_as_int_fp32_calc_type
@@ -6433,7 +6451,7 @@ add_multitarget_test(
                  --round-mode=RD
                  --calc-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ_quantise
@@ -6446,7 +6464,7 @@ add_multitarget_test(
                  --round-mode=RZ
                  --storage-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ_gfloat_as_int
@@ -6458,7 +6476,7 @@ add_multitarget_test(
                  --enable-infs-and-nans=0
                  --round-mode=RZ
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_14_bias0_noInf_RU_quantise
@@ -6471,7 +6489,7 @@ add_multitarget_test(
                  --round-mode=RU
                  --storage-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_14_bias0_noInf_RU_gfloat_as_int
@@ -6483,7 +6501,7 @@ add_multitarget_test(
                  --enable-infs-and-nans=0
                  --round-mode=RU
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_quantise
@@ -6496,7 +6514,7 @@ add_multitarget_test(
                  --round-mode=RA
                  --storage-type=FP16
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_gfloat_as_int
@@ -6508,7 +6526,7 @@ add_multitarget_test(
                  --enable-infs-and-nans=0
                  --round-mode=RA
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_quantise_fp32_calc_type
@@ -6522,7 +6540,7 @@ add_multitarget_test(
                  --storage-type=FP16
                  --calc-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_gfloat_as_int_fp32_calc_type
@@ -6535,7 +6553,7 @@ add_multitarget_test(
                  --round-mode=RA
                  --calc-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_0_15_bias-1_RA_quantise
@@ -6548,7 +6566,7 @@ add_multitarget_test(
                  --round-mode=RA
                  --storage-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_0_15_bias-1_RA_gfloat_as_int
@@ -6560,7 +6578,7 @@ add_multitarget_test(
                  --enable-infs-and-nans=0
                  --round-mode=RA
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_1_bias31_RU_quantise
@@ -6572,7 +6590,7 @@ add_multitarget_test(
                  --round-mode=RU
                  --storage-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_1_bias31_RU_gfloat_as_int
@@ -6583,7 +6601,7 @@ add_multitarget_test(
                  --bias=31
                  --round-mode=RU
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_7_0_bias63_RN_quantise
@@ -6595,7 +6613,7 @@ add_multitarget_test(
                  --round-mode=RN
                  --storage-type=FP32
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_7_0_bias63_RN_gfloat_as_int
@@ -6606,7 +6624,7 @@ add_multitarget_test(
                  --bias=63
                  --round-mode=RN
                  --tiles-per-ipu=100
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Uniform
@@ -6619,7 +6637,7 @@ add_multitarget_test(
                  --sr-noise-density=Uniform
                  --sr-noise-min=0.65
                  --sr-noise-max=0.85
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Uniform
@@ -6632,7 +6650,7 @@ add_multitarget_test(
                  --sr-noise-density=Uniform
                  --sr-noise-min=0.05
                  --sr-noise-max=0.34
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Uniform_fp32_calc
@@ -6646,7 +6664,7 @@ add_multitarget_test(
                  --sr-noise-min=0.05
                  --sr-noise-max=0.34
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Normal
@@ -6659,7 +6677,7 @@ add_multitarget_test(
                  --sr-noise-density=Normal
                  --sr-noise-min=0.0
                  --sr-noise-max=0.42
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Normal
@@ -6671,7 +6689,7 @@ add_multitarget_test(
                  --bias=1
                  --sr-noise-density=Normal
                  --sr-noise-min=0.0 --sr-noise-max=0.22
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Normal_fp32_calc
@@ -6685,7 +6703,7 @@ add_multitarget_test(
                  --sr-noise-min=0.0
                  --sr-noise-max=0.22
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedNormal
@@ -6698,7 +6716,7 @@ add_multitarget_test(
                  --sr-noise-density=TruncatedNormal
                  --sr-noise-min=-0.15
                  --sr-noise-max=0.25
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedNormal
@@ -6711,7 +6729,7 @@ add_multitarget_test(
                  --sr-noise-density=TruncatedNormal
                  --sr-noise-min=-0.1
                  --sr-noise-max=0.5
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedNormal_fp32_calc
@@ -6725,7 +6743,7 @@ add_multitarget_test(
                  --sr-noise-min=-0.1
                  --sr-noise-max=0.5
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedLaplace
@@ -6738,7 +6756,7 @@ add_multitarget_test(
                  --sr-noise-density=TruncatedLaplace
                  --sr-noise-min=-0.2
                  --sr-noise-max=0.5
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLaplace
@@ -6751,7 +6769,7 @@ add_multitarget_test(
                  --sr-noise-density=TruncatedLaplace
                  --sr-noise-min=-0.16
                  --sr-noise-max=0.43
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLaplace_fp32_calc
@@ -6765,7 +6783,7 @@ add_multitarget_test(
                  --sr-noise-min=-0.16
                  --sr-noise-max=0.43
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Laplace
@@ -6778,7 +6796,7 @@ add_multitarget_test(
                  --sr-noise-density=Laplace
                  --sr-noise-min=0.0
                  --sr-noise-max=0.5
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Laplace
@@ -6791,7 +6809,7 @@ add_multitarget_test(
                  --sr-noise-density=Laplace
                  --sr-noise-min=0.0
                  --sr-noise-max=0.3
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Laplace_fp32_calc
@@ -6805,7 +6823,7 @@ add_multitarget_test(
                  --sr-noise-min=-0.41
                  --sr-noise-max=0.3
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedLogistic
@@ -6818,7 +6836,7 @@ add_multitarget_test(
                  --sr-noise-density=TruncatedLogistic
                  --sr-noise-min=-0.35
                  --sr-noise-max=-0.15
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Logistic
@@ -6831,7 +6849,7 @@ add_multitarget_test(
                  --sr-noise-density=Logistic
                  --sr-noise-min=-0.35
                  --sr-noise-max=0.15
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Logistic
@@ -6844,7 +6862,7 @@ add_multitarget_test(
                  --sr-noise-density=Logistic
                  --sr-noise-min=-0.5
                  --sr-noise-max=0.15
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Logistic_fp32_calc
@@ -6858,7 +6876,7 @@ add_multitarget_test(
                  --sr-noise-min=-0.5
                  --sr-noise-max=0.15
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedLogitNormal
@@ -6871,7 +6889,7 @@ add_multitarget_test(
                  --sr-noise-density=TruncatedLogitNormal
                  --sr-noise-min=0.15
                  --sr-noise-max=0.85
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLogitNormal
@@ -6885,7 +6903,7 @@ add_multitarget_test(
                  --sr-noise-min=0.0
                  --sr-noise-max=0.9
                  --input-value=2047
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLogitNormal_fp32_calc
@@ -6900,7 +6918,7 @@ add_multitarget_test(
                  --sr-noise-max=0.9
                  --input-value=2047
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_LogitNormal
@@ -6913,7 +6931,7 @@ add_multitarget_test(
                  --sr-noise-density=LogitNormal
                  --sr-noise-min=0.0
                  --sr-noise-max=0.5
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_LogitNormal
@@ -6926,7 +6944,7 @@ add_multitarget_test(
                  --sr-noise-density=LogitNormal
                  --sr-noise-min=0.05
                  --sr-noise-max=0.45
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_LogitNormal_fp32_calc
@@ -6940,7 +6958,7 @@ add_multitarget_test(
                  --sr-noise-min=0.0
                  --sr-noise-max=0.5
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Bernoulli
@@ -6952,7 +6970,7 @@ add_multitarget_test(
                  --bias=127
                  --sr-noise-density=Bernoulli
                  --sr-prob-truncate=0.45
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Bernoulli
@@ -6964,7 +6982,7 @@ add_multitarget_test(
                 --bias=4
                 --sr-noise-density=Bernoulli
                 --sr-prob-truncate=0.26
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Bernoulli_fp32_calc
@@ -6977,7 +6995,7 @@ add_multitarget_test(
                  --sr-noise-density=Bernoulli
                  --sr-prob-truncate=0.76
                  --calc-type=FP32
-                 VARIANTS Sim;Hw)
+                 VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME embedding_layer_float_10x20
@@ -7040,7 +7058,7 @@ add_multitarget_test(
                  --num-indices=1440
                  --use-embedding-plan=1
                  --ignore-data=1
-         VARIANTS IpuModel;Hw)
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME embedding_layer_many_lookups
@@ -7050,7 +7068,7 @@ add_multitarget_test(
                  --num-indices=18000
                  --use-embedding-plan=1
                  --ignore-data=1
-         VARIANTS IpuModel;Hw)
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 # This test is too slow and fails on MACS
 #add_multitarget_test(
@@ -7061,7 +7079,7 @@ add_multitarget_test(
                  #--num-indices=40000
                  #--use-embedding-plan=1
                  #--ignore-data=1
-         #VARIANTS IpuModel;Hw)
+         #VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 # This will also split the unsliced dim
 add_multitarget_test(

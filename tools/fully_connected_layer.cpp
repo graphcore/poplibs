@@ -63,7 +63,8 @@ int main(int argc, char **argv) {
   Type inputType;
   Type outputType;
   double relativeTolerance, absoluteTolerance;
-  IPUModel ipuModel;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
   Pass pass = Pass::ALL;
   bool reportVarStorage = false;
   std::string matmulOptionsString;
@@ -103,10 +104,10 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU),
+     po::value(&tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs),
+     po::value<unsigned>(&numIPUs),
      "Number of IPUs")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
@@ -180,8 +181,9 @@ int main(int argc, char **argv) {
   }
 
   const auto learningRate = 0.5;
-  auto device =
-      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = tilesPerIPU.has_value()
+                    ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
+                    : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();
 
   Graph graph(target);

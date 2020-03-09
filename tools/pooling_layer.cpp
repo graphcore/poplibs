@@ -89,7 +89,8 @@ int main(int argc, char **argv) {
   ShapeOption<int> paddingUpperOption;
 
   DeviceType deviceType = DeviceType::IpuModel;
-  IPUModel ipuModel;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
   PoolingType poolingType = PoolingType::MAX;
 
   OptionFlags engineOptions;
@@ -147,11 +148,10 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU)->
-                           default_value(ipuModel.tilesPerIPU),
+     po::value(&tilesPerIPU),
      "Number of tiles per IPU")
      ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
+     po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
     ("pooling-type",
      po::value<PoolingType>(
@@ -191,7 +191,7 @@ int main(int argc, char **argv) {
       engineOptions.set("opt.shareAll", "true");
       engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
     }
-    if (isSimulator(deviceType) && ipuModel.numIPUs > 1) {
+    if (isSimulator(deviceType) && numIPUs > 1) {
       engineOptions.set("debug.globalExchangeViaDebug", "true");
     }
 
@@ -222,12 +222,10 @@ int main(int argc, char **argv) {
   const bool inferenceOnly = vm.count("inference-only");
   const bool ignoreData = vm.count("ignore-data");
 
-  if (vm.count("profile") || jsonProfileOut) {
-    ipuModel.compileIPUCode = true;
-  }
+  auto device = tilesPerIPU.has_value()
+                    ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
+                    : createTestDeviceFullSize(deviceType, numIPUs);
 
-  auto device =
-      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);

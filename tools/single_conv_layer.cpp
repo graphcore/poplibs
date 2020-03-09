@@ -95,7 +95,8 @@ int main(int argc, char **argv) try {
   Type inputType;
   Type outputType;
   double absoluteTolerance, relativeTolerance;
-  IPUModel ipuModel;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
   bool reportPlan;
   bool reportVarStorage;
   unsigned replicationFactor;
@@ -242,15 +243,12 @@ int main(int argc, char **argv) try {
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
+     po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
-    ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU)->
-                           default_value(ipuModel.tilesPerIPU),
+    ("tiles-per-ipu", po::value(&tilesPerIPU),
      "Number of tiles per IPU")
     ("workers-per-tile",
-     po::value<unsigned>(&ipuModel.numWorkerContexts)->
-                           default_value(ipuModel.numWorkerContexts),
+     po::value<unsigned>(),
      "Number of worker contexts per tile")
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
@@ -429,21 +427,28 @@ int main(int argc, char **argv) try {
     }
   }
 
-  if (vm.count("profile") || jsonProfileOut) {
-    ipuModel.compileIPUCode = true;
-  }
-
   auto dev = [&]() -> TestDevice {
     if (isIpuModel(deviceType)) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
+      IPUModel ipuModel(deviceTypeToIPUName(deviceType));
+      ipuModel.numIPUs = numIPUs;
+      if (vm.count("profile") || jsonProfileOut) {
+        ipuModel.compileIPUCode = true;
+      }
+      if (vm.count("workers-per-tile"))
+        ipuModel.numWorkerContexts = vm["workers-per-tile"].as<unsigned>();
+      if (tilesPerIPU.has_value())
+        ipuModel.tilesPerIPU = *tilesPerIPU;
       addGlobalExchangeConstraints(ipuModel);
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      return createTestDevice(deviceType, ipuModel.numIPUs,
-                              ipuModel.tilesPerIPU);
+      if (tilesPerIPU.has_value())
+        return createTestDevice(deviceType, numIPUs, *tilesPerIPU);
+      else
+        return createTestDeviceFullSize(deviceType, numIPUs);
     }
   }();
 
@@ -692,7 +697,7 @@ int main(int argc, char **argv) try {
     engineOptions.set("opt.shareAll", "true");
     engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
   }
-  if (isSimulator(deviceType) && ipuModel.numIPUs > 1) {
+  if (isSimulator(deviceType) && numIPUs > 1) {
     engineOptions.set("debug.globalExchangeViaDebug", "true");
   }
 

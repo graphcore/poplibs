@@ -187,8 +187,8 @@ static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
 
 int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::IpuModel;
-  IPUModel ipuModel;
-  ipuModel.numIPUs = 4;
+  unsigned numIPUs = 4;
+  boost::optional<unsigned> tilesPerIPU;
   unsigned numElements = 1024;
   unsigned ipusPerRank = 1;
   CollectiveOp collectiveOp = CollectiveOp::ALL_REDUCE;
@@ -226,9 +226,9 @@ int main(int argc, char **argv) {
     ("ipus-per-rank",
      po::value(&ipusPerRank)->default_value(ipusPerRank),
      "Number of IPUs in each rank")
-    ("tiles-per-ipu", po::value(&ipuModel.tilesPerIPU),
+    ("tiles-per-ipu", po::value(&tilesPerIPU),
      "Number of tiles per IPU")
-    ("ipus", po::value(&ipuModel.numIPUs)->default_value(4),
+    ("ipus", po::value(&numIPUs)->default_value(4),
      "Number of IPUs")
     ("method",
      po::value(&collectiveMethod)->default_value(collectiveMethod),
@@ -277,15 +277,21 @@ int main(int argc, char **argv) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
+      IPUModel ipuModel(deviceTypeToIPUName(deviceType));
+      ipuModel.numIPUs = numIPUs;
+      if (tilesPerIPU.has_value())
+        ipuModel.tilesPerIPU = *tilesPerIPU;
       addGlobalExchangeConstraints(ipuModel);
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      return createTestDevice(deviceType, ipuModel.numIPUs,
-                              ipuModel.tilesPerIPU);
+      if (tilesPerIPU.has_value())
+        return createTestDevice(deviceType, numIPUs, *tilesPerIPU);
+      else
+        return createTestDeviceFullSize(deviceType, numIPUs);
     }
   }();
-  auto replicationFactor = ipuModel.numIPUs / ipusPerRank;
+  auto replicationFactor = numIPUs / ipusPerRank;
   auto topLevelReplicationFactor =
       replicateTopLevelGraph ? replicationFactor : 1;
   Graph topLevelGraph(device.getTarget(), 0,

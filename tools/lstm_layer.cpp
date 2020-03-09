@@ -70,7 +70,8 @@ int main(int argc, char **argv) {
   Type accumulatorsType;
   double relativeTolerance;
   double absoluteTolerance;
-  IPUModel ipuModel;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
   bool preweightInput = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   std::string recompMode;
@@ -113,11 +114,10 @@ int main(int argc, char **argv) {
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU)->
-                           default_value(ipuModel.tilesPerIPU),
+     po::value(&tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
+     po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
     ("pre-weight-input",
        po::value<bool>(&preweightInput)->default_value(preweightInput),
@@ -170,8 +170,9 @@ int main(int argc, char **argv) {
 
   bool ignoreData = vm.count("ignore-data");
 
-  auto device =
-      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = tilesPerIPU.has_value()
+                    ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
+                    : createTestDeviceFullSize(deviceType, numIPUs);
 
   const auto &target = device.getTarget();
   Graph graph(target);

@@ -106,7 +106,8 @@ int main(int argc, char **argv) {
 
   popnn::NonLinearityType nonLinearityType = popnn::NonLinearityType::SIGMOID;
 
-  IPUModel ipuModel;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
 
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   po::options_description desc("Options");
@@ -149,11 +150,10 @@ int main(int argc, char **argv) {
      "Absolute tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&ipuModel.tilesPerIPU)->
-                           default_value(ipuModel.tilesPerIPU),
+     po::value(&tilesPerIPU),
      "Number of tiles per IPU")
     ("ipus",
-     po::value<unsigned>(&ipuModel.numIPUs)->default_value(ipuModel.numIPUs),
+     po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
     ("phase",
      po::value<poplibs_test::Pass>(&pass)->default_value(pass),
@@ -210,8 +210,9 @@ int main(int argc, char **argv) {
     applyFeedFwdWeights = true;
   }
 
-  auto device =
-      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = tilesPerIPU.has_value()
+                    ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
+                    : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();
   Graph graph(target);
   poplin::addCodelets(graph);

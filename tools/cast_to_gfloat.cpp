@@ -352,7 +352,7 @@ int main(int argc, char **argv) {
   Type inType = FLOAT;
   unsigned inSize;
   DeviceType deviceType = DeviceType::Cpu;
-  IPUModel ipuModel;
+  boost::optional<unsigned> tilesPerIPU;
   bool prng;
   unsigned seed;
 
@@ -364,8 +364,7 @@ int main(int argc, char **argv) {
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        "Device type: Cpu | Sim | Hw | IpuModel")
       ("tiles-per-ipu",
-       po::value<unsigned>(&ipuModel.tilesPerIPU)->
-           default_value(ipuModel.tilesPerIPU),
+       po::value(&tilesPerIPU),
        "Number of tiles per IPU")
       ("prng", po::value<bool>(&prng)->default_value(false), "prng enable")
       ("seed", po::value<unsigned>(&seed)->default_value(12352345), "prng seed")
@@ -422,12 +421,17 @@ int main(int argc, char **argv) {
       // When running on the IPU model we apply global exchange constraints,
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
+      IPUModel ipuModel(deviceTypeToIPUName(deviceType));
+      if (tilesPerIPU.has_value())
+        ipuModel.tilesPerIPU = *tilesPerIPU;
       addGlobalExchangeConstraints(ipuModel);
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      return createTestDevice(deviceType, ipuModel.numIPUs,
-                              ipuModel.tilesPerIPU);
+      if (tilesPerIPU.has_value())
+        return createTestDevice(deviceType, 1, *tilesPerIPU);
+      else
+        return createTestDeviceFullSize(deviceType);
     }
   }();
 

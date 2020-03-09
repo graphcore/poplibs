@@ -87,18 +87,11 @@ int main(int argc, char **argv) {
   MatrixOp matBOp = MatrixOp::NORMAL;
   DeviceType deviceType = DeviceType::IpuModel;
   double availableMemoryProportion;
-  unsigned numIPUs;
-  unsigned tilesPerIPU;
+  unsigned numIPUs = 1;
+  boost::optional<unsigned> tilesPerIPU;
   unsigned numExecutions;
   std::string planConstraints;
   std::string planConstraintsFile;
-  // create an IPUModel to get the default values out. do it in a scope so that
-  // it isn't mistaken for the IPUModel that is actually used by the tool.
-  {
-    IPUModel defaultModel;
-    numIPUs = defaultModel.numIPUs;
-    tilesPerIPU = defaultModel.tilesPerIPU;
-  }
 
   boost::optional<std::string> jsonProfileOut;
 
@@ -155,7 +148,7 @@ int main(int argc, char **argv) {
      "Relative tolerance to use when validating results against the reference "
      "model")
     ("tiles-per-ipu",
-     po::value<unsigned>(&tilesPerIPU)->default_value(tilesPerIPU),
+     po::value(&tilesPerIPU),
      "Number of tiles per IPU")
     ("available-memory-proportion",
      po::value<double>(&availableMemoryProportion),
@@ -217,7 +210,9 @@ int main(int argc, char **argv) {
 
   const bool compileIPUCode = true;
   auto device =
-      createTestDevice(deviceType, numIPUs, tilesPerIPU, compileIPUCode);
+      tilesPerIPU.has_value()
+          ? createTestDevice(deviceType, numIPUs, *tilesPerIPU, compileIPUCode)
+          : createTestDeviceFullSize(deviceType, numIPUs, compileIPUCode);
 
   const auto &target = device.getTarget();
   Graph graph(target);
