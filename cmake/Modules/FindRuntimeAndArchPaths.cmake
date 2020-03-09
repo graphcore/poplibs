@@ -11,9 +11,12 @@
 # against an installed (and enabled) poplar, the `CMAKE_PREFIX_PATH` environment
 # variable is set instead
 set(SEARCH_PATHS ${CMAKE_PREFIX_PATH})
-list(APPEND SEARCH_PATHS $ENV{CMAKE_PREFIX_PATH})
+set(ADDITIONAL_SEARCH_PATHS $ENV{CMAKE_PREFIX_PATH})
+string(REPLACE ":" ";" ADDITIONAL_SEARCH_PATHS "${ADDITIONAL_SEARCH_PATHS}")
+list(APPEND SEARCH_PATHS "${ADDITIONAL_SEARCH_PATHS}")
+list(REMOVE_DUPLICATES SEARCH_PATHS)
 
-foreach(path ${SEARCH_PATHS})
+foreach(path IN LISTS SEARCH_PATHS)
   if(EXISTS "${path}/lib/graphcore/include/stddef.h")
     set(RUNTIME_PATH ${path})
   endif()
@@ -21,6 +24,7 @@ foreach(path ${SEARCH_PATHS})
   file(GLOB ARCH_MAN_IPU_PATHS ${path}/include/arch/gc_tilearch_ipu*.h)
   if(ARCH_MAN_IPU_PATHS)
     set(ARCH_MAN_PATH ${path})
+    set(ENABLED_IPU_ARCH_NAMES "")
     foreach(IPU_PATH ${ARCH_MAN_IPU_PATHS})
       string(REGEX MATCH ".*(ipu[0-9]+).h$" _ ${IPU_PATH})
       set(GC_TILEARCH_IPU ${CMAKE_MATCH_1})
