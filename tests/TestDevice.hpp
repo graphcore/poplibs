@@ -149,7 +149,7 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
   case DeviceType::Sim:
   case DeviceType::Sim2: {
     auto targetName = deviceTypeToIPUName(deviceType);
-    auto target = requestedTilesPerIPU.has_value()
+    auto target = requestedTilesPerIPU
                       ? poplar::Target::createIPUTarget(
                             numIPUs, *requestedTilesPerIPU, targetName)
                       : poplar::Target::createIPUTarget(numIPUs, targetName);
@@ -181,7 +181,7 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
     auto targetName = deviceTypeToIPUName(deviceType);
     poplar::IPUModel model(targetName);
     model.numIPUs = numIPUs;
-    if (requestedTilesPerIPU.has_value())
+    if (requestedTilesPerIPU)
       model.tilesPerIPU = *requestedTilesPerIPU;
     model.compileIPUCode = compileIPUCode;
     return model.createDevice();
