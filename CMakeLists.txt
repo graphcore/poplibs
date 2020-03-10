@@ -12,7 +12,7 @@ enable_testing()
 
 # Set to ON if worker state is to be retained between calls.
 #        OFF if state retention is disabled
-set(RETAIN_WORKER_STATE OFF CACHE BOOL "Enable tile worker state retention")
+set(RETAIN_WORKER_STATE ON CACHE BOOL "Enable tile worker state retention")
 
 
 set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Hw" CACHE STRING
