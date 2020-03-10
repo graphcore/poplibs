@@ -1171,7 +1171,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                 outChansPerGroup, convUnitInputLoadElemsPerCycle,
                 numConvUnitsRequired,
                 target.getConvUnitCoeffLoadBytesPerCycle(), floatActivations,
-                floatPartials);
+                floatPartials, target.getNumWorkerContexts());
           }
           const auto zeroCycles = cache->mEstimateZeroSupervisorCycles(
               product(tileFieldSize) * convSize.batchSize, tileNumOutGroups,

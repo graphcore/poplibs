@@ -15,6 +15,22 @@ inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
 
 inline static std::uint64_t convNx1Overhead() { return 101; }
 
+// Number of worker cycle savings if state retention is used
+inline static std::uint64_t conv1x1WorkerRetentionSavings(bool floatActivations,
+                                                          bool floatPartials) {
+#if WORKER_REG_STATE_RETAINED
+  if (floatActivations == false && floatPartials == true) {
+    return 12;
+  } else {
+    return 0;
+  }
+#else
+  (void)floatActivations;
+  (void)floatPartials;
+  return 0;
+#endif
+}
+
 inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
   if (isFloat) {
     if ((size % 2) == 0)
@@ -135,6 +151,8 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
     coreCycles /= 2;
   }
 
+  auto retentionSavings =
+      conv1x1WorkerRetentionSavings(floatActivations, floatPartials);
   unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts
@@ -150,14 +168,22 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
       const auto numElems = worker.front();
       switch (numElems) {
       case 0:
-        thisWorkerCycles += 28;
+        if (floatActivations) {
+          thisWorkerCycles += 28;
+        } else {
+          if (floatPartials) {
+            thisWorkerCycles += (outputZeroing ? 26 : 29) - retentionSavings;
+          } else {
+            thisWorkerCycles += 28;
+          }
+        }
         break;
       case 1:
         if (floatActivations)
           thisWorkerCycles += 50 + (2 + 8) * outputZeroing;
         else {
           if (floatPartials) {
-            thisWorkerCycles += outputZeroing ? 38 : 41;
+            thisWorkerCycles += (outputZeroing ? 39 : 43) - retentionSavings;
           } else {
             thisWorkerCycles += 43 + (2 + zeroCyclesPerGroup) * outputZeroing;
           }
@@ -168,7 +194,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 50 + (2 + 8 * 2) * outputZeroing;
         else {
           if (floatPartials) {
-            thisWorkerCycles += outputZeroing ? 40 : 44;
+            thisWorkerCycles += (outputZeroing ? 41 : 45) - retentionSavings;
           } else {
             thisWorkerCycles +=
                 44 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
@@ -181,8 +207,8 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
                               (numElems - 3) * coreCycles;
         else {
           if (floatPartials) {
-            thisWorkerCycles +=
-                (outputZeroing ? 41 : 44) + (numElems - 3) * coreCycles;
+            thisWorkerCycles += (outputZeroing ? 41 : 44) +
+                                (numElems - 3) * coreCycles - retentionSavings;
           } else {
             thisWorkerCycles +=
                 45 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
@@ -210,16 +236,23 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     unsigned numInGroups, unsigned numOutGroups, unsigned outChansPerGroup,
     unsigned convUnitInputLoadElemsPerCycle, unsigned numConvUnits,
     unsigned convUnitCoeffLoadBytesPerCycle, bool floatActivations,
-    bool /* floatPartials */) {
+    bool floatPartials, unsigned numWorkerContexts) {
   const auto outputPassesPerGroup =
       (outChansPerGroup + numConvUnits - 1) / numConvUnits;
 
+  const auto retentionSavings =
+      conv1x1WorkerRetentionSavings(floatActivations, floatPartials);
   auto numInputLoadsInnerLoop = numConvUnits / 2;
   const auto numLoads =
       convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop * numConvUnits *
       (floatActivations ? 4 : 2) / convUnitCoeffLoadBytesPerCycle;
   const uint64_t supervisorNonloopOverhead = 50;
-  return supervisorNonloopOverhead +
+#if WORKER_REG_STATE_RETAINED
+  const unsigned outPassesOverhead = 7;
+#else
+  const unsigned outPassesOverhead = 6;
+#endif
+  return supervisorNonloopOverhead + retentionSavings * numWorkerContexts +
          numConvGroups *
              (12 +
               (numInGroups - 1) *
@@ -228,7 +261,7 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                                             (6 + numLoads +
                                              innerLoopCyclesWithoutZeroing))) +
               (10 + numOutGroups * (19 + outputPassesPerGroup *
-                                             (6 + numLoads +
+                                             (outPassesOverhead + numLoads +
                                               innerLoopCyclesWithZeroing))));
 }
 
@@ -246,11 +279,13 @@ inline std::uint64_t getConvPartial1x1SupervisorCycleEstimate(
       getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           workerPartitions, numWorkerContexts, numConvUnits, false,
           floatActivations, floatPartials);
+
   return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
       innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing, numConvGroups,
       numInGroups, numOutGroups, outChansPerGroup,
       convUnitInputLoadElemsPerCycle, numConvUnits,
-      convUnitCoeffLoadBytesPerCycle, floatActivations, floatPartials);
+      convUnitCoeffLoadBytesPerCycle, floatActivations, floatPartials,
+      numWorkerContexts);
 }
 
 inline std::uint64_t getConvPartialnx1SupervisorCycleOuterLoopEstimate(

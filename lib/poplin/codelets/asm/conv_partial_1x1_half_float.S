@@ -13,9 +13,6 @@
 #include "poplibs_support/TileConstants.hpp"
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
-// Set this to 1 if the state is retained between calls to workers
-#define WORKER_REG_STATE_RETAINED  0
-
 // =============================================================================
 
 // The type of weight loading supported
@@ -144,7 +141,7 @@
 //
 //
 // The very first call of the worker requires 12 more cycles if 
-//    WORKER_REG_STATE_RETAINED == 1
+//    WORKER_REG_STATE_RETAINED != 0
 // Otherwise all calls of workers requires 12 cycles more.
 
 // Total:
@@ -725,7 +722,7 @@ AmpGroupLoop_\LDTYPE\():
 .endif
         add           $outvec_s, $outvec_s, AMP_OUTPUTS * SIZEOF_FLOAT
         runall        $wkr_function, $wkr_vertex, 0
-#if WORKER_REG_STATE_RETAINED == 1
+#if WORKER_REG_STATE_RETAINED
         setzi         $wkr_function, convPartialFlattenedFieldStateRetained
 #endif
         // increment output vector pointer for the AMP loop
