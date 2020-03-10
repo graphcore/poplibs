@@ -1189,7 +1189,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   transformedOutputStride);
           return getConvPartialnx1SupervisorCycleOuterLoopEstimate(
                      innerLoopCycles, tileNumConvGroups, tileNumOutGroups,
-                     tileNumInGroups, outChansPerGroup, numConvUnitsRequired) +
+                     tileNumInGroups, outChansPerGroup, numConvUnitsRequired,
+                     target.getNumWorkerContexts(), floatActivations,
+                     floatPartials) +
                  zeroCycles;
         },
         debugName);

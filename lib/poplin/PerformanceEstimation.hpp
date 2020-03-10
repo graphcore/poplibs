@@ -13,7 +13,13 @@ inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
   return floatActivations ? 58 : 63;
 }
 
-inline static std::uint64_t convNx1Overhead() { return 101; }
+inline static std::uint64_t convNx1Overhead() {
+#if WORKER_REG_STATE_RETAINED
+  return 103;
+#else
+  return 101;
+#endif
+}
 
 // Number of worker cycle savings if state retention is used
 inline static std::uint64_t conv1x1WorkerRetentionSavings(bool floatActivations,
@@ -27,6 +33,16 @@ inline static std::uint64_t conv1x1WorkerRetentionSavings(bool floatActivations,
 #else
   (void)floatActivations;
   (void)floatPartials;
+  return 0;
+#endif
+}
+
+inline static std::uint64_t
+convnx1WorkerRetentionSavings(bool /*floatActivations */,
+                              bool /*floatPartials */) {
+#if WORKER_REG_STATE_RETAINED
+  return 6;
+#else
   return 0;
 #endif
 }
@@ -291,9 +307,12 @@ inline std::uint64_t getConvPartial1x1SupervisorCycleEstimate(
 inline std::uint64_t getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     std::uint64_t innerLoopCycles, unsigned numConvGroups,
     unsigned numOutGroups, unsigned numInGroups, unsigned outChansPerGroup,
-    unsigned numConvUnits) {
+    unsigned numConvUnits, unsigned numWorkerContexts, bool floatActivations,
+    bool floatPartials) {
   uint64_t cycles = innerLoopCycles;
-  return convNx1Overhead() +
+  const auto retentionSavings =
+      convnx1WorkerRetentionSavings(floatActivations, floatPartials);
+  return convNx1Overhead() + numWorkerContexts * retentionSavings +
          numConvGroups *
              (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
 }
@@ -313,6 +332,8 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     numInputLoadsInnerLoop /= 2;
   }
 
+  const auto retentionSavings =
+      convnx1WorkerRetentionSavings(floatActivations, floatPartials);
   unsigned usedContexts = workerPartitions.size();
   unsigned numOutChanPasses = outChansPerGroup / numConvUnits;
   // TODO: T12901 Update for float input when assembler code is written.
@@ -343,6 +364,11 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     // version correctly
     innermostLoopCycles += 20 * filterHeight;
   }
+
+#if WORKER_REG_STATE_RETAINED
+  innermostLoopCycles += 3;
+#endif
+
   uint64_t innerLoopCycles = 0;
   for (auto ky = 0U; ky != kernelOuterElems; ++ky) {
     innerLoopCycles += 14;
@@ -375,6 +401,7 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
               else
                 thisWorkerCycles += 35 + (numElems - 3) * coreCycles;
             }
+            thisWorkerCycles -= retentionSavings;
           }
           maxWorkerCycles =
               std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
@@ -404,7 +431,8 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleEstimate(
       floatPartials);
   return getConvPartialnx1SupervisorCycleOuterLoopEstimate(
       innerLoopCycles, numConvGroups, numOutGroups, numInGroups,
-      outChansPerGroup, numConvUnits);
+      outChansPerGroup, numConvUnits, numWorkerContexts, floatActivations,
+      floatPartials);
 }
 
 inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(

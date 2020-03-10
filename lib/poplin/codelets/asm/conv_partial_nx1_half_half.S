@@ -212,33 +212,37 @@ convPartialNx1FlattenedAlignedHalf:
 convPartialNx1FlattenedHalf:
 // worker register mapping
 #define wkr_id_v                       m0
-#define inoutstrides2_v                m0
 #define partition_table_v              m1
 #define partition_struct_v             m1
 #define partition_v                    m1
 #define num_partitions_v               m2
+#define partition_base_v               m3
 #define num_fp_v                       m3
+#define inoutstrides2_v                m5
 #define inoutstrides1_v                m4
-#define in_offset_v                    m5
-#define out_offset_v                   m5
 #define out_chans_per_group_x2         m6
-#define partition_base_v               m7
 #define in_chans_per_group_x2          m7
 #define tripacked_addr                 m8:9
 #define in_addr_v                      m8
+#define in_offset_v                    m8
 #define out_addr_v                     m9
+#define out_offset_v                   m9
 #define inchan_ptr_v                   m10
 #define outchan_ptr_v                  m11
 
-{
 get           $wkr_id_v, $WSR
-setzi         $a0, ZAACC_BITMASK
-}
-{
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
-uput          $FP_CLR, $a0
-}
+// The number of input strides depends on the AMP height used. The height
+// supported is 4 and hence there can be at most 4 input stides. There is
+// only one output stride as the output channels are always grouped together.
+// inoutstrides1_v = [0][in-stride][out-stride]
+ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
+// inoutstrides2_v = [in-row-stride1][in-row-stride0][out-stride]
+ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
+ld32          $in_chans_per_group_x2, $mvertex_base, WKR_INCHANS_PER_GROUP_X2/4
+ld32          $out_chans_per_group_x2, $mvertex_base, WKR_OUTCHANS_PER_GROUP_X2/4
 
+convPartialNx1FlattenedHalfStateRetained:
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
 ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
 
@@ -257,21 +261,17 @@ add           $partition_v, $partition_v, $partition_base_v
 ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 
-// The number of input strides depends on the AMP height used. The height
-// supported is 4 and hence there can be at most 4 input stides. There is
-// only one output stride as the output channels are always grouped together.
-// inoutstrides1_v = [0][in-stride][out-stride]
-ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
-// inoutstrides2_v = [in-row-stride1][in-row-stride0][out-stride]
-ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
-ld32          $in_chans_per_group_x2, $mvertex_base, WKR_INCHANS_PER_GROUP_X2/4
-ld32          $out_chans_per_group_x2, $mvertex_base, WKR_OUTCHANS_PER_GROUP_X2/4
 
 // This following approximates num_partitions/3 - 1 for values
 // [3:3:2^14-1]. The case of zero is handled above
-mul           $num_partitions_v, $num_partitions_v, 21845
-shr           $num_partitions_v, $num_partitions_v, 16
-
+{
+  mul           $num_partitions_v, $num_partitions_v, 21845
+  setzi         $a0, ZAACC_BITMASK
+}
+{
+  shr           $num_partitions_v, $num_partitions_v, 16
+  uput          $FP_CLR, $a0
+}
 // Code fragments to handle number of field samples equal to 1 and 2 are
 // handled differently inorder to avoid excess loads which could potentially
 // cause memory conflicts given that striding on both inputs and output are
@@ -387,7 +387,7 @@ Loop_end_Amp:
     f16v4hihoamp  $a6, $a0:1, $azero, TAMP_F16V4_E4_P0
   }
   // we need a zero as stride alongwith store partials pointer
-#define inoutstrides2_v_tmp  in_offset_v
+#define inoutstrides2_v_tmp  num_fp_v
   shr     $inoutstrides2_v_tmp, $inoutstrides2_v, 10
   {
     // input-ptr += in-row-stride0;  out-ptr += 0
@@ -552,8 +552,8 @@ bri           StoreFinalAmpOutputs2
 #define STACK_NUM_OUTCHAN_M1            36
 #define STACK_NUM_KERNEL_X_M1           40
 #define STACK_NUM_KERNEL_Y_M1           44
-// Additional 4 bytes to make total stack size a multiple of 8
-#define STACK_SIZE                      (STACK_NUM_KERNEL_Y_M1 + 8) // bytes
+#define STACK_WKR_FUNCTION              48
+#define STACK_SIZE                      (STACK_WKR_FUNCTION + 4) // bytes
 
 
 // registers
@@ -630,13 +630,18 @@ add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 //-----------------------------------------------------------------------------
+#if WORKER_REG_STATE_RETAINED
+setzi         $wkr_function_s, convPartialNx1FlattenedHalf
+#endif
 and           $temp_1_s, $temp_1_s, 0x3FF
 
 ldz16         $temp_5_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ldz16         $temp_7_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-
+#if WORKER_REG_STATE_RETAINED
+st32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+#endif
 
 // in-stride and out-stride are packed in one register. Out-stride
 // must be scaled by 1/2 because 64 bit writes are used and atom size is 32
@@ -845,7 +850,11 @@ AmpOutGroupLoop_\LDTYPE\():
  AmpHeightEq1_\LDTYPE\():
 
 .if \LDTYPE == LD128
-
+#if WORKER_REG_STATE_RETAINED
+            // we reuse $inchan_ptr_s as it has already been saved to vertex
+            // state
+            setzi         $inchan_ptr_s, convPartialNx1FlattenedHalfStateRetained
+#endif            
             ld128putcs    0
             ld128putcs    2
             ld128putcs    4
@@ -856,7 +865,13 @@ AmpOutGroupLoop_\LDTYPE\():
             ld128putcs    14
             ld128putcs    16
             ld128putcs    18
+#if WORKER_REG_STATE_RETAINED
+            ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+            st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+            ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
+#else
             setzi         $wkr_function_s, convPartialNx1FlattenedHalf
+#endif
             ld128putcs    20
             ld128putcs    22
             ld128putcs    24
@@ -865,7 +880,11 @@ AmpOutGroupLoop_\LDTYPE\():
             ld128putcs    30
 
 .elseif \LDTYPE == LD64
-
+#if WORKER_REG_STATE_RETAINED
+            // we reuse $inchan_ptr_s as it has already been saved to vertex
+            // state
+            setzi         $inchan_ptr_s, convPartialNx1FlattenedHalfStateRetained
+#endif
             ld64putcs    0
             ld64putcs    1
             ld64putcs    2
@@ -886,7 +905,13 @@ AmpOutGroupLoop_\LDTYPE\():
             ld64putcs    17
             ld64putcs    18
             ld64putcs    19
+#if WORKER_REG_STATE_RETAINED
+            ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+            st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+            ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
+#else
             setzi         $wkr_function_s, convPartialNx1FlattenedHalf
+#endif
             ld64putcs    20
             ld64putcs    21
             ld64putcs    22
@@ -961,7 +986,11 @@ put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr
 
 .if \LDTYPE == LD128
-
+#if WORKER_REG_STATE_RETAINED
+// we reuse $inchan_ptr_s as it has already been saved to vertex
+// state
+setzi         $inchan_ptr_s, convPartialNx1FlattenedHalfStateRetained
+#endif
 ld128putcs    0
 ld128putcs    4
 ld128putcs    8
@@ -973,7 +1002,13 @@ ld128putcs    28
 put           $CCCSLOAD, $weights_ptr_s_h
 ld128putcs    2
 ld128putcs    6
+#if WORKER_REG_STATE_RETAINED
+ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
+#else
 setzi         $wkr_function_s, convPartialNx1FlattenedHalf
+#endif
 ld128putcs    10
 ld128putcs    14
 ld128putcs    18
@@ -982,7 +1017,11 @@ ld128putcs    26
 ld128putcs    30
 
 .elseif \LDTYPE == LD64
-
+#if WORKER_REG_STATE_RETAINED
+// we reuse $inchan_ptr_s as it has already been saved to vertex
+// state
+setzi         $inchan_ptr_s, convPartialNx1FlattenedHalfStateRetained
+#endif
 ld64putcs     0
 ld64putcs     1
 ld64putcs     4
@@ -1004,7 +1043,13 @@ ld64putcs     2
 ld64putcs     3
 ld64putcs     6
 ld64putcs     7
+#if WORKER_REG_STATE_RETAINED
+ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
+#else
 setzi         $wkr_function_s, convPartialNx1FlattenedHalf
+#endif
 ld64putcs     10
 ld64putcs     11
 ld64putcs     14
@@ -1035,6 +1080,12 @@ bri           AmpHeightRun_\LDTYPE\()
 // versions, then this part of the code can be shared. It needs to be in a
 // common section.
 AmpHeightEq4_\LDTYPE\():
+#if WORKER_REG_STATE_RETAINED
+// we reuse $inchan_ptr_s as it has already been saved to vertex
+// state
+setzi         $inchan_ptr_s, convPartialNx1FlattenedHalfStateRetained
+#endif
+
 put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr
 ld64putcs     0
@@ -1066,7 +1117,13 @@ ld64putcs     22
 ld64putcs     26
 ld64putcs     30
 put           $CCCSLOAD, $weights_ptr_s_h
+#if WORKER_REG_STATE_RETAINED
+ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
+#else
 setzi         $wkr_function_s, convPartialNx1FlattenedHalf
+#endif
 ld64putcs     3
 ld64putcs     7
 ld64putcs     11
