@@ -92,6 +92,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Add some warning flags. check_cxx_compiler_flag isn't very good at detecting
 # unsupported flags that don't cause an error, so it is simpler to switch based
