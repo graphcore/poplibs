@@ -439,13 +439,13 @@ int main(int argc, char **argv) try {
       }
       if (vm.count("workers-per-tile"))
         ipuModel.numWorkerContexts = vm["workers-per-tile"].as<unsigned>();
-      if (tilesPerIPU.has_value())
+      if (tilesPerIPU)
         ipuModel.tilesPerIPU = *tilesPerIPU;
       addGlobalExchangeConstraints(ipuModel);
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      if (tilesPerIPU.has_value())
+      if (tilesPerIPU)
         return createTestDevice(deviceType, numIPUs, *tilesPerIPU);
       else
         return createTestDeviceFullSize(deviceType, numIPUs);

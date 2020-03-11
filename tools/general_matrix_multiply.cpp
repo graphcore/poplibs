@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
 
   const bool compileIPUCode = true;
   auto device =
-      tilesPerIPU.has_value()
+      tilesPerIPU
           ? createTestDevice(deviceType, numIPUs, *tilesPerIPU, compileIPUCode)
           : createTestDeviceFullSize(deviceType, numIPUs, compileIPUCode);
 

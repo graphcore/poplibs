@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
   }
 
   const auto learningRate = 0.5;
-  auto device = tilesPerIPU.has_value()
+  auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
                     : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();

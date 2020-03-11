@@ -170,13 +170,13 @@ int main(int argc, char **argv) {
       // which is why we create the device from the model here and not using
       // the normal createTestDevice factory function.
       IPUModel ipuModel(deviceTypeToIPUName(deviceType));
-      if (tilesPerIPU.has_value())
+      if (tilesPerIPU)
         ipuModel.tilesPerIPU = *tilesPerIPU;
       addGlobalExchangeConstraints(ipuModel);
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      if (tilesPerIPU.has_value())
+      if (tilesPerIPU)
         return createTestDevice(deviceType, 1, *tilesPerIPU);
       else
         return createTestDeviceFullSize(deviceType);

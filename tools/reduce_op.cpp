@@ -367,7 +367,7 @@ int main(int argc, char **argv) {
   // Set the random model parameters if --seed was specified and they
   // weren't overridden with --tiles-per-ipu or --ipus.
   if (vm.count("seed") != 0) {
-    if (!tilesPerIPU.has_value()) {
+    if (!tilesPerIPU) {
       std::cerr << "Randomly setting tiles-per-ipu.\n";
       const unsigned maxTiles = isSimulator(deviceType)
                                     ? MAX_TILES_TO_USE_SIM_TARGET
@@ -382,7 +382,7 @@ int main(int argc, char **argv) {
 
   std::cerr << "Initializing graph...\n";
 
-  auto device = tilesPerIPU.has_value()
+  auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
                     : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();

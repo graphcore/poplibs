@@ -342,13 +342,13 @@ int main(int argc, char **argv) {
       // the normal createTestDevice factory function.
       IPUModel ipuModel(deviceTypeToIPUName(deviceType));
       ipuModel.numIPUs = numIPUs;
-      if (tilesPerIPU.has_value())
+      if (tilesPerIPU)
         ipuModel.tilesPerIPU = *tilesPerIPU;
       addGlobalExchangeConstraints(ipuModel);
       setGlobalSyncLatency(ipuModel);
       return ipuModel.createDevice();
     } else {
-      if (tilesPerIPU.has_value())
+      if (tilesPerIPU)
         return createTestDevice(deviceType, numIPUs, *tilesPerIPU);
       else
         return createTestDeviceFullSize(deviceType, numIPUs);

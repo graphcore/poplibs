@@ -170,7 +170,7 @@ int main(int argc, char **argv) {
 
   bool ignoreData = vm.count("ignore-data");
 
-  auto device = tilesPerIPU.has_value()
+  auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
                     : createTestDeviceFullSize(deviceType, numIPUs);
 

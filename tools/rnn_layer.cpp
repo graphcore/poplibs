@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     applyFeedFwdWeights = true;
   }
 
-  auto device = tilesPerIPU.has_value()
+  auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
                     : createTestDeviceFullSize(deviceType, numIPUs);
   const auto &target = device.getTarget();
