@@ -50,7 +50,8 @@ public:
 
   // Create the codelet, save it to file, register the codelet to poplar, then
   // remove the file.
-  std::string generateCodelet(poplar::Graph &graph, bool allInputsScalar);
+  std::string generateCodelet(poplar::Graph &graph, bool allInputsScalar,
+                              const expr::Expr &expr);
 
   poplar::Type deduceReturnType() const { return data.top().second; }
 
@@ -118,10 +119,6 @@ private:
   // loads.
   std::set<std::size_t> usedPlaceholders;
 
-  std::unordered_map<poplar::Graph *,
-                     std::unordered_map<std::string, std::string>>
-      graphToCodelets;
-
   const std::vector<poplar::Tensor> &inputs;
 
   // Number of operations we are fusing in this vertex.
@@ -131,7 +128,11 @@ private:
 
   bool inPlace;
 
-  static int GeneratedVertexCount;
+public:
+  static std::string createVertexName(const expr::Expr &expr,
+                                      const std::vector<poplar::Tensor> &inputs,
+                                      const bool inPlace,
+                                      const bool allInputsScalar);
 };
 } // namespace popops
 

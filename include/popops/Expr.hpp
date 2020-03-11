@@ -4,10 +4,13 @@
 #define __popops_Expr_hpp__
 #include <cassert>
 #include <memory>
+#include <poplar/Tensor.hpp>
 #include <poplar/Type.hpp>
 #include <poplar/TypeTraits.hpp>
 #include <popops/ExprOp.hpp>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 namespace popops {
 namespace expr {
@@ -15,7 +18,7 @@ namespace expr {
 /** Type to represent element expressions.
  *
  *  This class represents an expression that can be applied to elements
- *  of tensors.
+ *  of Tensors.
  *
  *  The type is an abstract type which can be instantiated by its sub-classes
  *  to build up expressions, for example: `Tanh(Add(Square(_1), Const(3))))`.
@@ -48,6 +51,8 @@ public:
   }
 
   virtual std::unique_ptr<Expr> clone() const = 0;
+
+  virtual std::string name(const std::vector<poplar::Tensor> &) const = 0;
 };
 
 template <class T> class ExprType : public Expr {
@@ -69,6 +74,9 @@ public:
 
   operator Expr &() { return *expr; }
   operator const Expr &() const { return *expr; }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const {
+    return expr->name(inputs);
+  }
 };
 
 class Const : public ExprType<Const> {
@@ -107,9 +115,12 @@ public:
 
   const poplar::Type &getType() const { return type; }
 
+  std::string printValue() const;
+
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new Const(typeTraits, type, data.get()));
   }
+  std::string name(const std::vector<poplar::Tensor> &) const override;
 };
 
 class ConstHalf : public Const {
@@ -127,7 +138,8 @@ class Cast : public ExprType<Cast> {
   poplar::Type bType;
 
 public:
-  Cast(const Expr &a, const poplar::Type bType) : a(a.clone()), bType(bType) {}
+  Cast(const Expr &a_, const poplar::Type bType_)
+      : a(a_.clone()), bType(bType_) {}
 
   const Expr &getLHS() const { return *a; }
   const poplar::Type &getRHSType() const { return bType; }
@@ -135,6 +147,7 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new Cast(*a, bType));
   }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override;
 };
 
 class PlaceHolder : public ExprType<PlaceHolder> {
@@ -148,30 +161,32 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new PlaceHolder(index));
   }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override;
 };
 
-extern PlaceHolder _1;
-extern PlaceHolder _2;
-extern PlaceHolder _3;
-extern PlaceHolder _4;
-extern PlaceHolder _5;
-extern PlaceHolder _6;
-extern PlaceHolder _7;
-extern PlaceHolder _8;
-extern PlaceHolder _9;
-extern PlaceHolder _10;
-extern PlaceHolder _11;
-extern PlaceHolder _12;
-extern PlaceHolder _13;
-extern PlaceHolder _14;
-extern PlaceHolder _15;
-extern PlaceHolder _16;
-extern PlaceHolder _17;
-extern PlaceHolder _18;
-extern PlaceHolder _19;
-extern PlaceHolder _20;
+const PlaceHolder _1(1);
+const PlaceHolder _2(2);
+const PlaceHolder _3(3);
+const PlaceHolder _4(4);
+const PlaceHolder _5(5);
+const PlaceHolder _6(6);
+const PlaceHolder _7(7);
+const PlaceHolder _8(8);
+const PlaceHolder _9(9);
+const PlaceHolder _10(10);
+const PlaceHolder _11(11);
+const PlaceHolder _12(12);
+const PlaceHolder _13(13);
+const PlaceHolder _14(14);
+const PlaceHolder _15(15);
+const PlaceHolder _16(16);
+const PlaceHolder _17(17);
+const PlaceHolder _18(18);
+const PlaceHolder _19(19);
+const PlaceHolder _20(20);
 
 class UnaryOp : public ExprType<UnaryOp> {
+  static const std::vector<std::string> UnaryOpNames;
   UnaryOpType type;
   std::unique_ptr<Expr> a;
 
@@ -185,6 +200,13 @@ public:
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new UnaryOp(type, *a));
   }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override {
+    return UnaryOpNames[static_cast<unsigned>(type)] + "u_" + a->name(inputs) +
+           "_d";
+  }
+  std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
+    return a->name(inputs);
+  };
 };
 
 #define POPLIBS_DEFINE_EXPR_UNARY_OP(Name, Op)                                 \
@@ -224,6 +246,7 @@ POPLIBS_DEFINE_EXPR_UNARY_OP(Sigmoid, SIGMOID)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Rsqrt, RSQRT)
 
 class BinaryOp : public ExprType<BinaryOp> {
+  static const std::vector<std::string> BinaryOpNames;
   BinaryOpType type;
   std::unique_ptr<Expr> a, b;
 
@@ -238,6 +261,13 @@ public:
 
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new BinaryOp(type, *a, *b));
+  }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override {
+    return BinaryOpNames[static_cast<unsigned>(type)] + "u_" + a->name(inputs) +
+           "_" + b->name(inputs) + "_d";
+  }
+  std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
+    return a->name(inputs) + "_" + b->name(inputs);
   }
 };
 
@@ -289,6 +319,7 @@ POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Sub, SUBTRACT, -)
 POPLIBS_DEFINE_EXPR_BINARY_OP(VarianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
 
 class TernaryOp : public ExprType<TernaryOp> {
+  static const std::vector<std::string> TernaryOpNames;
   TernaryOpType type;
   std::unique_ptr<Expr> a, b, c;
 
@@ -304,6 +335,13 @@ public:
 
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new TernaryOp(type, *a, *b, *c));
+  }
+  std::string name(const std::vector<poplar::Tensor> &inputs) const override {
+    return TernaryOpNames[static_cast<unsigned>(type)] + "u_" +
+           exprName(inputs) + "_d";
+  }
+  std::string exprName(const std::vector<poplar::Tensor> &inputs) const {
+    return a->name(inputs) + "_" + b->name(inputs) + "_" + c->name(inputs);
   }
 };
 

@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <fstream>
 #include <math.h>
+#include <poplibs_support/logging.hpp>
 #include <queue>
 #include <sstream>
 #include <stack>
@@ -31,10 +32,9 @@ using popops::expr::BinaryOpType;
 using popops::expr::BroadcastOpType;
 using popops::expr::TernaryOpType;
 using popops::expr::UnaryOpType;
+using namespace poplibs_support;
 
 namespace popops {
-
-int GenerateCodeletFromMapExpr::GeneratedVertexCount = 0;
 
 static bool isSupportedType(poplar::Type t) {
   return t == poplar::FLOAT || t == poplar::HALF || t == poplar::INT ||
@@ -221,7 +221,8 @@ poplar::Tensor generateAndExecuteMappedOperations(
 
   // Generate the actual codelet which will be run, compile it, add it to the
   // graph, and store the name of the generated codelet in codeletName.
-  std::string codeletName = generate.generateCodelet(graph, allInputsScalar);
+  std::string codeletName =
+      generate.generateCodelet(graph, allInputsScalar, expr);
 
   size_t numFusedOp = generate.getNumFusedOps();
 
@@ -275,56 +276,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
 // Convert a constant expression into a string representing that constant in
 // C/C++.
 static std::string handleConstant(const expr::Const *c) {
-  char *rawData = c->getData();
-
-  if (c->getType() == poplar::BOOL) {
-    return std::to_string(*reinterpret_cast<bool *>(rawData));
-  }
-  if (c->getType() == poplar::CHAR) {
-    return std::to_string(*reinterpret_cast<char *>(rawData));
-  }
-  if (c->getType() == poplar::UNSIGNED_CHAR) {
-    return std::to_string(*reinterpret_cast<unsigned char *>(rawData));
-  }
-  if (c->getType() == poplar::SIGNED_CHAR) {
-    return std::to_string(*reinterpret_cast<signed char *>(rawData));
-  }
-  if (c->getType() == poplar::UNSIGNED_SHORT) {
-    return std::to_string(*reinterpret_cast<unsigned short *>(rawData));
-  }
-  if (c->getType() == poplar::SHORT) {
-    return std::to_string(*reinterpret_cast<signed short *>(rawData));
-  }
-  if (c->getType() == poplar::UNSIGNED_INT) {
-    return std::to_string(*reinterpret_cast<unsigned int *>(rawData));
-  }
-  if (c->getType() == poplar::INT) {
-    return std::to_string(*reinterpret_cast<signed int *>(rawData));
-  }
-  if (c->getType() == poplar::UNSIGNED_LONG) {
-    return std::to_string(*reinterpret_cast<unsigned long *>(rawData));
-  }
-  if (c->getType() == poplar::LONG) {
-    return std::to_string(*reinterpret_cast<signed long *>(rawData));
-  }
-  if (c->getType() == poplar::UNSIGNED_LONGLONG) {
-    return std::to_string(*reinterpret_cast<unsigned long long *>(rawData));
-  }
-  if (c->getType() == poplar::LONGLONG) {
-    return std::to_string(*reinterpret_cast<signed long long *>(rawData));
-  }
-  if (c->getType() == poplar::FLOAT) {
-    return std::to_string(*reinterpret_cast<float *>(rawData)) + "f";
-  }
-  if (c->getType() == poplar::HALF) {
-    // The actual type behind the half should be a float.
-    assert(c->getTypeTraits().isFloat == true &&
-           c->getTypeTraits().size == sizeof(float));
-
-    return std::to_string(*reinterpret_cast<float *>(rawData));
-  }
-  throw poputil::poplibs_error("Constant type is not supported: " +
-                               c->getType().toString());
+  return c->printValue();
 }
 
 static bool typeSupportsVectorization(poplar::Type type) {
@@ -770,8 +722,8 @@ void GenerateCodeletFromMapExpr::addSerialSection(
   stream << data.top().first << ";\n";
 }
 
-std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph,
-                                                        bool allInputsScalar) {
+std::string GenerateCodeletFromMapExpr::generateCodelet(
+    poplar::Graph &graph, bool allInputsScalar, const expr::Expr &expr) {
 
   // Each stage of the operation is stored as a variable initalization.
   std::string initalizerString;
@@ -826,7 +778,12 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph,
     }
   }
   std::string vertexName =
-      "MapGeneratedVertex_" + std::to_string(GeneratedVertexCount);
+      createVertexName(expr, inputs, inPlace, allInputsScalar);
+
+  if (graph.hasCodelet(vertexName)) {
+    logging::debug("Codelet already in graph {}", vertexName);
+    return vertexName;
+  }
 
   std::stringstream stream;
   std::stringstream body_stream;
@@ -916,23 +873,23 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(poplar::Graph &graph,
     };
   )l";
 
-  std::string hash =
-      std::to_string(std::hash<std::string>{}(body_stream.str()));
-
-  std::unordered_map<std::string, std::string> &codeletsInThisGraph =
-      graphToCodelets[&graph];
-
-  auto itr = codeletsInThisGraph.find(hash);
-  if (itr != codeletsInThisGraph.end()) {
-    return itr->second;
-  }
-
-  GeneratedVertexCount++;
+  logging::debug("Adding codelet {} to graph", vertexName);
   graph.addCodelets(stream);
 
-  codeletsInThisGraph.insert({hash, vertexName});
-
   return vertexName;
+}
+
+std::string GenerateCodeletFromMapExpr::createVertexName(
+    const expr::Expr &expr, const std::vector<poplar::Tensor> &inputs,
+    const bool inPlace, const bool allInputsScalar) {
+  std::string result = "Fused_" + expr.name(inputs);
+  result += std::to_string(inPlace);
+  result += std::to_string(allInputsScalar);
+  for (const auto &input : inputs) {
+    result += std::to_string(input.numElements() == 1);
+  }
+
+  return result;
 }
 
 } // namespace popops

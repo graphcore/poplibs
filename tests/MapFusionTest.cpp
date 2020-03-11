@@ -131,8 +131,8 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     }
     // Then check that the name is the generated name.
     std::string name = vertexTypes.asVector()[0].asString();
-    if (std::string::npos == name.find("MapGeneratedVertex_")) {
-      std::cerr << "Name doesn't match MapGeneratedVertex_ (is operation "
+    if (std::string::npos == name.find("Fused_")) {
+      std::cerr << "Name doesn't match Fused_ (is operation "
                    "fused?) name="
                 << name;
       return false;

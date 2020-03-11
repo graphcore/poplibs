@@ -74,6 +74,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   endif()
 endif()
 
+
 if(${BUILD_SHARED_LIBS})
   set(Boost_USE_STATIC_LIBS OFF)
 else()

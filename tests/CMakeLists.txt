@@ -29,7 +29,7 @@ add_subdirectory(popsolver)
 add_test(
   NAME ApiCppVersionTest
   COMMAND ${CMAKE_CXX_COMPILER} -std=c++11 ${TEST_CXXFLAGS}
-          ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -Werror
+          ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -Werror -lpopops
 )
 
 # Function to add a multi-target test executable
@@ -4363,6 +4363,10 @@ add_multitarget_test(
           --padding=1
           --replication-factor=2
   VARIANTS ${TimesOutOnSimCpp})
+
+add_unit_test(ExprName 
+              ExprName.cpp
+              VARIANTS IpuModel)
 
 # Replicate across IPUs
 foreach(rf 1 2 4 8 16)
