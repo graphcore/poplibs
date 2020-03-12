@@ -1429,17 +1429,20 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto elementBytes =
       m.addConstant(target.getTypeSize(params.inputType), "elementBytes");
 
-  // here we need to calculate the how much padding (P) is required for the
-  // kernel. we do this by taking the size of the kernel dim we want to pad (D)
-  // of this sub-convolution and the amount of kernel splits (S), and do
-  // the following:
-  //  P = X - max(floor(D, S) % X, ceil(D, S) % X)
-  // where X is the multiple we want to pad up-to.
+  // Here we need to calculate how much padding (P) is required for the
+  // kernel. We do this by taking the size of the kernel dim we want to
+  // pad (D) of this sub-convolution and the amount of kernel splits (S)
+  // and do the following:
   //
-  // for example if we pad to multiples of 4 and the size is 7 and we split
-  // twice then the largest padding required is 1 (floor(7, 2) == 3) or if we
-  // have 9 and we split twice then the largest padding required is 3 because
-  // ceil(9, 2) = 5 and floor(9, 2) = 4.
+  //  P = (X - max(floor(D, S) % X, ceil(D, S) % X)) % X
+  //
+  // where X is the multiple we want to pad up to.
+  //
+  // We do both floor and ceil here and take the max because if the split
+  // does not evenly divide the kernel dimension, some tiles will need
+  // more padding than others. This max here takes the larger padding
+  // number to be used for estimates on all tiles so it may cause the
+  // overall cycle/memory estimates to be somewhat pessimistic.
   const auto x = m.addConstant(padToMultipleOf);
 
   assert(transformedSizes[ipuLevel].kernelSize.size() > dim);
@@ -1452,15 +1455,13 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto h = transformedSizes[ipuLevel].kernelSize[dim];
   const auto s = partitionVars[ipuLevel].kernelSplit[dim];
 
-  const auto kernelPaddingRem =
-      m.max({m.mod(m.floordiv(h, s), x), m.mod(m.ceildiv(h, s), x)},
-            "kernelPaddingRem");
-
-  // this is how many rows the kernel size has increased by. to get the number
-  // of bytes we need to multiply this number by the number of elements per
-  // row and the number of bytes per element.
-  const auto extraKernelPaddingRows =
-      m.sub(x, kernelPaddingRem, "extraKernelPaddingRows");
+  // This is how many elements the kernel size has increased by in
+  // the given dimension. To get the number of bytes we need to multiply
+  // this number by the number of elements per element of that dimension
+  // and the no. of bytes to represent the element type.
+  const auto kernelElemsToPadInDim = m.mod(
+      m.sub(x, m.max({m.mod(m.floordiv(h, s), x), m.mod(m.ceildiv(h, s), x)})),
+      x, "kernelPadding");
 
   const auto convGroupSize =
       m.product({transformedSizes[tileLevel].numConvGroupGrains,
@@ -1469,7 +1470,7 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
       m.product({transformedSizes[tileLevel].numInChanGrains,
                  m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
 
-  // we must calculate the product of all of the dimensions that are after the
+  // We must calculate the product of all of the dimensions that are after the
   // dimension we are padding to get the size of the "row".
   const auto weightsPerRow = [&] {
     const auto outChanSize =
@@ -1492,25 +1493,25 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
     return m.product(std::move(innerDimensions));
   }();
 
-  const auto extraKernelPadding =
-      m.product({extraKernelPaddingRows, weightsPerRow});
+  const auto kernelPaddingElems =
+      m.product({kernelElemsToPadInDim, weightsPerRow});
 
   // the size in bytes of each weight is always the same as the input.
-  tempBytes.push_back(m.product({extraKernelPadding, elementBytes},
+  tempBytes.push_back(m.product({kernelPaddingElems, elementBytes},
                                 "kernelZeroPaddingTempBytes"));
 
   // to get the cycles we multiply the padding by the exchange bandwidth from
   // the previous level.
   const auto extraKernelPaddingCycles =
-      exchangeEstimator.getCycles(extraKernelPadding, params.inputType,
+      exchangeEstimator.getCycles(kernelPaddingElems, params.inputType,
                                   ipuLevel, "kernelZeroPaddingCycles");
   cycles.push_back(extraKernelPaddingCycles);
 
   // kernel dilation may result in extra input padding.
   const auto kernelDilation =
       m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
-  const auto extraInputPaddingRows =
-      m.product({extraKernelPadding, kernelDilation}, "extraInputPaddingRows");
+  const auto inputElemsToPadInDim = m.product(
+      {kernelElemsToPadInDim, kernelDilation}, "extraInputPaddingRows");
 
   // similar to the weights we must calculate the size of the "row". for the
   // inputs this is the field shape for all dimensions after the one we pad.
@@ -1538,14 +1539,14 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
     return m.product(std::move(innerDimensions));
   }();
 
-  const auto extraInputPadding =
-      m.product({extraInputPaddingRows, inputsPerRow}, "extraInputPadding");
+  const auto inputPaddingElems =
+      m.product({inputElemsToPadInDim, inputsPerRow}, "extraInputPadding");
 
-  tempBytes.push_back(m.product({extraInputPadding, elementBytes},
+  tempBytes.push_back(m.product({inputPaddingElems, elementBytes},
                                 "inputZeroPaddingTempBytes"));
 
   const auto extraInputPaddingCycles = exchangeEstimator.getInputElementCycles(
-      extraInputPadding, params.inputType, ipuLevel, "inputZeroPaddingCycles");
+      inputPaddingElems, params.inputType, ipuLevel, "inputZeroPaddingCycles");
   cycles.push_back(extraInputPaddingCycles);
 
   const auto totalCycles = m.sum(std::move(cycles), "zeroPaddingCycles");

@@ -2012,14 +2012,15 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --output-channels 64
                  --batch-size 4
           PARALLEL_LEVEL 4)
-  add_conv_benchmark(NAME vgg16_tr_bs4_v1L1
-          PARAMS --field {224,224}
-                 --kernel-size 3
-                 --padding 1
-                 --input-channels 64
-                 --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 2)
+# TODO: T17350 re-enable this after investigation
+#  add_conv_benchmark(NAME vgg16_tr_bs4_v1L1
+#          PARAMS --field {224,224}
+#                 --kernel-size 3
+#                 --padding 1
+#                 --input-channels 64
+#                 --output-channels 64
+#                 --batch-size 4
+#          PARALLEL_LEVEL 2)
   add_conv_benchmark(NAME vgg16_tr_bs4_v2L0
           PARAMS --field {112,112}
                  --kernel-size 3

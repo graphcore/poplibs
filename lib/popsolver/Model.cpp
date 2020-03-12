@@ -165,8 +165,8 @@ Variable Model::ceildivConstrainDivisor(const Variable left,
 
 Variable Model::mod(Variable left, Variable right,
                     const std::string &debugName) {
-  // modulo A % B calculated by: X = A - (floordiv(A, B) * A)
-  return sub(left, product({floordiv(left, right), left}), debugName);
+  // modulo A % B calculated by: X = A - (floordiv(A, B) * B)
+  return sub(left, product({floordiv(left, right), right}), debugName);
 }
 
 void Model::less(Variable left, Variable right) {
