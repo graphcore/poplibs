@@ -15,11 +15,11 @@ include(GNUInstallDirs)
 #
 if (APPLE)
   set(CMAKE_INSTALL_RPATH
-      "@loader_path/../${CMAKE_INSTALL_LIBDIR};@loader_path/../../tbb/lib"
+      "@loader_path/../${CMAKE_INSTALL_LIBDIR};@loader_path/../../tbb/${CMAKE_INSTALL_LIBDIR}"
       CACHE STRING "Relative RPATH for OSX." FORCE)
 elseif (UNIX)
   set(CMAKE_INSTALL_RPATH
-      "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR};\$ORIGIN/../../tbb/lib"
+      "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR};\$ORIGIN/../../tbb/${CMAKE_INSTALL_LIBDIR}"
       CACHE STRING "Relative RPATH for Unix systems." FORCE)
 endif()
 

@@ -3,7 +3,7 @@
 #  TBB::TBB - The TBB library, if found
 #  TBB::malloc - The TBB memory allocator library, if found
 # This module defines the following variables:
-#  TBB_FOUND - System has TBB library 
+#  TBB_FOUND - System has TBB library
 #  TBB_INCLUDE_DIRS - The TBB include directories
 #  TBB_LIBRARIES - The libraries needed to use TBB
 
@@ -11,14 +11,14 @@
 # $ENV{TBB_ROOT}
 
 find_path(TBB_INCLUDE_DIRS tbb/tbb_stddef.h
-          HINTS ${TBB_ROOT}/lib
+          HINTS ${TBB_ROOT}/${CMAKE_INSTALL_LIBDIR}
                 $ENV{TBB_ROOT}/include)
 find_library(TBB_LIBRARY tbb
-             HINTS ${TBB_ROOT}/lib
-                   $ENV{TBB_ROOT}/lib)
+             HINTS ${TBB_ROOT}/${CMAKE_INSTALL_LIBDIR}
+                   $ENV{TBB_ROOT}/${CMAKE_INSTALL_LIBDIR})
 find_library(TBB_MALLOC_LIBRARY tbbmalloc
-             HINTS ${TBB_ROOT}/lib
-                   $ENV{TBB_ROOT}/lib)
+             HINTS ${TBB_ROOT}/${CMAKE_INSTALL_LIBDIR}
+                   $ENV{TBB_ROOT}/${CMAKE_INSTALL_LIBDIR})
 set(TBB_LIBRARIES ${TBB_LIBRARY} ${TBB_MALLOC_LIBRARY})
 
 if(TBB_INCLUDE_DIRS AND TBB_LIBRARY AND TBB_MALLOC_LIBRARY)
