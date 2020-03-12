@@ -224,10 +224,10 @@ void TensorUseTracker::mapTensorsByUse(poplar::Graph &graph, unsigned grainSize,
     for (unsigned tile = 0; tile < usage.size(); ++tile) {
       mapping[tile].reserve(usage[tile].iterative_size());
       for (const auto &interval : usage[tile]) {
+
         mapping[tile].emplace_back(interval.lower(), interval.upper());
       }
     }
-
     graph.setTileMapping(t, mapping);
   }
 }

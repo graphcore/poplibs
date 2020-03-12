@@ -4574,12 +4574,185 @@ static bool planSwapsOperands(const Plan &plan) {
   return false;
 }
 
+struct FCWTGroupSizes {
+  unsigned fwdGroupSize;
+  unsigned bwdGroupSize;
+  // It may be that the group sizes are such that there is no point in using
+  // transpose vertices so fall back to copys
+  bool useCopyImpl;
+};
+
+static std::vector<unsigned> commonDivisors(const unsigned A,
+                                            const unsigned B) {
+  const unsigned GCD = gcd(A, B);
+  // All factors of GCD are common factors of A and B, and all common divisors
+  // of A and B are factors of GCD
+  std::vector<unsigned> result(1, GCD);
+  // populated divisors ordered with largest first
+  for (unsigned i = ceildiv(GCD, 2U); i > 0; --i) {
+    if (GCD % i == 0) {
+      result.push_back(i);
+    }
+  }
+  return result;
+}
+
+static size_t accumSize(const std::vector<poplar::Interval> &vi) {
+  return std::accumulate(
+      vi.begin(), vi.end(), 0,
+      [](size_t acc, const poplar::Interval &i) { return acc + i.size(); });
+}
+
+// If the output to the transpose vertex is not contiguous we will introduce a
+// gather copy which ideally will be avoided. This function does not create the
+// full output tensor but a part of it. This means it won't catch all cases but
+// is faster than having to create the entire tensor and catches the case I care
+// about today
+static bool
+transposeOutputIsContiguous(const Tensor &outTensor,
+                            const std::vector<size_t> &firstInGroupShape,
+                            const std::vector<poplar::Interval> &intervals) {
+
+  const auto blockIndices =
+      poputil::unflattenIndex(firstInGroupShape, intervals.front().begin());
+  const auto outConnect = outTensor[blockIndices[0]][blockIndices[1]]
+                                   [blockIndices[3]][blockIndices[2]]
+                                       .flatten();
+  return outConnect.isContiguous();
+}
+
+static Tensor getGroupedFCWeightsView(const Tensor &splitActivations,
+                                      const unsigned inChansPerGroup,
+                                      const unsigned fieldElementsPerGroup) {
+  return splitActivations
+      .reshape({splitActivations.dim(0), splitActivations.dim(1),
+                splitActivations.dim(2) / inChansPerGroup, inChansPerGroup,
+                splitActivations.dim(3) / fieldElementsPerGroup,
+                fieldElementsPerGroup})
+      .dimShufflePartial({3}, {4});
+}
+
+static Tensor getFirstInGroup(Tensor &splitActivations,
+                              const unsigned bwdGroupSize,
+                              const unsigned fwdGroupSize) {
+  splitActivations =
+      getGroupedFCWeightsView(splitActivations, bwdGroupSize, fwdGroupSize);
+
+  return splitActivations
+      .slice({0, 0, 0, 0, 0, 0},
+             {splitActivations.dim(0), splitActivations.dim(1),
+              splitActivations.dim(2), splitActivations.dim(3), 1, 1})
+      .squeeze({4, 5});
+}
+
+// Returns a score for how fast the transpose compute set should be executed.
+// Higher score means faster execution. This is an estimated score
+static double blockScore(const unsigned fwdGroupSize,
+                         const unsigned bwdGroupSize, const Graph &graph,
+                         Tensor splitActivations,
+                         const Tensor &splitTransposed) {
+  // Call getGroupedFCWeightsView with fwd and bwd switched compared to
+  // calcylation to get first in group
+  auto outTensor =
+      getGroupedFCWeightsView(splitTransposed, fwdGroupSize, bwdGroupSize);
+  const auto firstInGroup =
+      getFirstInGroup(splitActivations, bwdGroupSize, fwdGroupSize);
+  const auto mapping = graph.getTileMapping(firstInGroup);
+
+  unsigned spread = 0;
+  double score = std::numeric_limits<double>::max();
+  const auto firstInGroupShape = firstInGroup.shape();
+  for (const auto &intervals : mapping) {
+    if (!intervals.empty()) {
+      ++spread;
+      const unsigned numTileTranspositions = accumSize(intervals);
+      const bool fastTrans =
+          useFastTranspose(graph.getTarget(), splitActivations.elementType(),
+                           bwdGroupSize, fwdGroupSize, numTileTranspositions);
+
+      const bool TOIC =
+          transposeOutputIsContiguous(outTensor, firstInGroupShape, intervals);
+      double tileScore = std::numeric_limits<double>::max();
+      if (fastTrans) {
+        // fast transpose transposes 64 bits per cycle in it's inner loop
+        // slow transpose transfers 64 bits in 5 cycles
+        tileScore = 5.0;
+      } else {
+        tileScore = 1.0;
+      }
+      if (!TOIC) {
+        // If the transpose output is not contiguous then a post arrange copy
+        // will be introduced. This number is fairly empiracle based on what
+        // made the benchmarks pass
+        tileScore = tileScore / 3;
+      }
+      score = std::min(score, tileScore); // update score with worst tile score
+    }
+  }
+  score = score * spread;
+  return score;
+}
+
+static FCWTGroupSizes pickGroupSizes(const std::vector<unsigned> &fwdChoices,
+                                     const std::vector<unsigned> &bwdChoices,
+                                     const Graph &graph,
+                                     const Tensor &splitActivations,
+                                     const Tensor &splitTranspose,
+                                     const bool isJointPlan) {
+  unsigned bestFwdIndex = 0;
+  unsigned bestBwdIndex = 0;
+  double bestScore = 0;
+  // if is joint plan then planner will have accounted for this layer,
+  // and so return the group sizes determined from the plan (which are
+  // the first indices in each vector)
+  if (isJointPlan) {
+    return {fwdChoices[bestFwdIndex], bwdChoices[bestBwdIndex], false};
+  }
+  for (unsigned fwdIndex = 0; fwdIndex < fwdChoices.size(); ++fwdIndex) {
+    for (unsigned bwdIndex = 0; bwdIndex < bwdChoices.size(); ++bwdIndex) {
+      const auto score = blockScore(fwdChoices[fwdIndex], bwdChoices[bwdIndex],
+                                    graph, splitActivations, splitTranspose);
+      if (score > bestScore) {
+        bestFwdIndex = fwdIndex;
+        bestBwdIndex = bwdIndex;
+        bestScore = score;
+      }
+    }
+  }
+  return {fwdChoices[bestFwdIndex], bwdChoices[bestBwdIndex], false};
+}
+
+static FCWTGroupSizes getGroupSizes(const Plan &fwdPlan, const Plan &bwdPlan,
+                                    const Graph &graph,
+                                    const Tensor &splitActivations,
+                                    const Tensor &splitTranspose) {
+
+  const auto possibleFwdGroupSizes = commonDivisors(
+      fwdPlan.inChansPerGroup, static_cast<unsigned>(splitActivations.dim(3)));
+
+  const auto possibleBwdGroupSizes = commonDivisors(
+      bwdPlan.inChansPerGroup, static_cast<unsigned>(splitActivations.dim(2)));
+
+  const auto isJointPlan = fwdPlan.isJointPlan && bwdPlan.isJointPlan;
+
+  FCWTGroupSizes result =
+      pickGroupSizes(possibleFwdGroupSizes, possibleBwdGroupSizes, graph,
+                     splitActivations, splitTranspose, isJointPlan);
+
+  result.useCopyImpl = result.fwdGroupSize == 1 || result.bwdGroupSize == 1 ||
+                       planSwapsOperands(fwdPlan) || planSwapsOperands(bwdPlan);
+  logging::trace("Transpose Group sizes fwd, bwd, useCopy = {} {} {}",
+                 result.fwdGroupSize, result.bwdGroupSize, result.useCopyImpl);
+  return result;
+}
+
 static Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
                                             const CanonicalConvParams &params,
                                             Sequence &prog,
                                             const std::string &debugPrefix,
                                             const ConvOptions &options,
                                             PlanningCache *cache) {
+
   if (params->getNumFieldDims() != 1) {
     throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
                                  " convolution");
@@ -4589,49 +4762,41 @@ static Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
                                                        params, options, cache);
   auto splitActivations = actsToInternalShape(
       activations, params->getNumConvGroups(), params->inputFieldShape.back());
-  const auto fwdGroupSize = getInChansPerGroup(
-      fwdPlan, static_cast<unsigned>(splitActivations.dim(3)));
-  const auto bwdGroupSize = getInChansPerGroup(
-      bwdPlan, static_cast<unsigned>(splitActivations.dim(2)));
-  if (fwdGroupSize == 1 || bwdGroupSize == 1 || planSwapsOperands(fwdPlan) ||
-      planSwapsOperands(bwdPlan)) {
-    // In this case there is no benefit to using transpose vertices to
-    // rearrange.
-    return actsToExternalShape(splitActivations.dimShuffle({0, 1, 3, 2}));
-  }
+
   Tensor transposed =
       createInput(graph, params.getParams(), "transposed", options, cache);
   auto splitTransposed =
       actsToInternalShape(transposed, params->getNumConvGroups(),
                           params->inputChannelsPerConvGroup);
+
+  const auto groupSizes =
+      getGroupSizes(fwdPlan, bwdPlan, graph, splitActivations, splitTransposed);
+  const auto fwdGroupSize = groupSizes.fwdGroupSize;
+  const auto bwdGroupSize = groupSizes.bwdGroupSize;
+
+  if (groupSizes.useCopyImpl) {
+    // In this case there is no benefit to using transpose vertices to
+    // rearrange.
+    return actsToExternalShape(splitActivations.dimShuffle({0, 1, 3, 2}));
+  }
+
   auto splitTransposedUngroupedShape = splitTransposed.shape();
   const auto dType = activations.elementType();
-  splitActivations =
-      splitActivations
-          .reshape({splitActivations.dim(0), splitActivations.dim(1),
-                    splitActivations.dim(2) / bwdGroupSize, bwdGroupSize,
-                    splitActivations.dim(3) / fwdGroupSize, fwdGroupSize})
-          .dimShufflePartial({3}, {4});
+
   splitTransposed =
-      splitTransposed
-          .reshape({splitTransposed.dim(0), splitTransposed.dim(1),
-                    splitTransposed.dim(2) / fwdGroupSize, fwdGroupSize,
-                    splitTransposed.dim(3) / bwdGroupSize, bwdGroupSize})
-          .dimShufflePartial({3}, {4});
-  auto firstInBlock =
-      splitActivations
-          .slice({0, 0, 0, 0, 0, 0},
-                 {splitActivations.dim(0), splitActivations.dim(1),
-                  splitActivations.dim(2), splitActivations.dim(3), 1, 1})
-          .squeeze({4, 5});
-  auto blockTileMapping = graph.getTileMapping(firstInBlock);
+      getGroupedFCWeightsView(splitTransposed, fwdGroupSize, bwdGroupSize);
+
+  auto firstInGroup =
+      getFirstInGroup(splitActivations, bwdGroupSize, fwdGroupSize);
+
+  auto blockTileMapping = graph.getTileMapping(firstInGroup);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
 
   addTransposeVertices(
       graph, transposeCS, dType, bwdGroupSize, fwdGroupSize, blockTileMapping,
       [&](size_t index) {
         auto blockIndices =
-            poputil::unflattenIndex(firstInBlock.shape(), index);
+            poputil::unflattenIndex(firstInGroup.shape(), index);
         return std::make_pair(splitActivations[blockIndices[0]][blockIndices[1]]
                                               [blockIndices[2]][blockIndices[3]]
                                                   .flatten(),

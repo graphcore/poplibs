@@ -8,10 +8,13 @@
 #include <boost/range/irange.hpp>
 #include <cassert>
 #include <map>
+#include <poplibs_support/logging.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
+
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace poplin {
 
@@ -791,7 +794,6 @@ ConvParams getGradientParams(const ConvParams &params_) {
 bool useFastTranspose(const poplar::Target &target, const poplar::Type &type,
                       unsigned numRows, unsigned numColumns,
                       unsigned numTranspositions) {
-
   if (type != poplar::HALF ||
       numTranspositions > std::numeric_limits<unsigned short>::max() ||
       numRows % 4 || numColumns % 4) {
@@ -815,6 +817,12 @@ bool useFastTranspose(const poplar::Target &target, const poplar::Type &type,
     }
   }
   return true;
+}
+
+bool switchToTranspose(const unsigned numTileTranspositions,
+                       const unsigned rows, const unsigned cols) {
+  return (numTileTranspositions == 1) ||
+         ((rows == 4) && (cols == 4) && (numTileTranspositions <= 4));
 }
 
 void addTransposeVertices(
@@ -859,8 +867,7 @@ void addTransposeVertices(
         // If we have to do a single matrix (of any size), it's faster to run
         // the 'plain' Transpose instead of TransposeSupervisor.
         // Same is true if we have up to four 4x4 matrix
-        if ((numTileTranspositions == 1) ||
-            ((rows == 4) && (cols == 4) && (numTileTranspositions <= 4))) {
+        if (switchToTranspose(numTileTranspositions, rows, cols)) {
           vertexType = Transpose;
         }
       } else {
