@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.12)
 project(poplibs)
 
+include(GNUInstallDirs)
+
 # Add path for custom modules
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules" )
 
@@ -114,8 +116,9 @@ endif()
 
 # Set up popc flags.
 set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
-list(APPEND POPC_FLAGS -I ${ARCH_MAN_PATH}/include)
-list(APPEND POPC_FLAGS -I ${POPLAR_INCLUDE_PATH})
+list(APPEND POPC_FLAGS -I ${ARCH_MAN_INCLUDE_DIR})
+list(APPEND POPC_FLAGS -I ${POPLAR_INCLUDE_DIR})
+list(APPEND POPC_FLAGS -I ${RUNTIME_INCLUDE_DIR})
 list(APPEND POPC_FLAGS -DWORKER_REG_STATE_RETAINED=${RETAIN_WORKER_STATE_VAL})
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)

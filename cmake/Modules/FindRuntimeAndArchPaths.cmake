@@ -1,9 +1,9 @@
 # Search for runtime and arch_man path
 
 # this module defines the following variables:
-#   - RUNTIME_PATH
-#   - POPLAR_INCLUDE_PATH
-#   - ARCH_MAN_PATH
+#   - RUNTIME_INCLUDE_DIR
+#   - POPLAR_INCLUDE_DIR
+#   - ARCH_MAN_INCLUDE_DIR
 #   - ENABLED_IPU_ARCH_NAMES e.g. "ipu0;ipu1"
 #   - ENABLED_IPU_ARCH_NAMES_COMMA_SEPARATED e.g. "ipu0,ipu1"
 
@@ -17,13 +17,15 @@ list(APPEND SEARCH_PATHS "${ADDITIONAL_SEARCH_PATHS}")
 list(REMOVE_DUPLICATES SEARCH_PATHS)
 
 foreach(path IN LISTS SEARCH_PATHS)
+  # runtime explicitly lib
   if(EXISTS "${path}/lib/graphcore/include/stddef.h")
-    set(RUNTIME_PATH ${path})
+    set(RUNTIME_INCLUDE_DIR "${path}/lib/graphcore/include")
   endif()
 
+  # archman explicitly lib
   file(GLOB ARCH_MAN_IPU_PATHS ${path}/include/arch/gc_tilearch_ipu*.h)
   if(ARCH_MAN_IPU_PATHS)
-    set(ARCH_MAN_PATH ${path})
+    set(ARCH_MAN_INCLUDE_DIR "${path}/include")
     set(ENABLED_IPU_ARCH_NAMES "")
     foreach(IPU_PATH ${ARCH_MAN_IPU_PATHS})
       string(REGEX MATCH ".*(ipu[0-9]+).h$" _ ${IPU_PATH})
@@ -34,16 +36,17 @@ foreach(path IN LISTS SEARCH_PATHS)
     string(REPLACE ";" "," ENABLED_IPU_ARCH_NAMES_COMMA_SEPARATED "${ENABLED_IPU_ARCH_NAMES}")
   endif()
 
-  if(EXISTS "${path}/lib/graphcore/include/poplar/Vertex.hpp")
-    set(POPLAR_INCLUDE_PATH ${path}/lib/graphcore/include)
+  # poplar uses `${CMAKE_INSTALL_LIBDIR}`
+  if(EXISTS "${path}/${CMAKE_INSTALL_LIBDIR}/graphcore/include/poplar/Vertex.hpp")
+    set(POPLAR_INCLUDE_DIR "${path}/${CMAKE_INSTALL_LIBDIR}/graphcore/include")
   endif()
 endforeach(path)
 
-if(NOT RUNTIME_PATH)
+if(NOT RUNTIME_INCLUDE_DIR)
   message(FATAL_ERROR "Could not find runtime path")
 endif()
 
-if(NOT ARCH_MAN_PATH)
+if(NOT ARCH_MAN_INCLUDE_DIR)
   message(FATAL_ERROR "Could not find arch man path")
 endif()
 
@@ -52,6 +55,6 @@ if (NUMBER_ENABLED_IPU EQUAL 0)
   message(FATAL_ERROR "Could not find any supported archs in arch man path")
 endif()
 
-if(NOT POPLAR_INCLUDE_PATH)
+if(NOT POPLAR_INCLUDE_DIR)
   message(FATAL_ERROR "Could not find poplar include path")
 endif()
