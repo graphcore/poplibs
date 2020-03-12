@@ -120,29 +120,30 @@
 //
 // first_in_group = 1: (i.e. zeroing of partials)
 //        num_field_pos = 0
-//                      14
+//                      11
 //        num_field_pos == 1
-//                      27
+//                      26
 //                   num_field_pos == 2
-//                      29
+//                      26
 //                   num_field_pos >= 3
-//                      30  + (num_field_pos - 3) * 4
+//                      26  + (num_field_pos - 3) * 4
 //
 //
 // first_in_group = 0: (i.e. no zeroing of partials)
 //        num_field_pos = 0
 //                      14
 //        num_field_pos == 1
-//                      29
+//                      28
 //                   num_field_pos == 2
-//                      31
+//                      30
 //                   num_field_pos >= 3
-//                      32  + (num_field_pos - 3) * 4
+//                      29  + (num_field_pos - 3) * 4
 //
 //
-// The very first call of the worker requires 12 more cycles if 
+// The very first call of the worker requires 15 more cycles if 
 //    WORKER_REG_STATE_RETAINED != 0
-// Otherwise all calls of workers requires 12 cycles more.
+// Otherwise all calls of workers requires 15 cycles more for a given input channel
+//                                         12 cycles when an input channel changes
 
 // Total:
 convPartialFlattenedFieldAligned:
@@ -150,7 +151,6 @@ nop
 convPartialFlattenedField:
 
 #define wkr_id                    m0
-#define inchan_ptr                m0
 #define outchan_ptr               m1
 #define tripacked_addr            m0:1
 #define partition_w               m2
@@ -162,6 +162,7 @@ convPartialFlattenedField:
 #define zero_outchan              m6
 #define cmp_res                   m7
 #define eq2flag                   m8
+#define inchan_ptr                m9
 #define stride3                   m10
 #define const_stride_m2           m11
 
@@ -182,19 +183,22 @@ add           $num_elems, $num_elems, -3
 setzi         $const_stride_m2, 0xFF800  // -2 * 1024
 
 convPartialFlattenedFieldStateRetained:
+
+ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
+add           $inchan_ptr, $inchan_ptr, $in_off
 ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
+
+convPartialFlattenedFieldStateRetainedInChanPtr:
+
+ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
 {
-  ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
+  add           $outchan_ptr, $outchan_ptr, $out_off
   setzi         $a0, ZAACC_BITMASK
 }
 {
-  ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
+  brpos         $zero_outchan, LNoPartialsToLoad
   uput          $FP_CLR, $a0
 }
-
-add           $inchan_ptr, $inchan_ptr, $in_off
-add           $outchan_ptr, $outchan_ptr, $out_off
-brpos         $zero_outchan, LNoPartialsToLoad
 
 Amp_start:
 
@@ -329,7 +333,9 @@ or            $stride3, $eq2flag, $const_stride_m2
 brz           $cmp_res, SetStride1NumElemsEq1
 add           $cmp_res, $cmp_res, 1
 brneg         $cmp_res, L_end_fn
-setzi         $stride1, 0
+// preserve msb
+shr           $stride1, $stride1, 31
+shl           $stride1, $stride1, 31
 
 SetStride1NumElemsEq1:
 {
@@ -399,7 +405,10 @@ ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $mzero, 0b00
   f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
 
-rpt $num_elems, (Loop_end_Amp_Z-Loop_start_Amp_Z)/8-1
+{
+  rpt $num_elems, (Loop_end_Amp_Z-Loop_start_Amp_Z)/8-1
+  fnop
+}
 Loop_start_Amp_Z:
   // The reads in the last pass are effectively dummy to avoid code bloat
   {
@@ -448,7 +457,9 @@ cmpeq         $stride3, $cmp_res, $mzero
 brz           $cmp_res, SetStride1NumElemsEq1_Z
 add           $cmp_res, $cmp_res, 1
 brneg         $cmp_res, L_end_fn
-setzi         $stride1, 0
+// preserve msb
+shr           $stride1, $stride1, 31
+shl           $stride1, $stride1, 31
 
 SetStride1NumElemsEq1_Z:
 ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $stride3, 0b00
@@ -534,12 +545,15 @@ CODELET_NAME_128:
 .supervisor
 // Performance:
 // 50 + numConvGroups * (12 +
-//                       inChanGroups * (15 +
+//                       inChanGroups * (15 + inChanOverhead +
 //                                       outChanGroups * (19 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
 // Where AMP groups = OutChansPerGroup / 8
 // and LOADCYCLES = 16 for 128 bit load
 //                = 32 for 64 bit load
+//
+// inChanOverhead = 0 if worker state is not retained
+//                = 1 if worker state is retained
 // ----------------------------------------------------------------------------
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
   ldz16         $partition_s, $sup_base, SUP_PARTITION/2
@@ -723,7 +737,7 @@ AmpGroupLoop_\LDTYPE\():
         add           $outvec_s, $outvec_s, AMP_OUTPUTS * SIZEOF_FLOAT
         runall        $wkr_function, $wkr_vertex, 0
 #if WORKER_REG_STATE_RETAINED
-        setzi         $wkr_function, convPartialFlattenedFieldStateRetained
+        setzi         $wkr_function, convPartialFlattenedFieldStateRetainedInChanPtr
 #endif
         // increment output vector pointer for the AMP loop
         brnzdec $amp_group_s, AmpGroupLoop_\LDTYPE\()
@@ -744,6 +758,9 @@ AmpGroupLoop_\LDTYPE\():
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
+#if WORKER_REG_STATE_RETAINED
+        setzi         $wkr_function, convPartialFlattenedFieldStateRetained
+#endif
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $invec_s, $invec_s, 3
