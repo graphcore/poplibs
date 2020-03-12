@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <poplar/VectorTypes.hpp>
 #include <poplar/Vertex.hpp>

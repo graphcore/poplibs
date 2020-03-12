@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 
 #ifndef poplibs_support_TileHierarchy_hpp
 #define poplibs_support_TileHierarchy_hpp

@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>

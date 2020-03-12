@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplibs_test/Embedding.hpp"
 
 #include <poputil/exceptions.hpp>

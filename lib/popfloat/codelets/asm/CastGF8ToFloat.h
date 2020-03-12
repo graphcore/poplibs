@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifndef CAST_GF8_TO_FLOAT_H
 #define CAST_GF8_TO_FLOAT_H
 

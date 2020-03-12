@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
 // Specialisation 2 SCALAR_OUTPUT_SINGLE_INPUT - Overview:

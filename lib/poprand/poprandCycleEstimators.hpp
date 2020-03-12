@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #ifndef __poprandCycleEstimators_hpp__
 #define __poprandCycleEstimators_hpp__
 

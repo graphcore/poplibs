@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "HyperGraph.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Zero.hpp"

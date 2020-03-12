@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 #ifndef popfloat_codelets_hpp
 #define popfloat_codelets_hpp

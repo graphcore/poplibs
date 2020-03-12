@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE LargeSplitRegionsTest
 #include <boost/test/unit_test.hpp>
 #include <poplar/Interval.hpp>

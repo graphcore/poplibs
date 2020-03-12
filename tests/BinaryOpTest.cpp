@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 //
 // Perform a binary operation between two tensors with any desired shape, each
 // mapped in any desired way among tiles.

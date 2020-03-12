@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifndef popops_codelets_util_hpp
 #define popops_codelets_util_hpp
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+# Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 import os
 import subprocess

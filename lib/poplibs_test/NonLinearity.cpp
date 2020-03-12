@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 

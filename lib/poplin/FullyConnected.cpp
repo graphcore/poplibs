@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplin/FullyConnected.hpp"
 
 #include "poplibs_support/Compiler.hpp"

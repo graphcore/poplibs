@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 //
 // Contains functions to calculate partials for convolution. Partials and Output
 // are used interchangeably in this file. Each worker may process part of a

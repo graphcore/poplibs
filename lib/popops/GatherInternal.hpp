@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifndef popops_GatherInternal_hpp
 #define popops_GatherInternal_hpp
 #include <poplar/Graph.hpp>

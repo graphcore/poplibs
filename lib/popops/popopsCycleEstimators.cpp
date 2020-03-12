@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popopsCycleEstimators.hpp"
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/gcd.hpp"

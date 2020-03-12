@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #ifndef POPSPARSE_BLOCK_SPARSE_MATMUL_H
 #define POPSPARSE_BLOCK_SPARSE_MATMUL_H

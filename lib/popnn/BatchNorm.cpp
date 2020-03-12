@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popnn/BatchNorm.hpp"
 #include "NormsInternal.hpp"
 #include "poplin/Norms.hpp"

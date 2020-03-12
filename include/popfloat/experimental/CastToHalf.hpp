@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 #ifndef POPFLOAT_HALF_UTILS_H
 #define POPFLOAT_HALF_UTILS_H

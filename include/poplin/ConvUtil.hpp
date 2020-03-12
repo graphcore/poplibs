@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 
 #ifndef poplin_ConvUtil_hpp
 #define poplin_ConvUtil_hpp

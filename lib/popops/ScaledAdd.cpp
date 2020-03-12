@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popops/ScaledAdd.hpp"
 #include "poplibs_support/OptionParsing.hpp"
 #include "popops/Cast.hpp"

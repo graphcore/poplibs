@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 // Test for the broadcastOp vertex operations.
 // Used to verify aspects of implementation that
 // aren't simply to correctness of arithmetic on a single item. Also

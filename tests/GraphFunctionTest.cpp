@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE GraphFunctionTest
 #include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>

@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE CloneNTest
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>

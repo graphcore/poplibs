@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ConvUtilTest
 #include "ConvUtilInternal.hpp"
 #include "TestDevice.hpp"

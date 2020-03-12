@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
 #define SELECT_BOOL __runCodelet_popops__Select___bool

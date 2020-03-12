@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 // Partials Equal Size Reduce Overview:
 // See ReducePartialsEqualSizeAcc.S

@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 // Test for the Dynamic Slice adn Dynamic Slice update 2d vertices
 //
 #include <TestDevice.hpp>

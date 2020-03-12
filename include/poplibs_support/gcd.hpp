@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 
 #ifndef poplibs_support_gcd_hpp
 #define poplibs_support_gcd_hpp

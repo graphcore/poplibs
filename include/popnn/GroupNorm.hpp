@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 #ifndef popnn_GroupNorm_hpp
 #define popnn_GroupNorm_hpp

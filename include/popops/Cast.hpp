@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 
 #ifndef popops_Cast_hpp
 #define popops_Cast_hpp

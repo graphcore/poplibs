@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #ifndef _popsolver_Constraint_hpp_
 #define _popsolver_Constraint_hpp_
 

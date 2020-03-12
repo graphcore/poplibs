@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
 // Continuous Reduce (ALL_REGIONS_CONTINUOUS) - Overview:

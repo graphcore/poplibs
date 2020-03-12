@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 // Test for generating a broadcastOp pattern.
 // Used to generate customised patterns that may require optimised vertices.
 //

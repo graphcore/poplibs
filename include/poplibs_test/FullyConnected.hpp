@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 
 #ifndef poplibs_test_FullyConnected_hpp
 #define poplibs_test_FullyConnected_hpp

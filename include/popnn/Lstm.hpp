@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 
 #ifndef popnn_Lstm_hpp
 #define popnn_Lstm_hpp

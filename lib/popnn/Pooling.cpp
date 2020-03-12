@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 
 #include "popnn/Pooling.hpp"
 #include "PoolOptions.hpp"

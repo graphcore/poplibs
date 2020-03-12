@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 
 #ifndef poplibs_test_Pooling_hpp
 #define poplibs_test_Pooling_hpp

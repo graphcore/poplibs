@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "poputil/Util.hpp"
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/exceptions.hpp>

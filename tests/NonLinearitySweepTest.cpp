@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 // Test for the Non-Linearity Forward Operations
 // Used to verify the accuracy of Non-Linearity forward processing functions
 // over the full Half-Precision range.

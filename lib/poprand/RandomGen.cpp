@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poprand/RandomGen.hpp"
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"

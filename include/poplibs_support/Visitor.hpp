@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifndef poplibs_include_core_util_Visitor_hpp
 #define poplibs_include_core_util_Visitor_hpp
 

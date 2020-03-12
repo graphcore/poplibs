@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "codelets/GfloatConst.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"

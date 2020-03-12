@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
 #define PackedGfloatParams        __runCodelet_popfloat__experimental__PackedGfloatParams

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/codelets.hpp"
 #include "popopsCycleEstimators.hpp"
 #include "reduction/CycleEstimationFunctions.hpp"

@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 #ifndef popops_EncodingConstants_hpp
 #define popops_EncodingConstants_hpp

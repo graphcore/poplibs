@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 
 #ifndef popnn_BatchNorm_hpp
 #define popnn_BatchNorm_hpp

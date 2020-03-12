@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+# Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 """
 A tool to plot graph and execution statistics for a Poplar program as a

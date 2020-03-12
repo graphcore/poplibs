@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE PlanConstraintsTest
 #include "poplibs_support/PlanConstraints.hpp"
 #include <boost/test/unit_test.hpp>

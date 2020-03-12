@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplin/Norms.hpp"
 #include "NormsInternal.hpp"
 #include "poputil/TileMapping.hpp"

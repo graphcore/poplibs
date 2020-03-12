@@ -1,4 +1,4 @@
-// Copyright (c) 2019 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 #ifndef poplin_CanonicalConvParams_hpp
 #define poplin_CanonicalConvParams_hpp

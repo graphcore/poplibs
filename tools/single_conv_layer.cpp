@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "TestDevice.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/print.hpp"

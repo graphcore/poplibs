@@ -1,4 +1,4 @@
-// Copyright (c) 2018 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "TestDevice.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popnn/codelets.hpp"

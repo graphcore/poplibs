@@ -1,4 +1,4 @@
-// Copyright (c) 2017 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include <cassert>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/NonLinearity.hpp>
