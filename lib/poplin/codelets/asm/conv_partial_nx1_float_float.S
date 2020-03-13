@@ -123,70 +123,6 @@
 
 // =============================================================================
 
-// Zero output/partials
-// Uses same vertex state as the convolution
-//
-// Performance: 14 + num_samples / 2
-
-.section ".text.convNx1ZeroOutField_float_float", "ax"
-.global convNx1ZeroOutField_float_float
-.type convNx1ZeroOutField_float_float, @function
-.align 8
-.worker
-#define wkr_id_zv                       m0
-#define outchan_ptr_zv                  m1
-#define zero_info_zv                    m2
-#define rem_zv                          m3
-#define final_write_zv                  m4
-#define div_by_12_zv                    m5
-#define add_one_zv                      m6
-convNx1ZeroOutField_float_float:
-{
-get           $wkr_id_zv, $WSR
-setzi         $a0, ZAACC_BITMASK
-}
-{
-and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
-uput          $FP_CLR, $a0
-}
-ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
-ld32          $zero_info_zv, $mvertex_base, WKR_ZERO_INFO/4
-
-// One worker has to do the remainder
-and           $final_write_zv, $zero_info_zv, 0x1
-shr           $zero_info_zv, $zero_info_zv, (3 - LOG2_SIZEOF_OUT_ATOM)
-
-// floor(x/6) = floor(21846 * x / 2^17) for values of x in the range
-// [0, 32768)
-mul           $div_by_12_zv, $zero_info_zv, 21846
-shr           $div_by_12_zv, $div_by_12_zv, 17
-mul           $rem_zv, $div_by_12_zv, 6
-sub           $rem_zv, $zero_info_zv, $rem_zv
-// each remaining double word is assigned to a worker
-cmpult        $add_one_zv, $wkr_id_zv, $rem_zv
-add           $div_by_12_zv, $div_by_12_zv, $add_one_zv
-
-ld64step      $azeros, $mzero, $outchan_ptr_zv+=, $wkr_id_zv
-rpt           $div_by_12_zv, (Loop_end_zero_64 - Loop_start_zero_64)/8 - 1
-Loop_start_zero_64:
-  {
-    st64step      $azeros, $mzero, $outchan_ptr_zv+=, 6
-    fnop
-  }
-Loop_end_zero_64:
-brz           $final_write_zv, ExitZeroFn
-cmpeq         $rem_zv, $rem_zv, $wkr_id_zv
-brz           $rem_zv, ExitZeroFn
-st32step      $azero, $mzero, $outchan_ptr_zv+=, 1
-
-ExitZeroFn:
-exitz         $mzero
-
-.size convNx1ZeroOutField_float_float, . - convNx1ZeroOutField_float_float
-
-// =============================================================================
-
-
 // Non loop overhead:
 //      zero Partitions:         7
 //      non-zero partitions:     19
@@ -767,7 +703,7 @@ shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
 shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
 
-setzi         $wkr_function_s_z, convNx1ZeroOutField
+setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloat
 
 // Scale output and input channels per group to scale input and output offsets.
 // Scaling depends on sizeof(input) and sizeof(output)
@@ -816,6 +752,9 @@ ZeroOutChanGroup_\LDTYPE\():
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
     runall        $wkr_function_s_z, $wkr_base, 0
+#if WORKER_REG_STATE_RETAINED
+    setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloatReentry
+#endif
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\LDTYPE\()
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_\LDTYPE\()
 

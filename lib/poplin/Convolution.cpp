@@ -2843,6 +2843,123 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
   return concat({paddingLowerTensor, t, paddingUpperTensor}, dim);
 }
 
+// Padding the input / weights using constants creates aliases of the zero
+// constant which causes a rearrangement between the exchange and compute
+// steps. This rearrangement can double amount of temporary memory required
+// Workaround this by creating a padding variable that in used in place
+// of the constant zero. The size of the variable is equal to the
+// amount of padding required so we can avoid aliasing of elements.
+// TODO: fixing T5913 means we should be able to remove this.
+struct Padder {
+  Padder(Graph &graph, const unsigned tile, Sequence &transformPre,
+         Tensor &copyWritten, const Type &type, const std::string &debugPrefix)
+      : graph(graph), tile(tile), transformPre(transformPre),
+        copyWritten(copyWritten), debugPrefix(debugPrefix) {
+    paddingTensor =
+        graph.addConstant(type, {0}, 0, debugPrefix + "/paddingTensor");
+    graph.setTileMapping(paddingTensor, 0);
+  }
+
+  ~Padder() {
+    if (paddingTensor.numElements() != 0) {
+      auto c =
+          graph.addConstant(paddingTensor.elementType(), paddingTensor.shape(),
+                            0, debugPrefix + "/paddingTensor");
+      graph.setTileMapping(c, 0);
+      graph.setTileMapping(paddingTensor, tile);
+      transformPre.add(Copy(c, paddingTensor));
+      copyWritten = concat(copyWritten, paddingTensor.flatten());
+    }
+  }
+
+  Tensor operator()(Graph &graph, const Tensor &t, unsigned paddingLower,
+                    unsigned paddingUpper, unsigned dim) {
+    assert(t.elementType() == paddingTensor.elementType());
+    return padWithVariable(graph, t, paddingLower, paddingUpper, dim,
+                           paddingTensor, debugPrefix);
+  }
+
+private:
+  Graph &graph;
+  unsigned tile;
+  Sequence &transformPre;
+  Tensor &copyWritten;
+  const std::string &debugPrefix;
+
+  Tensor paddingTensor;
+};
+
+// pad the specified kernel dimension by the specified amount. modifies the
+// conv params in place to reflect this transformation.
+static Tensor padKernelSpatialDim(Graph &graph, ConvParams &params,
+                                  Tensor weights, const unsigned dim,
+                                  const unsigned padToMultipleOf,
+                                  Padder &padder) {
+  // the weights are in the grouped internal shape so the spatial dimensions
+  // begin at the third dimension (after G, Ci and Co).
+  const auto tensorDim = dim + 3;
+
+  const auto kernel = weights.dim(tensorDim);
+  if (kernel % padToMultipleOf != 0) {
+    const auto extraKernelPadding =
+        (padToMultipleOf - kernel % padToMultipleOf);
+    const auto extraInputPadding =
+        extraKernelPadding * params.kernelTransform.dilation[dim];
+
+    unsigned extraKernelPaddingLower = 0, extraKernelPaddingUpper = 0;
+    auto &flippedExtraKernelPaddingUpper = params.kernelTransform.flip[dim]
+                                               ? extraKernelPaddingLower
+                                               : extraKernelPaddingUpper;
+
+    auto &inputPaddingLower = params.inputTransform.paddingLower[dim];
+    auto &inputPaddingUpper = params.inputTransform.paddingUpper[dim];
+    auto &flippedInputPaddingUpper =
+        params.inputTransform.flip[dim] ? inputPaddingLower : inputPaddingUpper;
+
+    flippedExtraKernelPaddingUpper += extraKernelPadding;
+    flippedInputPaddingUpper += extraInputPadding;
+
+    weights = padder(graph, weights, extraKernelPaddingLower,
+                     extraKernelPaddingUpper, tensorDim);
+    params.kernelShape[dim] += extraKernelPadding;
+  }
+
+  return weights;
+}
+
+// Explicitly truncate, dilate and pad the outermost spatial field of the
+// input. modifies the conv params in place to reflect this transformation.
+static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
+                                        Tensor in, Padder &padder,
+                                        const std::string &debugPrefix) {
+  // the input is in the grouped internal shape so the spatial dimensions
+  // begin at the third dimension (after G, Ci and N).
+  const auto tensorDim = 3;
+
+  const auto inputTruncationLower = params.inputTransform.truncationLower[0];
+  const auto inputTruncationUpper = params.inputTransform.truncationUpper[0];
+  in = pad(graph, in, -static_cast<int>(inputTruncationLower),
+           -static_cast<int>(inputTruncationUpper), tensorDim);
+  params.inputFieldShape[0] -= inputTruncationLower + inputTruncationUpper;
+  params.inputTransform.truncationLower[0] = 0;
+  params.inputTransform.truncationUpper[0] = 0;
+
+  const auto inputDilation = params.inputTransform.dilation[0];
+  in = dilate(graph, in, inputDilation, tensorDim, debugPrefix);
+  params.inputTransform.dilation[0] = 1;
+  params.inputFieldShape[0] =
+      getDilatedSize(params.inputFieldShape[0], inputDilation);
+
+  const auto inputPaddingLower = params.inputTransform.paddingLower[0];
+  const auto inputPaddingUpper = params.inputTransform.paddingUpper[0];
+  in = padder(graph, in, inputPaddingLower, inputPaddingUpper, tensorDim);
+  params.inputFieldShape[0] += inputPaddingLower + inputPaddingUpper;
+  params.inputTransform.paddingLower[0] = 0;
+  params.inputTransform.paddingUpper[0] = 0;
+
+  return in;
+}
+
 static void createConvPartialAmpVertices(Graph &graph, const Plan &plan,
                                          unsigned tile, ConvParams params,
                                          Sequence &transformPre,
@@ -2857,70 +2974,17 @@ static void createConvPartialAmpVertices(Graph &graph, const Plan &plan,
   assert(weightsPerConvUnit % plan.inChansPerGroup == 0);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
   if (convUnitWeightHeight != 1) {
-    // Padding the input / weights using constants creates aliases of the zero
-    // constant which causes a rearrangement between the exchange and compute
-    // steps. This rearrangement can double amount of temporary memory required
-    // Workaround this by creating a padding variable that in used in place
-    // of the constant zero. The size of the variable is equal to the
-    // amount of padding required so we can avoid aliasing of elements.
-    auto paddingTensor = graph.addConstant(weights.elementType(), {0}, 0,
-                                           debugPrefix + "/paddingTensor");
-    graph.setTileMapping(paddingTensor, 0);
+    assert(weights.elementType() == in.elementType());
+    Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
+                  debugPrefix);
+
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
-    const auto kernelHeight = weights.dim(3);
-    if (kernelHeight % convUnitWeightHeight != 0) {
-      const auto extraKernelPadding =
-          (convUnitWeightHeight - kernelHeight % convUnitWeightHeight);
-      const auto extraInputPadding =
-          extraKernelPadding * params.kernelTransform.dilation[0];
-      unsigned extraKernelPaddingLower = 0, extraKernelPaddingUpper = 0;
-      auto &flippedExtraKernelPaddingUpper = params.kernelTransform.flip[0]
-                                                 ? extraKernelPaddingLower
-                                                 : extraKernelPaddingUpper;
-      auto &inputPaddingLower = params.inputTransform.paddingLower[0];
-      auto &inputPaddingUpper = params.inputTransform.paddingUpper[0];
-      auto &flippedInputPaddingUpper =
-          params.inputTransform.flip[0] ? inputPaddingLower : inputPaddingUpper;
-      flippedExtraKernelPaddingUpper += extraKernelPadding;
-      flippedInputPaddingUpper += extraInputPadding;
-      weights = padWithVariable(graph, weights, extraKernelPaddingLower,
-                                extraKernelPaddingUpper, 3, paddingTensor,
-                                debugPrefix);
-      params.kernelShape[0] += extraKernelPadding;
-    }
-    // Explicitly truncate, dilate and pad the outermost spatial field of the
-    // input.
-    const auto inputTruncationLower = params.inputTransform.truncationLower[0];
-    const auto inputTruncationUpper = params.inputTransform.truncationUpper[0];
-    in = pad(graph, in, -static_cast<int>(inputTruncationLower),
-             -static_cast<int>(inputTruncationUpper), 3);
-    params.inputFieldShape[0] -= inputTruncationLower + inputTruncationUpper;
-    params.inputTransform.truncationLower[0] = 0;
-    params.inputTransform.truncationUpper[0] = 0;
+    const auto kernelHeightDim = 0;
+    weights = padKernelSpatialDim(graph, params, weights, kernelHeightDim,
+                                  convUnitWeightHeight, padder);
 
-    const auto inputDilation = params.inputTransform.dilation[0];
-    in = dilate(graph, in, inputDilation, 3, debugPrefix);
-    params.inputTransform.dilation[0] = 1;
-    params.inputFieldShape[0] =
-        getDilatedSize(params.inputFieldShape[0], inputDilation);
-
-    const auto inputPaddingLower = params.inputTransform.paddingLower[0];
-    const auto inputPaddingUpper = params.inputTransform.paddingUpper[0];
-    in = padWithVariable(graph, in, inputPaddingLower, inputPaddingUpper, 3,
-                         paddingTensor, debugPrefix);
-    params.inputFieldShape[0] += inputPaddingLower + inputPaddingUpper;
-    params.inputTransform.paddingLower[0] = 0;
-    params.inputTransform.paddingUpper[0] = 0;
-    if (paddingTensor.numElements() != 0) {
-      auto c =
-          graph.addConstant(paddingTensor.elementType(), paddingTensor.shape(),
-                            0, debugPrefix + "/paddingTensor");
-      graph.setTileMapping(c, 0);
-      graph.setTileMapping(paddingTensor, tile);
-      transformPre.add(Copy(c, paddingTensor));
-      copyWritten = concat(copyWritten, paddingTensor.flatten());
-    }
+    in = truncateDilateAndPadInput(graph, params, in, padder, debugPrefix);
   }
 
   const auto partialsType = out.elementType();
@@ -2935,17 +2999,10 @@ static void createConvPartialAmpVertices(Graph &graph, const Plan &plan,
   bool useConvPartial1x1OutVertex = !nx1Vertex;
   const unsigned inChansPerGroup = plan.inChansPerGroup;
 
-  // The number of n x 1 x ... 1 slices required to cover the kernel in each
-  // dimension.
-  auto numSubKernelSlices = params.kernelShape;
-  assert(numSubKernelSlices[0] % convUnitWeightHeight == 0);
-  numSubKernelSlices[0] /= convUnitWeightHeight;
-
   auto inStrideX = params.outputTransform.stride.back();
   auto outStrideX = params.inputTransform.dilation.back();
   const auto strideDivisor = gcd(inStrideX, outStrideX);
   inStrideX /= strideDivisor;
-  outStrideX /= strideDivisor;
 
   const auto inRowStrideBeforeSplit = getInRowStride(
       params, product(params.inputFieldShape) / params.inputFieldShape[0],
@@ -3219,6 +3276,218 @@ static void createConvPartialHorizontalMacVertex(
   graph.setTileMapping(v, tile);
 }
 
+// all shapes are in their grouped form:
+//  in: [G1][CI1]...[G2][CI2]
+//  out: [G1][CO1]...[G2][CO2]
+//  weights: [G1][CO1][CI1]...[G2][CO2][CI2]
+static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
+                                        unsigned tile, ConvParams params,
+                                        Sequence &transformPre,
+                                        Tensor &copyWritten, ComputeSet fwdCS,
+                                        Tensor in, Tensor weights, Tensor out,
+                                        const std::string &debugPrefix) {
+  assert(params == params.canonicalize());
+
+  const auto &target = graph.getTarget();
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+
+  // TODO: Figure out how to specify this stuff in terms of
+  // load elems per cycle etc. to deal with float/float and
+  // half/half versions.
+  const auto slicWindowWidth = plan.slicWindowWidth;
+  assert(slicWindowWidth == 4u);
+
+#ifndef NDEBUG
+  const auto isAll = [](const auto k, const auto &c) {
+    return std::all_of(std::begin(c), std::end(c),
+                       [k](const auto x) { return x == k; });
+  };
+#endif
+  assert(isAll(1, params.inputTransform.dilation));
+  assert(isAll(1, params.kernelTransform.dilation));
+  assert(isAll(1, arams.outputTransform.stride));
+
+  // TODO: unlike AMP, SLIC needs to apply field transforms before using them.
+  // for now we just constrain against them in the planner.
+  assert(isAll(0, params.inputTransform.paddingUpper));
+  assert(isAll(0, params.inputTransform.paddingLower));
+  assert(isAll(0, params.inputTransform.truncationUpper));
+  assert(isAll(0, params.inputTransform.truncationLower));
+  assert(isAll(false, params.inputTransform.flip));
+
+  {
+    Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
+                  debugPrefix);
+
+    // pad kernel width (aka the innermost dim) up to a multiple of 1xN if it is
+    // not already.
+    const auto kernelWidthDim = params.kernelShape.size() - 1;
+    weights = padKernelSpatialDim(graph, params, weights, kernelWidthDim,
+                                  slicWindowWidth, padder);
+  }
+
+  const auto inType = in.elementType();
+  const auto partialsType = out.elementType();
+  assert(plan.inChansPerGroup == plan.partialChansPerGroup);
+  const unsigned convGroupsPerGroup = plan.convGroupsPerGroup;
+  const unsigned chansPerGroup = plan.inChansPerGroup;
+  assert(plan.convGroupsPerGroup == 4u / chansPerGroup);
+
+  // Indicates which of 3 modes we operate in:
+  //
+  //  =0 -> 4 conv groups, 1 input channel, 1 output channel
+  //  =1 -> 2 conv groups, 2 input channels, 2 output channels
+  //  =2 -> 1 conv group, 4 input channels, 4 output channels
+  const unsigned char mode =
+      convGroupsPerGroup == 4u ? 0 : convGroupsPerGroup == 2 ? 1 : 2;
+
+  auto kernelGroups = params.kernelShape;
+  assert(kernelGroups.back() % slicWindowWidth == 0);
+  kernelGroups.back() /= slicWindowWidth;
+
+  const auto outputFieldShape =
+      vectorConvert<unsigned>(params.getOutputFieldShape());
+  const auto outputSpatialShape = [&] {
+    auto r = outputFieldShape;
+    r.insert(r.begin(), params.batchSize);
+    return r;
+  }();
+
+  const auto inputFieldShape = vectorConvert<unsigned>(params.inputFieldShape);
+  const auto inputSpatialShape = [&] {
+    auto r = inputFieldShape;
+    r.insert(r.begin(), params.batchSize);
+    return r;
+  }();
+
+  const auto numSubKernels = product(kernelGroups);
+  const auto numConvGroupGroups = out.dim(0);
+
+  bool useShortTypes = true;
+  const auto shortTypesVertexClass =
+      templateVertex("poplin::ConvPartial1x4SLIC", inType, partialsType,
+                     /* useShortTypes */ true);
+  const unsigned maxShortWorklistValue =
+      graph.getMaxVertexFieldValue(shortTypesVertexClass, "worklists");
+  const unsigned maxRptCount = target.getRptCountMax();
+  std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
+                                                     numSubKernels);
+
+  const auto numFieldElems = product(outputFieldShape) * params.batchSize;
+  const unsigned fieldElemsPerWorker =
+      ceildiv(numFieldElems, numWorkerContexts);
+  const unsigned fieldElemsPerRow = outputFieldShape.back();
+  unsigned remainingFieldElems = numFieldElems;
+
+  for (unsigned context = 0; context < numWorkerContexts; ++context) {
+    const unsigned fieldElemsThisContext =
+        std::min(remainingFieldElems, fieldElemsPerWorker);
+    for (unsigned kg = 0; kg < numSubKernels; ++kg) {
+      unsigned outOffset = (numFieldElems - remainingFieldElems);
+      auto kernelPosition = unflattenIndex(kernelGroups, kg);
+      kernelPosition.back() *= slicWindowWidth;
+
+      const auto calcInOffset = [&](const unsigned outOffset) {
+        auto inputOffsets = unflattenIndex(outputSpatialShape, outOffset);
+        for (unsigned d = 0; d < params.getNumFieldDims(); ++d) {
+          // +1 because outer-most dimension is batch size.
+          inputOffsets[d + 1] += kernelPosition[d];
+        }
+        return flattenIndex(inputSpatialShape, inputOffsets);
+      };
+
+      unsigned remainingElemsThisContext = fieldElemsThisContext;
+      while (remainingElemsThisContext != 0) {
+        const auto elemsThisRow =
+            std::min((fieldElemsPerRow - (outOffset % fieldElemsPerRow)),
+                     remainingElemsThisContext);
+        const auto inOffset = calcInOffset(outOffset);
+        worklists[kg * numWorkerContexts + context].push_back(inOffset);
+        worklists[kg * numWorkerContexts + context].push_back(outOffset);
+        worklists[kg * numWorkerContexts + context].push_back(elemsThisRow);
+        useShortTypes &= (inOffset <= maxShortWorklistValue &&
+                          outOffset <= maxShortWorklistValue &&
+                          elemsThisRow <= maxShortWorklistValue);
+        useShortTypes &= (std::max(elemsThisRow, 5u) - 5 <= maxRptCount);
+        outOffset += elemsThisRow;
+        remainingElemsThisContext -= elemsThisRow;
+      }
+    }
+    remainingFieldElems -= fieldElemsThisContext;
+  }
+  assert(remainingFieldElems == 0);
+
+  // Determine whether or not we can use the assembly implementation
+  // with short types.
+  if (numSubKernels - 1 >
+      graph.getMaxVertexFieldValue(shortTypesVertexClass, "numSubKernelsM1")) {
+    useShortTypes = false;
+  }
+  if (numConvGroupGroups - 1 >
+      graph.getMaxVertexFieldValue(shortTypesVertexClass,
+                                   "numConvGroupGroupsM1")) {
+    useShortTypes = false;
+  }
+
+  std::vector<Tensor> inWindow, weightsWindow, outWindow;
+  for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
+    for (unsigned kg = 0; kg < numSubKernels; ++kg) {
+      auto kernelStart = unflattenIndex(kernelGroups, kg);
+      auto kernelEnd = kernelStart;
+      for (auto &s : kernelEnd) {
+        s += 1;
+      }
+
+      kernelStart.back() *= slicWindowWidth;
+      kernelEnd.back() *= slicWindowWidth;
+
+      const auto window =
+          weights[cg][0][0].slice(kernelStart, kernelEnd).flatten();
+      weightsWindow.push_back(window);
+    }
+  }
+
+  for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
+    outWindow.push_back(out[cg][0].flatten());
+    inWindow.push_back(in[cg][0].flatten());
+  }
+
+  // We also need an extra buffer for our vertex, 16-byte aligned, with size
+  // equal the number of output elements per conv group group, plus 8 bytes to
+  // enforce (&out[i][0] - &outFieldBuffer[0]) % 16 == 8 so that we
+  // can use ld2xst64pace in the codelet even when out and outFieldBuffer
+  // reside in the same bank.
+  assert(8u % target.getTypeSize(partialsType) == 0);
+  const auto outputElemsPer8Bytes = 8u / target.getTypeSize(partialsType);
+  const auto outFieldBuffer =
+      graph.addVariable(partialsType,
+                        {outputElemsPer8Bytes +
+                         numFieldElems * convGroupsPerGroup * chansPerGroup},
+                        "outFieldBuffer");
+  graph.setTileMapping(outFieldBuffer, tile);
+
+  const auto vertexClass = templateVertex("poplin::ConvPartial1x4SLIC", inType,
+                                          partialsType, useShortTypes);
+  auto v = graph.addVertex(fwdCS, vertexClass);
+  graph.setTileMapping(v, tile);
+
+  graph.connect(v["in"], inWindow);
+  graph.connect(v["weights"], weightsWindow);
+  graph.connect(v["out"], outWindow);
+  graph.connect(v["outFieldBuffer"], outFieldBuffer);
+  graph.setFieldSize(v["worklists"], worklists.size());
+  for (unsigned i = 0; i < worklists.size(); ++i) {
+    const auto t = graph.addConstant(UNSIGNED_SHORT, {worklists[i].size()},
+                                     worklists[i].data(), "worklists");
+    graph.setTileMapping(t, 0);
+    graph.connect(v["worklists"][i], t);
+  }
+  graph.setInitialValue(v["mode"], mode);
+  graph.setInitialValue(v["outPtrLoadOffset"], (numSubKernels % 2) ? 0 : 4);
+  graph.setInitialValue(v["numSubKernelsM1"], numSubKernels - 1);
+  graph.setInitialValue(v["numConvGroupGroupsM1"], numConvGroupGroups - 1);
+}
+
 struct ComputeSetsGroup {
   // The pre and post will be added by the function creating the vertices
   boost::optional<ComputeSet>
@@ -3374,6 +3643,11 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     createConvPartialHorizontalMacVertex(graph, plan, tile, params,
                                          convolveCS.convolveCS, in, weights,
                                          out, debugPrefix);
+    break;
+  case Plan::Method::SLIC:
+    createConvPartialSlicVertex(graph, plan, tile, params, transformPre,
+                                copyWritten, convolveCS.convolveCS, in, weights,
+                                out, debugPrefix);
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();

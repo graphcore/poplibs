@@ -206,6 +206,70 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
                           floatActivations);
 }
 
+// TODO: T12902 Add cost estimates for non-limited version?
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, bool /* useShortTypes */) {
+  CODELET_SCALAR_VAL(mode, unsigned char);
+  CODELET_SCALAR_VAL(numSubKernelsM1, unsigned);
+  CODELET_SCALAR_VAL(numConvGroupGroupsM1, unsigned);
+  CODELET_FIELD(in);
+  CODELET_FIELD(out);
+  CODELET_FIELD(weights);
+  CODELET_VECTOR_2D_VALS(worklists, unsigned);
+  assert(fpType == HALF);
+  assert(accumType == FLOAT);
+
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+
+  const auto numSubKernels = numSubKernelsM1 + 1;
+  const auto numConvGroupGroups = numConvGroupGroupsM1 + 1;
+  assert(in.size() == numConvGroupGroups);
+  assert(weights.size() == numConvGroupGroups * numSubKernels);
+  assert(out.size() == numConvGroupGroups);
+
+  const auto chansPerGroup = 1u << mode;
+  const auto convGroupsPerGroup = 4u / chansPerGroup;
+
+  std::vector<std::vector<unsigned>> workerPartitions(numWorkerContexts);
+  for (unsigned context = 0; context < numWorkerContexts; ++context) {
+    const auto &wl = worklists[context];
+    for (unsigned wi = 0; wi < wl.size(); wi += 3) {
+      workerPartitions[context].push_back(wl[wi + 1]);
+    }
+  }
+#if !defined(NDEBUG)
+  // Verify the assumption that partitions for different sub-kernels are
+  // for the same amount of work, just with different offsets.
+  for (unsigned subKernel = 1; subKernel < numSubKernels; ++subKernel) {
+    for (unsigned context = 0; context < numWorkerContexts; ++context) {
+      const auto &wl = worklists[subKernel * numWorkerContexts + context];
+      for (unsigned wi = 0; wi < wl.size() / 3; ++wi) {
+        assert(wl[wi * 3 + 1] == workerPartitions[context][wi]);
+      }
+    }
+  }
+#endif // !defined(NDEBUG)
+
+  const unsigned slicWindowWidth = 4u;
+  const bool floatActivations = fpType == FLOAT;
+  const bool floatPartials = accumType == FLOAT;
+
+  // TODO: currently doesnt differentiate between implicit zeroing or not.
+  const auto implicitZeroingInnerCycles =
+      getConvPartialSlicSupervisorCycleInnerLoopEstimate(
+          workerPartitions, numWorkerContexts, slicWindowWidth,
+          floatActivations, floatPartials);
+  const auto innerCycles = getConvPartialSlicSupervisorCycleInnerLoopEstimate(
+      workerPartitions, numWorkerContexts, slicWindowWidth, floatActivations,
+      floatPartials);
+  const auto cycles = getConvPartialSlicSupervisorCycleOuterLoopEstimate(
+      implicitZeroingInnerCycles, innerCycles, numConvGroupGroups, 1,
+      numSubKernels, convGroupsPerGroup, chansPerGroup, numWorkerContexts,
+      slicWindowWidth, floatActivations, floatPartials);
+  return cycles;
+}
+
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdDataTransform)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     unsigned patchSizeX, unsigned patchSizeY, unsigned kernelX,
@@ -544,6 +608,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                             true),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, FLOAT, FLOAT, false,
                             true),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, false),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, true, false),

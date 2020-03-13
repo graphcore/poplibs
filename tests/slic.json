@@ -1,0 +1,11 @@
+{
+  "method": "SLIC",
+  "0": {
+    "transform": {
+      "swapOperands": false,
+      "expandDims": [],
+      "outChanFlattenDims": [],
+      "combineConvGroupsFactor": ["1"]
+    }
+  }
+}

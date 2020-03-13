@@ -1225,6 +1225,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           tileNumElems(convSize.numInChanGrains, inChansPerGroup);
       const auto tileNumOutGroups =
           tileNumElems(convSize.numOutChanGrains, outChansPerGroup);
+      assert(tileNumInGroups == 1);
+      assert(tileNumOutGroups == 1);
+
       const auto tileNumConvGroups =
           tileNumElems(convSize.numConvGroupGrains, convGroupsPerGroup);
 
@@ -3057,7 +3060,17 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
     m.equal(m.addConstant(lvl1Params.inputTransform.dilation[dim]), 1);
     m.equal(m.addConstant(lvl1Params.kernelTransform.dilation[dim]), 1);
     m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
+
+    // TODO: SLIC can handle these, it just needs modelling.
+    m.equal(m.addConstant(lvl1Params.inputTransform.paddingUpper[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.inputTransform.paddingLower[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.inputTransform.truncationUpper[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.inputTransform.truncationLower[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]), 0);
   }
+
+  m.equal(s.numInChanGrains, 1);
+  m.equal(s.numOutChanGrains, 1);
 }
 
 // The Outer Product method can only be used if certain criteria are met (e.g.

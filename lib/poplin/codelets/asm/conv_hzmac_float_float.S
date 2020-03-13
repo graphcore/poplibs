@@ -385,7 +385,7 @@ ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
 // Run worker to zero partials
-setzi         $wkr_function_s_z, convNx1ZeroOutField
+setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloat
 shl           $partition_ptr_s, $partition_ptr_s, DELTAN_DELTAS_COUNT_BITS
 
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
@@ -410,6 +410,9 @@ ZeroOutChanGroup_float_float:
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
     runall        $wkr_function_s_z, $wkr_base, 0
+#if WORKER_REG_STATE_RETAINED
+    setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloatReentry
+#endif
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_float_float
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_float_float
 

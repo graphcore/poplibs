@@ -50,6 +50,14 @@ convnx1WorkerRetentionSavings(bool /*floatActivations */,
 #endif
 }
 
+inline static std::uint64_t zeroPartialsRetentionSavings(bool floatPartials) {
+#if WORKER_REG_STATE_RETAINED
+  return floatPartials ? 9 : 10;
+#else
+  return 0;
+#endif
+}
+
 inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
   if (isFloat) {
     if ((size % 2) == 0)
@@ -98,13 +106,15 @@ getZeroSupervisorVertexCycleEstimate(const std::vector<unsigned> &worklist,
                                      unsigned numGroups, unsigned dataPathWidth,
                                      unsigned numWorkerContexts, bool isFloat) {
   const unsigned vectorWidth = dataPathWidth / (isFloat ? 32 : 16);
+
   std::uint64_t maxWorkerCyclesZero = 0;
   for (unsigned context = 0; context != worklist.size(); ++context) {
     uint64_t numVectors = (worklist[context] + vectorWidth - 1) / vectorWidth;
-    maxWorkerCyclesZero = std::max(maxWorkerCyclesZero, numVectors + 5);
+    maxWorkerCyclesZero = std::max(maxWorkerCyclesZero,
+                                   numVectors + (isFloat ? 14 : 15) -
+                                       zeroPartialsRetentionSavings(isFloat));
   }
-  uint64_t zeroCycles =
-      ((maxWorkerCyclesZero * numGroups) * numWorkerContexts + 12);
+  uint64_t zeroCycles = maxWorkerCyclesZero * numWorkerContexts * numGroups;
   return zeroCycles;
 }
 
@@ -320,11 +330,20 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     unsigned numConvUnits, unsigned numWorkerContexts, bool floatActivations,
     bool floatPartials) {
   uint64_t cycles = innerLoopCycles;
-  const auto retentionSavings =
-      convnx1WorkerRetentionSavings(floatActivations, floatPartials);
-  return convNx1Overhead() + numWorkerContexts * retentionSavings +
-         numConvGroups *
-             (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
+  return // Other constant supervisor code cycles
+      convNx1Overhead() +
+      // First iteration does not save cycles to calculate state which
+      // will then be retained
+      numWorkerContexts *
+          convnx1WorkerRetentionSavings(floatActivations, floatPartials) +
+      numWorkerContexts * zeroPartialsRetentionSavings(floatPartials) +
+      // Supervisor code loop to zero partials. brnzdec loops mean
+      // 6-cycle stall for all but last iteration.
+      numConvGroups * (numOutGroups * (16 + WORKER_REG_STATE_RETAINED ? 1 : 0) +
+                       (numOutGroups - 1) * 6 + 1) +
+      (numConvGroups - 1) * 6 + 1 +
+      // Supervisor code loop over conv/in/out groups
+      numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
 }
 
 inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
