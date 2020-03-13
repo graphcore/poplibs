@@ -4288,79 +4288,6 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
   return level;
 }
 
-// Rearrange weight deltas if the operands are not swapped. Not swapping
-// operands means that the innermost grouping is of output channels whereas
-// the weights use the fwd channel grouping (i.e. input channel as innermost
-// dimension
-static Tensor rearrangeWeightDeltas(Graph &graph, const Plan &plan,
-                                    const Tensor &activations_, Sequence &prog,
-                                    const std::string &debugPrefix) {
-  const auto operandSwapped =
-      std::accumulate(plan.transforms.begin(), plan.transforms.end(), false,
-                      [](bool oS, const ConvTransform &transform) {
-                        return oS ^ transform.swapOperands;
-                      });
-  if (operandSwapped) {
-    return activations_;
-  }
-
-  // activations shape is internal shape: [G][N]...[oC] where N is iC instead
-  // of batch size.
-  auto rank = activations_.rank();
-  const auto oC = activations_.dim(rank - 1);
-  const auto iC = activations_.dim(1);
-  const auto dType = activations_.elementType();
-
-  // detect channel grouping
-  auto oG = detectInnermostGrouping(graph, activations_);
-  if (oG == 1) {
-    return activations_;
-  }
-
-  // Find largest grouping which is an integer sub-multiple of the input
-  // channels
-  const unsigned maxInputChannelGrouping = 16;
-  unsigned iG = maxInputChannelGrouping;
-  while (iC % iG != 0) {
-    --iG;
-  }
-
-  if (iG == 1) {
-    return activations_;
-  }
-
-  // [G][N]...[C] -> [G][N]...[oC/oG][oG]
-  auto ungroupedActs =
-      activations_.reshapePartial(rank - 1, rank, {oC / oG, oG});
-
-  // [G][N]...[oC/oG][oG] -> [G][iC/iG][iG]...[oC/oG][oG]
-  ungroupedActs = ungroupedActs.reshapePartial(1, 2, {iC / iG, iG});
-
-  // note that rank was calculated before the two reshapes above.
-  assert(rank == ungroupedActs.rank() - 2);
-
-  // [G][iC/iG][iG]...[oC/oG][oG] -> [G][iC/iG]...[oC/oG][iG][oG]
-  ungroupedActs = ungroupedActs.dimRoll(2, rank);
-
-  auto cs = graph.addComputeSet(debugPrefix + "/DeltasPartialTranspose");
-
-  // [G][iC/iG]...[oC/oG][iG][oG] -> [G][iC/iG]...[oC/oG][oG][iG]
-  auto transposedActs = partialTranspose(graph, ungroupedActs, cs, debugPrefix);
-  prog.add(Execute(cs));
-
-  rank = transposedActs.rank();
-
-  // [G][iC/iG]...[oC/oG][oG][iG] -> [G][iC/iG][iG]...[oC/oG][oG]
-  transposedActs = transposedActs.dimRoll(rank - 1, 2);
-
-  // [G][iC/iG][iG]...[oC/oG][oG] -> [G][iC/iG][iG]...[oC]
-  transposedActs = transposedActs.reshapePartial(rank - 2, rank, {oC});
-
-  // [G][iC/iG][iG]...[oC] -> [G][iC]...[oC] (or: [G][N]...[oC])
-  transposedActs = transposedActs.reshapePartial(1, 3, {iC});
-  return transposedActs;
-}
-
 void preplanConvolutions(const std::set<ConvPlanParams> &convs,
                          PlanningCache &cache) {
   std::set<ConvPlanKey> convsImpl;
@@ -4482,13 +4409,6 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
   }
   prog.add(finalizeProg);
   assert(loopBodies.empty());
-
-  // Do any rearrangements of the output in the WU pass
-  if (options.pass == Pass::TRAINING_WU) {
-    activations =
-        rearrangeWeightDeltas(graph, plan, activations, prog, debugPrefix);
-  }
-
   assert(activations.elementType() == params->outputType);
   return actsToExternalShape(activations);
 }
@@ -4766,9 +4686,11 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options, cache);
-  // Add the weight deltas to the weights.
+  // update weights
   assert(weightDeltas.shape() == weights.shape());
-  scaledAddTo(graph, weights, weightDeltas, scale, prog,
+  const auto maybeRegroupedWeightDeltas = regroupIfBeneficial(
+      graph, weightDeltas, weights, prog, debugPrefix + "regroupGradds");
+  scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
 }
 
