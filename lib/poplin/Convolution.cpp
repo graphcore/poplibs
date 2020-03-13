@@ -4651,7 +4651,14 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
   // a random test.
   flipped = weightsToExternalShape(unsplitWeightsFromGroups(flipped));
 
-  prog.add(Copy(flipped, weightsOutUnGrouped));
+  // Before the flipped weights are copied, attempt to regroup source tensor
+  // only if it's innermost dimension doesn't match the destination tensor. If
+  // a partial transpose is done, then the regrouping will not be done.
+  auto maybeRegroupedFlipped =
+      regroupIfBeneficial(graph, flipped, weightsOutUnGrouped, prog,
+                          debugPrefix + "/attemptRegroup");
+
+  prog.add(Copy(maybeRegroupedFlipped, weightsOutUnGrouped));
 }
 
 ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {
