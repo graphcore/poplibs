@@ -3739,6 +3739,8 @@ static void getConvVertexAMPCandidates(
       planConstraints.get_optional<unsigned>("inChansPerGroup");
   const auto constrainedPartialChansPerGroup =
       planConstraints.get_optional<unsigned>("partialChansPerGroup");
+  const auto constrainedNumConvUnits =
+      planConstraints.get_optional<unsigned>("numAmpConvUnits");
 
   bool floatActivations = inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
@@ -3784,6 +3786,12 @@ static void getConvVertexAMPCandidates(
               weightsPerConvUnit * convUnits / numConvUnitsOnIpu;
           if (!floatActivations &&
               (partials != convUnits && partials != usedWeightsPerConvUnit)) {
+            continue;
+          }
+
+          // Number of conv units constrain
+          if (constrainedNumConvUnits &&
+              convUnits != *constrainedNumConvUnits) {
             continue;
           }
 
@@ -3849,6 +3857,8 @@ static void getConvVertexSLICCandidates(
       planConstraints.get_optional<unsigned>("inChansPerGroup");
   const auto constrainedPartialChansPerGroup =
       planConstraints.get_optional<unsigned>("partialChansPerGroup");
+  const auto constrainedSlicWindowWidth =
+      planConstraints.get_optional<unsigned>("slicWindowWidth");
 
   const bool floatActivations = inputType == poplar::FLOAT;
   const bool floatPartials = partialType == poplar::FLOAT;
@@ -3881,7 +3891,7 @@ static void getConvVertexSLICCandidates(
   // (eg. depthwise convolutions), T14626 tracks adding support for other
   // combinations of convGroup, input channel and output channel groupings
   // as well as the 1x3 kernel window size.
-  const unsigned slicWindowWidth = 4;
+  const unsigned slicWindowWidth = constrainedSlicWindowWidth.value_or(4);
   const unsigned convGroupsPerGroup = constrainedConvGroupsPerGroup.value_or(4);
   const unsigned inputChansPerGroup = constrainedInChansPerGroup.value_or(1);
   const unsigned partialChansPerGroup =

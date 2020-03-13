@@ -274,6 +274,10 @@ void ValidateConvPlanConstraintsOption::operator()(const ptree &t) const {
       validatePlanConstraintsUnsigned(child.first, child.second);
     } else if (child.first == "partialChansPerGroup") {
       validatePlanConstraintsUnsigned(child.first, child.second);
+    } else if (child.first == "numAmpConvUnits") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
+    } else if (child.first == "slicWindowWidth") {
+      validatePlanConstraintsUnsigned(child.first, child.second);
     } else {
       internal::validatePlanConstraintsIndex(child.first, child.first);
       internal::validatePlanConstraintsLevel(child.first, child.second);
