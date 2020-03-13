@@ -3303,16 +3303,16 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
                        [k](const auto x) { return x == k; });
   };
 #endif
-  assert(isAll(1, params.inputTransform.dilation));
-  assert(isAll(1, params.kernelTransform.dilation));
-  assert(isAll(1, arams.outputTransform.stride));
+  assert(isAll(1u, params.inputTransform.dilation));
+  assert(isAll(1u, params.kernelTransform.dilation));
+  assert(isAll(1u, params.outputTransform.stride));
 
   // TODO: unlike AMP, SLIC needs to apply field transforms before using them.
   // for now we just constrain against them in the planner.
-  assert(isAll(0, params.inputTransform.paddingUpper));
-  assert(isAll(0, params.inputTransform.paddingLower));
-  assert(isAll(0, params.inputTransform.truncationUpper));
-  assert(isAll(0, params.inputTransform.truncationLower));
+  assert(isAll(0u, params.inputTransform.paddingUpper));
+  assert(isAll(0u, params.inputTransform.paddingLower));
+  assert(isAll(0u, params.inputTransform.truncationUpper));
+  assert(isAll(0u, params.inputTransform.truncationLower));
   assert(isAll(false, params.inputTransform.flip));
 
   {
