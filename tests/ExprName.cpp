@@ -1,3 +1,4 @@
+// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
 
 #define BOOST_TEST_MODULE ExprName
 #include <../lib/popops/ExpressionGenerator.hpp>
