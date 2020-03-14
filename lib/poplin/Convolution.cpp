@@ -4706,7 +4706,10 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
-  scaledAddTo(graph, weights, weightDeltas, scale, prog,
+  const auto maybeRegroupedWeightDeltas = regroupIfBeneficial(
+      graph, weightDeltas, weights, prog, debugPrefix + "regroupGradds");
+
+  scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
 }
 
