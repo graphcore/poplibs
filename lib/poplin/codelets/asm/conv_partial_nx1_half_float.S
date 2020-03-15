@@ -195,6 +195,7 @@ exitz         $mzero
 .section ".text.convPartialNx1Flattened", "ax"
 .type convPartialNx1Flattened, @function
 .align 8
+nop
 .worker
 convPartialNx1FlattenedAligned:
 convPartialNx1Flattened:
@@ -269,7 +270,7 @@ ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
 // require a lot more stride registers and selective setting of them depending
 // on number of field samples.
 PartitionLoop:
-  ldz16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
+  lds16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
 
   // form input address
   ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
@@ -301,7 +302,6 @@ PartitionLoop:
   // jump to specialisation for number of field samples equal to 1
   // Note: when num_fpv = 0, 3 partials will be loaded but with an post
   //       increment of 8 bytes
-  add           $num_fp_v, $num_fp_v, -3
   brneg         $num_fp_v, ConvNumFpEq1
   {
     // *input-ptr += 0; *partials-ptr += out-stride

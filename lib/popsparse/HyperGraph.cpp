@@ -822,7 +822,9 @@ void HyperGraph::createComputeSetMatMul(
     worklist[i * 3] = offset;
     worklist[i * 3 + 2] = offset;
     int curWorkerSize = (i < leftover ? workerSize + 1 : workerSize);
-    worklist[i * 3 + 1] = curWorkerSize;
+    // The ConvPartial1x1Out vertex expects worklists[3i+1] to be the number of
+    // elements minus 3.
+    worklist[i * 3 + 1] = curWorkerSize - 3;
     offset += curWorkerSize;
   }
 

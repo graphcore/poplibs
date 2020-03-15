@@ -113,6 +113,7 @@
 .section ".text.convPartialFlattenedField_float_float", "ax"
 .type convPartialFlattenedField_float_float, @function
 .align 8
+nop
 .worker
 
 // worker code:
@@ -143,6 +144,7 @@ convPartialFlattenedField_float_float:
 #define num_elems                 m5
 #define stride1                   m6
 #define stride2                   m7
+#define num_elems_plus_3          m7
 // $inchan_ptr_iter and $outchan_ptr_iter must be the same as $tripacked_addr pair
 #define in_off                    m8
 #define inchan_ptr_iter           m8
@@ -183,7 +185,7 @@ ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
 // partition has 3 entries.
 ldz16step     $out_off, $wkr_id, $partition_w+=, 1
 mul           $out_off, $out_off, $num_outchans_per_groupx4
-ldz16step     $num_elems, $wkr_id, $partition_w+=, 1
+lds16step     $num_elems, $wkr_id, $partition_w+=, 1
 ldz16step     $in_off, $wkr_id, $partition_w+=, 1
 mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_FLOAT
 ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
@@ -194,8 +196,9 @@ add           $outchan_ptr_iter, $outchan_ptr, $out_off
 brz           $zero_outchan, Amp_start
 // The two input pointers will be retained even though store pointer is incremented
 tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+add           $num_elems_plus_3, $num_elems, 3
 {
-  rpt         $num_elems, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
+  rpt         $num_elems_plus_3, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
   fnop
 }
 LZeroLoopBegin:
@@ -220,9 +223,10 @@ Amp_start:
 
 // Check strides to use in the AMP loop. The strides to use are dependent on
 // the number of elements to avoid excess strided reads
-add           $num_elems, $num_elems, -3
-brneg         $num_elems, SetStridesNumElemsLt3
-
+{
+  brneg         $num_elems, SetStridesNumElemsLt3
+  fnop
+}
 // case of num_elems >= 3
 // Stride1 = Stride2 = [0][out index][in index] are the default
 mov           $stride2, $stride1

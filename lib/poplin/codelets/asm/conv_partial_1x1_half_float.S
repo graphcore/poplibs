@@ -140,14 +140,12 @@
 //                      29  + (num_field_pos - 3) * 4
 //
 //
-// The very first call of the worker requires 15 more cycles if 
+// The very first call of the worker requires 14 more cycles if
 //    WORKER_REG_STATE_RETAINED != 0
-// Otherwise all calls of workers requires 15 cycles more for a given input channel
-//                                         12 cycles when an input channel changes
+// Otherwise all calls of workers requires 14 cycles more for a given input channel
+//                                         11 cycles when an input channel changes
 
 // Total:
-convPartialFlattenedFieldAligned:
-nop
 convPartialFlattenedField:
 
 #define wkr_id                    m0
@@ -174,12 +172,11 @@ mul           $wkr_id, $wkr_id, 6
 ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
 
 ldz16step     $out_off, $wkr_id, $partition_w+=, 1
-ldz16step     $num_elems, $wkr_id, $partition_w+=, 1
+lds16step     $num_elems, $wkr_id, $partition_w+=, 1
 ldz16step     $in_off, $wkr_id, $partition_w+=, 1
 ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
 mul           $out_off, $out_off, $num_outchans_per_groupx4
 mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_HALF
-add           $num_elems, $num_elems, -3
 setzi         $const_stride_m2, 0xFF800  // -2 * 1024
 
 convPartialFlattenedFieldStateRetained:
@@ -747,7 +744,7 @@ AmpGroupLoop_\LDTYPE\():
 
       // Use the MSB of stride which is unused to flag zeroing of partials
       or            $const0x80000000, $mzero, 0x80000000
-      or            $add_zero_in_stride_s, $add_zero_in_stride_s, 0x80000000      
+      or            $add_zero_in_stride_s, $add_zero_in_stride_s, 0x80000000
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     ldz16step     $invec_s, $mzero, $inchan_vectors_s+=, 1
 #else
@@ -766,7 +763,7 @@ AmpGroupLoop_\LDTYPE\():
     shl           $invec_s, $invec_s, 3
 #endif
     brnzdec       $inchan_group_s, inChanLoop_\LDTYPE\()
-  
+
   // This should clear the msb
   xor           $add_zero_in_stride_s, $add_zero_in_stride_s, $const0x80000000
 #if defined(VECTOR_AVAIL_SCALED_PTR64)

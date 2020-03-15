@@ -39,6 +39,8 @@ public:
 
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
+  using WorkListNumFieldType =
+      typename std::conditional<useLimitedVer, short, int>::type;
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
@@ -84,7 +86,10 @@ public:
                                   ig * numOutGroups + (numOutGroups - 1 - og)];
           for (unsigned context = 0; context < usedContexts; ++context) {
             auto outOffset = worklists[3 * context];
-            auto numFieldElems = worklists[3 * context + 1];
+            // The numFieldElems values from worklist is less by 3
+            int numFieldElems =
+                static_cast<WorkListNumFieldType>(worklists[3 * context + 1]) +
+                3;
             auto inOffset = worklists[3 * context + 2];
 
             for (unsigned i = 0; i < numFieldElems; ++i) {
