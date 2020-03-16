@@ -1,4 +1,5 @@
 .idea/
+tools/__pycache__
 build/
 CMakeLists.txt.user
 *.DS_Store

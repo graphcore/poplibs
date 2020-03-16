@@ -20,6 +20,9 @@ BENCHMARK_RESULTS_NOTICE="""\
 # Do not modify this by hand.
 """
 
+TOOLS_DIR=os.path.dirname(os.path.realpath(__file__))
+DEFAULT_CSV=TOOLS_DIR + '/../tests/benchmark_results.csv'
+
 def write_results(out_path, expected):
     with open(out_path, 'w') as results_file:
         results_file.write(BENCHMARK_RESULTS_NOTICE)
@@ -43,20 +46,21 @@ def updated_results_iter(cmd):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark results updater")
+    parser.add_argument("test_script", help='Path to test.sh script.')
     parser.add_argument(
-        "--expected_csv",
+        "--expected_csv", nargs='?', default=DEFAULT_CSV,
         help='Path to a file containing csv with expected results for '
-             'benchmarks'
-    )
-    parser.add_argument("test", nargs=argparse.REMAINDER,
-        help="Command to run tests"
+             'benchmarks. Defaults tests/benchmark_results.csv',
     )
     args = parser.parse_args()
 
     expected_dict = read_results_file(args.expected_csv)
-    
+
+    nproc = os.cpu_count()
+    cmd = [args.test_script, 'poplibs', '-L', 'benchmarks',
+           '--output-on-failure', f'-j{nproc}']
     num_updates = 0
-    for test_key, expected in updated_results_iter(args.test):
+    for test_key, expected in updated_results_iter(cmd):
         expected_dict[test_key] = expected
         print(f'Updating {test_key} with results {expected}')
         write_results(args.expected_csv, expected_dict)
