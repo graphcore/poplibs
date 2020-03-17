@@ -1197,24 +1197,25 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         debugName);
   }
   case Plan::Method::SLIC: {
-#ifndef NDEBUG
-    const auto isOne = [](const auto &x) { return x == 1; };
-#endif
-    assert(std::all_of(std::begin(transformedInputDilation),
-                       std::end(transformedInputDilation), isOne));
-    assert(std::all_of(std::begin(transformedOutputStride),
-                       std::end(transformedOutputStride), isOne));
-
     return m.call(convSizeVarsVector, [&target, numFieldDims, fieldGrainSize,
                                        convGroupsPerGroup, inChansPerGroup,
 #ifndef NDEBUG
                                        outChansPerGroup,
 #endif
-                                       slicWindowWidth, floatActivations,
-                                       floatPartials,
+                                       transformedInputDilation,
+                                       transformedOutputStride, slicWindowWidth,
+                                       floatActivations, floatPartials,
                                        cache](const auto &values) {
       const auto convSize = makeConvSize(values, numFieldDims);
       const auto tileFieldSize = makeTileFieldSize(convSize, fieldGrainSize);
+
+#ifndef NDEBUG
+      const auto isOne = [](const auto &x) { return x == 1; };
+#endif
+      assert(std::all_of(std::begin(transformedInputDilation),
+                         std::end(transformedInputDilation), isOne));
+      assert(std::all_of(std::begin(transformedOutputStride),
+                         std::end(transformedOutputStride), isOne));
 
       // current vertex requirements
       assert(inChansPerGroup == outChansPerGroup);
@@ -3088,9 +3089,6 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
     m.equal(m.addConstant(lvl1Params.inputTransform.truncationLower[dim]), 0);
     m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]), 0);
   }
-
-  m.equal(s.numInChanGrains, 1);
-  m.equal(s.numOutChanGrains, 1);
 }
 
 // The Outer Product method can only be used if certain criteria are met (e.g.
@@ -3482,12 +3480,53 @@ static Estimates<popsolver::Variable> constructModel(
     nextConvSize.numConvGroupGrains = m.ceildivConstrainDivisor(
         prevConvSize.numConvGroupGrains, p.convGroupSplit,
         arrIndStr(level + 1) + ".size.convGroupGrains");
-    nextConvSize.numOutChanGrains = m.ceildivConstrainDivisor(
-        prevConvSize.numOutChanGrains, totalOutChanSplit,
-        arrIndStr(level + 1) + ".size.outChanGrains");
-    nextConvSize.numInChanGrains =
-        m.ceildivConstrainDivisor(prevConvSize.numInChanGrains, p.inChanSplit,
-                                  arrIndStr(level + 1) + ".size.inChanGrains");
+    if (level == numLevelsOfHierarchy - 2 &&
+        convVertexType.method == Plan::Method::SLIC) {
+      // Like popsolver::Model::ceildiv(ConstrainDivisor) but with already
+      // instantiated output variables.
+      auto ceildivWithVars = [&](Model &m, const Variable &result,
+                                 const Variable &left, const Variable &right) {
+        auto resultTimesRight = m.product({result, right});
+        m.lessOrEqual(left, resultTimesRight);
+        m.less(resultTimesRight, m.sum({left, right}));
+      };
+      auto ceildivConstrainDivisorWithVars =
+          [&](Model &m, const Variable &result, const Variable &left,
+              const Variable &right) {
+            ceildivWithVars(m, result, left, right);
+            m.less(m.product({result, right}), m.sum({left, result}));
+          };
+      // Workaround for T17645. We would constrain in/out chan grains to be
+      // equal 1 in the model except the call constraint later on that
+      // calculates the cycle estimates for SLIC relies on never getting
+      // invalid parameters, i.e. when there is greater than one input
+      // or output channel group. The call constraint may be evaluated
+      // before the equal constraint and so we get invalid parameters and
+      // an assert.
+      //
+      // Ideally we would fix this by having the call constraint be able
+      // to flag invalid parameters (T17632). We don't yet have this
+      // and we instead construct the num{In,Out}ChanGrains as constants
+      // and apply constraints backwards to ensure they are never not
+      // equal 1.
+      nextConvSize.numOutChanGrains =
+          m.addConstant(1u, arrIndStr(level + 1) + ".size.outChanGrains");
+      nextConvSize.numInChanGrains =
+          m.addConstant(1u, arrIndStr(level + 1) + ".size.inChanGrains");
+      ceildivConstrainDivisorWithVars(m, nextConvSize.numOutChanGrains,
+                                      prevConvSize.numOutChanGrains,
+                                      totalOutChanSplit);
+      ceildivConstrainDivisorWithVars(m, nextConvSize.numInChanGrains,
+                                      prevConvSize.numInChanGrains,
+                                      p.inChanSplit);
+    } else {
+      nextConvSize.numOutChanGrains = m.ceildivConstrainDivisor(
+          prevConvSize.numOutChanGrains, totalOutChanSplit,
+          arrIndStr(level + 1) + ".size.outChanGrains");
+      nextConvSize.numInChanGrains = m.ceildivConstrainDivisor(
+          prevConvSize.numInChanGrains, p.inChanSplit,
+          arrIndStr(level + 1) + ".size.inChanGrains");
+    }
 
     // We only apply these constraints at the tile-split level.
     if (level == numLevelsOfHierarchy - 2) {
@@ -3926,6 +3965,15 @@ static void getConvVertexSLICCandidates(
 
   // TODO: T14626, add a vertex for the the 1x3 kernel window size.
   const unsigned slicWindowWidth = constrainedSlicWindowWidth.value_or(4);
+
+  if (isJointPlan) {
+    assert(options.pass == Pass::FC_TRAINING_FWD);
+    // There are a number of transformations between different passes when a
+    // joint plan is being used which would need updating to handle SLIC.
+    // T17666 tracks this. For the timebeing, don't allow joint plans with
+    // SLIC.
+    return;
+  }
 
   struct Candidate {
     unsigned groups;
