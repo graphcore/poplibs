@@ -1215,11 +1215,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
       const auto convSize = makeConvSize(values, numFieldDims);
       const auto tileFieldSize = makeTileFieldSize(convSize, fieldGrainSize);
 
-      // SLIC currently only expects a conv group grouping of 4, each with a
-      // single input and output channel.
-      assert(convGroupsPerGroup == 4);
-      assert(inChansPerGroup == 1);
-      assert(outChansPerGroup == 1);
+      // current vertex requirements
+      assert(inChansPerGroup == outChansPerGroup);
+      assert(convGroupsPerGroup * inChansPerGroup == 4);
 
       const auto tileNumInGroups =
           tileNumElems(convSize.numInChanGrains, inChansPerGroup);
@@ -1385,7 +1383,8 @@ static popsolver::Variable addConvTempMemoryEstimate(
     const popsolver::Variable inputsPerTile,
     const popsolver::Variable weightsPerTile,
     const popsolver::Variable partialsPerTile, const poplar::Target &target,
-    const ConvParams &params, const std::vector<ConvTypes> &types) {
+    const ConvParams &params, const std::vector<ConvTypes> &types,
+    const Plan::Method method) {
   std::vector<popsolver::Variable> memorySumOperands;
   auto elementBytes = target.getTypeSize(params.inputType);
   auto inputStorage = m.product({m.addConstant(elementBytes), inputsPerTile},
@@ -1396,6 +1395,17 @@ static popsolver::Variable addConvTempMemoryEstimate(
       m.product({m.addConstant(target.getTypeSize(types.back().partialType)),
                  partialsPerTile},
                 "tempConvPartialBytes");
+
+  // the SLIC vertex uses an extra temporary buffer of size:
+  //    (sizeof(output)/numConvGroupGroups) + 8.
+  if (method == Plan::Method::SLIC) {
+    const auto buffer =
+        m.sum({m.ceildiv(partialStorage, convSizes.back().numConvGroupGrains),
+               m.addConstant(8)});
+
+    partialStorage = m.sum({partialStorage, buffer});
+  }
+
   auto convStorage =
       m.sum({inputStorage, weightStorage, partialStorage}, "tempConvBytes");
 
@@ -2338,7 +2348,7 @@ static Estimates<popsolver::Variable> addEstimates(
   // the loop and therefore we don't need to take into account and serial splits
   e.convTempBytes = addConvTempMemoryEstimate(
       m, partitionVars, convSize, inputsPerLevel.back(), weightsPerLevel.back(),
-      partialsPerTile, target, transformedOnceParams, types);
+      partialsPerTile, target, transformedOnceParams, types, method);
 
   // it is possible that we may need to add zero padding to the activations
   // and weights so that we have the correct number of input channels for the
@@ -3853,12 +3863,29 @@ static void getConvVertexSLICCandidates(
   const auto &planConstraints = options.planConstraints;
   const auto constrainedConvGroupsPerGroup =
       planConstraints.get_optional<unsigned>("convGroupsPerGroup");
-  const auto constrainedInChansPerGroup =
-      planConstraints.get_optional<unsigned>("inChansPerGroup");
-  const auto constrainedPartialChansPerGroup =
-      planConstraints.get_optional<unsigned>("partialChansPerGroup");
   const auto constrainedSlicWindowWidth =
       planConstraints.get_optional<unsigned>("slicWindowWidth");
+
+  const auto constrainedChansPerGroup = [&]() -> boost::optional<unsigned> {
+    const auto constrainedInChansPerGroup =
+        planConstraints.get_optional<unsigned>("inChansPerGroup");
+    const auto constrainedPartialChansPerGroup =
+        planConstraints.get_optional<unsigned>("partialChansPerGroup");
+
+    if (constrainedInChansPerGroup && constrainedPartialChansPerGroup &&
+        *constrainedInChansPerGroup != *constrainedPartialChansPerGroup) {
+      throw poputil::poplibs_error("SLIC requires the input and output channel "
+                                   "grouping to be the same.");
+    }
+
+    if (constrainedInChansPerGroup) {
+      return constrainedInChansPerGroup;
+    } else if (constrainedPartialChansPerGroup) {
+      return constrainedPartialChansPerGroup;
+    } else {
+      return boost::none;
+    }
+  }();
 
   const bool floatActivations = inputType == poplar::FLOAT;
   const bool floatPartials = partialType == poplar::FLOAT;
@@ -3887,32 +3914,31 @@ static void getConvVertexSLICCandidates(
                                  "unit for the SLIC instruction.");
   }
 
-  // The first SLIC codelet will be specialised for independent channels
-  // (eg. depthwise convolutions), T14626 tracks adding support for other
-  // combinations of convGroup, input channel and output channel groupings
-  // as well as the 1x3 kernel window size.
+  // TODO: T14626, add a vertex for the the 1x3 kernel window size.
   const unsigned slicWindowWidth = constrainedSlicWindowWidth.value_or(4);
-  const unsigned convGroupsPerGroup = constrainedConvGroupsPerGroup.value_or(4);
-  const unsigned inputChansPerGroup = constrainedInChansPerGroup.value_or(1);
-  const unsigned partialChansPerGroup =
-      constrainedPartialChansPerGroup.value_or(1);
 
-  if (isJointPlan) {
-    assert(options.pass == Pass::FC_TRAINING_FWD);
-    // The input channels in the forward pass become the output channels
-    // of the weight update pass. Make sure it is a multiple of the
-    // supported output channels per group.
-    if (inputChansPerGroup % partialChansPerGroup != 0) {
-      throw poputil::poplibs_error(
-          "The input channels per group must be a multiple of the output "
-          "channels per group for joint plans.");
+  struct Candidate {
+    unsigned groups;
+    unsigned channels;
+  };
+  std::array<Candidate, 3> groupings{Candidate{1u, 4u}, Candidate{2u, 2u},
+                                     Candidate{4u, 1u}};
+
+  for (const auto &grouping : groupings) {
+    if (constrainedConvGroupsPerGroup &&
+        *constrainedConvGroupsPerGroup != grouping.groups) {
+      continue;
     }
-  }
 
-  candidates.emplace_back(Plan::Method::SLIC, inputType, outputType,
-                          ampPartialType, convGroupsPerGroup,
-                          inputChansPerGroup, partialChansPerGroup,
-                          slicWindowWidth, 0);
+    if (constrainedChansPerGroup &&
+        *constrainedChansPerGroup != grouping.channels) {
+      continue;
+    }
+
+    candidates.emplace_back(Plan::Method::SLIC, inputType, outputType,
+                            ampPartialType, grouping.groups, grouping.channels,
+                            grouping.channels, slicWindowWidth, 0);
+  }
 }
 
 static void getConvVertexOuterProductCandidates(
