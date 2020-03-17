@@ -91,7 +91,7 @@ IpuModel,default,inception_tr_bs1_i5_dmaxpool,25710,9574597,18056
 IpuModel,default,inception_tr_bs1_i6_dmaxpool,15704,6544809,17448
 IpuModel,default,inception_tr_bs1_i9_dmax_pool,50486,8949874,17160
 IpuModel,default,inception_tr_bs1_pool1,17706,18465372,22248
-IpuModel,default,inception_tr_bs1_pool2,26142,14458452,20568
+IpuModel,default,inception_tr_bs1_pool2,15969,13282324,20568
 IpuModel,default,inception_tr_bs4_i10_a1x1,51189,46905512,136600
 IpuModel,default,inception_tr_bs4_i10_b1x1,56366,51830689,136600
 IpuModel,default,inception_tr_bs4_i10_c1x1,63613,58356248,143384

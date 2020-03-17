@@ -5,6 +5,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/print.hpp"
 #include "poputil/TileMapping.hpp"
+#include <popsolver/Model.hpp>
 
 #include <boost/range/adaptor/reversed.hpp>
 
@@ -14,6 +15,46 @@ using namespace poputil;
 
 namespace popnn {
 namespace pooling {
+
+// Constraint variables that represent how variables are partitioned per tile
+struct PartitionVariables {
+  popsolver::Variable batchSplit;
+  popsolver::Variable chanGroupsSplit;
+  popsolver::Variable chansPerGroup;
+  std::vector<popsolver::Variable> fieldSplit;
+  PartitionVariables() = default;
+};
+
+// Create Partition from the solution to the Pooling Plan solver
+static Partition makePartition(const popsolver::Solution &solution,
+                               const PartitionVariables &vars) {
+  Partition partition;
+  partition.chansPerGroup = solution[vars.chansPerGroup];
+  partition.batch = solution[vars.batchSplit];
+  partition.chanGroups = solution[vars.chanGroupsSplit];
+  for (unsigned i = 0; i < vars.fieldSplit.size(); i++) {
+    partition.field.push_back(solution[vars.fieldSplit[i]]);
+
+    // currently kernel is not split. set it to 1
+    partition.kernel.push_back(1);
+  }
+  return partition;
+}
+
+// Create Partition from component vector
+static Partition makePartition(const std::vector<unsigned> &values,
+                               const unsigned numFieldDims) {
+  Partition partition;
+  partition.batch = values[0];
+  partition.chanGroups = values[1];
+  partition.chansPerGroup = values[2];
+  partition.field.insert(partition.field.begin(), values.begin() + 3,
+                         values.begin() + 3 + numFieldDims);
+  partition.kernel.insert(partition.kernel.begin(),
+                          values.begin() + 3 + numFieldDims,
+                          values.begin() + 3 + (2 * numFieldDims));
+  return partition;
+}
 
 // dim is given as an index into an activation shaped tensor
 // [N][....F..][C]
@@ -80,37 +121,105 @@ static Transform getTransform(const poplar::Graph &graph,
   return transform;
 }
 
-static uint64_t computeCost(const poplin::ConvParams &params,
-                            const Partition &split, std::size_t vectorWidth,
-                            std::size_t detChansPerGroup,
-                            const poplar::Target &target) {
-  const auto perTile = split.getPerTile(params);
-  const auto outerDimElems = product(perTile.field) / perTile.field.back();
-  const auto innerDimElems = perTile.field.back();
-  const auto innerVectorsPerTile =
-      (perTile.chansPerGroup + vectorWidth - 1) / vectorWidth;
+// Build a popsolver model with the appropriate Pooling Planning variables and
+// constraints. Return the "cycle" cost as the derived variable which needs to
+// be optimized.
+static popsolver::Variable constructModel(
+    popsolver::Model &m, const poplar::Target &target, PartitionVariables &vars,
+    const poplin::ConvParams &params, const unsigned minGrainsPerChanGroup,
+    const unsigned maxGrainsPerChanGroup, const std::size_t chanGrainSize,
+    const std::size_t numChannels, const std::size_t detChansPerGroup) {
+  auto numTiles = target.getNumTiles();
+  auto fieldShape = params.getOutputFieldShape();
+  auto kernelShape = params.kernelShape;
+  auto vectorWidth = target.getVectorWidth(params.inputType);
+  auto nChGrain = m.addVariable(minGrainsPerChanGroup,
+                                std::min(maxGrainsPerChanGroup, numTiles));
+  auto nCh = m.addConstant(numChannels);
+  auto chGrainSize = m.addConstant(chanGrainSize);
 
-  // compute cost
-  uint64_t computeCost =
-      outerDimElems *
-      (10 + product(params.kernelShape) *
-                (innerDimElems * (3 + innerVectorsPerTile * 2))) *
-      perTile.batch * perTile.chanGroups;
+  // Sweep Channels Per Group
+  vars.chansPerGroup = m.product({nChGrain, chGrainSize});
 
-  const unsigned exchangeBytesPerCycle = 4;
-  std::uint64_t bytesPerTile = product(perTile.field) * perTile.batch *
-                               perTile.chanGroups * perTile.chansPerGroup *
-                               target.getTypeSize(params.inputType);
+  // Channel-Group split sweep
+  auto nChGroupsMax = m.ceildiv(nCh, vars.chansPerGroup);
+  auto nTiles = m.addConstant(numTiles);
+  vars.chanGroupsSplit = m.addVariable(1, numTiles);
+  m.lessOrEqual(vars.chanGroupsSplit, nChGroupsMax);
 
-  // exchange cost: assume everything brought onto tile
-  uint64_t exchangeCost = bytesPerTile / exchangeBytesPerCycle;
+  // Batch split sweep
+  vars.batchSplit = m.addVariable(1, params.batchSize);
 
-  // Penalise for changing from detected group
-  std::uint64_t rearrangementCost = 0;
-  if (detChansPerGroup != perTile.chansPerGroup) {
-    rearrangementCost += bytesPerTile / 4;
+  // Sweep across each field dimension
+  for (auto dimSize : fieldShape) {
+    vars.fieldSplit.push_back(m.addVariable(1, dimSize));
   }
-  return computeCost + exchangeCost + rearrangementCost;
+
+  // Constrain splits to not exceed the given number of tiles
+  std::vector<popsolver::Variable> splits = {vars.chanGroupsSplit,
+                                             vars.batchSplit};
+  splits.insert(splits.end(), vars.fieldSplit.begin(), vars.fieldSplit.end());
+  auto usedTiles = m.product(splits);
+  m.lessOrEqual(usedTiles, nTiles);
+
+  // Work out the size of each partition after applying the split
+  std::vector<popsolver::Variable> fieldVar;
+  std::vector<popsolver::Variable> kernelVar;
+  auto nChGroups = m.ceildiv(nChGroupsMax, vars.chanGroupsSplit);
+  auto batchSize = m.addConstant(params.batchSize);
+  auto nBatch = m.ceildiv(batchSize, vars.batchSplit);
+  for (unsigned i = 0; i < vars.fieldSplit.size(); i++) {
+    auto fieldDim = m.addConstant(fieldShape[i]);
+    fieldVar.push_back(m.ceildiv(fieldDim, vars.fieldSplit[i]));
+    kernelVar.push_back(m.addConstant(kernelShape[i]));
+  }
+
+  // Evaluate the cycle-cost for each possible partition
+  std::vector<popsolver::Variable> splitVars = {
+      nBatch,
+      nChGroups,
+      vars.chansPerGroup,
+  };
+  splitVars.insert(splitVars.end(), fieldVar.begin(), fieldVar.end());
+  splitVars.insert(splitVars.end(), kernelVar.begin(), kernelVar.end());
+  auto cycles = m.call(
+      splitVars, [target, params, vectorWidth, fieldShape,
+                  detChansPerGroup](const std::vector<unsigned> &values) {
+        // Note that "perTile" is not a partition per se, but it contains
+        // the variables after they were partitioned for each tile:
+        //      perTile->batch = batchSize / batchSplit
+        //      perTile->chanGroups = numChannels / channelSplit
+        //      perTile->field[d] = ConvParams::fieldShape[d] / fieldSplit[d]
+        //      perTile->kernel[d] = ConvParams::kernelShape[d] / kernelSplit[d]
+        Partition perTile = makePartition(values, fieldShape.size());
+        const auto innerDimElems = perTile.field.back();
+        const auto outerDimElems = product(perTile.field) / innerDimElems;
+        const auto innerVectorsPerTile =
+            (perTile.chansPerGroup + vectorWidth - 1) / vectorWidth;
+
+        // compute cost
+        uint64_t computeCost =
+            outerDimElems *
+            (10 + product(perTile.kernel) *
+                      (innerDimElems * (3 + innerVectorsPerTile * 2))) *
+            perTile.batch * perTile.chanGroups;
+
+        const unsigned exchangeBytesPerCycle = 4;
+        std::uint64_t bytesPerTile =
+            product(perTile.field) * perTile.batch * perTile.chanGroups *
+            perTile.chansPerGroup * target.getTypeSize(params.inputType);
+
+        // exchange cost: assume everything brought onto tile
+        uint64_t exchangeCost = bytesPerTile / exchangeBytesPerCycle;
+
+        // Penalise for changing from detected group
+        std::uint64_t rearrangementCost = 0;
+        if (detChansPerGroup != perTile.chansPerGroup) {
+          rearrangementCost += bytesPerTile / 4;
+        }
+        return computeCost + exchangeCost + rearrangementCost;
+      });
+  return cycles;
 }
 
 poplin::ConvParams applyTransform(poplin::ConvParams params,
@@ -185,9 +294,6 @@ Plan getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   const auto transformedParams = applyTransform(params, plan.transform, {&in});
   const auto inShape = in.shape();
   const auto chansPerGroupDet = detectInnermostGrouping(graph, in);
-
-  const auto &target = graph.getTarget();
-  auto batchSize = inShape[0];
   auto numChannels = inShape[inShape.size() - 1];
 
   // Do not allow a large number of grains as memory cost of exchanging and
@@ -199,57 +305,17 @@ Plan getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   maxGrainsPerChanGroup =
       std::max(std::min(maxGrainsPerChanGroup, 8UL), minGrainsPerChanGroup);
 
-  const std::size_t numTiles = graph.getTarget().getNumTiles();
-  const auto fieldShape = transformedParams.getOutputFieldShape();
-  const auto numFieldDims = fieldShape.size();
-  Partition split;
-  split.field = std::vector<std::size_t>(numFieldDims, 1);
-  const auto vectorWidth =
-      graph.getTarget().getVectorWidth(transformedParams.inputType);
+  // Construct model with variables and constraints
+  popsolver::Model m;
+  PartitionVariables vars;
+  auto cycles = constructModel(m, graph.getTarget(), vars, transformedParams,
+                               minGrainsPerChanGroup, maxGrainsPerChanGroup,
+                               chanGrainSize, numChannels, chansPerGroupDet);
 
-  // currently kernel is not split. set it to 1
-  split.kernel = std::vector<std::size_t>(numFieldDims, 1);
-
-  uint64_t cost = std::numeric_limits<uint64_t>::max();
-  Partition bestSplit;
-
-  std::function<void(std::size_t, std::size_t)> f;
-  f = [&](std::size_t tiles, std::size_t fieldIndex) {
-    for (std::size_t elem = 1UL;
-         elem <= std::max(1UL, std::min(tiles, fieldShape[fieldIndex]));
-         ++elem) {
-      split.field[fieldIndex] = elem;
-      if (fieldIndex + 1 == fieldShape.size()) {
-        const auto thisCost = computeCost(transformedParams, split, vectorWidth,
-                                          chansPerGroupDet, target);
-        if (thisCost < cost) {
-          cost = thisCost;
-          bestSplit = split;
-        }
-      } else
-        f(tiles / elem, fieldIndex + 1);
-    }
-  };
-
-  for (std::size_t chanGrain = minGrainsPerChanGroup;
-       chanGrain <= std::min(maxGrainsPerChanGroup, numTiles); ++chanGrain) {
-    split.chansPerGroup = chanGrain * chanGrainSize;
-    auto numChanGroups =
-        (numChannels + split.chansPerGroup - 1) / split.chansPerGroup;
-    for (std::size_t chanSplit = 1UL;
-         chanSplit <= std::max(1UL, std::min(numTiles, numChanGroups));
-         ++chanSplit) {
-      split.chanGroups = chanSplit;
-      for (std::size_t batchSplit = 1;
-           batchSplit <=
-           std::max(1UL, std::min(numTiles / chanSplit, batchSize));
-           ++batchSplit) {
-        split.batch = batchSplit;
-        f(numTiles / (chanSplit * batchSplit), 0);
-      }
-    }
-  }
-  plan.partition = bestSplit;
+  // Optimise within constraints
+  auto s = m.minimize({cycles});
+  assert(s.validSolution());
+  plan.partition = makePartition(s, vars);
   return plan;
 }
 
