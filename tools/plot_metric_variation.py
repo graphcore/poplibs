@@ -23,7 +23,8 @@ import numpy as np
 
 FIGURE_FILENAME = "plot_metric_variation.png"
 PICKLE_FILENAME = "plot_metric_variation.pickle"
-VAR_PATTERN = re.compile(r'\{(\d+):(\d+):(\d+)\}') # E.g. {10:100:5}
+VAR_PATTERN_RANGE = re.compile(r'\{(\d+):(\d+):(\d+)\}') # E.g. {10:100:5}
+VAR_PATTERN_LIST = re.compile(r'\{((\d+,?)+)\}') # E.g. {1,2,3,4}
 MB_SCALE = 1024*1024
 
 
@@ -51,22 +52,34 @@ def get_args():
     )
     parser.add_argument(
         "command", nargs=argparse.REMAINDER, help="The program command to call and "
-        "analyse. The command must include one occurrence of pattern '{A:B:C}' (all integers). "
+        "analyse. The command must include a parameter to be varied which can"
+        " be represented in two ways. Either the pattern '{A:B:C}' (all integers); "
         "The command will be executed several times with this pattern replaced by "
         "a single value from D = A, A+C, A+C+C, ... for all D < B."
+        " Or '{D,E,F...,G}'; the command will be executed once for each value"
+        " in the list."
     )
     return parser.parse_args()
 
 
 def get_var_name_params(cmd):
-    all_var_matches = list(filter(VAR_PATTERN.search, cmd))
-    assert len(all_var_matches) is 1, r"Exactly one occurrence of {A:B:C} must appear in command."
-    var_match = VAR_PATTERN.search(all_var_matches[0])
-    params = np.arange(int(var_match.group(1)), int(var_match.group(2)), int(var_match.group(3)))
+    all_var_matches_range = list(filter(VAR_PATTERN_RANGE.search, cmd))
+    all_var_matches_list = list(filter(VAR_PATTERN_LIST.search, cmd))
+    if len(all_var_matches_range) is 1:
+      var_match = VAR_PATTERN_RANGE.search(all_var_matches_range[0])
+      params = np.arange(int(var_match.group(1)), int(var_match.group(2)), int(var_match.group(3)))
 
-    name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN.pattern)
-    var_name = name_pattern.search(" ".join(cmd)).group(1)
-    return (var_name, params)
+      name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN_RANGE.pattern)
+      var_name = name_pattern.search(" ".join(cmd)).group(1)
+      return (var_name, params, VAR_PATTERN_RANGE)
+    elif len(all_var_matches_list) is 1:
+      var_match = VAR_PATTERN_LIST.search(all_var_matches_list[0]).group(1)
+      params=list(map(int, var_match.split(",")));
+      name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN_LIST.pattern)
+      var_name = name_pattern.search(" ".join(cmd)).group(1)
+      return (var_name, params, VAR_PATTERN_LIST)
+    else:
+      assert len(all_var_matches) is 1, r"Exactly one occurrence of {A:B:C} or {D,E,F,..G} must appear in command."
 
 
 def main():
@@ -74,8 +87,8 @@ def main():
     if args.command: # Command provided. Generate data before plotting.
         x_values = []
         data = defaultdict(list)
-        (var_name, params) = get_var_name_params(args.command)
-        generate_data(args.command, params, x_values, data)
+        (var_name, params, pattern) = get_var_name_params(args.command)
+        generate_data(args.command, params, pattern, x_values, data)
 
         if not args.pickle_off:
             with open(args.pickle, 'wb') as pickle_file:
@@ -102,13 +115,13 @@ def main():
     plot_data(var_name, x_values, data, args)
 
 
-def generate_data(cmd, params, x_values, data):
+def generate_data(cmd, params, pattern, x_values, data):
     cmd.append("--profile-json")
 
     with tempfile.TemporaryDirectory() as out_dir:
         # Create list of all cmd variants (variable value and JSON output file)
         out_files = [os.path.join(out_dir, str(param) + '.json') for param in params]
-        cmds = [[VAR_PATTERN.sub(str(param), substring) for substring in cmd] for param in params]
+        cmds = [[pattern.sub(str(param), substring) for substring in cmd] for param in params]
         cmds = [[*cmd, out] for (cmd, out) in zip(cmds, out_files)]
 
         print(" - Spawning %d processes..." % len(cmds))
