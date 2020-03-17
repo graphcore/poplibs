@@ -10,9 +10,10 @@
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
-#include <boost/functional/hash.hpp>
+#include <boost/icl/interval_map.hpp>
 #include <cassert>
 #include <cmath>
+#include <set>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -22,47 +23,22 @@ namespace logging = poplibs_support::logging;
 
 namespace poplin {
 
-// Create a variable of dimension {actsOrGrads.dim(1)} with start tile for the
-// mapping a function of dimensions of \actsOrGrads.
-static Tensor createAndMapParamOrReductionOutput(Graph &graph,
-                                                 const Tensor &actsOrGrads,
-                                                 const Type &type,
-                                                 const std::string &name) {
-  // Randomise the start tile for mapping of the variable
-  std::size_t seed = 0x9e3779b9UL;
-  const auto shape = actsOrGrads.shape();
-  boost::hash_range(seed, shape.begin(), shape.end());
-  const auto mappingGranularity = 4U;
-  const auto &target = graph.getTarget();
-  auto t = graph.addVariable(type, {shape[1]}, name);
-  // TODO: T12897 Use introspection to map onto different IPUs.
-  mapTensorLinearly(graph, t, 0,
-                    target.getDataPathWidth() / (8 * target.getTypeSize(type)));
-  auto oldMapping = graph.getTileMapping(t);
-  const auto numTiles = oldMapping.size();
-  Graph::TileToTensorMapping newMapping(numTiles);
-  std::size_t dstTile =
-      ((seed / mappingGranularity) * mappingGranularity) % numTiles;
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    if (!oldMapping[tile].empty())
-      newMapping[dstTile] = std::move(oldMapping[tile]);
-    if (++dstTile == numTiles) {
-      dstTile = 0;
-    }
-  }
-  graph.setTileMapping(t, newMapping);
-  return t;
-}
-
 static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
                          const Tensor &scale, bool doSquare,
                          std::vector<ComputeSet> &css,
                          const Type &, // partialsType,
                          const Type &outputType,
+                         const Tensor *outputToCloneFrom,
                          const std::string &debugPrefix) {
   std::string name = debugPrefix + "/ReduceResult";
-  auto t = createAndMapParamOrReductionOutput(graph, actsUngrouped, outputType,
-                                              name);
+  Tensor t;
+
+  // The output tensor mapping may be specified or created
+  if (outputToCloneFrom) {
+    t = graph.clone(outputType, *outputToCloneFrom, name);
+  } else {
+    t = createBroadcastOperand(graph, actsUngrouped, outputType, 1, true, name);
+  }
 
   if (actsUngrouped.rank() < 2)
     throw poplibs_error("NormReduce with rank " +
@@ -82,13 +58,15 @@ static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
 static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped, float scale,
                          bool doSquare, std::vector<ComputeSet> &css,
                          const Type &partialsType, const Type &outputType,
+                         const Tensor *outputToCloneFrom,
                          const std::string &debugPrefix) {
   auto constantScale =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/constantScale");
   graph.setTileMapping(constantScale, 0);
 
   return normReduce(graph, actsUngrouped, constantScale, doSquare, css,
-                    partialsType, outputType, debugPrefix + "/ConstScale");
+                    partialsType, outputType, outputToCloneFrom,
+                    debugPrefix + "/ConstScale");
 }
 
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
@@ -155,8 +133,9 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   const auto meanOutputType = acts.elementType();
 
   std::vector<ComputeSet> css;
-  auto mean = normReduce(graph, acts, 1.0f / numElements, false, css,
-                         partialsType, meanOutputType, fnPrefix + "/mean");
+  auto mean =
+      normReduce(graph, acts, 1.0f / numElements, false, css, partialsType,
+                 meanOutputType, nullptr, fnPrefix + "/mean");
 
   auto maybeZeroMeanActs = acts;
   if (stableAlgo) {
@@ -176,7 +155,7 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   // to save memory
   auto power =
       normReduce(graph, maybeZeroMeanActs, 1.0f / numElements, true, css,
-                 partialsType, powerOutputType, fnPrefix + "/power");
+                 partialsType, powerOutputType, &mean, fnPrefix + "/power");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));
@@ -188,17 +167,16 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
 }
 
 Tensor createNormGamma(Graph &graph, const Tensor &acts) {
-  return createAndMapParamOrReductionOutput(graph, acts, acts.elementType(),
-                                            "gamma");
+  return createBroadcastOperand(graph, acts, acts.elementType(), 1, true,
+                                "gamma");
 }
 
 Tensor createNormBeta(Graph &graph, const Tensor &acts) {
-  return createAndMapParamOrReductionOutput(graph, acts, acts.elementType(),
-                                            "beta");
+  return createBroadcastOperand(graph, acts, acts.elementType(), 1, true,
+                                "beta");
 }
 
 std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
-  // map beta and gamma the same way as biases
   auto gamma = createNormGamma(graph, acts);
   auto beta = createNormBeta(graph, acts);
   return std::make_pair(gamma, beta);
@@ -268,9 +246,10 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
   auto scaleTensor =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
-  const auto concatDeltas = normReduce(
-      graph, concatInputs, scaleTensor, false, css, partialsType,
-      gradsInMaybeRegrouped.elementType(), fnPrefix + "/JointGammaDelta");
+  const auto concatDeltas =
+      normReduce(graph, concatInputs, scaleTensor, false, css, partialsType,
+                 gradsInMaybeRegrouped.elementType(), nullptr,
+                 fnPrefix + "/JointGammaDelta");
 
   for (const auto &cs : css) {
     prog.add(Execute(cs));

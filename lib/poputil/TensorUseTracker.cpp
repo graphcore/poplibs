@@ -5,6 +5,7 @@
 #include "poputil/exceptions.hpp"
 
 #include <boost/icl/interval_map.hpp>
+#include <iterator>
 #include <unordered_map>
 
 namespace poputil {
@@ -116,6 +117,47 @@ static bool isHaloRegion(const std::set<unsigned> &prevTiles,
                        nextTiles.end());
 }
 
+static void mergeIntersectingTileGroups(
+    boost::icl::interval_map<unsigned, std::set<unsigned>> &map) {
+  if (map.empty()) {
+    return;
+  }
+  boost::icl::interval_map<unsigned, std::set<unsigned>> optimizedMap;
+
+  auto it = map.begin();
+  std::set<unsigned> mergedSet = it->second;
+  unsigned mergedRegionBegin = it->first.lower();
+  unsigned mergedRegionEnd = it->first.upper();
+
+  while (++it != map.end()) {
+    // union of already merged tile groups and next
+    std::set<unsigned> setUnion;
+    // check if adjacent tile sets intersect
+    std::set_union(mergedSet.begin(), mergedSet.end(), it->second.begin(),
+                   it->second.end(), std::inserter(setUnion, setUnion.begin()));
+    if (mergedSet.size() + it->second.size() == setUnion.size()) {
+      // If there is no intersection we just we just insert the entry into the
+      // optimised map
+      optimizedMap.insert({boost::icl::interval<unsigned>::right_open(
+                               mergedRegionBegin, mergedRegionEnd),
+                           mergedSet});
+      mergedSet = it->second;
+      mergedRegionBegin = it->first.lower();
+      mergedRegionEnd = it->first.upper();
+    } else {
+      // else we continue to check if further tile groups need to be added
+      mergedSet = setUnion;
+      mergedRegionEnd = it->first.upper();
+    }
+  }
+
+  optimizedMap.insert({boost::icl::interval<unsigned>::right_open(
+                           mergedRegionBegin, mergedRegionEnd),
+                       mergedSet});
+
+  std::swap(map, optimizedMap);
+}
+
 static void optimizeHaloMapping(
     boost::icl::interval_map<unsigned, std::set<unsigned>> &map) {
   // Modify the map so that "halo" regions where the uses are the union of the
@@ -140,10 +182,19 @@ static void optimizeHaloMapping(
 
 void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
                                unsigned minElementsPerTile,
-                               bool optimizeHaloRegions,
-                               bool extendPartialUsage) {
+                               bool extendPartialUsage,
+                               TensorUseTracker::MappingMethod mappingMethod) {
   using TileUseInterval = boost::icl::interval<unsigned>;
   const auto numTiles = graph.getTarget().getNumTiles();
+
+  unsigned sharedGrainSize;
+  if (mappingMethod ==
+      TensorUseTracker::MappingMethod::ConstrainMappingToUsedTiles) {
+    sharedGrainSize = 1;
+  } else {
+    sharedGrainSize = grainSize;
+    grainSize = 1;
+  }
 
   for (auto &usageEntry : st->usage) {
     const auto t = graph.getVariable(usageEntry.first);
@@ -163,8 +214,8 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
     boost::icl::interval_map<unsigned, std::set<unsigned>> grainToTiles;
     for (const auto &entry : uses) {
       const auto &interval = entry.first;
-      unsigned grainLower = interval.lower() / grainSize;
-      unsigned grainUpper = (interval.upper() - 1) / grainSize + 1;
+      unsigned grainLower = interval.lower() / sharedGrainSize;
+      unsigned grainUpper = (interval.upper() - 1) / sharedGrainSize + 1;
       auto grainInterval = TileUseInterval::right_open(grainLower, grainUpper);
       grainToTiles.insert({grainInterval, entry.second});
     }
@@ -172,12 +223,20 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
     const auto numElements = t.numElements();
     if (extendPartialUsage) {
       // Extend the grainUses map to cover the entire tensor.
-      const unsigned numGrains = (numElements + grainSize - 1) / grainSize;
+      const unsigned numGrains =
+          (numElements + sharedGrainSize - 1) / sharedGrainSize;
       extendPartialMap(grainToTiles, 0U, numGrains);
     }
 
-    if (optimizeHaloRegions) {
+    switch (mappingMethod) {
+    case TensorUseTracker::MappingMethod::OptimizeHaloRegions:
       optimizeHaloMapping(grainToTiles);
+      break;
+    case TensorUseTracker::MappingMethod::ConstrainMappingToUsedTiles:
+      mergeIntersectingTileGroups(grainToTiles);
+      break;
+    case TensorUseTracker::MappingMethod::None:
+      break;
     }
 
     // Build a map from sets of tiles to grains they use.
@@ -187,19 +246,20 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
                                                entry.first.upper());
     }
     const auto minGrainsPerTile =
-        (minElementsPerTile + grainSize - 1) / grainSize;
+        (minElementsPerTile + sharedGrainSize - 1) / sharedGrainSize;
     for (const auto &entry : tilesToGrains) {
       const auto &tiles = entry.first;
       const auto &sharedGrains = entry.second;
       const auto perTileGrains =
-          splitRegions(sharedGrains, 1, tiles.size(), minGrainsPerTile);
+          splitRegions(sharedGrains, grainSize, tiles.size(), minGrainsPerTile);
       unsigned i = 0;
       for (auto tile : tiles) {
         if (i == perTileGrains.size())
           break;
         for (const auto &interval : perTileGrains[i]) {
-          const auto lower = interval.begin() * grainSize;
-          const auto upper = std::min(interval.end() * grainSize, numElements);
+          const auto lower = interval.begin() * sharedGrainSize;
+          const auto upper =
+              std::min(interval.end() * sharedGrainSize, numElements);
           usage[tile] += TileUseInterval::right_open(lower, upper);
         }
         ++i;
@@ -208,12 +268,11 @@ void TensorUseTracker::resolve(const poplar::Graph &graph, unsigned grainSize,
   }
 }
 
-void TensorUseTracker::mapTensorsByUse(poplar::Graph &graph, unsigned grainSize,
-                                       unsigned minElementsPerTile,
-                                       bool optimizeHaloRegions,
-                                       bool extendPartialUsage) {
-  resolve(graph, grainSize, minElementsPerTile, optimizeHaloRegions,
-          extendPartialUsage);
+void TensorUseTracker::mapTensorsByUse(
+    poplar::Graph &graph, unsigned grainSize, unsigned minElementsPerTile,
+    bool extendPartialUsage, TensorUseTracker::MappingMethod mappingMethod) {
+  resolve(graph, grainSize, minElementsPerTile, extendPartialUsage,
+          mappingMethod);
   const auto numTiles = graph.getTarget().getNumTiles();
 
   for (const auto &usageEntry : st->usage) {
