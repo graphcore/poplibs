@@ -3953,6 +3953,9 @@ static boost::optional<Tensor> convolutionImpl(
             debugPrefix + "/weightsRearranged", plan, options);
         preprocessForSerialSlice(nullptr, &weightsSliceRearranged, serialParams,
                                  partition);
+        weightsSlice = regroupIfBeneficial(graph, weightsSlice,
+                                           weightsSliceRearranged, parentLoop,
+                                           debugPrefix + "/regroupBeforeSlice");
         parentLoop.add(Copy(weightsSlice, weightsSliceRearranged));
         weightsSlice = weightsSliceRearranged;
       }
