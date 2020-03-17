@@ -11,6 +11,7 @@
 
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 
@@ -510,16 +511,19 @@ bri           LNumElemsEq1
 // of channels the AMP processes. The actual value kept is one less.
 #define SUP_STACK_AMP_GROUPS      12 //(word)
 #define SUP_STACK_SIZE            (SUP_STACK_AMP_GROUPS + 4)
+#define TOT_STACK_SIZE            (WKR_VERTEX_SIZE + SUP_STACK_SIZE)
 
 .macro CONV_1X1_float_float LDTYPE
 
 .if \LDTYPE == LD64
+DEF_STACK_USAGE TOT_STACK_SIZE CODELET_NAME_64_float_float
 .section .text.CODELET_NAME_64_float_float
 .globl CODELET_NAME_64_float_float
 .type CODELET_NAME_64_float_float, @function
 CODELET_NAME_64_float_float:
 
 .elseif \LDTYPE == LD128
+DEF_STACK_USAGE TOT_STACK_SIZE CODELET_NAME_128_float_float
 .section .text.CODELET_NAME_128_float_float
 .globl CODELET_NAME_128_float_float
 .type CODELET_NAME_128_float_float, @function
@@ -544,7 +548,7 @@ CODELET_NAME_128_float_float:
   ld32          $partition_s, $sup_base, SUP_PARTITION/4
 #endif
   setzi         $tmem_base, TMEM_REGION0_BASE_ADDR / 4
-  add           $sp, $sp, -(WKR_VERTEX_SIZE + SUP_STACK_SIZE)
+  add           $sp, $sp, -TOT_STACK_SIZE
   lds16         $stride_s, $sup_base, SUP_INPUT_STRIDE/2
   ldz16         $amp_group_s, $sup_base, SUP_OUTCHANS_PER_GROUP/2
   lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
@@ -756,7 +760,7 @@ AmpGroupLoop_float_float_\LDTYPE\():
 // restore stack
 ld32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
 ld32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
-add           $sp, $sp, WKR_VERTEX_SIZE + SUP_STACK_SIZE
+add           $sp, $sp, TOT_STACK_SIZE
 br            $lr
 
 .if \LDTYPE == LD64

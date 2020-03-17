@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_true_true
 #define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___float_float_float_false_true
@@ -94,6 +95,7 @@
 .endm
 
 
+DEF_STACK_USAGE 0 .text.VERTEX_ADD_TENSOR_FAST
 .section .text.VERTEX_ADD_TENSOR_FAST
 .align 4
 VERTEX_ADD_TENSOR_SLOW:
@@ -108,6 +110,7 @@ VERTEX_ADD_TENSOR_FAST:
   bri   VERTEX_COMMON
 .size VERTEX_ADD_TENSOR_FAST, .-VERTEX_ADD_TENSOR_FAST
 
+DEF_STACK_USAGE 0 .text.VERTEX_SUBTRACT_SLOW
 .section .text.VERTEX_SUBTRACT_SLOW
 .align 4
 VERTEX_SUBTRACT_SLOW:
@@ -124,6 +127,7 @@ VERTEX_SUBTRACT_FAST:
    f32mul $ascratch, $ascratch, $data1i0}
 .size VERTEX_SUBTRACT_FAST, .-VERTEX_SUBTRACT_SLOW
 
+DEF_STACK_USAGE 0 .text.VERTEX_COMMON
 .section .text.VERTEX_COMMON
 .align 8
 #ifndef VECTOR_AVAIL_SCALED_PTR64

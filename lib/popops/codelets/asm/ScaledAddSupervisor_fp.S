@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
@@ -114,6 +115,7 @@
 .globl VERTEX(float_float_float_false_true)
 .type VERTEX(float_float_float_false_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_false)
 .section .text.VERTEX(float_float_float_false)
 .align 4
 .supervisor
@@ -148,6 +150,7 @@ VERTEX(float_float_float_false_true):
 .globl VERTEX(float_float_float_true_true)
 .type VERTEX(float_float_float_true_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_true)
 .section .text.VERTEX(float_float_float_true)
 .align 4
 .supervisor
@@ -175,6 +178,7 @@ VERTEX(float_float_float_true_true):
 .globl SUBTRACT_VERTEX(float_float_true)
 .type SUBTRACT_VERTEX(float_float_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(float_float)
 .section .text.SUBTRACT_VERTEX(float_float)
 .align 4
 .supervisor
@@ -217,6 +221,7 @@ SUBTRACT_VERTEX(float_float_true):
 .globl VERTEX(half_half_half_false_true)
 .type VERTEX(half_half_half_false_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_false)
 .section .text.VERTEX(half_half_half_false)
 .align 4
 .supervisor
@@ -246,12 +251,12 @@ VERTEX(half_half_half_false_true):
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX(half_half_half_false), .-VERTEX(half_half_half_false_false)
 
-
 .globl VERTEX(half_half_half_true_false)
 .type VERTEX(half_half_half_true_false), @function
 .globl VERTEX(half_half_half_true_true)
 .type VERTEX(half_half_half_true_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_true)
 .section .text.VERTEX(half_half_half_true)
 .align 4
 .supervisor
@@ -279,6 +284,7 @@ VERTEX(half_half_half_true_true):
 .globl SUBTRACT_VERTEX(half_half_true)
 .type SUBTRACT_VERTEX(half_half_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_half)
 .section .text.SUBTRACT_VERTEX(half_half)
 .align 4
 .supervisor
@@ -315,7 +321,8 @@ SUBTRACT_VERTEX(half_half_true):
 .globl AXPLUSBY_VERTEX(half_true_true)
 .type AXPLUSBY_VERTEX(half_true_true), @function
 
-.section .text.AXPBY_VERTEX(half_true)
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_true)
+.section .text.AXPLUSBY_VERTEX(half_true)
 .align 4
 .supervisor
 AXPLUSBY_VERTEX(half_true_false):
@@ -347,7 +354,8 @@ AXPLUSBY_VERTEX(half_true_true):
 .globl AXPLUSBY_VERTEX(half_false_true)
 .type AXPLUSBY_VERTEX(half_false_true), @function
 
-.section .text.AXPBY_VERTEX(half_false)
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_false)
+.section .text.AXPLUSBY_VERTEX(half_false)
 .align 4
 .supervisor
 AXPLUSBY_VERTEX(half_false_false):
@@ -381,7 +389,8 @@ AXPLUSBY_VERTEX(half_false_true):
 .globl XMINUSAXPLUSBY_VERTEX(half_true_true)
 .type XMINUSAXPLUSBY_VERTEX(half_true_true), @function
 
-.section .text.AXPYMBY_VERTEX(half_true)
+DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_true)
+.section .text.XMINUSAXPLUSBY_VERTEX(half_true)
 .align 4
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X
@@ -425,7 +434,8 @@ XMINUSAXPLUSBY_VERTEX(half_true_true):
 .globl XMINUSAXPLUSBY_VERTEX(half_false_true)
 .type XMINUSAXPLUSBY_VERTEX(half_false_true), @function
 
-.section .text.AXPYMBY_VERTEX(half_false)
+DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_false)
+.section .text.XMINUSAXPLUSBY_VERTEX(half_false)
 .align 4
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X
@@ -466,7 +476,8 @@ XMINUSAXPLUSBY_VERTEX(half_false_true):
 .globl AX_MINUS_BY_VERTEX(half_false_true)
 .type AX_MINUS_BY_VERTEX(half_false_true), @function
 
-.section .text.AXPBY_VERTEX(half_false)
+DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(half_false)
+.section .text.AX_MINUS_BY_VERTEX(half_false)
 .align 4
 .supervisor
 AX_MINUS_BY_VERTEX(half_false_false):
@@ -498,8 +509,9 @@ AX_MINUS_BY_VERTEX(half_false_true):
   bri   VERTEX(supervisor) // 6 cycles
 .size AX_MINUS_BY_VERTEX(half_false), .-AX_MINUS_BY_VERTEX(half_false_false)
 
-.section .text.AXBY_PLUS_MINUS_COMMON
+DEF_STACK_USAGE  STACK_SIZE  AX_MINUS_PLUS_BY_COMMON
 .supervisor
+.section .text.AX_MINUS_PLUS_BY_COMMON
 AX_MINUS_PLUS_BY_COMMON:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   shl    $mscratch, $mscratch, SCALED_PTR64_SHL_BITS
@@ -515,7 +527,7 @@ AX_MINUS_PLUS_BY_COMMON:
   ldz16  $mscratch, $mzero, $mscratch, 0
   ldz16  $mscratch2, $mzero, $mscratch2, 0
   br $remM1
-.size AXBY_PLUS_MINUS_COMMON, .-AX_MINUS_PLUS_BY_COMMON
+.size AX_MINUS_PLUS_BY_COMMON, .-AX_MINUS_PLUS_BY_COMMON
 //******************************************************************************
 // Mixed precision variant entry points
 //******************************************************************************
@@ -524,6 +536,7 @@ AX_MINUS_PLUS_BY_COMMON:
 .globl VERTEX(half_float_half_false_true)
 .type VERTEX(half_float_half_false_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_false)
 .section .text.VERTEX(half_float_half_false)
 .align 4
 .supervisor
@@ -558,7 +571,7 @@ VERTEX(half_float_half_false_true):
 .globl VERTEX(half_float_half_true_true)
 .type VERTEX(half_float_half_true_true), @function
 
-
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_true)
 .section .text.VERTEX(half_float_half_true)
 .align 4
 .supervisor
@@ -585,6 +598,7 @@ VERTEX(half_float_half_true_true):
 .globl SUBTRACT_VERTEX(half_float_true)
 .type SUBTRACT_VERTEX(half_float_true), @function
 
+DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_float)
 .section .text.SUBTRACT_VERTEX(half_float)
 .align 4
 .supervisor
@@ -622,6 +636,7 @@ SUBTRACT_VERTEX(half_float_true):
 .globl VERTEX(supervisor)
 .type VERTEX(supervisor), @function
 
+DEF_STACK_SIZE_OWN  0  VERTEX(supervisor)
 .section .text.VERTEX(supervisor)
 .align 4
 .supervisor
@@ -764,6 +779,7 @@ VERTEX(supervisor):
 
 .type VERTEX(float).kernel, @function
 
+DEF_STACK_USAGE  0  VERTEX(float).kernel  FUNCTION_IS_WORKER
 .section .text.VERTEX(float).kernel
 .align 8
 .worker
@@ -905,6 +921,7 @@ VERTEX(float).kernel:
 //******************************************************************************
 .type VERTEX(half).kernel, @function
 
+DEF_STACK_USAGE  0  .text.VERTEX(half).kernel  FUNCTION_IS_WORKER
 .section .text.VERTEX(half).kernel
 
 .globl VERTEX(half_half_float_continue)
@@ -1097,6 +1114,7 @@ not_axplusby_continue:
 .size VERTEX(half).kernel, .-VERTEX(half).kernel
 
 //******************************************************************************
+DEF_STACK_USAGE 0 VERTEX(xminusaxplusby_half).kernel
 .type VERTEX(xminusaxplusby_half).kernel, @function
 
 .section .text.VERTEX(xminusaxplusby_half).kernel
@@ -1318,6 +1336,7 @@ not_xminusaxplusby_continue:
 
 .type VERTEX(half_float).kernel, @function
 
+DEF_STACK_USAGE 0 VERTEX(half_float).kernel FUNCTION_IS_WORKER
 .section .text.VERTEX(half_float).kernel
 
 // Alignment to ensure repeat body is 8 byte aligned

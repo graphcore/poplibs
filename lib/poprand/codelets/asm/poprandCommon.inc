@@ -5,6 +5,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VBASE_OUTPUT_BASE_OFFSET          0
 #define VBASE_OUTPUT_SIZE_OFFSET          1

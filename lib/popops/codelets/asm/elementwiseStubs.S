@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 #include "poplibs_support/TileConstants.hpp"
-
+#include "poplar/StackSizeDefs.hpp"
 
 // Supervisor registers
 #define SUP_VERTEX_BASE m0
@@ -13,6 +13,7 @@
 //************************************************
 .macro MAKE_ONE_OP NAME FULLNAME OPERATION TYPE
 
+DEF_STACK_SIZE_OWN 0 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
 .section .text.popops__\FULLNAME\()_\OPERATION\()_\TYPE
 .align 4
  .global __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE

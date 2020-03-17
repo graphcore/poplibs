@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/EncodingConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 // Assembly implementation of popnn::Loss{SumSquared,CrossEntropy}Transform vertecies
 #define lossSumSquaredFloat __runCodelet_popnn__LossSumSquaredTransform___float
@@ -39,6 +40,7 @@
 // popnn::LossSumSquaredTransform<half>
 // popnn::LossSumSquaredTransform<float>
 /*****************************************************************************/
+DEF_STACK_USAGE 0 lossSumSquaredFloat
 .section .text.lossSumSquaredFloat
 .align 8
 
@@ -114,6 +116,7 @@ lossSumSquaredFloat_loopEnd:
 #undef TRANSFORMED
 #undef CONST_HALF
 
+DEF_STACK_USAGE 0 lossSumSquaredHalf
 .section .text.lossSumSquaredHalf
 
 .global lossSumSquaredHalf
@@ -219,6 +222,7 @@ lossSumSquaredHalf_end:
 // popnn::LossCrossEntropyTransform<half>
 // popnn::LossCrossEntropyTransform<float>
 /*****************************************************************************/
+DEF_STACK_USAGE 0 lossCrossEntropyFloat
 .section .text.lossCrossEntropyFloat
 
 .global lossCrossEntropyFloat
@@ -318,6 +322,8 @@ lossCrossEntropyFloat_loopEnd:
 #undef EPS
 #undef NEG_LOG_MODEL_OUT_SCALING
 
+
+DEF_STACK_USAGE 0 lossCrossEntropyHalf
 .section .text.lossCrossEntropyHalf
 
 .global lossCrossEntropyHalf

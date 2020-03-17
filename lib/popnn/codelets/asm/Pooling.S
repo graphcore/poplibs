@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
 #define COMPACT_VECTOR_TYPES_AVAILABLE 1
@@ -126,6 +127,7 @@
 .globl \symbol
 .type \symbol @function
 
+DEF_STACK_USAGE 0 \symbol
 .section .text.\symbol
 .align 4
 .supervisor

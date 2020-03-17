@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
@@ -85,6 +86,7 @@
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
+DEF_STACK_USAGE 0 .text.MultiSlice_16_entry
 .section .text.MultiSlice_16_entry
 MultiSlice_16_entry:
 .align 4
@@ -100,6 +102,7 @@ MS_HALF_FUNC:
 
 .size MultiSlice_16_entry, .-MultiSlice_16_entry
 
+DEF_STACK_USAGE 0 .text.MultiSlice_32_entry
 .section .text.MultiSlice_32_entry
 .align 4
 MultiSlice_32_entry:

@@ -8,6 +8,7 @@
 
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // =============================================================================
@@ -564,6 +565,7 @@ bri           StoreFinalAmpOutputs2
 #define STACK_WKR_FUNCTION              48
 #define STACK_SIZE                      (STACK_WKR_FUNCTION + 4) // bytes
 
+#define TOT_STACK_SIZE                  (WKR_STATE_SIZE + 8 + STACK_SIZE)
 
 // registers
 #define sup_base                        m0
@@ -613,12 +615,14 @@ bri           StoreFinalAmpOutputs2
 .macro CONV_NX1 LDTYPE
 
 .if \LDTYPE == LD64
+DEF_STACK_USAGE TOT_STACK_SIZE CODELET_NAME_64
 .section .text.CODELET_NAME_64
 .type CODELET_NAME_64, @function
 .globl CODELET_NAME_64
 CODELET_NAME_64:
 
 .elseif \LDTYPE == LD128
+DEF_STACK_USAGE TOT_STACK_SIZE CODELET_NAME_128
 .section .text.CODELET_NAME_128
 .type CODELET_NAME_128, @function
 .globl CODELET_NAME_128
@@ -634,7 +638,7 @@ lds16         $temp_1_s, $sup_base, SUP_INSTRIDE/2
 lds16         $outstride_s, $sup_base, SUP_OUTSTRIDE/2
 ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 // space for worker vertex state, supervisor state and callee-save registers
-add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
+add           $sp, $sp, -TOT_STACK_SIZE
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 //-----------------------------------------------------------------------------
@@ -979,7 +983,7 @@ L_sup_conv_end_\LDTYPE\():
 // Restore saved registers
 ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 ld32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-add           $sp, $sp, (WKR_STATE_SIZE + STACK_SIZE + 8)
+add           $sp, $sp, TOT_STACK_SIZE
 sync          TEXCH_SYNCZONE_LOCAL
 br            $lr
 

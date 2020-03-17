@@ -34,6 +34,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 // Offsets into vertex base
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -85,6 +86,7 @@
 #define M_SCALED_VERTEX_FLOAT_NAME __runCodelet_popops__ScaledContinuousReduce___popops__\REDUCTION_NAME\()_float_\OUT_TYPE\()_\UPDATE
 
 .macro DEFINE_ENTRY_POINT VERTEX_NAME ALIGNMENT OPTIONAL_NOP
+    DEF_STACK_USAGE  0  \VERTEX_NAME
     .section .text.\VERTEX_NAME, "ax"
     .global \VERTEX_NAME
     .type \VERTEX_NAME, @function

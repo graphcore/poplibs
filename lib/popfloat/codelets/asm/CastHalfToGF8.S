@@ -3,9 +3,11 @@
 // popfloat::CastHalfToGF8
 #include "GfloatConst.hpp"
 #include "CastHalfToGF8.h"
+#include "poplar/StackSizeDefs.hpp"
 
 
 .macro CAST_HALF_TO_GF8 FORMAT
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastHalfToGf8___popfloat__experimental__FormatType__\FORMAT\()
 .section .text.castHalfToGf8_\FORMAT\()
 .align 4
   .globl __runCodelet_popfloat__experimental__CastHalfToGf8___popfloat__experimental__FormatType__\FORMAT\()

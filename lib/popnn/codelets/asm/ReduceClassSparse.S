@@ -10,6 +10,7 @@
 // ReduceMaxClassGather. There is an opportunity to reuse code here.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(inOutType,labelType) \
   __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassSparse___ ## inOutType ## _ ## labelType
@@ -32,6 +33,7 @@
 #define MAX a1
 #define ASCRATCH a6
 
+DEF_STACK_USAGE 0 .text.VERTEX(float,unsigned_int)
 .section .text.VERTEX(float,unsigned_int)
 .globl VERTEX(float,unsigned_int)
 .type VERTEX(float,unsigned_int), @function

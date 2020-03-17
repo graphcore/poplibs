@@ -10,6 +10,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 // Symbol names
 #define HALF_SYMBOL \
@@ -338,6 +339,8 @@ calc_GELU_float:
 
 // NOTE: Register definitions as well as Loop implementation are included here
 #include "NonLinearityGradLoop_gelu.S"
+    
+DEF_STACK_USAGE 0 HALF_SYMBOL
 
 .section .text.HALF_SYMBOL
 .globl HALF_SYMBOL
@@ -480,6 +483,7 @@ HALF_SYMBOL:
 .size HALF_SYMBOL, .-HALF_SYMBOL
 
 
+DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .section .text.FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function

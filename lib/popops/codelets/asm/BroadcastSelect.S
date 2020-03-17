@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // This file contains the assembly for 'BroadcastSelect' and
 // 'BroadcastSelectorSelect[InPlace]' codelets (for all input types)
@@ -81,6 +82,7 @@ EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_BOOL
 #define selector        m9
 #define value           m10
 
+DEF_STACK_USAGE 0 .text.BCAST_SELECT_FLOAT
 .section .text.BCAST_SELECT_FLOAT
 .align 8
 
@@ -164,6 +166,7 @@ word_end:
 // Offsets in scratch area for saving values (not enough registers!)
 #define TRAIL_SAVE  0
 
+DEF_STACK_USAGE 0 BCAST_SELECT_HALF
 .section .text.BCAST_SELECT_HALF
 .align 8
 
@@ -307,6 +310,7 @@ half_end:
 #define LEFTOVER_SAVE       1
 #define TRAIL_SAVE          2
 
+DEF_STACK_USAGE 0 BCAST_SELECT_BOOL
 .section .text.BCAST_SELECT_BOOL
 .align 8
 nop
@@ -522,7 +526,7 @@ bool_end:
 // memcpy which might not have the best performance for small sizes but
 // gives very small code size here and has very good performance for aligned
 // vectors/big sizes.
-
+DEF_STACK_SIZE_OWN 0 .text.BCAST_SELECTOR_SELECT_FLOAT
 .section .text.BCAST_SELECTOR_SELECT_FLOAT
 .align 8
 

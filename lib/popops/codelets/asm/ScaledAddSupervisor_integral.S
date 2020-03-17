@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
@@ -67,13 +68,16 @@
 #define dataSize m5
 #define sizeD3 m6
 
+#define STACK_SIZE  8
+
+DEF_STACK_USAGE STACK_SIZE .text.VERTEX(int_int_int_false)
 .section .text.VERTEX(int_int_int_false)
 .align 4
 .supervisor
 VERTEX(int_int_int_false_false):
 VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false):
   // keeping this before the branch means it doesn't cause a stall later
-  add $sp, $sp, -8
+  add $sp, $sp, -STACK_SIZE
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET/2
@@ -85,24 +89,26 @@ VERTEX(unsigned_int_unsigned_int_unsigned_int_false_false):
   bri  VERTEX(int_common)// 6 cycles
 .size VERTEX(int_false), .-VERTEX(int_int_int_false_false)
 
+DEF_STACK_USAGE STACK_SIZE .text.VERTEX(int_true)
 .section .text.VERTEX(int_true)
 .align 4
 
 VERTEX(int_int_int_true_false):
 VERTEX(unsigned_int_unsigned_int_unsigned_int_true_false):
  // keeping this before the branch means it doesn't cause a stall later
-  add $sp, $sp, -8
+  add $sp, $sp, -STACK_SIZE
 
   ld32 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET_CONST/4
   bri  VERTEX(int_common) //6 cycles
 .size VERTEX(int_true), .-VERTEX(int_int_int_true_false)
 
+DEF_STACK_USAGE STACK_SIZE .text.VERTEX_SUBTRACT(int_int_false_false)
 .section .text.VERTEX_SUBTRACT(int_int_false_false)
 .align 4
 VERTEX_SUBTRACT(int_int_false):
 VERTEX_SUBTRACT(unsigned_int_unsigned_int_false):
   // keeping this before the branch means it doesn't cause a stall later
-  add $sp, $sp, -8
+  add $sp, $sp, -STACK_SIZE
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16 $k, $m0, $mzero, VERTEX_SCALE_B_OFFSET/2

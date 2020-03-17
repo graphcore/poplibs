@@ -18,6 +18,7 @@
 .globl poprandBernoulliSvInt
 .type poprandBernoulliSvInt, @function
 
+DEF_STACK_USAGE 0 poprandBernoulliSvF32
 .section .text.poprandBernoulliSvF32
 .align 4
 .supervisor
@@ -36,6 +37,7 @@ poprandBernoulliF32:
   }
 .size poprandBernoulliSvF32, .-poprandBernoulliSvF32
 
+DEF_STACK_USAGE 0 poprandBernoulliSvF16
 .section .text.poprandBernoulliSvF16
 .align 4
 .supervisor

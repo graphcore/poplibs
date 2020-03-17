@@ -1,6 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
+#include "poplar/StackSizeDefs.hpp"
+
 #define SELECT_INT __runCodelet_popops__Select___int
 #define SELECT_FLOAT __runCodelet_popops__Select___float
 
@@ -10,6 +12,7 @@
 .globl SELECT_FLOAT
 .type SELECT_FLOAT, @function
 
+DEF_STACK_USAGE 0 .text.SELECT_INT
 .section .text.SELECT_INT
 .align 8
 

@@ -22,6 +22,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #ifdef VECTOR_AVAIL_SCALED_PTR64
 #define OUT_OFFSET           0
@@ -146,6 +147,8 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
   }
 .size REDUCE_FLOAT_FLOAT(Reduce,2common), .-REDUCE_FLOAT_FLOAT(Reduce,2common)
 
+DEF_STACK_USAGE 0 REDUCE_FLOAT_FLOAT(Reduce,2)
+
 .globl REDUCE_FLOAT_FLOAT(Reduce,2)
 .type REDUCE_FLOAT_FLOAT(Reduce,2), @function
 .section .text.REDUCE_FLOAT_FLOAT(Reduce,2), "ax"
@@ -155,6 +158,8 @@ REDUCE_FLOAT_FLOAT(Reduce,2):
   st32 $a0, $m0, $mzero
   exitnz $mzero
 .size REDUCE_FLOAT_FLOAT(Reduce,2), .-REDUCE_FLOAT_FLOAT(Reduce,2)
+
+DEF_STACK_USAGE 0 REDUCE_FLOAT_HALF(Reduce,2)
 
 .globl REDUCE_FLOAT_HALF(Reduce,2)
 .type REDUCE_FLOAT_HALF(Reduce,2), @function

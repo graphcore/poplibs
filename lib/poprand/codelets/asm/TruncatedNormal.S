@@ -72,6 +72,7 @@
   }
 .endm
 
+DEF_STACK_USAGE 0 poprandTruncNormalSvF32
 .section .text.poprandTruncNormalSvF32
 .align 4
 .supervisor
@@ -131,6 +132,7 @@ poprandTruncNormalF32:
   exitz       $mzero
 .size poprandTruncNormalSvF32, .-poprandTruncNormalSvF32
 
+DEF_STACK_USAGE 0 poprandTruncNormalSvF16
 .section .text.poprandTruncNormalSvF16
 .align 4
 .supervisor

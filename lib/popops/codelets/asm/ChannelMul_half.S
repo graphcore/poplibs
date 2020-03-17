@@ -92,6 +92,7 @@
 
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function
 .macro EXPORT_FN label
@@ -431,6 +432,7 @@ FN_SIZE VectorInnerMul_core_half
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor)
 FUNC_SECTION(InPlaceSupervisor)
 .align 4
 .supervisor
@@ -439,6 +441,7 @@ CPP_FUNCNAME(InPlaceSupervisor):
   bri .Lrun_workers
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor)
 FUNC_SECTION(Supervisor)
 .align 4
 .supervisor
@@ -581,6 +584,7 @@ update_acts_ptrs:
 #define SCRATCH_OFFSET_ACTS_OUT_ITERATOR 3
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace)
 FUNC_SECTION(2DInPlace)
 .align 4
 CPP_FUNCNAME(2DInPlace):
@@ -591,6 +595,7 @@ CPP_FUNCNAME(2DInPlace):
 FN_SIZE CPP_FUNCNAME(2DInPlace)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2D)
 FUNC_SECTION(2D)
 .align 4
 CPP_FUNCNAME(2D):

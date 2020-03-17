@@ -10,6 +10,7 @@
 // ReduceMaxClassSparse. There is an opportunity to reuse code here.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(fpType,labelType) \
   __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassGather___ ## fpType ## _ ## labelType
@@ -44,6 +45,7 @@
 #define MAX a1
 #define ASCRATCH a6
 
+DEF_STACK_USAGE 0 .text.VERTEX(float, unsigned_int)
 .section .text.VERTEX(float, unsigned_int)
 .globl VERTEX(float, unsigned_int)
 .type VERTEX(float, unsigned_int), @function
@@ -131,6 +133,7 @@ VERTEX(float, int):
 // Only set the size for the int version so we don't count it twice.
 .size VERTEX(float, int), .-VERTEX(float, int)
 
+DEF_STACK_USAGE 0 .text.VERTEX(half, unsigned_int)
 .section .text.VERTEX(half, unsigned_int)
 .globl VERTEX(half, unsigned_int)
 .type VERTEX(half, unsigned_int), @function

@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
@@ -89,6 +90,7 @@
 //  NOTE: The final store instruction should be executed by the calling program
 //        immediately after the function has returned.
 //
+DEF_STACK_USAGE  0  scaled_add_data_half_factor_float  FUNCTION_IS_WORKER
 .section .text.scaled_add_data_half_factor_float
 .type scaled_add_data_half_factor_float, @function
 
@@ -184,6 +186,7 @@ scaled_add_data_half_factor_float:
 //  2. $dataPtr points to the first input array pointer
 //  3. $dataBPtr points to the second input array pointer
 //
+DEF_STACK_USAGE 0 scaled_add_data_half_factor_float_scalar
 .section .text.scaled_add_data_half_factor_float_scalar
 .type scaled_add_data_half_factor_float_scalar, @function
 
@@ -273,7 +276,8 @@ scaled_add_data_half_factor_float_scalar:
   uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7
 .endm
 
-.section .text.VERTEX_2D_SCALE_FLOAT
+DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
+.section .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
 VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW:
   // Do this first as we don't need to worry as much about the calling convention
@@ -296,13 +300,13 @@ VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST:
     roll16 $factor, $factorTmp, $factorTmp}
 .size VERTEX_2D_SCALE_FLOAT, .-VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
 
-
 .globl VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 .type VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW, @function
 .globl VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST
 .type VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST, @function
 
-.section .text.VERTEX_2D_SCALE_FLOAT_COMMON
+DEF_STACK_USAGE 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
+.section .text.VERTEX_2D_ADD_SCALE_FLOAT_CONST_SLOW
 .align 4
 // The fastest implementation happens to use more Aux instructions than Main
 // instructions. Since memory access instructions use the Main path, the
@@ -467,6 +471,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 .globl VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST
 .type VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST, @function
 
+DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .section .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
 .supervisor
@@ -534,13 +539,13 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_TENSOR, .-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 
-
 .globl VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 .type VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW, @function
 .globl VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST
 .type VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST, @function
 
-.section .text.VERTEX_SV_SCALE_CONST
+DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
+.section .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 .align 4
 .worker
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW:
@@ -561,6 +566,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
 
 .type VERTEX_SV_SCALE_FLOAT_COMMON, @function
 
+DEF_STACK_SIZE_OWN  0  VERTEX_SV_SCALE_FLOAT_COMMON  FUNCTION_IS_WORKER
 .section .text.VERTEX_SV_SCALE_FLOAT_COMMON
 .align 4
 // Worker entry point used first by the supervisor to check the accuracy of

@@ -3,6 +3,7 @@
 
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 /* -------------------------------------------------------------------------- */
 // Dynamic Slice and Dynamic Update Slice vertex code for int, half and float
@@ -118,6 +119,8 @@
 // Entry points for each function, each setting up a pointer to the copy
 // function and then using common code
 //******************************************************************************
+
+DEF_STACK_USAGE 0 .text.DynamicSlice2d_half_entry
 .section .text.DynamicSlice2d_half_entry
 
 DynamicSlice2d_half_entry:
@@ -132,6 +135,7 @@ DS_HALF_FUNC:
 
 .size DynamicSlice2d_half_entry, .-DynamicSlice2d_half_entry
 
+DEF_STACK_USAGE 0 .text.DynamicSlice2d_32_entry
 .section .text.DynamicSlice2d_32_entry
 .align 4
 DUS_FLOAT_FUNC:

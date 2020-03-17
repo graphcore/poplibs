@@ -5,6 +5,7 @@
 // Supports half, float and int types
 /* -------------------------------------------------------------------------- */
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 // Register aliases
 #define mSCRATCH         m0
 #define OUT_PTR          m1
@@ -64,6 +65,7 @@
 // Organised so that the impact on memory and execution time for the zero
 // vertex code relativelt unaffected.
 //******************************************************************************
+DEF_STACK_USAGE 0 .text.zero2d
 .section .text.zero2d
 
   .align 4
@@ -97,6 +99,7 @@ zero2d_loop:
 // Most of the code is shared with the zero2d vertex.
 //******************************************************************************
 
+DEF_STACK_USAGE 0 .text.zero
 //Different section, enabling selection of the zero vertex only
 .section .text.zero
  .align 8

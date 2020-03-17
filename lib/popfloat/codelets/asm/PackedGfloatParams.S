@@ -5,10 +5,12 @@
 
 #include "PackedGfloatParams.h"
 #include "GfloatConst.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 .globl PackedGfloatParams
 .type PackedGfloatParams      , @function
 
+DEF_STACK_USAGE 0 PackedGfloatParams
 .section .text.PackedGfloatParams
 .align 8
 PackedGfloatParams:

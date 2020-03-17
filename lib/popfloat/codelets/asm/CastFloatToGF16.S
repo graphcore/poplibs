@@ -5,8 +5,10 @@
 
 #include "GfloatConst.hpp"
 #include "CastFloatToGF16.h"
+#include "poplar/StackSizeDefs.hpp"
 
 .macro CAST_FLOAT_TO_GF16 FORMAT
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\()
 .section .text.castFloatToGf16_\FORMAT\()
 .align 4
   .globl __runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\()

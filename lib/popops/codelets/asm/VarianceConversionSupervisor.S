@@ -2,6 +2,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // vertex state (byte increments)
 #define VERTEX_BROADCAST_IN1_PTR_OFFSET 0
@@ -190,6 +191,7 @@
 
 .global VERTEX
 .type VERTEX, @function
+DEF_STACK_USAGE 0 .text.VERTEX
 .section .text.VERTEX
 
 .align 4

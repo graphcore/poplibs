@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX_XMINUSAXPLUSBY_CONST_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_true_true
 #define VERTEX_XMINUSAXPLUSBY_TENSOR_FAST __runCodelet_popops__XMinusaXPlusbY2D___half_false_true
@@ -88,7 +89,8 @@
   brz $mscratch, \FAST_PATH_LABEL
 .endm
 
-.section .text.VERTEX_XMINUSAXPLUSBY_TRUE
+DEF_STACK_USAGE 0 .text.VERTEX_XMINUSAXPLUSBY_CONST_SLOW
+.section .text.VERTEX_XMINUSAXPLUSBY_CONST_SLOW
 .align 4
 VERTEX_XMINUSAXPLUSBY_CONST_SLOW:
   setzi $memConstraints, 0
@@ -124,7 +126,9 @@ VERTEX_XMINUSAXPLUSBY_CONST_FAST:
   }
 .size VERTEX_XMINUSAXPLUSBY_TRUE, .-VERTEX_XMINUSAXPLUSBY_CONST_SLOW
 
-.section .text.VERTEX_XMINUSAXPLUSBY_FALSE
+
+DEF_STACK_USAGE 0 .text.VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
+.section .text.VERTEX_XMINUSAXPLUSBY_TENSOR_SLOW
 .align 4
   // Implement (1 - a) X + b * Y as follows:
   //     -aX + bY + X

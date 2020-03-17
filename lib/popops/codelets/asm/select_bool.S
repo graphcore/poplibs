@@ -1,11 +1,13 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
+#include "poplar/StackSizeDefs.hpp"
 
 #define SELECT_BOOL __runCodelet_popops__Select___bool
 
 .globl SELECT_BOOL
 .type SELECT_BOOL, @function
 
+DEF_STACK_USAGE 0 SELECT_BOOL
 .section .text.SELECT_BOOL
 .align 8
 

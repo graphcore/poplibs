@@ -8,6 +8,7 @@
 /* -------------------------------------------------------------------------- */
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 // Register aliases
 
@@ -275,6 +276,7 @@ Float_Half_core:
 
 .globl FLOAT_HALF_FUNC
 .type FLOAT_HALF_FUNC, @function
+DEF_STACK_USAGE 0 FLOAT_HALF_FUNC
 .section .text.FLOAT_HALF_FUNC
 .align 4
 FLOAT_HALF_FUNC:
@@ -331,6 +333,7 @@ cast_float_half_from_supervisor:
 
 .globl FLOAT_HALF_FUNC_SUPERVISOR
 .type FLOAT_HALF_FUNC_SUPERVISOR, @function
+DEF_STACK_USAGE 0 FLOAT_HALF_FUNC_SUPERVISOR
 .section .text.FLOAT_HALF_FUNC_SUPERVISOR
 .align 4
 .supervisor
@@ -367,6 +370,7 @@ FLOAT_HALF_FUNC_SUPERVISOR:
 
 .globl FLOAT_HALF_FUNC_2D
 .type FLOAT_HALF_FUNC_2D, @function
+DEF_STACK_USAGE 0 FLOAT_HALF_FUNC_2D
 .section .text.FLOAT_HALF_FUNC_2D
 .align 4
 .worker
@@ -507,6 +511,7 @@ Half_Float_core:
 
 .globl HALF_FLOAT_FUNC
 .type HALF_FLOAT_FUNC, @function
+DEF_STACK_USAGE 0 HALF_FLOAT_FUNC
 .section .text.HALF_FLOAT_FUNC
 .align 4
 HALF_FLOAT_FUNC:
@@ -558,6 +563,7 @@ cast_half_float_from_supervisor:
 
 .globl HALF_FLOAT_FUNC_SUPERVISOR
 .type HALF_FLOAT_FUNC_SUPERVISOR, @function
+DEF_STACK_USAGE 0 HALF_FLOAT_FUNC_SUPERVISOR
 .section .text.HALF_FLOAT_FUNC_SUPERVISOR
 .align 4
 .supervisor
@@ -583,6 +589,7 @@ HALF_FLOAT_FUNC_SUPERVISOR:
 
 .globl HALF_FLOAT_FUNC_2D
 .type HALF_FLOAT_FUNC_2D, @function
+DEF_STACK_USAGE 0 HALF_FLOAT_FUNC_2D
 .section .text.HALF_FLOAT_FUNC_2D
 .align 4
 .worker
@@ -627,6 +634,7 @@ LEnd_Half_Float_2D:
 .macro INSTANTIATE_SUPERVISOR  INTYPE  OUTTYPE
 .globl __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE
 .type __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE, @function
+DEF_STACK_SIZE_OWN 0 __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE
 .section .text.__runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE
 .align 4
 .supervisor

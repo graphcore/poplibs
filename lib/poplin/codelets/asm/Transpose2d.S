@@ -15,6 +15,7 @@
 /* -------------------------------------------------------------------------- */
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // Register aliases
 
@@ -191,6 +192,7 @@ os_loop_exit\@:
 // Alternatively the inner loop could process more data but at the loss
 // of flexibility
 //******************************************************************************
+DEF_STACK_USAGE 0 __runCodelet_poplin__Transpose2d___float
 .section .text.__runCodelet_poplin__Transpose2d___float
 
 .globl __runCodelet_poplin__Transpose2d___float
@@ -625,6 +627,7 @@ transpose_half_from_supervisor:
 // vertex state are already correct.
 
 #define TRANSPOSE_HALF_CODELET_NAME __runCodelet_poplin__Transpose___half
+DEF_STACK_USAGE 0 TRANSPOSE_HALF_CODELET_NAME
 .section .text.TRANSPOSE_HALF_CODELET_NAME
 .global TRANSPOSE_HALF_CODELET_NAME
 .type TRANSPOSE_HALF_CODELET_NAME,   @function
@@ -723,7 +726,7 @@ half_nx4_loop:
 
 /* -------------------------------------------------------------------------- */
 
-
+DEF_STACK_USAGE 0 __runCodelet_poplin__Transpose2d___half
 .section .text.__runCodelet_poplin__Transpose2d___half
 .global __runCodelet_poplin__Transpose2d___half
 .type __runCodelet_poplin__Transpose2d___half,   @function
@@ -817,6 +820,7 @@ half_slower:
 
 #define TRANSPOSE_HALF_SUPERVISOR  __runCodelet_poplin__TransposeSupervisor___half
 
+DEF_STACK_USAGE 0 TRANSPOSE_HALF_SUPERVISOR
 .section .text.TRANSPOSE_HALF_SUPERVISOR
 .globl TRANSPOSE_HALF_SUPERVISOR
 .type TRANSPOSE_HALF_SUPERVISOR, @function

@@ -3,6 +3,9 @@
 // Clamp: float and half type versions
 //***************************************************************************************************
 #ifdef __IPU__
+
+#include "poplar/StackSizeDefs.hpp"
+
 .globl __runCodelet_popops__Clamp___float
 .type __runCodelet_popops__Clamp___float, @function
 
@@ -59,6 +62,7 @@
 // Benchmark: 8+ vectors*(12+2) +(total_inputs_in_all_vectors-vectors)*4
 //***************************************************************************************************
 
+DEF_STACK_USAGE  0  __runCodelet_popops__Clamp___float
 .section .text.__runCodelet_popops__Clamp___float
 .align 8
 
@@ -120,6 +124,7 @@ clamp_loop_inner_end:
 // Benchmark: 10 + vectors*(10+2) + (total_inputs_in_all_vectors-vectors)*2
 //***************************************************************************************************
 
+DEF_STACK_USAGE  0  __runCodelet_popops__BroadcastClamp___float
 .section .text.__runCodelet_popops__BroadcastClamp___float
 .align 8
 
@@ -182,6 +187,7 @@ bclamp_loop_inner_end:
 // Benckmark (aligned)= 8 + vectors*(14+2) + total_inputs_in_all_vectors * 7/2
 //***************************************************************************************************
 
+DEF_STACK_USAGE  0  __runCodelet_popops__Clamp___half
 .section .text.__runCodelet_popops__Clamp___half
 .align 8
 
@@ -292,6 +298,7 @@ clamp16_loop_outer_end:
 // Benckmark (aligned)= 11 + vectors*(15+2) + total_inputs_in_all_vectors * 3
 //***************************************************************************************************
 
+DEF_STACK_USAGE  0  __runCodelet_popops__BroadcastClamp___half
 .section .text.__runCodelet_popops__BroadcastClamp___half
 .align 8
 

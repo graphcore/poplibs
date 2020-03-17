@@ -8,6 +8,7 @@
 /* -------------------------------------------------------------------------- */
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -59,11 +60,16 @@
 #define MANGLE_STR_BROADCAST_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BroadcastOpType__\NAME_STR\()_float
 #define MANGLE_STR_BROADCAST_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BroadcastOpType__\NAME_STR\()_half
 
+
+
+
 //******************************************************************************
 // Macros for float/binary entry - inplace, non inplace
 //******************************************************************************
 
 .macro BINARY_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR
+
+DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
 .type MANGLE_STR_FLOAT, @function
@@ -82,6 +88,7 @@ MANGLE_STR_FLOAT:
 .endm
 
 .macro BINARY_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
 .type MANGLE_STR_FLOAT, @function
@@ -237,6 +244,7 @@ doRemainder\@:
 //******************************************************************************
 
 .macro BINARY_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_HALF
 .section .text.MANGLE_STR_HALF
 
 .global MANGLE_STR_HALF
@@ -256,6 +264,7 @@ MANGLE_STR_HALF:
 .endm
 
 .macro BINARY_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_HALF
 .section .text.MANGLE_STR_HALF
 
 .global MANGLE_STR_HALF
@@ -368,7 +377,8 @@ doRemainder\@:
 //******************************************************************************
 
 .macro BROADCAST_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR
-.section .text.MANGLE_STR_FLOAT
+DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_FLOAT
+.section .text.MANGLE_STR_BROADCAST_FLOAT
 .global MANGLE_STR_BROADCAST_FLOAT
 .type MANGLE_STR_BROADCAST_FLOAT, @function
 
@@ -390,7 +400,8 @@ MANGLE_STR_BROADCAST_FLOAT:
 
 
 .macro BROADCAST_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
-.section .text.MANGLE_STR_FLOAT
+DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_FLOAT
+.section .text.MANGLE_STR_BROADCAST_FLOAT
 .global MANGLE_STR_BROADCAST_FLOAT
 .type MANGLE_STR_BROADCAST_FLOAT, @function
 
@@ -494,6 +505,7 @@ doRemainder\@:
 //******************************************************************************
 
 .macro BROADCAST_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_HALF
 .section .text.MANGLE_STR_BROADCAST_HALF
 .global MANGLE_STR_BROADCAST_HALF
 .type MANGLE_STR_BROADCAST_HALF, @function
@@ -515,6 +527,7 @@ MANGLE_STR_BROADCAST_HALF:
 .endm
 
 .macro BROADCAST_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_HALF
 .section .text.MANGLE_STR_BROADCAST_HALF
 .global MANGLE_STR_BROADCAST_HALF
 .type MANGLE_STR_BROADCAST_HALF, @function

@@ -60,6 +60,7 @@
 
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define DSS_FLOAT_FUNC __runCodelet_popops__DynamicSlice1d___float
 #define DUSS_FLOAT_FUNC __runCodelet_popops__DynamicUpdateSlice1d___float
@@ -101,6 +102,8 @@
 // Supervisor vertex - entry point, run workers
 // Float variants
 // ************************************************* //
+DEF_STACK_USAGE 0 .text.DynamicSlice1d_float
+
 .section .text.DynamicSlice1d_float
 .align 8
 .supervisor
@@ -254,6 +257,7 @@ DUSS_FLOAT_FUNC:
 // Supervisor vertex - entry point, run workers
 // Half variants
 // ************************************************* //
+DEF_STACK_USAGE 0 .text.DynamicSlice1d_half
 .section .text.DynamicSlice1d_half
 .align 8
 .supervisor

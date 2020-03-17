@@ -5,6 +5,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
+#include "poplar/StackSizeDefs.hpp"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
 #define COMPACT_VECTOR_TYPES_AVAILABLE 1
@@ -157,6 +158,7 @@
 
 // ************* Macro code ****************
 
+DEF_STACK_USAGE 0 VERTEX
 .globl VERTEX
 .type VERTEX @function
 
@@ -173,6 +175,7 @@ VERTEX:
 
 .size VERTEX, .-VERTEX
 
+DEF_STACK_USAGE 0 VERTEX_SCALED
 .globl VERTEX_SCALED
 .type VERTEX_SCALED @function
 

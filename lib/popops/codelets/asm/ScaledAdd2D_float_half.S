@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX_ADD_CONST_HALF_SCALE __runCodelet_popops__ScaledAdd2D___float_half_half_true_false
 #define VERTEX_ADD_CONST_FLOAT_SCALE __runCodelet_popops__ScaledAdd2D___float_half_float_true_false
@@ -68,6 +69,7 @@
 .type VERTEX_ADD_TENSOR_FLOAT_SCALE, @function
 
 
+DEF_STACK_USAGE 0 .text.VERTEX_ADD_TENSOR_HALF_SCALE
 .section .text.VERTEX_ADD_TENSOR_HALF_SCALE
 .align 4
 VERTEX_ADD_TENSOR_FLOAT_SCALE:
@@ -84,6 +86,7 @@ VERTEX_ADD_TENSOR_HALF_SCALE:
    f16tof32 $ascratch, $ascratch}
 .size VERTEX_ADD_TENSOR_FAST, .-VERTEX_ADD_TENSOR_FLOAT_SCALE/4
 
+DEF_STACK_USAGE 0 .text.VERTEX_COMMON
 .section .text.VERTEX_COMMON
 .align 8
 #ifdef VECTOR_AVAIL_SCALED_PTR64

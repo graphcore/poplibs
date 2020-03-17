@@ -3,6 +3,7 @@
 #include "CastToGfloat16.h"
 #include "GfloatConst.hpp"
 #include "arch/gc_tile_defines.h"
+#include "poplar/StackSizeDefs.hpp"
 
 .macro CAST_TO_GFLOAT16 TYPE1 TYPE2 INPLACE
   ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
@@ -322,6 +323,7 @@
 .endm
 
 .macro CAST_TO_GFLOAT16_OP TYPE1 TYPE2
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
 .section .text.castToGfloat16_\TYPE1\()_to_\TYPE2\()
 .align 4
   .globl __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
@@ -337,6 +339,7 @@
 .endm
 
 .macro CAST_TO_GFLOAT16_INPLACE_OP TYPE
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()
 .section .text.castToGfloat16InPlace_\TYPE\()
 .align 4
   .globl __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()

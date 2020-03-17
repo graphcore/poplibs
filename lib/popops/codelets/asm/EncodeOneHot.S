@@ -4,6 +4,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/EncodingConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX __runCodelet_popops__EncodeOneHot___unsigned_int_half
 
@@ -37,6 +38,8 @@
 #define slice m7
 #define mscratch m8
 #define mscratch2 m9
+
+DEF_STACK_USAGE STACK_SIZE VERTEX
 
 .section .text.VERTEX
 .align 4

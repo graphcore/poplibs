@@ -115,6 +115,7 @@
 // so the overhead tends to be slightly lower.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function
 .macro EXPORT_FN label
@@ -584,6 +585,7 @@ FN_SIZE VectorInnerAdd_core_half
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SCALED___ADD)
 FUNC_SECTION(Supervisor,SCALED___ADD)
 .align 4
 .supervisor
@@ -596,6 +598,7 @@ CPP_FUNCNAME(Supervisor,SCALED___ADD):
 FN_SIZE CPP_FUNCNAME(Supervisor,SCALED___ADD)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,ADD)
 FUNC_SECTION(Supervisor,ADD)
 .align 4
 .supervisor
@@ -608,6 +611,7 @@ CPP_FUNCNAME(Supervisor,ADD):
 FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
 FUNC_SECTION(InPlaceSupervisor,SCALED___ADD)
 .align 4
 .supervisor
@@ -620,6 +624,7 @@ CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD):
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,ADD)
 FUNC_SECTION(InPlaceSupervisor,ADD)
 .align 4
 .supervisor
@@ -813,6 +818,7 @@ update_acts_ptrs:
 #define SCRATCH_OFFSET_ACTS_ITERATOR   4
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,SCALED___ADD)
 FUNC_SECTION(2D,SCALED___ADD)
 .align 4
 CPP_FUNCNAME(2D,SCALED___ADD):
@@ -828,6 +834,7 @@ CPP_FUNCNAME(2D,SCALED___ADD):
 FN_SIZE CPP_FUNCNAME(2D,SCALED___ADD)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,ADD)
 FUNC_SECTION(2D,ADD)
 .align 4
 CPP_FUNCNAME(2D,ADD):
@@ -842,6 +849,7 @@ CPP_FUNCNAME(2D,ADD):
 FN_SIZE CPP_FUNCNAME(2D,ADD)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,SCALED___ADD)
 FUNC_SECTION(2DInPlace,SCALED___ADD)
 .align 4
 CPP_FUNCNAME(2DInPlace,SCALED___ADD):
@@ -857,6 +865,7 @@ CPP_FUNCNAME(2DInPlace,SCALED___ADD):
 FN_SIZE CPP_FUNCNAME(2DInPlace,SCALED___ADD)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,ADD)
 FUNC_SECTION(2DInPlace,ADD)
 .align 4
 CPP_FUNCNAME(2DInPlace,ADD):

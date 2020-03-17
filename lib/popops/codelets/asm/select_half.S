@@ -1,11 +1,13 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
+#include "poplar/StackSizeDefs.hpp"
 
 #define SELECT_HALF __runCodelet_popops__Select___half
 
 .globl SELECT_HALF
 .type SELECT_HALF, @function
 
+DEF_STACK_USAGE 0 SELECT_HALF
 .section .text.SELECT_HALF
 .align 8
 

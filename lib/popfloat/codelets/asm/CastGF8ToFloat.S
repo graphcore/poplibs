@@ -5,7 +5,9 @@
 
 #include "GfloatConst.hpp"
 #include "CastGF8ToFloat.h"
+#include "poplar/StackSizeDefs.hpp"
 
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastGf8ToFloat
 .section .text.castGf8ToFloat
 .align 4
   .globl __runCodelet_popfloat__experimental__CastGf8ToFloat

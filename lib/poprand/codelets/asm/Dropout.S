@@ -14,6 +14,7 @@
 .globl poprandDropoutSvF16
 .type poprandDropoutSvF16, @function
 
+DEF_STACK_USAGE 0 poprandDropoutSvF32
 .section .text.poprandDropoutSvF32
 .align 4
 .supervisor
@@ -67,6 +68,7 @@ poprandDropoutF32:
   exitz       $mzero
 .size poprandDropoutSvF32, .-poprandDropoutSvF32
 
+DEF_STACK_USAGE 0 poprandDropoutSvF16
 .section .text.poprandDropoutSvF16
 .align 4
 .supervisor

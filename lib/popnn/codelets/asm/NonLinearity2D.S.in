@@ -9,6 +9,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 // Symbols
 #define HALF_SYMBOL \
@@ -78,6 +79,7 @@
 #define CALC(type, vector_width, dst, src) \
   CALC_@NL_TYPE_UPPER@(type, vector_width, dst, src)
 
+DEF_STACK_USAGE 0 HALF_SYMBOL
 .section .text.HALF_SYMBOL
 .globl HALF_SYMBOL
 .type HALF_SYMBOL, @function
@@ -208,6 +210,7 @@ HALF_SYMBOL:
 
 .size HALF_SYMBOL, .-HALF_SYMBOL
 
+DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .section .text.FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function

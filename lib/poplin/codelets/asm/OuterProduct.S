@@ -26,6 +26,7 @@
 /* -------------------------------------------------------------------------- */
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // Register aliases
 
@@ -320,6 +321,7 @@
 // run. If not, select the slower version. Calculates many of the input
 // pointers and counts for the macros to use.
 //******************************************************************************
+DEF_STACK_USAGE 0 __runCodelet_poplin__OuterProduct___float
 .section .text.__runCodelet_poplin__OuterProduct___float
 
 .globl __runCodelet_poplin__OuterProduct___float
@@ -393,7 +395,7 @@ __runCodelet_poplin__OuterProduct___float:
 // pointers and counts for the macros to use.
 //******************************************************************************
 
-
+DEF_STACK_USAGE 0 __runCodelet_poplin__OuterProduct___half
 .section .text.__runCodelet_poplin__OuterProduct___half
 .global __runCodelet_poplin__OuterProduct___half
 .type __runCodelet_poplin__OuterProduct___half,   @function

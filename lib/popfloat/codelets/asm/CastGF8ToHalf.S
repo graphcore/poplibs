@@ -5,8 +5,10 @@
 // popfloat::CastToGloat16<float>
 #include "GfloatConst.hpp"
 #include "CastGF8ToHalf.h"
+#include "poplar/StackSizeDefs.hpp"
 
 .macro CAST_GF8_TO_HALF FORMAT
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastGf8ToHalf___popfloat__experimental__FormatType__\FORMAT\()
 .section .text.castGf8ToHalf_\FORMAT\()
 .align 4
   .globl __runCodelet_popfloat__experimental__CastGf8ToHalf___popfloat__experimental__FormatType__\FORMAT\()

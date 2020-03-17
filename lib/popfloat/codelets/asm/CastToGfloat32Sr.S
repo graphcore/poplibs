@@ -5,6 +5,7 @@
 #include "GfloatConst.hpp"
 #include "CastToGfloat32Sr.h"
 #include "arch/gc_tile_defines.h"
+#include "poplar/StackSizeDefs.hpp"
 
 .macro CAST_TO_GFLOAT32_SR SAVEFP32 INPLACE
   ld32         $mGf32Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
@@ -363,6 +364,7 @@
 .endm
 
 .macro CAST_TO_GFLOAT32_SR_OP TYPE1, TYPE2
+DEF_STACK_USAGE  0 __runCodelet_popfloat__experimental__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()
 .section .text.castToGfloat32Sr_\TYPE1\()_to_\TYPE2\()
 .align 4
   .globl __runCodelet_popfloat__experimental__CastToGfloat32Sr___\TYPE1\()_\TYPE2\()
@@ -391,6 +393,7 @@ CAST_TO_GFLOAT32_SR_OP float, float
 CAST_TO_GFLOAT32_SR_OP float, half
 
 .macro CAST_TO_GFLOAT32_SR_INPLACE_OP
+DEF_STACK_USAGE  0 __runCodelet_popfloat__experimental__CastToGfloat32SrInPlace
 
 .section .text.castToGfloat32SrInPlace
 .align 4

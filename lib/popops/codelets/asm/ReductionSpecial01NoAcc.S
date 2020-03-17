@@ -20,6 +20,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
+#include "poplar/StackSizeDefs.hpp"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
@@ -124,6 +125,8 @@
 
 
 .type REDUCE_HALF_HALF(Reduce,common), @function
+
+DEF_STACK_USAGE 0 .text.REDUCE_HALF_HALF(Reduce,common)
 
 .section .text.REDUCE_HALF_HALF(Reduce,common), "ax"
 // Instantiate two variants which call the same common function
@@ -376,6 +379,7 @@ _exit.\@:
 
 .type REDUCE_FLOAT_FLOAT(Reduce,common), @function
 
+DEF_STACK_USAGE 0 .text.REDUCE_FLOAT_FLOAT(Reduce,common)
 .section .text.REDUCE_FLOAT_FLOAT(Reduce,common), "ax"
 // Instantiate two variants which call the same common function
 .globl REDUCE_FLOAT_FLOAT(Reduce,0)

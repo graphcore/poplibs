@@ -1,6 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
+#include "poplar/StackSizeDefs.hpp"
+
 #define VERTEX(ty) __runCodelet_popops__ScaledAdd2D___ ## ty
 #define VERTEX_SUBTRACT(ty) __runCodelet_popops__ScaledSubtract2D___ ## ty
 #define VERTEX_COMMON __ScaledAdd2D___
@@ -41,6 +43,8 @@
 #define data m7
 #define dataB m8
 
+
+DEF_STACK_USAGE 0 .text.VERTEX(int_true)
 .section .text.VERTEX(int_true)
 .align 4
 
@@ -63,6 +67,7 @@ VERTEX_SUBTRACT(unsigned_int_false):
 .size VERTEX_SUBTRACT(int), .-VERTEX_SUBTRACT(int_false)
 
 
+DEF_STACK_USAGE 0 .text.VERTEX_COMMON
 .section .text.VERTEX_COMMON
 .align 8
 VERTEX(int_int_int_false_false):

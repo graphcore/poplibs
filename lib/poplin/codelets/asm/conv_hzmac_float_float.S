@@ -6,6 +6,7 @@
 
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define conv_hzmac_sup_float_float __runCodelet_poplin__ConvPartialHorizontalMac___float_float_true
 
@@ -107,7 +108,7 @@
 // Otherwise:
 //      19 + num_fp * (7 + outChansPerGroup * (6 + 2*(inChansPerGroup - 1)))
 
-
+DEF_STACK_USAGE 0 convHorizMacFlattened_float_float FUNCTION_IS_WORKER
 .section ".text.convHorizMacFlattened_float_float", "ax"
 .type convHorizMacFlattened_float_float, @function
 .align 8
@@ -323,11 +324,6 @@ exitz         $mzero
 // Where innerLoopCycles are vertex cycles
 //
 
-.section .text.conv_hzmac_sup_float_float
-.type conv_hzmac_sup_float_float, @function
-.globl conv_hzmac_sup_float_float
-.supervisor
-
 // STACK VARIABLES for supervisor
 #define STACK_BASE                      WKR_STATE_SIZE
 #define STACK_CONV_GROUP_COUNT          0      // word
@@ -336,6 +332,7 @@ exitz         $mzero
 #define STACK_K_COUNT                   12     // word
 #define STACK_INCHAN_COUNT              16     // word
 #define STACK_SIZE                      (STACK_INCHAN_COUNT + 8) // bytes
+#define TOT_STACK_SIZE                  (WKR_STATE_SIZE + 8 + STACK_SIZE)
 
 // registers
 #define sup_base                        m0
@@ -361,6 +358,12 @@ exitz         $mzero
 #define weights_vectors_s               m10
 #define wkr_base                        sp
 
+DEF_STACK_SIZE_OWN  TOT_STACK_SIZE  conv_hzmac_sup_float_float
+.section .text.conv_hzmac_sup_float_float
+.type conv_hzmac_sup_float_float, @function
+.globl conv_hzmac_sup_float_float
+.supervisor
+
 conv_hzmac_sup_float_float:
 // From base and delta, create base and expand pointer to vector containing
 // deltaN (i.e. 18 bit delta offset and 14 bit size in number of elements)
@@ -368,7 +371,7 @@ conv_hzmac_sup_float_float:
 // spread in the code to avoid
 ld32          $partition_ptr_s, $sup_base, SUP_PARTITION_TABLES/4
 // space for worker vertex state, supervisor state and callee save
-add           $sp, $sp, -(WKR_STATE_SIZE + 8 + STACK_SIZE)
+add           $sp, $sp, -TOT_STACK_SIZE
 
 #define outchan_vectors_z_s             m1
 #define outchan_count_z_s               m2
@@ -542,7 +545,7 @@ L_sup_conv_end:
 // Restore saved registers
 ld32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 ld32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-add           $sp, $sp, (WKR_STATE_SIZE + STACK_SIZE + 8)
+add           $sp, $sp, TOT_STACK_SIZE
 sync          TEXCH_SYNCZONE_LOCAL
 br            $lr
 

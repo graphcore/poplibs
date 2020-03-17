@@ -7,6 +7,7 @@
 /* -------------------------------------------------------------------------- */
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -58,6 +59,7 @@
 //******************************************************************************
 
 .macro VECTOR_OUTER_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+DEF_STACK_USAGE 0 MANGLE_STR_FLOAT FUNCTION_IS_WORKER
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
 .type MANGLE_STR_FLOAT, @function
@@ -77,6 +79,7 @@ MANGLE_STR_FLOAT:
 .endm
 
 .macro VECTOR_OUTER_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+DEF_STACK_USAGE 0 MANGLE_STR_FLOAT FUNCTION_IS_WORKER
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
 .type MANGLE_STR_FLOAT, @function
@@ -100,6 +103,7 @@ MANGLE_STR_FLOAT:
 //******************************************************************************
 
 .macro VECTOR_OUTER_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+DEF_STACK_USAGE 0 MANGLE_STR_HALF FUNCTION_IS_WORKER
 .section .text.MANGLE_STR_HALF
 .global MANGLE_STR_HALF
 .type MANGLE_STR_HALF, @function
@@ -119,6 +123,7 @@ MANGLE_STR_HALF:
 .endm
 
 .macro VECTOR_OUTER_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR BY_STR
+DEF_STACK_USAGE 0 MANGLE_STR_HALF FUNCTION_IS_WORKER
 .section .text.MANGLE_STR_HALF
 .global MANGLE_STR_HALF
 .type MANGLE_STR_HALF, @function

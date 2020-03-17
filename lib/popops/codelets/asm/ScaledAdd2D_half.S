@@ -3,6 +3,7 @@
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_true_true
 #define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_false_true
@@ -125,7 +126,8 @@
 .endm
 
 
-.section .text.VERTEX_FALSE
+DEF_STACK_USAGE 0 .text.VERTEX_ADD_TENSOR_SLOW
+.section .text.VERTEX_ADD_TENSOR_SLOW
 .align 4
 VERTEX_ADD_TENSOR_SLOW:
   setzi $memConstraints, 0
@@ -140,7 +142,8 @@ VERTEX_ADD_TENSOR_FAST:
   bri   VERTEX_COMMON
 .size VERTEX_FALSE, .-VERTEX_ADD_TENSOR_SLOW
 
-.section .text.VERTEX_SUBTRACT
+DEF_STACK_USAGE 0 .text.VERTEX_SUBTRACT_SLOW
+.section .text.VERTEX_SUBTRACT_SLOW
 .align 4
 VERTEX_SUBTRACT_SLOW:
   setzi $memConstraints, 0
@@ -158,7 +161,8 @@ VERTEX_SUBTRACT_FAST:
   }
 .size VERTEX_SUBTRACT, .-VERTEX_SUBTRACT_SLOW
 
-.section .text.VERTEX_AXPBY_TRUE
+DEF_STACK_USAGE 0 VERTEX_AXPBY_CONST_SLOW
+.section .text.VERTEX_AXPBY_CONST_SLOW
 .align 4
 VERTEX_AXPBY_CONST_SLOW:
   setzi $memConstraints, 0
@@ -175,7 +179,8 @@ VERTEX_AXPBY_CONST_FAST:
 .size VERTEX_AXPBY_TRUE, .-VERTEX_AXPBY_CONST_SLOW
 
 
-.section .text.VERTEX_AX_MINUS_BY_FALSE
+DEF_STACK_USAGE 0 .text.VERTEX_AX_MINUS_BY_TENSOR_SLOW
+.section .text.VERTEX_AX_MINUS_BY_TENSOR_SLOW
 .align 4
 VERTEX_AX_MINUS_BY_TENSOR_SLOW:
   setzi $memConstraints, 0
@@ -193,7 +198,8 @@ VERTEX_AX_MINUS_BY_TENSOR_FAST:
   f16v2mul $ascratch2, $ascratch, $ascratch2}
 
 
-.section .text.VERTEX_AXPBY_FALSE
+DEF_STACK_USAGE 0 .text.VERTEX_AXPBY_TENSOR_SLOW
+.section .text.VERTEX_AXPBY_TENSOR_SLOW
 .align 4
 VERTEX_AXPBY_TENSOR_SLOW:
   setzi $memConstraints, 0
@@ -211,7 +217,7 @@ ax_plus_minus_by_common:
   bri   axplusby_false_continue
 .size VERTEX_AXPBY_FALSE, .-VERTEX_AXPBY_TENSOR_SLOW
 
-
+DEF_STACK_USAGE 0 .text.VERTEX_COMMON
 .section .text.VERTEX_COMMON
 .align 8
 #ifndef VECTOR_AVAIL_SCALED_PTR64

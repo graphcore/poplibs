@@ -14,6 +14,7 @@
 .globl poprandNormalSvF16
 .type poprandNormalSvF16, @function
 
+DEF_STACK_USAGE 0 poprandNormalSvF32
 .section .text.poprandNormalSvF32
 .align 4
 .supervisor
@@ -58,6 +59,7 @@ poprandNormalF32:
   exitz       $mzero
 .size poprandNormalSvF32   , .-poprandNormalSvF32
 
+DEF_STACK_USAGE 0 poprandNormalSvF16
 .section .text.poprandNormalSvF16
 .align 4
 .supervisor

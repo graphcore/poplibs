@@ -51,6 +51,7 @@
 #else
 #define COMPACT_VECTOR_TYPES_AVAILABLE 0
 #endif
+#include "poplar/StackSizeDefs.hpp"
 
 // vertex state, all offsets are 16-bit
 #if COMPACT_VECTOR_TYPES_AVAILABLE
@@ -257,6 +258,7 @@
 
 // ************* Macro code ****************
 
+DEF_STACK_USAGE 0 VERTEX
 .globl VERTEX
 .type VERTEX @function
 
@@ -273,6 +275,7 @@ VERTEX:
 
 .size VERTEX, .-VERTEX
 
+DEF_STACK_USAGE 0 VERTEX_SCALED
 .globl VERTEX_SCALED
 .type VERTEX_SCALED @function
 

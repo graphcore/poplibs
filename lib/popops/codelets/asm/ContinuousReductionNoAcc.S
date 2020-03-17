@@ -6,6 +6,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
+#include "poplar/StackSizeDefs.hpp"
 
 // Offsets into vertex base
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -63,6 +64,7 @@
 #define OP_V4 \FTYPE\()v4\OP
 
 .macro DEFINE_ENTRY_POINT VERTEX_NAME ALIGNMENT OPTIONAL_NOP
+    DEF_STACK_USAGE  0  \VERTEX_NAME
     .section .text.\VERTEX_NAME, "ax"
     .global \VERTEX_NAME
     .type \VERTEX_NAME, @function

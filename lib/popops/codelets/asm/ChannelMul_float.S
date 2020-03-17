@@ -34,6 +34,7 @@
 // Currently this fast path is not implemented.
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // This macro defines a label as global, function
 .macro EXPORT_FN label
@@ -177,6 +178,7 @@ FN_SIZE VectorInnerMul_core_float
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor)
 FUNC_SECTION(InPlaceSupervisor)
 .align 4
 .supervisor
@@ -188,6 +190,7 @@ CPP_FUNCNAME(InPlaceSupervisor):
 FN_SIZE CPP_FUNCNAME(InPlaceSupervisor)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor)
 FUNC_SECTION(Supervisor)
 .align 4
 .supervisor
@@ -299,6 +302,7 @@ FUNC_SECTION(Worker):
 #define SCRATCH_OFFSET_SCALE_LEN_ITERATOR 1
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace)
 FUNC_SECTION(2DInPlace)
 .align 4
 CPP_FUNCNAME(2DInPlace):
@@ -309,6 +313,7 @@ CPP_FUNCNAME(2DInPlace):
 FN_SIZE CPP_FUNCNAME(2DInPlace)
 
 
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2D)
 FUNC_SECTION(2D)
 .align 4
 CPP_FUNCNAME(2D):

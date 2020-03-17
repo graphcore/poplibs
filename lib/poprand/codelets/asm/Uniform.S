@@ -10,6 +10,7 @@
 .globl poprandUniformSvF32
 .type poprandUniformSvF32, @function
 
+DEF_STACK_USAGE 0 poprandUniformSvF32
 .section .text.poprandUniformSvF32
 .align 4
 .supervisor
@@ -65,6 +66,7 @@ poprandUniformF32:
 .globl poprandUniformSvF16
 .type poprandUniformSvF16, @function
 
+DEF_STACK_USAGE 0 poprandUniformSvF16
 .section .text.poprandUniformSvF16
 .align 4
 .supervisor
@@ -122,6 +124,7 @@ poprandUniformF16:
 .globl poprandUniformSvInt
 .type poprandUniformSvInt, @function
 
+DEF_STACK_USAGE 0 poprandUniformSvInt
 .section .text.poprandUniformSvInt
 .align 4
 .supervisor

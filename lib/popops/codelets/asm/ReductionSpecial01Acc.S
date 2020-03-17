@@ -61,6 +61,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
+#include "poplar/StackSizeDefs.hpp"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
 #define OUT_OFF          0
@@ -214,6 +215,7 @@
 
 .type REDUCE_HALF_FLOAT(Reduce,common), @function
 
+DEF_STACK_USAGE 0 .text.REDUCE_HALF_FLOAT(Reduce,common)
 .section .text.REDUCE_HALF_FLOAT(Reduce,common), "ax"
 
 // Instantiate two variants which call the same common function
@@ -490,6 +492,7 @@ _exit.\@:
 
 .type REDUCE_HALF_HALF(Reduce,common), @function
 
+DEF_STACK_USAGE  0  .text.REDUCE_HALF_HALF(Reduce,common)
 .section .text.REDUCE_HALF_HALF(Reduce,common), "ax"
 .align 4
 // ************************************************* //
@@ -742,6 +745,8 @@ _exit.\@:
 
 .type REDUCE_FLOAT_FLOAT(Reduce,common), @function
 
+DEF_STACK_USAGE 0 .text.REDUCE_FLOAT_FLOAT(Reduce,common)
+
 .section .text.REDUCE_FLOAT_FLOAT(Reduce,common), "ax"
 
 // Instantiate two variants which call the same common function
@@ -964,6 +969,8 @@ _exit.\@:
 .equ SIZE_OF_IN_TYPE, 4
 .globl REDUCE_FLOAT_HALF(Reduce,common)
 .type REDUCE_FLOAT_HALF(Reduce,common), @function
+
+DEF_STACK_USAGE 0 .text.REDUCE_FLOAT_HALF(Reduce,common)
 
 .section .text.REDUCE_FLOAT_HALF(Reduce,common), "ax"
 
@@ -1268,5 +1275,6 @@ INSTANTIATE_FLOAT_FLOAT true acc ReduceAdd
 INSTANTIATE_FLOAT_FLOAT true sqacc ReduceSquareAdd
 INSTANTIATE_FLOAT_FLOAT false acc ReduceAdd
 INSTANTIATE_FLOAT_FLOAT false sqacc ReduceSquareAdd
+
 
 #endif

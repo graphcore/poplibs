@@ -3,6 +3,7 @@
 
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define VERTEX(type) __runCodelet_popops__MultiUpdateAdd___##type##_false
 
@@ -56,6 +57,7 @@
 .globl VERTEX(float)
 .type VERTEX(float), @function
 
+DEF_STACK_USAGE 0 VERTEX(float)
 .section .text.VERTEX(float)
 .align 8
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
@@ -151,6 +153,7 @@ VERTEX(float):
 .globl VERTEX(half)
 .type VERTEX(half), @function
 
+DEF_STACK_USAGE 0 VERTEX(half)
 .section .text.VERTEX(half)
 .align 8
 #if !defined(VECTOR_AVAIL_SCALED_PTR32)

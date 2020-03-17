@@ -30,6 +30,7 @@
 #ifdef __IPU__
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTOR_AVAIL_SCALED_PTR64)
 #define COMPACT_VECTOR_TYPES_AVAILABLE 1
@@ -238,6 +239,7 @@
 
 #define ReduceAdd_Float_Half __runCodelet_poplin__ReduceAdd___float_half
 
+DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Half
 .section .text.Reduce_Float_Half, "ax"
 .globl ReduceAdd_Float_Half
 .type ReduceAdd_Float_Half, @function
@@ -433,6 +435,7 @@ reduce_add_worker_fh:
 //****************************************************************************
 
 #define ReduceAdd_Half_Half __runCodelet_poplin__ReduceAdd___half_half
+DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Half
 .section .text.Reduce_Half_Half, "ax"
 .globl ReduceAdd_Half_Half
 .type ReduceAdd_Half_Half, @function
@@ -620,6 +623,7 @@ reduce_add_worker_hh:
 //****************************************************************************
 
 #define ReduceAdd_Half_Float __runCodelet_poplin__ReduceAdd___half_float
+DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Float
 .section .text.Reduce_Half_Float, "ax"
 .globl ReduceAdd_Half_Float
 .type ReduceAdd_Half_Float, @function
@@ -766,6 +770,7 @@ reduce_add_worker_hf:
 //****************************************************************************
 
 #define ReduceAdd_Float_Float __runCodelet_poplin__ReduceAdd___float_float
+DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Float
 .section .text.Reduce_Float_Float, "ax"
 .globl ReduceAdd_Float_Float
 .type ReduceAdd_Float_Float, @function

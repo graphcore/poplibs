@@ -5,6 +5,7 @@
 // Supervisor vertex code for Binary and Scalar broadcast ops
 /* -------------------------------------------------------------------------- */
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 // Registers for each of the passed parameters
 // vertex state, all offsets are 8-bit
@@ -74,6 +75,7 @@
 // add/sub/mul
 //******************************************************************************
 .macro INSTANTIATE_BROADCAST_OP_HALF OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_HALF
 .section .text.MANGLE_STR_HALF
 .global MANGLE_STR_HALF
 .type MANGLE_STR_HALF, @function
@@ -96,6 +98,7 @@ MANGLE_STR_HALF:
 .endm
 //******************************************************************************
 .macro INSTANTIATE_BROADCAST_OP_FLOAT OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
 .type MANGLE_STR_FLOAT, @function
@@ -118,6 +121,7 @@ MANGLE_STR_FLOAT:
 
 //******************************************************************************
 .macro INSTANTIATE_BINARY_OP_HALF OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_HALF
 .section .text.MANGLE_STR_HALF
 .global MANGLE_STR_HALF
 .type MANGLE_STR_HALF, @function
@@ -139,6 +143,7 @@ MANGLE_STR_HALF:
 
 //******************************************************************************
 .macro INSTANTIATE_BINARY_OP_FLOAT OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
+DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
 .section .text.MANGLE_STR_FLOAT
 .global MANGLE_STR_FLOAT
 .type MANGLE_STR_FLOAT, @function

@@ -3,6 +3,7 @@
 // poprand::SetSeedSupervisor
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define poprandSvSetSeed     __runCodelet_poprand__SetSeedSupervisor
 
@@ -27,6 +28,7 @@
 #define prngState1  a1
 #define prngState   a0:1
 
+DEF_STACK_USAGE 0 poprandSvSetSeed
 .globl poprandSvSetSeed
 .type poprandSvSetSeed, @function
 

@@ -5,11 +5,13 @@
 
 #include "GfloatConst.hpp"
 #include "CastToGfloat32Param.h"
+#include "poplar/StackSizeDefs.hpp"
 
 .globl castToGfloat32Param
 
 .type castToGfloat32Param      , @function
 
+DEF_STACK_USAGE 0 castToGfloat32Param
 .section .text.castToGfloat32Param
 .align 8
 

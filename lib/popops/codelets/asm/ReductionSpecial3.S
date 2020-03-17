@@ -25,6 +25,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "MathConstants.S"
+#include "poplar/StackSizeDefs.hpp"
 
 #ifdef VECTOR_AVAIL_SCALED_PTR32
 #define OUT_OFFSET           0
@@ -68,6 +69,7 @@
 .macro INSTANTIATE_REDUCE_FLOAT OUT_TYPE OP INSTRUCTION OP_USES_ACC INITIAL_VALUE UPDATE
 .equ LOG2_PARTIAL_SIZE, 2
 
+DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(Reduce,3common)
 .globl REDUCE_FLOAT(Reduce,3)
 .type REDUCE_FLOAT(Reduce,3), @function
 .globl REDUCE_FLOAT(ScaledReduce,3)
@@ -240,6 +242,8 @@ float_loop\@:
 
 .macro INSTANTIATE_REDUCE_HALF OUT_TYPE OP INSTRUCTION OP_USES_ACC INITIAL_VALUE UPDATE
 .equ LOG2_PARTIAL_SIZE, 1
+
+DEF_STACK_USAGE 0 .text.REDUCE_HALF(Reduce,3common)
 
 .globl REDUCE_HALF(Reduce,3)
 .type REDUCE_HALF(Reduce,3), @function
