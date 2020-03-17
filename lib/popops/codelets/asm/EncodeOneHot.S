@@ -17,6 +17,10 @@
 #define VERTEX_SLICE_OFFSET 3
 #define VERTEX_OFFSETS_OFFSET 4
 
+// Stack
+#define STACK_CALLER_SAVE_OFFSET 0 // 4 Bytes
+#define STACK_SIZE 8 // 4 (+4 to align to 8 Bytes)
+
 // constants
 #define HALF_1_0 0x3C00
 
@@ -55,18 +59,22 @@ VERTEX:
   // We memset in the compute set before this one and offsets is
   // In/Out allowing partial writes to the output vector
 
+  add  $sp, $sp, -STACK_SIZE
+
   // Load Vertex state
-  ld32 $indexPtr, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
   ld32 $numIndices, $vertexPtr, $mzero, VERTEX_INDEX_SIZE_OFFSET
-  ld32 $outPtr, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
   ld32 $slicePtr, $vertexPtr, $mzero, VERTEX_SLICE_OFFSET
+  ld32 $outPtr, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
+  ld32 $indexPtr, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
   ld32 $offsetsPtr, $vertexPtr, $mzero, VERTEX_OFFSETS_OFFSET
+
+  st32 $m9, $sp, STACK_CALLER_SAVE_OFFSET/4
 
   // minus 1 for brnzdec
   add $numIndices, $numIndices, -1
 
 .Lencode_loop:
-    ld32step $slice, $mzero, $slicePtr+=, 1 // 6 cycles on first iteration.
+    ld32step $slice, $mzero, $slicePtr+=, 1
 
     // use a separate copy as we need to check alignment of write address
     mov $outPtr_cpy, $outPtr
@@ -128,6 +136,7 @@ VERTEX:
     brnzdec $numIndices, .Lencode_loop
 
 .Lepilogue:
+  ld32step $m9, $mzero, $sp+=, STACK_SIZE/4
   br $lr // 6 cycles
 
 .size VERTEX, . - VERTEX
