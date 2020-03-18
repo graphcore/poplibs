@@ -2306,6 +2306,10 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --shape {100000,200}
                  --num-indices 1440
           PARALLEL_LEVEL 8)
+  add_embedding_benchmark(NAME embedding_vlarge_large_indices
+          PARAMS --shape {100000,200}
+                 --num-indices 11520
+          PARALLEL_LEVEL 8)
 
   # Small fully connected layers at low batch sizes (half and float).
   foreach(type half float)
