@@ -100,6 +100,7 @@ int main(int argc, char **argv) try {
   bool reportPlan;
   bool reportVarStorage;
   unsigned replicationFactor;
+  unsigned numDeterminismChecks;
   bool enableConvolutionReuse;
   bool remapOutputTensor;
 
@@ -306,6 +307,10 @@ int main(int argc, char **argv) try {
     ("convolution-options", po::value<std::string>(&convOptionsString),
     "Options to use for the convolution, specified as a JSON string, "
     "e.g. {\"key\":\"value\"}")
+    ("num-determinism-checks",
+     po::value<unsigned>(&numDeterminismChecks)->default_value(0),
+     "The amount of additional identical executions (results are compared to check determinism)."
+     "This option is required to be 0 if ignore-data is set or single-phase is not 'all' or device-type is not Hw.")
   ;
   // clang-format on
   po::variables_map vm;
@@ -449,6 +454,15 @@ int main(int argc, char **argv) try {
         return createTestDeviceFullSize(deviceType, numIPUs);
     }
   }();
+
+  if (numDeterminismChecks && (ignoreData || !doWuPass)) {
+    throw poputil::poplibs_error(
+        "Determinism checks cannot ignore data or avoid weight upload pass.");
+  }
+  if (numDeterminismChecks && deviceType != DeviceType::Hw) {
+    throw poputil::poplibs_error(
+        "Determinism checks only work on Hardware device");
+  }
 
   Graph parentGraph(dev.getTarget());
   popops::addCodelets(parentGraph);
@@ -730,132 +744,168 @@ int main(int argc, char **argv) try {
                     [fwdInChansPerConvGroup][product(kernelSize)]);
   boost::multi_array<double, 2> duplicatedHostBiases(
       boost::extents[replicationFactor][fwdOutChans]);
-  for (unsigned i = 0; i != replicationFactor; ++i) {
-    duplicatedHostWeights[i] = hostWeights;
+  // Used for determinism checking
+  boost::multi_array<double, 5> prevExecutionWeights(
+      boost::extents[replicationFactor][numConvGroups][fwdOutChansPerConvGroup]
+                    [fwdInChansPerConvGroup][product(kernelSize)]);
+  boost::multi_array<double, 2> prevExecutionBiases(
+      boost::extents[replicationFactor][fwdOutChans]);
+
+  boost::multi_array<double, 3> hostZDeltas(
+      boost::extents[batchSize * replicationFactor]
+                    [bwdParams.getNumInputChans()][product(outFieldSize)]);
+  writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
+
+  for (unsigned i(0); i < numDeterminismChecks + 1; ++i) {
+
+    for (unsigned i = 0; i != replicationFactor; ++i) {
+      duplicatedHostWeights[i] = hostWeights;
+      if (bias) {
+        duplicatedHostBiases[i] = hostBiases;
+      }
+    }
+
+    copy(target, duplicatedHostWeights, inputType, rawHostWeights.get());
     if (bias) {
-      duplicatedHostBiases[i] = hostBiases;
+      copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
     }
-  }
-  copy(target, duplicatedHostWeights, inputType, rawHostWeights.get());
-  if (bias) {
-    copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
-  }
 
-  // Run the forward pass.
-  dev.bind([&](const Device &d) {
-    engine.load(d);
-    if (!ignoreData) {
-      engine.run(uploadProgIndex);
-    }
-    engine.run(fwdProgIndex); // Run.
-    if (!ignoreData) {
-      engine.run(downloadProgIndex);
-    }
-  });
-
-  // Validate against a reference model.
-  bool matchesModel = true;
-  if (!ignoreData) {
-    boost::multi_array<double, 3> modelNextAct(
-        boost::extents[batchSize * replicationFactor][fwdOutChans]
-                      [product(outFieldSize)]);
-    poplibs_test::conv::convolution(
-        vectorConvert<unsigned>(inputFieldSize), truncationLower,
-        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-        kernelPaddingUpper, flipKernel, outputTruncationLower,
-        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-        hostPrevAct, hostWeights, hostBiases, modelNextAct);
-    if (doFwdPass) {
-      copy(target, outputType, rawHostNextAct.get(), hostNextAct);
-      matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
-                                   relativeTolerance, absoluteTolerance);
-    }
-  }
-
-  if (doBwdPass || doWuPass) {
-    boost::multi_array<double, 3> hostZDeltas(
-        boost::extents[batchSize * replicationFactor]
-                      [bwdParams.getNumInputChans()][product(outFieldSize)]);
-    boost::multi_array<double, 3> hostPrevDeltas(
-        boost::extents[batchSize * replicationFactor][params.getNumInputChans()]
-                      [product(inputFieldSize)]);
-    auto modelWeights = hostWeights;
-    auto modelBiases = hostBiases;
-    // Run the backwards and/or weight update passes.
-    writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
-    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
-
+    // Run the forward pass.
     dev.bind([&](const Device &d) {
       engine.load(d);
       if (!ignoreData) {
         engine.run(uploadProgIndex);
       }
-      engine.run(revProgIndex);
+      engine.run(fwdProgIndex);
       if (!ignoreData) {
         engine.run(downloadProgIndex);
       }
     });
 
-    copy(target, inputType, rawHostZDeltas.get(), hostZDeltas);
-    if (doBwdPass) {
-      copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
-    }
-
+    // Validate against a reference model.
+    bool matchesModel = true;
     if (!ignoreData) {
-      // Validate against a reference model.
-      if (doBwdPass) {
-        boost::multi_array<double, 3> modelPrevDeltas(
-            boost::extents[batchSize * replicationFactor][fwdInChans]
-                          [product(inputFieldSize)]);
-        poplibs_test::conv::convolutionBackward(
-            vectorConvert<unsigned>(inputFieldSize), truncationLower,
-            truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-            vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-            kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-            kernelPaddingUpper, flipKernel, outputTruncationLower,
-            outputTruncationUpper, stride, outputPaddingLower,
-            outputPaddingUpper, hostZDeltas, modelWeights, modelPrevDeltas);
-        matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+      boost::multi_array<double, 3> modelNextAct(
+          boost::extents[batchSize * replicationFactor][fwdOutChans]
+                        [product(outFieldSize)]);
+      poplibs_test::conv::convolution(
+          vectorConvert<unsigned>(inputFieldSize), truncationLower,
+          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+          kernelPaddingUpper, flipKernel, outputTruncationLower,
+          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+          hostPrevAct, hostWeights, hostBiases, modelNextAct);
+      if (doFwdPass) {
+        copy(target, outputType, rawHostNextAct.get(), hostNextAct);
+        matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                      relativeTolerance, absoluteTolerance);
       }
-      if (doWuPass) {
-        poplibs_test::conv::weightUpdate(
-            vectorConvert<unsigned>(inputFieldSize), truncationLower,
-            truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-            vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-            kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-            kernelPaddingUpper, flipKernel, outputTruncationLower,
-            outputTruncationUpper, stride, outputPaddingLower,
-            outputPaddingUpper, learningRate, hostPrevAct, hostZDeltas,
-            modelWeights, modelBiases);
-        copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
-        if (bias) {
-          copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
+    }
+
+    if (doBwdPass || doWuPass) {
+      boost::multi_array<double, 3> hostPrevDeltas(
+          boost::extents[batchSize * replicationFactor]
+                        [params.getNumInputChans()][product(inputFieldSize)]);
+      auto modelWeights = hostWeights;
+      auto modelBiases = hostBiases;
+      // Run the backwards and/or weight update passes.
+      copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+
+      dev.bind([&](const Device &d) {
+        engine.load(d);
+        if (!ignoreData) {
+          engine.run(uploadProgIndex);
         }
-        for (unsigned i = 0; i != replicationFactor; ++i) {
-          std::string suffix;
-          if (replicationFactor > 1)
-            suffix = "_ipu" + std::to_string(i);
-          hostWeights = duplicatedHostWeights[i];
-          matchesModel &=
-              checkIsClose("weights" + suffix, hostWeights, modelWeights,
-                           relativeTolerance, absoluteTolerance);
+        engine.run(revProgIndex);
+        if (!ignoreData) {
+          engine.run(downloadProgIndex);
+        }
+      });
+
+      copy(target, inputType, rawHostZDeltas.get(), hostZDeltas);
+      if (doBwdPass) {
+        copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      }
+
+      if (!ignoreData) {
+        // Validate against a reference model.
+        if (doBwdPass) {
+          boost::multi_array<double, 3> modelPrevDeltas(
+              boost::extents[batchSize * replicationFactor][fwdInChans]
+                            [product(inputFieldSize)]);
+          poplibs_test::conv::convolutionBackward(
+              vectorConvert<unsigned>(inputFieldSize), truncationLower,
+              truncationUpper, inDilation, paddingLower, paddingUpper,
+              flipInput, vectorConvert<unsigned>(kernelSize),
+              kernelTruncationLower, kernelTruncationUpper, kernelDilation,
+              kernelPaddingLower, kernelPaddingUpper, flipKernel,
+              outputTruncationLower, outputTruncationUpper, stride,
+              outputPaddingLower, outputPaddingUpper, hostZDeltas, modelWeights,
+              modelPrevDeltas);
+          matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                       relativeTolerance, absoluteTolerance);
+        }
+        if (doWuPass) {
+          copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
           if (bias) {
-            hostBiases = duplicatedHostBiases[i];
-            matchesModel &=
-                checkIsClose("biases" + suffix, hostBiases, modelBiases,
-                             relativeTolerance, absoluteTolerance);
+            copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
+          }
+          if (!i) {
+            poplibs_test::conv::weightUpdate(
+                vectorConvert<unsigned>(inputFieldSize), truncationLower,
+                truncationUpper, inDilation, paddingLower, paddingUpper,
+                flipInput, vectorConvert<unsigned>(kernelSize),
+                kernelTruncationLower, kernelTruncationUpper, kernelDilation,
+                kernelPaddingLower, kernelPaddingUpper, flipKernel,
+                outputTruncationLower, outputTruncationUpper, stride,
+                outputPaddingLower, outputPaddingUpper, learningRate,
+                hostPrevAct, hostZDeltas, modelWeights, modelBiases);
+
+            prevExecutionWeights = duplicatedHostWeights;
+            if (bias) {
+              prevExecutionBiases = duplicatedHostBiases;
+            }
+
+            for (unsigned i = 0; i != replicationFactor; ++i) {
+              std::string suffix;
+              if (replicationFactor > 1)
+                suffix = "_ipu" + std::to_string(i);
+              boost::multi_array<double, 4> hostWeights =
+                  duplicatedHostWeights[i];
+              matchesModel &=
+                  checkIsClose("weights" + suffix, hostWeights, modelWeights,
+                               relativeTolerance, absoluteTolerance);
+              if (bias) {
+                boost::multi_array<double, 1> hostBiases =
+                    duplicatedHostBiases[i];
+                matchesModel &=
+                    checkIsClose("biases" + suffix, hostBiases, modelBiases,
+                                 relativeTolerance, absoluteTolerance);
+              }
+            }
+            if (!matchesModel) {
+              std::cerr << "Validation failed\n";
+              return 1;
+            }
+          } else {
+            // Determinism check
+            bool different = duplicatedHostWeights != prevExecutionWeights;
+            if (bias) {
+              different |= duplicatedHostBiases != prevExecutionBiases;
+            }
+            if (different) {
+              std::cerr << "Determinism check failed!\n";
+              return 1;
+            }
           }
         }
       }
     }
-  }
+  } // for num_determinism_checks
 
   if (jsonProfileOut) {
     const auto pr = engine.getProfile();
-
     std::ofstream os(*jsonProfileOut);
     poplar::serializeToJSON(os, pr);
   }
@@ -868,10 +918,6 @@ int main(int argc, char **argv) try {
     engine.printProfileSummary(std::cout, reportOptions);
   }
 
-  if (!matchesModel) {
-    std::cerr << "Validation failed\n";
-    return 1;
-  }
   return 0;
 } catch (const poplar::graph_memory_allocation_error &e) {
   std::cerr << e.what() << std::endl;

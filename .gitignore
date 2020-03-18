@@ -4,3 +4,6 @@ build/
 CMakeLists.txt.user
 *.DS_Store
 cmake-build-debug
+
+.vscode
+compile_commands.json

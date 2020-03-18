@@ -377,6 +377,8 @@ def main():
                         help='Number of ipus to use')
     parser.add_argument('--tiles-per-ipu', type=int,
                         help='Number of tiles per ipu to use')
+    parser.add_argument('--num-determinism-checks', type=int, default=2,
+                        help='Amount of additional identical executions to check determinism (Hw only)')
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -395,6 +397,8 @@ def main():
         try:
             extra_args=device_args + ['--device-type=' +
                 str(args.device_type)];
+            if args.device_type == 'Hw':
+                extra_args.append('--num-determinism-checks=' + str(args.num_determinism_checks))
             if args.profile:
                 extra_args.append('--profile');
             run(params, binary=args.binary,
