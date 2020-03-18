@@ -564,9 +564,9 @@ static std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
 }
 
 static std::uint64_t getConvPartialSlicInnerLoopCycles(
-    unsigned batchElements, const std::vector<unsigned> &outShape,
-    unsigned numWorkerContexts, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials) {
+    bool implicitZeroing, unsigned batchElements,
+    const std::vector<unsigned> &outShape, unsigned numWorkerContexts,
+    unsigned slicWindowWidth, bool floatActivations, bool floatPartials) {
   // SLIC doesn't support output striding and input dilation.
   const std::vector<unsigned> inputDilation(outShape.size(), 1);
   const auto &outputStride = inputDilation;
@@ -587,7 +587,7 @@ static std::uint64_t getConvPartialSlicInnerLoopCycles(
 
   return getConvPartialSlicSupervisorCycleInnerLoopEstimate(
       worklist, numWorkerContexts, slicWindowWidth, floatActivations,
-      floatPartials);
+      floatPartials, implicitZeroing);
 }
 
 static std::uint64_t estimateCastCycles(unsigned outputSize,
@@ -1207,8 +1207,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
     return m.call(convSizeVarsVector, [&target, numFieldDims, fieldGrainSize,
                                        convGroupsPerGroup, inChansPerGroup,
+#ifndef NDEBUG
                                        outChansPerGroup,
-                                       convUnitInputLoadElemsPerCycle,
+#endif
                                        slicWindowWidth, floatActivations,
                                        floatPartials,
                                        cache](const auto &values) {
@@ -1219,10 +1220,12 @@ static popsolver::Variable addPartialCalcCycleEstimate(
       assert(inChansPerGroup == outChansPerGroup);
       assert(convGroupsPerGroup * inChansPerGroup == 4);
 
+#ifndef NDEBUG
       const auto tileNumInGroups =
           tileNumElems(convSize.numInChanGrains, inChansPerGroup);
       const auto tileNumOutGroups =
           tileNumElems(convSize.numOutChanGrains, outChansPerGroup);
+#endif
       assert(tileNumInGroups == 1);
       assert(tileNumOutGroups == 1);
 
@@ -1243,20 +1246,26 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                otherDims;
       }();
 
-      const auto zeroCycles = cache->mEstimateZeroSupervisorCycles(
-          product(tileFieldSize) * convSize.batchSize, tileNumOutGroups,
-          tileNumConvGroups, outChansPerGroup, target.getDataPathWidth(),
-          target.getNumWorkerContexts());
-
+      const auto implicitZeroInnerLoopCycles =
+          cache->mGetConvPartialSlicInnerLoopCycles(
+              /* implicitZeroing */ true, convSize.batchSize, tileFieldSize,
+              target.getNumWorkerContexts(), slicWindowWidth, floatActivations,
+              floatPartials);
       const auto innerLoopCycles = cache->mGetConvPartialSlicInnerLoopCycles(
-          convSize.batchSize, tileFieldSize, target.getNumWorkerContexts(),
-          slicWindowWidth, floatActivations, floatPartials);
+          /* implicitZeroing */ false, convSize.batchSize, tileFieldSize,
+          target.getNumWorkerContexts(), slicWindowWidth, floatActivations,
+          floatPartials);
+      const auto weightLoadCycles =
+          getConvPartialSlicSupervisorCycleWeightLoadEstimate(
+              convGroupsPerGroup, inChansPerGroup,
+              target.getNumWorkerContexts(), slicWindowWidth);
 
+      assert(tileNumInGroups == 1);
+      assert(tileNumOutGroups == 1);
       return cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
-          zeroCycles, innerLoopCycles, tileNumConvGroups, tileNumInGroups,
-          tileNumOutGroups, convUnitInputLoadElemsPerCycle, numWeightBlocks,
-          slicWindowWidth, target.getConvUnitCoeffLoadBytesPerCycle(),
-          floatActivations, floatPartials);
+          implicitZeroInnerLoopCycles, innerLoopCycles, weightLoadCycles,
+          tileNumConvGroups, numWeightBlocks, slicWindowWidth, floatActivations,
+          floatPartials);
     });
   }
   case Plan::Method::MAC: {
@@ -1613,7 +1622,7 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
     assert(slicWindowWidth == 4);
 
     // SLIC pads the kernel width dimension.
-    const unsigned dimToPad = 1;
+    const unsigned dimToPad = params.getNumFieldDims() - 1;
     return addKernelPaddingEstimate(m, target, params, transformedSizes,
                                     partitionVars, exchangeEstimator,
                                     slicWindowWidth, dimToPad);

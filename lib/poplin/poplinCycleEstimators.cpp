@@ -248,7 +248,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
   for (unsigned context = 0; context < numWorkerContexts; ++context) {
     const auto &wl = worklists[context];
     for (unsigned wi = 0; wi < wl.size(); wi += 3) {
-      workerPartitions[context].push_back(wl[wi + 1]);
+      workerPartitions[context].push_back(wl[wi + 2]);
     }
   }
 #if !defined(NDEBUG)
@@ -258,7 +258,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
     for (unsigned context = 0; context < numWorkerContexts; ++context) {
       const auto &wl = worklists[subKernel * numWorkerContexts + context];
       for (unsigned wi = 0; wi < wl.size() / 3; ++wi) {
-        assert(wl[wi * 3 + 1] == workerPartitions[context][wi]);
+        assert(wl[wi * 3 + 2] == workerPartitions[context][wi]);
       }
     }
   }
@@ -268,18 +268,21 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
   const bool floatActivations = fpType == FLOAT;
   const bool floatPartials = accumType == FLOAT;
 
-  // TODO: currently doesnt differentiate between implicit zeroing or not.
   const auto implicitZeroingInnerCycles =
       getConvPartialSlicSupervisorCycleInnerLoopEstimate(
           workerPartitions, numWorkerContexts, slicWindowWidth,
-          floatActivations, floatPartials);
+          floatActivations, floatPartials, /* implicitZeroing */ true);
   const auto innerCycles = getConvPartialSlicSupervisorCycleInnerLoopEstimate(
       workerPartitions, numWorkerContexts, slicWindowWidth, floatActivations,
-      floatPartials);
+      floatPartials, /* implicitZeroing */ false);
+  const auto weightLoadCycles =
+      getConvPartialSlicSupervisorCycleWeightLoadEstimate(
+          convGroupsPerGroup, chansPerGroup, numWorkerContexts,
+          slicWindowWidth);
   const auto cycles = getConvPartialSlicSupervisorCycleOuterLoopEstimate(
-      implicitZeroingInnerCycles, innerCycles, numConvGroupGroups, 1,
-      numSubKernels, convGroupsPerGroup, chansPerGroup, numWorkerContexts,
-      slicWindowWidth, floatActivations, floatPartials);
+      implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
+      numConvGroupGroups, numSubKernels, slicWindowWidth, floatActivations,
+      floatPartials);
   return cycles;
 }
 
@@ -638,6 +641,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, FLOAT, FLOAT, false, true),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, true),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, FLOAT, false, true),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, true),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),

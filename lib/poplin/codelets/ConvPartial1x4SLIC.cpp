@@ -19,7 +19,8 @@ namespace poplin {
 
 template <typename FPType, typename AccumType, bool useShortTypes>
 constexpr bool hasAssemblyVersion() {
-  return false;
+  return std::is_same<FPType, half>::value &&
+         std::is_same<AccumType, float>::value && useShortTypes;
 }
 
 template <typename FPType, typename AccumType, bool useShortTypes>
@@ -89,6 +90,7 @@ public:
     const unsigned convGroupsPerGroup = chansInConvGroups >> mode;
     const unsigned outChansPerGroup = chansInConvGroups / convGroupsPerGroup;
     const unsigned inChansPerGroup = chansInConvGroups / convGroupsPerGroup;
+
     const unsigned numSubKernels = numSubKernelsM1 + 1;
     const unsigned numConvGroupGroups = numConvGroupGroupsM1 + 1;
 

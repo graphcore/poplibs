@@ -466,138 +466,131 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleEstimate(
       floatPartials);
 }
 
+inline std::uint64_t getConvPartialSlicSupervisorCycleWeightLoadEstimate(
+    unsigned convGroupsPerGroup, unsigned chansPerGroup,
+    unsigned numWorkerContexts, unsigned slicWindowWidth) {
+  assert(slicWindowWidth == 4u);
+  assert(chansPerGroup == 4u / convGroupsPerGroup);
+  std::uint64_t cycles = 0;
+  if (convGroupsPerGroup == 1) {
+    cycles += (6 + // brnzdec
+               6 + // put CCCSLOAD
+               6); // bri
+  } else {
+    assert(convGroupsPerGroup == 4 || convGroupsPerGroup == 2);
+    const std::uint64_t workerLoadWeightsCycles =
+        (convGroupsPerGroup == 4) ? 10 : 14;
+    cycles += (9 + // brnzdec, put CCCSLOAD pointer (stall), store weights
+                   // pointer for rearrangement.
+               6 + // runall
+               // Rearrange weights in workers
+               (workerLoadWeightsCycles * numWorkerContexts) + 6); // sync
+  }
+  cycles += 16; // 16 * ld64putcs
+  return cycles;
+}
+
 inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
-    std::uint64_t zeroCycles, std::uint64_t innerLoopCycles,
-    unsigned numConvGroups, unsigned numInGroups, unsigned numOutGroups,
-    unsigned slicWindowWidth, unsigned convUnitInputLoadElemsPerCycle,
-    unsigned numWeightBlocks, unsigned convUnitCoeffLoadBytesPerCycle,
-    bool floatActivations, bool floatPartials) {
-  // TODO: we currently only target SLIC for half->float which loads the weights
-  // using the ld64putcs instruction.
+    std::uint64_t implicitZeroingInnerLoopCycles, std::uint64_t innerLoopCycles,
+    std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
+    unsigned numSubKernels, unsigned slicWindowWidth, bool floatActivations,
+    bool floatPartials) {
+  // TODO: we currently only target SLIC for half->float
+  // TODO: we currently only target a kernel width of 4.
   assert(!floatActivations);
   assert(floatPartials);
-  (void)convUnitInputLoadElemsPerCycle;
-  (void)convUnitCoeffLoadBytesPerCycle;
+  assert(slicWindowWidth == 4);
+  assert(numConvGroupGroups >= 1);
+  assert(numSubKernels >= 1);
 
-  // TODO: rougly based off of the ConvPartial1x1 codelet, when the SLIC
-  // codelets have been written in assembly this estimate should be updated.
-  // also, any unavoidable register bubbles have not been accounted for.
-  std::uint64_t cycles = 0;
+  const std::uint64_t supervisorPreambleCycles = 23;
+  const std::uint64_t supervisorConvGroupGroupsBodyCycles = 15;
+  const std::uint64_t supervisorConvGroupGroupsLoopCycles =
+      supervisorConvGroupGroupsBodyCycles * numConvGroupGroups +
+      6 * (numConvGroupGroups - 1) +
+      1; // 6 cycles brnzdec stall for all but last conv group group
+  const std::uint64_t supervisorSubKernelBodyCycles =
+      weightLoadCycles + 3 + // deal with whether to swap output pointers or not
+      2 +                    // store new worklist pointer and increment
+      2 +                    // or, store implicit zero/stride
+      6 +                    // runall
+      6 +                    // sync
+      1;                     // load new weights pointer
 
-  // store $m9 and $m10 on the stack.
-  cycles += 4;
+  const std::uint64_t supervisorSubKernelLoopCycles =
+      supervisorSubKernelBodyCycles * numSubKernels + 6 * (numSubKernels - 1) +
+      1; // brnzdec is 6 cycles in all but the last iteration.
 
-  // load in, weights and worklists pointers and expand from scaled pointers
-  // (setzi mem_base ; add ; shl) then store on the stack.
-  cycles += 1 + 3 * 4;
-
-  // load and store in chans per group and out chans per group.
-  cycles += 4;
-
-  // load num conv groups, in groups, num out groups, num weight blocks, num out
-  // elems and first set of weights.
-  cycles += 7;
-
-  // setzi and runall the zero worker.
-  cycles += 7 + zeroCycles;
-
-  // setzi the slic kernel.
-  cycles += 1;
-
-  // for each weight block.
-  std::uint64_t weightBlockLoop = 0;
-
-  // load a quarter of the CWEI registers
-  weightBlockLoop += slicWindowWidth * 2;
-
-  // runall
-  weightBlockLoop += 7 + innerLoopCycles;
-
-  // move weights pointer on and brnzdec
-  weightBlockLoop += 2;
-
-  // for each out chan group
-  std::uint64_t outChanGroupLoop = 0;
-
-  // load next weights pointer, expand. load next out pointer, expand. store
-  // out chan pointer to vertex state.
-  outChanGroupLoop += 5;
-
-  // perform weight block loop then brnzdec
-  outChanGroupLoop += weightBlockLoop * numWeightBlocks + 1;
-
-  // for each in chan group + brnzdec.
-  std::uint64_t inChanGroupLoop = outChanGroupLoop * numOutGroups + 1;
-
-  // for each conv group + brnzdec.
-  std::uint64_t convGroupLoop = inChanGroupLoop * numInGroups + 1;
-
-  cycles += convGroupLoop * numConvGroups;
-
-  // restore m9, m10, sp and finally br $lr.
-  cycles += 4;
+  const std::uint64_t cycles =
+      supervisorPreambleCycles + supervisorConvGroupGroupsLoopCycles +
+      supervisorSubKernelLoopCycles +
+      // Workers make one pass for the first sub-kernel implicitly zeroing
+      // partials, and the remainder of the sub-kernels not implicitly zeroing.
+      (numConvGroupGroups * implicitZeroingInnerLoopCycles +
+       numConvGroupGroups * (numSubKernels - 1) * innerLoopCycles);
 
   return cycles;
 }
 
+// This gives us the number of cycles in terms of supervisor cycles
+// for all workers to process a single conv group/sub-kernel. There is
+// a strong assumption that the amount of work is always the same between
+// sub-kernels.
 inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials) {
+    bool floatPartials, bool implicitZeroing) {
   // TODO: we currently only target SLIC for half->float.
+  // TODO: we currently only target kernel width of 4.
   assert(!floatActivations);
   assert(floatPartials);
+  assert(slicWindowWidth == 4);
 
-  // TODO: roughly based off of the ConvPartial1x1 codelet, when the SLIC
-  // codelets have been written in assembly this estimate should be updated.
   std::uint64_t maxWorkerCycles = 0;
 
+  const std::uint64_t workerProcessGroupPreambleCycles =
+      2 + // Get worker ID
+      3 + // Load and maybe switch output pointers
+      1 + // Load input pointer
+      2 + // Load worklist DeltaN for worker
+      4 + // Unpack DeltaN
+      2 + // Load base pointer for DeltaN and add to form final worklist pointer
+      2 + // Divide number of work items in the list by 3
+      1;  // Load implicit zero flag + strides from stack
   // worker partitions is indexed by [worker][partitions].
-  // TODO: should there only be a single partition? like the ConvPartial1x1.
   for (const auto &worker : workerPartitions) {
-    std::uint64_t cycles = 0;
+    std::uint64_t workerCycles = workerProcessGroupPreambleCycles;
 
-    // extract the worker id and turn it into a 64-bit offset (get ; and ; mul)
-    cycles += 3;
-
-    // load the worklist, in, out, in and out chans per group vertex state.
-    cycles += 5;
-
-    // extract the in offset, out offset and num elems from the worklist. scale
-    // the offsets up by the number of channels per group.
-    cycles += 5;
-
-    // move the in and out pointers on by the offset.
-    cycles += 2;
-
-    // partition loop.
-    for (const auto numElems : worker) {
-      // warm-up and cool-down based off of the table in section 3.7.4.3.35 of
-      // the arch man.
-
-      // warm-up
-      cycles += slicWindowWidth - 1;
-
-      // rpt + tapack
-      cycles += 2;
-
-      // main inner loop, the rpt loop body is a single bundle (ld2xst ; slic)
-      cycles += numElems - (slicWindowWidth - 1);
-
-      // cool-down
-      cycles += slicWindowWidth - 1;
-
-      // brnzdec num partitions
-      cycles += 1;
+    for (const auto &numFieldElems : worker) {
+      workerCycles += 10; // Pre-amble, brnzdec
+      if (implicitZeroing) {
+        workerCycles += 1; // Extra branch to exit
+      }
+      std::uint64_t rowCycles = 0;
+      if (numFieldElems < 5) {
+        if (implicitZeroing) {
+          rowCycles += 10 + (numFieldElems > 1 ? numFieldElems : 0) + 3;
+        } else {
+          rowCycles += 7;
+          if (numFieldElems == 1) {
+            rowCycles += 6;
+          } else {
+            rowCycles += 1 + (numFieldElems - 1) + 2 + (4 - numFieldElems) + 2 +
+                         (3 - (4 - numFieldElems)) + 3;
+          }
+        }
+        // Cycles for > 5 field elements matches for implicit
+        // zeroing vs. normal
+      } else {
+        rowCycles += 15 + (numFieldElems - 5);
+      }
+      // 2 passes over input data
+      workerCycles += 3 + rowCycles * 2;
     }
 
-    // exitz
-    cycles += 1;
-
-    maxWorkerCycles = std::max(maxWorkerCycles, cycles);
+    maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
   }
 
-  // transform worker cycles into supervisor cycles.
   return maxWorkerCycles * numWorkerContexts;
 }
 
