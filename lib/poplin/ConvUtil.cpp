@@ -995,15 +995,24 @@ poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
                                    const poplar::Tensor &ref_,
                                    poplar::program::Sequence &prog,
                                    const std::string &debugPrefix) {
+  if (in_.rank() <= 1 || ref_.rank() <= 1) {
+    return in_;
+  }
+
+  if (in_.shape() != ref_.shape()) {
+    throw poplibs_error("Input and reference tensors should be of "
+                        "the same shape");
+  }
+
   auto in = actsToInternalShape(in_, 1, in_.dim(1));
   auto ref = actsToInternalShape(ref_, 1, ref_.dim(1));
   const auto inGrouping = detectDimGroupings(graph, in);
   const auto refGrouping = detectDimGroupings(graph, ref);
-
-  if (in.shape() != ref.shape()) {
-    throw poplibs_error("Input and reference tensors should be of "
-                        "the same shape");
-  }
+  logging::debug("Regroup if beneficial: debugstr={}", debugPrefix);
+  logging::debug("  input      orig={} int={} : groupings={}", in_.shape(),
+                 in.shape(), inGrouping);
+  logging::debug("  reference  orig={} int={} : groupings={}", ref_.shape(),
+                 ref.shape(), refGrouping);
 
   // TODO: T10360 Consider avoiding regrouping float inputs.
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
