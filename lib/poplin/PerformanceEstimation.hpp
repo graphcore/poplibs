@@ -150,9 +150,10 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
 inline std::uint64_t
 getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCycles, unsigned numConvGroups, unsigned numInGroups,
-    unsigned numOutGroups, bool isFloat) {
+    unsigned numOutGroups, unsigned numWorkers, bool isFloat) {
   uint64_t cycles = innerLoopCycles;
   return convHorizontalMacOverhead(isFloat) +
+         numWorkers * zeroPartialsRetentionSavings(/* floatPartials */ true) +
          numConvGroups *
              (23 + numInGroups * (15 + numOutGroups * (10 + cycles)));
 }
@@ -166,7 +167,8 @@ inline std::uint64_t getConvPartialHorizontalMacSupervisorCycleEstimate(
       workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
       numWorkerContexts, isFloat);
   return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
-      cycles, numConvGroups, numInGroups, numOutGroups, isFloat);
+      cycles, numConvGroups, numInGroups, numOutGroups, numWorkerContexts,
+      isFloat);
 }
 
 inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
