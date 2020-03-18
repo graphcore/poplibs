@@ -90,7 +90,7 @@ def main():
 
     with tempfile.NamedTemporaryFile() as out:
         cmd = args.test + ["--profile-json", out.name]
-        print("Command: ", *cmd)
+        print("Command: ", *("'" + s + "'" for s in cmd))
         subprocess.run(cmd, check=True)
         result = json.load(out)
         liveness = result["graphProfile"]["memory"]["liveness"]
