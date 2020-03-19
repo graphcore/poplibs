@@ -897,8 +897,14 @@ static bool canUseConvolutionInstruction(bool floatActivations,
     return false;
   }
   unsigned usedWeightsPerConvUnit =
-      target.getWeightsPerConvUnit(floatActivations) * numConvUniteRequired /
-      getConvUnitsPerTile(target, floatActivations, floatPartials);
+      target.getWeightsPerConvUnit(floatActivations);
+  // Any other configuration than 4 uses full set of weights hence no need for
+  // extra constraint
+  if (numConvUniteRequired == 4) {
+    usedWeightsPerConvUnit =
+        (usedWeightsPerConvUnit * numConvUniteRequired) /
+        getConvUnitsPerTile(target, floatActivations, floatPartials);
+  }
   if (usedWeightsPerConvUnit % inChansPerGroup != 0) {
     return false;
   }
@@ -3820,8 +3826,16 @@ static void getConvVertexAMPCandidates(
     std::vector<unsigned> partialChansCandidates = {numConvUnitsOnIpu,
                                                     weightsPerConvUnit};
     std::vector<unsigned> numConvUnitsCandidates = {numConvUnitsOnIpu};
-    // We support half of conv units configuration for HALF types
-    if (!floatActivations && options.enableAmpHalfEnginesPlan) {
+    // On IPU1 we support half of conv units configuration for HALF types
+    const bool canUseAmp4 = options.enableAmpHalfEnginesPlan &&
+                            target.getFp16InFp16OutConvUnitsPerTile() == 8 &&
+                            !floatActivations;
+
+    // On IPU2 in case of half partials we need to enable 8 engines config as
+    // well
+    const bool canUseAmp8 = numConvUnitsOnIpu == 16;
+
+    if (canUseAmp4 || canUseAmp8) {
       numConvUnitsCandidates.push_back(numConvUnitsOnIpu / 2);
       partialChansCandidates.push_back(numConvUnitsOnIpu / 2);
     }
@@ -3841,16 +3855,16 @@ static void getConvVertexAMPCandidates(
             continue;
           }
 
+          // Number of conv units constrain
+          if (constrainedNumConvUnits &&
+              convUnits != *constrainedNumConvUnits) {
+            continue;
+          }
+
           unsigned usedWeightsPerConvUnit =
               weightsPerConvUnit * convUnits / numConvUnitsOnIpu;
           if (!floatActivations &&
               (partials != convUnits && partials != usedWeightsPerConvUnit)) {
-            continue;
-          }
-
-          // Number of conv units constrain
-          if (constrainedNumConvUnits &&
-              convUnits != *constrainedNumConvUnits) {
             continue;
           }
 

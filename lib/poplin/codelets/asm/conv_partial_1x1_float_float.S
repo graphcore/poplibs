@@ -23,8 +23,8 @@
 
 // =============================================================================
 
-#define CODELET_NAME_128_float_float __runCodelet_poplin__ConvPartial1x1Out___float_float_true_true
-#define CODELET_NAME_64_float_float __runCodelet_poplin__ConvPartial1x1Out___float_float_true_false
+#define CODELET_NAME_128_float_float __runCodelet_poplin__ConvPartial1x1Out___float_float_true_true_8
+#define CODELET_NAME_64_float_float __runCodelet_poplin__ConvPartial1x1Out___float_float_true_false_8
 
 // =============================================================================
 

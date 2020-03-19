@@ -853,7 +853,7 @@ void HyperGraph::createComputeSetMatMul(
     // TODO: Try to reproduce and file a bug if confirmed
     v = graph.addVertex(
         mulCS, poputil::templateVertex("poplin::ConvPartial1x1Out", inDataType,
-                                       partialDataType, "true", "true"));
+                                       partialDataType, "true", "true", 8));
     std::vector<poplar::Tensor> out;
     out.push_back(partialData[nodeId]);
 #if DEBUG_INFO == 5

@@ -26,8 +26,8 @@
 
 // =============================================================================
 
-#define CODELET_NAME_128 __runCodelet_poplin__ConvPartial1x1Out___half_half_true_true
-#define CODELET_NAME_64 __runCodelet_poplin__ConvPartial1x1Out___half_half_true_false
+#define CODELET_NAME_128 __runCodelet_poplin__ConvPartial1x1Out___half_half_true_true_8
+#define CODELET_NAME_64 __runCodelet_poplin__ConvPartial1x1Out___half_half_true_false_8
 
 // =============================================================================
 

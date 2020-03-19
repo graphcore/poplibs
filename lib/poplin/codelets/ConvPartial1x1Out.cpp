@@ -15,10 +15,11 @@ static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 namespace poplin {
 
-template <typename FPType, typename AccumType, bool useLimitedVer>
+template <typename FPType, typename AccumType, bool useLimitedVer,
+          unsigned numConvUnits>
 constexpr bool hasAssembly() {
   return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
-         useLimitedVer == true;
+         useLimitedVer == true && numConvUnits == 8;
 }
 
 /**
@@ -29,10 +30,11 @@ constexpr bool hasAssembly() {
  * - worklists-offsets are bounded to fit 16-bits
  * - worklists-number of elements <= maximum count supported by rpt instruction
  **/
-template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad>
+template <class FPType, class AccumType, bool useLimitedVer, bool use128BitLoad,
+          unsigned numConvUnits>
 class [[poplar::constraint("elem(**in) != elem(**out)")]] ConvPartial1x1Out
     : public SupervisorVertexIf<
-          hasAssembly<FPType, AccumType, useLimitedVer>() &&
+          hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>() &&
           ASM_CODELETS_ENABLED> {
 public:
   ConvPartial1x1Out();
@@ -64,7 +66,8 @@ public:
   const SignedType transformedOutStride;
   const UnsignedType inChansPerGroup;
 
-  IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer>()));
+  IS_EXTERNAL_CODELET(
+      (hasAssembly<FPType, AccumType, useLimitedVer, numConvUnits>()));
 
   bool compute() {
     const unsigned convInputLoadElems = std::is_same<FPType, float>::value
@@ -119,22 +122,42 @@ public:
   }
 };
 
-template class ConvPartial1x1Out<half, half, true, false>;
-template class ConvPartial1x1Out<half, float, true, false>;
-template class ConvPartial1x1Out<float, half, true, false>;
-template class ConvPartial1x1Out<float, float, true, false>;
-template class ConvPartial1x1Out<half, half, false, false>;
-template class ConvPartial1x1Out<half, float, false, false>;
-template class ConvPartial1x1Out<float, half, false, false>;
-template class ConvPartial1x1Out<float, float, false, false>;
+template class ConvPartial1x1Out<half, half, true, false, 8>;
+template class ConvPartial1x1Out<half, float, true, false, 8>;
+template class ConvPartial1x1Out<float, half, true, false, 8>;
+template class ConvPartial1x1Out<float, float, true, false, 8>;
+template class ConvPartial1x1Out<half, half, false, false, 8>;
+template class ConvPartial1x1Out<half, float, false, false, 8>;
+template class ConvPartial1x1Out<float, half, false, false, 8>;
+template class ConvPartial1x1Out<float, float, false, false, 8>;
 
-template class ConvPartial1x1Out<half, half, true, true>;
-template class ConvPartial1x1Out<half, float, true, true>;
-template class ConvPartial1x1Out<float, half, true, true>;
-template class ConvPartial1x1Out<float, float, true, true>;
-template class ConvPartial1x1Out<half, half, false, true>;
-template class ConvPartial1x1Out<half, float, false, true>;
-template class ConvPartial1x1Out<float, half, false, true>;
-template class ConvPartial1x1Out<float, float, false, true>;
+template class ConvPartial1x1Out<half, half, true, true, 8>;
+template class ConvPartial1x1Out<half, float, true, true, 8>;
+template class ConvPartial1x1Out<float, half, true, true, 8>;
+template class ConvPartial1x1Out<float, float, true, true, 8>;
+template class ConvPartial1x1Out<half, half, false, true, 8>;
+template class ConvPartial1x1Out<half, float, false, true, 8>;
+template class ConvPartial1x1Out<float, half, false, true, 8>;
+template class ConvPartial1x1Out<float, float, false, true, 8>;
+
+template class ConvPartial1x1Out<half, half, true, false, 4>;
+template class ConvPartial1x1Out<half, float, true, false, 4>;
+template class ConvPartial1x1Out<half, half, false, false, 4>;
+template class ConvPartial1x1Out<half, float, false, false, 4>;
+
+template class ConvPartial1x1Out<half, half, true, true, 4>;
+template class ConvPartial1x1Out<half, float, true, true, 4>;
+template class ConvPartial1x1Out<half, half, false, true, 4>;
+template class ConvPartial1x1Out<half, float, false, true, 4>;
+
+template class ConvPartial1x1Out<half, half, true, false, 16>;
+template class ConvPartial1x1Out<float, float, true, false, 16>;
+template class ConvPartial1x1Out<half, half, false, false, 16>;
+template class ConvPartial1x1Out<float, float, false, false, 16>;
+
+template class ConvPartial1x1Out<half, half, true, true, 16>;
+template class ConvPartial1x1Out<float, float, true, true, 16>;
+template class ConvPartial1x1Out<half, half, false, true, 16>;
+template class ConvPartial1x1Out<float, float, false, true, 16>;
 
 } // end namespace poplin

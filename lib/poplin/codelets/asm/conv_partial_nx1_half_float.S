@@ -20,8 +20,8 @@
 
 // =============================================================================
 
-#define CODELET_NAME_128 __runCodelet_poplin__ConvPartialnx1___half_float_true_true
-#define CODELET_NAME_64 __runCodelet_poplin__ConvPartialnx1___half_float_true_false
+#define CODELET_NAME_128 __runCodelet_poplin__ConvPartialnx1___half_float_true_true_8
+#define CODELET_NAME_64 __runCodelet_poplin__ConvPartialnx1___half_float_true_false_8
 
 // =============================================================================
 

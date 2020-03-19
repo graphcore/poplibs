@@ -2739,7 +2739,8 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       fwdCS, templateVertex(codeletName, in.elementType(),
                             plan.types.back().partialType,
                             useLimitedVer ? "true" : "false",
-                            use128BitConvUnitLoad ? "true" : "false"));
+                            use128BitConvUnitLoad ? "true" : "false",
+                            plan.numConvUnitsRequired));
 
   // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
