@@ -346,13 +346,20 @@ int main(int argc, char **argv) try {
   // enforce (&out[i][0] - &outFieldBuffer[0]) % 16 == 8 so that we
   // can use ld2xst64pace in the codelet even when out and outFieldBuffer
   // reside in the same bank.
-  assert(8u % target.getTypeSize(partialsType) == 0);
-  const auto outputElemsPer8Bytes = 8u / target.getTypeSize(partialsType);
-  const auto outFieldBuffer =
-      graph.addVariable(partialsType,
-                        {outputElemsPer8Bytes +
-                         numFieldElems * convGroupsPerGroup * chansPerGroup},
-                        "outFieldBuffer");
+  //
+  // Additionally, we need 192 bytes (maximum), to store rearranged
+  // weights, plus 4 bytes to store a pointer.
+  // This isn't actually true for the mode which doesn't
+  // use the weight storage (1cgx4ocx4ic) but for now we'll keep it
+  // simple and uniform.
+  constexpr unsigned extraBytes = 200u;
+  assert(extraBytes % 16 == 8);
+  assert(extraBytes % target.getTypeSize(partialsType) == 0);
+  const auto extraOutputElems = extraBytes / target.getTypeSize(partialsType);
+  const auto outFieldBuffer = graph.addVariable(
+      partialsType,
+      {extraOutputElems + numFieldElems * convGroupsPerGroup * chansPerGroup},
+      "outFieldBuffer");
   graph.setTileMapping(outFieldBuffer, 0);
 
   if (!useShortTypes && !allowCppCodelet) {

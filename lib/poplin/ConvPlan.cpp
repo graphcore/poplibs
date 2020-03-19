@@ -1416,7 +1416,7 @@ static popsolver::Variable addConvTempMemoryEstimate(
   if (method == Plan::Method::SLIC) {
     const auto buffer =
         m.sum({m.ceildiv(partialStorage, convSizes.back().numConvGroupGrains),
-               m.addConstant(8)});
+               m.addConstant(200)});
 
     partialStorage = m.sum({partialStorage, buffer});
   }

@@ -503,7 +503,7 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
   assert(numConvGroupGroups >= 1);
   assert(numSubKernels >= 1);
 
-  const std::uint64_t supervisorPreambleCycles = 23;
+  const std::uint64_t supervisorPreambleCycles = 28;
   const std::uint64_t supervisorConvGroupGroupsBodyCycles = 15;
   const std::uint64_t supervisorConvGroupGroupsLoopCycles =
       supervisorConvGroupGroupsBodyCycles * numConvGroupGroups +

@@ -51,7 +51,7 @@
 //=============
 
 //=============
-#define PROCESS_GROUP_WORKER_STATE_BASE_OFFSET (LOAD_WEIGHTS_WORKER_STATE_SIZE)
+#define PROCESS_GROUP_WORKER_STATE_BASE_OFFSET (0)
 #define PROCESS_GROUP_WORKER_STATE_OFFSET_in_ptr (PROCESS_GROUP_WORKER_STATE_BASE_OFFSET + 0)
 // Provides an offset into the below output pointer storage to load from
 #define PROCESS_GROUP_WORKER_STATE_OFFSET_swap_out_ptrs_on_load (PROCESS_GROUP_WORKER_STATE_BASE_OFFSET + 4)
@@ -69,7 +69,9 @@
 #define SUPERVISOR_STACK_OFFSET_m9 (SUPERVISOR_STACK_BASE_OFFSET + 0)
 #define SUPERVISOR_STACK_OFFSET_m10 (SUPERVISOR_STACK_BASE_OFFSET + 4)
 #define SUPERVISOR_STACK_OFFSET_worklists_deltan_ptr (SUPERVISOR_STACK_BASE_OFFSET + 8)
-#define SUPERVISOR_STACK_SIZE (12 + 4) // Rounded up to multiple of 8
+#define SUPERVISOR_STACK_OFFSET_num_sub_kernels_m1 (SUPERVISOR_STACK_BASE_OFFSET + 12)
+#define SUPERVISOR_STACK_OFFSET_swap_out_ptrs_on_load (SUPERVISOR_STACK_BASE_OFFSET + 16)
+#define SUPERVISOR_STACK_SIZE (20 + 4) // Extra 4 bytes to align to 8 byte boundary
 //=============
 
 //=============
@@ -119,6 +121,10 @@ CODELET_SYMBOL():
   shl $s_worklists_deltan_ptr, $s_worklists_deltan_ptr, 8
   // Store m9 and m10 (lr) away on stack as we want to use these registers.
   st32 $m10, $sp, $mzero, SUPERVISOR_STACK_OFFSET_m10/4
+//=============
+#define s_swap_out_ptrs_on_load m10
+//=============
+  ldz8 $s_swap_out_ptrs_on_load, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_outPtrLoadOffset/1
   ld32 $s_out_ptr_iterator, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_out/4
   ld32 $s_worker_function, $s_worker_function, $mzero, $s_mode
 //=============
@@ -126,23 +132,31 @@ CODELET_SYMBOL():
 //=============
 #define s_in_ptr_iterator m4
 //=============
-  add $s_out_field_buffer_ptr, $s_out_field_buffer_ptr, 8
+  add $s_out_field_buffer_ptr, $s_out_field_buffer_ptr, 200
   st32 $m9, $sp, $mzero, SUPERVISOR_STACK_OFFSET_m9/4
   shr $s_worklists_base_ptr, $s_worklists_base_ptr, 8
   shr $s_worklists_deltan_ptr, $s_worklists_deltan_ptr, 8
 
   ldz16 $s_num_conv_group_groups_m1, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_numConvGroupGroupsM1/2
-
+  st32 $s_swap_out_ptrs_on_load, $sp, $mzero, SUPERVISOR_STACK_OFFSET_swap_out_ptrs_on_load/4
 //=============
-#define s_worker_function2 m10
+#undef s_swap_out_ptrs_on_load
 //=============
-  setzi $s_worker_function2, CODELET_SYMBOL(_worker_process_group)
-
+#define s_num_sub_kernels_m1 m10
+//=============
+  ldz16 $s_num_sub_kernels_m1, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_numSubKernelsM1/2
   ld32 $s_in_ptr_iterator, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_in/4
   st32 $s_out_field_buffer_ptr, $sp, $mzero, (PROCESS_GROUP_WORKER_STATE_OFFSET_out_ptrs + 0)/4
   st32 $s_out_field_buffer_ptr, $sp, $mzero, (PROCESS_GROUP_WORKER_STATE_OFFSET_out_ptrs + 8)/4
   st32 $s_worklists_base_ptr, $sp, $mzero, PROCESS_GROUP_WORKER_STATE_OFFSET_worklist/4
   st32 $s_worklists_deltan_ptr, $sp, $mzero, SUPERVISOR_STACK_OFFSET_worklists_deltan_ptr/4
+  st32 $s_num_sub_kernels_m1, $sp, $mzero, SUPERVISOR_STACK_OFFSET_num_sub_kernels_m1/4
+//=============
+#undef s_num_sub_kernels_m1
+//=============
+#define s_worker_function2 m10
+//=============
+  setzi $s_worker_function2, CODELET_SYMBOL(_worker_process_group)
 //=============
 #undef s_out_field_buffer_ptr
 #undef s_worklists_base_ptr
@@ -153,11 +167,17 @@ CODELET_SYMBOL():
 #define s_in_ptr m8
 #define s_out_ptr m9
 //=============
+#define s_load_weights_stack_ptr m0
+//=============
+  ld32 $s_load_weights_stack_ptr, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_outFieldBuffer/4
+//=============
+#undef msupervisor_vertex_base // Done with the vertex state from here
+//=============
   // Process all sub-kernels and groups
 .LConvGroupGroupsLoop:
     // Top bit is used to indicate whether or not to take implicit zeroing path
     or $s_implicit_zero_or_strides, $mzero, (1 << 31)
-    ldz8 $s_swap_out_ptrs_on_load, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_outPtrLoadOffset/1
+    ldz8 $s_swap_out_ptrs_on_load, $sp, $mzero, SUPERVISOR_STACK_OFFSET_swap_out_ptrs_on_load/1
     ld32step $s_in_ptr, $mzero, $s_in_ptr_iterator+=, 1
     ld32step $s_out_ptr, $mzero, $s_out_ptr_iterator+=, 1
     nop
@@ -181,7 +201,7 @@ CODELET_SYMBOL():
 //=============
 #define s_num_sub_kernels_m1 m1
 //=============
-    ldz16 $s_num_sub_kernels_m1, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_numSubKernelsM1/2
+    ld32 $s_num_sub_kernels_m1, $sp, $mzero, SUPERVISOR_STACK_OFFSET_num_sub_kernels_m1/4
 .LSubKernelLoop:
       // If we don't need to do any special rearrangement of the weights, the
       // weight loading function will be null and we will directly load the
@@ -189,10 +209,10 @@ CODELET_SYMBOL():
       brz $s_worker_function, .LSetupDirectWeightLoad
 
       // Prepare ldput pointer
-      put $CCCSLOAD, $sp
+      put $CCCSLOAD, $s_load_weights_stack_ptr
 
-      st32 $s_weights_ptr, $sp, $mzero, LOAD_WEIGHTS_WORKER_STATE_OFFSET_weights_ptr/4
-      runall $s_worker_function, $sp, 0
+      st32 $s_weights_ptr, $s_load_weights_stack_ptr, $mzero, LOAD_WEIGHTS_WORKER_STATE_OFFSET_weights_ptr/4
+      runall $s_worker_function, $s_load_weights_stack_ptr, 0
       sync TEXCH_SYNCZONE_LOCAL
 
 .LSubKernelLoopLoadWeightsToCWEI:

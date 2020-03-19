@@ -82,6 +82,7 @@ public:
     const auto convInputLoadElems = std::is_same<FPType, float>::value
                                         ? CONV_UNIT_INPUT_LOAD_ELEMS_FLOAT
                                         : CONV_UNIT_INPUT_LOAD_ELEMS_HALF;
+    constexpr unsigned outFieldBufferOffset = 200u / sizeof(AccumType);
 
     // this vertex requires that the product of the conv groups and the channels
     // per group is a product of 4.
@@ -96,11 +97,11 @@ public:
 
     for (unsigned cg = 0; cg < numConvGroupGroups; ++cg) {
       auto *lastOutBuffer = (!outPtrLoadOffset)
-                                ? &outFieldBuffer[8u / sizeof(AccumType)]
+                                ? &outFieldBuffer[outFieldBufferOffset]
                                 : &out[cg][0];
       auto *currOutBuffer = (!outPtrLoadOffset)
                                 ? &out[cg][0]
-                                : &outFieldBuffer[8u / sizeof(AccumType)];
+                                : &outFieldBuffer[outFieldBufferOffset];
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
         const auto &w = weights[cg * numSubKernels + kg];
         for (unsigned context = 0; context < NUM_WORKERS; ++context) {
