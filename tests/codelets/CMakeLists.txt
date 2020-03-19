@@ -747,8 +747,8 @@ add_unit_test(ScaledAddSupervisor_integral
                      ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
                      ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
               LABELS codelet)
-add_unit_test(Transpose2dTest
-              Transpose2dTest.cpp
+add_unit_test(TransposeTest
+              TransposeTest.cpp
               LABELS codelet)
 add_unit_test(ZeroTest
               ZeroTest.cpp

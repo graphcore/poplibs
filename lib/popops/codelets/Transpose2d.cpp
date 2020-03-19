@@ -12,7 +12,7 @@ using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
-namespace poplin {
+namespace popops {
 
 template <typename T>
 class [[poplar::constraint("elem(**src) != elem(**dst)")]] Transpose2d
@@ -45,4 +45,4 @@ public:
 template class Transpose2d<float>;
 template class Transpose2d<half>;
 
-} // end namespace poplin
+} // end namespace popops

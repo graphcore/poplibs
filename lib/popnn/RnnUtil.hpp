@@ -15,11 +15,13 @@
 #include <popnn/NonLinearity.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/ElementWise.hpp>
+#include <popops/Rearrange.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Zero.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
+#include <poputil/VarStructure.hpp>
 #include <poputil/VertexTemplates.hpp>
 
 namespace popnn {
@@ -65,7 +67,7 @@ inline poplar::Tensor tryGroupedPartialTranspose(
                          .dimShuffle({0, 2, 3, 1});
   auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
   auto partiallyTransposed =
-      poplin::partialTranspose(graph, groupedView, cs, debugPrefix);
+      popops::rearrange::partialTranspose(graph, groupedView, cs, debugPrefix);
   prog.add(poplar::program::Execute(cs));
   return partiallyTransposed.dimShuffle({0, 2, 1, 3})
       .reshape({outerSize, innerSize});

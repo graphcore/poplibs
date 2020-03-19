@@ -8,16 +8,17 @@
 #include "poputil/VertexTemplates.hpp"
 
 #include <poplibs_test/Util.hpp>
-#include <poplin/ConvUtil.hpp>
 #include <poplin/codelets.hpp>
+#include <popops/Rearrange.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
-#define BOOST_TEST_MODULE Transpose2dTest
+#define BOOST_TEST_MODULE TransposeTest
 #include <boost/test/unit_test.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace popops::rearrange;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplin;
@@ -127,13 +128,13 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
 
     ComputeSet testComputeSet = graph.addComputeSet("computeTranspose2d");
     const auto fastVariant =
-        useFastTranspose(target, dataType, rows, cols, matrices) &&
+        canUseFastTranspose(target, dataType, rows, cols, matrices) &&
         !TestList[tests].force2d;
 
-    std::string vertexName = "poplin::Transpose2d";
+    std::string vertexName = "popops::Transpose2d";
     if (fastVariant) {
-      vertexName = useSupervisorVertex ? "poplin::TransposeSupervisor"
-                                       : "poplin::Transpose";
+      vertexName = useSupervisorVertex ? "popops::TransposeSupervisor"
+                                       : "popops::Transpose";
     }
 
     const auto vertexClass = templateVertex(vertexName, dataType);

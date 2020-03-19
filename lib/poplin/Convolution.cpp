@@ -19,6 +19,7 @@
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Pad.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
@@ -1003,7 +1004,8 @@ static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
       (std::find(expandDims.begin(), expandDims.end(), destGrouping[0].first) ==
        expandDims.end())) {
     // TODO: T10360 - Consider avoiding regrouping of float inputs.
-    auto grainSize = getMinimumRegroupGrainSize(params.inputType);
+    auto grainSize =
+        popops::rearrange::getMinimumRegroupGrainSize(params.inputType);
     unsigned dimElems = in.dim(destGrouping[0].first);
     auto maxGroupSize = gcd(dimElems, destGrouping[0].second);
     auto nextGrouping = destGrouping[0];
@@ -1086,8 +1088,8 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
                               boost::optional<Tensor> &weights,
                               const ExpandDimsPlan &expandDimsPlan,
                               Sequence &expandingCopies,
-                              boost::optional<ComputeSet> &transposeCS,
-                              bool rearrangeActs, bool rearrangeWeights,
+                              const ComputeSet &transposeCS, bool rearrangeActs,
+                              bool rearrangeWeights,
                               const std::string &debugPrefix) {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
 
@@ -1135,8 +1137,9 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
       if ((acts && isActs && rearrangeActs) ||
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
-        t = regroupTensor(graph, t, expandingCopies, transposeCS, regroup.first,
-                          regroup.second, debugPrefix);
+        t = popops::rearrange::regroupTensor(graph, t, expandingCopies,
+                                             transposeCS, regroup.first,
+                                             regroup.second, debugPrefix);
       }
     }
   }
@@ -1173,8 +1176,9 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
       if ((acts && isActs && rearrangeActs) ||
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
-        t = regroupTensor(graph, t, expandingCopies, transposeCS, regroup.first,
-                          regroup.second, debugPrefix);
+        t = popops::rearrange::regroupTensor(graph, t, expandingCopies,
+                                             transposeCS, regroup.first,
+                                             regroup.second, debugPrefix);
       }
     }
   }
@@ -1184,7 +1188,7 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
                               unsigned level, boost::optional<Tensor> &acts,
                               boost::optional<Tensor> &weights,
                               Sequence &expandingCopies,
-                              boost::optional<ComputeSet> &transposeCS,
+                              const ComputeSet &transposeCS,
                               bool rearrangeActs = false,
                               bool rearrangeWeights = false,
                               const std::string &debugPrefix = "") {
@@ -1214,21 +1218,23 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
                     rearrangeActs, rearrangeWeights, debugPrefix);
 }
 
-static void regroupIfBeneficial(Graph &graph, const ConvParams &params,
-                                const Plan &plan, unsigned level, Tensor &in,
-                                Sequence &expandingCopies,
-                                boost::optional<ComputeSet> &transposeCS,
-                                const std::string &debugPrefix = "") {
+static void regroupIfBeneficialForPlan(Graph &graph, const ConvParams &params,
+                                       const Plan &plan, unsigned level,
+                                       Tensor &in, Sequence &expandingCopies,
+                                       const ComputeSet &transposeCS,
+                                       const std::string &debugPrefix = "") {
   auto grouping = detectDimGroupings(graph, in);
   auto destGrouping =
       determinePreprocessedGroupingFromPlan(params, plan, level);
-  auto grainSize = getMinimumRegroupGrainSize(params.inputType);
+  auto grainSize =
+      popops::rearrange::getMinimumRegroupGrainSize(params.inputType);
   if (!grouping.empty() && !destGrouping.empty() &&
       grouping[0].first != destGrouping[0].first &&
       (grouping[0].second % grainSize) == 0 &&
       (destGrouping[0].second % grainSize) == 0) {
-    in = regroupTensor(graph, in, expandingCopies, transposeCS, grouping[0],
-                       destGrouping[0], debugPrefix);
+    in = popops::rearrange::regroupTensor(graph, in, expandingCopies,
+                                          transposeCS, grouping[0],
+                                          destGrouping[0], debugPrefix);
   }
 }
 
@@ -1327,7 +1333,7 @@ static CanonicalConvParams convolutionPreprocess(
   const auto outChanGrainSize = level < plan.partitions.size()
                                     ? plan.partitions[level].outChanGrainSize
                                     : plan.partialChansPerGroup;
-  boost::optional<ComputeSet> transposeCS;
+  ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
   Sequence expandingCopies;
 
   // transformations that are applied before serially splitting (which is only
@@ -1583,8 +1589,8 @@ static CanonicalConvParams convolutionPreprocess(
 
   Sequence rearrangingCopies;
   if (acts && rearrangeActs) {
-    regroupIfBeneficial(graph, params, plan, level, *acts, expandingCopies,
-                        transposeCS, debugPrefix);
+    regroupIfBeneficialForPlan(graph, params, plan, level, *acts,
+                               expandingCopies, transposeCS, debugPrefix);
     auto actsRearranged =
         createInputImpl(graph, params, level, serial, indices,
                         debugPrefix + "/actsRearranged", plan, options);
@@ -1594,8 +1600,8 @@ static CanonicalConvParams convolutionPreprocess(
   }
 
   if (weights && rearrangeWeights) {
-    regroupIfBeneficial(graph, params, plan, level, *weights, expandingCopies,
-                        transposeCS, debugPrefix);
+    regroupIfBeneficialForPlan(graph, params, plan, level, *weights,
+                               expandingCopies, transposeCS, debugPrefix);
     auto weightsRearranged =
         createWeightsImpl(graph, params, level, serial, indices,
                           debugPrefix + "/weightsRearranged", plan, options);
@@ -1606,9 +1612,7 @@ static CanonicalConvParams convolutionPreprocess(
 
   if (rearrangeProg) {
     rearrangeProg->add(expandingCopies);
-    if (transposeCS) {
-      rearrangeProg->add(Execute(*transposeCS));
-    }
+    rearrangeProg->add(Execute(transposeCS));
     rearrangeProg->add(rearrangingCopies);
   }
 
@@ -3964,9 +3968,9 @@ static boost::optional<Tensor> convolutionImpl(
             debugPrefix + "/weightsRearranged", plan, options);
         preprocessForSerialSlice(nullptr, &weightsSliceRearranged, serialParams,
                                  partition);
-        weightsSlice = regroupIfBeneficial(graph, weightsSlice,
-                                           weightsSliceRearranged, parentLoop,
-                                           debugPrefix + "/regroupBeforeSlice");
+        weightsSlice = popops::rearrange::regroupIfBeneficial(
+            graph, weightsSlice, weightsSliceRearranged, parentLoop,
+            debugPrefix + "/regroupBeforeSlice");
         parentLoop.add(Copy(weightsSlice, weightsSliceRearranged));
         weightsSlice = weightsSliceRearranged;
       }
@@ -4600,8 +4604,8 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
 
     // [GC1][O/G1][I/G2]...[GC2][G1/G5][G5][G2]
     //    -> [GC1][O/G1][I/G2]...[GC2][G1/G5][G2][G5]
-    partiallyTransposed =
-        partialTranspose(graph, partiallyTransposed, cs, debugPrefix);
+    partiallyTransposed = popops::rearrange::partialTranspose(
+        graph, partiallyTransposed, cs, debugPrefix);
     prog.add(Execute(cs));
   }
 
@@ -4647,9 +4651,9 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
   // Before the flipped weights are copied, attempt to regroup source tensor
   // only if it's innermost dimension doesn't match the destination tensor. If
   // a partial transpose is done, then the regrouping will not be done.
-  auto maybeRegroupedFlipped =
-      regroupIfBeneficial(graph, flipped, weightsOutUnGrouped, prog,
-                          debugPrefix + "/attemptRegroup");
+  auto maybeRegroupedFlipped = popops::rearrange::regroupIfBeneficial(
+      graph, flipped, weightsOutUnGrouped, prog,
+      debugPrefix + "/attemptRegroup");
 
   prog.add(Copy(maybeRegroupedFlipped, weightsOutUnGrouped));
 }
@@ -4761,8 +4765,9 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                                             prog, debugPrefix, options, cache);
   // update weights
   assert(weightDeltas.shape() == weights.shape());
-  const auto maybeRegroupedWeightDeltas = regroupIfBeneficial(
-      graph, weightDeltas, weights, prog, debugPrefix + "regroupGradds");
+  const auto maybeRegroupedWeightDeltas =
+      popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights, prog,
+                                             debugPrefix + "regroupGradds");
   scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
 }
@@ -4779,8 +4784,9 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
-  const auto maybeRegroupedWeightDeltas = regroupIfBeneficial(
-      graph, weightDeltas, weights, prog, debugPrefix + "regroupGradds");
+  const auto maybeRegroupedWeightDeltas =
+      popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights, prog,
+                                             debugPrefix + "regroupGradds");
 
   scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
@@ -4945,9 +4951,9 @@ static double blockScore(const unsigned fwdGroupSize,
     if (!intervals.empty()) {
       ++spread;
       const unsigned numTileTranspositions = accumSize(intervals);
-      const bool fastTrans =
-          useFastTranspose(graph.getTarget(), splitActivations.elementType(),
-                           bwdGroupSize, fwdGroupSize, numTileTranspositions);
+      const bool fastTrans = popops::rearrange::canUseFastTranspose(
+          graph.getTarget(), splitActivations.elementType(), bwdGroupSize,
+          fwdGroupSize, numTileTranspositions);
 
       const bool TOIC =
           transposeOutputIsContiguous(outTensor, firstInGroupShape, intervals);
@@ -5071,7 +5077,7 @@ static Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
   auto blockTileMapping = graph.getTileMapping(firstInGroup);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
 
-  addTransposeVertices(
+  popops::rearrange::addTransposeVertices(
       graph, transposeCS, dType, bwdGroupSize, fwdGroupSize, blockTileMapping,
       [&](size_t index) {
         auto blockIndices =

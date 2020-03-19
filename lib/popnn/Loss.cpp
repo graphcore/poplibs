@@ -12,6 +12,7 @@
 #include "poputil/Broadcast.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 

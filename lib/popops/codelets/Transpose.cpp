@@ -13,7 +13,7 @@ using namespace poplar;
 
 static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
-namespace poplin {
+namespace popops {
 
 template <typename T>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Transpose
@@ -47,4 +47,4 @@ public:
 
 template class Transpose<half>;
 
-} // end namespace poplin
+} // end namespace popops

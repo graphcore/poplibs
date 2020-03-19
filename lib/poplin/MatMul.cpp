@@ -5,8 +5,8 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/logging.hpp"
-#include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
@@ -614,7 +614,8 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
   // TODO: T12896 scaledAdd should do this but we should do T7132 first.
   // Check if we should regroup the output of the matmul so that it better
   // matches C_ during the add.
-  product = regroupIfBeneficial(graph, product, C_, prog, debugPrefix);
+  product = popops::rearrange::regroupIfBeneficial(graph, product, C_, prog,
+                                                   debugPrefix);
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 
@@ -650,7 +651,8 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
   // TODO: T12896 scaledAdd should do this but we should do T7132 first.
   // Check if we should regroup the output of the matmul so that it better
   // matches C_ during the add.
-  product = regroupIfBeneficial(graph, product, C_, prog, debugPrefix);
+  product = popops::rearrange::regroupIfBeneficial(graph, product, C_, prog,
+                                                   debugPrefix);
   popops::scaledAddTo(graph, C_, product, k, prog, debugPrefix);
 }
 

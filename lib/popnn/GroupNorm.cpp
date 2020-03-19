@@ -1,9 +1,9 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "NormsInternal.hpp"
-#include "poplin/ConvUtil.hpp"
 #include "poplin/Norms.hpp"
 #include "popnn/BatchNorm.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poputil/TileMapping.hpp"
@@ -61,8 +61,10 @@ groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
       graph.getTarget().getVectorWidth(acts_.elementType());
   auto acts = acts_;
   if (acts.dim(1) % preferredGrouping == 0) {
-    acts = poplin::regroupIfBeneficial(graph, acts, preferredGrouping, prog,
-                                       debugPrefix);
+    acts = popops::rearrange::regroupIfBeneficial(
+               graph, acts.dimRoll(1, acts.rank() - 1), preferredGrouping, prog,
+               debugPrefix)
+               .dimRoll(acts.rank() - 1, 1);
   }
   acts = groupActs(acts, numGroups);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,

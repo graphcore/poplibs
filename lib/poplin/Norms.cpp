@@ -3,6 +3,7 @@
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
 #include "poputil/TileMapping.hpp"
@@ -246,9 +247,9 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
                 attemptRegroup, fnPrefix);
 
   auto gradsInMaybeRegrouped =
-      attemptRegroup
-          ? regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix)
-          : gradsIn;
+      attemptRegroup ? popops::rearrange::regroupIfBeneficial(
+                           graph, gradsIn, actsWhitened, prog, debugPrefix)
+                     : gradsIn;
   const auto gradsInMultActs =
       mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, fnPrefix);
 
@@ -311,8 +312,8 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);
   const float rScale = 1.0f / numElements;
 
-  auto gradsInMaybeRegrouped =
-      regroupIfBeneficial(graph, gradsIn, actsWhitened, prog, debugPrefix);
+  auto gradsInMaybeRegrouped = popops::rearrange::regroupIfBeneficial(
+      graph, gradsIn, actsWhitened, prog, debugPrefix);
 
   // split rScale = rScale1 * rScale2;
   // TODO: T12898 Research what the optimal split would be dependent on model

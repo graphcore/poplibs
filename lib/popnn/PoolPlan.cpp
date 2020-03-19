@@ -4,7 +4,7 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/print.hpp"
-#include "poputil/TileMapping.hpp"
+#include "poputil/VarStructure.hpp"
 #include <popsolver/Model.hpp>
 
 #include <boost/range/adaptor/reversed.hpp>

@@ -672,7 +672,7 @@ void HyperGraph::createComputeSetMatMul(
       dst.push_back(transposedBlocks[blockId]);
       auto v = graph.addVertex(
           transposeCS,
-          poputil::templateVertex("poplin::Transpose2d", inDataType));
+          poputil::templateVertex("popops::Transpose2d", inDataType));
 
       graph.connect(v["src"], src);
       graph.connect(v["dst"], dst);

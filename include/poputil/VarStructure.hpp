@@ -12,6 +12,18 @@
 
 namespace poputil {
 
+/// If there is one, detect if the given tensor has a grouping in
+/// its innermost dimension.
+unsigned detectInnermostGrouping(const poplar::Graph &graph,
+                                 const poplar::Tensor &t);
+
+/// Returns a list with the innermost grouped dimension first
+/// moving outwards, with groupings for each. The same dimension may appear
+/// more than once. This uses detectInnermostGrouping iteratively.
+using GroupingInfo = std::pair<unsigned, unsigned>;
+std::vector<GroupingInfo> detectDimGroupings(const poplar::Graph &graph,
+                                             const poplar::Tensor &t);
+
 /** Create a tensor with the given shape such that when it
  *  is partitioned into slices according to the given number of
  *  partitions in each dimension, each slice is a single contiguous region.

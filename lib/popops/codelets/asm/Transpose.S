@@ -192,14 +192,14 @@ os_loop_exit\@:
 // Alternatively the inner loop could process more data but at the loss
 // of flexibility
 //******************************************************************************
-DEF_STACK_USAGE 0 __runCodelet_poplin__Transpose2d___float
-.section .text.__runCodelet_poplin__Transpose2d___float
+DEF_STACK_USAGE 0 __runCodelet_popops__Transpose2d___float
+.section .text.__runCodelet_popops__Transpose2d___float
 
-.globl __runCodelet_poplin__Transpose2d___float
-.type __runCodelet_poplin__Transpose2d___float, @function
+.globl __runCodelet_popops__Transpose2d___float
+.type __runCodelet_popops__Transpose2d___float, @function
 .align 8
 .worker
-__runCodelet_poplin__Transpose2d___float:
+__runCodelet_popops__Transpose2d___float:
 
      GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
@@ -322,7 +322,7 @@ store_last2:
 // Slower version for non-multiples of 2 rows,columns - uses the macro above
 float_slower:
     TRANSPOSE_SLOWER ld32step st64step $VAL12 4 0
-.size __runCodelet_poplin__Transpose2d___float,.-__runCodelet_poplin__Transpose2d___float
+.size __runCodelet_popops__Transpose2d___float,.-__runCodelet_popops__Transpose2d___float
 
 //*****************************************************************************
 // Half transpose:
@@ -626,7 +626,7 @@ transpose_half_from_supervisor:
 // Entry point when worker codelet is called directly. The parameter in the
 // vertex state are already correct.
 
-#define TRANSPOSE_HALF_CODELET_NAME __runCodelet_poplin__Transpose___half
+#define TRANSPOSE_HALF_CODELET_NAME __runCodelet_popops__Transpose___half
 DEF_STACK_USAGE 0 TRANSPOSE_HALF_CODELET_NAME
 .section .text.TRANSPOSE_HALF_CODELET_NAME
 .global TRANSPOSE_HALF_CODELET_NAME
@@ -726,13 +726,13 @@ half_nx4_loop:
 
 /* -------------------------------------------------------------------------- */
 
-DEF_STACK_USAGE 0 __runCodelet_poplin__Transpose2d___half
-.section .text.__runCodelet_poplin__Transpose2d___half
-.global __runCodelet_poplin__Transpose2d___half
-.type __runCodelet_poplin__Transpose2d___half,   @function
+DEF_STACK_USAGE 0 __runCodelet_popops__Transpose2d___half
+.section .text.__runCodelet_popops__Transpose2d___half
+.global __runCodelet_popops__Transpose2d___half
+.type __runCodelet_popops__Transpose2d___half,   @function
 .align 4
 .worker
-__runCodelet_poplin__Transpose2d___half:
+__runCodelet_popops__Transpose2d___half:
 
     GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
@@ -809,7 +809,7 @@ half_slower:
 
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 
-  .size __runCodelet_poplin__Transpose2d___half, . - __runCodelet_poplin__Transpose2d___half
+  .size __runCodelet_popops__Transpose2d___half, . - __runCodelet_popops__Transpose2d___half
 
 
 
@@ -818,7 +818,7 @@ half_slower:
 // Supervisor vertex for transposing N matrices of half type, all of same
 // dimensions. It just calls the worker code, with the same vertex state.
 
-#define TRANSPOSE_HALF_SUPERVISOR  __runCodelet_poplin__TransposeSupervisor___half
+#define TRANSPOSE_HALF_SUPERVISOR  __runCodelet_popops__TransposeSupervisor___half
 
 DEF_STACK_USAGE 0 TRANSPOSE_HALF_SUPERVISOR
 .section .text.TRANSPOSE_HALF_SUPERVISOR

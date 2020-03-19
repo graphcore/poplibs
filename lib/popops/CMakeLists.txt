@@ -28,6 +28,7 @@ add_library(popops SHARED
   Pad.cpp
   Padder.cpp
   popopsCycleEstimators.cpp
+  Rearrange.cpp
   ScaledAdd.cpp
   Scatter.cpp
   SelectScalarFromRows.cpp
@@ -52,6 +53,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/NaN.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
 
@@ -97,47 +99,48 @@ target_include_directories(popops
 )
 
 set(codelet_asm_sources
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Cast.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Zero.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ChannelMul_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ChannelMul_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/EncodeOneHot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateAdd.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2DXminusaXPlusbY_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_float_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2DXminusaXPlusbY_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd_half_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_integral.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_float_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_fp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAddSupervisor_integral.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd_half_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SliceCopyFunction.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Transpose.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion2D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversionSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Zero.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binarySupervisorOps.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/elementwiseStubs.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_bool.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/elementwiseStubs.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ChannelMul_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ChannelMul_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binarySupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterSupervisorOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion2D.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversionSupervisor.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
 )
 
 add_gp_library(
@@ -173,14 +176,16 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromInterval.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromIntervals.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TransposeSupervisor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateColumnsDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalDEC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/UpdateIntervalsDEC.cpp
-
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseMiscCodelets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ElementOp.hpp
@@ -191,9 +196,9 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
-    ${CMAKE_SOURCE_DIR}/include/popops/elementwiseCodelets.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
+    ${CMAKE_SOURCE_DIR}/include/popops/elementwiseCodelets.hpp
 )
 
 install(TARGETS popops

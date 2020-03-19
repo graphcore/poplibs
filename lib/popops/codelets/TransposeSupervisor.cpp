@@ -13,7 +13,7 @@ using namespace poplar;
 
 static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
-namespace poplin {
+namespace popops {
 
 template <typename T>
 class WORKER_ALIGN
@@ -56,4 +56,4 @@ public:
 
 template class TransposeSupervisor<half>;
 
-} // end namespace poplin
+} // end namespace popops

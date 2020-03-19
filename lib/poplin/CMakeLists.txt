@@ -65,9 +65,6 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/InverseStdDeviation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TransposeSupervisor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdConvComplete.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdDataTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdInverseTransform.cpp
@@ -85,7 +82,6 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Transpose2d.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/OuterProduct.S
   HEADERS
     PerformanceEstimation.hpp

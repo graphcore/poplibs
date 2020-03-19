@@ -357,118 +357,6 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
   return getWgdCompleteCycles(vecLen * nGroups, isFloat);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
-                                       const Target &target, const Type &type) {
-  CODELET_FIELD(src);
-  CODELET_FIELD(dst);
-  CODELET_SCALAR_VAL(numSrcRows, unsigned);
-  CODELET_SCALAR_VAL(numSrcColumns, unsigned);
-
-  const bool isFloat = type == FLOAT;
-  const auto matrices = dst.size();
-  std::uint64_t cycles;
-
-// TODO T14719: Derive this from IPUArchInfo
-#define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0FFF
-  auto const hardwareRptCountConstraint = CSR_W_REPEAT_COUNT__VALUE__MASK + 1;
-
-  if (isFloat) {
-    if (((numSrcRows & 1) == 0) && ((numSrcColumns & 1) == 0) &&
-        (numSrcColumns / 2 < hardwareRptCountConstraint) &&
-        (numSrcRows * (numSrcColumns - 2) / 2 < 512)) { // Largest stride used
-      // Float, fast path estimates
-      cycles = 25 + matrices * (11 + (numSrcRows / 2) *
-                                         (6 + 3 * (numSrcColumns / 2 - 1)));
-    } else {
-      // Float, slow path estimates based on numSrcRows being even
-      cycles = 13 + matrices * (8 + numSrcColumns * (5 + (numSrcRows * 4) / 2));
-    }
-  } else {
-    if (((numSrcRows & 3) == 0) && ((numSrcColumns & 3) == 0) &&
-        (numSrcColumns >= 8) &&
-        (numSrcColumns / 4 < hardwareRptCountConstraint) &&
-        (1 + 3 * (numSrcColumns / 4) < 512)) { // Largest stride used
-      // Half, fast path estimates, with >=8 input columns
-      cycles = 37 + matrices * (12 + (numSrcRows / 4) *
-                                         (15 + 4 * (numSrcColumns / 4 - 2)));
-    } else if (((numSrcRows & 3) == 0) && (numSrcColumns == 4) &&
-               (numSrcRows / 4 < hardwareRptCountConstraint) &&
-               (1 + 3 * (numSrcRows / 4) < 512)) { // Largest stride used
-      // Half, fast path estimates, 4x4 or Nx4 cases
-      if (numSrcRows == 4)
-        cycles = 32 + 15 * matrices;
-      else
-        cycles = 28 + matrices * (17 + (20 + 4 * (numSrcRows / 4 - 2)));
-    } else {
-      // Half, slow path estimates based on numSrcRows being even
-      cycles = 15 + matrices * (8 + numSrcColumns * (5 + (numSrcRows * 5) / 2));
-    }
-  }
-  return cycles;
-}
-
-// Cycle estimation for the "Transpose" worker (half, fast version)
-static std::uint64_t TransposeWorkerCycles(unsigned short numSrcRowsD4,
-                                           unsigned short numSrcColumnsD4,
-                                           unsigned short numMatrices) {
-  std::uint64_t cycles;
-  if (numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
-    if (numMatrices == 1)
-      cycles = 19 + 12;
-    else
-      cycles = 19 + 20 + (numMatrices - 2) * 4;
-  } else if (numSrcColumnsD4 == 1) {
-    cycles = 29 + numMatrices * (15 + (20 + 4 * (numSrcRowsD4 - 2)));
-  } else {
-    cycles = 31 + numMatrices *
-                      (18 + numSrcRowsD4 * (12 + 4 * (numSrcColumnsD4 - 2)));
-  }
-  return cycles;
-}
-
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
-                                     const Target &target, const Type &type) {
-  CODELET_FIELD(src);
-  CODELET_FIELD(dst);
-  CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
-  CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
-  CODELET_SCALAR_VAL(numTranspositionsM1, unsigned short);
-
-  const unsigned matrices = numTranspositionsM1 + 1;
-
-  // only half supported
-  assert(type == HALF);
-
-  return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices);
-}
-
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
-  CODELET_FIELD(src);
-  CODELET_FIELD(dst);
-  CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
-  CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
-  CODELET_SCALAR_VAL(numTranspositions, unsigned short);
-
-  // only half type supported
-  assert(type == HALF);
-
-  // This supervisor vertex will start 6 workers: 'workerCount' workers will
-  // do 'numTranspositions' matrices, and (6-workerCount) will do
-  // one less matrices (numTranspositions-1). We compute the cycles for
-  // the slowest ones (transposing 'numTranspositions' matrices).
-  // We also add the additional cycles executed, compared to the 'plain'
-  // "Transpose" codelet.
-  std::uint64_t maxCycles =
-      TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions) +
-      12 - 2;
-
-  // Add 7 for the supervisor code
-  return 7 + 6 * maxCycles;
-}
-
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &meanType, const Type &powerType, const Type &outType,
@@ -550,12 +438,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(poplin, InverseStdDeviation, HALF, HALF, HALF,
                             false),
-
-      CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(poplin, Transpose2d, HALF),
-
-      CYCLE_ESTIMATOR_ENTRY(poplin, Transpose, HALF),
-      CYCLE_ESTIMATOR_ENTRY(poplin, TransposeSupervisor, HALF),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, WgdConvComplete, HALF),
