@@ -14,15 +14,14 @@ import re
 import tempfile
 from collections import defaultdict
 from math import ceil
-from subprocess import DEVNULL, Popen
+from subprocess import DEVNULL, call
+from concurrent.futures import ThreadPoolExecutor
 
 import matplotlib
 matplotlib.use('Agg') # Do not load GTK (prevents warning message)
 import matplotlib.pyplot as plt
 import numpy as np
 
-FIGURE_FILENAME = "plot_metric_variation.png"
-PICKLE_FILENAME = "plot_metric_variation.pickle"
 VAR_PATTERN_RANGE = re.compile(r'\{(\d+):(\d+):(\d+)\}') # E.g. {10:100:5}
 VAR_PATTERN_LIST = re.compile(r'\{((\d+,?)+)\}') # E.g. {1,2,3,4}
 MB_SCALE = 1024*1024
@@ -41,14 +40,22 @@ def get_args():
         "NOTE: Your test executable must support the '--profile-json' option flag."
     )
     parser.add_argument(
-        "--output", default=FIGURE_FILENAME, help="Name of file to output plots (in PNG format)."
+        "--output", default="plot_metric_variation.png", help="Name of file to output plots (in PNG format)."
     )
     parser.add_argument(
-        "--pickle", default=PICKLE_FILENAME, help="Name of Pickle file to use for plot data "
+        "--pickle", default="plot_metric_variation.pickle", help="Name of Pickle file to use for plot data "
         "save/restore. Pickle file is used for output if 'command' is provided - input otherwise."
     )
     parser.add_argument(
         "--pickle-off", action='store_true', help="Disable save/restore of plot data in Pickle file."
+    )
+    parser.add_argument(
+        "--max-parallel", type=int, default=8, help="Maximum number of parallel processes "
+        "to be running at any time."
+    )
+    parser.add_argument(
+        "--pickle-merge", nargs='*', help="Got results spread across several Pickle files? "
+        "List them all here and they'll be plotted on the same graph and Pickled to --pickle."
     )
     parser.add_argument(
         "command", nargs=argparse.REMAINDER, help="The program command to call and "
@@ -66,67 +73,92 @@ def get_var_name_params(cmd):
     all_var_matches_range = list(filter(VAR_PATTERN_RANGE.search, cmd))
     all_var_matches_list = list(filter(VAR_PATTERN_LIST.search, cmd))
     if len(all_var_matches_range) is 1:
-      var_match = VAR_PATTERN_RANGE.search(all_var_matches_range[0])
-      params = np.arange(int(var_match.group(1)), int(var_match.group(2)), int(var_match.group(3)))
+        var_match = VAR_PATTERN_RANGE.search(all_var_matches_range[0])
+        params = np.arange(int(var_match.group(1)), int(var_match.group(2)), int(var_match.group(3)))
 
-      name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN_RANGE.pattern)
-      var_name = name_pattern.search(" ".join(cmd)).group(1)
-      return (var_name, params, VAR_PATTERN_RANGE)
+        name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN_RANGE.pattern)
+        var_name = name_pattern.search(" ".join(cmd)).group(1)
+        return (var_name, params, VAR_PATTERN_RANGE)
     elif len(all_var_matches_list) is 1:
-      var_match = VAR_PATTERN_LIST.search(all_var_matches_list[0]).group(1)
-      params=list(map(int, var_match.split(",")));
-      name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN_LIST.pattern)
-      var_name = name_pattern.search(" ".join(cmd)).group(1)
-      return (var_name, params, VAR_PATTERN_LIST)
+        var_match = VAR_PATTERN_LIST.search(all_var_matches_list[0]).group(1)
+        params = list(map(int, var_match.split(",")))
+        name_pattern = re.compile(r'--?([a-zA-Z\-]+)[=|\s]' + VAR_PATTERN_LIST.pattern)
+        var_name = name_pattern.search(" ".join(cmd)).group(1)
+        return (var_name, params, VAR_PATTERN_LIST)
     else:
-      assert len(all_var_matches) is 1, r"Exactly one occurrence of {A:B:C} or {D,E,F,..G} must appear in command."
+        print(r" - ERROR: Exactly one occurrence of {A:B:C} or {D,E,F,..G} must appear in command.")
+        exit()
 
+def save_pickle(args, var_name, x_values, data):
+    if not args.pickle_off:
+        with open(args.pickle, 'wb') as pickle_file:
+            pickle.dump(args.command, pickle_file)
+            pickle.dump(var_name, pickle_file)
+            pickle.dump(x_values, pickle_file)
+            pickle.dump(data, pickle_file)
+            print(" - Plot data pickled to {}.".format(args.pickle))
 
 def main():
     args = get_args()
+    data = defaultdict(list)
+    x_values = []
+    assert not (args.command and args.pickle_merge),\
+        "Error: Cannot provide command when --pickle-merge is used."
     if args.command: # Command provided. Generate data before plotting.
-        x_values = []
-        data = defaultdict(list)
         (var_name, params, pattern) = get_var_name_params(args.command)
-        generate_data(args.command, params, pattern, x_values, data)
-
-        if not args.pickle_off:
-            with open(args.pickle, 'wb') as pickle_file:
-                pickle.dump(var_name, pickle_file)
-                pickle.dump(x_values, pickle_file)
-                pickle.dump(data, pickle_file)
-                print(" - Plot data pickled to %s." % args.pickle)
-
+        generate_data(args.command, params, pattern, x_values, data, args.max_parallel)
     else: # No command provided. Load data from Pickle file.
-        if not args.pickle_off:
-            if os.path.exists(args.pickle):
-                print(" - Loading plot data from %s." % args.pickle)
-                with open(args.pickle, "rb") as pickle_file:
-                    var_name = pickle.load(pickle_file)
-                    x_values = pickle.load(pickle_file)
-                    data = pickle.load(pickle_file)
-            else:
-                print(" - %s does not exist. Exiting." % args.pickle)
+        cmd_params = []
+        cmd_arr = []
+        prev_cmd_str = ''
+        for pick in args.pickle_merge if args.pickle_merge else [ args.pickle ]:
+            if not os.path.exists(pick):
+                print(" - ERROR: {} does not exist. Exiting.".format(pick))
                 exit()
-        else:
-            print("No command provided. Exiting.")
-            exit()
 
-    plot_data(var_name, x_values, data, args)
+            print(" - Loading plot data from {}.".format(pick))
+            with open(pick, "rb") as pickle_file:
+                cmd_arr = pickle.load(pickle_file)
+                var_name = pickle.load(pickle_file)
+                x_values += pickle.load(pickle_file)
+                new_data = pickle.load(pickle_file)
+                for key in new_data:
+                    data[key] += new_data[key]
+
+                cmd_str = " ".join(cmd_arr)
+                start = cmd_str.find("{") + 1
+                end = cmd_str.find("}")
+
+                assert not prev_cmd_str or prev_cmd_str == cmd_str[:start] + cmd_str[end:],\
+                    "Error: Pickle files do not use the same command."
+
+                cmd_params.append(cmd_str[start:end])
+                prev_cmd_str = cmd_str[:start] + cmd_str[end:]
+
+        param_combo = "{" + '|'.join(cmd_params) + "}"
+        args.command = [ re.sub(r"(\{).+(\})", param_combo, c) for c in cmd_arr ]
+
+    if not x_values:
+        print(" - ERROR: No data found.")
+    else:
+        save_pickle(args, var_name, x_values, data)
+        plot_data(var_name, x_values, data, args)
 
 
-def generate_data(cmd, params, pattern, x_values, data):
-    cmd.append("--profile-json")
+def generate_data(cmd, params, pattern, x_values, data, max_parallel):
+    if not (os.path.isfile(cmd[0]) and os.access(cmd[0], os.X_OK)):
+        print(" - ERROR: File '{}' does not exist or is not executable. Exiting.".format(cmd[0]))
+        exit()
 
     with tempfile.TemporaryDirectory() as out_dir:
         # Create list of all cmd variants (variable value and JSON output file)
-        out_files = [os.path.join(out_dir, str(param) + '.json') for param in params]
+        out_files = ['--profile-json=' + os.path.join(out_dir, str(param) + '.json') for param in params]
         cmds = [[pattern.sub(str(param), substring) for substring in cmd] for param in params]
         cmds = [[*cmd, out] for (cmd, out) in zip(cmds, out_files)]
 
-        print(" - Spawning %d processes..." % len(cmds))
-        procs = [Popen(cmd, stdout=DEVNULL, stderr=DEVNULL) for cmd in cmds]
-        exit_codes = [proc.wait() for proc in procs]
+        print(" - Spawning {} processes ({} at a time)...".format(len(cmds), max_parallel))
+        with ThreadPoolExecutor(max_parallel) as pool:
+            exit_codes = pool.map(lambda cmd: call(cmd, stdout=DEVNULL, stderr=DEVNULL), cmds)
 
         print(" - All processes finished, with the following exit codes:")
         print("\n    | Test value | Exit code |")
@@ -173,11 +205,9 @@ def generate_data(cmd, params, pattern, x_values, data):
 
 
 def plot_data(var_name, x_values, data, args):
-    if not x_values:
-        print("No data found.")
-        exit()
+    fig, axs = plt.subplots(3, 2, sharex=True, figsize=(7, 7))
+    fig.suptitle(" ".join(args.command), fontsize="small", wrap=True)
 
-    _, axs = plt.subplots(3, 2, sharex=True, figsize=(7, 7))
     # X-axis shared so we only need to set xlabel for last row of plots
     axs[-1, 0].set_xlabel(var_name)
     axs[-1, 1].set_xlabel(var_name)
@@ -229,7 +259,7 @@ def plot_data(var_name, x_values, data, args):
     data = np.array([data['vertex_state'], data['vertex_edge_pointers'],
                      data['vertex_copy_pointers'], data['vertex_descriptors']])
     data = np.divide(data, MB_SCALE) # Scale bytes -> megabytes
-    width = ceil((x_values[1] - x_values[0]) / 4)
+    width = ceil((max(x_values) - min(x_values)) / (4 * (len(x_values) - 1)))
     cum_size = np.zeros(len(data[0]))
     for _, row_data in enumerate(data):
         axs[1, 0].bar(x_values, row_data, width, bottom=cum_size)
@@ -243,7 +273,7 @@ def plot_data(var_name, x_values, data, args):
         subplot.set_ylim(bottom=0)
         subplot.grid()
     plt.savefig(args.output)
-    print(" - Plots saved to %s." % args.output)
+    print(" - Plots saved to {}.".format(args.output))
 
 
 if __name__ == "__main__":
