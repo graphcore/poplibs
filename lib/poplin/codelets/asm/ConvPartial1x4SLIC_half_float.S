@@ -7,6 +7,7 @@
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
+#include "poplar/StackSizeDefs.hpp"
 
 #define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_float_true ## suffix
 
@@ -93,6 +94,9 @@ CODELET_SYMBOL(_worker_load_weights_jump_table):
 .int CODELET_SYMBOL(_worker_load_weights_4x1x1)
 .int CODELET_SYMBOL(_worker_load_weights_2x2x2)
 .int 0
+
+// Supervisor uses MAX_STACK_SIZE, workers  don't use any stack
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL()
 
 .section .text.CODELET_SYMBOL(), "ax"
 .global CODELET_SYMBOL()
