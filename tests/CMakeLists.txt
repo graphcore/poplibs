@@ -4280,34 +4280,45 @@ foreach(GROUPING "411" "222" "144")
                     --output-channels=1
                     --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
                     --tiles-per-ipu=1)
-
-  # TODO: implement kernel transform support for SLIC
-  # add_multitarget_test(
-  #           NAME conv_slic_${GROUPING}_8groups_pad_kernel_explicit
-  #           COMMAND single_conv_layer
-  #                   --field={2,12}
-  #                   --kernel-size={2,7}
-  #                   --kernel-padding-lower={0,1}
-  #                   --batch-size=3
-  #                   --conv-groups=8
-  #                   --input-channels=1
-  #                   --output-channels=1
-  #                   --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-  #                   --tiles-per-ipu=1)
-
-  # TODO: implement input transform support for SLIC
-  # add_multitarget_test(
-  #           NAME conv_slic_${GROUPING}_8groups_pad_input
-  #           COMMAND single_conv_layer
-  #                   --field={2,11}
-  #                   --padding-lower={0,1}
-  #                   --kernel-size={2,8}
-  #                   --batch-size=3
-  #                   --conv-groups=8
-  #                   --input-channels=1
-  #                   --output-channels=1
-  #                   --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
-  #                   --tiles-per-ipu=1)
+  
+  add_multitarget_test(
+            NAME conv_slic_${GROUPING}_8groups_pad_input
+            COMMAND single_conv_layer
+                    --field={1,10}
+                    --padding-lower={1,2}
+                    --kernel-size={2,8}
+                    --batch-size=3
+                    --conv-groups=8
+                    --input-channels=1
+                    --output-channels=1
+                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                    --tiles-per-ipu=1)
+  
+  add_multitarget_test(
+            NAME conv_slic_${GROUPING}_8groups_dilate_input
+            COMMAND single_conv_layer
+                    --field={2,6}
+                    --in-dilation={1,2}
+                    --kernel-size={2,8}
+                    --batch-size=3
+                    --conv-groups=8
+                    --input-channels=1
+                    --output-channels=1
+                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                    --tiles-per-ipu=1)
+  
+  add_multitarget_test(
+            NAME conv_slic_${GROUPING}_8groups_truncate_input
+            COMMAND single_conv_layer
+                    --field={3,13}
+                    --truncation-upper={1,2}
+                    --kernel-size={2,8}
+                    --batch-size=3
+                    --conv-groups=8
+                    --input-channels=1
+                    --output-channels=1
+                    --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
+                    --tiles-per-ipu=1)
 endforeach()
 
 # depthwise convolution with the combineConvGroups transformation applied tests.

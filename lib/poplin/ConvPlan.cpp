@@ -747,7 +747,7 @@ template <typename T> struct Estimates {
   T dynamicSliceCycles;
   T transformCycles;
   T exchangeCycles;
-  T zeroPaddingCycles;
+  T tileLevelTransformCycles;
   T partialCalcCycles;
   T reduceCycles;
   T dynamicUpdateCycles;
@@ -755,7 +755,7 @@ template <typename T> struct Estimates {
   T rearrangeBeforeSliceTempBytes;
   T rearrangeBeforeSliceTempDuringRearrangeBytes;
   T transformTempBytes;
-  T zeroPaddingTempBytes;
+  T tileLevelTransformTempBytes;
   T convTempBytes;
   T reduceTempBytes;
 };
@@ -1218,8 +1218,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 #ifndef NDEBUG
       const auto isOne = [](const auto &x) { return x == 1; };
 #endif
-      assert(std::all_of(std::begin(transformedInputDilation),
-                         std::end(transformedInputDilation), isOne));
       assert(std::all_of(std::begin(transformedOutputStride),
                          std::end(transformedOutputStride), isOne));
 
@@ -1432,32 +1430,26 @@ static popsolver::Variable addConvTempMemoryEstimate(
   return convStorage;
 }
 
-// returns a pair of cycle estimate and temporary memory estimate.
-static std::pair<popsolver::Variable, popsolver::Variable>
-addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
-                         const ConvParams &params,
-                         const std::vector<ConvSizeVariables> &transformedSizes,
-                         const std::vector<PartitionVariables> &partitionVars,
-                         const ExchangeEstimator &exchangeEstimator,
-                         const unsigned padToMultipleOf, const unsigned dim) {
+// calculates how many zeros are added for padding for the kernel and input
+// fields by the equivalent function defined in `Convolution.cpp`
+
+static void
+padKernelSpatialDim(popsolver::Model &m, const ConvParams &params,
+                    const std::vector<ConvSizeVariables> &transformedSizes,
+                    const std::vector<PartitionVariables> &partitionVars,
+                    std::vector<popsolver::Variable> &kernelPadding,
+                    std::vector<popsolver::Variable> &inputPadding,
+                    const unsigned padToMultipleOf, const unsigned dim) {
+  assert(dim < kernelPadding.size());
+  assert(dim < inputPadding.size());
+
   if (padToMultipleOf == 1) {
-    const auto zero = m.addConstant(0u);
-    return std::make_pair(zero, zero);
+    return;
   }
 
   assert(transformedSizes.size() >= 2);
   const auto numLevelsOfHierarchy = transformedSizes.size();
   const auto ipuLevel = numLevelsOfHierarchy - 2;
-  const auto tileLevel = numLevelsOfHierarchy - 1;
-
-  // the logic in this function is designed to mirror the implementation found
-  // in `Convolution.cpp:createConvPartialAmpVertices` and, TBC, the equivelent
-  // SLIC function.
-  std::vector<popsolver::Variable> cycles;
-  std::vector<popsolver::Variable> tempBytes;
-
-  const auto elementBytes =
-      m.addConstant(target.getTypeSize(params.inputType), "elementBytes");
 
   // Here we need to calculate how much padding (P) is required for the
   // kernel. We do this by taking the size of the kernel dim we want to
@@ -1493,115 +1485,179 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
       m.sub(x, m.max({m.mod(m.floordiv(h, s), x), m.mod(m.ceildiv(h, s), x)})),
       x, "kernelPadding");
 
-  const auto convGroupSize =
-      m.product({transformedSizes[tileLevel].numConvGroupGrains,
-                 m.addConstant(partitionVars[ipuLevel].convGroupGrainSize)});
-  const auto inChanSize =
-      m.product({transformedSizes[tileLevel].numInChanGrains,
-                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
-
-  // We must calculate the product of all of the dimensions that are after the
-  // dimension we are padding to get the size of the "row".
-  const auto weightsPerRow = [&] {
-    const auto outChanSize =
-        m.product({transformedSizes[tileLevel].numOutChanGrains,
-                   m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
-
-    std::vector<popsolver::Variable> innerDimensions;
-    innerDimensions.push_back(outChanSize);
-    innerDimensions.push_back(inChanSize);
-    innerDimensions.push_back(convGroupSize);
-
-    // start from the dimension after the one we are padding.
-    const auto &kernelSize = transformedSizes[tileLevel].kernelSize;
-    assert(kernelSize.size() > dim);
-
-    innerDimensions.insert(std::end(innerDimensions),
-                           std::begin(kernelSize) + dim + 1,
-                           std::end(kernelSize));
-
-    return m.product(std::move(innerDimensions));
-  }();
-
-  const auto kernelPaddingElems =
-      m.product({kernelElemsToPadInDim, weightsPerRow});
-
-  // the size in bytes of each weight is always the same as the input.
-  tempBytes.push_back(m.product({kernelPaddingElems, elementBytes},
-                                "kernelZeroPaddingTempBytes"));
-
-  // to get the cycles we multiply the padding by the exchange bandwidth from
-  // the previous level.
-  const auto extraKernelPaddingCycles =
-      exchangeEstimator.getCycles(kernelPaddingElems, params.inputType,
-                                  ipuLevel, "kernelZeroPaddingCycles");
-  cycles.push_back(extraKernelPaddingCycles);
-
   // kernel dilation may result in extra input padding.
   const auto kernelDilation =
-      m.addConstant(params.kernelTransform.dilation[0], "kernelDilation");
+      m.addConstant(params.kernelTransform.dilation[dim], "kernelDilation");
   const auto inputElemsToPadInDim = m.product(
       {kernelElemsToPadInDim, kernelDilation}, "extraInputPaddingRows");
 
-  // similar to the weights we must calculate the size of the "row". for the
-  // inputs this is the field shape for all dimensions after the one we pad.
-  const auto inputsPerRow = [&] {
-    std::vector<popsolver::Variable> innerDimensions;
-    innerDimensions.push_back(inChanSize);
-    innerDimensions.push_back(transformedSizes[tileLevel].batchSize);
-    innerDimensions.push_back(convGroupSize);
-
-    const auto numFieldDims = transformedSizes[tileLevel].numFieldGrains.size();
-    assert(numFieldDims > dim);
-
-    // start from the dimension after the one we are padding.
-    for (unsigned i = dim + 1; i < numFieldDims; ++i) {
-      // multiply each field grain count by the size of the grain in that
-      // dimension to get the actual field size.
-      const auto fieldGrainSize =
-          m.addConstant(partitionVars[ipuLevel].fieldGrainSize[i]);
-      const auto fieldSize = m.product(
-          {transformedSizes[tileLevel].numFieldGrains[i], fieldGrainSize});
-
-      innerDimensions.push_back(fieldSize);
-    }
-
-    return m.product(std::move(innerDimensions));
-  }();
-
-  const auto inputPaddingElems =
-      m.product({inputElemsToPadInDim, inputsPerRow}, "extraInputPadding");
-
-  tempBytes.push_back(m.product({inputPaddingElems, elementBytes},
-                                "inputZeroPaddingTempBytes"));
-
-  const auto extraInputPaddingCycles = exchangeEstimator.getInputElementCycles(
-      inputPaddingElems, params.inputType, ipuLevel, "inputZeroPaddingCycles");
-  cycles.push_back(extraInputPaddingCycles);
-
-  const auto totalCycles = m.sum(std::move(cycles), "zeroPaddingCycles");
-  const auto totalTempBytes =
-      m.sum(std::move(tempBytes), "zeroPaddingTempBytes");
-
-  return std::make_pair(totalCycles, totalTempBytes);
+  kernelPadding[dim] = m.sum({kernelPadding[dim], kernelElemsToPadInDim});
+  inputPadding[dim] = m.sum({inputPadding[dim], inputElemsToPadInDim});
 }
 
-// returns a pair of cycle estimate and temporary memory estimate.
+popsolver::Variable getDilatedSize(popsolver::Model &m,
+                                   popsolver::Variable size,
+                                   unsigned dilation) {
+  const auto one = m.addConstant(1);
+  const auto sizeOrOne = m.max({one, size});
+
+  // dilatedSize = 1 + (size - 1) * dilation
+  const auto dilatedSize =
+      m.sum({one, m.product({m.sub(sizeOrOne, one), m.addConstant(dilation)})});
+
+  // x = 1 if size != 0 else 0
+  const auto x = m.ceildiv(size, sizeOrOne);
+
+  // return dilatedSize if size != 0 else 0
+  return m.product({x, dilatedSize});
+}
+
+// this function models the function of the same name in Convolution.cpp. we do
+// this by using very rough estimates of how many zeros padding or dilation
+// needs and deriving memory and cycle costs from those, this doesn't take into
+// account anything like grouping or layouts or which copy vertices are
+// available which can change the result. we also don't do anything for
+// truncation for now. estimating these values more accurately is covered by
+// T7132 and once that is done we should use that library here instead.
+static void truncateDilateAndPadInput(
+    popsolver::Model &m, const ConvParams &params,
+    const std::vector<ConvSizeVariables> &transformedSizes,
+    const std::vector<PartitionVariables> &partitionVars,
+    std::vector<popsolver::Variable> &inputPadding, const unsigned dim) {
+  assert(dim < inputPadding.size());
+
+  assert(transformedSizes.size() >= 2);
+  const auto numLevelsOfHierarchy = transformedSizes.size();
+  const auto ipuLevel = numLevelsOfHierarchy - 2;
+  const auto tileLevel = numLevelsOfHierarchy - 1;
+
+  // field size for this dim include any zero padding already applied
+  const auto fieldGrainSize =
+      m.addConstant(partitionVars[ipuLevel].fieldGrainSize[dim]);
+  const auto fieldSize =
+      m.sum({m.product({transformedSizes[tileLevel].numFieldGrains[dim],
+                        fieldGrainSize}),
+             inputPadding[dim]});
+
+  // calculate how many elements are removed by the truncation.
+  // TODO T10104: add modelling for truncation.
+
+  // calculate how many zeroes are added by the dilation.
+  const auto dilation = params.inputTransform.dilation[dim];
+  const auto dilationZeros =
+      m.sub(getDilatedSize(m, fieldSize, dilation), fieldSize);
+  inputPadding[dim] = m.sum({inputPadding[dim], dilationZeros});
+
+  // calculate how many zeroes are added by the padding.
+  const auto padding = params.inputTransform.paddingUpper[dim] +
+                       params.inputTransform.paddingLower[dim];
+  if (padding != 0) {
+    inputPadding[dim] = m.sum({inputPadding[dim], m.addConstant(padding)});
+  }
+}
+
+// returns a pair of cycles and memory that estimate the cost of applying the
+// passed in kernel and input padding. currently uses a very basic of model
+// based around the nunber of zeros.
 static std::pair<popsolver::Variable, popsolver::Variable>
-addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
-                         const ConvParams &params, unsigned inChansPerGroup,
-                         const std::vector<ConvSizeVariables> &transformedSizes,
-                         const std::vector<PartitionVariables> &partitionVars,
-                         const ExchangeEstimator &exchangeEstimator,
-                         Plan::Method method, unsigned slicWindowWidth,
-                         unsigned numConvUnitsRequired) {
+applyPadding(popsolver::Model &m, const poplar::Target &target,
+             const poplar::Type inputType,
+             const std::vector<ConvSizeVariables> &transformedSizes,
+             const std::vector<PartitionVariables> &partitionVars,
+             const ExchangeEstimator &exchangeEstimator,
+             const std::vector<popsolver::Variable> &kernelPadding,
+             const std::vector<popsolver::Variable> &inputPadding) {
+  assert(transformedSizes.size() >= 2);
+  const auto numLevelsOfHierarchy = transformedSizes.size();
+  const auto ipuLevel = numLevelsOfHierarchy - 2;
+  const auto tileLevel = numLevelsOfHierarchy - 1;
+
+  const auto convGroupSize =
+      m.product({transformedSizes[tileLevel].numConvGroupGrains,
+                 m.addConstant(partitionVars[ipuLevel].convGroupGrainSize)});
+  const auto batchSize = transformedSizes[tileLevel].batchSize;
+  const auto inChanSize =
+      m.product({transformedSizes[tileLevel].numInChanGrains,
+                 m.addConstant(partitionVars[ipuLevel].inChanGrainSize)});
+  const auto outChanSize =
+      m.product({transformedSizes[tileLevel].numOutChanGrains,
+                 m.addConstant(partitionVars[ipuLevel].outChanGrainSize)});
+
+  // estimate cycles and temp memory by total number of zeroes from all of
+  // the transformations.
+  const auto kernelZeros = [&] {
+    const auto numKernelDims = transformedSizes[tileLevel].kernelSize.size();
+
+    std::vector<popsolver::Variable> kernelDims;
+    std::vector<popsolver::Variable> paddedKernelDims;
+    for (unsigned d = 0; d < numKernelDims; ++d) {
+      const auto kernelSize = transformedSizes[tileLevel].kernelSize[d];
+
+      kernelDims.push_back(kernelSize);
+      paddedKernelDims.push_back(m.sum({kernelSize, kernelPadding[d]}));
+    }
+
+    const auto padding = m.sub(m.product(std::move(paddedKernelDims)),
+                               m.product(std::move(kernelDims)));
+    return m.product({convGroupSize, padding, inChanSize, outChanSize});
+  }();
+
+  const auto inputZeros = [&] {
+    const auto numFieldDims = transformedSizes[tileLevel].numFieldGrains.size();
+
+    std::vector<popsolver::Variable> fieldDims;
+    std::vector<popsolver::Variable> paddedFieldDims;
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      const auto fieldGrainSize =
+          m.addConstant(partitionVars[ipuLevel].fieldGrainSize[d]);
+      const auto fieldSize = m.product(
+          {transformedSizes[tileLevel].numFieldGrains[d], fieldGrainSize});
+
+      fieldDims.push_back(fieldSize);
+      paddedFieldDims.push_back(m.sum({fieldSize, inputPadding[d]}));
+    }
+
+    const auto padding = m.sub(m.product(std::move(paddedFieldDims)),
+                               m.product(std::move(fieldDims)));
+    return m.product({convGroupSize, batchSize, padding, inChanSize});
+  }();
+
+  const auto kernelCycles =
+      exchangeEstimator.getCycles(kernelZeros, inputType, ipuLevel);
+  const auto inputCycles =
+      exchangeEstimator.getInputElementCycles(inputZeros, inputType, ipuLevel);
+  const auto extraCycles = m.sum({kernelCycles, inputCycles});
+
+  // we sum the temp memory here as all of these transformations will be
+  // alive while the vertex is running.
+  const auto elementBytes = m.addConstant(target.getTypeSize(inputType));
+  const auto allZeros = m.sum({kernelZeros, inputZeros});
+  const auto extraTempBytes = m.product({allZeros, elementBytes});
+
+  return std::make_pair(extraCycles, extraTempBytes);
+}
+
+// returns a pair of cycle estimate and temporary memory estimate as well as
+// an updated ConvParams with the transformations applied.
+static std::pair<popsolver::Variable, popsolver::Variable>
+addTileLevelTransformEstimates(
+    popsolver::Model &m, const poplar::Target &target, const ConvParams &params,
+    unsigned inChansPerGroup,
+    const std::vector<ConvSizeVariables> &transformedSizes,
+    const std::vector<PartitionVariables> &partitionVars,
+    const ExchangeEstimator &exchangeEstimator, Plan::Method method,
+    unsigned slicWindowWidth, unsigned numConvUnitsRequired) {
+  const auto numFieldDims = params.kernelShape.size();
+  const auto zero = m.addConstant(0u);
+
   switch (method) {
   case Plan::Method::MAC:
   case Plan::Method::OUTER_PRODUCT: {
-    const auto zero = m.addConstant(0u);
     return std::make_pair(zero, zero);
   }
   case Plan::Method::AMP: {
+    // the logic in this case is designed to mirror the implementation found
+    // in `Convolution.cpp:createConvPartialAmpVertices`
     auto weightsPerConvUnit =
         target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
     assert(weightsPerConvUnit % inChansPerGroup == 0);
@@ -1617,22 +1673,53 @@ addKernelPaddingEstimate(popsolver::Model &m, const poplar::Target &target,
 
     const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
 
-    // AMP pads the kernel height dimension.
-    const unsigned dimToPad = 0;
-    return addKernelPaddingEstimate(m, target, params, transformedSizes,
-                                    partitionVars, exchangeEstimator,
-                                    convUnitWeightHeight, dimToPad);
+    // when we don't have 16 input chans per group then AMP pads the kernel
+    // height dimension as well as applying the input transformations of the
+    // outer-most spatial dimension, it then uses that dimension so make up for
+    // the lack of input channels.
+    if (convUnitWeightHeight != 1) {
+      std::vector<popsolver::Variable> kernelPadding(numFieldDims, zero);
+      std::vector<popsolver::Variable> inputPadding(numFieldDims, zero);
+
+      // TODO: This method currently only calculates the kernel padding.
+      // T10104 tracks extending these estimates with the other padding that
+      // comes from the transforms (eg. dilation).
+      const auto spatialDimToPad = 0;
+      padKernelSpatialDim(m, params, transformedSizes, partitionVars,
+                          kernelPadding, inputPadding, convUnitWeightHeight,
+                          spatialDimToPad);
+
+      return applyPadding(m, target, params.inputType, transformedSizes,
+                          partitionVars, exchangeEstimator, kernelPadding,
+                          inputPadding);
+    } else {
+      return std::make_pair(zero, zero);
+    }
   }
   case Plan::Method::SLIC: {
+    // the logic in this case is designed to mirror the implementation found
+    // in `Convolution.cpp:createConvPartialSlicVertex`
+    std::vector<popsolver::Variable> kernelPadding(numFieldDims, zero);
+    std::vector<popsolver::Variable> inputPadding(numFieldDims, zero);
+
     // a SLIC kernel requires either a multiple of 1x3 or a multiple of 1x4.
     // for now we only support the 1x4 variant.
     assert(slicWindowWidth == 4);
 
-    // SLIC pads the kernel width dimension.
-    const unsigned dimToPad = params.getNumFieldDims() - 1;
-    return addKernelPaddingEstimate(m, target, params, transformedSizes,
-                                    partitionVars, exchangeEstimator,
-                                    slicWindowWidth, dimToPad);
+    // SLIC pads the kernel width dimension which is the innermost spatial dim.
+    const unsigned dimToPad = params.kernelShape.size() - 1;
+    padKernelSpatialDim(m, params, transformedSizes, partitionVars,
+                        kernelPadding, inputPadding, slicWindowWidth, dimToPad);
+
+    // we also apply all input padding as the vertex cannot handle this.
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      truncateDilateAndPadInput(m, params, transformedSizes, partitionVars,
+                                inputPadding, d);
+    }
+
+    return applyPadding(m, target, params.inputType, transformedSizes,
+                        partitionVars, exchangeEstimator, kernelPadding,
+                        inputPadding);
   }
   }
 
@@ -2369,19 +2456,15 @@ static Estimates<popsolver::Variable> addEstimates(
 
   // it is possible that we may need to add zero padding to the activations
   // and weights so that we have the correct number of input channels for the
-  // method we are planning to use (AMP, MAC, etc.). this is synthesised by
+  // method we are planning to use (AMP, SLIC, etc.). this is synthesised by
   // exchanging the constant zero the amount of times, this can have a sizeable
   // effect on temporary memory and cycles and so we need to track it when
   // deciding on the optimal plan.
-  //
-  // TODO: This method currently only calculates the AMP and SLIC kernel
-  // padding. T10104 tracks extending these estimates with the other padding
-  // that comes from the transforms (eg. dilation).
-  std::tie(e.zeroPaddingCycles, e.zeroPaddingTempBytes) =
-      addKernelPaddingEstimate(m, target, transformedOnceParams,
-                               inChansPerGroup, transformedConvSize,
-                               partitionVars, exchangeEstimator, method,
-                               slicWindowWidth, numConvUnitsRequired);
+  std::tie(e.tileLevelTransformCycles, e.tileLevelTransformTempBytes) =
+      addTileLevelTransformEstimates(m, target, transformedOnceParams,
+                                     inChansPerGroup, transformedConvSize,
+                                     partitionVars, exchangeEstimator, method,
+                                     slicWindowWidth, numConvUnitsRequired);
 
   e.partialCalcCycles = addPartialCalcCycleEstimate(
       m, intraTileSplits.fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
@@ -2437,7 +2520,7 @@ static Estimates<popsolver::Variable> addEstimates(
 
   e.totalCycles =
       m.sum({e.dynamicSliceCycles, e.transformCycles, e.exchangeCycles,
-             e.zeroPaddingCycles, e.partialCalcCycles, e.reduceCycles,
+             e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
              e.dynamicUpdateCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
   e.totalCycles = m.sum({e.totalCycles, e.rearrangeBeforeSliceCycles});
@@ -2446,7 +2529,7 @@ static Estimates<popsolver::Variable> addEstimates(
   e.totalTempBytes =
       m.sum({e.rearrangeBeforeSliceTempBytes,
              m.max({e.transformTempBytes,
-                    m.sum({e.zeroPaddingTempBytes, e.convTempBytes}),
+                    m.sum({e.tileLevelTransformTempBytes, e.convTempBytes}),
                     e.reduceTempBytes,
                     e.rearrangeBeforeSliceTempDuringRearrangeBytes})});
 
@@ -3084,16 +3167,15 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
                                const ConvSizeVariables &s,
                                const ConvParams &lvl1Params) {
   for (auto dim = 0U; dim < p.fieldGrainSize.size(); ++dim) {
-    m.equal(m.addConstant(lvl1Params.inputTransform.dilation[dim]), 1);
-    m.equal(m.addConstant(lvl1Params.kernelTransform.dilation[dim]), 1);
-    m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
-
-    // TODO: SLIC can handle these, it just needs modelling.
-    m.equal(m.addConstant(lvl1Params.inputTransform.paddingUpper[dim]), 0);
-    m.equal(m.addConstant(lvl1Params.inputTransform.paddingLower[dim]), 0);
-    m.equal(m.addConstant(lvl1Params.inputTransform.truncationUpper[dim]), 0);
-    m.equal(m.addConstant(lvl1Params.inputTransform.truncationLower[dim]), 0);
+    // TODO T14626: SLIC could handle these, we just need to implement them.
+    // By expanding them out before the vertex.
     m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]), 0);
+
+    m.equal(m.addConstant(lvl1Params.outputTransform.truncationLower[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.outputTransform.truncationUpper[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
+    m.equal(m.addConstant(lvl1Params.outputTransform.paddingLower[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.outputTransform.paddingUpper[dim]), 0);
   }
 }
 
@@ -3696,7 +3778,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
   cost.transformCycles = s[e.transformCycles];
   cost.exchangeCycles = s[e.exchangeCycles];
-  cost.zeroPaddingCycles = s[e.zeroPaddingCycles];
+  cost.tileLevelTransformCycles = s[e.tileLevelTransformCycles];
   cost.partialCalcCycles = s[e.partialCalcCycles];
   cost.reduceCycles = s[e.reduceCycles];
   cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
@@ -3705,7 +3787,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
       s[e.rearrangeBeforeSliceTempDuringRearrangeBytes];
   cost.transformTempBytes = s[e.transformTempBytes];
-  cost.zeroPaddingTempBytes = s[e.zeroPaddingTempBytes];
+  cost.tileLevelTransformTempBytes = s[e.tileLevelTransformTempBytes];
   cost.convTempBytes = s[e.convTempBytes];
   cost.reduceTempBytes = s[e.reduceTempBytes];
 
@@ -4962,8 +5044,9 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
   logging::debug("   - transform: {} cycles, {} bytes", cost.transformCycles,
                  cost.transformTempBytes);
   logging::debug("   - exchange: {} cycles, n/a bytes", cost.exchangeCycles);
-  logging::debug("   - kernel padding: {} cycles, {} bytes",
-                 cost.zeroPaddingCycles, cost.zeroPaddingTempBytes);
+  logging::debug("   - tile level transform: {} cycles, {} bytes",
+                 cost.tileLevelTransformCycles,
+                 cost.tileLevelTransformTempBytes);
   logging::debug("   - compute: {} cycles, {} bytes", cost.partialCalcCycles,
                  cost.convTempBytes);
   logging::debug("   - reduction: {} cycles, {} bytes", cost.reduceCycles,

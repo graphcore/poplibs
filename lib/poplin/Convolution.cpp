@@ -2943,35 +2943,36 @@ static Tensor padKernelSpatialDim(Graph &graph, ConvParams &params,
   return weights;
 }
 
-// Explicitly truncate, dilate and pad the outermost spatial field of the
+// Explicitly truncate, dilate and pad the specified spatial field of the
 // input. modifies the conv params in place to reflect this transformation.
 static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
-                                        Tensor in, Padder &padder,
+                                        Tensor in, const unsigned dim,
+                                        Padder &padder,
                                         const std::string &debugPrefix) {
   // the input is in the grouped internal shape so the spatial dimensions
   // begin at the third dimension (after G, Ci and N).
-  const auto tensorDim = 3;
+  const auto tensorDim = dim + 3;
 
-  const auto inputTruncationLower = params.inputTransform.truncationLower[0];
-  const auto inputTruncationUpper = params.inputTransform.truncationUpper[0];
+  const auto inputTruncationLower = params.inputTransform.truncationLower[dim];
+  const auto inputTruncationUpper = params.inputTransform.truncationUpper[dim];
   in = pad(graph, in, -static_cast<int>(inputTruncationLower),
            -static_cast<int>(inputTruncationUpper), tensorDim);
-  params.inputFieldShape[0] -= inputTruncationLower + inputTruncationUpper;
-  params.inputTransform.truncationLower[0] = 0;
-  params.inputTransform.truncationUpper[0] = 0;
+  params.inputFieldShape[dim] -= inputTruncationLower + inputTruncationUpper;
+  params.inputTransform.truncationLower[dim] = 0;
+  params.inputTransform.truncationUpper[dim] = 0;
 
-  const auto inputDilation = params.inputTransform.dilation[0];
+  const auto inputDilation = params.inputTransform.dilation[dim];
   in = dilate(graph, in, inputDilation, tensorDim, debugPrefix);
-  params.inputTransform.dilation[0] = 1;
-  params.inputFieldShape[0] =
-      getDilatedSize(params.inputFieldShape[0], inputDilation);
+  params.inputTransform.dilation[dim] = 1;
+  params.inputFieldShape[dim] =
+      getDilatedSize(params.inputFieldShape[dim], inputDilation);
 
-  const auto inputPaddingLower = params.inputTransform.paddingLower[0];
-  const auto inputPaddingUpper = params.inputTransform.paddingUpper[0];
+  const auto inputPaddingLower = params.inputTransform.paddingLower[dim];
+  const auto inputPaddingUpper = params.inputTransform.paddingUpper[dim];
   in = padder(graph, in, inputPaddingLower, inputPaddingUpper, tensorDim);
-  params.inputFieldShape[0] += inputPaddingLower + inputPaddingUpper;
-  params.inputTransform.paddingLower[0] = 0;
-  params.inputTransform.paddingUpper[0] = 0;
+  params.inputFieldShape[dim] += inputPaddingLower + inputPaddingUpper;
+  params.inputTransform.paddingLower[dim] = 0;
+  params.inputTransform.paddingUpper[dim] = 0;
 
   return in;
 }
@@ -3000,7 +3001,8 @@ static void createConvPartialAmpVertices(Graph &graph, const Plan &plan,
     weights = padKernelSpatialDim(graph, params, weights, kernelHeightDim,
                                   convUnitWeightHeight, padder);
 
-    in = truncateDilateAndPadInput(graph, params, in, padder, debugPrefix);
+    // Explicitly apply input transforms.
+    in = truncateDilateAndPadInput(graph, params, in, 0, padder, debugPrefix);
   }
 
   const auto partialsType = out.elementType();
@@ -3306,6 +3308,7 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
 
   const auto &target = graph.getTarget();
   const auto numWorkerContexts = target.getNumWorkerContexts();
+  const auto numFieldDims = params.getNumFieldDims();
 
   // TODO: Figure out how to specify this stuff in terms of
   // load elems per cycle etc. to deal with float/float and
@@ -3319,16 +3322,11 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
                        [k](const auto x) { return x == k; });
   };
 #endif
-  assert(isAll(1u, params.inputTransform.dilation));
   assert(isAll(1u, params.kernelTransform.dilation));
   assert(isAll(1u, params.outputTransform.stride));
 
   // TODO: unlike AMP, SLIC needs to apply field transforms before using them.
   // for now we just constrain against them in the planner.
-  assert(isAll(0u, params.inputTransform.paddingUpper));
-  assert(isAll(0u, params.inputTransform.paddingLower));
-  assert(isAll(0u, params.inputTransform.truncationUpper));
-  assert(isAll(0u, params.inputTransform.truncationLower));
   assert(isAll(false, params.inputTransform.flip));
 
   {
@@ -3340,6 +3338,11 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
     const auto kernelWidthDim = params.kernelShape.size() - 1;
     weights = padKernelSpatialDim(graph, params, weights, kernelWidthDim,
                                   slicWindowWidth, padder);
+
+    // Explicitly apply input transforms.
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      in = truncateDilateAndPadInput(graph, params, in, d, padder, debugPrefix);
+    }
   }
 
   const auto inType = in.elementType();
