@@ -69,6 +69,7 @@ int main(int argc, char **argv) {
   bool reportVarStorage = false;
   std::string matmulOptionsString;
   boost::optional<std::string> jsonProfileOut;
+  bool remapOutputTensor;
 
   po::options_description desc("Options");
   // clang-format off
@@ -127,6 +128,9 @@ int main(int argc, char **argv) {
      )->default_value(reportVarStorage),
      "Report tensor storage information "
     )
+    ("remap-output-tensor",
+     po::value<bool>(&remapOutputTensor)->default_value(false),
+     "Remap output tensor if layout is detected to be poor")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
@@ -191,6 +195,9 @@ int main(int argc, char **argv) {
   popops::addCodelets(graph);
 
   OptionFlags fwdOptions;
+  // For single layer tests always disable output remapping
+  fwdOptions.set({{"remapOutputTensor", remapOutputTensor ? "true" : "false"}});
+
   if (!matmulOptionsString.empty()) {
     poplar::readJSON(matmulOptionsString, fwdOptions);
   }

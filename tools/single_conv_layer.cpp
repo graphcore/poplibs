@@ -102,6 +102,7 @@ int main(int argc, char **argv) try {
   unsigned replicationFactor;
   unsigned numIOTiles;
   bool enableConvolutionReuse;
+  bool remapOutputTensor;
 
   Pass pass = Pass::ALL;
   std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
@@ -302,6 +303,9 @@ int main(int argc, char **argv) try {
      po::value<unsigned>(&numIOTiles)->default_value(0),
      "The amount of IO tiles to use, this option is required to be non-zero "
      "if shared structures are enabled")
+    ("remap-output-tensor",
+     po::value<bool>(&remapOutputTensor)->default_value(false),
+     "Remap output tensor if layout is detected to be poor")
     ("enable-convolution-reuse",
      po::value<bool>(&enableConvolutionReuse)->default_value(true),
      "Apply optimization to reuse the forward convolution in the backward pass")
@@ -483,6 +487,9 @@ int main(int argc, char **argv) try {
   const auto bwdParams = getGradientParams(params);
 
   OptionFlags convOptions;
+  convOptions.set(
+      {{"remapOutputTensor", remapOutputTensor ? "true" : "false"}});
+
   if (!convOptionsString.empty()) {
     poplar::readJSON(convOptionsString, convOptions);
   }

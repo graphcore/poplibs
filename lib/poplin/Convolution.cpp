@@ -4431,6 +4431,38 @@ static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
   return actsToExternalShape(activations);
 }
 
+static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
+                                Sequence &prog, const ConvParams &params,
+                                const std::string &debugPrefix) {
+  const auto grainSize = 8U;
+  const auto minElementsPerTile = 8U;
+  std::size_t chansPerGroup, numChanGroups;
+  if (params.getNumOutputChansPerConvGroup() % grainSize) {
+    chansPerGroup = params.getNumOutputChansPerConvGroup();
+    numChanGroups = 1;
+  } else {
+    chansPerGroup = grainSize;
+    numChanGroups = params.getNumOutputChansPerConvGroup() / chansPerGroup;
+  }
+  std::vector<std::size_t> remapShape = {params.getNumConvGroups(),
+                                         numChanGroups, params.getBatchSize()};
+  for (const auto &e : params.getOutputFieldShape())
+    remapShape.push_back(e);
+  remapShape.push_back(chansPerGroup);
+
+  // Keep the created tensor contiguous in the channel dimension. We
+  // could also create a grouping for the channels if possible
+  auto remappedOutput = graph.addVariable(output.elementType(), remapShape,
+                                          debugPrefix + "/remappedOutput");
+  mapTensorLinearly(graph, remappedOutput, minElementsPerTile, grainSize);
+  remappedOutput = remappedOutput.dimRoll(2, 0)
+                       .dimRoll(remapShape.size() - 1, 3)
+                       .flatten(1, 4);
+  // Explicity copy to remapped tensor with a benign layout
+  prog.add(Copy(output, remappedOutput));
+  return remappedOutput;
+}
+
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::Tensor &weights, const ConvParams &params,
                    bool transposeAndFlipWeights, Sequence &prog,
@@ -4447,8 +4479,20 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
       params.outputTransform.stride, options.pass, debugPrefix);
 
-  return convolution(graph, in, weights, params, transposeAndFlipWeights, prog,
-                     debugPrefix, options, cache);
+  auto output = convolution(graph, in, weights, params, transposeAndFlipWeights,
+                            prog, debugPrefix, options, cache);
+
+  // Introspect output tensor to check if it has a decent layout as a bad layout
+  // impacts operations using the tensor in both memory and cycles. This is a
+  // conservative check as we only check if there's a grouping.
+  if (options.remapOutputTensor) {
+    const auto dimGroupings = detectDimGroupings(graph, output);
+    if (dimGroupings.empty()) {
+      logging::debug("  convolution output tensor remapped linearly");
+      return remapOutputTensor(graph, output, prog, params, debugPrefix);
+    }
+  }
+  return output;
 }
 
 static uint64_t getFlops(const ConvParams &params) {

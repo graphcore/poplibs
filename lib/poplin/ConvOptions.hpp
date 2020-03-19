@@ -56,6 +56,8 @@ public:
   // significantly reduce code size. This comes at the cost of increasing the
   // number of cycles.
   bool enableMultiStageReduce = true;
+  // Remap output tensor if its layout is poor
+  bool remapOutputTensor = true;
 
   void parseConvOptions(const poplar::OptionFlags &options);
   bool operator<(const ConvOptions &other) const {
@@ -70,7 +72,7 @@ public:
         &ConvOptions::planConstraints,
         &ConvOptions::planConstraintsOutputFilename, &ConvOptions::enableSLIC,
         &ConvOptions::enableAmpHalfEnginesPlan,
-        &ConvOptions::enableMultiStageReduce);
+        &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor);
     return helper.lt(*this, other);
   }
   ConvOptions(const poplar::Target &target)

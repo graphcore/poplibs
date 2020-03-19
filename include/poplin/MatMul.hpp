@@ -59,6 +59,11 @@ class PlanningCache;
  *      multiple stages if it would significantly reduce code size. This comes
  *      at the cost of increasing the number of cycles.
  *
+ *    * `remapOutputTensor`       (true, false) [=true]
+ *
+ *       If true, the output of the convolution is remapped if the output
+ *       is detected to have a poor layout.
+ *
  *    * `partialsType` (half, float) [=float]
  *
  *      See createWeights().

@@ -92,6 +92,7 @@ int main(int argc, char **argv) {
   unsigned numExecutions;
   std::string planConstraints;
   std::string planConstraintsFile;
+  bool remapOutputTensor;
 
   boost::optional<std::string> jsonProfileOut;
 
@@ -162,9 +163,12 @@ int main(int argc, char **argv) {
     ("plan-constraints",
      po::value<std::string>(&planConstraints),
      "Constraints on the chosen convolution plan as a JSON string")
-     ("num-executions",
+    ("num-executions",
       po::value<unsigned>(&numExecutions)->default_value(1u),
      "Number of times to repeat the multiply")
+    ("remap-output-tensor",
+     po::value<bool>(&remapOutputTensor)->default_value(false),
+     "Remap output tensor if layout is detected to be poor")
     ("plan-constraints-file",
      po::value<std::string>(&planConstraintsFile)
        ->default_value(planConstraintsFile),
@@ -249,6 +253,10 @@ int main(int argc, char **argv) {
 
   matmul::PlanningCache cache;
   poplar::OptionFlags mmOpt;
+
+  // For single layer tests always disable output remapping
+  mmOpt.set({{"remapOutputTensor", remapOutputTensor ? "true" : "false"}});
+
   if (!vm["partials-type"].empty()) {
     mmOpt.set("partialsType", partialsType.toString());
   }

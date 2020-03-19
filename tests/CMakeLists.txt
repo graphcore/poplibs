@@ -4365,6 +4365,16 @@ add_multitarget_test(
                  --tiles-per-ipu=16)
 
 add_multitarget_test(
+         NAME conv_simple_remap_output
+         COMMAND single_conv_layer
+                 --field={45}
+                 --batch-size=4
+                 --input-channels=123
+                 --output-channels=63
+                 --remap-output-tensor=true
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
          NAME conv1d_simple
          COMMAND single_conv_layer
                   --field={40}

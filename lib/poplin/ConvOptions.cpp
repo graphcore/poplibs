@@ -79,6 +79,8 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << opts.enableAmpHalfEnginesPlan << "\n";
   os << "        enableMultiStageReduce        ";
   os << opts.enableMultiStageReduce << "\n";
+  os << "        remapOutputTensor             ";
+  os << opts.remapOutputTensor;
   return os;
 }
 
@@ -115,7 +117,7 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(enableAmpHalfEnginesPlan)},
       {"enableMultiStageReduce",
        OptionHandler::createWithBool(enableMultiStageReduce)},
-  };
+      {"remapOutputTensor", OptionHandler::createWithBool(remapOutputTensor)}};
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
   }
