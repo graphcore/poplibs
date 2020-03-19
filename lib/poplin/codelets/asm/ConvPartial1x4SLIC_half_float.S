@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 // Computes a 1x4 convolution using SLIC. A contiguous field is
 // partitioned between workers for each position of each 1x4
