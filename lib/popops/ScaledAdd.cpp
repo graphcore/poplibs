@@ -71,6 +71,10 @@ ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
   if (!A.isParallelWriteable())
     throw poputil::poplibs_error("Trying to accumulate to tensor that cannot be"
                                  " written in parallel");
+  if (A.shape() != B.shape())
+    throw poputil::poplibs_error("Input Tensors for scaled arithmetic must"
+                                 " have the same shape");
+
   const auto &target = graph.getTarget();
   const auto dataType = A.elementType();
   const auto deltaType = B.elementType();

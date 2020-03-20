@@ -534,6 +534,9 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
 
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            Sequence &prog, const std::string &debugPrefix) {
+  logging::debug("Regroup if beneficial: debugstr={}", debugPrefix);
+  logging::debug("  input      shape={}", in_.shape());
+  logging::debug("  reference  shape={}", ref.shape());
   auto in = in_;
 
   if (in.rank() <= 1 || ref.rank() <= 1) {
@@ -554,11 +557,8 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 
   const auto inGrouping = detectDimGroupings(graph, in);
   const auto refGrouping = detectDimGroupings(graph, ref);
-  logging::debug("Regroup if beneficial: debugstr={}", debugPrefix);
-  logging::debug("  input      orig={} int={} : groupings={}", in.shape(),
-                 in.shape(), inGrouping);
-  logging::debug("  reference  orig={} int={} : groupings={}", ref.shape(),
-                 ref.shape(), refGrouping);
+  logging::debug("  input      groupings={}", inGrouping);
+  logging::debug("  reference  groupings={}", refGrouping);
 
   // TODO: T10360 Consider avoiding regrouping float inputs.
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
