@@ -3,7 +3,6 @@
 #include "poplibs_support/OptionParsing.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
-#include "popops/Rearrange.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
@@ -59,19 +58,11 @@ ScaledAddOptions parseOptionFlags(const OptionFlags &options) {
   return scaledAddOpts;
 }
 
-static inline bool shouldRegroupBeforeCast(const Target &target, Type from,
-                                           Type to) {
-  // As a rough estimate of what will be more runtime efficient, we attempt
-  // regrouping before the cast if there is less data to move.
-  return target.getTypeSize(from) < target.getTypeSize(to);
-}
-
-void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
-                               float scaleB, Type scaleType,
-                               const ScaledAddSpecialisation speciality,
-                               Sequence &prog, bool attemptRegroup,
-                               const std::string &debugPrefix,
-                               const poplar::OptionFlags &options) {
+ComputeSet scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA,
+                                     Tensor B, float scaleB, Type scaleType,
+                                     const ScaledAddSpecialisation speciality,
+                                     const std::string &debugPrefix,
+                                     const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
 
   const auto addConstraints =
@@ -117,12 +108,6 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   const auto maxSupervisorElements = std::min<std::size_t>(
       graph.getMaxVertexFieldValue(codeletNameSupervisor, "size"),
       target.getRptCountMax() * vectorWidth * numWorkers);
-
-  if (attemptRegroup) {
-    // Ideally we'd perform the potential regroup on the simplified view
-    // but currently the detection of grouping relies on the shape given.
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog, debugPrefix);
-  }
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
@@ -175,16 +160,14 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
       }
     }
   }
-  prog.add(Execute(cs));
+  return cs;
 }
 
-void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
-                                Tensor scaleB, boost::optional<float> tolerance,
-                                const bool doSubtract, const bool doaXPlusbY,
-                                const ScaledAddSpecialisation speciality,
-                                Sequence &prog, bool attemptRegroup,
-                                const std::string &debugPrefix,
-                                const poplar::OptionFlags &options) {
+ComputeSet scaledArithmeticTensorImpl(
+    Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
+    boost::optional<float> tolerance, const bool doSubtract,
+    const bool doaXPlusbY, const ScaledAddSpecialisation speciality,
+    const std::string &debugPrefix, const poplar::OptionFlags &options) {
   auto opts = parseOptionFlags(options);
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
@@ -263,12 +246,6 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       graph.getMaxVertexFieldValue(codeletNameSupervisorForSizingOnly, "size"),
       target.getRptCountMax() * vectorWidth * numWorkers);
 
-  if (attemptRegroup) {
-    // Ideally we'd perform the potential regroup on the simplified view
-    // but currently the detection of grouping relies on the shape given.
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog, debugPrefix);
-  }
-
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
   graph.reorderToSimplify(&aFlat, {&bFlat});
@@ -325,7 +302,16 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       }
     }
   }
-  prog.add(Execute(cs));
+  return cs;
+}
+
+// Add a compute set to a graph if it is not already added
+ComputeSet addOrGetCs(Graph &graph, boost::optional<ComputeSet> &cs,
+                      const std::string &prefix) {
+  if (!cs.is_initialized()) {
+    cs = graph.addComputeSet(prefix + "/cast");
+  }
+  return *cs;
 }
 
 void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
@@ -347,23 +333,22 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
     axpby = false;
   }
 
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                               fnPrefix + "/regroupB");
-  }
-  const auto cs = graph.addComputeSet(fnPrefix + "/cast");
+  boost::optional<ComputeSet> cs;
   if (targetType != B.elementType()) {
-    B = cast(graph, B, targetType, cs, fnPrefix + "/B");
+    B = cast(graph, B, targetType, addOrGetCs(graph, cs, fnPrefix),
+             fnPrefix + "/B");
   }
   if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, fnPrefix + "/scaleB");
+    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, fnPrefix),
+                  fnPrefix + "/scaleB");
   }
-  prog.add(Execute(cs));
-  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, boost::none, subtract,
-                             axpby, speciality, prog, !regroupBeforeCast,
-                             debugPrefix, options);
+  if (cs.is_initialized()) {
+    prog.add(Execute(*cs));
+  }
+  auto cs1 = scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB,
+                                        boost::none, subtract, axpby,
+                                        speciality, debugPrefix, options);
+  prog.add(Execute(cs1));
 }
 
 void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
@@ -381,22 +366,15 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     mulInPlace(graph, A, scaleA, prog, fnPrefix);
     scaleA = 1.0f;
   }
-
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                               fnPrefix + "/regroupB");
-  }
-
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, fnPrefix + "/B");
   }
   if (subtract) {
     scaleB = -scaleB;
   }
-  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, targetType, speciality,
-                            prog, !regroupBeforeCast, debugPrefix, options);
+  auto cs = scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, targetType,
+                                      speciality, debugPrefix, options);
+  prog.add(Execute(cs));
 }
 
 bool specialisedVertexExists(const Tensor &A, const Tensor &B,
@@ -414,49 +392,44 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
 
   if (A.elementType() == HALF && B.elementType() == HALF &&
       scaleB.elementType() == FLOAT) {
-    const auto opts = parseOptionFlags(options);
+
+    auto opts = parseOptionFlags(options);
     // The vertex will select float or half scale based on the accuracy of the
     // scale, using the tolerance option
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB,
-                               opts.floatToHalfTolerance, false, false,
-                               ScaledAddSpecialisation::DEFAULT, prog,
-                               /* attemptRegroup */ true, debugPrefix, options);
+    auto cs = scaledArithmeticTensorImpl(
+        graph, A, scaleB, B, scaleB, opts.floatToHalfTolerance, false, false,
+        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
+    prog.add(Execute(cs));
+
   } else {
-    bool regroupBeforeCast = false;
     if (!specialisedVertexExists(A, B, scaleB)) {
-      regroupBeforeCast = shouldRegroupBeforeCast(graph.getTarget(),
-                                                  B.elementType(), targetType);
-      if (regroupBeforeCast) {
-        B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                                   castPrefix + "/regroupB");
-      }
-      const auto cs = graph.addComputeSet(castPrefix + "/cast");
+      boost::optional<ComputeSet> cs;
       if (B.elementType() != targetType) {
-        B = cast(graph, B, targetType, cs, castPrefix + "/B");
+        B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
+                 castPrefix + "/B");
       }
       if (scaleB.elementType() != targetType) {
-        scaleB = cast(graph, scaleB, targetType, cs, castPrefix + "/scaleB");
+        scaleB =
+            cast(graph, scaleB, targetType, addOrGetCs(graph, cs, castPrefix),
+                 castPrefix + "/scaleB");
       }
-      prog.add(Execute(cs));
+      if (cs.is_initialized()) {
+        prog.add(Execute(*cs));
+      }
     }
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none, false,
-                               false, ScaledAddSpecialisation::DEFAULT, prog,
-                               !regroupBeforeCast, debugPrefix, options);
+    auto cs1 = scaledArithmeticTensorImpl(
+        graph, A, scaleB, B, scaleB, boost::none, false, false,
+        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
+    prog.add(Execute(cs1));
   }
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
                  const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
-  const auto opts = parseOptionFlags(options);
+  auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
 
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(
-        graph, B, A, prog, debugPrefix + "/scaledAdd/regroupB");
-  }
   if (B.elementType() != targetType && !specialisedVertexExists(A, B, B)) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/scaledAdd/B");
   }
@@ -470,10 +443,10 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
     useFloatScale = !(poputil::checkAccuracyWhenCast(
         graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
   }
-  scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
-                            useFloatScale ? FLOAT : scaleType,
-                            ScaledAddSpecialisation::DEFAULT, prog,
-                            !regroupBeforeCast, debugPrefix, options);
+  auto cs = scaledArithmeticConstImpl(
+      graph, A, 1.0, B, scaleB, useFloatScale ? FLOAT : scaleType,
+      ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
+  prog.add(Execute(cs));
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
@@ -481,48 +454,42 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledSub";
+  boost::optional<ComputeSet> cs;
 
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                               castPrefix + "/regroupB");
-  }
-  const auto cs = graph.addComputeSet(castPrefix + "/cast");
   if (B.elementType() != targetType) {
-    B = cast(graph, B, targetType, cs, castPrefix + "/B");
+    B = cast(graph, B, targetType, addOrGetCs(graph, cs, castPrefix),
+             castPrefix + "/B");
   }
   if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, castPrefix + "/scaleB");
+    scaleB = cast(graph, scaleB, targetType, addOrGetCs(graph, cs, castPrefix),
+                  castPrefix + "/scaleB");
   }
-  prog.add(Execute(cs));
-
-  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none, true,
-                             false, ScaledAddSpecialisation::DEFAULT, prog,
-                             !regroupBeforeCast, debugPrefix, options);
+  if (cs.is_initialized()) {
+    prog.add(Execute(*cs));
+  }
+  auto cs1 = scaledArithmeticTensorImpl(
+      graph, A, scaleB, B, scaleB, boost::none, true, false,
+      ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
+  prog.add(Execute(cs1));
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
                         Sequence &prog, const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
   const auto targetType = A.elementType();
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(
-        graph, B, A, prog, debugPrefix + "/scaledSub/regroupB");
-  }
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/ScaledSub/B");
   }
-  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, targetType,
-                            ScaledAddSpecialisation::DEFAULT, prog,
-                            !regroupBeforeCast, debugPrefix, options);
+  auto cs = scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, targetType,
+                                      ScaledAddSpecialisation::DEFAULT,
+                                      debugPrefix, options);
+  prog.add(Execute(cs));
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
+
   scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false,
                        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }
