@@ -4750,10 +4750,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                                             prog, debugPrefix, options, cache);
   // update weights
   assert(weightDeltas.shape() == weights.shape());
-  const auto maybeRegroupedWeightDeltas =
-      popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights, prog,
-                                             debugPrefix + "regroupGradds");
-  scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
+  scaledAddTo(graph, weights, weightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
 }
 
