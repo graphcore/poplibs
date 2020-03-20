@@ -64,13 +64,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
       workerPartitions.back().emplace_back();
       const auto &wl = worklists[k * usedContexts + context];
       for (auto wi = 0U; wi < wl.size(); wi += 3) {
-        // The number of elements minus 3 is the second element in the work list
-        int numFieldPos;
-        if (useLimitedVer) {
-          numFieldPos = static_cast<short>(wl[wi + 1]) + 3;
-        } else {
-          numFieldPos = static_cast<int>(wl[wi + 1]) + 3;
-        }
+        auto numFieldPos = wl[wi + 1];
         workerPartitions.back().back().push_back(numFieldPos);
       }
     }
@@ -118,15 +112,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
   for (unsigned context = 0; context != target.getNumWorkerContexts();
        ++context) {
     workerPartitions.emplace_back();
-
-    // The number of elements minus 3 is the second element in the work list
-    int numFieldElems;
-    if (useLimitedVer) {
-      numFieldElems = static_cast<short>(worklists[3 * context + 1]) + 3;
-    } else {
-      numFieldElems = static_cast<int>(worklists[3 * context + 1]) + 3;
-    }
-    workerPartitions.back().push_back(numFieldElems);
+    // The number of elements is the second element in the work list
+    workerPartitions.back().push_back(worklists[3 * context + 1]);
   }
   bool floatWeights = fpType == FLOAT;
   const auto convUnitInputLoadElemsPerCycle =

@@ -29,7 +29,7 @@ inline static std::pair<std::uint64_t, std::uint64_t>
 conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials) {
 #if WORKER_REG_STATE_RETAINED
   if (floatActivations == false && floatPartials == true) {
-    return std::make_pair(14, 3);
+    return std::make_pair(15, 3);
   } else {
     return std::make_pair(0, 0);
   }
@@ -200,49 +200,49 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
       switch (numElems) {
       case 0:
         if (floatActivations) {
-          thisWorkerCycles += 27;
+          thisWorkerCycles += 28;
         } else {
           if (floatPartials) {
-            thisWorkerCycles += (outputZeroing ? 25 : 28);
+            thisWorkerCycles += (outputZeroing ? 26 : 29);
           } else {
-            thisWorkerCycles += 27;
+            thisWorkerCycles += 28;
           }
         }
         break;
       case 1:
         if (floatActivations)
-          thisWorkerCycles += 49 + (3 + 4) * outputZeroing;
+          thisWorkerCycles += 50 + (2 + 8) * outputZeroing;
         else {
           if (floatPartials) {
-            thisWorkerCycles += (outputZeroing ? 38 : 42);
+            thisWorkerCycles += (outputZeroing ? 39 : 43);
           } else {
-            thisWorkerCycles += 42 + (3 + zeroCyclesPerGroup) * outputZeroing;
+            thisWorkerCycles += 43 + (2 + zeroCyclesPerGroup) * outputZeroing;
           }
         }
         break;
       case 2:
         if (floatActivations)
-          thisWorkerCycles += 49 + (3 + 4 * 2) * outputZeroing;
+          thisWorkerCycles += 50 + (2 + 8 * 2) * outputZeroing;
         else {
           if (floatPartials) {
-            thisWorkerCycles += (outputZeroing ? 40 : 44);
+            thisWorkerCycles += (outputZeroing ? 41 : 45);
           } else {
             thisWorkerCycles +=
-                43 + (3 + zeroCyclesPerGroup * 2) * outputZeroing;
+                44 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
           }
         }
         break;
       default:
         if (floatActivations)
-          thisWorkerCycles += 49 + (3 + 4 * numElems) * outputZeroing +
+          thisWorkerCycles += 50 + (2 + 8 * numElems) * outputZeroing +
                               (numElems - 3) * coreCycles;
         else {
           if (floatPartials) {
             thisWorkerCycles +=
-                (outputZeroing ? 40 : 43) + (numElems - 3) * coreCycles;
+                (outputZeroing ? 41 : 44) + (numElems - 3) * coreCycles;
           } else {
             thisWorkerCycles +=
-                44 + (3 + zeroCyclesPerGroup * numElems) * outputZeroing +
+                45 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
                 (numElems - 3) * coreCycles;
           }
         }
@@ -418,19 +418,19 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
           for (auto &numElems : workerPartitions[context][k]) {
             switch (numElems) {
             case 0:
-              thisWorkerCycles += 17;
+              thisWorkerCycles += 18;
               break;
             case 1:
-              thisWorkerCycles += (floatActivations ? 33 : 29);
+              thisWorkerCycles += (floatActivations ? 34 : 30);
               break;
             case 2:
-              thisWorkerCycles += (floatActivations ? 44 : 33);
+              thisWorkerCycles += (floatActivations ? 45 : 34);
               break;
             default:
               if (floatActivations)
-                thisWorkerCycles += 45 + (numElems - 3) * coreCycles;
+                thisWorkerCycles += 46 + (numElems - 3) * coreCycles;
               else
-                thisWorkerCycles += 34 + (numElems - 3) * coreCycles;
+                thisWorkerCycles += 35 + (numElems - 3) * coreCycles;
             }
             thisWorkerCycles -= retentionSavings;
           }

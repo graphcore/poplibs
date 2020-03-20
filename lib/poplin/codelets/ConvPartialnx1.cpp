@@ -42,8 +42,6 @@ public:
 
   using WorkListType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
-  using WorkListNumFieldType =
-      typename std::conditional<useLimitedVer, short, int>::type;
   using UnsignedType =
       typename std::conditional<useLimitedVer, unsigned short, unsigned>::type;
   using SignedType = typename std::conditional<useLimitedVer, short, int>::type;
@@ -129,9 +127,7 @@ public:
                 unsigned wi = 0;
                 while (wi < wl.size()) {
                   auto outOffset = wl[wi];
-                  // The numFieldElems values from worklist is less by 3
-                  auto numFieldElems =
-                      static_cast<WorkListNumFieldType>(wl[wi + 1]) + 3;
+                  auto numFieldElems = wl[wi + 1];
                   auto inOffset = wl[wi + 2];
 
                   wi += 3;

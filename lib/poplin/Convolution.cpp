@@ -2764,19 +2764,6 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
 
   graph.setInitialValue(v["transformedOutStride"], transformedOutStride);
 
-  // Subtract numFieldElems by 3 to avoid computing this within the vertex
-  auto numFieldElemsLessThree = [worklistEntryType](
-                                    std::vector<unsigned> &wlist) {
-    for (unsigned i = 1; i < wlist.size(); i += 3) {
-      auto numFieldElemsMinus3 = static_cast<int>(wlist[i]) - 3;
-      if (worklistEntryType == UNSIGNED_SHORT) {
-        wlist[i] = static_cast<unsigned short>(numFieldElemsMinus3 & 0xffff);
-      } else {
-        wlist[i] = static_cast<unsigned>(numFieldElemsMinus3);
-      }
-    }
-  };
-
   // Worklists are 2D for nx1 and 1D for 1x1
   if (useConvPartial1x1OutVertex) {
     std::vector<unsigned> worklist1x1(contextsPerVertex * 3);
@@ -2784,7 +2771,6 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       std::copy(std::begin(worklist[i]), std::end(worklist[i]),
                 worklist1x1.begin() + 3 * i);
     }
-    numFieldElemsLessThree(worklist1x1);
     auto t = graph.addConstant(worklistEntryType, {worklist1x1.size()},
                                worklist1x1.data(), debugPrefix + "/worklists");
     graph.setTileMapping(t, tile);
@@ -2792,7 +2778,6 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   } else {
     graph.setFieldSize(v["worklists"], worklist.size());
     for (unsigned i = 0; i < worklist.size(); ++i) {
-      numFieldElemsLessThree(worklist[i]);
       auto t =
           graph.addConstant(worklistEntryType, {worklist[i].size()},
                             worklist[i].data(), debugPrefix + "/worklists");
