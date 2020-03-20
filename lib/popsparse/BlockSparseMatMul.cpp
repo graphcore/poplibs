@@ -6,7 +6,6 @@
 #include <iostream>
 #include <memory>
 #include <poplibs_support/OptionParsing.hpp>
-
 #include <poputil/exceptions.hpp>
 
 namespace popsparse {
@@ -28,8 +27,22 @@ public:
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
         isRhsSparse(true), isResSparse(false) {
 
-    assert(static_cast<int>(rhsSparsity.size()) ==
-           dim[1] / blockSize[1] * dim[2] / blockSize[2]);
+    for (int iDim = 0; iDim < 3; ++iDim) {
+      if (dim[iDim] % blockSize[iDim] != 0) {
+        throw poputil::poplibs_error(
+            "Input error: input dimension " + std::to_string(iDim) + ": " +
+            std::to_string(dim[iDim]) +
+            " is not divisible by block size dimension " +
+            std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
+      }
+    }
+    int numBlocks = dim[1] / blockSize[1] * dim[2] / blockSize[2];
+    if (static_cast<int>(rhsSparsity.size()) != numBlocks) {
+      throw poputil::poplibs_error("Input error: the sparsity mask size: " +
+                                   std::to_string(rhsSparsity.size()) +
+                                   " does not match total number of blocks: " +
+                                   std::to_string(numBlocks));
+    }
     lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
                                          blockSize[1], false));
     if (!rhsNeedTranspose) {
@@ -67,8 +80,22 @@ public:
         partialDataType(partialDataTypeIn),
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
         isRhsSparse(false), isResSparse(true) {
-    assert(static_cast<int>(resSparsityIn.size()) ==
-           dim[0] / blockSize[0] * dim[2] / blockSize[2]);
+    for (int iDim = 0; iDim < 3; ++iDim) {
+      if (dim[iDim] % blockSize[iDim] != 0) {
+        throw poputil::poplibs_error(
+            "Input error: input dimension " + std::to_string(iDim) + ": " +
+            std::to_string(dim[iDim]) +
+            " is not divisible by block size dimension " +
+            std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
+      }
+    }
+    int numBlocks = dim[0] / blockSize[0] * dim[2] / blockSize[2];
+    if (static_cast<int>(resSparsityIn.size()) != numBlocks) {
+      throw poputil::poplibs_error("Input error: the sparsity mask size: " +
+                                   std::to_string(resSparsityIn.size()) +
+                                   " does not match total number of blocks: " +
+                                   std::to_string(numBlocks));
+    }
     lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
                                          blockSize[1], false));
     rhsMatrix.reset(new BlockDenseMatrix(dim[1], dim[2], blockSize[1],
