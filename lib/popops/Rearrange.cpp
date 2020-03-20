@@ -1,3 +1,4 @@
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "popops/Rearrange.hpp"
 
 #include <boost/icl/interval_map.hpp>
