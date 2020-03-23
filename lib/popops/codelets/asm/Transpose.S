@@ -200,7 +200,8 @@
 #define TRANSPOSE_2D_INT \
   __runCodelet_popops__Transpose2d___int
 
-DEF_STACK_USAGE 0 Transpose2dAT4
+// All functions in this section use 0 bytes of stack
+DEF_STACK_USAGE 0 .text.Transpose2dAT4
 .section .text.Transpose2dAT4
 
 .globl TRANSPOSE_2D_FLOAT
@@ -649,7 +650,9 @@ TransposeAT2FromSupervisor:
   __runCodelet_popops__Transpose___unsigned_short
 #define TRANSPOSE_SHORT \
   __runCodelet_popops__Transpose___short
-DEF_STACK_USAGE 0 TransposeAT2
+
+// All functions in this section use 0 bytes of stack
+DEF_STACK_USAGE 0 .text.TransposeAT2
 .section .text.TransposeAT2
 .global TRANSPOSE_HALF
 .type TRANSPOSE_HALF,   @function
@@ -762,7 +765,8 @@ TransposeAT2FastPathNx4x4Setup:
 #define TRANSPOSE_2D_SHORT \
   __runCodelet_popops__Transpose2d___short
 
-DEF_STACK_USAGE 0 Transpose2dAT2
+// All functions in this section use 0 bytes of stack
+DEF_STACK_USAGE 0 .text.Transpose2dAT2
 .section .text.Transpose2dAT2
 .global TRANSPOSE_2D_HALF
 .type TRANSPOSE_2D_HALF, @function
@@ -869,7 +873,9 @@ TransposeAT2SlowPath:
   __runCodelet_popops__TransposeSupervisor___short
 
 
-DEF_STACK_USAGE 0 TransposeSupervisorAT2
+// All functions in this section use 0 bytes of stack, both themselves as
+// supervisors and the workers that they start
+DEF_STACK_USAGE 0 .text.TransposeSupervisorAT2
 .section .text.TransposeSupervisorAT2
 .globl TRANSPOSE_SUPERVISOR_HALF
 .type TRANSPOSE_SUPERVISOR_HALF, @function
@@ -878,7 +884,6 @@ DEF_STACK_USAGE 0 TransposeSupervisorAT2
 .globl TRANSPOSE_SUPERVISOR_SHORT
 .type TRANSPOSE_SUPERVISOR_SHORT, @function
 
-.text
 .align 4
 .supervisor
 TRANSPOSE_SUPERVISOR_HALF:

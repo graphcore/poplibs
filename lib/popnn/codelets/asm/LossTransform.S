@@ -35,7 +35,6 @@
 #define EPS_FLOAT   0x00800000   // 1.17549435e-38F, min value which is not a denorm
 #define EPS_HALF    0x0001       // 0.000000059605
 
-.text
 /*****************************************************************************/
 // popnn::LossSumSquaredTransform<half>
 // popnn::LossSumSquaredTransform<float>
