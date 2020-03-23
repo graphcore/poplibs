@@ -53,6 +53,10 @@ static inline Tensor ungroupTensor(const Tensor &t, G &&... gs) {
 namespace popops {
 namespace rearrange {
 
+static std::vector<Type> getValidTransposeDataTypes() {
+  return {HALF, FLOAT, UNSIGNED_SHORT, UNSIGNED_INT, SHORT, INT};
+}
+
 bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
                          unsigned numRows, unsigned numColumns,
                          unsigned numTranspositions) {
@@ -93,6 +97,12 @@ void addTransposeVertices(
     unsigned cols, const poplar::Graph::TileToTensorMapping &mapping,
     std::function<std::pair<const poplar::Tensor, const poplar::Tensor>(size_t)>
         getInOut) {
+  const auto &validTypes = getValidTransposeDataTypes();
+  if (std::find(validTypes.begin(), validTypes.end(), dType) ==
+      validTypes.end()) {
+    throw poplibs_error("Transposition not supported for data type " +
+                        dType.toString());
+  }
   if (cols > std::numeric_limits<unsigned short>::max() ||
       rows > std::numeric_limits<unsigned short>::max()) {
     throw poplibs_error("Number of source rows and columns exceed sizes "
@@ -372,6 +382,12 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
   if (t.rank() <= 1) {
     return t;
   }
+  const auto &validTypes = getValidTransposeDataTypes();
+  if (std::find(validTypes.begin(), validTypes.end(), t.elementType()) ==
+      validTypes.end()) {
+    throw poplibs_error("Data type " + t.elementType().toString() +
+                        " not supported by regroupTensor");
+  }
   if (from_.first >= t.rank()) {
     throw poplibs_error("Grouping 'from' specifies dimension " +
                         std::to_string(from_.first) +
@@ -519,7 +535,15 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            Sequence &prog, const std::string &debugPrefix) {
   auto in = in_;
+
   if (in.rank() <= 1 || ref.rank() <= 1) {
+    return in;
+  }
+
+  // If we can't transpose this data type, it's not beneficial to try
+  const auto &transposableTypes = getValidTransposeDataTypes();
+  if (std::find(transposableTypes.begin(), transposableTypes.end(),
+                in.elementType()) == transposableTypes.end()) {
     return in;
   }
 
@@ -556,6 +580,14 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
                            std::size_t preferredGrouping_, Sequence &prog,
                            const std::string &debugPrefix) {
   auto in = in_;
+
+  // If we can't transpose this data type, it's not beneficial to try
+  const auto &transposableTypes = getValidTransposeDataTypes();
+  if (std::find(transposableTypes.begin(), transposableTypes.end(),
+                in.elementType()) == transposableTypes.end()) {
+    return in;
+  }
+
   if (in.dim(in.rank() - 1) % preferredGrouping_ != 0) {
     throw poplibs_error("Input tensor's innermost dimension is not "
                         "divisible by the given preferred grouping (" +
