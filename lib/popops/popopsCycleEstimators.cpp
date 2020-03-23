@@ -2117,7 +2117,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(numSrcRows, unsigned);
   CODELET_SCALAR_VAL(numSrcColumns, unsigned);
 
-  const bool isFloat = type == FLOAT;
+  const bool is4ByteType =
+      (type == FLOAT || type == UNSIGNED_INT || type == INT);
+  // Just to be sure we don't see something unexpected:
+  assert(type == FLOAT || type == HALF || type == UNSIGNED_INT ||
+         type == UNSIGNED_SHORT || type == INT || type == SHORT);
   const auto matrices = dst.size();
   std::uint64_t cycles;
 
@@ -2125,7 +2129,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
 #define CSR_W_REPEAT_COUNT__VALUE__MASK 0x0FFF
   auto const hardwareRptCountConstraint = CSR_W_REPEAT_COUNT__VALUE__MASK + 1;
 
-  if (isFloat) {
+  if (is4ByteType) {
     if (((numSrcRows & 1) == 0) && ((numSrcColumns & 1) == 0) &&
         (numSrcColumns / 2 < hardwareRptCountConstraint) &&
         (numSrcRows * (numSrcColumns - 2) / 2 < 512)) { // Largest stride used
@@ -2190,8 +2194,8 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
 
   const unsigned matrices = numTranspositionsM1 + 1;
 
-  // only half supported
-  assert(type == HALF);
+  // only 2-byte types supported
+  assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
 
   return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices);
 }
@@ -2204,8 +2208,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
   CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
   CODELET_SCALAR_VAL(numTranspositions, unsigned short);
 
-  // only half type supported
-  assert(type == HALF);
+  // only 2-byte types supported
+  assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
 
   // This supervisor vertex will start 6 workers: 'workerCount' workers will
   // do 'numTranspositions' matrices, and (6-workerCount) will do
@@ -2597,10 +2601,19 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, HasNaN, HALF),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, SHORT),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Transpose, SHORT),
+
       CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, SHORT),
   };
 
   for (const auto &entry : unaryOpPerfInfo) {

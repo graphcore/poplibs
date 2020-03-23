@@ -43,6 +43,10 @@ public:
 };
 
 template class Transpose2d<float>;
+template class Transpose2d<unsigned int>;
+template class Transpose2d<int>;
 template class Transpose2d<half>;
+template class Transpose2d<unsigned short>;
+template class Transpose2d<short>;
 
 } // end namespace popops

@@ -46,5 +46,7 @@ public:
 };
 
 template class Transpose<half>;
+template class Transpose<unsigned short>;
+template class Transpose<short>;
 
 } // end namespace popops

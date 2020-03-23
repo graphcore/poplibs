@@ -94,12 +94,12 @@
     and    $STRIDE, $IN_ROWS, 1
     shr    $IN_ROWS, $IN_ROWS, 1
 
-os_matrix_loop\@:
+.Los_matrix_loop\@:
     ld32step  $mSCRATCH, $mzero, $IN_START_PTR+=, 1
     ld32step  $mSCRATCH2, $mzero, $OUT_PTR+=, 1
     add       $LOOP_COUNT, $IN_COLUMNS, -1
 
-os_loop_start\@:
+.Los_loop_start\@:
     // point back to the column start,  next input column
     mov       $mSCRATCH3, $mSCRATCH
     add       $mSCRATCH, $mSCRATCH, \wordinc
@@ -123,8 +123,8 @@ os_loop_start\@:
     // To save code space, deal with an even number of rows by conditionally
     // executing the end of a loop body for that case here
     brnz        $STRIDE,3f
-    brnzdec     $LOOP_COUNT, os_loop_start\@
-    brnzdec     $MATRIX_LOOP_COUNT, os_matrix_loop\@
+    brnzdec     $LOOP_COUNT, .Los_loop_start\@
+    brnzdec     $MATRIX_LOOP_COUNT, .Los_matrix_loop\@
     exitz       $mzero
 3:
 
@@ -135,7 +135,7 @@ os_loop_start\@:
     // Decrement the loop count in the middle of the loop so we exit when there
     // are an odd number of columns
     brnzdec  $LOOP_COUNT, 1f
-    bri      os_loop_exit\@
+    bri      .Los_loop_exit\@
 1:
     // point back to the column start, next input column
     mov     $mSCRATCH3, $mSCRATCH
@@ -162,13 +162,13 @@ os_loop_start\@:
 .endif
     \st2instr   \st2operand, $mzero, $mSCRATCH2+=, 1
 
-    brnzdec     $LOOP_COUNT, os_loop_start\@
+    brnzdec     $LOOP_COUNT, .Los_loop_start\@
 
-    brnzdec     $MATRIX_LOOP_COUNT, os_matrix_loop\@
+    brnzdec     $MATRIX_LOOP_COUNT, .Los_matrix_loop\@
     exitz $mzero
 
     // Break -in the case of odd rows, odd columns - store the last one
-os_loop_exit\@:
+.Los_loop_exit\@:
 .if \half
     // Case where we do need to read-modify write to write the (16bit) last word
     ldb16       $VAL2, $mzero, $mSCRATCH2, 1
@@ -178,7 +178,7 @@ os_loop_exit\@:
     // float - just store the last single word
     st32        $VAL1, $mzero, $mSCRATCH2, 0
 .endif
-    brnzdec     $MATRIX_LOOP_COUNT, os_matrix_loop\@
+    brnzdec     $MATRIX_LOOP_COUNT, .Los_matrix_loop\@
     exitz $mzero
 .endm
 
@@ -192,14 +192,28 @@ os_loop_exit\@:
 // Alternatively the inner loop could process more data but at the loss
 // of flexibility
 //******************************************************************************
-DEF_STACK_USAGE 0 __runCodelet_popops__Transpose2d___float
-.section .text.__runCodelet_popops__Transpose2d___float
 
-.globl __runCodelet_popops__Transpose2d___float
-.type __runCodelet_popops__Transpose2d___float, @function
+#define TRANSPOSE_2D_FLOAT \
+  __runCodelet_popops__Transpose2d___float
+#define TRANSPOSE_2D_UNSIGNED_INT \
+  __runCodelet_popops__Transpose2d___unsigned_int
+#define TRANSPOSE_2D_INT \
+  __runCodelet_popops__Transpose2d___int
+
+DEF_STACK_USAGE 0 Transpose2dAT4
+.section .text.Transpose2dAT4
+
+.globl TRANSPOSE_2D_FLOAT
+.type TRANSPOSE_2D_FLOAT, @function
+.globl TRANSPOSE_2D_UNSIGNED_INT
+.type TRANSPOSE_2D_UNSIGNED_INT, @function
+.globl TRANSPOSE_2D_INT
+.type TRANSPOSE_2D_INT, @function
 .align 8
 .worker
-__runCodelet_popops__Transpose2d___float:
+TRANSPOSE_2D_FLOAT:
+TRANSPOSE_2D_UNSIGNED_INT:
+TRANSPOSE_2D_INT:
 
      GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
@@ -209,7 +223,7 @@ __runCodelet_popops__Transpose2d___float:
     // if we can't use it.
     or       $mSCRATCH, $IN_ROWS, $IN_COLUMNS
     and      $mSCRATCH, $mSCRATCH, 1
-    brnz     $mSCRATCH, float_slower
+    brnz     $mSCRATCH, TransposeAT4SlowPath
 
     // As all matrices to process have the same dimensions, calculate parameters
     // that don't vary with input/output address:
@@ -224,7 +238,7 @@ __runCodelet_popops__Transpose2d___float:
     // Max value of LOOP_COUNT is 16 bit, this check must be here for
     // CSR_W_REPEAT_COUNT__VALUE__MASK < 16 bit. In Mk1, it is 12 bits (0x0FFF)
     cmpult    $STRIDE, $LOOP_COUNT, CSR_W_REPEAT_COUNT__VALUE__MASK + 1
-    brz       $STRIDE, float_slower
+    brz       $STRIDE, TransposeAT4SlowPath
 #endif
 
     // calculate a write stride for the end of the inner loop=
@@ -238,7 +252,7 @@ __runCodelet_popops__Transpose2d___float:
     // This should be the largest stride calculated so check it:
     // Is this -ve stride going to be bigger than a signed 10 bit range?
     cmpslt  $mSCRATCH2, $STRIDE, -512
-    brnz    $mSCRATCH2, float_slower
+    brnz    $mSCRATCH2, TransposeAT4SlowPath
 
     //Mask off so we can pack it
     and    $STRIDE, $STRIDE, 0x3ff
@@ -252,7 +266,7 @@ __runCodelet_popops__Transpose2d___float:
     shl    $IN_COLUMNS, $IN_COLUMNS, 2
 
     // Loop per matrix processed
-matrix_loop_float:
+.Lmatrix_loop_at4:
     // Get input address and calculate address of start of 2nd input row
     ld32step  $mSCRATCH3, $mzero, $IN_START_PTR+=, 1
     add       $mSCRATCH2, $IN_COLUMNS, $mSCRATCH3
@@ -275,16 +289,16 @@ matrix_loop_float:
     // oloop - process all pairs of input rows over the whole matrix
     // Put the last 2 load/stores at the beginning of the loop, but skip
     // them the first time around.  This avoid overreads on the last loop pass
-    bri      oloop_first_pass
+    bri      .Loloop_first_pass
 
-oloop_start:
+.Loloop_start:
     // Store the last 2 results (From the end of the loop),
     // use the strides computed above to adjust the pointers for the next
     // pair of input rows, output columns
     {ldst64pace $VAL12, $VAL56, $INOUT_PTR+=, $STRIDE, 6
      sort4x32hi $VAL34, $VAL12, $VAL34}
     ldst64pace $VAL34, $VAL34, $INOUT_PTR2+=, $STRIDE, 6
-oloop_first_pass:
+.Loloop_first_pass:
     // load first 2 input pairs, dummy store. Could possibly optimise
     // by combining with the 2 stores/dummy loads at the end of the loop,
     // but doing so would reduce flexibility.
@@ -307,22 +321,25 @@ oloop_first_pass:
       sort4x32lo $VAL56, $VAL12, $VAL34}
 2:
 
-    brnzdec     $mSCRATCH, oloop_start
-store_last2:
+    brnzdec     $mSCRATCH, .Loloop_start
+
     // Avoid over read - making sure we store, with no load
     { st64pace   $VAL56, $INOUT_PTR+=, $STRIDE, 1
       sort4x32hi $VAL34, $VAL12, $VAL34}
     st64pace $VAL34, $INOUT_PTR2+=, $STRIDE, 1
 
 
-   brnzdec    $MATRIX_LOOP_COUNT, matrix_loop_float
+   brnzdec    $MATRIX_LOOP_COUNT, .Lmatrix_loop_at4
 
    exitz   $mzero
 //*****************************************************************************
 // Slower version for non-multiples of 2 rows,columns - uses the macro above
-float_slower:
+TransposeAT4SlowPath:
     TRANSPOSE_SLOWER ld32step st64step $VAL12 4 0
-.size __runCodelet_popops__Transpose2d___float,.-__runCodelet_popops__Transpose2d___float
+
+.size TRANSPOSE_2D_FLOAT, .- TRANSPOSE_2D_FLOAT
+.size TRANSPOSE_2D_UNSIGNED_INT, .- TRANSPOSE_2D_UNSIGNED_INT
+.size TRANSPOSE_2D_INT, .- TRANSPOSE_2D_INT
 
 //*****************************************************************************
 // Half transpose:
@@ -366,13 +383,13 @@ float_slower:
 #define IN_REWIND  m10
 
 // Common code for fast half
-.section .text.fast_half_common
-.type fast_half_common,   @function
+.section .text.TransposeAT2FastPathCommon
+.type TransposeAT2FastPathCommon,   @function
 .align 4
 .worker
 //*******************************
 // Setup for the nx4 matrix cases
-fast_half_4_column_setup:
+TransposeAT2FastPath4ColumnSetup:
   add       $LOOP_COUNT, $OUT_GROUPS, -2
   // In the 4 columns case there is a stride needed for the output
   // -3 x (output columns/4 -1)  equivalent to -3*(output columns/4) +1
@@ -382,11 +399,11 @@ fast_half_4_column_setup:
   setzi     $STRIDES, (1<<10)
   // Out groups is repurposed for more choice in strides (st_ptr is unused here)
   shl       $ST_PTR, $IN_REWIND, 20
-  bri       fast_half_setup_common
+  bri       .LTransposeAT2FastPathSetupCommon
 
 //*******************************
 // Setup for the nxm matrix cases where m > 4
-fast_half_setup:
+TransposeAT2FastPathSetup:
   add       $LOOP_COUNT, $IN_GROUPS, -2
   // find input rewind stride = -3*input_columns/4 +1
   mul       $IN_REWIND, $IN_GROUPS, -3
@@ -396,7 +413,7 @@ fast_half_setup:
   // Out groups is repurposed for more choice in strides (st_ptr is unused here)
   shl       $ST_PTR, $OUT_GROUPS, 20
 
-fast_half_setup_common:
+.LTransposeAT2FastPathSetupCommon:
   // Combine to form stride fields
   // 4 columns  $STRIDES = 1 << 20         | (1== in_groups) << 10 | out_groups
   // >4 columns $STRIDES = in_rewind << 20 | in_groups << 10       | out_groups
@@ -414,7 +431,7 @@ fast_half_setup_common:
 // strides and loop counts to process different shaped matrices.
 // The outer loop is not used in the case of nx4 matrices
 .align 8
-fast_half_common:
+TransposeAT2FastPathCommon:
     // Warmup - preload data to feed into AACC
     ld64step $a0:1, $m15, $LD_PTR+=, $IN_GROUPS
     ld64step $a2:3, $m15, $LD_PTR+=, $IN_GROUPS
@@ -430,7 +447,7 @@ fast_half_common:
     // From now on use packed addresses to reuse common exit code
     {tapack      $TRI_PTR, $LD_PTR, $ST_PTR, $ST_PTR
      f16v4istacc $a14:15, $a4:5, $a6:7, TISTACC_P1}
-    {bri         half_4_last_writes
+    {bri         .Lat2_4_last_writes
      f16v4stacc  $a6:7, TSTACC_P0}
 
 1:
@@ -440,8 +457,8 @@ fast_half_common:
     f16v4stacc  $a6:7, TSTACC_P0 }
     // Outer loop to deal with an input slice, 4 rows x all columns
 
-    bri  outer_loop_first_pass
-outer_loop_start:
+    bri  .Louter_loop_first_pass
+.Louter_loop_start:
    // This is the end of the loop body, which stores and loads.  It
    // would read 6x64 bits from 4 non-existant input rows so put loop ending here
    // and skip it the 1st time around
@@ -467,7 +484,7 @@ outer_loop_start:
   // twice so we have a copy to use for the next group of 4 columns.
   add    $ST_PTR, $ST_PTR, 4*2
 
-outer_loop_first_pass:
+.Louter_loop_first_pass:
   // From now on we'll use load/store so pack into tri ptr
   // The first reference to store pointer is to store an copy
   // of the pointer which won't get modified by the stores ldst64pace
@@ -493,7 +510,7 @@ outer_loop_first_pass:
   { ldst64pace $a6:7, $a6:7, $TRI_PTR+=, $STRIDES,  INC_LD1_STw
    f16v4istacc $a2:3, $a0:1, $a2:3, TISTACC_P0 }
 
-   brnzdec $COUNTER, outer_loop_start
+   brnzdec $COUNTER, .Louter_loop_start
 
    // Just stores to avoid a lot of overreading, at the end of a matrix
 
@@ -502,7 +519,7 @@ outer_loop_first_pass:
 
   { st64pace  $a2:3, $TRI_PTR+=, $OUT_GROUPS, 3
    f16v4stacc  $a6:7, TSTACC_P0 }
-half_4_last_writes:
+.Lat2_4_last_writes:
   { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1
    f16v4stacc  $a6:7, TSTACC_P1 }
   { st64pace  $a6:7, $TRI_PTR+=, $STRIDES, 1
@@ -512,7 +529,7 @@ half_4_last_writes:
    st64pace  $a2:3, $TRI_PTR+=, $STRIDES, 1
    br        $LINK_REG
 
-.size fast_half_common, . - fast_half_common
+.size TransposeAT2FastPathCommon, . - TransposeAT2FastPathCommon
 
 /*----------------------------------------------------------------------------*/
 
@@ -555,11 +572,11 @@ half_4_last_writes:
 // (if needed) decrements NUM_MATRICES.
 
 
-.section .text.transpose_half_from_supervisor
-.type transpose_half_from_supervisor,   @function
+.section .text.TransposeAT2FromSupervisor
+.type TransposeAT2FromSupervisor,   @function
 .align 4
 .worker
-transpose_half_from_supervisor:
+TransposeAT2FromSupervisor:
 #define PTR_INCR        m1
 #define NUM_MATRICES    m5
 #define WORKER_ID       m7
@@ -591,7 +608,7 @@ transpose_half_from_supervisor:
   // If ID >= WORKER_COUNT, re-compute NUM_MATRICES, OFFS
   // If NUM_MATRICES==1, exit (we have to do NUM_MATRICES-1, i.e. 0, transposes)
   add       $NUM_MATRICES, $NUM_MATRICES, -1
-  brz       $NUM_MATRICES, transpose_half_exit
+  brz       $NUM_MATRICES, TransposeAT2Exit
   sub       $OFFS, $OFFS, $WORKER_ID
 1:
   // OFFS is now in units of number of matrices. We want it in units of double
@@ -617,26 +634,38 @@ transpose_half_from_supervisor:
 #endif
   // Rest of the code wants NUM_MATRICES-1 (for the loop instructions) so we
   // decrement and jump to main code (NUM_MATRICES is for sure > 0 here).
-  brnzdec   $NUM_MATRICES, transpose_half_enter_from_supervisor
+  brnzdec   $NUM_MATRICES, TransposeAT2EnterFromSupervisor
 
-.size transpose_half_from_supervisor, . - transpose_half_from_supervisor
+.size TransposeAT2FromSupervisor, . - TransposeAT2FromSupervisor
 
 
 //----------------------------------------------------------------------------
 // Entry point when worker codelet is called directly. The parameter in the
 // vertex state are already correct.
 
-#define TRANSPOSE_HALF_CODELET_NAME __runCodelet_popops__Transpose___half
-DEF_STACK_USAGE 0 TRANSPOSE_HALF_CODELET_NAME
-.section .text.TRANSPOSE_HALF_CODELET_NAME
-.global TRANSPOSE_HALF_CODELET_NAME
-.type TRANSPOSE_HALF_CODELET_NAME,   @function
+#define TRANSPOSE_HALF \
+  __runCodelet_popops__Transpose___half
+#define TRANSPOSE_UNSIGNED_SHORT \
+  __runCodelet_popops__Transpose___unsigned_short
+#define TRANSPOSE_SHORT \
+  __runCodelet_popops__Transpose___short
+DEF_STACK_USAGE 0 TransposeAT2
+.section .text.TransposeAT2
+.global TRANSPOSE_HALF
+.type TRANSPOSE_HALF,   @function
+.global TRANSPOSE_UNSIGNED_SHORT
+.type TRANSPOSE_UNSIGNED_SHORT,   @function
+.global TRANSPOSE_SHORT
+.type TRANSPOSE_SHORT,   @function
 .align 4
 .worker
+TRANSPOSE_HALF:
+TRANSPOSE_UNSIGNED_SHORT:
+TRANSPOSE_SHORT:
+
 // kept on stack
 #define SOFF_NUM_PTR_INC           0
 
-TRANSPOSE_HALF_CODELET_NAME:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16     $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 2
   ldz16     $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 2
@@ -653,7 +682,7 @@ TRANSPOSE_HALF_CODELET_NAME:
   // shift up because rows and columns are shifted down by 2. Additional shift
   // because data is half
   shl       $PTR_INCR, $PTR_INCR, (2 + 2 + 1)
-transpose_half_enter_from_supervisor:
+TransposeAT2EnterFromSupervisor:
 
   st32      $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
 
@@ -665,34 +694,34 @@ transpose_half_enter_from_supervisor:
 
   // Special case 4x4 matrices, check based on computed size (PTR_INCR)
   cmpeq     $mSCRATCH, $PTR_INCR, (4 * 4 * 2)
-  brnz      $mSCRATCH, multiple_half_4x4
+  brnz      $mSCRATCH, TransposeAT2FastPathNx4x4Setup
   // Special case nx4 matrices, check based on IN_GROUPS (IN_GROUPS = columns/4)
   cmpeq     $mSCRATCH, $IN_GROUPS, 1
-  brnz      $mSCRATCH, half_nx4
+  brnz      $mSCRATCH, .Lat2_nx4x4
 
-  call      $LINK_REG, fast_half_setup
-matrix_loop_half_1d:
+  call      $LINK_REG, TransposeAT2FastPathSetup
+.Lmatrix_loop_half_1d:
   tapack     $INOUT_PTR, $IN_START_PTR, $OUT_PTR, $mzero
   // calculate outer loop passes
   ldz16      $COUNTER, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   add        $COUNTER, $COUNTER, -1
-  call       $LINK_REG, fast_half_common
+  call       $LINK_REG, TransposeAT2FastPathCommon
   ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
   add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
   add        $OUT_PTR, $OUT_PTR, $PTR_INCR
-  brnzdec    $NUM_MATRICES, matrix_loop_half_1d
-transpose_half_exit:
+  brnzdec    $NUM_MATRICES, .Lmatrix_loop_half_1d
+TransposeAT2Exit:
   exitz      $mzero
 
 
 
 
 //***************************************
-// the fast_half_common function can be used to
+// the TransposeAT2FastPathCommon function can be used to
 // transpose multiple 4x4 matrices instead of a single
 // nx4 matrix if we let it loop per matrix and make
 // all the strides that would index by a row etc just increment
-multiple_half_4x4:
+TransposeAT2FastPathNx4x4Setup:
 
   // Inner loop deals with each matrix - no other loops required
   add        $LOOP_COUNT, $NUM_MATRICES, -1
@@ -702,23 +731,23 @@ multiple_half_4x4:
   mov        $OUT_GROUPS, $STRIDES
   // A little slower, but smaller code to share the loop end below (with no loop passes)
   setzi      $NUM_MATRICES, 0
-  bri        half_nx4_4x4_common
+  bri        .Lat2_nx4x4_common
 
 //***************************************
-half_nx4:
-  call       $LINK_REG, fast_half_4_column_setup
-half_nx4_4x4_common:
+.Lat2_nx4x4:
+  call       $LINK_REG, TransposeAT2FastPath4ColumnSetup
+.Lat2_nx4x4_common:
   // Input will step in a simple linear way throughout
   setzi      $IN_REWIND, 1
   // No outer loop passes
   setzi      $COUNTER, 0
-half_nx4_loop:
+.Lat2_nx4x4_loop:
   tapack     $INOUT_PTR, $IN_START_PTR, $OUT_PTR, $mzero
-  call       $LINK_REG, fast_half_common
+  call       $LINK_REG, TransposeAT2FastPathCommon
   ld32       $PTR_INCR, $mzero, $mworker_base, SOFF_NUM_PTR_INC / 4
   add        $IN_START_PTR, $IN_START_PTR, $PTR_INCR
   add        $OUT_PTR, $OUT_PTR, $PTR_INCR
-  brnzdec    $NUM_MATRICES, half_nx4_loop
+  brnzdec    $NUM_MATRICES, .Lat2_nx4x4_loop
 
   exitz      $mzero
 
@@ -726,13 +755,26 @@ half_nx4_loop:
 
 /* -------------------------------------------------------------------------- */
 
-DEF_STACK_USAGE 0 __runCodelet_popops__Transpose2d___half
-.section .text.__runCodelet_popops__Transpose2d___half
-.global __runCodelet_popops__Transpose2d___half
-.type __runCodelet_popops__Transpose2d___half,   @function
+#define TRANSPOSE_2D_HALF \
+  __runCodelet_popops__Transpose2d___half
+#define TRANSPOSE_2D_UNSIGNED_SHORT \
+  __runCodelet_popops__Transpose2d___unsigned_short
+#define TRANSPOSE_2D_SHORT \
+  __runCodelet_popops__Transpose2d___short
+
+DEF_STACK_USAGE 0 Transpose2dAT2
+.section .text.Transpose2dAT2
+.global TRANSPOSE_2D_HALF
+.type TRANSPOSE_2D_HALF, @function
+.global TRANSPOSE_2D_UNSIGNED_SHORT
+.type TRANSPOSE_2D_UNSIGNED_SHORT, @function
+.global TRANSPOSE_2D_SHORT
+.type TRANSPOSE_2D_SHORT, @function
 .align 4
 .worker
-__runCodelet_popops__Transpose2d___half:
+TRANSPOSE_2D_HALF:
+TRANSPOSE_2D_UNSIGNED_SHORT:
+TRANSPOSE_2D_SHORT:
 
     GET_PARAMS_2D  VOFF_IN_START_PTR_2D VOFF_IN_SIZE_2D VOFF_OUT_PTR_2D VOFF_SRC_ROWS_2D VOFF_SRC_COLUMNS_2D
 
@@ -740,7 +782,7 @@ __runCodelet_popops__Transpose2d___half:
     // branch if we can't use it.
     or       $mSCRATCH2, $IN_ROWS, $IN_COLUMNS
     and      $mSCRATCH2, $mSCRATCH2, 3
-    brnz     $mSCRATCH2, half_slower
+    brnz     $mSCRATCH2, TransposeAT2SlowPath
     // we need various strides forward and backward through the data to
     // address input and output. Constant as every matrix has the same rows,cols
     // Here groups are COLUMNS/4 or ROWS/4: the number of 64 bit fetches/writes
@@ -750,18 +792,18 @@ __runCodelet_popops__Transpose2d___half:
     add       $NUM_MATRICES, $mSCRATCH4, -1
 
     cmpeq     $mSCRATCH, $IN_COLUMNS, 4
-    brnz      $mSCRATCH, half_4_columns
+    brnz      $mSCRATCH, .Lat2_4_columns
 
-    call      $LINK_REG, fast_half_setup
+    call      $LINK_REG, TransposeAT2FastPathSetup
     // This should be the largest stride calculated so check it:
     // Is this -ve stride going to be bigger than a signed 10 bit range?
     cmpslt    $mSCRATCH, $IN_REWIND, -512
-    brnz      $mSCRATCH, half_slower
+    brnz      $mSCRATCH, TransposeAT2SlowPath
     //repeat count will be  within range of its register value
     // as the stride constraint will always happen 1st.
     // -3x +1 < -512 happens for smaller x than x-2 > 4096
 
-matrix_loop_half:
+1:
     // loop per matrix starts here - fetch input/output pointers
     ld32step   $LD_PTR, $mzero, $IN_START_PTR+=, 1
     ld32step   $ST_PTR, $mzero, $OUT_PTR+=, 1
@@ -769,18 +811,18 @@ matrix_loop_half:
     ldz16      $COUNTER, $mzero, $mvertex_base, VOFF_SRC_ROWS_2D
     shr        $COUNTER, $COUNTER, 2
     add        $COUNTER, $COUNTER, -1
-    call       $LINK_REG, fast_half_common
+    call       $LINK_REG, TransposeAT2FastPathCommon
 
-    brnzdec    $NUM_MATRICES,matrix_loop_half
+    brnzdec    $NUM_MATRICES, 1b
     exitz      $mzero
 
 //***************************
-half_4_columns:
-     call      $LINK_REG, fast_half_4_column_setup
+.Lat2_4_columns:
+     call      $LINK_REG, TransposeAT2FastPath4ColumnSetup
    // This should be the largest stride calculated so check it:
     // Is this -ve stride going to be bigger than a signed 10 bit range?
     cmpslt    $mSCRATCH, $IN_REWIND, -512
-    brnz      $mSCRATCH, half_slower
+    brnz      $mSCRATCH, TransposeAT2SlowPath
 
     //repeat count will be  within range of its register value
     // as the stride constraint will always happen 1st.
@@ -790,27 +832,28 @@ half_4_columns:
     setzi     $IN_REWIND, 1
     // No outer loop passes within the called function
     setzi     $COUNTER, 0
-half_4_columns_loop:
+.Lat2_4_columns_loop:
     // loop per matrix starts here - fetch input/output pointers
     ld32step   $LD_PTR, $mzero, $IN_START_PTR+=, 1
     ld32step   $ST_PTR, $mzero, $OUT_PTR+=, 1
-    call       $LINK_REG, fast_half_common
+    call       $LINK_REG, TransposeAT2FastPathCommon
 
-    brnzdec    $NUM_MATRICES,half_4_columns_loop
+    brnzdec    $NUM_MATRICES, .Lat2_4_columns_loop
     exitz      $mzero
 
 
 //***************************************************************
 // Slower version for half processing - using macro above
 
-half_slower:
+TransposeAT2SlowPath:
    ldz16    $IN_ROWS, $mzero, $mvertex_base, VOFF_SRC_ROWS_2D
    add      $MATRIX_LOOP_COUNT, $mSCRATCH4, -1
 
   TRANSPOSE_SLOWER ldb16step st32step $VAL1 2 1
 
-  .size __runCodelet_popops__Transpose2d___half, . - __runCodelet_popops__Transpose2d___half
-
+.size TRANSPOSE_2D_HALF, . - TRANSPOSE_2D_HALF
+.size TRANSPOSE_2D_UNSIGNED_SHORT, . - TRANSPOSE_2D_UNSIGNED_SHORT
+.size TRANSPOSE_2D_SHORT, . - TRANSPOSE_2D_SHORT
 
 
 
@@ -818,24 +861,38 @@ half_slower:
 // Supervisor vertex for transposing N matrices of half type, all of same
 // dimensions. It just calls the worker code, with the same vertex state.
 
-#define TRANSPOSE_HALF_SUPERVISOR  __runCodelet_popops__TransposeSupervisor___half
+#define TRANSPOSE_SUPERVISOR_HALF \
+  __runCodelet_popops__TransposeSupervisor___half
+#define TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT \
+  __runCodelet_popops__TransposeSupervisor___unsigned_short
+#define TRANSPOSE_SUPERVISOR_SHORT \
+  __runCodelet_popops__TransposeSupervisor___short
 
-DEF_STACK_USAGE 0 TRANSPOSE_HALF_SUPERVISOR
-.section .text.TRANSPOSE_HALF_SUPERVISOR
-.globl TRANSPOSE_HALF_SUPERVISOR
-.type TRANSPOSE_HALF_SUPERVISOR, @function
+
+DEF_STACK_USAGE 0 TransposeSupervisorAT2
+.section .text.TransposeSupervisorAT2
+.globl TRANSPOSE_SUPERVISOR_HALF
+.type TRANSPOSE_SUPERVISOR_HALF, @function
+.globl TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT
+.type TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT, @function
+.globl TRANSPOSE_SUPERVISOR_SHORT
+.type TRANSPOSE_SUPERVISOR_SHORT, @function
 
 .text
 .align 4
 .supervisor
-TRANSPOSE_HALF_SUPERVISOR:
+TRANSPOSE_SUPERVISOR_HALF:
+TRANSPOSE_SUPERVISOR_UNSIGNED_SHORT:
+TRANSPOSE_SUPERVISOR_SHORT:
 
-  setzi       $m1, transpose_half_from_supervisor
+  setzi       $m1, TransposeAT2FromSupervisor
   runall      $m1, $m0, 0
   sync        TEXCH_SYNCZONE_LOCAL
   br          $lr
 
   .size TRANSPOSE_HALF_SUPERVISOR, .- TRANSPOSE_HALF_SUPERVISOR
+  .size TRANSPOSE_UNSIGNED_SHORT_SUPERVISOR, .- TRANSPOSE_UNSIGNED_SHORT_SUPERVISOR
+  .size TRANSPOSE_SHORT_SUPERVISOR, .- TRANSPOSE_SHORT_SUPERVISOR
 
 
 

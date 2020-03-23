@@ -81,11 +81,14 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
   std::vector<double> outTest(total_size);
   std::vector<double> inTest(total_size);
 
+  bool signedType = (dataType == HALF || dataType == FLOAT || dataType == INT ||
+                     dataType == SHORT);
+
   // Initialise input pattern.
   for (unsigned i = 0; i < total_size; i++) {
     // We don't want numbers that are outside the 'half' precision (for
     // integers):  -2048 <= HALF <= +2048
-    inTest[i] = (int(i) % 4096) - 2048;
+    inTest[i] = (int(i) % 4096) - (signedType ? 2048 : 0);
   }
 
   auto device = createTestDevice(TEST_TARGET);
@@ -183,7 +186,10 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
       graph.setInitialValue(transVertex["numSrcRows"], rows);
     }
 
-    popops::zero(graph, out, sequence, "Zero output");
+    const auto zero = graph.addConstant(out.elementType(), out.shape(), 0);
+    graph.setTileMapping(zero, 0);
+    // Zero output
+    sequence.add(Copy(zero, out));
     sequence.add(Execute(testComputeSet));
     programs[tests] = sequence;
   }
@@ -234,6 +240,19 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
     BOOST_CHECK(check);
   }
 }
+
 BOOST_AUTO_TEST_CASE(TransposeTest_half_true) { TransposeTest(HALF, true); }
+BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_short_true) {
+  TransposeTest(UNSIGNED_SHORT, true);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_short_true) { TransposeTest(SHORT, true); }
 BOOST_AUTO_TEST_CASE(TransposeTest_float_false) { TransposeTest(FLOAT, false); }
+BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false) {
+  TransposeTest(UNSIGNED_INT, false);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_int_false) { TransposeTest(INT, false); }
 BOOST_AUTO_TEST_CASE(TransposeTest_half_false) { TransposeTest(HALF, false); }
+BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_short_false) {
+  TransposeTest(UNSIGNED_SHORT, false);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_short_false) { TransposeTest(SHORT, false); }

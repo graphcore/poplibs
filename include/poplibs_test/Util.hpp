@@ -120,8 +120,12 @@ void copy(const poplar::Target &target, const T *src, std::size_t n,
     detail::copyToDevice<T>(target, src, dst, n);
   } else if (dstType == poplar::UNSIGNED_INT) {
     std::copy(src, src + n, reinterpret_cast<unsigned *>(dst));
+  } else if (dstType == poplar::UNSIGNED_SHORT) {
+    std::copy(src, src + n, reinterpret_cast<unsigned short *>(dst));
   } else if (dstType == poplar::INT) {
     std::copy(src, src + n, reinterpret_cast<int *>(dst));
+  } else if (dstType == poplar::SHORT) {
+    std::copy(src, src + n, reinterpret_cast<short *>(dst));
   } else {
     assert(dstType == poplar::BOOL);
     std::copy(src, src + n, reinterpret_cast<bool *>(dst));
@@ -158,9 +162,15 @@ void copy(const poplar::Target &target, const poplar::Type &srcType, void *src,
   } else if (srcType == poplar::UNSIGNED_INT) {
     std::copy(reinterpret_cast<unsigned *>(src),
               reinterpret_cast<unsigned *>(src) + n, dst);
+  } else if (srcType == poplar::UNSIGNED_SHORT) {
+    std::copy(reinterpret_cast<unsigned short *>(src),
+              reinterpret_cast<unsigned short *>(src) + n, dst);
   } else if (srcType == poplar::INT) {
     std::copy(reinterpret_cast<int *>(src), reinterpret_cast<int *>(src) + n,
               dst);
+  } else if (srcType == poplar::SHORT) {
+    std::copy(reinterpret_cast<short *>(src),
+              reinterpret_cast<short *>(src) + n, dst);
   } else {
     assert(srcType == poplar::BOOL);
     std::copy(reinterpret_cast<bool *>(src), reinterpret_cast<bool *>(src) + n,

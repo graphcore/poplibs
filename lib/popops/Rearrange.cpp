@@ -56,7 +56,8 @@ namespace rearrange {
 bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
                          unsigned numRows, unsigned numColumns,
                          unsigned numTranspositions) {
-  if (type != poplar::HALF ||
+  bool is2ByteType = (type == HALF || type == UNSIGNED_SHORT || type == SHORT);
+  if (!is2ByteType ||
       numTranspositions > std::numeric_limits<unsigned short>::max() ||
       numRows % 4 || numColumns % 4) {
     return false;
@@ -252,9 +253,11 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
 }
 
 unsigned getMinimumRegroupGrainSize(const Type &type) {
-  if (type == HALF) {
+  bool is2ByteType = (type == HALF || type == UNSIGNED_SHORT || type == SHORT);
+  bool is4ByteType = (type == FLOAT || type == UNSIGNED_INT || type == INT);
+  if (is2ByteType) {
     return 4;
-  } else if (type == FLOAT) {
+  } else if (is4ByteType) {
     return 2;
   }
   return 1;

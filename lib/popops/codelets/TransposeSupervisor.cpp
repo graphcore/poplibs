@@ -55,5 +55,7 @@ public:
 };
 
 template class TransposeSupervisor<half>;
+template class TransposeSupervisor<unsigned short>;
+template class TransposeSupervisor<short>;
 
 } // end namespace popops
