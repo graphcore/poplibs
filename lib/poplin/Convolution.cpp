@@ -4438,8 +4438,10 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
   const auto minElementsPerTile = 8U;
   std::size_t chansPerGroup, numChanGroups;
   if (params.getNumOutputChansPerConvGroup() % grainSize) {
-    chansPerGroup = params.getNumOutputChansPerConvGroup();
-    numChanGroups = 1;
+    // do not remap if the output channels is not a multiple of grain size.
+    // We could find a grain size in other dimensions and map but keep it
+    // simple for now.
+    return output;
   } else {
     chansPerGroup = grainSize;
     numChanGroups = params.getNumOutputChansPerConvGroup() / chansPerGroup;
@@ -4460,6 +4462,7 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
                        .flatten(1, 4);
   // Explicity copy to remapped tensor with a benign layout
   prog.add(Copy(output, remappedOutput));
+  logging::debug("  convolution output tensor remapped linearly");
   return remappedOutput;
 }
 
@@ -4488,7 +4491,6 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   if (options.remapOutputTensor) {
     const auto dimGroupings = detectDimGroupings(graph, output);
     if (dimGroupings.empty()) {
-      logging::debug("  convolution output tensor remapped linearly");
       return remapOutputTensor(graph, output, prog, params, debugPrefix);
     }
   }
