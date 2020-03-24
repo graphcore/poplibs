@@ -281,7 +281,9 @@ DEF_STACK_USAGE 0 VERTEX_SCALED
 
 .section .text.VERTEX_SCALED
 .align 8
+#if COMPACT_VECTOR_TYPES_AVAILABLE
   nop     // Rpt alignment
+#endif
 
 VERTEX_SCALED:
 #if COMPACT_VECTOR_TYPES_AVAILABLE
@@ -309,21 +311,16 @@ common_\@:
 #else
   ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
 
-  // Extract upper 8 bits of count followed by base address
+  // Extract upper 8 bits of count followed by base address and
+  // lower 8 bits of count followed by deltan pointer address
   ld32 $partialsBase, $mzero, $mvertex_base, VERTEX_PARTIALS_BASE_OFFSET/4
-  shr $numPartials, $partialsBase, VECTOR_LIST_BASE_BITS
-  shl $partialsBase, $partialsBase, VECTOR_LIST_COUNT_BITS
-  shr $partialsBase, $partialsBase, VECTOR_LIST_COUNT_BITS
-
-  // Extract lower 8 bits of count followed by deltan pointer address
   ld32 $partialsDeltaPtr, $mzero, $mvertex_base, VERTEX_PARTIALS_DELTA_PTR_OFFSET/4
-  shr $numPartialsB0, $partialsDeltaPtr, VECTOR_LIST_BASE_BITS
-  shl $partialsDeltaPtr, $partialsDeltaPtr, VECTOR_LIST_COUNT_BITS
-  shr $partialsDeltaPtr, $partialsDeltaPtr, VECTOR_LIST_COUNT_BITS
-
   // Combine lower and upper 8-bits parts to form count
-  shl $numPartials, $numPartials, 8
-  or $numPartials, $numPartials, $numPartialsB0
+  shuf8x8hi  $numPartials, $partialsDeltaPtr, $partialsBase
+  shr $numPartials, $numPartials, 16
+  or $mscratch, $mzero, 0xfff00000
+  andc $partialsBase, $partialsBase, $mscratch
+  andc $partialsDeltaPtr, $partialsDeltaPtr, $mscratch
 #endif
   // store the partialsDeltaPtr onto the stack as we reset it each iteration of
   // the middle loop.
