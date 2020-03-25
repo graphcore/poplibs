@@ -141,9 +141,19 @@ std::vector<unsigned> distributeReductionsBetweenWorkers(
     const std::vector<RegionReduction> &reductions,
     const unsigned remainingWorkers) {
 
-  // If there are more or equal output regions than numWorkers we
-  // distribute them as evenly as possible based on the number of partials
-  // so each vertex has a similar number of partials.
+  // If there are more output regions than numWorkers we need to
+  // distrubute them between workers.  We can choose to either:
+  // a) Distribute them as evenly as possible based on the number of partials
+  //    so each vertex has a similar number of partials.  This has the benefit
+  //    of balancing the load per worker.
+  // b) Try to keep reductions that are input together assigned to the same
+  //    worker, which sometimes allows that worker to use a more efficent vertex
+  //
+  // If there is very little work sharing benefit to be had from approach a) we
+  // choose method b).
+  // Note that method a) will tend to assign reductions with equal work cost to
+  // workers in a round-robin manner which works against combining those
+  // reductions to be implemented in a single efficient vertex.
 
   std::vector<unsigned> assignments;
 
@@ -159,10 +169,50 @@ std::vector<unsigned> distributeReductionsBetweenWorkers(
   std::vector<std::pair<unsigned, std::uint64_t>> reductionCycles;
   reductionCycles.reserve(reductions.size());
 
+  double meanCycles = 0;
   for (const auto &r : reductions) {
     reductionCycles.emplace_back(
         reductionCycles.size(),
         approximateCyclesForReduction(target, operation, r));
+    meanCycles += reductionCycles.back().second;
+  }
+
+  meanCycles = meanCycles / reductionCycles.size();
+  // Check if the cycle counts are all approximately equal.  Define a range
+  // based on the heuristic of mean +/- 8 cycles OR +/- 10% whichever is the
+  // greater
+  const auto toleratedRange = std::max(8.0, 0.1 * meanCycles);
+  std::uint64_t minCycles = static_cast<std::uint64_t>(
+      meanCycles > toleratedRange ? meanCycles - toleratedRange : 0);
+  std::uint64_t maxCycles =
+      static_cast<std::uint64_t>(meanCycles + toleratedRange);
+  bool equalCycles = true;
+  for (const auto &r : reductionCycles) {
+    if (r.second < minCycles || r.second > maxCycles) {
+      equalCycles = false;
+      break;
+    }
+  }
+  if (equalCycles && remainingWorkers != 0) {
+    // Assigning work to each worker in a round-robin manner (as below) will
+    // often split outputs and / or partials which will constrain our
+    // choice of vertex so don't do that if there is no work sharing benefit.
+    // Instead assign consecutive reductions to each, eg, with 14 reductions
+    // assign to worker 0,0,0,1,1,1,2,2,3,3,4,4,5,5
+    // Whereas the round robin method would result in:
+    // assign to worker: 0,1,2,3,4,5,0,1,2,3,4,5,0,1
+    // (In the second case no adjacent/consecutive reductions are assigned to
+    // the same worker so they are unlikely to be combined later)
+    unsigned reductionsPerWorker = reductions.size() / remainingWorkers;
+    unsigned remainder = reductions.size() % remainingWorkers;
+    unsigned index = 0;
+    for (unsigned i = 0; i < remainingWorkers && index < reductions.size();
+         i++) {
+      for (unsigned j = 0; j < reductionsPerWorker + (i < remainder); j++) {
+        assignments[index++] = i;
+      }
+    }
+    return assignments;
   }
 
   // Optimisation: There is definitely scope for further optimisation here.
