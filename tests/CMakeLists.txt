@@ -2659,9 +2659,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_4
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,0}
                  --stride={1,1}
-                 --tiles-per-ipu=17
-                 --num-io-tiles=1
-                 --enable-shared-structures
+                 --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"8\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")

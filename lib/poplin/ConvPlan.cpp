@@ -3171,11 +3171,16 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
     // By expanding them out before the vertex.
     m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]), 0);
 
+    // We don't handle kernel dilation, padding and flipping in the SLIC vertex
+    // for now.
+    m.equal(m.addConstant(lvl1Params.kernelTransform.dilation[dim]), 1);
+    m.equal(m.addConstant(lvl1Params.kernelTransform.paddingLower[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.kernelTransform.paddingUpper[dim]), 0);
+    m.equal(m.addConstant(lvl1Params.kernelTransform.flip[dim]), 0);
+
     m.equal(m.addConstant(lvl1Params.outputTransform.truncationLower[dim]), 0);
     m.equal(m.addConstant(lvl1Params.outputTransform.truncationUpper[dim]), 0);
     m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
-    m.equal(m.addConstant(lvl1Params.outputTransform.paddingLower[dim]), 0);
-    m.equal(m.addConstant(lvl1Params.outputTransform.paddingUpper[dim]), 0);
   }
 }
 
@@ -4156,14 +4161,10 @@ getConvVertexTypeCandidates(const poplar::Target &target,
     // because the planner constrains future models against the current best.
     methodCandidates = {
         Plan::Method::AMP,
+        Plan::Method::SLIC,
         Plan::Method::MAC,
         Plan::Method::OUTER_PRODUCT,
     };
-    if (options.enableSLIC) {
-      // insert SLIC in between AMP and MAC.
-      methodCandidates.insert(std::begin(methodCandidates) + 1,
-                              Plan::Method::SLIC);
-    }
   }
 
   // All the following methods assume half or float input/partial types.

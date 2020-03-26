@@ -45,10 +45,6 @@ public:
   // this convolution.
   poplibs_support::PlanConstraints planConstraints;
   std::string planConstraintsOutputFilename; // Not including file extension
-  // SLIC is currently only supported in the planner and so if enabled the
-  // compilation will not complete. just enable this option to see what the
-  // planner estimates would be if SLIC was fully supported.
-  bool enableSLIC = false;
   // Allows convolution planner to use AMP vertices with only 4 engines
   // enabled to reduce paddings on small data sets
   bool enableAmpHalfEnginesPlan = false;
@@ -70,7 +66,7 @@ public:
         &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
         &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
         &ConvOptions::planConstraints,
-        &ConvOptions::planConstraintsOutputFilename, &ConvOptions::enableSLIC,
+        &ConvOptions::planConstraintsOutputFilename,
         &ConvOptions::enableAmpHalfEnginesPlan,
         &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor);
     return helper.lt(*this, other);

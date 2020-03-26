@@ -1812,6 +1812,12 @@ static Tensor convolutionPostprocess(Graph &graph,
     }
 
     // Undo padding.
+    assert(activations.dim(0) >= postCombineConvGroupsParams.numConvGroups);
+    const auto convGroupPadding =
+        activations.dim(0) - postCombineConvGroupsParams.numConvGroups;
+    activations =
+        pad(graph, activations, 0, -static_cast<int>(convGroupPadding), 0);
+
     assert(activations.dim(activations.rank() - 1) >=
            postCombineConvGroupsParams.outputChannelsPerConvGroup);
     const auto outChanPadding =
@@ -3313,11 +3319,20 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
 #endif
   assert(isAll(1u, params.kernelTransform.dilation));
   assert(isAll(1u, params.outputTransform.stride));
+  assert(isAll(0u, params.outputTransform.truncationLower));
+  assert(isAll(0u, params.outputTransform.truncationUpper));
 
   // TODO: unlike AMP, SLIC needs to apply field transforms before using them.
   // for now we just constrain against them in the planner.
   assert(isAll(false, params.inputTransform.flip));
 
+  // We do not handle any kernel transforms at time of writing.
+  assert(isAll(1u, params.kernelTransform.dilation));
+  assert(isAll(0u, params.kernelTransform.paddingLower));
+  assert(isAll(0u, params.kernelTransform.paddingUpper));
+  assert(isAll(false, params.kernelTransform.flip));
+
+  // apply transformations (output padding is applied further down).
   {
     Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
                   debugPrefix);
@@ -3353,17 +3368,26 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
   assert(kernelGroups.back() % slicWindowWidth == 0);
   kernelGroups.back() /= slicWindowWidth;
 
-  const auto outputFieldShape =
-      vectorConvert<unsigned>(params.getOutputFieldShape());
   const auto outputSpatialShape = [&] {
-    auto r = outputFieldShape;
-    r.insert(r.begin(), params.batchSize);
+    std::vector<unsigned> r;
+    r.push_back(params.batchSize);
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      r.push_back(params.getUntransformedOutputSize(d));
+    }
     return r;
   }();
 
-  const auto inputFieldShape = vectorConvert<unsigned>(params.inputFieldShape);
+  const auto paddedOutputSpatialShape = [&] {
+    std::vector<unsigned> r;
+    r.push_back(params.batchSize);
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      r.push_back(params.getOutputSize(d));
+    }
+    return r;
+  }();
+
   const auto inputSpatialShape = [&] {
-    auto r = inputFieldShape;
+    auto r = vectorConvert<unsigned>(params.inputFieldShape);
     r.insert(r.begin(), params.batchSize);
     return r;
   }();
@@ -3381,10 +3405,10 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
   std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
                                                      numSubKernels);
 
-  const auto numFieldElems = product(outputFieldShape) * params.batchSize;
+  const auto numFieldElems = product(outputSpatialShape);
   const unsigned fieldElemsPerWorker =
       ceildiv(numFieldElems, numWorkerContexts);
-  const unsigned fieldElemsPerRow = outputFieldShape.back();
+  const unsigned fieldElemsPerRow = outputSpatialShape.back();
   unsigned remainingFieldElems = numFieldElems;
 
   for (unsigned context = 0; context < numWorkerContexts; ++context) {
@@ -3395,13 +3419,25 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
       auto kernelPosition = unflattenIndex(kernelGroups, kg);
       kernelPosition.back() *= slicWindowWidth;
 
-      const auto calcInOffset = [&](const unsigned outOffset) {
-        auto inputOffsets = unflattenIndex(outputSpatialShape, outOffset);
+      const auto calcInOffset = [&](const unsigned unpaddedOutOffset) {
+        auto inputOffsets =
+            unflattenIndex(outputSpatialShape, unpaddedOutOffset);
         for (unsigned d = 0; d < params.getNumFieldDims(); ++d) {
           // +1 because outer-most dimension is batch size.
           inputOffsets[d + 1] += kernelPosition[d];
         }
         return flattenIndex(inputSpatialShape, inputOffsets);
+      };
+
+      // transform outOffset into paddedOutOffset
+      const auto calcPaddedOffset = [&](const unsigned unpaddedOutOffset) {
+        auto paddedOutputOffsets =
+            unflattenIndex(outputSpatialShape, unpaddedOutOffset);
+        for (unsigned d = 0; d < numFieldDims; ++d) {
+          // +1 because outer-most dimension is batch size.
+          paddedOutputOffsets[d + 1] += params.outputTransform.paddingLower[d];
+        }
+        return flattenIndex(paddedOutputSpatialShape, paddedOutputOffsets);
       };
 
       unsigned remainingElemsThisContext = fieldElemsThisContext;
@@ -3410,11 +3446,12 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
             std::min((fieldElemsPerRow - (outOffset % fieldElemsPerRow)),
                      remainingElemsThisContext);
         const auto inOffset = calcInOffset(outOffset);
+        const auto paddedOutOffset = calcPaddedOffset(outOffset);
         worklists[kg * numWorkerContexts + context].push_back(inOffset);
-        worklists[kg * numWorkerContexts + context].push_back(outOffset);
+        worklists[kg * numWorkerContexts + context].push_back(paddedOutOffset);
         worklists[kg * numWorkerContexts + context].push_back(elemsThisRow);
         useShortTypes &= (inOffset <= maxShortWorklistValue &&
-                          outOffset <= maxShortWorklistValue &&
+                          paddedOutOffset <= maxShortWorklistValue &&
                           elemsThisRow <= maxShortWorklistValue);
         useShortTypes &= (std::max(elemsThisRow, 5u) - 5 <= maxRptCount);
         outOffset += elemsThisRow;
@@ -3460,6 +3497,36 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
     inWindow.push_back(in[cg][0].flatten());
   }
 
+  // explicitly apply output padding. TODO: this is not modelled in the planner
+  const auto outputPaddingCs = graph.addComputeSet("outputPadding");
+  {
+    // dims before the spatial dims are G1, OC1 and B.
+    unsigned spatialDimOffset = 3;
+
+    auto outWithPadding = out;
+    const auto &ot = params.outputTransform;
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      const unsigned spatialDim = spatialDimOffset + d;
+
+      const auto &shape = outWithPadding.shape();
+      const unsigned N = shape[spatialDim];
+
+      // add zeros to the padding.
+      popops::zero(graph,
+                   outWithPadding.slice(0, ot.paddingLower[d], spatialDim),
+                   tile, outputPaddingCs);
+      popops::zero(graph,
+                   outWithPadding.slice(N - ot.paddingUpper[d], N, spatialDim),
+                   tile, outputPaddingCs);
+
+      // prune the padding off of the tensor so that we don't repad elements
+      // when we pad the next dimension.
+      outWithPadding = outWithPadding.slice(ot.paddingLower[d],
+                                            N - ot.paddingUpper[d], spatialDim);
+    }
+  }
+  transformPre.add(Execute(outputPaddingCs));
+
   // We also need an extra buffer for our vertex, 16-byte aligned, with size
   // equal the number of output elements per conv group group, plus 8 bytes to
   // enforce (&out[i][0] - &outFieldBuffer[0]) % 16 == 8 so that we
@@ -3475,9 +3542,11 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
   assert(extraBytes % 16 == 8);
   assert(extraBytes % target.getTypeSize(partialsType) == 0);
   const auto extraOutputElems = extraBytes / target.getTypeSize(partialsType);
+  const auto numFieldElemsIncludingPadding = product(paddedOutputSpatialShape);
   const auto outFieldBuffer = graph.addVariable(
       partialsType,
-      {extraOutputElems + numFieldElems * convGroupsPerGroup * chansPerGroup},
+      {extraOutputElems +
+       numFieldElemsIncludingPadding * convGroupsPerGroup * chansPerGroup},
       "outFieldBuffer");
   graph.setTileMapping(outFieldBuffer, tile);
 

@@ -15,10 +15,12 @@
 #include <poplibs_test/Util.hpp>
 
 #include <poplin/codelets.hpp>
+#include <popops/codelets.hpp>
 
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 
+#include <popops/Zero.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
@@ -53,6 +55,8 @@ int main(int argc, char **argv) try {
 
   ShapeOption<std::size_t> inputFieldSizeOption;
   ShapeOption<std::size_t> kernelSizeOption;
+  ShapeOption<unsigned> outputPaddingLower(0);
+  ShapeOption<unsigned> outputPaddingUpper(0);
   unsigned batchSize = 1;
 
   Type inputType = HALF;
@@ -99,6 +103,12 @@ int main(int argc, char **argv) try {
     ("partials-type",
      po::value<Type>(&partialsType)->default_value(partialsType),
      "Partials type")
+    ("output-padding-lower",
+     po::value<ShapeOption<unsigned>>(&outputPaddingLower),
+     "Output padding lower")
+    ("output-padding-upper",
+     po::value<ShapeOption<unsigned>>(&outputPaddingUpper),
+     "Output padding upper")
     ("allow-cpp-codelet", "Allow fallback to C++ codelet rather than erroring")
   ;
   // clang-format on
@@ -179,14 +189,21 @@ int main(int argc, char **argv) try {
   kernelSizeOption.broadcast(numFieldDims);
   const auto &kernelSize = kernelSizeOption.val;
 
+  outputPaddingLower.broadcast(numFieldDims);
+  outputPaddingUpper.broadcast(numFieldDims);
+
   std::vector<std::size_t> outputFieldSize(inputFieldSize.size());
+  std::vector<std::size_t> paddedOutputFieldSize(inputFieldSize.size());
   for (unsigned d = 0; d < numFieldDims; ++d) {
     outputFieldSize[d] = inputFieldSize[d] - kernelSize[d] + 1;
+    paddedOutputFieldSize[d] =
+        outputPaddingLower[d] + outputFieldSize[d] + outputPaddingUpper[d];
   }
   auto device = createTestDevice(deviceType, 1, 1);
   const auto &target = device.getTarget();
   Graph graph(target);
   poplin::addCodelets(graph);
+  popops::addCodelets(graph);
 
   // Create input, weights, output
   std::vector<std::size_t> inShape = {convGroupGroups, inChanGroups, batchSize};
@@ -199,14 +216,15 @@ int main(int argc, char **argv) try {
                       {convGroupsPerGroup, chansPerGroup, chansPerGroup});
   std::vector<std::size_t> outputShape = {convGroupGroups, outChanGroups,
                                           batchSize};
-  outputShape.insert(outputShape.end(), outputFieldSize.begin(),
-                     outputFieldSize.end());
+  outputShape.insert(outputShape.end(), paddedOutputFieldSize.begin(),
+                     paddedOutputFieldSize.end());
   outputShape.insert(outputShape.end(), {convGroupsPerGroup, chansPerGroup});
 
   const auto inGrouped = graph.addVariable(inputType, inShape, "in");
   const auto weightsGrouped =
       graph.addVariable(inputType, weightsShape, "weights");
   const auto outGrouped = graph.addVariable(partialsType, outputShape, "out");
+
   graph.setTileMapping(inGrouped, 0);
   graph.setTileMapping(weightsGrouped, 0);
   graph.setTileMapping(outGrouped, 0);
@@ -216,6 +234,12 @@ int main(int argc, char **argv) try {
   std::cout << "\n";
   std::cout << "weightsGrouped.shape()=";
   printContainer(weightsShape, std::cout);
+  std::cout << "\n";
+  std::cout << "outputPaddingLower=";
+  printContainer(outputPaddingLower, std::cout);
+  std::cout << "\n";
+  std::cout << "outputPaddingUpper=";
+  printContainer(outputPaddingUpper, std::cout);
   std::cout << "\n";
   std::cout << "outputGrouped.shape()=";
   printContainer(outputShape, std::cout);
@@ -239,6 +263,11 @@ int main(int argc, char **argv) try {
     r.insert(r.begin(), batchSize);
     return r;
   }();
+  const auto paddedOutputSpatialSize = [&] {
+    auto r = paddedOutputFieldSize;
+    r.insert(r.begin(), batchSize);
+    return r;
+  }();
   const auto numWorkers = target.getNumWorkerContexts();
   const unsigned numFieldElems = product(outputSpatialSize);
   const auto fieldElemsPerWorker = ceildiv(numFieldElems, numWorkers);
@@ -258,6 +287,7 @@ int main(int argc, char **argv) try {
                                                      numSubKernels);
   const unsigned fieldElemsPerRow = outputFieldSize.back();
   unsigned remainingFieldElems = numFieldElems;
+
   for (unsigned context = 0; context < numWorkers; ++context) {
     const unsigned fieldElemsThisContext =
         std::min(remainingFieldElems, fieldElemsPerWorker);
@@ -266,13 +296,25 @@ int main(int argc, char **argv) try {
       auto kernelPosition = unflattenIndex(kernelSizeGroups, kg);
       kernelPosition.back() *= 4;
 
-      const auto calcInOffset = [&](const unsigned outOffset) {
-        auto inputOffsets = unflattenIndex(outputSpatialSize, outOffset);
+      const auto calcInOffset = [&](const unsigned unpaddedOutOffset) {
+        auto inputOffsets =
+            unflattenIndex(outputSpatialSize, unpaddedOutOffset);
         for (unsigned d = 0; d < numFieldDims; ++d) {
           // +1 because outer-most dimension is batch size.
           inputOffsets[d + 1] += kernelPosition[d];
         }
         return flattenIndex(inputSpatialSize, inputOffsets);
+      };
+
+      // transform outOffset into paddedOutOffset
+      const auto calcPaddedOffset = [&](const unsigned unpaddedOutOffset) {
+        auto paddedOutputOffsets =
+            unflattenIndex(outputSpatialSize, unpaddedOutOffset);
+        for (unsigned d = 0; d < numFieldDims; ++d) {
+          // +1 because outer-most dimension is batch size.
+          paddedOutputOffsets[d + 1] += outputPaddingLower[d];
+        }
+        return flattenIndex(paddedOutputSpatialSize, paddedOutputOffsets);
       };
 
       unsigned remainingElemsThisContext = fieldElemsThisContext;
@@ -281,11 +323,12 @@ int main(int argc, char **argv) try {
             std::min((fieldElemsPerRow - (outOffset % fieldElemsPerRow)),
                      remainingElemsThisContext);
         const auto inOffset = calcInOffset(outOffset);
+        const auto paddedOutOffset = calcPaddedOffset(outOffset);
         worklists[kg * numWorkers + context].push_back(inOffset);
-        worklists[kg * numWorkers + context].push_back(outOffset);
+        worklists[kg * numWorkers + context].push_back(paddedOutOffset);
         worklists[kg * numWorkers + context].push_back(elemsThisRow);
         useShortTypes &= (inOffset <= maxShortWorklistValue &&
-                          outOffset <= maxShortWorklistValue &&
+                          paddedOutOffset <= maxShortWorklistValue &&
                           elemsThisRow <= maxShortWorklistValue);
         useShortTypes &= (std::max(elemsThisRow, 5u) - 5 <= maxRptCount);
         outOffset += elemsThisRow;
@@ -367,6 +410,15 @@ int main(int argc, char **argv) try {
                         "were exceeded. Use --allow-cpp-codelet to continue");
   }
 
+  Sequence prog;
+
+  // fill the output with NaNs
+  const auto outGroupedFlattened = outGrouped.flatten();
+  const auto nan =
+      graph.addConstant(partialsType, outGroupedFlattened.shape(), NAN);
+  graph.setTileMapping(nan, 0);
+  prog.add(Copy(nan, outGroupedFlattened));
+
   // Now create a vertex on our 1 tile to perform this convolution.
   const auto cs = graph.addComputeSet("Convolve");
   const auto vertexClass = templateVertex(
@@ -389,6 +441,38 @@ int main(int argc, char **argv) try {
   graph.setInitialValue(v["outPtrLoadOffset"], (numSubKernels % 2) ? 0 : 4);
   graph.setInitialValue(v["numSubKernelsM1"], numSubKernels - 1);
   graph.setInitialValue(v["numConvGroupGroupsM1"], convGroupGroups - 1);
+
+  prog.add(Execute(cs));
+
+  // explicitly zero all of the output padding.
+  const auto zeroCs = graph.addComputeSet("zeroCs");
+  {
+    // dims before the spatial dims are G1, OC1 and B.
+    unsigned spatialDimOffset = 3;
+
+    auto outGroupedPartial = outGrouped;
+    for (unsigned d = 0; d < numFieldDims; ++d) {
+      const unsigned spatialDim = spatialDimOffset + d;
+
+      const auto &shape = outGroupedPartial.shape();
+      const unsigned N = shape[spatialDim];
+
+      // add zeros to the padding.
+      popops::zero(
+          graph, outGroupedPartial.slice(0, outputPaddingLower[d], spatialDim),
+          0, zeroCs);
+      popops::zero(
+          graph,
+          outGroupedPartial.slice(N - outputPaddingUpper[d], N, spatialDim), 0,
+          zeroCs);
+
+      // prune the padding off of the tensor so that we don't repad elements
+      // when we pad the next dimension.
+      outGroupedPartial = outGroupedPartial.slice(
+          outputPaddingLower[d], N - outputPaddingUpper[d], spatialDim);
+    }
+  }
+  prog.add(Execute(zeroCs));
 
   // Get ordinary view of input/weights/output without grouping for reference
   // etc.
@@ -417,6 +501,9 @@ int main(int argc, char **argv) try {
   std::cout << "output.shape()=";
   printContainer(out.shape(), std::cout);
   std::cout << "\n";
+  std::cout << "worklists=";
+  printContainer(worklists, std::cout);
+  std::cout << "\n";
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -438,8 +525,7 @@ int main(int argc, char **argv) try {
     debugSeqOut.add(PrintTensor(out));
   }
   Engine engine(
-      graph,
-      Sequence(uploadProg, debugSeqIn, Execute(cs), debugSeqOut, downloadProg),
+      graph, Sequence(uploadProg, debugSeqIn, prog, debugSeqOut, downloadProg),
       engineOptions);
 
   attachStreams(engine, tmap);
@@ -450,7 +536,7 @@ int main(int argc, char **argv) try {
       boost::extents[convGroups][outChans][inChans][product(kernelSize)]);
   boost::multi_array<double, 3> hostOut(
       boost::extents[batchSize][convGroups * outChans]
-                    [product(outputFieldSize)]);
+                    [product(paddedOutputFieldSize)]);
   // 0 biases just for the reference convolution implementation.
   boost::multi_array<double, 1> hostBiases(
       boost::extents[convGroups * outChans]);
@@ -484,7 +570,9 @@ int main(int argc, char **argv) try {
   if (!ignoreData) {
     boost::multi_array<double, 3> modelOut(
         boost::extents[batchSize][convGroups * outChans]
-                      [product(outputFieldSize)]);
+                      [product(paddedOutputFieldSize)]);
+    std::vector<unsigned> modelOutputPaddingLower = outputPaddingLower;
+    std::vector<unsigned> modelOutputPaddingUpper = outputPaddingUpper;
     poplibs_test::conv::convolution(
         // Input:
         vectorConvert<unsigned>(inputFieldSize),
@@ -506,12 +594,21 @@ int main(int argc, char **argv) try {
         std::vector<unsigned>(numFieldDims, 0), // truncationLower
         std::vector<unsigned>(numFieldDims, 0), // truncationUpper
         std::vector<unsigned>(numFieldDims, 1), // stride
-        std::vector<unsigned>(numFieldDims, 0), // paddingLower
-        std::vector<unsigned>(numFieldDims, 0), // paddingUpper
+        modelOutputPaddingLower,                // paddingLower
+        modelOutputPaddingUpper,                // paddingUpper
         // Buffers:
         hostIn, hostWeights, hostBiases, modelOut);
 
     copy(target, partialsType, rawHostOut.get(), hostOut);
+
+    std::cout << "\nOutputs[" << hostOut.num_elements() << "]: ";
+    printMultiArrayContents(std::cout, hostOut);
+    std::cout << "\n";
+
+    std::cout << "\nModel[" << modelOut.num_elements() << "]: ";
+    printMultiArrayContents(std::cout, modelOut);
+    std::cout << "\n";
+
     bool matchesModel =
         checkIsClose("fwd", hostOut, modelOut, HALF_REL_TOL, HALF_ABS_TOL);
     if (!matchesModel) {
