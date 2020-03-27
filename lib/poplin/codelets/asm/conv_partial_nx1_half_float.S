@@ -131,8 +131,8 @@
 //
 // Performance: 14 + num_samples / 2
 
-DEF_STACK_USAGE 0 convNx1ZeroOutFieldFloat FUNCTION_IS_WORKER
-.section ".text.convNx1ZeroOutFieldFloat", "ax"
+DEF_STACK_USAGE 0 convNx1ZeroOutFieldFloat
+.section ".text.convNx1ZeroOutFieldFloat", FUNCTION_IS_WORKER
 .global convNx1ZeroOutFieldFloat
 .type convNx1ZeroOutFieldFloat, @function
 .align 8

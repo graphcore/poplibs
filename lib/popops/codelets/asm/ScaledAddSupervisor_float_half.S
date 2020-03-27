@@ -192,8 +192,8 @@ SUPERVISOR_ENTRY float_half_float_true_false 1 0 float_scale
 
 .type VERTEX(float_half).kernel, @function
 
-DEF_STACK_USAGE 0 VERTEX(float_half).kernel FUNCTION_IS_WORKER
-.section .text.VERTEX(float_half).kernel
+DEF_STACK_USAGE 0 VERTEX(float_half).kernel
+.section .text.VERTEX(float_half).kernel, FUNCTION_IS_WORKER
 .align 8
 VERTEX(float_half).kernel:
 .worker

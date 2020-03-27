@@ -779,8 +779,8 @@ VERTEX(supervisor):
 
 .type VERTEX(float).kernel, @function
 
-DEF_STACK_USAGE  0  VERTEX(float).kernel  FUNCTION_IS_WORKER
-.section .text.VERTEX(float).kernel
+DEF_STACK_USAGE  0  VERTEX(float).kernel
+.section .text.VERTEX(float).kernel, FUNCTION_IS_WORKER
 .align 8
 .worker
   nop // rpt alignment
@@ -921,8 +921,8 @@ VERTEX(float).kernel:
 //******************************************************************************
 .type VERTEX(half).kernel, @function
 
-DEF_STACK_USAGE  0  .text.VERTEX(half).kernel  FUNCTION_IS_WORKER
-.section .text.VERTEX(half).kernel
+DEF_STACK_USAGE  0  .text.VERTEX(half).kernel
+.section .text.VERTEX(half).kernel, FUNCTION_IS_WORKER
 
 .globl VERTEX(half_half_float_continue)
 
@@ -1336,8 +1336,8 @@ not_xminusaxplusby_continue:
 
 .type VERTEX(half_float).kernel, @function
 
-DEF_STACK_USAGE 0 VERTEX(half_float).kernel FUNCTION_IS_WORKER
-.section .text.VERTEX(half_float).kernel
+DEF_STACK_USAGE 0 VERTEX(half_float).kernel
+.section .text.VERTEX(half_float).kernel, FUNCTION_IS_WORKER
 
 // Alignment to ensure repeat body is 8 byte aligned
 .align 8

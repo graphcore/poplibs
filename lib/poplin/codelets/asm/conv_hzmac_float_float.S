@@ -108,8 +108,8 @@
 // Otherwise:
 //      19 + num_fp * (7 + outChansPerGroup * (6 + 2*(inChansPerGroup - 1)))
 
-DEF_STACK_USAGE 0 convHorizMacFlattened_float_float FUNCTION_IS_WORKER
-.section ".text.convHorizMacFlattened_float_float", "ax"
+DEF_STACK_USAGE 0 convHorizMacFlattened_float_float
+.section ".text.convHorizMacFlattened_float_float", FUNCTION_IS_WORKER
 .type convHorizMacFlattened_float_float, @function
 .align 8
 .worker

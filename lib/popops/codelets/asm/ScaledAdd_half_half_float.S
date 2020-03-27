@@ -90,8 +90,8 @@
 //  NOTE: The final store instruction should be executed by the calling program
 //        immediately after the function has returned.
 //
-DEF_STACK_USAGE  0  scaled_add_data_half_factor_float  FUNCTION_IS_WORKER
-.section .text.scaled_add_data_half_factor_float
+DEF_STACK_USAGE  0  scaled_add_data_half_factor_float
+.section .text.scaled_add_data_half_factor_float, FUNCTION_IS_WORKER
 .type scaled_add_data_half_factor_float, @function
 
 .align 8
@@ -566,8 +566,8 @@ VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
 
 .type VERTEX_SV_SCALE_FLOAT_COMMON, @function
 
-DEF_STACK_SIZE_OWN  0  VERTEX_SV_SCALE_FLOAT_COMMON  FUNCTION_IS_WORKER
-.section .text.VERTEX_SV_SCALE_FLOAT_COMMON
+DEF_STACK_SIZE_OWN  0  VERTEX_SV_SCALE_FLOAT_COMMON
+.section .text.VERTEX_SV_SCALE_FLOAT_COMMON, FUNCTION_IS_WORKER
 .align 4
 // Worker entry point used first by the supervisor to check the accuracy of
 // the float scale when cast to a half.
