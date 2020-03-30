@@ -1015,6 +1015,15 @@ void ReplicatedCollectives::replicatedAllReduceWithOutput(
   logging::debug("Replicated all reduce end");
 }
 
+void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
+                                popops::Operation op,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix,
+                                const poplar::OptionFlags &options) {
+  return replicatedAllReduceWithOutput(graph, data, data, op, prog, debugPrefix,
+                                       options);
+}
+
 Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
                            const std::string &debugPrefix,

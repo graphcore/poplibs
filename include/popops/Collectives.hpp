@@ -143,6 +143,21 @@ void replicatedAllReduceWithOutput(poplar::Graph &graph,
                                    const poplar::OptionFlags &options = {});
 
 /// Perform an all-reduce operation on the specified replicated tensor.
+/// This operation reduces across the tensors the replicated tensor is a handle
+/// for. The result is written to back to the input data tensor.
+/// \param graph The replicated graph the input tensor belongs to.
+/// \param data The replicated tensor to reduce and written to.
+/// \param op The reduction operator (for example, `Operation::ADD`)
+/// \param prog The program sequence to add operations to.
+/// \param debugPrefix String used as a prefix for compute sets.
+/// \param options Collective options. See reduceScatter().
+void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
+                                popops::Operation op,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "",
+                                const poplar::OptionFlags &options = {});
+
+/// Perform an all-reduce operation on the specified replicated tensor.
 /// This variant of replicatedAllReduce() is deprecated and may be removed
 /// in future.
 poplar::Tensor replicatedAllReduce(poplar::Graph &graph,

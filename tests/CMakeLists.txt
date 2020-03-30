@@ -2877,36 +2877,42 @@ foreach(collective all_reduce)
                  clockwise_ring
                  anticlockwise_ring)
     foreach(num_ipus 2 4 8 16)
-      add_multitarget_test(
-        NAME replicated_collective_${method}_${collective}_${num_ipus}ipus
-        COMMAND replicated_collectives
-                --use-replicated-implementation
-                --reduction-operator=ADD
-                --collective=${collective}
-                --ipus=${num_ipus}
-                --tiles-per-ipu=64
-                --elements=1024
-                --method=${method}
-                --shuffle-mapping=true
-        LABELS Collectives
-        VARIANTS ${IPUMODEL_VARIANTS})
+     foreach(in_place false true)
+	add_multitarget_test(
+	  NAME replicated_collective_${method}_${collective}_${num_ipus}ipus_${in_place}
+	  COMMAND replicated_collectives
+		  --use-replicated-implementation
+		  --reduction-operator=ADD
+		  --collective=${collective}
+		  --ipus=${num_ipus}
+		  --tiles-per-ipu=64
+		  --elements=1024
+		  --method=${method}
+		  --shuffle-mapping=true
+                  --in-place=${in_place}
+	  LABELS Collectives
+	  VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
     endforeach()
   endforeach()
 
   foreach(ipus_per_rank 2 4 8)
-    add_multitarget_test(
-      NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank
-      COMMAND replicated_collectives
-              --use-replicated-implementation
-              --reduction-operator=ADD
-              --collective=${collective}
-              --ipus-per-rank=${ipus_per_rank}
-              --ipus=8
-              --tiles-per-ipu=64
-              --elements=1291
-              --shuffle-mapping=true
-      LABELS Collectives
-      VARIANTS ${IPUMODEL_VARIANTS})
+    foreach(in_place false true)
+      add_multitarget_test(
+	NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${in_place}
+	COMMAND replicated_collectives
+		--use-replicated-implementation
+		--reduction-operator=ADD
+		--collective=${collective}
+		--ipus-per-rank=${ipus_per_rank}
+		--ipus=8
+		--tiles-per-ipu=64
+		--elements=1291
+		--shuffle-mapping=true
+                --in-place=${in_place}
+	LABELS Collectives
+	VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
   endforeach()
 
   foreach(ipus_per_rank 1 2 4)

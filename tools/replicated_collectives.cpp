@@ -201,6 +201,7 @@ int main(int argc, char **argv) {
   // Some GCL config only support collectives on 1 side of the ladder
   // so add option to force the entire tensor onto single ipu
   bool forceMapping = false;
+  bool inPlace = false;
   unsigned forceIpu = 0;
   po::options_description desc("Options");
   // clang-format off
@@ -230,6 +231,8 @@ int main(int argc, char **argv) {
      "Number of tiles per IPU")
     ("ipus", po::value(&numIPUs)->default_value(4),
      "Number of IPUs")
+    ("in-place", po::value(&inPlace)->default_value(false),
+      "Whether to do the operation in place")
     ("method",
      po::value(&collectiveMethod)->default_value(collectiveMethod),
      "Reduce method: auto | clockwise_ring | anticlockwise_ring | "
@@ -251,6 +254,11 @@ int main(int argc, char **argv) {
 
   if (vm.count("help") != 0) {
     std::cout << desc << "\n\n";
+    return 1;
+  }
+
+  if (iterations != 1 && inPlace) {
+    std::cerr << "Can't operate in place for multiple iterations\n";
     return 1;
   }
 
@@ -314,8 +322,16 @@ int main(int argc, char **argv) {
   input = createTensorToReduce(graph, type, numElements, shuffleMapping,
                                forceMapping, forceIpu);
   output = createOnIpuShuffled(graph, type, input);
-  popops::replicatedAllReduceWithOutput(graph, input, output, reduceOp, prog,
-                                        "allReduce", options);
+  if (inPlace) {
+    popops::replicatedAllReduceInPlace(graph, input, reduceOp, prog,
+                                       "allReduce", options);
+    // input gets zeroed before we read the output back in
+    // allocateHostMemoryForTensor
+    prog.add(Copy(input, output));
+  } else {
+    popops::replicatedAllReduceWithOutput(graph, input, output, reduceOp, prog,
+                                          "allReduce", options);
+  }
   bool doAllGather = collectiveOp == CollectiveOp::ALL_GATHER ||
                      collectiveOp == CollectiveOp::ALL_REDUCE;
   bool doReduceScatter = collectiveOp == CollectiveOp::REDUCE_SCATTER ||
