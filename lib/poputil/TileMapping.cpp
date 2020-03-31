@@ -68,7 +68,6 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
                           grainSize);
 }
 
-
 void mapOutputForElementWiseOp(poplar::Graph &graph,
                                const std::vector<poplar::Tensor> &inputs,
                                const poplar::Tensor &output, unsigned grainSize,

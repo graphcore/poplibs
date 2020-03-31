@@ -50,7 +50,6 @@ std::size_t getMinElementsPerTile(const Graph &graph, const Tensor &tensor) {
 
 } // namespace
 
-
 BOOST_AUTO_TEST_CASE(ElementWiseBasic) {
   constexpr static std::size_t numTiles = 13;
   constexpr static std::size_t nElems = 1000;
