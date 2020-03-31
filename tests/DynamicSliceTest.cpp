@@ -508,6 +508,7 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   BOOST_CHECK(d2_idx < d0_idx);
 }
 
+#if 0
 BOOST_AUTO_TEST_CASE(ImbalanceTest) {
   auto T = 4u;
   auto device = createTestDevice(TEST_TARGET, 1, T);
@@ -533,7 +534,7 @@ BOOST_AUTO_TEST_CASE(ImbalanceTest) {
   BOOST_CHECK_EQUAL(s2.dim(0), N);
   BOOST_CHECK_EQUAL(getTileImbalance(graph, s2), 0);
 }
-
+#endif
 BOOST_AUTO_TEST_CASE(LargeTensorSlice) {
   // This test should pass with large T - but graph construction becomes
   // slow (a couple of minutes for T=1024)

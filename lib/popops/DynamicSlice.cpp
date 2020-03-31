@@ -894,7 +894,6 @@ static Tensor slice(Graph &graph, const Tensor &t, const Tensor &offset,
   Tensor s = graph.clone(t.slice(0, numOutIndices, dim),
                          debugPrefix + "/sliced_" + std::to_string(dim));
 
-  rebalanceTensor(graph, s);
   if (prog != nullptr) {
     Tensor s2d = s.dimRoll(dim).reshape(
         {numOutIndices, s.numElements() / numOutIndices});

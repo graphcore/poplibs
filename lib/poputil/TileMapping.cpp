@@ -68,104 +68,6 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
                           grainSize);
 }
 
-static void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                            const poplar::Graph::TileToTensorMapping &mapping,
-                            unsigned minElementsPerTile, unsigned grainSize,
-                            unsigned imbalanceThreshold) {
-  auto imbalance = getTileImbalance(mapping);
-  if (imbalance <= imbalanceThreshold)
-    return;
-
-  if (grainSize > minElementsPerTile)
-    minElementsPerTile = grainSize;
-
-  unsigned numTiles = mapping.size();
-  std::vector<unsigned> numElemsPerTile(numTiles);
-  std::vector<unsigned> targetElemsPerTile(numTiles);
-  unsigned totalElems = 0;
-
-  for (unsigned i = 0; i < numTiles; ++i) {
-    const auto &regions = mapping[i];
-    unsigned numElems = std::accumulate(
-        regions.begin(), regions.end(), 0U,
-        [](unsigned sum, const poplar::Interval &i) { return sum + i.size(); });
-    numElemsPerTile[i] = numElems;
-    totalElems += numElems;
-  }
-
-  // If we cannot spread the tensor over all tiles then do not bother
-  // rebalancing. TODO: T12983 Handle this case to balance over a smaller set of
-  // tiles.
-  if (totalElems / numTiles < minElementsPerTile)
-    return;
-
-  // Keep track of the tiles that have fewer than their required number of
-  // elements.
-  std::set<unsigned> lightTiles;
-
-  auto numGrains = (totalElems + grainSize - 1) / grainSize;
-  for (unsigned i = 0; i < numTiles; ++i) {
-    auto beginGrain = ((i * numGrains) / numTiles);
-    auto endGrain = (((i + 1) * numGrains) / numTiles);
-    auto beginElem = beginGrain * grainSize;
-    auto endElem = std::min(endGrain * grainSize, totalElems);
-    targetElemsPerTile[i] = endElem - beginElem;
-    if (targetElemsPerTile[i] > numElemsPerTile[i]) {
-      lightTiles.insert(i);
-    }
-  }
-
-  auto newMapping = mapping;
-  for (unsigned i = 0; i < numTiles; ++i) {
-    if (targetElemsPerTile[i] >= numElemsPerTile[i])
-      continue;
-    auto elemsToMove = numElemsPerTile[i] - targetElemsPerTile[i];
-    for (auto it = lightTiles.begin(); elemsToMove != 0;) {
-      auto dst = *it;
-      auto space = targetElemsPerTile[dst] - numElemsPerTile[dst];
-      auto N = std::min(elemsToMove, space);
-
-      elemsToMove -= N;
-      numElemsPerTile[i] -= N;
-      numElemsPerTile[dst] += N;
-      auto &srcRegions = newMapping[i];
-      auto &dstRegions = newMapping[dst];
-      for (auto regionIt = srcRegions.begin(); N != 0;) {
-        auto R = regionIt->size();
-
-        if (R <= N) {
-          dstRegions.push_back(*regionIt);
-          regionIt = srcRegions.erase(regionIt);
-          N -= R;
-        } else {
-          auto a = regionIt->begin();
-          auto b = regionIt->begin() + N;
-          auto c = regionIt->begin() + R;
-          dstRegions.push_back(poplar::Interval(a, b));
-          *regionIt = poplar::Interval(b, c);
-          N = 0;
-          ++regionIt;
-        }
-      }
-      if (numElemsPerTile[dst] == targetElemsPerTile[dst]) {
-        auto next = std::next(it);
-        lightTiles.erase(it);
-        it = next;
-      } else {
-        ++it;
-      }
-    }
-  }
-
-  graph.setTileMapping(t, newMapping);
-}
-
-void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                     unsigned minElementsPerTile, unsigned grainSize,
-                     unsigned imbalanceThreshold) {
-  rebalanceTensor(graph, t, graph.getTileMapping(t), minElementsPerTile,
-                  grainSize, imbalanceThreshold);
-}
 
 void mapOutputForElementWiseOp(poplar::Graph &graph,
                                const std::vector<poplar::Tensor> &inputs,
@@ -249,21 +151,6 @@ void mapOutputForElementWiseOp(poplar::Graph &graph,
     poputil::mapTensorLinearly(graph, output, minGrainsPerTile * grainSize,
                                grainSize);
   }
-}
-
-// This value is set rather arbitrarily to match the default min elements
-// per tile in the other mapping functions.
-static const unsigned DEFAULT_IMBALANCE_THRESHOLD = 128;
-
-void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t) {
-  const auto dType = t.elementType();
-  const auto &target = graph.getTarget();
-  const auto typeSize = target.getTypeSize(dType);
-  unsigned grainSize = target.getVectorWidth(dType);
-  const auto minBytesPerTile = 128;
-  const auto minElementsPerTile = (minBytesPerTile + typeSize - 1) / typeSize;
-  rebalanceTensor(graph, t, grainSize, minElementsPerTile,
-                  DEFAULT_IMBALANCE_THRESHOLD);
 }
 
 poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,

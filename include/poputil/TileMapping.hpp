@@ -62,29 +62,6 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
                           unsigned minElementsPerTile = 0,
                           unsigned grainSize = 1);
 
-/** Update a tensor's tile mapping to be balanced over tiles
- *
- *  \param graph The graph to which the tensor belongs.
- *  \param t The tensor to rebalance.
- *  \param minElementsPerTile The minimum number of elements per tile.
- *  \param grainSize The "grain size" i.e. atomic grains used to
- *                   split of elements over tiles.
- *  \param imbalanceThreshold This value is checked against the current
- *                            tensor tile imbalance and if the imbalance
- *                            is less than this value, the tile mapping
- *                            will not be altered.
- */
-void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t,
-                     unsigned minElementsPerTile, unsigned grainSize,
-                     unsigned imbalanceThreshold);
-
-/** Update a tensor's tile mapping to be balanced over tiles
- *
- *  \param graph The graph to which the tensor belongs.
- *  \param t The tensor to rebalance.
- */
-void rebalanceTensor(poplar::Graph &graph, const poplar::Tensor &t);
-
 /** Update a tensor's tile mapping such that when it is used as the
  *  output of an element-wise operation (operation with no dependency
  *  between more than one element of the output and any given element
