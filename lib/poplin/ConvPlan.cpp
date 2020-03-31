@@ -4157,6 +4157,13 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   if (constrainedMethod) {
     methodCandidates.push_back(*constrainedMethod);
   } else {
+
+    // Disable SLIC until T18365 is fixed
+    bool disableSLIC = options.pass == Pass::FC_INFERENCE_FWD ||
+                       options.pass == Pass::FC_TRAINING_BWD ||
+                       options.pass == Pass::FC_TRAINING_FWD ||
+                       options.pass == Pass::FC_TRAINING_WU;
+
     // the order here should be in most-likely-best first for performance
     // because the planner constrains future models against the current best.
     methodCandidates = {
@@ -4165,6 +4172,10 @@ getConvVertexTypeCandidates(const poplar::Target &target,
         Plan::Method::MAC,
         Plan::Method::OUTER_PRODUCT,
     };
+
+    if (disableSLIC) {
+      methodCandidates.erase(methodCandidates.begin() + 1);
+    }
   }
 
   // All the following methods assume half or float input/partial types.
