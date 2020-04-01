@@ -285,7 +285,8 @@ bidirectionalSequence(CollectivesProgram &clockwise,
 // Create the sequence needed for the meet in the middle collective
 poplar::program::Sequence meetInMiddleReduceScatterSequence(
     CollectivesProgram &clockwise, CollectivesProgram &anticlockwise,
-    poplar::Graph &subGraph, poplar::program::Sequence combineBuffersProg) {
+    poplar::Graph &subGraph, poplar::program::Sequence combineBuffersProg,
+    unsigned controlTile) {
   using namespace poplar;
   using namespace poplar::program;
   auto graph = subGraph.getTopLevelGraph();
@@ -296,12 +297,12 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
   const auto lastConst = graph.addConstant(
       UNSIGNED_INT, {}, clockwise.repeatCounter - 1, "lastConst");
   const auto loopCounter = graph.addVariable(UNSIGNED_INT, {}, "loopCounter");
-  graph.setTileMapping(isFirstStep, 0);
-  graph.setTileMapping(trueConst, 0);
-  graph.setTileMapping(falseConst, 0);
-  graph.setTileMapping(loopCounter, 0);
-  graph.setTileMapping(zeroConst, 0);
-  graph.setTileMapping(lastConst, 0);
+  graph.setTileMapping(isFirstStep, controlTile);
+  graph.setTileMapping(trueConst, controlTile);
+  graph.setTileMapping(falseConst, controlTile);
+  graph.setTileMapping(loopCounter, controlTile);
+  graph.setTileMapping(zeroConst, controlTile);
+  graph.setTileMapping(lastConst, controlTile);
 
   const auto clockwiseSliceFunction =
       graph.addFunction(clockwise.sliceFragments.createProgram());
@@ -351,7 +352,7 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
 poplar::program::Sequence
 meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
                               CollectivesProgram &anticlockwise,
-                              poplar::Graph &subGraph) {
+                              poplar::Graph &subGraph, unsigned controlTile) {
   using namespace poplar;
   using namespace poplar::program;
   auto graph = subGraph.getTopLevelGraph();
@@ -362,12 +363,12 @@ meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
   const auto lastConst = graph.addConstant(
       UNSIGNED_INT, {}, clockwise.repeatCounter - 1, "lastConst");
   const auto loopCounter = graph.addVariable(UNSIGNED_INT, {}, "loopCounter");
-  graph.setTileMapping(isFirstStep, 0);
-  graph.setTileMapping(trueConst, 0);
-  graph.setTileMapping(falseConst, 0);
-  graph.setTileMapping(loopCounter, 0);
-  graph.setTileMapping(zeroConst, 0);
-  graph.setTileMapping(lastConst, 0);
+  graph.setTileMapping(isFirstStep, controlTile);
+  graph.setTileMapping(trueConst, controlTile);
+  graph.setTileMapping(falseConst, controlTile);
+  graph.setTileMapping(loopCounter, controlTile);
+  graph.setTileMapping(zeroConst, controlTile);
+  graph.setTileMapping(lastConst, controlTile);
 
   const auto clockwiseSliceFunction =
       graph.addFunction(clockwise.sliceFragments.createProgram());

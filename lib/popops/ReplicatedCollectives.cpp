@@ -92,6 +92,14 @@ template <class T> std::shared_ptr<T> toStd(boost::shared_ptr<T> &p) {
   return std::shared_ptr<T>(p.get(), [p](...) mutable { p.reset(); });
 }
 
+// Picks tile for mapping scalars based on an existing mapping
+static unsigned getScalarTile(const Graph::TileToTensorMapping mapping) {
+  auto it =
+      std::find_if(mapping.begin(), mapping.end(),
+                   [](const std::vector<Interval> &iv) { return !iv.empty(); });
+  return it == mapping.end() ? 0 : std::distance(mapping.begin(), it);
+}
+
 std::shared_ptr<ReplicatedCollectivesInterface>
     ReplicatedCollectivesInterface::defaultImpl{new ReplicatedCollectives()};
 
@@ -505,7 +513,10 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   mapBuffer(graph, srcBuffer, fragments);
   auto dstBuffer = graph.clone(srcBuffer, debugPrefix + "/ScatterDst");
   auto repFactorTensor = graph.addReplicationIndexConstant();
-  graph.setTileMapping(repFactorTensor, 0);
+
+  // Map index tensor to IPU involved in this collective program
+  graph.setTileMapping(repFactorTensor,
+                       getScalarTile(graph.getTileMapping(toReduce)));
 
   // If the graph is not single image replicated we can't use different
   // branches of the switch so must use dynamic slice
@@ -607,12 +618,19 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
       graph, toReduce, op, Direction::ANTICLOCKWISE,
       debugPrefix + "/anticlockwise", numSteps - 1, anticlockwiseOffset);
 
+  unsigned topLevelControlTile =
+      graph.getReplicationFactor() ==
+              graph.getTopLevelGraph().getReplicationFactor()
+          ? getScalarTile(graph.getTopLevelGraph().getTileMapping(toReduce))
+          : 0;
+
   Sequence combineBuffers;
   opInPlace(graph, op, clockwiseProg.srcBuffer.get(),
             anticlockwiseProg.dstBuffer.get(), combineBuffers,
             debugPrefix + "/Reduce");
   prog.add(meetInMiddleReduceScatterSequence(clockwiseProg, anticlockwiseProg,
-                                             graph, std::move(combineBuffers)));
+                                             graph, std::move(combineBuffers),
+                                             topLevelControlTile));
   logging::debug("Meet in the middle ring reduce scatter end");
   return clockwiseProg.srcBuffer.get();
 }
@@ -723,7 +741,8 @@ static CollectivesProgram unidirectionalRingAllGather(
 
   program.repeatCounter = numSteps - 1;
   auto replicationIndex = graph.addReplicationIndexConstant();
-  graph.setTileMapping(replicationIndex, 0);
+  graph.setTileMapping(replicationIndex,
+                       getScalarTile(graph.getTileMapping(toGather)));
   program.sliceFragments.setSliceIndex(
       initRingIndexTensor(graph, direction, replicationIndex, program.initIndex,
                           debugPrefix, replicationFactor, startOffset));
@@ -784,14 +803,20 @@ static void ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   const int clockwiseOffset = 0;
   const int anticlockwiseOffset = 0;
 
+  unsigned topLevelControlTile =
+      graph.getReplicationFactor() ==
+              graph.getTopLevelGraph().getReplicationFactor()
+          ? getScalarTile(graph.getTopLevelGraph().getTileMapping(toGather))
+          : 0;
+
   auto clockwiseProg = unidirectionalRingAllGather(
       graph, toGather, result, Direction::CLOCKWISE, debugPrefix + "/clockwise",
       numSteps, clockwiseOffset);
   auto anticlockwiseProg = unidirectionalRingAllGather(
       graph, toGather, result, Direction::ANTICLOCKWISE,
       debugPrefix + "/clockwise", numSteps - 1, anticlockwiseOffset);
-  prog.add(
-      meetInMiddleAllGatherSequence(clockwiseProg, anticlockwiseProg, graph));
+  prog.add(meetInMiddleAllGatherSequence(clockwiseProg, anticlockwiseProg,
+                                         graph, topLevelControlTile));
 }
 
 // The IPU mapping of the result tensor determines how the gathered elements
@@ -1114,7 +1139,8 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
 
   // Add the replication constant to the graph.
   Tensor replicationFactorTensor = graph.addReplicationIndexConstant();
-  graph.setTileMapping(replicationFactorTensor, 0);
+  graph.setTileMapping(replicationFactorTensor,
+                       getScalarTile(graph.getTileMapping(input)));
 
   // The index into the tensor we are sending this iteration.
   Tensor sendIndex =
@@ -1127,7 +1153,8 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
   // The index into the tensor we are sending this iteration.
   Tensor zeroConstant =
       graph.addConstant(UNSIGNED_INT, {}, 0, debugPrefix + "/ConstantZero");
-  graph.setTileMapping(zeroConstant, 0);
+  graph.setTileMapping(zeroConstant,
+                       getScalarTile(graph.getTileMapping(input)));
 
   Tensor stepIndex =
       graph.addVariable(UNSIGNED_INT, {}, VariableMappingMethod::LINEAR,
