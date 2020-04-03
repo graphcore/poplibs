@@ -426,7 +426,7 @@ CODELET_SYMBOL(_worker_process_group):
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+      f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
 .Lworker_process_group_field_row_implicit_zero_end_\ID:
 .endm // worker_process_group_field_row_implicit_zero
