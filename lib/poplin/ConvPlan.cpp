@@ -98,20 +98,7 @@ struct PartitionVariables {
   unsigned outChanGrainSize;
 };
 
-// a description of a (sub-)convolution at a particular level in the hierarchy.
-struct ConvSize {
-  // indexed by field dimension.
-  std::vector<unsigned> numFieldGrains;
-  unsigned batchSize;
-  // indexed by kernel dimension.
-  std::vector<unsigned> kernelSize;
-
-  unsigned numConvGroupGrains;
-  unsigned numInChanGrains;
-  unsigned numOutChanGrains;
-};
-
-// constraint variables that are used to build the struct above.
+// constraint variables that specify the grain sizes of each dimension.
 struct ConvSizeVariables {
   // indexed by field dimension.
   std::vector<popsolver::Variable> numFieldGrains;
@@ -122,6 +109,16 @@ struct ConvSizeVariables {
   popsolver::Variable numConvGroupGrains;
   popsolver::Variable numInChanGrains;
   popsolver::Variable numOutChanGrains;
+};
+
+// a description of a (sub-)convolution at a particular level in the hierarchy.
+template <typename T> struct ConvSize {
+  T convGroupSize;
+  T batchSize;
+  std::vector<T> fieldSize;
+  std::vector<T> kernelSize;
+  T inChanSize;
+  T outChanSize;
 };
 
 class ExchangeEstimator {
@@ -1038,36 +1035,81 @@ static bool canUseConvPartial1x1Vertex(
   return true;
 }
 
-static ConvSize makeConvSize(const std::vector<unsigned> &values,
-                             unsigned numFieldDims) {
-  ConvSize convSize;
-  convSize.batchSize = values[0];
-  convSize.numOutChanGrains = values[1];
-  convSize.numInChanGrains = values[2];
-  convSize.numConvGroupGrains = values[3];
-  convSize.numFieldGrains.insert(convSize.numFieldGrains.begin(),
-                                 values.begin() + 4,
-                                 values.begin() + 4 + numFieldDims);
-  convSize.kernelSize.insert(convSize.kernelSize.begin(),
-                             values.begin() + 4 + numFieldDims,
-                             values.begin() + 4 + 2 * numFieldDims);
-  return convSize;
-}
+// mapping between ConvSizeVariables and the std::vector<unsigned> that is
+// passed to the callback for an m.call constraint.
+template <typename T> class ConvSizeVariablesVector {
+  // offsets for all of the variables.
+  constexpr static unsigned batchSizeOffset = 0;
+  constexpr static unsigned numConvGroupGrainsOffset = 1;
+  constexpr static unsigned numInChanGrainsOffset = 2;
+  constexpr static unsigned numOutChanGrainsOffset = 3;
+  constexpr static unsigned numFieldGrainsOffset = 4;
 
-static std::vector<unsigned>
-makeTileFieldSize(const ConvSize &convSize,
-                  const std::vector<unsigned> &fieldGrainSize) {
-  const auto numFieldDims = convSize.numFieldGrains.size();
-  std::vector<unsigned> tileFieldSize;
-  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
-    tileFieldSize.push_back(convSize.numFieldGrains[dim] * fieldGrainSize[dim]);
+public:
+  ConvSizeVariablesVector(const ConvSizeVariables &convSizeVars)
+      : values(numFieldGrainsOffset),
+        numFieldDims(convSizeVars.numFieldGrains.size()) {
+    assert(numFieldDims == convSizeVars.kernelSize.size());
+    values.at(batchSizeOffset) = convSizeVars.batchSize;
+    values.at(numConvGroupGrainsOffset) = convSizeVars.numConvGroupGrains;
+    values.at(numInChanGrainsOffset) = convSizeVars.numInChanGrains;
+    values.at(numOutChanGrainsOffset) = convSizeVars.numOutChanGrains;
+
+    values.insert(std::end(values), std::begin(convSizeVars.numFieldGrains),
+                  std::end(convSizeVars.numFieldGrains));
+    values.insert(std::end(values), std::begin(convSizeVars.kernelSize),
+                  std::end(convSizeVars.kernelSize));
   }
-  return tileFieldSize;
-}
 
-static unsigned tileNumElems(const unsigned numGrains,
-                             const unsigned grainSize) {
-  return ceildiv(numGrains * grainSize, grainSize);
+  ConvSizeVariablesVector(std::vector<T> values, unsigned numFieldDims)
+      : values(std::move(values)), numFieldDims(numFieldDims) {}
+
+  operator const std::vector<T> &() const { return values; }
+
+  T batchSize() const { return values.at(batchSizeOffset); }
+  T numConvGroupGrains() const { return values.at(numConvGroupGrainsOffset); }
+  T numInChanGrains() const { return values.at(numInChanGrainsOffset); }
+  T numOutChanGrains() const { return values.at(numOutChanGrainsOffset); }
+
+  poplar::ArrayRef<T> numFieldGrains() const {
+    return {values.data() + numFieldGrainsOffset, numFieldDims};
+  }
+
+  poplar::ArrayRef<T> kernelSize() const {
+    return {values.data() + numFieldGrainsOffset + numFieldDims, numFieldDims};
+  }
+
+private:
+  std::vector<T> values;
+  unsigned numFieldDims;
+};
+
+static ConvSize<unsigned>
+makeConvSize(std::vector<unsigned> values,
+             const std::vector<unsigned> &fieldGrainSize,
+             const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
+             const unsigned outChansPerGroup) {
+  const unsigned numFieldDims = fieldGrainSize.size();
+  ConvSizeVariablesVector<unsigned> convSizeVarsVector(std::move(values),
+                                                       numFieldDims);
+
+  ConvSize<unsigned> convSize;
+  convSize.batchSize = convSizeVarsVector.batchSize();
+  convSize.outChanSize =
+      convSizeVarsVector.numOutChanGrains() * outChansPerGroup;
+  convSize.inChanSize = convSizeVarsVector.numInChanGrains() * inChansPerGroup;
+  convSize.convGroupSize =
+      convSizeVarsVector.numConvGroupGrains() * convGroupsPerGroup;
+
+  const auto numFieldGrains = convSizeVarsVector.numFieldGrains();
+  for (unsigned d = 0; d < numFieldDims; ++d) {
+    convSize.fieldSize.push_back(numFieldGrains[d] * fieldGrainSize[d]);
+  }
+
+  const auto kernelSize = convSizeVarsVector.kernelSize();
+  convSize.kernelSize.insert(std::begin(convSize.kernelSize),
+                             std::begin(kernelSize), std::end(kernelSize));
+  return convSize;
 }
 
 static popsolver::Variable addPartialCalcCycleEstimate(
@@ -1084,19 +1126,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   bool floatActivations = params.inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
 
-  const auto numFieldDims = convSizeVars.numFieldGrains.size();
-  std::vector<popsolver::Variable> convSizeVarsVector = {
-      convSizeVars.batchSize,
-      convSizeVars.numOutChanGrains,
-      convSizeVars.numInChanGrains,
-      convSizeVars.numConvGroupGrains,
-  };
-  convSizeVarsVector.insert(convSizeVarsVector.end(),
-                            convSizeVars.numFieldGrains.begin(),
-                            convSizeVars.numFieldGrains.end());
-  convSizeVarsVector.insert(convSizeVarsVector.end(),
-                            convSizeVars.kernelSize.begin(),
-                            convSizeVars.kernelSize.end());
+  ConvSizeVariablesVector<popsolver::Variable> convSizeVarsVector(convSizeVars);
+
   auto transformedInputDilation = params.inputTransform.dilation;
   auto transformedOutputStride = params.outputTransform.stride;
   for (const auto dim : transformedDims) {
@@ -1132,25 +1163,25 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
     return m.call(
         convSizeVarsVector,
-        [&target, numFieldDims, fieldGrainSize, convGroupsPerGroup,
-         inChansPerGroup, outChansPerGroup, partialType, params,
-         transformedDims, transformedInputDilation, transformedOutputStride,
+        [&target, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
+         outChansPerGroup, partialType, params, transformedDims,
+         transformedInputDilation, transformedOutputStride,
          convUnitWeightHeight, cache, floatActivations,
          convUnitInputLoadElemsPerCycle,
          numConvUnitsRequired](const std::vector<unsigned> &values) {
-          const auto convSize = makeConvSize(values, numFieldDims);
-          const auto tileFieldSize =
-              makeTileFieldSize(convSize, fieldGrainSize);
+          const auto convSize =
+              makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
+                           inChansPerGroup, outChansPerGroup);
 
           // AMP currently only expects a single convGroup grouping.
           assert(convGroupsPerGroup == 1);
 
           const auto tileNumInGroups =
-              tileNumElems(convSize.numInChanGrains, inChansPerGroup);
+              ceildiv(convSize.inChanSize, inChansPerGroup);
           const auto tileNumOutGroups =
-              tileNumElems(convSize.numOutChanGrains, outChansPerGroup);
+              ceildiv(convSize.outChanSize, outChansPerGroup);
           const auto tileNumConvGroups =
-              tileNumElems(convSize.numConvGroupGrains, convGroupsPerGroup);
+              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
 
           const auto floatPartials = partialType == poplar::FLOAT;
 
@@ -1160,13 +1191,13 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   convSize.kernelSize)) {
             const auto innerLoopCyclesWithZeroing =
                 cache->mGetConvPartial1x1InnerLoopCycleEstimateWithZeroing(
-                    convSize.batchSize, tileFieldSize,
+                    convSize.batchSize, convSize.fieldSize,
                     target.getNumWorkerContexts(), numConvUnitsRequired,
                     transformedInputDilation, transformedOutputStride,
                     floatActivations, floatPartials);
             const auto innerLoopCyclesWithoutZeroing =
                 cache->mGetConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
-                    convSize.batchSize, tileFieldSize,
+                    convSize.batchSize, convSize.fieldSize,
                     target.getNumWorkerContexts(), numConvUnitsRequired,
                     transformedInputDilation, transformedOutputStride,
                     floatActivations, floatPartials);
@@ -1180,13 +1211,13 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                 floatPartials, target.getNumWorkerContexts());
           }
           const auto zeroCycles = cache->mEstimateZeroSupervisorCycles(
-              product(tileFieldSize) * convSize.batchSize, tileNumOutGroups,
-              tileNumConvGroups, outChansPerGroup, target.getDataPathWidth(),
-              target.getNumWorkerContexts());
+              product(convSize.fieldSize) * convSize.batchSize,
+              tileNumOutGroups, tileNumConvGroups, outChansPerGroup,
+              target.getDataPathWidth(), target.getNumWorkerContexts());
 
           const auto innerLoopCycles =
               cache->mGetConvPartialnx1InnerLoopCycleEstimate(
-                  convSize.batchSize, tileFieldSize, convSize.kernelSize,
+                  convSize.batchSize, convSize.fieldSize, convSize.kernelSize,
                   convUnitWeightHeight, outChansPerGroup,
                   convUnitInputLoadElemsPerCycle, numConvUnitsRequired,
                   target.getConvUnitCoeffLoadBytesPerCycle(),
@@ -1203,107 +1234,100 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         debugName);
   }
   case Plan::Method::SLIC: {
-    return m.call(convSizeVarsVector, [&target, numFieldDims, fieldGrainSize,
-                                       convGroupsPerGroup, inChansPerGroup,
-#ifndef NDEBUG
-                                       outChansPerGroup,
-#endif
-                                       transformedInputDilation,
-                                       transformedOutputStride, slicWindowWidth,
-                                       floatActivations, floatPartials,
-                                       cache](const auto &values) {
-      const auto convSize = makeConvSize(values, numFieldDims);
-      const auto tileFieldSize = makeTileFieldSize(convSize, fieldGrainSize);
+    return m.call(
+        convSizeVarsVector,
+        [&target, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
+         outChansPerGroup, transformedInputDilation, transformedOutputStride,
+         slicWindowWidth, floatActivations, floatPartials,
+         cache](const auto &values) {
+          const auto convSize =
+              makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
+                           inChansPerGroup, outChansPerGroup);
 
 #ifndef NDEBUG
-      const auto isOne = [](const auto &x) { return x == 1; };
+          const auto isOne = [](const auto &x) { return x == 1; };
 #endif
-      assert(std::all_of(std::begin(transformedOutputStride),
-                         std::end(transformedOutputStride), isOne));
+          assert(std::all_of(std::begin(transformedOutputStride),
+                             std::end(transformedOutputStride), isOne));
 
-      // current vertex requirements
-      assert(inChansPerGroup == outChansPerGroup);
-      assert(convGroupsPerGroup * inChansPerGroup == 4);
+          // current vertex requirements
+          assert(inChansPerGroup == outChansPerGroup);
+          assert(convGroupsPerGroup * inChansPerGroup == 4);
 
-#ifndef NDEBUG
-      const auto tileNumInGroups =
-          tileNumElems(convSize.numInChanGrains, inChansPerGroup);
-      const auto tileNumOutGroups =
-          tileNumElems(convSize.numOutChanGrains, outChansPerGroup);
-#endif
-      assert(tileNumInGroups == 1);
-      assert(tileNumOutGroups == 1);
+          assert(ceildiv(convSize.inChanSize, inChansPerGroup) == 1);
+          assert(ceildiv(convSize.outChanSize, outChansPerGroup) == 1);
 
-      const auto tileNumConvGroups =
-          tileNumElems(convSize.numConvGroupGrains, convGroupsPerGroup);
+          const auto tileNumConvGroups =
+              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
 
-      // we process kernel width in 1x4 blocks (rounding up to the nearest
-      // multiple of the SLIC kernel width) and then do this for each other
-      // kernel dimension.
-      const unsigned numWeightBlocks = [&] {
-        assert(convSize.kernelSize.size() >= 2);
+          // we process kernel width in 1x4 blocks (rounding up to the nearest
+          // multiple of the SLIC kernel width) and then do this for each other
+          // kernel dimension.
+          const unsigned numWeightBlocks = [&] {
+            assert(convSize.kernelSize.size() >= 2);
 
-        // width is the inner-most dimension in kernelSize.
-        const unsigned widthDim = convSize.kernelSize.size() - 1;
-        const unsigned otherDims =
-            product(convSize.kernelSize) / convSize.kernelSize[widthDim];
-        return ceildiv(convSize.kernelSize[widthDim], slicWindowWidth) *
-               otherDims;
-      }();
+            // width is the inner-most dimension in kernelSize.
+            const unsigned widthDim = convSize.kernelSize.size() - 1;
+            const unsigned otherDims =
+                product(convSize.kernelSize) / convSize.kernelSize[widthDim];
+            return ceildiv(convSize.kernelSize[widthDim], slicWindowWidth) *
+                   otherDims;
+          }();
 
-      const auto implicitZeroInnerLoopCycles =
-          cache->mGetConvPartialSlicInnerLoopCycles(
-              /* implicitZeroing */ true, convSize.batchSize, tileFieldSize,
-              target.getNumWorkerContexts(), slicWindowWidth, floatActivations,
-              floatPartials);
-      const auto innerLoopCycles = cache->mGetConvPartialSlicInnerLoopCycles(
-          /* implicitZeroing */ false, convSize.batchSize, tileFieldSize,
-          target.getNumWorkerContexts(), slicWindowWidth, floatActivations,
-          floatPartials);
-      const auto weightLoadCycles =
-          getConvPartialSlicSupervisorCycleWeightLoadEstimate(
-              convGroupsPerGroup, inChansPerGroup,
-              target.getNumWorkerContexts(), slicWindowWidth);
+          const auto implicitZeroInnerLoopCycles =
+              cache->mGetConvPartialSlicInnerLoopCycles(
+                  /* implicitZeroing */ true, convSize.batchSize,
+                  convSize.fieldSize, target.getNumWorkerContexts(),
+                  slicWindowWidth, floatActivations, floatPartials);
+          const auto innerLoopCycles =
+              cache->mGetConvPartialSlicInnerLoopCycles(
+                  /* implicitZeroing */ false, convSize.batchSize,
+                  convSize.fieldSize, target.getNumWorkerContexts(),
+                  slicWindowWidth, floatActivations, floatPartials);
+          const auto weightLoadCycles =
+              getConvPartialSlicSupervisorCycleWeightLoadEstimate(
+                  convGroupsPerGroup, inChansPerGroup,
+                  target.getNumWorkerContexts(), slicWindowWidth);
 
-      assert(tileNumInGroups == 1);
-      assert(tileNumOutGroups == 1);
-      return cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
-          implicitZeroInnerLoopCycles, innerLoopCycles, weightLoadCycles,
-          tileNumConvGroups, numWeightBlocks, slicWindowWidth, floatActivations,
-          floatPartials);
-    });
+          return cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
+              implicitZeroInnerLoopCycles, innerLoopCycles, weightLoadCycles,
+              tileNumConvGroups, numWeightBlocks, slicWindowWidth,
+              floatActivations, floatPartials);
+        });
   }
   case Plan::Method::MAC: {
     const auto outputStrideX = transformedInputDilation.back();
     return m.call(
         convSizeVarsVector,
         [&target, fieldGrainSize, inChansPerGroup, convGroupsPerGroup,
-         outChansPerGroup, numFieldDims, transformedInputDilation, cache,
-         outputStrideX, floatActivations](const std::vector<unsigned> &values) {
-          const auto convSize = makeConvSize(values, numFieldDims);
-          const auto tileOutShape = makeTileFieldSize(convSize, fieldGrainSize);
+         outChansPerGroup, transformedInputDilation, cache, outputStrideX,
+         floatActivations](const std::vector<unsigned> &values) {
+          const auto convSize =
+              makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
+                           inChansPerGroup, outChansPerGroup);
 
           // MAC currently only expects a single convGroup grouping.
           assert(convGroupsPerGroup == 1);
 
           const auto tileNumInGroups =
-              tileNumElems(convSize.numInChanGrains, inChansPerGroup);
+              ceildiv(convSize.inChanSize, inChansPerGroup);
           const auto tileNumOutGroups =
-              tileNumElems(convSize.numOutChanGrains, outChansPerGroup);
+              ceildiv(convSize.outChanSize, outChansPerGroup);
           const auto tileNumConvGroups =
-              tileNumElems(convSize.numConvGroupGrains, convGroupsPerGroup);
+              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
           const auto tileKernelElements = product(convSize.kernelSize);
 
           unsigned numActiveOutRows = convSize.batchSize;
+          const unsigned numFieldDims = convSize.fieldSize.size();
           for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
             const auto dimActiveRows =
-                (tileOutShape[dim] + transformedInputDilation[dim] - 1) /
+                (convSize.fieldSize[dim] + transformedInputDilation[dim] - 1) /
                 transformedInputDilation[dim];
             numActiveOutRows *= dimActiveRows;
           }
 
           const auto tileKernelWidth = convSize.kernelSize.back();
-          const auto tileOutWidth = tileOutShape.back();
+          const auto tileOutWidth = convSize.fieldSize.back();
           const auto zeroCycles = estimateZeroSupervisorCycles(
               numActiveOutRows * tileOutWidth, tileNumOutGroups,
               tileNumConvGroups, outChansPerGroup, target.getDataPathWidth(),
@@ -1325,31 +1349,29 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   case Plan::Method::OUTER_PRODUCT: {
     assert(inChansPerGroup == 1);
     const auto numContexts = target.getNumWorkerContexts();
-    const auto innermostFieldGrainSize = fieldGrainSize.back();
     const auto outputIsFloat = params.outputType == poplar::FLOAT;
     const auto dataPathWidth = target.getDataPathWidth();
     return m.call(
         convSizeVarsVector,
-        [numFieldDims, innermostFieldGrainSize, numContexts, convGroupsPerGroup,
-         outChansPerGroup, floatActivations, outputIsFloat,
+        [fieldGrainSize, numContexts, convGroupsPerGroup, outChansPerGroup,
+         inChansPerGroup, floatActivations, outputIsFloat,
          dataPathWidth](const std::vector<unsigned> &values) {
-          auto convSize = makeConvSize(values, numFieldDims);
+          const auto convSize =
+              makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
+                           inChansPerGroup, outChansPerGroup);
           assert(convSize.batchSize == 1);
-          assert(convSize.numInChanGrains == 1);
+          assert(convSize.inChanSize == 1);
 
           // OuterProduct currently only expects a single convGroup grouping.
           assert(convGroupsPerGroup == 1);
 
           const auto tileNumConvGroups =
-              tileNumElems(convSize.numConvGroupGrains, convGroupsPerGroup);
-          const auto tileOutWidth =
-              convSize.numFieldGrains.back() * innermostFieldGrainSize;
+              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+          const auto tileOutWidth = convSize.fieldSize.back();
           const auto workerOutWidth = ceildiv(tileOutWidth, numContexts);
-          const auto tileNumOutChans =
-              convSize.numOutChanGrains * outChansPerGroup;
           const auto vertexRuntime = getOuterProductCycleEstimate(
               floatActivations || outputIsFloat, workerOutWidth,
-              tileNumOutChans * tileNumConvGroups, outChansPerGroup,
+              convSize.outChanSize * tileNumConvGroups, outChansPerGroup,
               dataPathWidth);
           return vertexRuntime * numContexts;
         },
@@ -3209,6 +3231,54 @@ static void addOuterProductConstaints(popsolver::Model &m,
   }
 }
 
+static void addMethodConstraints(popsolver::Model &m, const Plan::Method method,
+                                 const PartitionVariables &p,
+                                 const ConvSizeVariables &s,
+                                 const ConvParams &lvl1Params) {
+  // TODO: T12881 We assume that the transformations applied to the
+  // parameters (which are the transforms at level 1 in the hierarchy) are
+  // referencing the tile level. This is only true for single IPU
+  // convolutions, for multi-IPU there can be other transforms that make
+  // these fields constrainable, therefore these constraints are currently
+  // overly conserversative for the multi-IPU case.
+  switch (method) {
+  case Plan::Method::AMP:
+  case Plan::Method::MAC:
+    // these methods have no individual constraint requirements.
+    break;
+  case Plan::Method::SLIC:
+    addSLICConstraints(m, p, s, lvl1Params);
+    break;
+  case Plan::Method::OUTER_PRODUCT:
+    addOuterProductConstaints(m, p, s, lvl1Params);
+    break;
+  }
+}
+
+static popsolver::Variable
+getUsedTiles(popsolver::Model &m,
+             const std::vector<PartitionVariables> &partitionVars,
+             const std::vector<unsigned> &hierarchy) {
+  std::vector<popsolver::Variable> perLevelSplits;
+  for (unsigned level = 0; level != hierarchy.size(); ++level) {
+    const auto &p = partitionVars[level];
+    // we only care about splits across tiles so don't include the serial splits
+    std::vector<popsolver::Variable> splits;
+    splits.push_back(p.batchSplit);
+    splits.push_back(p.outChanSplit.parallel);
+    splits.push_back(p.inChanSplit);
+    splits.push_back(p.convGroupSplit);
+    splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
+    splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
+    const auto levelSplit =
+        m.product(splits, arrIndStr(level) + ".partition.total");
+    m.lessOrEqual(levelSplit, hierarchy[level]);
+    perLevelSplits.push_back(levelSplit);
+  }
+
+  return m.product(std::move(perLevelSplits));
+}
+
 static Estimates<popsolver::Variable> constructModel(
     const poplar::Target &target, const std::vector<ConvTransform> &transforms,
     const std::vector<ConvTypes> &types, const std::vector<unsigned> &hierarchy,
@@ -3621,51 +3691,22 @@ static Estimates<popsolver::Variable> constructModel(
           arrIndStr(level + 1) + ".size.inChanGrains");
     }
 
-    // We only apply these constraints at the tile-split level.
-    if (level == numLevelsOfHierarchy - 2) {
-      // TODO: T12881 We assume that the transformations applied to the
-      // parameters (which are the transforms at level 1 in the hierarchy) are
-      // referencing the tile level. This is only true for single IPU
-      // convolutions, for multi-IPU there can be other transforms that make
-      // these fields constrainable, therefore these constraints are currently
-      // overly conserversative for the multi-IPU case.
-      switch (convVertexType.method) {
-      case Plan::Method::AMP:
-      case Plan::Method::MAC:
-        // these methods have no individual constraint requirements.
-        break;
-      case Plan::Method::SLIC:
-        addSLICConstraints(m, p, nextConvSize, transformedOnceParams);
-        break;
-      case Plan::Method::OUTER_PRODUCT:
-        addOuterProductConstaints(m, p, nextConvSize, transformedOnceParams);
-        break;
-      }
-    }
-
     convSize.push_back(std::move(nextConvSize));
 
     applyPartitionPlanConstraint(m, options, level, p);
     partitionVars.push_back(std::move(p));
   }
 
-  std::vector<Variable> perLevelSplits;
-  for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
-    const auto &p = partitionVars[level];
-    // we only care about splits across tiles so don't include the serial splits
-    std::vector<Variable> splits;
-    splits.push_back(p.batchSplit);
-    splits.push_back(p.outChanSplit.parallel);
-    splits.push_back(p.inChanSplit);
-    splits.push_back(p.convGroupSplit);
-    splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
-    splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
-    const auto levelSplit =
-        m.product(splits, arrIndStr(level) + ".partition.total");
-    m.lessOrEqual(levelSplit, hierarchy[level]);
-    perLevelSplits.push_back(levelSplit);
+  {
+    // We only apply these constraints at the tile-split level.
+    const auto ipuLevel = numLevelsOfHierarchy - 2;
+    const auto tileLevel = numLevelsOfHierarchy - 1;
+
+    addMethodConstraints(m, convVertexType.method, partitionVars[ipuLevel],
+                         convSize[tileLevel], transformedOnceParams);
   }
-  const auto usedTiles = m.product(perLevelSplits, "usedTiles");
+
+  const auto usedTiles = getUsedTiles(m, partitionVars, hierarchy);
 
   const auto method = convVertexType.method;
   const auto slicWindowWidth = convVertexType.slicWindowWidth;
