@@ -189,7 +189,8 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerBasic) {
   }
 
   tracker.mapTensorsByUse(graph, grainSize /*grainSize*/,
-                          grainSize /*minElementsPerTile*/);
+                          grainSize /*minElementsPerTile*/,
+                          false /*optimizeHaloRegions*/);
 
   // Check the tensor is fully mapped
   BOOST_CHECK_NO_THROW(graph.getTileMapping(t));
@@ -217,7 +218,8 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerGrainSize) {
   }
 
   tracker.mapTensorsByUse(graph, grainSize /*grainSize*/,
-                          grainSize /*minElementsPerTile*/);
+                          grainSize /*minElementsPerTile*/,
+                          false /*optimizeHaloRegions*/);
 
   // Check the tensor is fully mapped
   std::vector<std::vector<Interval>> mapping;
@@ -262,8 +264,7 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerHaloRegions) {
   }
 
   tracker.mapTensorsByUse(graph, 1 /*grainSize*/, 1 /*minElementsPerTile*/,
-                          false /*extendPartialUsage*/,
-                          TensorUseTracker::MappingMethod::OptimizeHaloRegions);
+                          true /*optimizeHaloRegions*/);
 
   // Check the tensor is fully mapped
   std::vector<std::vector<Interval>> mapping;
@@ -339,8 +340,8 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerExtendPartialUsage) {
   }
 
   tracker.mapTensorsByUse(graph, 1 /*grainSize*/, 1 /*minElementsPerTile*/,
-                          true /*extendPartialUsage*/,
-                          TensorUseTracker::MappingMethod::None);
+                          false /*optimizeHaloRegions*/,
+                          true /*extendPartialUsage*/);
 
   // Check the tensor is fully mapped.
   std::vector<std::vector<Interval>> mapping;
@@ -350,43 +351,6 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerExtendPartialUsage) {
   // neighbouring elements' uses. Hence we expect in this example for tile
   // balance to be perfect despite only marking data uses for half the tensor.
   BOOST_CHECK_EQUAL(getTileImbalance(graph, t, 1, 1), 0);
-}
-
-BOOST_AUTO_TEST_CASE(TensorUseTrackerConstrainMappingToUsedTiles) {
-  constexpr std::size_t numTiles = 4;
-  constexpr std::size_t numRows = 3;
-  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
-  const auto &target = device.getTarget();
-  Graph graph(target);
-
-  TensorUseTracker tracker(target.getNumTiles());
-
-  constexpr std::size_t grainSize = 4;
-  constexpr std::size_t numElems = numTiles * grainSize;
-  auto t = graph.addVariable(HALF, {numRows, numElems});
-
-  // Map the first slice.
-  std::size_t firstTileElems = 1;
-  std::size_t lastIndex = firstTileElems;
-  graph.setTileMapping(t.slice(0, firstTileElems, 1), 0);
-
-  for (unsigned tile = 1; tile != numTiles; ++tile) {
-    graph.setTileMapping(t.slice(lastIndex, (tile + 1) * grainSize, 1), tile);
-    lastIndex = (tile + 1) * grainSize;
-  }
-
-  auto rhsOpTensor =
-      createBroadcastOperand(graph, t, t.elementType(), 1, false);
-
-  // Check the tensor is fully mapped.
-  std::vector<std::vector<Interval>> mapping;
-  BOOST_CHECK_NO_THROW(mapping = graph.getTileMapping(rhsOpTensor));
-
-  BOOST_CHECK_EQUAL(mapping[0].size(), 1);
-  // There should only be firstTileElems on the first tile even though grain
-  // size is set to a different value
-  BOOST_CHECK_EQUAL(mapping[0][0].size(), firstTileElems);
-  BOOST_CHECK_EQUAL(mapping[1][0].size(), 2 * grainSize - firstTileElems);
 }
 
 BOOST_AUTO_TEST_CASE(TensorUseTrackerResolve) {
@@ -410,12 +374,13 @@ BOOST_AUTO_TEST_CASE(TensorUseTrackerResolve) {
           t[s].slice((tile / grainSize) * grainSize * grainSize,
                      (tile / grainSize + 1) * grainSize * grainSize));
     }
-    subTracker.resolve(graph, grainSize, grainSize, false,
-                       TensorUseTracker::MappingMethod::None);
+    subTracker.resolve(graph, grainSize, grainSize, false, false);
     tracker.add(std::move(subTracker));
   }
 
-  tracker.mapTensorsByUse(graph, grainSize /*grainSize*/, grainSize);
+  tracker.mapTensorsByUse(graph, grainSize /*grainSize*/,
+                          grainSize /*minElementsPerTile*/,
+                          false /*optimizeHaloRegions*/);
 
   // Check the tensor is fully mapped
   std::vector<std::vector<Interval>> mapping;

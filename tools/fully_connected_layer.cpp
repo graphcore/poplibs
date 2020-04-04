@@ -70,7 +70,6 @@ int main(int argc, char **argv) {
   std::string matmulOptionsString;
   boost::optional<std::string> jsonProfileOut;
   bool remapOutputTensor;
-  bool mapBiasesByUse;
 
   po::options_description desc("Options");
   // clang-format off
@@ -92,8 +91,6 @@ int main(int argc, char **argv) {
      "Number of output channels")
     ("bias", po::value<bool>(&bias)->default_value(true),
      "Add a bias to each output")
-    ("map-biases-by-use", po::value<bool>(&mapBiasesByUse)
-     ->default_value(false), "Map biases by their use in the forward pass")
     ("data-type",
      po::value<Type>(&inputType)->default_value(HALF),
      "Type of the input and output data")
@@ -237,15 +234,6 @@ int main(int argc, char **argv) {
                                       fwdOptions, &cache);
     }
     if (bias) {
-      // Use matmul output only if forward pass is enabled
-      if (mapBiasesByUse) {
-        biases = poputil::createBroadcastOperand(
-                     graph,
-                     nextAct.dimRoll(0, 1).reshape(
-                         {batchSize, numGroups * outputSize}),
-                     nextAct.elementType(), 1, false, "biases")
-                     .reshape({numGroups, outputSize});
-      }
       auto bBiases =
           biases.reshape({numGroups, 1, outputSize}).broadcast(batchSize, 1);
       addInPlace(graph, nextAct, bBiases, fwdProg);

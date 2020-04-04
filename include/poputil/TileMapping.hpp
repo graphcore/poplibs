@@ -102,20 +102,6 @@ public:
   TensorUseTracker(TensorUseTracker &&other);
   TensorUseTracker &operator=(const TensorUseTracker &other);
   TensorUseTracker &operator=(TensorUseTracker &&other);
-  enum class MappingMethod {
-    // Map "halo regions" to single tiles. These are regions that are used by
-    // multiple tiles but have neighbouring regions used by subsets of those
-    // tiles.
-    OptimizeHaloRegions,
-
-    // Mapping of elements is constrained to be only on tiles that use them.
-    // Otherwise to meet grain size, elements may be mapped to tiles which do
-    // not use the elements.
-    ConstrainMappingToUsedTiles,
-
-    // Mapping method used
-    None
-  };
   ~TensorUseTracker();
 
   /** Add a data use case.
@@ -139,15 +125,17 @@ public:
    *                              amongst tiles.
    *  \param minElementsPerTile   The minimum number of elements that must be
    *                              mapped to a tile.
+   *  \param optimizeHaloRegions  Map "halo regions" to single tiles. These are
+   *                              regions that are used by multiple tiles but
+   *                              have neighbouring regions used by subsets of
+   *                              those tiles.
    *  \param extendPartialUsage   When set, partial uses of tensors will be
    *                              extended to cover the entire tensor, based
    *                              on the usage of neighbouring regions.
-   *  \param mappingMethod        Method used for mapping elements.
    */
   void resolve(const poplar::Graph &graph, unsigned grainSize,
-               unsigned minElementsPerTile, bool extendPartialUsage = false,
-               TensorUseTracker::MappingMethod mappingMethod =
-                   TensorUseTracker::MappingMethod::None);
+               unsigned minElementsPerTile, bool optimizeHaloRegions = false,
+               bool extendPartialUsage = false);
 
   /** Map data according to use.
    *
@@ -160,17 +148,19 @@ public:
    *                              amongst tiles.
    *  \param minElementsPerTile   The minimum number of elements that must be
    *                              mapped to a tile.
+   *  \param optimizeHaloRegions  Map "halo regions" to single tiles. These are
+   *                              regions that are used by multiple tiles but
+   *                              have neighbouring regions used by subsets of
+   *                              those tiles.
    *  \param extendPartialUsage   When set, partial uses of tensors will be
    *                              extended to cover the entire tensor, based
    *                              on the usage of neighbouring regions before
    *                              mapping.
-   *  \param mappingMethod        Method used for mapping eements.
    */
   void mapTensorsByUse(poplar::Graph &graph, unsigned grainSize,
                        unsigned minElementsPerTile,
-                       bool extendPartialUsage = false,
-                       TensorUseTracker::MappingMethod mappingMethod =
-                           TensorUseTracker::MappingMethod::None);
+                       bool optimizeHaloRegions = false,
+                       bool extendPartialUsage = false);
 
   /** Have any use cases been registered.
    * \return True if no data use cases, false otherwise
@@ -267,27 +257,6 @@ bool dimIsSplitOverTiles(const poplar::Graph &graph, const poplar::Tensor &t,
  */
 bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
                         unsigned dimension);
-
-// Create a tensor which is mapped based on the mapping of a full
-// tensor. The full tensor is typically a left hand side operand of an operation
-// while the created tensor is the right hand side.
-//
-// \param graph       The graph to which the created tensor is added to
-// \param fullTensor  The tensor based on which mapping of the output tensor
-//                    mapping is derived from
-// \param type        The type of the tensor created
-// \param dim         The index of the dimension of the full tensor which is the
-//                    size of the created tensor
-// \param ditherMapping Any dithering applied to the mapping of the output
-//                    tensor
-// \param name        Name of the tensor for debugging
-//
-// \returns           The created tensor
-poplar::Tensor createBroadcastOperand(poplar::Graph &graph,
-                                      const poplar::Tensor &fullTensor,
-                                      const poplar::Type &type, unsigned dim,
-                                      bool ditherMapping = false,
-                                      const std::string &name = "");
 
 } // namespace poputil
 
