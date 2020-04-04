@@ -1960,7 +1960,9 @@ static TensorUseTracker iterateUsageByPartition(
               // N.B. we do not resolve usage if there is no serial splitting.
               tracker = std::move(usage);
             } else {
-              usage.resolve(graph, grainSize, minElementsPerTile, true, false);
+              usage.resolve(
+                  graph, grainSize, minElementsPerTile, false,
+                  TensorUseTracker::MappingMethod::OptimizeHaloRegions);
               tracker.add(std::move(usage));
             }
           });
@@ -2035,9 +2037,8 @@ static void mapActivationsOrWeights(
   if (usage.empty()) {
     mapTensorLinearly(graph, in);
   } else {
-    usage.mapTensorsByUse(graph, grainSize, minElementsPerTile,
-                          true /* optimiseHaloRegions */,
-                          true /* extendPartialUsage */);
+    usage.mapTensorsByUse(graph, grainSize, minElementsPerTile, true,
+                          TensorUseTracker::MappingMethod::OptimizeHaloRegions);
   }
 }
 
@@ -2309,7 +2310,6 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
   const auto minElementsPerTile = (minBytesPerTile + dTypeSize - 1) / dTypeSize;
 
   useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile,
-                             false /* optimiseHaloRegions */,
                              true /* extendPartialUsage */);
 }
 

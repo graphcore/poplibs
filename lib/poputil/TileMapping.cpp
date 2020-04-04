@@ -4,6 +4,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
+#include <boost/functional/hash.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <boost/integer/common_factor.hpp>
 #include <set>
@@ -269,6 +270,71 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
     }
   }
   return false;
+}
+
+poplar::Tensor createBroadcastOperand(poplar::Graph &graph,
+                                      const poplar::Tensor &fullTensor,
+                                      const poplar::Type &type, unsigned dim,
+                                      bool ditherMapping,
+                                      const std::string &name) {
+  assert(dim < fullTensor.rank());
+  const auto &target = graph.getTarget();
+  auto t = fullTensor.dimRoll(dim, fullTensor.rank() - 1);
+  const auto numDimElems = fullTensor.dim(dim);
+  auto out = graph.addVariable(type, {numDimElems}, name);
+
+  TensorUseTracker useTracker(target.getNumTiles());
+
+  // Find regions of activations or gradients tensors
+  const auto mapping = graph.getTileMapping(t);
+  for (unsigned tile = 0; tile != mapping.size(); ++tile) {
+    for (const auto &region : mapping[tile]) {
+      if (region.begin() != region.end()) {
+        auto rBegin = region.begin() % numDimElems;
+        auto rEnd = region.end() % numDimElems;
+        if (region.size() >= numDimElems) {
+          useTracker.add(graph, tile, out.slice(0, numDimElems));
+        } else {
+          if (rBegin < rEnd) {
+            useTracker.add(graph, tile, out.slice(rBegin, rEnd));
+          } else {
+            useTracker.add(graph, tile, out.slice(rBegin, numDimElems));
+            useTracker.add(graph, tile, out.slice(0, rEnd));
+          }
+        }
+      }
+    }
+  }
+  const auto grainSize =
+      target.getDataPathWidth() / (8 * target.getTypeSize(type));
+  useTracker.mapTensorsByUse(
+      graph, grainSize, 0, false,
+      TensorUseTracker::MappingMethod::ConstrainMappingToUsedTiles);
+
+  // remap with dithering
+  if (ditherMapping) {
+    // Randomise the start tile for mapping of the variable
+    std::size_t seed = 0x9e3779b9UL;
+    const auto shape = fullTensor.shape();
+    boost::hash_range(seed, shape.begin(), shape.end());
+
+    const auto outMapping = graph.getTileMapping(out);
+    const auto numTiles = outMapping.size();
+
+    poplar::Graph::TileToTensorMapping newMapping(numTiles);
+    std::size_t dstTile = seed % numTiles;
+    for (unsigned tile = 0; tile != numTiles; ++tile) {
+      if (!outMapping[tile].empty()) {
+        newMapping[dstTile] = std::move(outMapping[tile]);
+      }
+
+      if (++dstTile == numTiles) {
+        dstTile = 0;
+      }
+    }
+    graph.setTileMapping(out, newMapping);
+  }
+  return out;
 }
 
 } // namespace poputil
