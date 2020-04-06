@@ -1,4 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+#include "CreateConvPartialVertex.hpp"
 #include "TestDevice.hpp"
 
 #include <assert.h>
@@ -20,9 +21,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 
-#include <popops/Zero.hpp>
 #include <poputil/Util.hpp>
-#include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
 #include <algorithm>
@@ -109,7 +108,6 @@ int main(int argc, char **argv) try {
     ("output-padding-upper",
      po::value<ShapeOption<unsigned>>(&outputPaddingUpper),
      "Output padding upper")
-    ("allow-cpp-codelet", "Allow fallback to C++ codelet rather than erroring")
   ;
   // clang-format on
   po::variables_map vm;
@@ -129,7 +127,6 @@ int main(int argc, char **argv) try {
   bool ignoreData = vm.count("ignore-data");
   bool showExecutionSteps = vm.count("show-execution-steps");
   bool showVarStorage = vm.count("show-var-storage");
-  bool allowCppCodelet = vm.count("allow-cpp-codelet");
 
   if (inputType != HALF) {
     throw poputil::poplibs_error("Only inputType=HALF is currently supported");
@@ -138,35 +135,6 @@ int main(int argc, char **argv) try {
   if (partialsType != FLOAT) {
     throw poputil::poplibs_error(
         "Only partialsType=FLOAT is currently supported");
-  }
-
-  unsigned char mode;
-  switch (convGroupsPerGroup) {
-  case 4u:
-    if (chansPerGroup == 1u) {
-      mode = 0;
-      break;
-    }
-    // fallthrough
-  case 2u:
-    if (chansPerGroup == 2u) {
-      mode = 1;
-      break;
-    }
-    // fallthrough
-  case 1u:
-    if (chansPerGroup == 4u) {
-      mode = 2;
-      break;
-    }
-    // fallthrough
-  default:
-    throw poputil::poplibs_error(
-        "Unsupported combination of channel and conv group groupings! "
-        "convGroupsPerGroup=" +
-        std::to_string(convGroupsPerGroup) +
-        ", chansPerGroup=" + std::to_string(chansPerGroup));
-    break;
   }
 
   if (inChanGroups != 1) {
@@ -188,7 +156,9 @@ int main(int argc, char **argv) try {
 
   kernelSizeOption.broadcast(numFieldDims);
   const auto &kernelSize = kernelSizeOption.val;
-
+  if (kernelSize.back() % 4u) {
+    throw poputil::poplibs_error("kernelSize.back() must be divisible by 4");
+  }
   outputPaddingLower.broadcast(numFieldDims);
   outputPaddingUpper.broadcast(numFieldDims);
 
@@ -245,172 +215,15 @@ int main(int argc, char **argv) try {
   printContainer(outputShape, std::cout);
   std::cout << "\n";
 
-  auto kernelSizeGroups = kernelSize;
-  if (kernelSizeGroups.back() % 4u) {
-    throw poputil::poplibs_error("kernelSize.back() must be divisible by 4");
-  }
-  assert(kernelSizeGroups.back() % 4u == 0);
-  kernelSizeGroups.back() /= 4u;
-
-  const auto numSubKernels = product(kernelSizeGroups);
-  const auto inputSpatialSize = [&] {
-    auto r = inputFieldSize;
-    r.insert(r.begin(), batchSize);
-    return r;
-  }();
-  const auto outputSpatialSize = [&] {
-    auto r = outputFieldSize;
-    r.insert(r.begin(), batchSize);
-    return r;
-  }();
-  const auto paddedOutputSpatialSize = [&] {
-    auto r = paddedOutputFieldSize;
-    r.insert(r.begin(), batchSize);
-    return r;
-  }();
-  const auto numWorkers = target.getNumWorkerContexts();
-  const unsigned numFieldElems = product(outputSpatialSize);
-  const auto fieldElemsPerWorker = ceildiv(numFieldElems, numWorkers);
-  std::cout << "numFieldElems=" << numFieldElems << "\n";
-  std::cout << "numSubKernels=" << numSubKernels << "\n";
-  std::cout << "numWorkers=" << numWorkers << "\n";
-  std::cout << "fieldElemsPerWorker=" << fieldElemsPerWorker << "\n";
-
-  bool useShortTypes = true;
-  const auto shortTypesVertexClass =
-      templateVertex("poplin::ConvPartial1x4SLIC", inputType, partialsType,
-                     /* useShortTypes */ true);
-  const unsigned maxShortWorklistValue =
-      graph.getMaxVertexFieldValue(shortTypesVertexClass, "worklists");
-  const unsigned maxRptCount = target.getRptCountMax();
-  std::vector<std::vector<unsigned short>> worklists(numWorkers *
-                                                     numSubKernels);
-  const unsigned fieldElemsPerRow = outputFieldSize.back();
-  unsigned remainingFieldElems = numFieldElems;
-
-  for (unsigned context = 0; context < numWorkers; ++context) {
-    const unsigned fieldElemsThisContext =
-        std::min(remainingFieldElems, fieldElemsPerWorker);
-    for (unsigned kg = 0; kg < numSubKernels; ++kg) {
-      unsigned outOffset = (numFieldElems - remainingFieldElems);
-      auto kernelPosition = unflattenIndex(kernelSizeGroups, kg);
-      kernelPosition.back() *= 4;
-
-      const auto calcInOffset = [&](const unsigned unpaddedOutOffset) {
-        auto inputOffsets =
-            unflattenIndex(outputSpatialSize, unpaddedOutOffset);
-        for (unsigned d = 0; d < numFieldDims; ++d) {
-          // +1 because outer-most dimension is batch size.
-          inputOffsets[d + 1] += kernelPosition[d];
-        }
-        return flattenIndex(inputSpatialSize, inputOffsets);
-      };
-
-      // transform outOffset into paddedOutOffset
-      const auto calcPaddedOffset = [&](const unsigned unpaddedOutOffset) {
-        auto paddedOutputOffsets =
-            unflattenIndex(outputSpatialSize, unpaddedOutOffset);
-        for (unsigned d = 0; d < numFieldDims; ++d) {
-          // +1 because outer-most dimension is batch size.
-          paddedOutputOffsets[d + 1] += outputPaddingLower[d];
-        }
-        return flattenIndex(paddedOutputSpatialSize, paddedOutputOffsets);
-      };
-
-      unsigned remainingElemsThisContext = fieldElemsThisContext;
-      while (remainingElemsThisContext != 0) {
-        const auto elemsThisRow =
-            std::min((fieldElemsPerRow - (outOffset % fieldElemsPerRow)),
-                     remainingElemsThisContext);
-        const auto inOffset = calcInOffset(outOffset);
-        const auto paddedOutOffset = calcPaddedOffset(outOffset);
-        worklists[kg * numWorkers + context].push_back(inOffset);
-        worklists[kg * numWorkers + context].push_back(paddedOutOffset);
-        worklists[kg * numWorkers + context].push_back(elemsThisRow);
-        useShortTypes &= (inOffset <= maxShortWorklistValue &&
-                          paddedOutOffset <= maxShortWorklistValue &&
-                          elemsThisRow <= maxShortWorklistValue);
-        useShortTypes &= (std::max(elemsThisRow, 5u) - 5 <= maxRptCount);
-        outOffset += elemsThisRow;
-        remainingElemsThisContext -= elemsThisRow;
-      }
-    }
-    remainingFieldElems -= fieldElemsThisContext;
-  }
-  assert(remainingFieldElems == 0);
-
-  // Determine whether or not we can use the assembly implementation
-  // with short types.
-  if (numSubKernels - 1 >
-      graph.getMaxVertexFieldValue(shortTypesVertexClass, "numSubKernelsM1")) {
-    useShortTypes = false;
-  }
-  if (convGroupGroups - 1 >
-      graph.getMaxVertexFieldValue(shortTypesVertexClass,
-                                   "numConvGroupGroupsM1")) {
-    useShortTypes = false;
-  }
-
-  std::vector<Tensor> inWindow, weightsWindow, outWindow;
-  for (unsigned cg = 0; cg < convGroupGroups; ++cg) {
-    for (unsigned kg = 0; kg < numSubKernels; ++kg) {
-      auto kernelStart = unflattenIndex(kernelSizeGroups, kg);
-      auto kernelEnd = kernelStart;
-      for (auto &s : kernelEnd) {
-        s += 1;
-      }
-      kernelStart.back() *= 4;
-      kernelEnd.back() *= 4;
-      for (unsigned ig = 0; ig < inChanGroups; ++ig) {
-        for (unsigned og = 0; og < outChanGroups; ++og) {
-          const auto window = weightsGrouped[cg][og][ig]
-                                  .slice(kernelStart, kernelEnd)
-                                  .flatten();
-          weightsWindow.push_back(window);
-        }
-      }
-    }
-  }
-
-  for (unsigned cg = 0; cg < convGroupGroups; ++cg) {
-    for (unsigned og = 0; og < outChanGroups; ++og) {
-      const auto window = outGrouped[cg][og].flatten();
-      outWindow.push_back(window);
-    }
-
-    for (unsigned ig = 0; ig < inChanGroups; ++ig) {
-      const auto window = inGrouped[cg][ig].flatten();
-      inWindow.push_back(window);
-    }
-  }
-
-  // We also need an extra buffer for our vertex with size equal the
-  // number of output elements per conv group group, plus 8 bytes to
-  // enforce (&out[i][0] - &outFieldBuffer[0]) % 16 == 8 so that we
-  // can use ld2xst64pace in the codelet even when out and outFieldBuffer
-  // reside in the same bank.
-  //
-  // Additionally, we need 192 bytes (maximum), to store rearranged
-  // weights, plus 4 bytes to store a pointer.
-  // This isn't actually true for the mode which doesn't
-  // use the weight storage (1cgx4ocx4ic) but for now we'll keep it
-  // simple and uniform.
-  constexpr unsigned extraBytes = 200u;
-  assert(extraBytes % 16 == 8);
-  assert(extraBytes % target.getTypeSize(partialsType) == 0);
-  const auto extraOutputElems = extraBytes / target.getTypeSize(partialsType);
-  const auto outFieldBuffer = graph.addVariable(
-      partialsType,
-      {extraOutputElems + numFieldElems * convGroupsPerGroup * chansPerGroup},
-      "outFieldBuffer");
-  graph.setTileMapping(outFieldBuffer, 0);
-
-  if (!useShortTypes && !allowCppCodelet) {
-    throw poplibs_error("Trying to fall back to c++ codelet, some bounds "
-                        "were exceeded. Use --allow-cpp-codelet to continue");
-  }
+  unsigned windowWidth = 4;
+  poplin::ConvParams params{inputType, batchSize, inputFieldSize, kernelSize,
+                            inChans,   outChans,  convGroups};
+  params.outputTransform.paddingLower = outputPaddingLower;
+  params.outputTransform.paddingUpper = outputPaddingUpper;
+  std::cout << "params=" << params << std::endl;
 
   Sequence prog;
+  Tensor copyWritten = graph.addVariable(inputType, {0});
 
   // fill the output with NaNs
   const auto outGroupedFlattened = outGrouped.flatten();
@@ -419,60 +232,12 @@ int main(int argc, char **argv) try {
   graph.setTileMapping(nan, 0);
   prog.add(Copy(nan, outGroupedFlattened));
 
-  // Now create a vertex on our 1 tile to perform this convolution.
-  const auto cs = graph.addComputeSet("Convolve");
-  const auto vertexClass = templateVertex(
-      "poplin::ConvPartial1x4SLIC", inputType, partialsType, useShortTypes);
-  auto v = graph.addVertex(cs, vertexClass);
-  graph.setTileMapping(v, 0);
-
-  graph.connect(v["in"], inWindow);
-  graph.connect(v["weights"], weightsWindow);
-  graph.connect(v["out"], outWindow);
-  graph.connect(v["outFieldBuffer"], outFieldBuffer);
-  graph.setFieldSize(v["worklists"], worklists.size());
-  for (unsigned i = 0; i < worklists.size(); ++i) {
-    const auto t = graph.addConstant(UNSIGNED_SHORT, {worklists[i].size()},
-                                     worklists[i].data(), "worklists");
-    graph.setTileMapping(t, 0);
-    graph.connect(v["worklists"][i], t);
-  }
-  graph.setInitialValue(v["mode"], mode);
-  graph.setInitialValue(v["outPtrLoadOffset"], (numSubKernels % 2) ? 0 : 4);
-  graph.setInitialValue(v["numSubKernelsM1"], numSubKernels - 1);
-  graph.setInitialValue(v["numConvGroupGroupsM1"], convGroupGroups - 1);
-
-  prog.add(Execute(cs));
-
-  // explicitly zero all of the output padding.
-  const auto zeroCs = graph.addComputeSet("zeroCs");
-  {
-    // dims before the spatial dims are G1, OC1 and B.
-    unsigned spatialDimOffset = 3;
-
-    auto outGroupedPartial = outGrouped;
-    for (unsigned d = 0; d < numFieldDims; ++d) {
-      const unsigned spatialDim = spatialDimOffset + d;
-
-      const auto &shape = outGroupedPartial.shape();
-      const unsigned N = shape[spatialDim];
-
-      // add zeros to the padding.
-      popops::zero(
-          graph, outGroupedPartial.slice(0, outputPaddingLower[d], spatialDim),
-          0, zeroCs);
-      popops::zero(
-          graph,
-          outGroupedPartial.slice(N - outputPaddingUpper[d], N, spatialDim), 0,
-          zeroCs);
-
-      // prune the padding off of the tensor so that we don't repad elements
-      // when we pad the next dimension.
-      outGroupedPartial = outGroupedPartial.slice(
-          outputPaddingLower[d], N - outputPaddingUpper[d], spatialDim);
-    }
-  }
-  prog.add(Execute(zeroCs));
+  // create the vertex
+  auto fwdCS = graph.addComputeSet("fwdCS");
+  createConvPartialSlicVertex(
+      graph, windowWidth, convGroupsPerGroup, chansPerGroup, 0, params, prog,
+      copyWritten, fwdCS, inGrouped, weightsGrouped, outGrouped, "vertex");
+  prog.add(Execute(fwdCS));
 
   // Get ordinary view of input/weights/output without grouping for reference
   // etc.
@@ -492,6 +257,7 @@ int main(int argc, char **argv) try {
                        .dimRoll(outGrouped.rank() - 2, 2)
                        .flatten(1, 3)  // Flatten output channels groups
                        .dimRoll(2, 0); // Batch size to the front
+
   std::cout << "in.shape()=";
   printContainer(in.shape(), std::cout);
   std::cout << "\n";
@@ -500,9 +266,6 @@ int main(int argc, char **argv) try {
   std::cout << "\n";
   std::cout << "output.shape()=";
   printContainer(out.shape(), std::cout);
-  std::cout << "\n";
-  std::cout << "worklists=";
-  printContainer(worklists, std::cout);
   std::cout << "\n";
 
   Sequence uploadProg, downloadProg;
@@ -517,7 +280,7 @@ int main(int argc, char **argv) try {
         weights, "weights", graph, uploadProg, downloadProg, tmap);
   }
 
-  OptionFlags engineOptions{{"target.supervisorStackSizeInBytes", "0x200"}};
+  OptionFlags engineOptions;
   Sequence debugSeqIn, debugSeqOut;
   if (deviceType == DeviceType::IpuModel) {
     debugSeqIn.add(PrintTensor(in));

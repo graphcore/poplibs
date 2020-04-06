@@ -5,6 +5,7 @@
 #include "ConvPlan.hpp"
 #include "ConvReduce.hpp"
 #include "ConvUtilInternal.hpp"
+#include "CreateConvPartialVertex.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
@@ -3293,12 +3294,13 @@ static void createConvPartialHorizontalMacVertex(
 //  in: [G1][CI1]...[G2][CI2]
 //  out: [G1][CO1]...[G2][CO2]
 //  weights: [G1][CO1][CI1]...[G2][CO2][CI2]
-static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
-                                        unsigned tile, ConvParams params,
-                                        Sequence &transformPre,
-                                        Tensor &copyWritten, ComputeSet fwdCS,
-                                        Tensor in, Tensor weights, Tensor out,
-                                        const std::string &debugPrefix) {
+void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
+                                 unsigned convGroupsPerGroup,
+                                 unsigned chansPerGroup, unsigned tile,
+                                 ConvParams params, Sequence &transformPre,
+                                 Tensor &copyWritten, ComputeSet fwdCS,
+                                 Tensor in, Tensor weights, Tensor out,
+                                 const std::string &debugPrefix) {
   assert(params == params.canonicalize());
 
   const auto &target = graph.getTarget();
@@ -3308,7 +3310,6 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
   // TODO: Figure out how to specify this stuff in terms of
   // load elems per cycle etc. to deal with float/float and
   // half/half versions.
-  const auto slicWindowWidth = plan.slicWindowWidth;
   assert(slicWindowWidth == 4u);
 
 #ifndef NDEBUG
@@ -3351,10 +3352,7 @@ static void createConvPartialSlicVertex(Graph &graph, const Plan &plan,
 
   const auto inType = in.elementType();
   const auto partialsType = out.elementType();
-  assert(plan.inChansPerGroup == plan.partialChansPerGroup);
-  const unsigned convGroupsPerGroup = plan.convGroupsPerGroup;
-  const unsigned chansPerGroup = plan.inChansPerGroup;
-  assert(plan.convGroupsPerGroup == 4u / chansPerGroup);
+  assert(convGroupsPerGroup == 4u / chansPerGroup);
 
   // Indicates which of 3 modes we operate in:
   //
@@ -3729,9 +3727,11 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                                          out, debugPrefix);
     break;
   case Plan::Method::SLIC:
-    createConvPartialSlicVertex(graph, plan, tile, params, transformPre,
-                                copyWritten, convolveCS.convolveCS, in, weights,
-                                out, debugPrefix);
+    assert(plan.inChansPerGroup == plan.partialChansPerGroup);
+    createConvPartialSlicVertex(
+        graph, plan.slicWindowWidth, plan.convGroupsPerGroup,
+        plan.partialChansPerGroup, tile, params, transformPre, copyWritten,
+        convolveCS.convolveCS, in, weights, out, debugPrefix);
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();
