@@ -13,7 +13,6 @@ import pickle
 import re
 import tempfile
 from collections import defaultdict
-from math import ceil
 from subprocess import DEVNULL, call
 from concurrent.futures import ThreadPoolExecutor
 
@@ -25,8 +24,15 @@ import numpy as np
 SCRIPT_NAME = os.path.splitext(os.path.basename(__file__))[0]
 VAR_PATTERN_RANGE = re.compile(r'\{(\d+):(\d+):(\d+)\}') # E.g. {10:100:5}
 VAR_PATTERN_LIST = re.compile(r'\{((\d+,?)+)\}') # E.g. {1,2,3,4}
+KB_SCALE = 1024
 MB_SCALE = 1024*1024
+CLOCK_SPEED = 1.6E9 # Hertz
+MK1_TILE_SIZE = 256 * KB_SCALE # Bytes
+MK2_TILE_SIZE = 624 * KB_SCALE # Bytes
+MK1_IPU_SIZE = 1216 * MK1_TILE_SIZE # Bytes
+MK2_IPU_SIZE = 1472 * MK2_TILE_SIZE # Bytes
 
+matplotlib.rcParams['ytick.labelsize'] = 'x-small'
 
 def sum_sum(lists):
     """Returns total sum for list of lists."""
@@ -76,8 +82,12 @@ NOTE: Your test executable must support the '--profile-json' option flag.''',
         "--title", help="Plot figure title. If not set, test command will be used."
     )
     parser.add_argument(
-        "--max-parallel", type=int, default=8, help="Maximum number of parallel processes "
-        "to be running at any time."
+        "--max-parallel", type=int, default=8, help="[=%(default)s] Maximum number of "
+        "parallel processes to be running at any time."
+    )
+    parser.add_argument(
+        "--num-iterations", type=int, default=1, help="[=%(default)s] Indicate how many "
+        "iterations your test command uses - so that item rates are calculated correctly."
     )
     parser.add_argument(
         "command", nargs=argparse.REMAINDER,
@@ -181,22 +191,25 @@ def generate_data(args, params, pattern, x_values, data):
 
     with tempfile.TemporaryDirectory() as out_dir:
         # Create list of all cmd variants (variable value and JSON output file)
-        out_files = ['--profile-json=' + os.path.join(out_dir, str(param) + '.json')
+        out_files = [['--profile-json', os.path.join(out_dir, str(param) + '.json')]
                      for param in params]
         cmds = [[pattern.sub(str(param), substring) for substring in cmd] for param in params]
-        cmds = [[*cmd, out] for (cmd, out) in zip(cmds, out_files)]
+        cmds = [[*cmd, *out] for (cmd, out) in zip(cmds, out_files)]
         print(" - Spawning {} processes ({} at a time)...".format(len(cmds), args.max_parallel))
         with ThreadPoolExecutor(args.max_parallel) as pool:
             exit_codes = pool.map(lambda cmd: call(cmd, stdout=DEVNULL, stderr=DEVNULL), cmds)
 
         print(" - All processes finished, with the following exit codes:")
-        print("\n    | Test value | Exit code |")
-        print("\n".join("    |{: >11} | {: <10}|".format(x, y) for x, y in zip(params, exit_codes)))
+        print("\n   | Test | Exit |")
+        print("   | value| code | Command")
+        print("\n".join("   |{: >5} | {: <5}| {}".format(x, y, " ".join(z))
+                        for x, y, z in zip(params, exit_codes, cmds)))
         print("\n - Investigate any unexpected exit codes by running your test command "
               "again with the corresponding parameter value.")
 
         for filename in os.listdir(out_dir):
-            x_values.append(int(os.path.splitext(filename)[0]))
+            batch_size = int(os.path.splitext(filename)[0])
+            x_values.append(batch_size)
 
             with open(os.path.join(out_dir, filename), 'r') as out:
                 result = json.load(out)
@@ -208,6 +221,9 @@ def generate_data(args, params, pattern, x_values, data):
             liveness = graph['memory']['liveness']
             data['memory_bytes'].append(sum(liveness['alwaysLive']['bytesByTile']) +
                                         sum(liveness['notAlwaysLive']['maxBytesByTile']))
+            data['max_bytes'].append(max(liveness['alwaysLive']['bytesByTile'] +
+                                         liveness['notAlwaysLive']['maxBytesByTile']))
+            data['max_bytes_gaps'].append(max(graph['memory']['byTile']['totalIncludingGaps']))
 
             # Vertex memory usage
             vertex_memory = graph['memory']['byVertexType']
@@ -243,60 +259,88 @@ def plot_data(var_name, x_values, data, args):
     axs[-1, 1].set_xlabel(var_name)
 
     ############################################################################
-    axs[0, 0].set_title("Total Memory Usage", fontsize="medium")
-    axs[0, 0].plot(x_values, np.array(data['memory_bytes'])/MB_SCALE, "C1o",
-                   x_values, np.array(data['memory_bytes_gaps'])/MB_SCALE, "C2^")
-    axs[0, 0].legend(["Excluding gaps", "Including gaps"], fontsize="small")
-    axs[0, 0].set_ylabel("Size (MB)")
+    axs[0, 0].set_title("Memory Usage (squares = including gaps)", fontsize="medium")
+    axs[0, 0].plot(x_values, np.array(data['memory_bytes'])/MB_SCALE, "C5o")
+    axs[0, 0].plot(x_values, np.array(data['memory_bytes_gaps'])/MB_SCALE, "C5s", fillstyle='none')
+    axs[0, 0].set_ylabel("Total Usage (MB)", color='C5')
+    axs[0, 0].tick_params(axis='y', labelcolor='C5')
+    axs[0, 0].axhline((MK1_IPU_SIZE/MB_SCALE), dashes=[0, 4, 4, 0], color='C5')
+    _, ymax = axs[0, 0].get_ylim()
+    if ymax > (0.75 * MK2_IPU_SIZE / MB_SCALE):
+        axs[0, 0].axhline((MK2_IPU_SIZE / MB_SCALE), color='C5')
 
+    max_ax = axs[0, 0].twinx()
+    max_ax.plot(x_values, np.array(data['max_bytes'])/MB_SCALE, "C0o")
+    max_ax.plot(x_values, np.array(data['max_bytes_gaps'])/MB_SCALE, "C0s", fillstyle='none')
+    max_ax.set_ylabel("Max. Tile Usage (MB)", color='C0')
+    max_ax.axhline((MK1_TILE_SIZE/MB_SCALE), dashes=(4, 4), color='C0')
+    max_ax.tick_params(axis='y', labelcolor='C0')
+    _, ymax = max_ax.get_ylim()
+    if ymax > (0.75 * MK2_TILE_SIZE / MB_SCALE):
+        max_ax.axhline((MK2_TILE_SIZE / MB_SCALE), color='C0')
+    max_ax.set_ylim(bottom=0)
 
     ############################################################################
     axs[2, 0].set_title("Memory Usage", fontsize="medium")
-    axs[2, 0].plot(x_values, np.array(data['exchange_bytes'])/MB_SCALE, "C1o",
-                   x_values, np.array(data['vertex_code'])/MB_SCALE, "C2^")
+    axs[2, 0].plot(x_values, np.array(data['exchange_bytes'])/MB_SCALE, "C0o",
+                   x_values, np.array(data['vertex_code'])/MB_SCALE, "C1^")
     axs[2, 0].legend(["Exchange code", "Vertex code"], fontsize="small")
-    axs[2, 0].set_ylabel("Size (MB)")
+    axs[2, 0].set_ylabel("Usage (MB)")
 
 
     ############################################################################
-    axs[0, 1].set_title("Cycle counts", fontsize="medium")
-    axs[0, 1].yaxis.tick_right()
+    axs[2, 1].set_title("Cycle Counts (and item rate)", fontsize="medium")
+    axs[2, 1].yaxis.tick_right()
+    item_rate_ax = axs[2, 1].twinx()
     if data['cycles']:
-        axs[0, 1].plot(x_values, data['cycles'], "C1o", label="Total")
+        axs[2, 1].plot(x_values, np.array(data['cycles'])*100, "C1^", label="Total (x100)")
+        item_rates = (args.num_iterations * CLOCK_SPEED *
+                      np.array(x_values) / np.array(data['cycles']))
+        item_rate_ax.plot(x_values, item_rates, "C0o", label="Items rate", fillstyle='none')
+        item_rate_ax.set_ylabel("Items/second", color='C0')
+        item_rate_ax.tick_params(axis='y', labelcolor='C0')
+        item_rate_ax.set_ylim(bottom=0)
     if data['compute_cycles']:
-        axs[0, 1].plot(x_values, data['compute_cycles'], "C2^", label="Compute (inc. idle)")
-        axs[0, 1].plot(x_values, data['exchange_cycles'], "C3*", label="Exchange")
+        axs[2, 1].plot(x_values, data['exchange_cycles'], "C2P", label="Exchange")
+        axs[2, 1].plot(x_values, data['compute_cycles'], "C3*", label="Compute (inc. idle)")
     else:
         print("Please enable 'debug.instrumentCompute' to see all cycle counts.")
-    axs[0, 1].legend(ncol=2, loc="upper center", bbox_to_anchor=(0.5, 0), fontsize="small")
-    axs[0, 1].set_ylabel("Cycles")
+
+    lines, labels = axs[2, 1].get_legend_handles_labels()
+    lines2, labels2 = item_rate_ax.get_legend_handles_labels()
+    axs[2, 1].legend(lines + lines2, labels + labels2, ncol=2, loc="lower center",
+                     bbox_to_anchor=(0.5, 1.12), fontsize="small")
+    axs[2, 1].set_ylabel("Cycles")
 
 
     ############################################################################
-    axs[2, 1].set_title("Element counts", fontsize="medium", pad=36)
-    axs[2, 1].yaxis.tick_right()
-    axs[2, 1].plot(x_values, data['num_vars'], "C1o",
-                   x_values, data['num_vertices'], "C2^",
-                   x_values, data['num_edges'], "C3*",
-                   x_values, data['num_compute_sets'], "C4s")
-    axs[2, 1].legend(["Variables", "Vertices", "Edges", "Compute sets"],
-                     ncol=2, loc="lower center", bbox_to_anchor=(0.5, 1), fontsize="small")
-    axs[2, 1].set_ylabel("Quantity")
+    axs[1, 0].set_title("Element Counts", fontsize="medium")
+    axs[1, 0].plot(x_values, data['num_vars'], "C0o",
+                   x_values, data['num_vertices'], "C1^",
+                   x_values, data['num_edges'], "C2P",
+                   x_values, np.array(data['num_compute_sets'])*1000, "C3*")
+    axs[1, 0].legend(["Variables", "Vertices", "Edges", "Compute sets (x1000)"],
+                     ncol=2, loc="center left", bbox_to_anchor=(1, 0.5), fontsize="small")
+    axs[1, 0].set_ylabel("Quantity")
 
 
     ############################################################################
-    axs[1, 0].set_title("Vertex Data Memory Usage", fontsize="medium")
-    data = np.array([data['vertex_state'], data['vertex_edge_pointers'],
-                     data['vertex_copy_pointers'], data['vertex_descriptors']])
-    data = np.divide(data, MB_SCALE) # Scale bytes -> megabytes
-    width = ceil((max(x_values) - min(x_values)) / max([(4 * (len(x_values) - 1)), 1]))
-    cum_size = np.zeros(len(data[0]))
-    for _, row_data in enumerate(data):
-        axs[1, 0].bar(x_values, row_data, width, bottom=cum_size)
+    axs[0, 1].set_title("Vertex Data Memory Usage", fontsize="medium")
+    axs[0, 1].yaxis.tick_right()
+    axs[0, 1].yaxis.set_label_position("right")
+
+    v_data = np.array([data['vertex_state'], data['vertex_edge_pointers'],
+                       data['vertex_copy_pointers'], data['vertex_descriptors']])
+    v_data = np.divide(v_data, MB_SCALE) # Scale bytes -> megabytes
+    width = max(0.1, (max(x_values) - min(x_values)) / max((4 * (len(x_values) - 1)), 1))
+    cum_size = np.zeros(len(v_data[0]))
+    for _, row_data in enumerate(v_data):
+        axs[0, 1].bar(x_values, row_data, width, bottom=cum_size, zorder=3)
         cum_size += row_data
-    axs[1, 0].legend(["State", "Edge pointers", "Copy pointers", "Descriptors"],
-                     loc="center left", ncol=2, bbox_to_anchor=(1, 0.5), fontsize="small")
-    axs[1, 0].set_ylabel("Size (MB)")
+    axs[0, 1].legend(["State", "Edge pointers", "Copy pointers", "Descriptors"],
+                     loc="upper center", ncol=2, fontsize="small",
+                     bbox_to_anchor=(0.5, 0))
+    axs[0, 1].set_ylabel("Usage (MB)")
 
     axs[1, 1].remove() # Remove empty subplot
     for _, subplot in np.ndenumerate(axs):
