@@ -17,6 +17,7 @@
 
 #include <poplin/codelets.hpp>
 
+#include <poplar/CSRFunctions.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 
@@ -174,7 +175,9 @@ int main(int argc, char **argv) try {
   poplin::addCodelets(graph);
 
   // Create input, weights, output
-  std::vector<std::size_t> inShape = {convGroupGroups, inChanGroups, batchSize};
+  constexpr std::size_t overreadConvGroups = 1;
+  std::vector<std::size_t> inShape = {convGroupGroups + overreadConvGroups,
+                                      inChanGroups, batchSize};
   inShape.insert(inShape.end(), inputFieldSize.begin(), inputFieldSize.end());
   inShape.insert(inShape.end(), {convGroupsPerGroup, chansPerGroup});
   std::vector<std::size_t> weightsShape = {convGroupGroups, outChanGroups,
@@ -188,12 +191,16 @@ int main(int argc, char **argv) try {
                      paddedOutputFieldSize.end());
   outputShape.insert(outputShape.end(), {convGroupsPerGroup, chansPerGroup});
 
-  const auto inGrouped = graph.addVariable(inputType, inShape, "in");
+  const auto inGroupedWithOverread =
+      graph.addVariable(inputType, inShape, "in");
+  const auto inGrouped = inGroupedWithOverread.slice(0, convGroupGroups, 0);
+  const auto inOverreadMemory = inGroupedWithOverread.slice(
+      convGroupGroups, convGroupGroups + overreadConvGroups, 0);
   const auto weightsGrouped =
       graph.addVariable(inputType, weightsShape, "weights");
   const auto outGrouped = graph.addVariable(partialsType, outputShape, "out");
 
-  graph.setTileMapping(inGrouped, 0);
+  graph.setTileMapping(inGroupedWithOverread, 0);
   graph.setTileMapping(weightsGrouped, 0);
   graph.setTileMapping(outGrouped, 0);
 
@@ -221,14 +228,30 @@ int main(int argc, char **argv) try {
   std::cout << "params=" << params << std::endl;
 
   Sequence prog;
+  if (!ignoreData) {
+    bool exceptOnInv = true;
+    bool exceptOnDiv0 = true;
+    bool exceptOnOflo = true;
+    bool enableStochasticRounding = false;
+    bool nanOnOverflow = true;
+    setFloatingPointBehaviour(graph, prog,
+                              {exceptOnInv, exceptOnDiv0, exceptOnOflo,
+                               enableStochasticRounding, nanOnOverflow},
+                              "enableAllFpExceptions");
+  }
+
   Tensor copyWritten = graph.addVariable(inputType, {0});
 
-  // fill the output with NaNs
-  const auto outGroupedFlattened = outGrouped.flatten();
-  const auto nan =
-      graph.addConstant(partialsType, outGroupedFlattened.shape(), NAN);
-  graph.setTileMapping(nan, 0);
-  prog.add(Copy(nan, outGroupedFlattened));
+  // fill the output and input overread detection space with (signalling) NaNs
+  auto fillWithNaNs = [&](const Tensor &t) {
+    const auto nan =
+        graph.addConstant(t.elementType(), t.shape(),
+                          std::numeric_limits<float>::signaling_NaN());
+    graph.setTileMapping(nan, 0);
+    prog.add(Copy(nan, t));
+  };
+  fillWithNaNs(outGrouped);
+  fillWithNaNs(inOverreadMemory);
 
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");

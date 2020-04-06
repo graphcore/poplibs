@@ -846,4 +846,20 @@ foreach(MODE 0 1 2)
       --output-padding-upper={1,1,2}
     LABELS codelet
     VARIANTS "IpuModel;Sim;Hw")
+
+  # T18510 - Try and catch overreads with NaNs
+  add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs1_cgg1_x70_kx4"
+    COMMAND ConvPartial1x4SLIC
+      --input-type=half
+      --partials-type=float
+      --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+      --chans-per-group=${CHANS_PER_GROUP}
+      --conv-group-groups=1
+      --batch-size=1
+      --in-field-size={3,2,5}
+      --kernel-size={2,1,4}
+      --output-padding-lower={1,1,1}
+      --output-padding-upper={1,1,2}
+    LABELS codelet
+    VARIANTS "IpuModel;Sim;Hw")
 endforeach() # MODE
