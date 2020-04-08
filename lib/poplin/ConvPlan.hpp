@@ -194,6 +194,19 @@ struct Plan {
         numConvUnitsRequired(numConvUnitsRequired_), method(method_),
         linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
         isJointPlan(isJointPlan) {}
+
+  unsigned totalParallelSplit() const {
+    return std::accumulate(std::begin(partitions), std::end(partitions),
+                           unsigned(1), [](unsigned total, const auto &p) {
+                             return total * p.totalParallelSplit();
+                           });
+  }
+  unsigned totalSerialSplit() const {
+    return std::accumulate(std::begin(partitions), std::end(partitions),
+                           unsigned(1), [](unsigned total, const auto &p) {
+                             return total * p.totalSerialSplit();
+                           });
+  }
 };
 
 std::ostream &operator<<(std::ostream &os, const Plan::Method &m);

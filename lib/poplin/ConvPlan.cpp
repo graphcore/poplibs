@@ -4588,6 +4588,36 @@ void validatePlanConstraints(
   }
 }
 
+static void logPlanBreakdown(logging::Level l, const Plan &plan,
+                             const Cost &cost) {
+  logging::log(l, "  breakdown of memory and cycle estimates:");
+  logging::log(l, "   - total parallel split: {}", plan.totalParallelSplit());
+  logging::log(l, "   - total serial split: {}", plan.totalSerialSplit());
+  logging::log(l,
+               "   - rearrangement before slice: {} cycles, {} bytes ({} "
+               "overhead, {} per-loop iteration)",
+               cost.rearrangeBeforeSliceCycles,
+               cost.rearrangeBeforeSliceTempBytes +
+                   cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
+               cost.rearrangeBeforeSliceTempBytes,
+               cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
+  logging::log(l, "   - dynamic slice: {} cycles, unknown bytes",
+               cost.dynamicSliceCycles);
+  logging::log(l, "   - transform: {} cycles, {} bytes", cost.transformCycles,
+               cost.transformTempBytes);
+  logging::log(l, "   - exchange: {} cycles, n/a bytes", cost.exchangeCycles);
+  logging::log(l, "   - tile level transform: {} cycles, {} bytes",
+               cost.tileLevelTransformCycles, cost.tileLevelTransformTempBytes);
+  logging::log(l, "   - compute: {} cycles, {} bytes", cost.partialCalcCycles,
+               cost.convTempBytes);
+  logging::log(l, "   - reduction: {} cycles, {} bytes", cost.reduceCycles,
+               cost.reduceTempBytes);
+  logging::log(l, "   - dynamic update: {} cycles, unknown bytes",
+               cost.dynamicUpdateCycles);
+  logging::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
+               cost.totalTempBytes);
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
            const PlanningObjective &objective, const poplar::Target &target,
@@ -4704,11 +4734,12 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             }
 
             if (objective.lowerCost(candidateCost, bestCost)) {
-              logging::debug("Found new best candidate plan: {}",
-                             candidateCost);
-
               bestPlan = candidate;
               bestCost = candidateCost;
+
+              logging::debug("Found new best candidate plan: {}",
+                             candidateCost);
+              logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost);
             }
           }
         }
@@ -5042,31 +5073,7 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
       options.pass);
-
-  logging::debug("  breakdown of memory and cycle estimates:");
-  logging::debug("   - rearrangement before slice: {} cycles, {} bytes ({} "
-                 "overhead, {} per-loop iteration)",
-                 cost.rearrangeBeforeSliceCycles,
-                 cost.rearrangeBeforeSliceTempBytes +
-                     cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
-                 cost.rearrangeBeforeSliceTempBytes,
-                 cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
-  logging::debug("   - dynamic slice: {} cycles, unknown bytes",
-                 cost.dynamicSliceCycles);
-  logging::debug("   - transform: {} cycles, {} bytes", cost.transformCycles,
-                 cost.transformTempBytes);
-  logging::debug("   - exchange: {} cycles, n/a bytes", cost.exchangeCycles);
-  logging::debug("   - tile level transform: {} cycles, {} bytes",
-                 cost.tileLevelTransformCycles,
-                 cost.tileLevelTransformTempBytes);
-  logging::debug("   - compute: {} cycles, {} bytes", cost.partialCalcCycles,
-                 cost.convTempBytes);
-  logging::debug("   - reduction: {} cycles, {} bytes", cost.reduceCycles,
-                 cost.reduceTempBytes);
-  logging::debug("   - dynamic update: {} cycles, unknown bytes",
-                 cost.dynamicUpdateCycles);
-  logging::debug("   - total: {} cycles, {} bytes", cost.totalCycles,
-                 cost.totalTempBytes);
+  logPlanBreakdown(logging::Level::Debug, plan, cost);
 
   logging::debug("{}", plan);
   logging::trace("for params: {}", params);

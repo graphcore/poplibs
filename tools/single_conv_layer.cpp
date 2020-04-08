@@ -538,17 +538,20 @@ int main(int argc, char **argv) try {
     if (doFwdPass) {
       std::cout << "Forward plan:\n";
       poplin::reportPlanInfo(std::cout, graph, params, fwdOptions, &cache);
+      std::cout << "Forward FLOPs: " << getFwdFlops(params) << "\n";
     }
 
     if (doBwdPass) {
       std::cout << "Backward plan:\n";
       poplin::reportPlanInfo(std::cout, graph, bwdParams, bwdOptions, &cache);
+      std::cout << "Backward FLOPs: " << getBwdFlops(bwdParams) << "\n";
     }
 
     if (doWuPass) {
       std::cout << "WU plan:\n";
       poplin::reportWeightUpdatePlanInfo(std::cout, graph, params, wuOptions,
                                          &cache);
+      std::cout << "WU FLOPs: " << getWuFlops(params) << "\n";
     }
 
     if (planOnly) {

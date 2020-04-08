@@ -4541,15 +4541,38 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const std::string &debugPrefix,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   const ConvOptions options(graph.getTarget(), options_);
-  logging::info(
-      "convolution input={}x({}x{}x{}) padding={}/{}, kernel={}, "
-      "output={}x({}x{}x{}) stride={}, pass={}, name=\"{}\"",
-      params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),
-      params.getNumInputChansPerConvGroup(), params.inputTransform.paddingLower,
-      params.inputTransform.paddingUpper, params.kernelShape,
-      params.getOutputFieldShape(), params.getBatchSize(),
-      params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-      params.outputTransform.stride, options.pass, debugPrefix);
+
+  if (logging::shouldLog(logging::Level::Info)) {
+    logging::info("convolution");
+    logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
+    logging::info(
+        "  input={}x({}x{}x{}) padding={}/{} truncation={}/{} dilation={} "
+        "flip={}",
+        params.inputFieldShape, params.getBatchSize(),
+        params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
+        params.inputTransform.paddingLower, params.inputTransform.paddingUpper,
+        params.inputTransform.truncationLower,
+        params.inputTransform.truncationUpper, params.inputTransform.dilation,
+        params.inputTransform.flip);
+    logging::info("  kernel={}x({}x{}x{}) padding={}/{} truncation={}/{} "
+                  "dilation={} flip={}",
+                  params.kernelShape, params.getNumConvGroups(),
+                  params.getNumOutputChansPerConvGroup(),
+                  params.getNumInputChansPerConvGroup(),
+                  params.kernelTransform.paddingLower,
+                  params.kernelTransform.paddingUpper,
+                  params.kernelTransform.truncationLower,
+                  params.kernelTransform.truncationUpper,
+                  params.kernelTransform.dilation, params.kernelTransform.flip);
+    logging::info(
+        "  output={}x({}x{}x{}) padding={}/{} truncation={}/{} stride={}",
+        params.getOutputFieldShape(), params.getBatchSize(),
+        params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
+        params.outputTransform.paddingLower,
+        params.outputTransform.paddingUpper,
+        params.outputTransform.truncationLower,
+        params.outputTransform.truncationUpper, params.outputTransform.stride);
+  }
 
   auto output = convolution(graph, in, weights, params, transposeAndFlipWeights,
                             prog, debugPrefix, options, cache);
