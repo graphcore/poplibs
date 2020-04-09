@@ -385,7 +385,7 @@ add_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(RangeTest RangeTest.cpp)
 add_unit_test(ConvOptionsTest ConvOptionsTest.cpp)
-add_unit_test(ConvPlanTest ConvPlanTest.cpp)
+add_unit_test(ConvPlanTest ConvPlanTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(ConvTest ConvTest.cpp)
 add_unit_test(StdArithmeticTests StdArithmeticTests.cpp)
 # GraphFunctionTest is variant-independent
@@ -4284,7 +4284,7 @@ foreach(GROUPING "411" "222" "144")
                     --output-channels=1
                     --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
                     --tiles-per-ipu=1)
-  
+
   add_multitarget_test(
             NAME conv_slic_${GROUPING}_8groups_pad_input
             COMMAND single_conv_layer
@@ -4297,7 +4297,7 @@ foreach(GROUPING "411" "222" "144")
                     --output-channels=1
                     --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
                     --tiles-per-ipu=1)
-  
+
   add_multitarget_test(
             NAME conv_slic_${GROUPING}_8groups_dilate_input
             COMMAND single_conv_layer
@@ -4310,7 +4310,7 @@ foreach(GROUPING "411" "222" "144")
                     --output-channels=1
                     --fwd-plan-constraints-file=${SLIC_CONV_PLAN}
                     --tiles-per-ipu=1)
-  
+
   add_multitarget_test(
             NAME conv_slic_${GROUPING}_8groups_truncate_input
             COMMAND single_conv_layer
@@ -4454,7 +4454,7 @@ add_multitarget_test(
           --replication-factor=2
   VARIANTS ${TimesOutOnSimCpp})
 
-add_unit_test(ExprName 
+add_unit_test(ExprName
               ExprName.cpp
               VARIANTS IpuModel)
 

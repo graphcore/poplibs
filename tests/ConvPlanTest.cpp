@@ -2,6 +2,7 @@
 #define BOOST_TEST_MODULE ConvPlanTest
 #include "ConvPlan.hpp"
 #include "ConvOptions.hpp"
+#include "TestDevice.hpp"
 #include "poplin/CanonicalConvParams.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/property_tree/json_parser.hpp>
@@ -9,6 +10,8 @@
 #include <boost/test/unit_test.hpp>
 #include <popnn/codelets.hpp>
 #include <vector>
+
+const auto testIpuName = deviceTypeToIPUName(TEST_TARGET);
 
 static auto params = poplin::ConvParams{poplar::FLOAT, // Data type
                                         1,             // batch size
@@ -27,7 +30,7 @@ BOOST_AUTO_TEST_CASE(getPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(getCachedPlans) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, testIpuName));
   auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -38,7 +41,7 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
 
 // Test some simple aspects of plan constraining that we currently support
 BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, testIpuName));
   const auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -68,7 +71,7 @@ BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, testIpuName));
   const auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -132,7 +135,7 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidConstraints) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, testIpuName));
   const auto &target = graph.getTarget();
 
   poplin::PlanningCache cache;
@@ -220,7 +223,7 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 4, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 4, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -253,7 +256,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(4, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(4, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -286,7 +289,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -320,7 +323,7 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -380,7 +383,7 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_2InputChannels) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -418,7 +421,7 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_2InputChannels) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidCombineConvGroups_ExpandDims) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -454,7 +457,7 @@ BOOST_AUTO_TEST_CASE(ValidCombineConvGroups_ExpandDims) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_ExpandDims) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -492,7 +495,7 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_ExpandDims) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_OutChanFlattenDims) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -531,7 +534,7 @@ BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_OutChanFlattenDims) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidLevel) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -568,7 +571,7 @@ BOOST_AUTO_TEST_CASE(InvalidLevel) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidFieldDimensionIndex) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -605,7 +608,7 @@ BOOST_AUTO_TEST_CASE(InvalidFieldDimensionIndex) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidKernelDimensionIndex) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -645,7 +648,7 @@ BOOST_AUTO_TEST_CASE(InvalidKernelDimensionIndex) {
 }
 
 BOOST_AUTO_TEST_CASE(GetSLICPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, "ipu1"));
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -683,8 +686,12 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
   BOOST_TEST_MESSAGE(plan << "\n");
 }
 
-BOOST_AUTO_TEST_CASE(GetAMP4Plan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, "ipu1"));
+// Check the mk1-only enableAmpHalfEnginesPlan option works
+// (the option is ignored for IpuModel2)
+BOOST_AUTO_TEST_CASE(
+    GetAMP4Plan,
+    *boost::unit_test::enable_if<(DeviceType::IpuModel == TEST_TARGET)>()) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
   poplin::PlanningCache cache;
 
@@ -706,6 +713,5 @@ BOOST_AUTO_TEST_CASE(GetAMP4Plan) {
 
   BOOST_CHECK(plan.method == poplin::Plan::Method::AMP);
   BOOST_CHECK(plan.numConvUnitsRequired == 4);
-
   BOOST_TEST_MESSAGE(plan << "\n");
 }
