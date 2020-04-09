@@ -1642,7 +1642,7 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
 static std::pair<popsolver::Variable, popsolver::Variable>
 addTileLevelTransformEstimates(
     popsolver::Model &m, const poplar::Target &target, const ConvParams &params,
-    unsigned inChansPerGroup,
+    poplar::Type partialType, unsigned inChansPerGroup,
     const std::vector<ConvSizeVariables> &transformedSizes,
     const std::vector<PartitionVariables> &partitionVars,
     const ExchangeEstimator &exchangeEstimator, Plan::Method method,
@@ -1664,7 +1664,7 @@ addTileLevelTransformEstimates(
 
     const auto numConvUnitsonIpu =
         getNumConvUnits(params.inputType == poplar::FLOAT,
-                        params.outputType == poplar::FLOAT, target);
+                        partialType == poplar::FLOAT, target);
 
     assert(numConvUnitsRequired != 0);
     assert(numConvUnitsonIpu % numConvUnitsRequired == 0);
@@ -2461,10 +2461,10 @@ static Estimates<popsolver::Variable> addEstimates(
   // effect on temporary memory and cycles and so we need to track it when
   // deciding on the optimal plan.
   std::tie(e.tileLevelTransformCycles, e.tileLevelTransformTempBytes) =
-      addTileLevelTransformEstimates(m, target, transformedOnceParams,
-                                     inChansPerGroup, transformedConvSize,
-                                     partitionVars, exchangeEstimator, method,
-                                     slicWindowWidth, numConvUnitsRequired);
+      addTileLevelTransformEstimates(
+          m, target, transformedOnceParams, types.back().partialType,
+          inChansPerGroup, transformedConvSize, partitionVars,
+          exchangeEstimator, method, slicWindowWidth, numConvUnitsRequired);
 
   e.partialCalcCycles = addPartialCalcCycleEstimate(
       m, intraTileSplits.fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
