@@ -3,6 +3,7 @@
 
 #include "TestDevice.hpp"
 // codelets
+#include "../../lib/popops/reduction/ReductionVertex.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -64,7 +65,9 @@ static bool do_test(const DeviceType &deviceType, const Type &inType,
   auto partials_2 = graph.addVariable(inType, {INNER_DIM, outer_dim});
   auto out = graph.addVariable(outType, {2, outerDim});
 
-  unsigned specialisation = outerDim == 1;
+  const auto specialisation =
+      outerDim == 1 ? ReductionSpecialisation::SCALAR_OUTPUT_REGIONS
+                    : ReductionSpecialisation::DEFAULT;
   const auto vertexClass =
       templateVertex("popops::ScaledReduce", "popops::ReduceAdd", inType,
                      outType, UPDATE, specialisation);
@@ -177,18 +180,21 @@ static bool do_test_multi(const DeviceType &deviceType, const Type &inType,
   }
 
   unsigned specialisation = outerDim == 1;
+  const auto specialisationType =
+      specialisation == 0 ? ReductionSpecialisation::DEFAULT
+                          : ReductionSpecialisation::SCALAR_OUTPUT_REGIONS;
   const auto mul_vertex =
       templateVertex("popops::ScaledReduce", "popops::ReduceMul", inType,
-                     outType, false, specialisation);
+                     outType, false, specialisationType);
   const auto max_vertex =
       templateVertex("popops::ScaledReduce", "popops::ReduceMax", inType,
-                     outType, false, specialisation);
+                     outType, false, specialisationType);
   const auto min_vertex =
       templateVertex("popops::ScaledReduce", "popops::ReduceMin", inType,
-                     outType, false, specialisation);
+                     outType, false, specialisationType);
   const auto sqadd_vertex =
       templateVertex("popops::ScaledReduce", "popops::ReduceSquareAdd", inType,
-                     outType, false, specialisation);
+                     outType, false, specialisationType);
   auto v_mul = graph.addVertex(cs, mul_vertex);
   auto v_max = graph.addVertex(cs, max_vertex);
   auto v_min = graph.addVertex(cs, min_vertex);

@@ -2,6 +2,7 @@
 #include "TestDevice.hpp"
 #include <poplar/Engine.hpp>
 // codelets
+#include "../../lib/popops/reduction/ReductionVertex.hpp"
 #include "poplar/Target.hpp"
 #include "poplibs_test/Check.hpp"
 #include "poplibs_test/Util.hpp"
@@ -22,26 +23,6 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplibs_test::reduce;
 using namespace poplibs_support;
-
-std::string inline getReductionVertexOpName(popops::Operation op) {
-  switch (op) {
-  case popops::Operation::ADD:
-    return "ReduceAdd";
-  case popops::Operation::SQUARE_ADD:
-    return "ReduceSquareAdd";
-  case popops::Operation::MUL:
-    return "ReduceMul";
-  case popops::Operation::MIN:
-    return "ReduceMin";
-  case popops::Operation::MAX:
-    return "ReduceMax";
-  case popops::Operation::LOGICAL_AND:
-    return "ReduceAnd";
-  case popops::Operation::LOGICAL_OR:
-    return "ReduceOr";
-  }
-  throw poplibs_error("Unknown reduce operation");
-}
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                    const Type &outType, const unsigned outerDim,

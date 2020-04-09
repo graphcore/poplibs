@@ -6,6 +6,30 @@
 #include <popops/Reduce.hpp>
 #include <poputil/VertexTemplates.hpp>
 
+namespace poputil {
+
+template <> struct VertexTemplateToString<popops::ReductionSpecialisation> {
+  static std::string to_string(const popops::ReductionSpecialisation &redType) {
+    switch (redType) {
+    case popops::ReductionSpecialisation::DEFAULT:
+      return "popops::ReductionSpecialisation::DEFAULT";
+    case popops::ReductionSpecialisation::SCALAR_OUTPUT_REGIONS:
+      return "popops::ReductionSpecialisation::SCALAR_OUTPUT_REGIONS";
+    case popops::ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT:
+      return "popops::ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT";
+    case popops::ReductionSpecialisation::SINGLE_OUTPUT_REGION:
+      return "popops::ReductionSpecialisation::SINGLE_OUTPUT_REGION";
+    case popops::ReductionSpecialisation::ALL_REGIONS_CONTINUOUS:
+    case popops::ReductionSpecialisation::PARTIALS_EQUAL_SIZE:
+      throw poputil::poplibs_error("Reduction specialisation ");
+    default:
+      throw poputil::poplibs_error("Unsupported reduction specialisation");
+    }
+  }
+};
+
+} // end namespace poputil
+
 namespace popops {
 
 std::string inline getReductionVertexOpName(popops::Operation op) {
@@ -57,11 +81,11 @@ std::string inline getReductionVertexName(
   if (scaling) {
     return poputil::templateVertex("popops::ScaledReduce", "popops::" + opName,
                                    partialType, outputType, isUpdate,
-                                   static_cast<unsigned>(specialisation));
+                                   specialisation);
   } else {
     return poputil::templateVertex("popops::Reduce", "popops::" + opName,
                                    partialType, outputType, isUpdate,
-                                   static_cast<unsigned>(specialisation));
+                                   specialisation);
   }
 }
 

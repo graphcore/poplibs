@@ -4,6 +4,7 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include "../reduction/ReductionVertexDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "util.hpp"
@@ -117,16 +118,22 @@ using AccType =
  *  the information on types, what the reduction operator is, whether to
  *  update in place or not etc. */
 
-template <typename OutType, bool isUpdate, unsigned specialisation>
+template <typename OutType, bool isUpdate,
+          ReductionSpecialisation specialisation>
 using ReduceOutputAlign = typename std::conditional<
     isUpdate,
-    poplar::InOut<
-        poplar::VectorList<OutType, DELTAN_TYPE, specialisation == 1 ? 4 : 8>>,
-    poplar::Output<poplar::VectorList<OutType, DELTAN_TYPE,
-                                      specialisation == 1 ? 4 : 8>>>::type;
+    poplar::InOut<poplar::VectorList<
+        OutType, DELTAN_TYPE,
+        specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS ? 4
+                                                                         : 8>>,
+    poplar::Output<poplar::VectorList<
+        OutType, DELTAN_TYPE,
+        specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS
+            ? 4
+            : 8>>>::type;
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
-          bool isUpdate, unsigned specialisation>
+          bool isUpdate, ReductionSpecialisation specialisation>
 static bool computeReduce(
     ReduceOutputAlign<OutType, isUpdate, specialisation> out,
     poplar::Input<poplar::Vector<unsigned short, PTR_ALIGN32, 4>> numPartials,

@@ -45,8 +45,12 @@
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Name mangling
-#define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_float_false_##specialisation
-#define REDUCE_FLOAT_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_half_false_##specialisation
+
+#define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___\
+popops__\OP\()_float_float_false_popops__ReductionSpecialisation__##specialisation
+
+#define REDUCE_FLOAT_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___\
+popops__\OP\()_float_half_false_popops__ReductionSpecialisation__##specialisation
 
 // *****************************************************************************
 // Macro describing the float, float and float, half versions of the operation
@@ -147,25 +151,25 @@ REDUCE_FLOAT_FLOAT(Reduce,2common):
   }
 .size REDUCE_FLOAT_FLOAT(Reduce,2common), .-REDUCE_FLOAT_FLOAT(Reduce,2common)
 
-DEF_STACK_USAGE 0 REDUCE_FLOAT_FLOAT(Reduce,2)
+DEF_STACK_USAGE 0 REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
 
-.globl REDUCE_FLOAT_FLOAT(Reduce,2)
-.type REDUCE_FLOAT_FLOAT(Reduce,2), @function
-.section .text.REDUCE_FLOAT_FLOAT(Reduce,2), "ax"
+.globl REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
+.type REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), @function
+.section .text.REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), "ax"
 .align 4
-REDUCE_FLOAT_FLOAT(Reduce,2):
+REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT):
   call $m10, REDUCE_FLOAT_FLOAT(Reduce,2common)
   st32 $a0, $m0, $mzero
   exitnz $mzero
-.size REDUCE_FLOAT_FLOAT(Reduce,2), .-REDUCE_FLOAT_FLOAT(Reduce,2)
+.size REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), .-REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
 
-DEF_STACK_USAGE 0 REDUCE_FLOAT_HALF(Reduce,2)
+DEF_STACK_USAGE 0 REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
 
-.globl REDUCE_FLOAT_HALF(Reduce,2)
-.type REDUCE_FLOAT_HALF(Reduce,2), @function
-.section .text.REDUCE_FLOAT_HALF(Reduce,2), "ax"
+.globl REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
+.type REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), @function
+.section .text.REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), "ax"
 .align 4
-REDUCE_FLOAT_HALF(Reduce,2):
+REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT):
   call $m10, REDUCE_FLOAT_FLOAT(Reduce,2common)
   and $m1, $m0, 0x2
   andc $m0, $m0, 0x2
@@ -181,7 +185,7 @@ REDUCE_FLOAT_HALF(Reduce,2):
 1:
   st32 $a2, $m0, $mzero
   exitnz $mzero
-.size REDUCE_FLOAT_HALF(Reduce,2), .-REDUCE_FLOAT_HALF(Reduce,2)
+.size REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT), .-REDUCE_FLOAT_HALF(Reduce,SCALAR___OUTPUT___SINGLE___INPUT)
 .endm
 //******************************************************************************
 // Use the macro to instantiate the vertices

@@ -61,8 +61,11 @@
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // Name mangling
-#define REDUCE_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_\OUT_TYPE\()_\UPDATE\()_##specialisation
-#define REDUCE_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_half_\OUT_TYPE\()_\UPDATE\()_##specialisation
+#define REDUCE_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___\
+popops__\OP\()_float_\OUT_TYPE\()_\UPDATE\()_popops__ReductionSpecialisation__##specialisation
+
+#define REDUCE_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___\
+popops__\OP\()_half_\OUT_TYPE\()_\UPDATE\()_popops__ReductionSpecialisation__##specialisation
 
 //******************************************************************************
 // Macro to create vertex code for float input variants
@@ -70,22 +73,22 @@
 .equ LOG2_PARTIAL_SIZE, 2
 
 DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(Reduce,3common)
-.globl REDUCE_FLOAT(Reduce,3)
-.type REDUCE_FLOAT(Reduce,3), @function
-.globl REDUCE_FLOAT(ScaledReduce,3)
-.type REDUCE_FLOAT(ScaledReduce,3), @function
+.globl REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION), @function
+.globl REDUCE_FLOAT(ScaledReduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_FLOAT(ScaledReduce,SINGLE___OUTPUT___REGION), @function
 
 .section .text.REDUCE_FLOAT(Reduce,3common), "ax"
 .align 8
 
 REDUCE_FLOAT(Reduce,3common):
-REDUCE_FLOAT(Reduce,3):
+REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION):
 setzi $BASE, TMEM_REGION0_BASE_ADDR
 {
   bri        1f
   or         $SCALE, $azero, FLOAT_1_0
 }
-REDUCE_FLOAT(ScaledReduce,3):
+REDUCE_FLOAT(ScaledReduce,SINGLE___OUTPUT___REGION):
   // As scale uses a SCALED_PTR32 there is no downside to having partials also
   // use SCALED_PTR32 as we can load and use the same base address
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -175,7 +178,7 @@ float_loop\@:
 4:
   brnzdec $OUT_COUNT, float_loop\@
   exitnz $mzero
-.size REDUCE_FLOAT(Reduce,3), .-REDUCE_FLOAT(Reduce,3)
+.size REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION), .-REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION)
 .endm
 
 //******************************************************************************
@@ -245,22 +248,22 @@ float_loop\@:
 
 DEF_STACK_USAGE 0 .text.REDUCE_HALF(Reduce,3common)
 
-.globl REDUCE_HALF(Reduce,3)
-.type REDUCE_HALF(Reduce,3), @function
-.globl REDUCE_HALF(ScaledReduce,3)
-.type REDUCE_HALF(ScaledReduce,3), @function
+.globl REDUCE_HALF(Reduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_HALF(Reduce,SINGLE___OUTPUT___REGION), @function
+.globl REDUCE_HALF(ScaledReduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_HALF(ScaledReduce,SINGLE___OUTPUT___REGION), @function
 
 .section .text.REDUCE_HALF(Reduce,3common), "ax"
 .align 4
 
 REDUCE_HALF(Reduce,3common):
-REDUCE_HALF(Reduce,3):
+REDUCE_HALF(Reduce,SINGLE___OUTPUT___REGION):
 setzi $BASE, TMEM_REGION0_BASE_ADDR
 {
   bri        1f
   or         $SCALE, $azero, FLOAT_1_0
 }
-REDUCE_HALF(ScaledReduce,3):
+REDUCE_HALF(ScaledReduce,SINGLE___OUTPUT___REGION):
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/2 // load scale
   setzi      $BASE, TMEM_REGION0_BASE_ADDR

@@ -113,8 +113,11 @@
 .endm
 
 // Name mangling
-#define REDUCE_HALF_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_half_half_false_##specialisation
-#define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___popops__\OP\()_float_float_false_##specialisation
+#define REDUCE_HALF_HALF(prefix, specialisation) __runCodelet_popops__##prefix##___\
+popops__\OP\()_half_half_false_popops__ReductionSpecialisation__##specialisation
+
+#define REDUCE_FLOAT_FLOAT(prefix, specialisation) __runCodelet_popops__##prefix##___\
+popops__\OP\()_float_float_false_popops__ReductionSpecialisation__##specialisation
 
 // ------------------------------------------------------- //
 // Macro to create half half
@@ -130,14 +133,14 @@ DEF_STACK_USAGE 0 .text.REDUCE_HALF_HALF(Reduce,common)
 
 .section .text.REDUCE_HALF_HALF(Reduce,common), "ax"
 // Instantiate two variants which call the same common function
-.globl REDUCE_HALF_HALF(Reduce,0)
-.type REDUCE_HALF_HALF(Reduce,0), @function
-.globl REDUCE_HALF_HALF(ScaledReduce,0)
-.type REDUCE_HALF_HALF(ScaledReduce,0), @function
-.globl REDUCE_HALF_HALF(Reduce,1)
-.type REDUCE_HALF_HALF(Reduce,1), @function
-.globl REDUCE_HALF_HALF(ScaledReduce,1)
-.type REDUCE_HALF_HALF(ScaledReduce,1), @function
+.globl REDUCE_HALF_HALF(Reduce,DEFAULT)
+.type REDUCE_HALF_HALF(Reduce,DEFAULT), @function
+.globl REDUCE_HALF_HALF(ScaledReduce,DEFAULT)
+.type REDUCE_HALF_HALF(ScaledReduce,DEFAULT), @function
+.globl REDUCE_HALF_HALF(Reduce,SCALAR___OUTPUT___REGIONS)
+.type REDUCE_HALF_HALF(Reduce,SCALAR___OUTPUT___REGIONS), @function
+.globl REDUCE_HALF_HALF(ScaledReduce,SCALAR___OUTPUT___REGIONS)
+.type REDUCE_HALF_HALF(ScaledReduce,SCALAR___OUTPUT___REGIONS), @function
 
 .align 4
 // ************************************************* //
@@ -145,14 +148,14 @@ DEF_STACK_USAGE 0 .text.REDUCE_HALF_HALF(Reduce,common)
 // ************************************************* //
 REDUCE_HALF_HALF(Reduce,common):
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
-REDUCE_HALF_HALF(Reduce,0):
-REDUCE_HALF_HALF(Reduce,1):
+REDUCE_HALF_HALF(Reduce,DEFAULT):
+REDUCE_HALF_HALF(Reduce,SCALAR___OUTPUT___REGIONS):
 #else
-REDUCE_HALF_HALF(Reduce,0):
+REDUCE_HALF_HALF(Reduce,DEFAULT):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
 
-REDUCE_HALF_HALF(Reduce,1):
+REDUCE_HALF_HALF(Reduce,SCALAR___OUTPUT___REGIONS):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
@@ -163,17 +166,17 @@ REDUCE_HALF_HALF(Reduce,1):
   or         $SCALE, $azero, FLOAT_1_0
 }
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
-REDUCE_HALF_HALF(ScaledReduce,0):
-REDUCE_HALF_HALF(ScaledReduce,1):
+REDUCE_HALF_HALF(ScaledReduce,DEFAULT):
+REDUCE_HALF_HALF(ScaledReduce,SCALAR___OUTPUT___REGIONS):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
 #else
-REDUCE_HALF_HALF(ScaledReduce,0):
+REDUCE_HALF_HALF(ScaledReduce,DEFAULT):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
 
-REDUCE_HALF_HALF(ScaledReduce,1):
+REDUCE_HALF_HALF(ScaledReduce,SCALAR___OUTPUT___REGIONS):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
@@ -382,14 +385,14 @@ _exit.\@:
 DEF_STACK_USAGE 0 .text.REDUCE_FLOAT_FLOAT(Reduce,common)
 .section .text.REDUCE_FLOAT_FLOAT(Reduce,common), "ax"
 // Instantiate two variants which call the same common function
-.globl REDUCE_FLOAT_FLOAT(Reduce,0)
-.type REDUCE_FLOAT_FLOAT(Reduce,0), @function
-.globl REDUCE_FLOAT_FLOAT(ScaledReduce,0)
-.type REDUCE_FLOAT_FLOAT(ScaledReduce,0), @function
-.globl REDUCE_FLOAT_FLOAT(Reduce,1)
-.type REDUCE_FLOAT_FLOAT(Reduce,1), @function
-.globl REDUCE_FLOAT_FLOAT(ScaledReduce,1)
-.type REDUCE_FLOAT_FLOAT(ScaledReduce,1), @function
+.globl REDUCE_FLOAT_FLOAT(Reduce,DEFAULT)
+.type REDUCE_FLOAT_FLOAT(Reduce,DEFAULT), @function
+.globl REDUCE_FLOAT_FLOAT(ScaledReduce,DEFAULT)
+.type REDUCE_FLOAT_FLOAT(ScaledReduce,DEFAULT), @function
+.globl REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___REGIONS)
+.type REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___REGIONS), @function
+.globl REDUCE_FLOAT_FLOAT(ScaledReduce,SCALAR___OUTPUT___REGIONS)
+.type REDUCE_FLOAT_FLOAT(ScaledReduce,SCALAR___OUTPUT___REGIONS), @function
 
 .align 4
 // ************************************************* //
@@ -397,14 +400,14 @@ DEF_STACK_USAGE 0 .text.REDUCE_FLOAT_FLOAT(Reduce,common)
 // ************************************************* //
 REDUCE_FLOAT_FLOAT(Reduce,common):
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
-REDUCE_FLOAT_FLOAT(Reduce,0):
-REDUCE_FLOAT_FLOAT(Reduce,1):
+REDUCE_FLOAT_FLOAT(Reduce,DEFAULT):
+REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___REGIONS):
 #else
-REDUCE_FLOAT_FLOAT(Reduce,0):
+REDUCE_FLOAT_FLOAT(Reduce,DEFAULT):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
 
-REDUCE_FLOAT_FLOAT(Reduce,1):
+REDUCE_FLOAT_FLOAT(Reduce,SCALAR___OUTPUT___REGIONS):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:
@@ -415,17 +418,17 @@ REDUCE_FLOAT_FLOAT(Reduce,1):
   or         $SCALE, $azero, FLOAT_1_0
 }
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
-REDUCE_FLOAT_FLOAT(ScaledReduce,0):
-REDUCE_FLOAT_FLOAT(ScaledReduce,1):
+REDUCE_FLOAT_FLOAT(ScaledReduce,DEFAULT):
+REDUCE_FLOAT_FLOAT(ScaledReduce,SCALAR___OUTPUT___REGIONS):
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFF/2
   setzi      $SCRATCH2, TMEM_REGION0_BASE_ADDR
   ld32       $SCALE, $SCRATCH2, $mzero, $SCRATCH
 #else
-REDUCE_FLOAT_FLOAT(ScaledReduce,0):
+REDUCE_FLOAT_FLOAT(ScaledReduce,DEFAULT):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align64
   bri        1f
 
-REDUCE_FLOAT_FLOAT(ScaledReduce,1):
+REDUCE_FLOAT_FLOAT(ScaledReduce,SCALAR___OUTPUT___REGIONS):
   setzi      $SCRATCH, _Reduce_outer_loop_setup_out_align32
 
 1:

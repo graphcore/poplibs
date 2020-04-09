@@ -2,6 +2,7 @@
 #include "TestDevice.hpp"
 #include <poplar/Engine.hpp>
 // codelets
+#include "../../lib/popops/reduction/ReductionVertex.hpp"
 #include "poplar/Target.hpp"
 #include "poplibs_test/Check.hpp"
 #include "poplibs_test/Util.hpp"
@@ -23,31 +24,11 @@ using namespace poplibs_support;
 
 const OptionFlags options{{"target.workerStackSizeInBytes", "0x400"}};
 
-std::string inline getReductionVertexOpName(popops::Operation op) {
-  switch (op) {
-  case popops::Operation::ADD:
-    return "ReduceAdd";
-  case popops::Operation::SQUARE_ADD:
-    return "ReduceSquareAdd";
-  case popops::Operation::MUL:
-    return "ReduceMul";
-  case popops::Operation::MIN:
-    return "ReduceMin";
-  case popops::Operation::MAX:
-    return "ReduceMax";
-  case popops::Operation::LOGICAL_AND:
-    return "ReduceAnd";
-  case popops::Operation::LOGICAL_OR:
-    return "ReduceOr";
-  }
-  throw poplibs_error("Unknown reduce op");
-}
-
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
                    const Type &outType, const unsigned outerDim,
                    const unsigned innerDim, const unsigned outputDim,
                    const popops::Operation op, const float scale, bool isUpdate,
-                   unsigned specialisation) {
+                   ReductionSpecialisation specialisation) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(target);
@@ -57,26 +38,27 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   const auto grainSize = partialsType == poplar::HALF ? 4 : 2;
 
   // Check constraints:
-  if (specialisation == 2) {
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     if (outputDim != 1) {
-      std::cerr << "Output dimension must be 1 for specialisation 2\n";
+      std::cerr
+          << "Output dimension must be 1 for SCALAR_OUTPUT_SINGLE_INPUT\n";
       return false;
     }
 
-  } else if (specialisation == 3) {
+  } else if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
     if (innerDim != outputDim) {
       std::cerr << "Inner dimension must be a multiple of the output dimension "
-                   "for specialisation 3\n";
+                   "for SINGLE_OUTPUT_REGION\n";
       return false;
     }
     if (innerDim % grainSize) {
       std::cerr << "Inner dimension must be a multiple of 4 (half) or 2 "
-                   "(float) for specialisation 3\n";
+                   "(float) for SINGLE_OUTPUT_REGION\n";
       return false;
     }
     if (outputDim % grainSize) {
       std::cerr << "Output dimension must be a multiple of 4 (half) or 2 "
-                   "(float) for specialisation 3\n";
+                   "(float) for SINGLE_OUTPUT_REGION\n";
       return false;
     }
   } else {
@@ -119,7 +101,7 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   graph.connect(v1["partials"], partials.flatten());
   graph.connect(v1["out"], out);
-  if (specialisation == 2) {
+  if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     graph.setInitialValue(v1["numPartials"], innerDim * outerDim);
   } else {
     graph.setInitialValue(v1["numOutputs"], innerDim);
@@ -228,7 +210,8 @@ int main(int argc, char **argv) {
      "Partials Type")
     ("specialisation",
      po::value<unsigned>(&specialisation)->required(),
-     "Specialisation: 2 or 3")
+     "Specialisation: 2 = SCALAR_OUTPUT_SINGLE_INPUT or"
+     " 3 = SINGLE_OUTPUT_REGION")
     ("out-type",
      po::value<Type>(&outType)->required(),
      "Output type")
@@ -264,8 +247,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  const auto specialisationType =
+      specialisation == 2 ? ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT
+                          : ReductionSpecialisation::SINGLE_OUTPUT_REGION;
   if (!doTest(deviceType, partialsType, outType, outerDim, innerDim, outputDim,
-              op, scale, isUpdate, specialisation))
+              op, scale, isUpdate, specialisationType))
     return 1;
   return 0;
 }

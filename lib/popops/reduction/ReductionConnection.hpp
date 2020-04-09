@@ -10,22 +10,12 @@
 #include "ComputeSetList.hpp"
 #include "Reduction.hpp"
 #include "ReductionDebug.hpp"
+#include "ReductionVertexDefs.hpp"
+
 #include <boost/range.hpp>
 #include <boost/variant.hpp>
 
 namespace popops {
-
-enum class ReductionSpecialisation {
-  // TODO: T12965 Swap 2&3 so that higher specialisations are cheaper.
-
-  DEFAULT,
-  SCALAR_OUTPUT_REGIONS,
-  SCALAR_OUTPUT_SINGLE_INPUT,
-  SINGLE_OUTPUT_REGION,
-  ALL_REGIONS_CONTINUOUS,
-  PARTIALS_EQUAL_SIZE
-};
-constexpr unsigned numReductionSpecialisations = 6;
 
 /// This structure represents the reduction of a set of 1D input regions
 /// to a single 1D output region. One reduction vertex can reduce a set

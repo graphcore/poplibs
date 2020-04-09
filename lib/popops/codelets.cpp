@@ -35,11 +35,16 @@ void addReduceCodelets(poplar::Graph &graph) {
 
     for (const auto &p : types) {
       for (bool isUpdate : {false, true}) {
-        // 4 specialisations without scaling
-        for (unsigned i = 0; i != numReductionSpecialisations; ++i) {
+        // specialisations without scaling
+        for (auto specialisation :
+             {ReductionSpecialisation::DEFAULT,
+              ReductionSpecialisation::SCALAR_OUTPUT_REGIONS,
+              ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT,
+              ReductionSpecialisation::SINGLE_OUTPUT_REGION,
+              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS,
+              ReductionSpecialisation::PARTIALS_EQUAL_SIZE}) {
           // continuous reductions do not take the specialisation
           // as a template parameter
-          auto specialisation = static_cast<ReductionSpecialisation>(i);
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,
                                                    isUpdate, specialisation);
@@ -49,9 +54,14 @@ void addReduceCodelets(poplar::Graph &graph) {
                         p.second, operation, isUpdate, specialisation));
         }
 
-        // 5 specialisations with scaling (Only 2 does not at present)
-        for (unsigned i : {0, 1, 3, 4, 5}) {
-          auto specialisation = static_cast<ReductionSpecialisation>(i);
+        // specialisations with scaling (Only SCALAR_OUTPUT_SINGLE_INPUT
+        // does not at present)
+        for (auto specialisation :
+             {ReductionSpecialisation::DEFAULT,
+              ReductionSpecialisation::SCALAR_OUTPUT_REGIONS,
+              ReductionSpecialisation::SINGLE_OUTPUT_REGION,
+              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS,
+              ReductionSpecialisation::PARTIALS_EQUAL_SIZE}) {
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(
               opName, p.first, p.second, isUpdate, specialisation, true);

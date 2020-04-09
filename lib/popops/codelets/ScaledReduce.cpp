@@ -6,10 +6,12 @@ using namespace poplar;
 namespace popops {
 
 template <typename ReduceOp, typename PartialsType, typename OutType,
-          bool isUpdate, unsigned specialisation>
+          bool isUpdate, ReductionSpecialisation specialisation>
 class ScaledReduce : public Vertex {
   // This template handles the first two specialisations
-  static_assert(specialisation == 0 || specialisation == 1,
+  static_assert(specialisation == ReductionSpecialisation::DEFAULT ||
+                    specialisation ==
+                        ReductionSpecialisation::SCALAR_OUTPUT_REGIONS,
                 "unsupported specialisation");
 
 private:
@@ -56,7 +58,8 @@ public:
 // Specialised reduce to one output region from a single edge
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>
-class ScaledReduce<ReduceOp, PartialsType, OutType, isUpdate, 3u>
+class ScaledReduce<ReduceOp, PartialsType, OutType, isUpdate,
+                   ReductionSpecialisation::SINGLE_OUTPUT_REGION>
     : public Vertex {
 private:
   constexpr static bool opIsMaxMinWithAssembler() {
@@ -115,188 +118,326 @@ public:
   }
 };
 
-template class ScaledReduce<popops::ReduceAdd, float, float, true, 0u>;
-template class ScaledReduce<popops::ReduceAdd, float, float, true, 1u>;
-template class ScaledReduce<popops::ReduceAdd, float, float, true, 3u>;
+template class ScaledReduce<popops::ReduceAdd, float, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, float, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, float, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, half, float, true, 0u>;
-template class ScaledReduce<popops::ReduceAdd, half, float, true, 1u>;
-template class ScaledReduce<popops::ReduceAdd, half, float, true, 3u>;
+template class ScaledReduce<popops::ReduceAdd, half, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, half, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, half, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, float, half, true, 0u>;
-template class ScaledReduce<popops::ReduceAdd, float, half, true, 1u>;
-template class ScaledReduce<popops::ReduceAdd, float, half, true, 3u>;
+template class ScaledReduce<popops::ReduceAdd, float, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, float, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, float, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, half, half, true, 0u>;
-template class ScaledReduce<popops::ReduceAdd, half, half, true, 1u>;
-template class ScaledReduce<popops::ReduceAdd, half, half, true, 3u>;
+template class ScaledReduce<popops::ReduceAdd, half, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, half, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, half, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, int, int, true, 0u>;
-template class ScaledReduce<popops::ReduceAdd, int, int, true, 1u>;
-template class ScaledReduce<popops::ReduceAdd, int, int, true, 3u>;
+template class ScaledReduce<popops::ReduceAdd, int, int, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, int, int, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, int, int, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, float, float, false, 0u>;
-template class ScaledReduce<popops::ReduceAdd, float, float, false, 1u>;
-template class ScaledReduce<popops::ReduceAdd, float, float, false, 3u>;
+template class ScaledReduce<popops::ReduceAdd, float, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, float, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, float, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, half, float, false, 0u>;
-template class ScaledReduce<popops::ReduceAdd, half, float, false, 1u>;
-template class ScaledReduce<popops::ReduceAdd, half, float, false, 3u>;
+template class ScaledReduce<popops::ReduceAdd, half, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, half, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, half, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, float, half, false, 0u>;
-template class ScaledReduce<popops::ReduceAdd, float, half, false, 1u>;
-template class ScaledReduce<popops::ReduceAdd, float, half, false, 3u>;
+template class ScaledReduce<popops::ReduceAdd, float, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, float, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, float, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, half, half, false, 0u>;
-template class ScaledReduce<popops::ReduceAdd, half, half, false, 1u>;
-template class ScaledReduce<popops::ReduceAdd, half, half, false, 3u>;
+template class ScaledReduce<popops::ReduceAdd, half, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, half, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, half, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAdd, int, int, false, 0u>;
-template class ScaledReduce<popops::ReduceAdd, int, int, false, 1u>;
-template class ScaledReduce<popops::ReduceAdd, int, int, false, 3u>;
+template class ScaledReduce<popops::ReduceAdd, int, int, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAdd, int, int, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAdd, int, int, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, float, float, true, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, float, true, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, float, true, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, half, float, true, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, float, true, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, float, true, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, float, half, true, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, half, true, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, half, true, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, half, half, true, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, half, true, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, half, true, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, int, int, true, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, int, int, true, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, int, int, true, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, int, int, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, int, int, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, int, int, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, float, float, false, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, float, false, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, float, false, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, half, float, false, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, float, false, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, float, false, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, float, half, false, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, half, false, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, float, half, false, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, float, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, half, half, false, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, half, false, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, half, half, false, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, half, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceSquareAdd, int, int, false, 0u>;
-template class ScaledReduce<popops::ReduceSquareAdd, int, int, false, 1u>;
-template class ScaledReduce<popops::ReduceSquareAdd, int, int, false, 3u>;
+template class ScaledReduce<popops::ReduceSquareAdd, int, int, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceSquareAdd, int, int, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceSquareAdd, int, int, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, float, float, true, 0u>;
-template class ScaledReduce<popops::ReduceMul, float, float, true, 1u>;
-template class ScaledReduce<popops::ReduceMul, float, float, true, 3u>;
+template class ScaledReduce<popops::ReduceMul, float, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, float, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, float, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, half, float, true, 0u>;
-template class ScaledReduce<popops::ReduceMul, half, float, true, 1u>;
-template class ScaledReduce<popops::ReduceMul, half, float, true, 3u>;
+template class ScaledReduce<popops::ReduceMul, half, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, half, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, half, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, float, half, true, 0u>;
-template class ScaledReduce<popops::ReduceMul, float, half, true, 1u>;
-template class ScaledReduce<popops::ReduceMul, float, half, true, 3u>;
+template class ScaledReduce<popops::ReduceMul, float, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, float, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, float, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, half, half, true, 0u>;
-template class ScaledReduce<popops::ReduceMul, half, half, true, 1u>;
-template class ScaledReduce<popops::ReduceMul, half, half, true, 3u>;
+template class ScaledReduce<popops::ReduceMul, half, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, half, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, half, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, int, int, true, 0u>;
-template class ScaledReduce<popops::ReduceMul, int, int, true, 1u>;
-template class ScaledReduce<popops::ReduceMul, int, int, true, 3u>;
+template class ScaledReduce<popops::ReduceMul, int, int, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, int, int, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, int, int, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, float, float, false, 0u>;
-template class ScaledReduce<popops::ReduceMul, float, float, false, 1u>;
-template class ScaledReduce<popops::ReduceMul, float, float, false, 3u>;
+template class ScaledReduce<popops::ReduceMul, float, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, float, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, float, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, half, float, false, 0u>;
-template class ScaledReduce<popops::ReduceMul, half, float, false, 1u>;
-template class ScaledReduce<popops::ReduceMul, half, float, false, 3u>;
+template class ScaledReduce<popops::ReduceMul, half, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, half, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, half, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, float, half, false, 0u>;
-template class ScaledReduce<popops::ReduceMul, float, half, false, 1u>;
-template class ScaledReduce<popops::ReduceMul, float, half, false, 3u>;
+template class ScaledReduce<popops::ReduceMul, float, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, float, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, float, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, half, half, false, 0u>;
-template class ScaledReduce<popops::ReduceMul, half, half, false, 1u>;
-template class ScaledReduce<popops::ReduceMul, half, half, false, 3u>;
+template class ScaledReduce<popops::ReduceMul, half, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, half, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, half, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMul, int, int, false, 0u>;
-template class ScaledReduce<popops::ReduceMul, int, int, false, 1u>;
-template class ScaledReduce<popops::ReduceMul, int, int, false, 3u>;
+template class ScaledReduce<popops::ReduceMul, int, int, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMul, int, int, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMul, int, int, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMax, float, float, true, 0u>;
-template class ScaledReduce<popops::ReduceMax, float, float, true, 1u>;
-template class ScaledReduce<popops::ReduceMax, float, float, true, 3u>;
+template class ScaledReduce<popops::ReduceMax, float, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMax, float, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMax, float, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMax, half, half, true, 0u>;
-template class ScaledReduce<popops::ReduceMax, half, half, true, 1u>;
-template class ScaledReduce<popops::ReduceMax, half, half, true, 3u>;
+template class ScaledReduce<popops::ReduceMax, half, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMax, half, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMax, half, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMax, int, int, true, 0u>;
-template class ScaledReduce<popops::ReduceMax, int, int, true, 1u>;
-template class ScaledReduce<popops::ReduceMax, int, int, true, 3u>;
+template class ScaledReduce<popops::ReduceMax, int, int, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMax, int, int, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMax, int, int, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMax, float, float, false, 0u>;
-template class ScaledReduce<popops::ReduceMax, float, float, false, 1u>;
-template class ScaledReduce<popops::ReduceMax, float, float, false, 3u>;
+template class ScaledReduce<popops::ReduceMax, float, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMax, float, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMax, float, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMax, half, half, false, 0u>;
-template class ScaledReduce<popops::ReduceMax, half, half, false, 1u>;
-template class ScaledReduce<popops::ReduceMax, half, half, false, 3u>;
+template class ScaledReduce<popops::ReduceMax, half, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMax, half, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMax, half, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMax, int, int, false, 0u>;
-template class ScaledReduce<popops::ReduceMax, int, int, false, 1u>;
-template class ScaledReduce<popops::ReduceMax, int, int, false, 3u>;
+template class ScaledReduce<popops::ReduceMax, int, int, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMax, int, int, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMax, int, int, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMin, float, float, true, 0u>;
-template class ScaledReduce<popops::ReduceMin, float, float, true, 1u>;
-template class ScaledReduce<popops::ReduceMin, float, float, true, 3u>;
+template class ScaledReduce<popops::ReduceMin, float, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMin, float, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMin, float, float, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMin, half, half, true, 0u>;
-template class ScaledReduce<popops::ReduceMin, half, half, true, 1u>;
-template class ScaledReduce<popops::ReduceMin, half, half, true, 3u>;
+template class ScaledReduce<popops::ReduceMin, half, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMin, half, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMin, half, half, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMin, int, int, true, 0u>;
-template class ScaledReduce<popops::ReduceMin, int, int, true, 1u>;
-template class ScaledReduce<popops::ReduceMin, int, int, true, 3u>;
+template class ScaledReduce<popops::ReduceMin, int, int, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMin, int, int, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMin, int, int, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMin, float, float, false, 0u>;
-template class ScaledReduce<popops::ReduceMin, float, float, false, 1u>;
-template class ScaledReduce<popops::ReduceMin, float, float, false, 3u>;
+template class ScaledReduce<popops::ReduceMin, float, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMin, float, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMin, float, float, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMin, half, half, false, 0u>;
-template class ScaledReduce<popops::ReduceMin, half, half, false, 1u>;
-template class ScaledReduce<popops::ReduceMin, half, half, false, 3u>;
+template class ScaledReduce<popops::ReduceMin, half, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMin, half, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMin, half, half, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceMin, int, int, false, 0u>;
-template class ScaledReduce<popops::ReduceMin, int, int, false, 1u>;
-template class ScaledReduce<popops::ReduceMin, int, int, false, 3u>;
+template class ScaledReduce<popops::ReduceMin, int, int, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceMin, int, int, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceMin, int, int, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAnd, bool, bool, true, 0u>;
-template class ScaledReduce<popops::ReduceAnd, bool, bool, true, 1u>;
-template class ScaledReduce<popops::ReduceAnd, bool, bool, true, 3u>;
+template class ScaledReduce<popops::ReduceAnd, bool, bool, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAnd, bool, bool, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAnd, bool, bool, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceAnd, bool, bool, false, 0u>;
-template class ScaledReduce<popops::ReduceAnd, bool, bool, false, 1u>;
-template class ScaledReduce<popops::ReduceAnd, bool, bool, false, 3u>;
+template class ScaledReduce<popops::ReduceAnd, bool, bool, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceAnd, bool, bool, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceAnd, bool, bool, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceOr, bool, bool, true, 0u>;
-template class ScaledReduce<popops::ReduceOr, bool, bool, true, 1u>;
-template class ScaledReduce<popops::ReduceOr, bool, bool, true, 3u>;
+template class ScaledReduce<popops::ReduceOr, bool, bool, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceOr, bool, bool, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceOr, bool, bool, true,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
-template class ScaledReduce<popops::ReduceOr, bool, bool, false, 0u>;
-template class ScaledReduce<popops::ReduceOr, bool, bool, false, 1u>;
-template class ScaledReduce<popops::ReduceOr, bool, bool, false, 3u>;
+template class ScaledReduce<popops::ReduceOr, bool, bool, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceOr, bool, bool, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceOr, bool, bool, false,
+                            ReductionSpecialisation::SINGLE_OUTPUT_REGION>;
 
 } // namespace popops
