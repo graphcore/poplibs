@@ -355,9 +355,6 @@ partial_column_loop_\@:
     fnop
   }
 #if (COMPACT_VECTOR_TYPES_AVAILABLE == 0)
-  // TODO T15192: On Mk2 the use of DELTANELEMENTS results in the need of an
-  // additional shift depending on the alignment. This reduces the efficiency
-  // of the loop. Update the cycle estimates accordingly.
   {
     shl $partialsElementPtr, $partialsElementPtr, PTR64_SHL_BITS
     fnop

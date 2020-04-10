@@ -16,7 +16,18 @@ namespace popops {
 
 namespace {
 
-#define SUPERVISOR_OVERHEAD 200 // common supervisor overhead
+std::uint64_t
+sharedSupervisorOverhead(const layout::Vector l = layout::Vector::NotAVector) {
+  // common supervisor overhead
+  std::uint64_t cycles = 198;
+
+  // extra 2 cycles needed to unpack A and B pointers if they are scaled.
+  if (l == layout::Vector::ScaledPtr64) {
+    cycles += 2;
+  }
+
+  return cycles;
+}
 
 // integer ceil
 int iceil(int x, int y) { return x / y + (x % y > 0); }
@@ -80,7 +91,7 @@ static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = 20;
-  std::uint64_t supervisorCycles = SUPERVISOR_OVERHEAD;
+  std::uint64_t supervisorCycles = sharedSupervisorOverhead();
   const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
   auto numElems = (data.size() + numWorkers - 1) / numWorkers;
   if (perfInfo.vectorize)
@@ -127,7 +138,7 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
 
   std::uint64_t cycles = overheadPerOuterLoop;
 
-  std::uint64_t supervisorCycles = SUPERVISOR_OVERHEAD;
+  std::uint64_t supervisorCycles = sharedSupervisorOverhead();
   const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerInnerLoop;
   auto numElems = byRow ? columns : (columns + numWorkers - 1) / numWorkers;
   if (perfInfo.vectorize) {
@@ -232,6 +243,7 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
     const Type &dataType, const Type &dataBType, const bool isConstant,
     const bool memConstrained, const ScaledArithmeticOp operation) {
   CODELET_FIELD(A);
+  CODELET_FIELD(B);
 
   if (dataType == INT || dataType == UNSIGNED_INT) {
     std::uint64_t supervisorCycles = 53 // constant overhead
@@ -264,19 +276,30 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
   const unsigned rem =
       (A.size() / numWorkers) % numWorkers + iceil(final, atomSize);
 
-  std::uint64_t supervisorCycles =
-      12                      // per-type supervisor overhead
-      + SUPERVISOR_OVERHEAD + // common supervisor overhead
-      +(final == 0 ? 7 : 13) + 12;
+  const auto aLayout = A.getProfilerVectorLayout(0);
+  const auto bLayout = B.getProfilerVectorLayout(0);
+
+  std::uint64_t perTypeSupervisorOverhead = 21;
+  // scaled add and subtract for float and half maybe require an extra (bubble)
+  // cycle to unpack the pointer.
+  if (aLayout == layout::Vector::ScaledPtr64) {
+    perTypeSupervisorOverhead += 6;
+  }
+
+  std::uint64_t supervisorCycles = perTypeSupervisorOverhead +
+                                   sharedSupervisorOverhead() +
+                                   +(final == 0 ? 7 : 13) + 12;
 
   if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
-    supervisorCycles += 14;
+    supervisorCycles +=
+        12 + poplibs::getUnpackCost(aLayout) + poplibs::getUnpackCost(bLayout);
   }
   if (operation == ScaledArithmeticOp::SUBTRACT && !isConstant) {
     supervisorCycles += 7;
   }
   if (!isConstant) {
-    supervisorCycles += 1;
+    // setzi + bri, but the branch skips a setzi already counted so just + 6.
+    supervisorCycles += 6;
   }
 
   std::vector<unsigned> workerCycles(numWorkers);
@@ -392,6 +415,10 @@ std::uint64_t ScaledArithmetic2DCycleEstimate(
     const bool isConstant, const bool memConstrained,
     const ScaledArithmeticOp operation) {
   CODELET_FIELD(A);
+  CODELET_FIELD(B);
+
+  const auto aLayout = A.getProfilerVectorLayout(0);
+  const auto bLayout = B.getProfilerVectorLayout(0);
 
   if (type == INT || type == UNSIGNED_INT) {
     std::uint64_t cycles = 8; // prologue and epilogue overhead.
@@ -421,8 +448,13 @@ std::uint64_t ScaledArithmetic2DCycleEstimate(
     cycles += 4;
 
   for (unsigned i = 0; i < A.size(); ++i) {
-    cycles += 11 // outer loop constant overhead
-              + (A[i].size() / grain != 0 ? 5 : 0)       // inner loop overhead
+    // outer loop constant overhead
+    cycles += 15;
+    if (aLayout == layout::Vector::ShortSpan) {
+      cycles += poplibs::getUnpackCost(bLayout);
+    }
+
+    cycles += (A[i].size() / grain != 0 ? 5 : 0)         // inner loop overhead
               + (A[i].size() / grain * innerLoopCycles); // inner loop
 
     if (type == FLOAT) {
@@ -1366,7 +1398,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2D)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
-  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
+  uint64_t superviserOverhead = sharedSupervisorOverhead();
   uint64_t workerCycles = 20;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
@@ -1395,7 +1427,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
-  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
+  uint64_t superviserOverhead = sharedSupervisorOverhead();
   uint64_t workerCycles = 20;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
@@ -1455,7 +1487,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
+  uint64_t superviserOverhead = sharedSupervisorOverhead();
   uint64_t workerCycles = 22;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
@@ -1501,7 +1533,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  uint64_t superviserOverhead = SUPERVISOR_OVERHEAD;
+  uint64_t superviserOverhead = sharedSupervisorOverhead();
   uint64_t workerCycles = 13;
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
@@ -1810,7 +1842,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(
   const unsigned elementsPerWorker = (regionSize + numWorkers - 1) / numWorkers;
   unsigned vectorWidth = target.getDataPathWidth() / ((type == HALF) ? 16 : 32);
   // Supervisor overhead.
-  auto superCycles = SUPERVISOR_OVERHEAD + 1 + 6 + 1 + 6;
+  auto superCycles = sharedSupervisorOverhead() + 1 + 6 + 1 + 6;
   // This is the more optimistic path - where the inner loop is copying
   // aligned data
   unsigned nCopies = elementsPerWorker / vectorWidth;
@@ -1916,7 +1948,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(
     const Type &indexType, const Type &outputType) {
   CODELET_FIELD(indices);
   if (indexType == UNSIGNED_INT && outputType == HALF) {
-    std::uint64_t cycles = SUPERVISOR_OVERHEAD;
+    std::uint64_t cycles = sharedSupervisorOverhead();
     // the encode loop can take the following cycles for each index:
     //  - 22 if index[i] < offset[i],
     //  - 24 if index[i] > out.size(),
@@ -2165,21 +2197,26 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
 }
 
 // Cycle estimation for the "Transpose" worker (half, fast version)
-static std::uint64_t TransposeWorkerCycles(unsigned short numSrcRowsD4,
-                                           unsigned short numSrcColumnsD4,
-                                           unsigned short numMatrices) {
+static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
+                                           const unsigned short numSrcColumnsD4,
+                                           const unsigned short numMatrices,
+                                           const layout::Vector srcLayout) {
   std::uint64_t cycles;
   if (numSrcRowsD4 == 1 && numSrcColumnsD4 == 1) {
     if (numMatrices == 1)
-      cycles = 19 + 12;
+      cycles = 17 + 12;
     else
-      cycles = 19 + 20 + (numMatrices - 2) * 4;
+      cycles = 17 + 20 + (numMatrices - 2) * 4;
   } else if (numSrcColumnsD4 == 1) {
-    cycles = 29 + numMatrices * (15 + (20 + 4 * (numSrcRowsD4 - 2)));
+    cycles = 27 + numMatrices * (15 + (20 + 4 * (numSrcRowsD4 - 2)));
   } else {
-    cycles = 31 + numMatrices *
+    cycles = 29 + numMatrices *
                       (18 + numSrcRowsD4 * (12 + 4 * (numSrcColumnsD4 - 2)));
   }
+
+  // extra might be needed in the prologue to unpack the pointers
+  cycles += poplibs::getUnpackCost(srcLayout);
+
   return cycles;
 }
 
@@ -2192,12 +2229,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
   CODELET_SCALAR_VAL(numTranspositionsM1, unsigned short);
 
+  const auto srcLayout = src.getProfilerVectorLayout(0);
+  assert(srcLayout == dst.getProfilerVectorLayout(0));
+
   const unsigned matrices = numTranspositionsM1 + 1;
 
   // only 2-byte types supported
   assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
 
-  return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices);
+  return TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, matrices,
+                               srcLayout);
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
@@ -2208,6 +2249,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
   CODELET_SCALAR_VAL(numSrcColumnsD4, unsigned short);
   CODELET_SCALAR_VAL(numTranspositions, unsigned short);
 
+  const auto srcLayout = src.getProfilerVectorLayout(0);
+  assert(srcLayout == dst.getProfilerVectorLayout(0));
+
   // only 2-byte types supported
   assert(type == HALF || type == UNSIGNED_SHORT || type == SHORT);
 
@@ -2217,9 +2261,13 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
   // the slowest ones (transposing 'numTranspositions' matrices).
   // We also add the additional cycles executed, compared to the 'plain'
   // "Transpose" codelet.
+  // transpose_half_from_supervisor does 20 cycles mk2 (21 cycles mk1) and jumps
+  // the first 7 in the worker codelet.
+  const std::uint64_t overhead = poplibs::getUnpackCost(srcLayout);
   std::uint64_t maxCycles =
-      TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions) +
-      12 - 2;
+      TransposeWorkerCycles(numSrcRowsD4, numSrcColumnsD4, numTranspositions,
+                            srcLayout) +
+      overhead - 7;
 
   // Add 7 for the supervisor code
   return 7 + 6 * maxCycles;

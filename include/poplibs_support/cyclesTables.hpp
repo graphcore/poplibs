@@ -7,6 +7,7 @@
 #include <poplar/Target.hpp>
 #include <poplar/VertexIntrospector.hpp>
 #include <poputil/VertexTemplates.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <functional>
 #include <iterator>
@@ -64,6 +65,65 @@ inline void registerCyclesFunctions(poplar::Graph &graph,
     graph.registerCycleEstimator(kv.first,
                                  poplar::CycleEstimateFunc(kv.second));
   }
+}
+
+inline std::uint64_t getUnpackCost(const poplar::layout::Vector layout) {
+  switch (layout) {
+  case poplar::layout::Vector::NotAVector:
+  case poplar::layout::Vector::Span:
+  case poplar::layout::Vector::OnePtr:
+    return 0;
+  case poplar::layout::Vector::ShortSpan:
+    return 2;
+  case poplar::layout::Vector::ScaledPtr32:
+    // shl + add (note: doesn't include setzi that is shared among fields)
+    return 2;
+  case poplar::layout::Vector::ScaledPtr64:
+  case poplar::layout::Vector::ScaledPtr128:
+    // shl
+    return 1;
+  }
+
+  throw poputil::poplibs_error("Unknown layout");
+}
+
+inline std::uint64_t getUnpackCost(const poplar::layout::VectorList layout) {
+  switch (layout) {
+  case poplar::layout::VectorList::NotAVector:
+  case poplar::layout::VectorList::OnePtr:
+  case poplar::layout::VectorList::ScaledPtr32:
+  case poplar::layout::VectorList::ScaledPtr64:
+  case poplar::layout::VectorList::ScaledPtr128:
+    throw poputil::poplibs_error("Unknown cost for this layout");
+  case poplar::layout::VectorList::DeltaN:
+    return poplibs::getUnpackCost(poplar::layout::Vector::ScaledPtr32);
+  case poplar::layout::VectorList::DeltaNElements:
+    // (shl ; and) to get base and nA and again to get deltaN and nB then an
+    // add to combine nA and nB
+    return 5;
+  }
+
+  throw poputil::poplibs_error("Unknown layout");
+}
+
+inline std::uint64_t
+getVectorListDeltaUnpackCost(const poplar::layout::VectorList layout) {
+  switch (layout) {
+  case poplar::layout::VectorList::NotAVector:
+  case poplar::layout::VectorList::OnePtr:
+  case poplar::layout::VectorList::ScaledPtr32:
+  case poplar::layout::VectorList::ScaledPtr64:
+  case poplar::layout::VectorList::ScaledPtr128:
+    throw poputil::poplibs_error("Unknown cost for this layout");
+  case poplar::layout::VectorList::DeltaN:
+    // shl (offset), shr ; shl (n)
+    return 3;
+  case poplar::layout::VectorList::DeltaNElements:
+    // shl (offset), and (n)
+    return 2;
+  }
+
+  throw poputil::poplibs_error("Unknown layout");
 }
 
 } // end namespace poplibs

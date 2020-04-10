@@ -53,7 +53,6 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
   std::uint64_t workerCycles =
       2 + // Load input pointer and size
       5 + // Divide & Remainder to split work between workers
-      2 + // Shift scaled pointer, get base address
       2 + // Get worker ID
       2 + // Check 64-bit aligned and branch
       5 + // Setup remainders and size for worker
@@ -62,6 +61,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
           (2 + opCycles + // Warm up pipeline, rpt
            (vectorsPerWorker - 1) * vectorLoopCycles + 1 +
            opCycles); // Handle remaining element from pipeline
+
+  // possibly unpack pointers
+  workerCycles += poplibs::getUnpackCost(data.getProfilerVectorLayout(0));
 
   // Add remainder handling cycles. This handling could be slightly overlapped
   // with other workers if the worker doing the remainder had less vector
@@ -96,13 +98,17 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
   assert(outGrad.size() == n);
   assert(out.size() == n);
 
+  const auto inGradLayout = inGrad.getProfilerVectorLayout(0);
+  assert(inGradLayout == outGrad.getProfilerVectorLayout(0) &&
+         inGradLayout == out.getProfilerVectorLayout(0));
+
   const auto numVectors = n / vectorWidth;
   const auto remainder = n % vectorWidth;
   const auto vectorsPerWorker = (numVectors + numWorkers - 1) / numWorkers;
 
   std::uint64_t cycles = 9; // Supervisor vertex overhead
   std::uint64_t workerCycles =
-      8 + // Load vertex state, get real pointers from scaled pointers
+      3 + // Load vertex state
       5 + // Split work between workers
       2 + // Get worker ID
       3 + // Add remaining vectors to relevant workers
@@ -112,6 +118,11 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
       (vectorsPerWorker ? 1 : 0) *
           (4 +                              // Warm up the pipeline
            (vectorsPerWorker - 1) * 3 + 1); // Store remaining element
+
+  // get real pointers from scaled pointers
+  if (inGradLayout == layout::Vector::ScaledPtr64) {
+    workerCycles += poplibs::getUnpackCost(inGradLayout) + 2;
+  }
 
   if (isFloat) {
     workerCycles += 2 + // Pick a worker to handle the remainder, branch
@@ -235,17 +246,34 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
   CODELET_SCALAR_VAL(numChanGroupsM1, unsigned short);
   CODELET_VECTOR_VALS(startPos, unsigned short);
   CODELET_VECTOR_2D_VALS(workList, unsigned short);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
 
   const auto numWorkers = target.getNumWorkerContexts();
+
+  const auto outLayout = out.getProfilerVectorLayout(0);
+  const auto inLayout = in.getProfilerVectorLayout(0);
+
+  const auto fwdOutLayout = outLayout;
+  const auto fwdInLayout = inLayout;
+
+  const auto outInnerLayout = out.getProfilerVectorLayout(1);
+  const auto inInnerLayout = in.getProfilerVectorLayout(1);
+
+  const auto startPosLayout =
+      vertex.getFieldInfo("startPos").getProfilerVectorLayout(0);
+  const auto workListLayout =
+      vertex.getFieldInfo("workList").getProfilerVectorListLayout();
 
   // per-worker cycles
   const auto workerCycles = [&](unsigned wId) {
     std::uint64_t cycles = 4   // load vertex state
-                           + 2 // unpack outPtrPtr
                            + 1 // scale initInfo
                            + 2 // get $WSR and load identity
                            + 7 // divide init work
         ;
+    // maybe unpack outPtrPtr
+    cycles += poplibs::getUnpackCost(outLayout);
 
     // calculate how much initialisation each worker does.
     const auto initElems = [&] {
@@ -255,11 +283,15 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
       return (numElems + extra) * 8;
     }();
     // init loop overhead, number of rpt loop cycles, number of brnzdec cycles.
-    cycles += (3 + initElems) * numChanGroupsM1;
+    cycles += (2 + initElems) * numChanGroupsM1;
 
-    cycles += 6   // load startPosPtr, numRows and startPos
+    cycles += 5   // load startPosPtr, numRows and startPos
               + 1 // bnz numRows
         ;
+
+    // maybe unpack outPtr and startPosPtr
+    cycles += poplibs::getUnpackCost(outInnerLayout);
+    cycles += poplibs::getUnpackCost(startPosLayout);
 
     // if numRows is zero this worker is done.
     const unsigned numRows =
@@ -269,30 +301,46 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
     }
 
     cycles +=
-        3 // save startPos, load inPtrPtr and workListBase
+        2 // save startPos, load inPtrPtr and workListBase
         +
         (pType == PoolingType::MAX ? 1 : 2) // unpack inPtrPtr, maybe load scale
-        + (isBwdPass ? 8 : 0) // load and unpack acts pointer pointers
-        + 2                   // unpack workListBase
-        + 1                   // decrement numRows
+        + poplibs::getUnpackCost(inInnerLayout);
+
+    // load and (possibly) unpack acts pointer pointers
+    if (isBwdPass) {
+      cycles += 6 + poplibs::getUnpackCost(outLayout) +
+                poplibs::getUnpackCost(inLayout);
+    }
+
+    cycles += 2   // unpack workListBase
+              + 1 // decrement numRows
         ;
 
     for (unsigned row = 0; row < numRows; ++row) {
-      cycles += 15; // row_loop overhead
+      cycles +=
+          13 + poplibs::getUnpackCost(workListLayout); // row_loop overhead
 
       const unsigned sPos = wId == 0 ? 0 : startPos[wId - 1];
       const unsigned numWorkItems = workList[sPos + row].size();
       for (unsigned w = 0; w < numWorkItems; w += 3) {
         cycles += 20; // work_loop overhead
         for (unsigned cg = 0; cg < numChanGroupsM1 + 1u; ++cg) {
-          cycles +=
-              2                     // reload outPos and inPos
-              + (isBwdPass ? 2 : 0) // reload outPtrPtr and inPtrPtr
-              + 5                   // load outPtr and inPtr
-              + (isBwdPass ? 6 : 0) // load and unpack the current acts pointers
-              + (isBwdPass ? 8 : 4) // move pointers on by outPos and inPos
-              + 2                   // reload chansPerGroupD, decrement it
+          cycles += 2 // reload outPos and inPos
+                    + poplibs::getUnpackCost(outLayout) +
+                    poplibs::getUnpackCost(inLayout) +
+                    2   // reload chansPerGroupD, decrement it
+                    + 4 // move pointers on by outPos and inPos
               ;
+
+          if (isBwdPass) {
+            cycles += poplibs::getUnpackCost(outInnerLayout) +
+                      poplibs::getUnpackCost(inInnerLayout) +
+                      poplibs::getUnpackCost(fwdInLayout) +
+                      poplibs::getUnpackCost(fwdOutLayout) +
+                      4 // move pointers on by outPos and inPos
+                ;
+          }
+
           for (unsigned c = 0; c < chansPerGroupD; ++c) {
             // rpt loop cycles.
             const auto rptCycles = [&] {

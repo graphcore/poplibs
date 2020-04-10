@@ -373,13 +373,11 @@ row_loop\@:
 
   // unpack the work list size and offset now as we are done with the
   // offsetBasePtr (setting numWorkItems trashes it).
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-shr $numWorkItems, $workListOffset, DELTAN_OFFSET_BITS
-shl $workListOffset, $workListOffset, DELTAN_LENGTH_BITS
-shr $workListOffset, $workListOffset, DELTAN_LENGTH_BITS
-#else
   shr $numWorkItems, $workListOffset, DELTAN_OFFSET_BITS
   shl $workListOffset, $workListOffset, DELTAN_LENGTH_BITS
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+  shr $workListOffset, $workListOffset, DELTAN_LENGTH_BITS
+#else
   shr $workListOffset, $workListOffset, DELTAN_LENGTH_BITS-PTR16_SHL_BITS
 #endif
   // the workListOffset and inStride registers alias each other so save the

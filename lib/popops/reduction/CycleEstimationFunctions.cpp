@@ -250,17 +250,19 @@ std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
 
 std::uint64_t getCycleEstimateReducePartialsEqualSize(
     const unsigned outSize, const unsigned partialsSize,
-    const unsigned numPartials, const unsigned outVectorWidth) {
+    const unsigned numPartials, const unsigned outVectorWidth,
+    const bool hasCompactPointers) {
   // Estimate based on the code structure, inner loop outwards
-  std::uint64_t cycles = 4 * numPartials;
+  std::uint64_t cycles = (hasCompactPointers ? 4 : 5) * numPartials;
   cycles = (cycles + 5) * partialsSize;
   cycles = (cycles + 6) * outSize;
-  cycles = cycles + 15;
+  cycles = cycles + (hasCompactPointers ? 15 : 11);
   cycles = cycles + 2 * outSize * (outVectorWidth - 1);
 
   return cycles + 7; // Call / return overhead
 }
 
+// TODO: this does not take into account vertices that include scaling.
 std::uint64_t getCycleEstimateForReduceVertex(
     const poplar::VertexIntrospector &vertex, const poplar::Target &target,
     const poplar::Type &partialsType, const poplar::Type &outType,
@@ -288,9 +290,11 @@ std::uint64_t getCycleEstimateForReduceVertex(
   } else if (specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE) {
     CODELET_SCALAR_VAL(outCount, short);
     CODELET_SCALAR_VAL(partialsSizeM1, short);
+    const bool hasCompactPointers =
+        out.getProfilerVectorLayout(0) == poplar::layout::Vector::ScaledPtr64;
     return getCycleEstimateReducePartialsEqualSize(
         outCount, partialsSizeM1 + 1, partials.size(),
-        target.getVectorWidth(outType));
+        target.getVectorWidth(outType), hasCompactPointers);
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);
