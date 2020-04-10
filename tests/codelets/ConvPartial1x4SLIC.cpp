@@ -16,7 +16,6 @@
 #include <poplibs_test/Util.hpp>
 
 #include <poplin/codelets.hpp>
-#include <popops/codelets.hpp>
 
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
@@ -173,7 +172,6 @@ int main(int argc, char **argv) try {
   const auto &target = device.getTarget();
   Graph graph(target);
   poplin::addCodelets(graph);
-  popops::addCodelets(graph);
 
   // Create input, weights, output
   std::vector<std::size_t> inShape = {convGroupGroups, inChanGroups, batchSize};

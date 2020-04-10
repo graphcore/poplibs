@@ -3496,11 +3496,11 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   }
 
   // explicitly apply output padding. TODO: this is not modelled in the planner
-  const auto outputPaddingCs = graph.addComputeSet("outputPadding");
   {
     // dims before the spatial dims are G1, OC1 and B.
     unsigned spatialDimOffset = 3;
 
+    std::vector<Tensor> elemsToPad;
     auto outWithPadding = out;
     const auto &ot = params.outputTransform;
     for (unsigned d = 0; d < numFieldDims; ++d) {
@@ -3509,21 +3509,23 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
       const auto &shape = outWithPadding.shape();
       const unsigned N = shape[spatialDim];
 
-      // add zeros to the padding.
-      popops::zero(graph,
-                   outWithPadding.slice(0, ot.paddingLower[d], spatialDim),
-                   tile, outputPaddingCs);
-      popops::zero(graph,
-                   outWithPadding.slice(N - ot.paddingUpper[d], N, spatialDim),
-                   tile, outputPaddingCs);
+      auto lower = outWithPadding.slice(0, ot.paddingLower[d], spatialDim);
+      auto upper = outWithPadding.slice(N - ot.paddingUpper[d], N, spatialDim);
+
+      elemsToPad.push_back(lower.flatten());
+      elemsToPad.push_back(upper.flatten());
 
       // prune the padding off of the tensor so that we don't repad elements
       // when we pad the next dimension.
       outWithPadding = outWithPadding.slice(ot.paddingLower[d],
                                             N - ot.paddingUpper[d], spatialDim);
     }
+    const auto outputPadding = concat(elemsToPad).flatten();
+    const auto zeros =
+        graph.addConstant(partialsType, outputPadding.shape(), 0);
+    graph.setTileMapping(zeros, 0);
+    transformPre.add(Copy(zeros, outputPadding));
   }
-  transformPre.add(Execute(outputPaddingCs));
 
   // We also need an extra buffer for our vertex, 16-byte aligned, with size
   // equal the number of output elements per conv group group, plus 8 bytes to
