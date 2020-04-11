@@ -26,7 +26,7 @@ void RunAllToAll() {
   auto device = createTestDevice(TEST_TARGET, numIpus, 1);
   Target target = device.getTarget();
 
-  Graph graph(target, 0, poplar::replication_factor(numIpus));
+  Graph graph(target, poplar::replication_factor(numIpus));
   popops::addCodelets(graph);
 
   Sequence sequence;
@@ -98,7 +98,7 @@ void RunAllGather() {
   auto device = createTestDevice(TEST_TARGET, numIpus, 1);
   Target target = device.getTarget();
 
-  Graph graph(target, 0, poplar::replication_factor(numIpus));
+  Graph graph(target, poplar::replication_factor(numIpus));
   popops::addCodelets(graph);
 
   Sequence sequence;

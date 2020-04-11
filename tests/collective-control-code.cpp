@@ -60,7 +60,7 @@ int main() {
   std::cout << "Number of IPUs: " << num_ipus << "\n";
 
   std::cout << "Creating graph\n";
-  Graph graph(device, 0, poplar::replication_factor(num_ipus));
+  Graph graph(device, poplar::replication_factor(num_ipus));
   popops::addCodelets(graph);
 
   Sequence sequence;

@@ -23,7 +23,7 @@ BOOST_AUTO_TEST_CASE(ReduceScatterOneIPUPerReplica) {
   auto device = createTestDevice(TEST_TARGET, numIpus, 1);
   Target target = device.getTarget();
 
-  Graph graph(target, 0, replication_factor(numReplicas));
+  Graph graph(target, replication_factor(numReplicas));
   popops::addCodelets(graph);
 
   // Add one element to verify padding behaviour
@@ -89,7 +89,7 @@ BOOST_AUTO_TEST_CASE(ReduceScatterTwoIPUsPerReplica) {
   auto device = createTestDevice(TEST_TARGET, numIPUs, tilesPerIPU);
   Target target = device.getTarget();
 
-  Graph graph(target, 0, replication_factor(numReplicas));
+  Graph graph(target, replication_factor(numReplicas));
   popops::addCodelets(graph);
 
   const unsigned numIPUsPerReplica = numIPUs / numReplicas;
@@ -177,7 +177,7 @@ BOOST_AUTO_TEST_CASE(ReduceScatterWithRank2InputIsInvalid) {
   auto device = createTestDevice(TEST_TARGET, numReplicas, 1);
   Target target = device.getTarget();
 
-  Graph graph(target, 0, replication_factor(numReplicas));
+  Graph graph(target, replication_factor(numReplicas));
   popops::addCodelets(graph);
 
   auto inputOfRank2 = graph.addVariable(UNSIGNED_INT, {2, 2},

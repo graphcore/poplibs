@@ -100,7 +100,6 @@ int main(int argc, char **argv) try {
   bool reportPlan;
   bool reportVarStorage;
   unsigned replicationFactor;
-  unsigned numIOTiles;
   bool enableConvolutionReuse;
   bool remapOutputTensor;
 
@@ -298,11 +297,6 @@ int main(int argc, char **argv) try {
      "shares the same parameters but reads different input samples. The "
      "effective batch size is the batch size of the graph multiplied by the "
      "replication factor")
-    ("enable-shared-structures", "Enable shared structures")
-    ("num-io-tiles",
-     po::value<unsigned>(&numIOTiles)->default_value(0),
-     "The amount of IO tiles to use, this option is required to be non-zero "
-     "if shared structures are enabled")
     ("remap-output-tensor",
      po::value<bool>(&remapOutputTensor)->default_value(false),
      "Remap output tensor if layout is detected to be poor")
@@ -456,7 +450,7 @@ int main(int argc, char **argv) try {
     }
   }();
 
-  Graph parentGraph(dev.getTarget(), numIOTiles);
+  Graph parentGraph(dev.getTarget());
   popops::addCodelets(parentGraph);
   poplin::addCodelets(parentGraph);
   auto graph = parentGraph.createReplicatedGraph(replicationFactor);
@@ -702,10 +696,6 @@ int main(int argc, char **argv) try {
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
-  }
-  if (vm.count("enable-shared-structures")) {
-    engineOptions.set("opt.shareAll", "true");
-    engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
   }
   if (isSimulator(deviceType) && numIPUs > 1) {
     engineOptions.set("debug.globalExchangeViaDebug", "true");

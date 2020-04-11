@@ -302,7 +302,7 @@ int main(int argc, char **argv) {
   auto replicationFactor = numIPUs / ipusPerRank;
   auto topLevelReplicationFactor =
       replicateTopLevelGraph ? replicationFactor : 1;
-  Graph topLevelGraph(device.getTarget(), 0,
+  Graph topLevelGraph(device.getTarget(),
                       replication_factor(topLevelReplicationFactor));
   popops::addCodelets(topLevelGraph);
   auto graph = topLevelGraph.createReplicatedGraph(replicationFactor /

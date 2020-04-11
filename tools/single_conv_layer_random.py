@@ -325,19 +325,6 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
 def select_tiles_per_ipu():
     return weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
 
-def select_io_tiles_per_ipu(can_be_zero):
-    zero_weight = 0.3 if can_be_zero else 0
-    return weighted_choice([0, 1, 2, 4], [zero_weight, 0.3, 0.4, 0.3])
-
-def make_device_args(tiles_per_ipu, num_io_tiles, enable_shared_structures):
-    """Return a random set of device arguments to pass to single_conv_layer"""
-    args = []
-    args.append('--tiles-per-ipu=' + str(tiles_per_ipu + num_io_tiles))
-    args.append('--num-io-tiles=' + str(num_io_tiles))
-    if enable_shared_structures:
-        args.append('--enable-shared-structures')
-    return args
-
 
 class TestFailureException(Exception):
     """Raised when a test fails"""
@@ -395,21 +382,13 @@ def main():
     random.seed(args.seed)
 
     for i in range(args.n):
-        enable_shared_structures = random.choice([True, False])
-
-        num_io_tiles = select_io_tiles_per_ipu(not enable_shared_structures)
         if args.tiles_per_ipu is not None:
-            # user has explicitly asked for this number of tiles, make sure
-            # that is upheld (ie. the io tiles are taken out of that set rather
-            # than appended to it).
-            assert args.tiles_per_ipu > num_io_tiles
-            tiles_per_ipu = args.tiles_per_ipu - num_io_tiles
+            tiles_per_ipu = args.tiles_per_ipu
         else:
             tiles_per_ipu = select_tiles_per_ipu()
 
-        device_args = make_device_args(tiles_per_ipu,
-                                       num_io_tiles,
-                                       enable_shared_structures)
+        device_args = []
+        device_args.append('--tiles-per-ipu=' + str(tiles_per_ipu))
         device_args.append('--ipus=' + str(args.ipus))
         params = make_constrained_params(tiles_per_ipu, args.ipus)
         print('Run #{}:'.format(i))

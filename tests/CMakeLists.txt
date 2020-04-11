@@ -2593,8 +2593,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_1
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={0,0}
                  --stride={2,2}
-                 --tiles-per-ipu=28
-                 --num-io-tiles=4
+                 --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"0\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2615,8 +2614,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_2
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,2}
                  --stride={4,2}
-                 --tiles-per-ipu=26
-                 --num-io-tiles=2
+                 --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"34\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2638,7 +2636,6 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_3
                  --kernel-padding-lower={2,2}
                  --stride={2,2}
                  --tiles-per-ipu=24
-                 --num-io-tiles=0
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"72\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2680,8 +2677,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_5
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,1}
                  --stride={2,1}
-                 --tiles-per-ipu=26
-                 --num-io-tiles=2
+                 --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"58\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2702,9 +2698,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={1,0}
                  --stride={1,3}
-                 --tiles-per-ipu=18
-                 --num-io-tiles=2
-                 --enable-shared-structures
+                 --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2725,8 +2719,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_7
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={2,1}
                  --stride={1,1}
-                 --tiles-per-ipu=20
-                 --num-io-tiles=4
+                 --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2748,7 +2741,6 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_8
                  --kernel-padding-lower={0,0}
                  --stride={1,2}
                  --tiles-per-ipu=1
-                 --num-io-tiles=0
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2769,9 +2761,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_9
                  --kernel-padding-upper={0,0}
                  --kernel-padding-lower={1,0}
                  --stride={1,2}
-                 --tiles-per-ipu=17
-                 --num-io-tiles=1
-                 --enable-shared-structures
+                 --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
@@ -2792,9 +2782,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
                  --kernel-padding-upper={0,1}
                  --kernel-padding-lower={0,0}
                  --stride={1,2}
-                 --tiles-per-ipu=28
-                 --num-io-tiles=4
-                 --enable-shared-structures
+                 --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"8\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")

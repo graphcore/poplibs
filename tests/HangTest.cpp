@@ -40,7 +40,7 @@ int main() {
 
   std::cout << "Creating graph\n";
 
-  Graph master_graph(device, 0, poplar::replication_factor(2));
+  Graph master_graph(device, poplar::replication_factor(2));
   popops::addCodelets(master_graph);
 
   std::vector<Graph> sharded_graphs;

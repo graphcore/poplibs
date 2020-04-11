@@ -1316,7 +1316,7 @@ void smallAndSimple() {
   std::cout << "Number of IPUs: " << num_ipus << "\n";
 
   std::cout << "Creating graph\n";
-  Graph graph(device, 0, poplar::replication_factor(1));
+  Graph graph(device, poplar::replication_factor(1));
   popops::addCodelets(graph);
   popops::SlicePlan plan;
 

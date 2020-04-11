@@ -187,10 +187,6 @@ int main(int argc, char **argv) {
     if (vm.count("profile") || jsonProfileOut) {
       engineOptions.set("debug.instrumentCompute", "true");
     }
-    if (vm.count("enable-shared-structures")) {
-      engineOptions.set("opt.shareAll", "true");
-      engineOptions.set("opt.sharedStructureBytesPerStep", "5120");
-    }
     if (isSimulator(deviceType) && numIPUs > 1) {
       engineOptions.set("debug.globalExchangeViaDebug", "true");
     }
