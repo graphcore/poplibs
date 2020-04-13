@@ -48,7 +48,7 @@ IpuModel,default,fc_layer_1440x100x200,24165,18810272,132696
 IpuModel,default,fc_layer_1440x200x400,40759,44357646,135896
 IpuModel,default,fc_layer_16x1324x100,11917,6388054,131608
 IpuModel,default,fc_layer_1_1000_1000_float,34181,12535060,32952
-IpuModel,default,fc_layer_1_1000_1000_half,13005,8390260,32872
+IpuModel,default,fc_layer_1_1000_1000_half,12530,8390260,32872
 IpuModel,default,fc_layer_1_1000_5_float,8492,4372714,131160
 IpuModel,default,fc_layer_1_1000_5_half,12162,4383737,131128
 IpuModel,default,fc_layer_4_1000_1000_float,20185,14989366,134936
