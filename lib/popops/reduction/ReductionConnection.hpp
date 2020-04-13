@@ -17,6 +17,21 @@
 
 namespace popops {
 
+// Partials for reduction can be stored in two ways -
+// 1. If the partials are all in the same region, each of the same length
+//    and spaced regularly they can be represented with a single tensor, offset
+//    into that tensor and stride.  This provides memory layout information.
+// 2. If any of the criteria for RegularPartials is not met we store a vector
+//    or tensors instead.  We have no information about the memory layout.
+struct RegularPartials {
+  std::vector<poplar::Tensor> data;
+  unsigned offset;
+  unsigned stride;
+};
+struct IrregularPartials {
+  std::vector<poplar::Tensor> data;
+};
+
 /// This structure represents the reduction of a set of 1D input regions
 /// to a single 1D output region. One reduction vertex can reduce a set
 /// of these.
@@ -31,8 +46,8 @@ namespace popops {
 struct RegionReduction {
   // The output region.
   poplar::Tensor output;
-  // The input regions.
-  std::vector<poplar::Tensor> partials;
+  // The input regions - optionally either regular or irregular
+  boost::variant<RegularPartials, IrregularPartials> partials;
   // innerFactor indicates that each partial contains innerFactor elements
   // to be reduced into the 1st output element, followed by innerFactor elements
   // to be reduced into the second etc...  A two stage approach is used to
@@ -43,6 +58,81 @@ struct RegionReduction {
   // Debug information about the partials and output.
   ReductionDebug::Output outputDebugInfo;
   std::vector<ReductionDebug::Partial> partialsDebugInfo;
+
+  // Functions to access the partials variants.
+  bool regularPartials() const {
+    return partials.type() == typeid(RegularPartials);
+  }
+
+  // Access partials
+  const std::vector<poplar::Tensor> &getPartials() const {
+    if (regularPartials()) {
+      return boost::get<RegularPartials>(partials).data;
+    } else {
+      return boost::get<IrregularPartials>(partials).data;
+    }
+  }
+
+  std::vector<poplar::Tensor> &getPartials() {
+    if (regularPartials()) {
+      return boost::get<RegularPartials>(partials).data;
+    } else {
+      return boost::get<IrregularPartials>(partials).data;
+    }
+  }
+
+  std::size_t getNumPartials() const {
+    if (regularPartials()) {
+      return outerFactor;
+    } else {
+      return boost::get<IrregularPartials>(partials).data.size();
+    }
+  }
+
+  unsigned getNumPartialsElements() const {
+    if (regularPartials()) {
+      return innerFactor * outerFactor * output.numElements();
+    } else {
+      return concat(boost::get<IrregularPartials>(partials).data).numElements();
+    }
+  }
+
+  // Offset
+  unsigned getOffset() const {
+    if (regularPartials()) {
+      return boost::get<RegularPartials>(partials).offset;
+    } else {
+      throw poputil::poplibs_error(
+          "Irregular reduction partials have no offset");
+    }
+  }
+  unsigned &getOffset() {
+    if (regularPartials()) {
+      return boost::get<RegularPartials>(partials).offset;
+    } else {
+      throw poputil::poplibs_error(
+          "Irregular reduction partials have no offset");
+    }
+  }
+
+  // Stride
+  unsigned getStride() const {
+    if (regularPartials()) {
+      return boost::get<RegularPartials>(partials).stride;
+    } else {
+      throw poputil::poplibs_error(
+          "Irregular reduction partials have no stride");
+    }
+  }
+
+  unsigned &getStride() {
+    if (regularPartials()) {
+      return boost::get<RegularPartials>(partials).stride;
+    } else {
+      throw poputil::poplibs_error(
+          "Irregular reduction partials have no stride");
+    }
+  }
 };
 
 /// Add vertices to the graph to perform the given reductions on the specified
@@ -106,9 +196,8 @@ ReductionSpecialisation getReductionVertexSpecialisation(
 bool inline reductionSupportsScaling(ReductionSpecialisation specialisation) {
   return specialisation == ReductionSpecialisation::DEFAULT ||
          specialisation == ReductionSpecialisation::SCALAR_OUTPUT_REGIONS ||
-         specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION ||
          specialisation == ReductionSpecialisation::ALL_REGIONS_CONTINUOUS ||
-         specialisation == ReductionSpecialisation::PARTIALS_EQUAL_SIZE;
+         specialisation == ReductionSpecialisation::STRIDED_REDUCE;
 }
 } // namespace popops
 #endif // ReductionConnection_hpp

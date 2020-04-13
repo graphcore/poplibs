@@ -156,61 +156,25 @@ foreach(IN_TYPE int)
                           LABELS codelet)
 endforeach()
 
-add_multi_target_test_executable(PartialsEqualSizeReduce PartialsEqualSizeReduce.cpp)
-foreach(IN_TYPE half float)
-  foreach(OUT_TYPE half float)
-    foreach(OPERATION ADD SQUARE_ADD)
-      set(VARIANT_NAME "PartialsEqualSizeReduce_${IN_TYPE}_${OUT_TYPE}_${OPERATION}")
-      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                      COMMAND PartialsEqualSizeReduce
-                        --partials-type=${IN_TYPE}
-                        --out-type=${OUT_TYPE}
-                        --outer-dim=3
-                        --inner-dim=16
-                        --output-dim=8
-                        --operation=${OPERATION}
-                        LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-foreach(TYPE half float)
-  foreach(OPERATION MAX MIN)
-    foreach(UPDATE true false)
-      set(VARIANT_NAME "PartialsEqualSizeReduce_${TYPE}_${OPERATION}_${UPDATE}")
-      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                      COMMAND PartialsEqualSizeReduce
-                        --partials-type=${TYPE}
-                        --out-type=${TYPE}
-                        --outer-dim=3
-                        --inner-dim=16
-                        --output-dim=8
-                        --operation=${OPERATION}
-                        --update=${UPDATE}
-                        LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
 add_multi_target_test_executable(ReduceSpecial23 ReduceSpecial23.cpp)
 foreach(TYPE half float)
   foreach(OPERATION MAX MIN)
     foreach(UPDATE true false)
-      set(VARIANT_NAME "ReduceSpecial3_${TYPE}_${OPERATION}_${UPDATE}")
-      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                      COMMAND ReduceSpecial23
-                        --partials-type=${TYPE}
-                        --out-type=${TYPE}
-                        --outer-dim=5
-                        --inner-dim=8
-                        --output-dim=8
-                        --operation=${OPERATION}
-                        --update=${UPDATE}
-                        --specialisation=3
-                        LABELS codelet)
+      foreach(OUTPUT_DIM 4 8 16)
+        set(VARIANT_NAME "ReduceSpecial3_${TYPE}_${OPERATION}_${UPDATE}_${OUTPUT_DIM}")
+        set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
+        add_multitarget_test(NAME ${VARIANT_NAME}
+                        COMMAND ReduceSpecial23
+                          --partials-type=${TYPE}
+                          --out-type=${TYPE}
+                          --outer-dim=5
+                          --inner-dim=16
+                          --output-dim=${OUTPUT_DIM}
+                          --operation=${OPERATION}
+                          --update=${UPDATE}
+                          --specialisation=3
+                          LABELS codelet)
+      endforeach()
     endforeach()
   endforeach()
 endforeach()

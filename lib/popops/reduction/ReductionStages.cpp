@@ -304,6 +304,12 @@ void gatherReductionPatterns(
       }
     }
   }
+  // Where stride hadn't been set in the above, set it
+  for (auto &parDesc : partialsDescription) {
+    for (auto &pat : parDesc.patterns) {
+      pat.stride = pat.stride == 0 ? 1 : pat.stride;
+    }
+  }
 }
 
 // Cleaner function for use below, which returns a PartialsDescription vector
@@ -348,48 +354,63 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
 
   std::vector<RegionReduction> reductions(partialsDescription.size());
   for (unsigned i = 0; i < reductions.size(); i++) {
-    for (auto &pat : partialsDescription[i].patterns) {
-      auto &partials = reductions[i].partials;
+    if (partialsDescription[i].patterns.size() == 1) {
+      // This reduction's partials can be described by a single tensor
+      // and offset, stride pattern which can make for a more efficient
+      // implementation.
+      auto &pat = partialsDescription[i].patterns[0];
+      reductions[i].getPartials().push_back(regionTensors[pat.regionIdx]);
+
+      reductions[i].getOffset() = pat.regionOffset;
+      reductions[i].getStride() = pat.stride;
       reductions[i].innerFactor = pat.innerFactor;
       reductions[i].outerFactor = pat.outerFactor;
-      auto &in = regionTensors[pat.regionIdx];
-      if (pat.outerFactor > 1) {
-        if (pat.stride == partialsDescription[i].columns.size() &&
-            pat.innerFactor == 1) {
-          // If the sequence of columns repeats end to end with no gap in
-          // memory we can create partials with a single slice.
-          // (Note that this expression could be simplified as stride == no of
-          // columns.  However the expression below is clearer)
-          const auto end = pat.regionOffset +
-                           pat.stride * (pat.outerFactor - 1) +
-                           partialsDescription[i].columns.size();
-          partials.push_back(in.slice(pat.regionOffset, end));
+    } else {
+      // Store all the partials in iPartials  and assign them at the end
+      IrregularPartials iPartials;
+      for (auto &pat : partialsDescription[i].patterns) {
+        reductions[i].innerFactor = pat.innerFactor;
+        reductions[i].outerFactor = pat.outerFactor;
+        auto &in = regionTensors[pat.regionIdx];
+        if (pat.outerFactor > 1) {
+          if (pat.stride == partialsDescription[i].columns.size() &&
+              pat.innerFactor == 1) {
+            // If the sequence of columns repeats end to end with no gap in
+            // memory we can create partials with a single slice.
+            // (Note that this expression could be simplified as stride == no of
+            // columns.  However the expression below is clearer)
+            const auto end = pat.regionOffset +
+                             pat.stride * (pat.outerFactor - 1) +
+                             partialsDescription[i].columns.size();
+            iPartials.data.push_back(in.slice(pat.regionOffset, end));
+            addPartialDebug(partialsDescription[i], reductions[i], tile,
+                            pat.regionOffset, end, columns);
+          } else {
+            // If the patterns repeats and has "gaps"
+            // (i.e. stride != no of columns) we need multiple slices to create
+            // the partials.
+            for (unsigned k = 0; k < pat.outerFactor; k++) {
+              const auto start = pat.regionOffset + k * pat.stride;
+              const auto end =
+                  pat.regionOffset + k * pat.stride +
+                  pat.innerFactor * partialsDescription[i].columns.size();
+              iPartials.data.push_back(in.slice(start, end));
+              addPartialDebug(partialsDescription[i], reductions[i], tile,
+                              start, end, columns);
+            }
+          }
+        } else {
+          // If there are no pattern repetitions we can create partials with a
+          // single slice.
+          const auto end =
+              pat.regionOffset +
+              pat.innerFactor * partialsDescription[i].columns.size();
+          iPartials.data.push_back(in.slice(pat.regionOffset, end));
           addPartialDebug(partialsDescription[i], reductions[i], tile,
                           pat.regionOffset, end, columns);
-        } else {
-          // If the patterns repeats and has "gaps"
-          // (i.e. stride != no of columns) we need multiple slices to create
-          // the partials.
-          for (unsigned k = 0; k < pat.outerFactor; k++) {
-            const auto start = pat.regionOffset + k * pat.stride;
-            const auto end =
-                pat.regionOffset + k * pat.stride +
-                pat.innerFactor * partialsDescription[i].columns.size();
-            partials.push_back(in.slice(start, end));
-            addPartialDebug(partialsDescription[i], reductions[i], tile, start,
-                            end, columns);
-          }
         }
-      } else {
-        // If there are no pattern repetitions we can create partials with a
-        // single silce.
-        const auto end =
-            pat.regionOffset +
-            pat.innerFactor * partialsDescription[i].columns.size();
-        partials.push_back(in.slice(pat.regionOffset, end));
-        addPartialDebug(partialsDescription[i], reductions[i], tile,
-                        pat.regionOffset, end, columns);
       }
+      reductions[i].partials = iPartials;
     }
   }
   return reductions;
@@ -473,32 +494,15 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 // appropriate partials widths.  This means we can pass one grainSize
 // parameter to splitOutputRegionsForWorkers which is far simpler than a per
 // reduction array.
-unsigned
-findGrainSizeForOp(Graph &graph, Type partialType, ReduceParams &params,
-                   const boost::optional<std::vector<Interval>> &regions) {
 
-  const unsigned grainSize = graph.getTarget().getVectorWidth(partialType);
-  if (params.op == popops::Operation::ADD ||
-      params.op == popops::Operation::SQUARE_ADD) {
-    // NOTE - depending on the eventual vertex targeted we could split using
-    // grainSize instead of grainSize*2 here with no speed decrease.
-    return grainSize * 2;
-  }
-  if (regions && (params.op == popops::Operation::MAX ||
-                  params.op == popops::Operation::MIN)) {
-    // If partials are all equal size and a multiple of grainsize*2 then we can
-    // benefit by using the partialsEqualSize vertex providing we don't split
-    // them below grainSize*2.
-    bool partialsEqualSize = std::all_of(
-        regions.get().begin(), regions.get().end(),
-        [=](Interval r) { return (r.size() % (grainSize * 2)) == 0; });
-    if (partialsEqualSize) {
-      return grainSize * 2;
-    }
-  }
-  // Other reductions (including MAX and MIN) can generally be split between
-  // workers with the basic grain size
-  return grainSize;
+unsigned findGrainSizeForOp(Graph &graph, Type partialType) {
+  // The grain size could be doubled for ADD (and SQUARE_ADD) because
+  // these operations have dedicated instructions on Colossus that can operate
+  // on twice as much data as all the other operations (MUL etc).  BUT at
+  // present only the inefficient specialisation 0,1 use those instructions. So
+  // split based on grainSize not grainSize *2.
+
+  return graph.getTarget().getVectorWidth(partialType);
 }
 
 // dividePartials: Accepts a number of groupedPartials structures, each of which
@@ -573,14 +577,17 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   // the Nth column found on this tile
   unsigned columnAccumulate = 0;
   for (auto &partials : splitGroupedPartials) {
-    if (partials.patterns[0].innerFactor == 1) {
+    // Don't consider those with a column size that can be optimised later
+    // by reducing in 2 stages. (This specifically includes 3 columns as with
+    // partials type float we get a grainsize of 2. So our 3 column reduction
+    // would result in 2 reductions with 2 and 1 columns, which prevents the
+    // later problemColumn count optimisation from happening)
+    if (partials.patterns[0].innerFactor == 1 && partials.columns.size() != 3) {
       outRegions.push_back(
           {columnAccumulate, columnAccumulate + partials.columns.size()});
       columnAccumulate += partials.columns.size();
     } else {
-      // Don't consider those with innerFactor != 1 for
-      // splitting here as they can be split differently later.
-      // Instead, push them into the output untouched.
+      // Push into the output untouched.
       partialsResult.push_back(partials);
       // Having no columns will mean that this is not included in the column
       // search for the next loop, and avoids removing it from
@@ -595,10 +602,8 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   const unsigned remainingWorkers = numWorkers > partialsResult.size()
                                         ? numWorkers - partialsResult.size()
                                         : 1;
-  // outRegions represents intervals which are equivalent to the width of the
-  // partials, so use it to check partial width in determining grainSize.
-  const unsigned grainSize =
-      findGrainSizeForOp(graph, inType, params, outRegions);
+  const unsigned grainSize = findGrainSizeForOp(graph, inType);
+
   outRegions = splitOutputRegionsForWorkers(grainSize, remainingWorkers, inType,
                                             outRegions);
 
@@ -987,12 +992,7 @@ IntermediatePartials intermediateToIntermediate(
   const auto inType = castComputeSet ? poplar::FLOAT : ipIn.dataType();
   const auto &target = graph.getTarget();
 
-  // The grain size is doubled for ADD (and SQUARE_ADD) because
-  // these operations have dedicated instructions on Colossus that can operate
-  // on twice as much data as all the other operations (MUL etc).
-  const unsigned grainSize = opIsAddOrSquareAdd
-                                 ? 2 * target.getVectorWidth(inType)
-                                 : target.getVectorWidth(inType);
+  const unsigned grainSize = findGrainSizeForOp(graph, inType);
   if (grainSize == 0)
     throw poputil::poplibs_error("Zero vector width for type " +
                                  inType.toString());
@@ -1159,6 +1159,8 @@ IntermediatePartials intermediateToIntermediate(
              outputDataIdx + len - 1);
 
       // Loop through the source tiles for this region...
+      IrregularPartials iPartials;
+      iPartials.data.reserve(it.second.size());
       for (auto partialTile : it.second) {
         size_t sourceDataIdx = ipIn.dataElement(partialTile, re.lower());
 
@@ -1166,12 +1168,13 @@ IntermediatePartials intermediateToIntermediate(
                sourceDataIdx + boost::icl::size(re) - 1);
 
         if (castComputeSet) {
-          rt.partials.emplace_back(
+          iPartials.data.emplace_back(
               castIpIn[partialTile].slice(sourceDataIdx, sourceDataIdx + len));
         } else {
-          rt.partials.emplace_back(
+          iPartials.data.emplace_back(
               ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
         }
+        rt.partials = iPartials;
         // Debugging info about the partial.
         ReductionDebug::Partial di;
         di.sourceCols = {sourceDataIdx, sourceDataIdx + len};
@@ -1179,11 +1182,12 @@ IntermediatePartials intermediateToIntermediate(
         rt.partialsDebugInfo.push_back(di);
       }
       logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
-                     it.second.size(), rt.partials.back().numElements(),
+                     it.second.size(), rt.getPartials().back().numElements(),
                      re.lower(), re.upper());
-      debugPartialsWidths = {
-          std::min(debugPartialsWidths.min, rt.partials.back().numElements()),
-          std::max(debugPartialsWidths.max, rt.partials.back().numElements())};
+      debugPartialsWidths = {std::min(debugPartialsWidths.min,
+                                      rt.getPartials().back().numElements()),
+                             std::max(debugPartialsWidths.max,
+                                      rt.getPartials().back().numElements())};
 
       // Connect the output region.
       rt.output = ir.data(tile).slice(outputDataIdx, outputDataIdx + len);
@@ -1418,10 +1422,9 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
       outputRegionsSplit.emplace_back(ival.first.lower(), ival.first.upper());
     }
 
-    // Determine the grainSize based on operation, we have no easy way to
+    // Determine the grainSize based on partials type, we have no easy way to
     // compare partials widths so don't assume anything about them
-    const unsigned grainSize =
-        findGrainSizeForOp(graph, inVertexType, params, boost::none);
+    const unsigned grainSize = findGrainSizeForOp(graph, inVertexType);
 
     // Split them if it would make it faster by processing them separately
     // with different vertices.
@@ -1436,13 +1439,19 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     reductions.reserve(outputRegionsSplit.size());
 
     // Finally we repeat the above but this time record the actual connections.
+
+    // Store all the partials here and at the end we can decide if we want to
+    // make a single RegularPartials Tensor or IrregularPartials vector of
+    // Tensors to describe them.
+    std::vector<std::vector<poplar::Tensor>> rtPartials;
     for (const auto &re : outputRegionsSplit) {
       RegionReduction rt;
+      rtPartials.resize(rtPartials.size() + 1);
 
       // Connect the output. This is fine because output is 1D.
       rt.output = out.slice(re);
 
-      rt.partials.reserve(32); // This speeds things up a bit.
+      rtPartials.back().reserve(32); // This speeds things up a bit.
 
       // Get the list of partials to use.
       auto partialTiles = thisTilesForOutput(re.begin());
@@ -1457,10 +1466,10 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                sourceDataIdx + len - 1);
 
         if (castComputeSet) {
-          rt.partials.emplace_back(
+          rtPartials.back().emplace_back(
               castIpIn[partialTile].slice(sourceDataIdx, sourceDataIdx + len));
         } else {
-          rt.partials.emplace_back(
+          rtPartials.back().emplace_back(
               ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
         }
         // Debugging info about the partial.
@@ -1469,12 +1478,18 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
         di.sourceTile = partialTile;
         rt.partialsDebugInfo.push_back(di);
       }
+      // As the partials are all the same size we can do this to create a
+      // valid outerFactor.
+      rt.outerFactor = rtPartials.back().back().numElements() *
+                       rtPartials.back().size() / rt.output.numElements();
       logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
-                     partialTiles.size(), rt.partials.back().numElements(),
-                     re.begin(), re.end());
-      debugPartialsWidths = {
-          std::min(debugPartialsWidths.min, rt.partials.back().numElements()),
-          std::max(debugPartialsWidths.max, rt.partials.back().numElements())};
+                     partialTiles.size(),
+                     rtPartials.back().back().numElements(), re.begin(),
+                     re.end());
+      debugPartialsWidths = {std::min(debugPartialsWidths.min,
+                                      rtPartials.back().back().numElements()),
+                             std::max(debugPartialsWidths.max,
+                                      rtPartials.back().back().numElements())};
 
       // Debugging info about the output...
       rt.outputDebugInfo.outputRegion = re;
@@ -1488,7 +1503,53 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
       stageDebug->tiles.emplace_back();
       tileDebug = &stageDebug->tiles.back();
     }
+    // Only now we have gathered all the reductions for this tile, and all the
+    // partials, we can build an allPartials tensor and add striding information
+    // which should allow for better work splitting using strided reduce with
+    // no copies being introduced. This only makes sense if the lots of the
+    // reductions have partails that can be arranged in a regular way to form
+    // one region.  The advantage of doing this is that it allows the partials
+    // regions to be split/joined later which helps with work division.
+    // We choose to only do it if all the regions can be formed into one
+    // contiguous regular block.
+    const bool regularReductions =
+        std::all_of(rtPartials.begin(), rtPartials.end(),
+                    [=](std::vector<poplar::Tensor> &partials) {
+                      return partials.size() == rtPartials[0].size();
+                    });
 
+    if (regularReductions) {
+      std::vector<std::vector<Tensor>> partialsByRow(rtPartials[0].size());
+      for (unsigned i = 0; i < reductions.size(); i++) {
+        for (unsigned j = 0; j < rtPartials[i].size(); j++) {
+          partialsByRow[j].push_back(rtPartials[i][j]);
+        }
+      }
+      std::vector<Tensor> gatheredPartials(partialsByRow.size());
+      for (unsigned i = 0; i < partialsByRow.size(); i++) {
+        gatheredPartials[i] = concat(partialsByRow[i]);
+      }
+      auto allPartials = concat(gatheredPartials);
+
+      unsigned cumulativeColumn = 0;
+      const auto stride =
+          std::accumulate(reductions.begin(), reductions.end(), 0u,
+                          [](unsigned total, RegionReduction &r) {
+                            return total + r.output.numElements();
+                          });
+
+      for (unsigned i = 0; i < reductions.size(); i++) {
+        reductions[i].getPartials().push_back(allPartials);
+        reductions[i].getStride() = stride;
+        reductions[i].getOffset() = cumulativeColumn;
+        cumulativeColumn += reductions[i].output.numElements();
+      }
+    } else {
+      for (unsigned i = 0; i < reductions.size(); i++) {
+        IrregularPartials iPartials({rtPartials[i]});
+        reductions[i].partials = iPartials;
+      }
+    }
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inType, inVertexType, outputType,

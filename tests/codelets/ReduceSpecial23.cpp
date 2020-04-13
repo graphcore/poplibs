@@ -35,7 +35,7 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   popops::addCodelets(graph);
 
   const float initialValue = 1.0;
-  const auto grainSize = partialsType == poplar::HALF ? 4 : 2;
+  const auto partialsGrainSize = partialsType == poplar::HALF ? 4 : 2;
 
   // Check constraints:
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
@@ -45,20 +45,16 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
       return false;
     }
 
-  } else if (specialisation == ReductionSpecialisation::SINGLE_OUTPUT_REGION) {
-    if (innerDim != outputDim) {
-      std::cerr << "Inner dimension must be a multiple of the output dimension "
-                   "for SINGLE_OUTPUT_REGION\n";
-      return false;
-    }
-    if (innerDim % grainSize) {
+  } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
+    if (innerDim % partialsGrainSize) {
       std::cerr << "Inner dimension must be a multiple of 4 (half) or 2 "
-                   "(float) for SINGLE_OUTPUT_REGION\n";
+                   "(float) for STRIDED_REDUCE\n";
       return false;
     }
-    if (outputDim % grainSize) {
-      std::cerr << "Output dimension must be a multiple of 4 (half) or 2 "
-                   "(float) for SINGLE_OUTPUT_REGION\n";
+    if (outputDim % partialsGrainSize) {
+      std::cerr << "Output dimension must be a multiple of 4 (partials type = "
+                   "half) or 2 "
+                   "(partials type = float) for STRIDED_REDUCE\n";
       return false;
     }
   } else {
@@ -79,9 +75,9 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   }
 
   copy(target, nums.data(), innerDim * outerDim, partialsType, data.data());
-  std::vector<float> answers(innerDim, initialValue);
-  std::vector<char> ans_data((innerDim)*4);
-  copy(target, answers.data(), innerDim, outType, ans_data.data());
+  std::vector<float> answers(outputDim, initialValue);
+  std::vector<char> ans_data((outputDim)*4);
+  copy(target, answers.data(), outputDim, outType, ans_data.data());
 
   Sequence prog;
 
@@ -104,8 +100,9 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     graph.setInitialValue(v1["numPartials"], innerDim * outerDim);
   } else {
-    graph.setInitialValue(v1["numOutputs"], innerDim);
-    graph.setInitialValue(v1["numPartials"], outerDim);
+    graph.setInitialValue(v1["numOutputs"], outputDim);
+    graph.setInitialValue(v1["numPartialsM1"], outerDim - 1);
+    graph.setInitialValue(v1["partialsWidth"], innerDim);
   }
   auto scaleTensor = graph.addVariable(FLOAT, {});
   graph.setTileMapping(scaleTensor, 0);
@@ -151,7 +148,12 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
   copy(target, outType, ans_data.data(), answers.data(), outputDim);
   copy(target, outType, ans_data.data(), intData.data(), outputDim);
 
-  MultiArray<float> input{(outerDim * innerDim) / outputDim, outputDim};
+  // Create / reduce the whole result, later we may only check part of it based
+  // on outputDim.
+  const auto arrayDim =
+      (specialisation == ReductionSpecialisation::STRIDED_REDUCE) ? innerDim
+                                                                  : outputDim;
+  MultiArray<float> input{(outerDim * innerDim) / arrayDim, arrayDim};
   for (unsigned i = 0; i < input.numElements(); i++) {
     const unsigned row = i / (innerDim);
     const unsigned column = i % (innerDim);
@@ -211,7 +213,7 @@ int main(int argc, char **argv) {
     ("specialisation",
      po::value<unsigned>(&specialisation)->required(),
      "Specialisation: 2 = SCALAR_OUTPUT_SINGLE_INPUT or"
-     " 3 = SINGLE_OUTPUT_REGION")
+     " 3 = STRIDED_REDUCEs")
     ("out-type",
      po::value<Type>(&outType)->required(),
      "Output type")
@@ -249,7 +251,7 @@ int main(int argc, char **argv) {
 
   const auto specialisationType =
       specialisation == 2 ? ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT
-                          : ReductionSpecialisation::SINGLE_OUTPUT_REGION;
+                          : ReductionSpecialisation::STRIDED_REDUCE;
   if (!doTest(deviceType, partialsType, outType, outerDim, innerDim, outputDim,
               op, scale, isUpdate, specialisationType))
     return 1;
