@@ -11,6 +11,9 @@
     "chmod": {
       "type": "chmod"
     },
+    "gc-copyright": {
+      "type": "gc-copyright"
+    },
     "merge-conflict": {
       "type": "merge-conflict"
     },
