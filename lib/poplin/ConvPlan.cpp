@@ -2307,9 +2307,12 @@ addDynamicSliceEstimate(popsolver::Model &m, const unsigned numWorkers,
       return 0u;
     }
 
+    const auto elementsPerWorker =
+        ceildiv(sliceSize / elementsPerWord, numWorkers);
+
     // rough estimate of vertex overhead plus assuming inner loop of 2 cycles
     // per word (one load, one store).
-    const auto innerLoopCycles = 2 * sliceSize / elementsPerWord;
+    const auto innerLoopCycles = 2 * elementsPerWorker;
     return (30u + innerLoopCycles) * numWorkers;
   });
 }
