@@ -961,16 +961,12 @@ void HyperGraph::createComputeSetReduce(
       }
       auto v = graph.addVertex(
           reduceCS, poputil::templateVertex(
-                        "popops::Reduce", "popops::ReduceAdd", partialDataType,
-                        outDataType, "false",
-                        "popops::ReductionSpecialisation::STRIDED_REDUCE"));
+                        "popops::ReducePartialsEqualSize", "popops::ReduceAdd",
+                        partialDataType, outDataType, "false"));
       graph.connect(v["out"], output.slice(offset, offset + curElements));
-      graph.setInitialValue(v["numOutputs"], curElements);
-      graph.connect(v["partials"], concat(inputOneWorker));
-      graph.setInitialValue(v["numPartialsM1"],
-                            concat(inputOneWorker).numElements() / curElements -
-                                1);
-      graph.setInitialValue(v["partialsWidth"], curElements);
+      graph.setInitialValue(v["outCount"], curGrains);
+      graph.connect(v["partials"], inputOneWorker);
+      graph.setInitialValue(v["partialsSizeM1"], 0);
       graph.setTileMapping(v, nodeCTileId[i]);
 
       offset += curElements;

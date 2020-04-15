@@ -111,6 +111,8 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/EncodeOneHot.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateAdd.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeAcc.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReducePartialsEqualSizeNoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
@@ -167,8 +169,10 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdate.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MultiUpdateAdd.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Reduce.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReducePartialsEqualSize.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledContinuousReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledReduce.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ScaledReducePartialsEqualSize.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromInterval.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromIntervals.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
@@ -187,6 +191,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ElementOp.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReducePartialsEqualSize.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
