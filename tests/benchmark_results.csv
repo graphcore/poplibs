@@ -179,7 +179,7 @@ IpuModel,default,resnet50_tr_bs4_bm64L0A1,92556,80028412,137240
 IpuModel,default,resnet50_tr_bs4_bm64L0_projection,56080,66282264,141720
 IpuModel,default,resnet50_tr_bs4_bm64L1A0,57463,66320486,141720
 IpuModel,default,resnet50_tr_bs4_cnv,163637,113936032,152600
-IpuModel,default,vgg16_tr_bs4_v1L0,197552,198409558,248196
+IpuModel,default,vgg16_tr_bs4_v1L0,197552,198409558,253288
 IpuModel,default,vgg16_tr_bs4_v1L1,1258656,359721809,328856
 IpuModel,default,vgg16_tr_bs4_v2L0,557507,252364618,228026
 IpuModel,default,vgg16_tr_bs4_v2L1,1066677,255271344,259004
