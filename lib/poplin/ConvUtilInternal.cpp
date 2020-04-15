@@ -10,6 +10,7 @@
 #include <boost/icl/interval_map.hpp>
 #include <boost/optional.hpp>
 #include <cassert>
+#include <cmath>
 #include <poplar/Tensor.hpp>
 #include <unordered_map>
 
@@ -610,6 +611,72 @@ std::vector<poplar::Tensor> split(
     splitOuts.insert(splitOuts.end(), s.begin(), s.end());
   }
   return splitOuts;
+}
+
+std::vector<unsigned>
+splitElementsInWeightedGroups(const std::vector<std::uint64_t> &groups,
+                              unsigned elements) {
+  if (elements < groups.size()) {
+    throw poputil::poplibs_error("At least one element per group");
+  }
+  const double totalWeight = std::accumulate(groups.begin(), groups.end(), 0LL);
+  if (!totalWeight) {
+    throw poputil::poplibs_error("Total weight cannot be zero");
+  }
+  std::vector<unsigned> elementsPerGroup;
+  double assignedElements(0);
+  for (const auto &weight : groups) {
+    const double e = elements * weight / totalWeight;
+    elementsPerGroup.push_back(std::round(assignedElements + e) -
+                               std::round(assignedElements));
+    assignedElements += e;
+  }
+  // Each group must have at least one element
+  for (auto &epg : elementsPerGroup) {
+    if (!epg) {
+      --*std::max_element(elementsPerGroup.begin(), elementsPerGroup.end());
+      ++epg;
+    }
+  }
+  assert(elements ==
+         std::accumulate(elementsPerGroup.begin(), elementsPerGroup.end(), 0U));
+  return elementsPerGroup;
+}
+
+std::vector<unsigned> splitTilesByComp(const std::vector<std::uint64_t> &flops,
+                                       unsigned numTiles) {
+  // The amount of tiles in each subsets should be a multiple of 2 as tile pairs
+  // are used for 64-bit sends
+  const unsigned atomSize(2);
+  if (numTiles % atomSize > 0) {
+    throw poputil::poplibs_error(
+        "Number of tiles should be a multiple of atom size");
+  }
+  auto tiles = splitElementsInWeightedGroups(flops, numTiles / atomSize);
+  std::transform(tiles.begin(), tiles.end(), tiles.begin(),
+                 [](auto t) { return t * atomSize; });
+  return tiles;
+}
+
+std::vector<unsigned>
+splitTilesByComp(const std::vector<ConvParams> &convParams, unsigned numTiles) {
+  std::vector<std::uint64_t> flops;
+  for (const auto &cp : convParams) {
+    flops.push_back(getFwdFlops(cp));
+  }
+  return splitTilesByComp(flops, numTiles);
+}
+
+unsigned getGroupIndex(const std::vector<unsigned> &groups,
+                       const unsigned element) {
+  unsigned acc(0);
+  for (unsigned i(0); i < groups.size(); ++i) {
+    acc += groups[i];
+    if (acc > element) {
+      return i;
+    }
+  }
+  throw poputil::poplibs_error("Element index exceeds groups size");
 }
 
 } // namespace poplin

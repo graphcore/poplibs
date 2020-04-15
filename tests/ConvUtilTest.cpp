@@ -2,11 +2,11 @@
 #define BOOST_TEST_MODULE ConvUtilTest
 #include "ConvUtilInternal.hpp"
 #include "TestDevice.hpp"
+#include <boost/test/unit_test.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/Convolution.hpp>
 #include <poputil/TileMapping.hpp>
-
-#include <boost/test/unit_test.hpp>
+#include <poputil/exceptions.hpp>
 
 using namespace poplar;
 
@@ -165,4 +165,69 @@ BOOST_AUTO_TEST_CASE(DetectWeightsChannelGrouping) {
   BOOST_CHECK_EQUAL(convGroupsPerGroup, detectedGrouping.convGroupsPerGroup);
   BOOST_CHECK_EQUAL(outChansPerGroup, detectedGrouping.outChansPerGroup);
   BOOST_CHECK_EQUAL(inChansPerGroup, detectedGrouping.inChansPerGroup);
+}
+
+BOOST_AUTO_TEST_CASE(SplitTilesByComp) {
+  BOOST_CHECK_THROW(poplin::splitElementsInWeightedGroups({1, 1}, 1),
+                    poputil::poplibs_error);
+  {
+    const auto tiles =
+        poplin::splitElementsInWeightedGroups({123, 456, 789}, 1216);
+    std::vector<unsigned> expectation = {109, 406, 701};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles = poplin::splitElementsInWeightedGroups({1, 4, 1}, 1216);
+    std::vector<unsigned> expectation = {203, 810, 203};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles =
+        poplin::splitElementsInWeightedGroups({1, 1, 1, 1, 4, 10}, 1216);
+    std::vector<unsigned> expectation = {68, 67, 68, 67, 270, 676};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles =
+        poplin::splitElementsInWeightedGroups({1, 10000, 1}, 1216);
+    std::vector<unsigned> expectation = {1, 1214, 1};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles =
+        poplin::splitElementsInWeightedGroups({1, 1, 1, 1, 10, 10000}, 1216);
+    std::vector<unsigned> expectation = {1, 1, 1, 1, 2, 1210};
+    BOOST_TEST(tiles == expectation);
+  }
+  BOOST_CHECK_THROW(poplin::splitTilesByComp({1, 1, 1}, 3),
+                    poputil::poplibs_error);
+  {
+    const auto tiles = poplin::splitTilesByComp({123, 456, 789}, 1216);
+    std::vector<unsigned> expectation = {110, 404, 702};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles = poplin::splitTilesByComp({1, 1, 1, 1, 10, 1000}, 1216);
+    std::vector<unsigned> expectation = {2, 2, 2, 2, 12, 1196};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles = poplin::splitTilesByComp({1, 1, 1, 1, 10, 10000}, 1216);
+    std::vector<unsigned> expectation = {2, 2, 2, 2, 2, 1206};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const auto tiles = poplin::splitTilesByComp({4294967296, 1}, 1216);
+    std::vector<unsigned> expectation = {1214, 2};
+    BOOST_TEST(tiles == expectation);
+  }
+  {
+    const std::vector<unsigned> groups{3, 0, 4, 1};
+    BOOST_TEST(poplin::getGroupIndex(groups, 0) == 0);
+    BOOST_TEST(poplin::getGroupIndex(groups, 2) == 0);
+    BOOST_TEST(poplin::getGroupIndex(groups, 3) == 2);
+    BOOST_TEST(poplin::getGroupIndex(groups, 6) == 2);
+    BOOST_TEST(poplin::getGroupIndex(groups, 7) == 3);
+    BOOST_CHECK_THROW(poplin::getGroupIndex(groups, 8), poputil::poplibs_error);
+  }
 }

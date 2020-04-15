@@ -173,6 +173,29 @@ std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
 std::vector<poplar::Tensor> split(
     const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups,
     const std::vector<poplar::Tensor> &out);
+// Given a vector of group weights and a number of elements,
+// distribute them among the groups proportionally to their weights.
+// If noEmptyGroups is set, at least one element is assigned to every group
+extern std::vector<unsigned>
+splitElementsInWeightedGroups(const std::vector<uint64_t> &groups,
+                              unsigned elements);
+
+// Given a vector of operation FLOPs and a number of tiles,
+// return a tile subset for each operation proportional to its FLOPs
+extern std::vector<unsigned>
+splitTilesByComp(const std::vector<uint64_t> &flops, unsigned numTiles);
+
+/// Given a vector of convolution parameters and a number of tiles,
+/// return a distribution of tiles according to the expected FLOPs for each
+/// convolution
+std::vector<unsigned>
+splitTilesByComp(const std::vector<ConvParams> &convParams, unsigned numTiles);
+
+// Given a vector of group sizes and an element index,
+// returns the index of the group that contains that element
+// assuming that elements are sequentially assigned to each group
+unsigned getGroupIndex(const std::vector<unsigned> &groups,
+                       const unsigned element);
 
 } // End namespace poplin
 
