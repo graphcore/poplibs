@@ -101,7 +101,7 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
                      "batchSplit": 1,
                      "outChanSplit": {"parallel": 1, "serial": 1},
                      "kernelSplit": {"0": 1, "1": 1},
-                     "inChanSplit": 1,
+                     "inChanSplit": {"parallel": 1, "serial": 1},
                      "convGroupSplit": 1
                     }
       }
@@ -130,7 +130,8 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
   BOOST_CHECK_EQUAL_COLLECTIONS(
       partition.kernelSplit.begin(), partition.kernelSplit.end(),
       expectedKernelSplit.begin(), expectedKernelSplit.end());
-  BOOST_CHECK_EQUAL(partition.inChanSplit, 1);
+  BOOST_CHECK_EQUAL(partition.inChanSplit.parallel, 1);
+  BOOST_CHECK_EQUAL(partition.inChanSplit.serial, 1);
   BOOST_CHECK_EQUAL(partition.convGroupSplit, 1);
 }
 
@@ -193,7 +194,7 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
   testFails(
       R"delim(
       {"method": "MAC",
-       "0": {"partition":{"inChanSplit": 256}}
+       "0": {"partition":{"inChanSplit":{"parallel": 256, "serial": 256}}}
       }
     )delim");
   // Product of outChanSplits exceeds number of output channels.

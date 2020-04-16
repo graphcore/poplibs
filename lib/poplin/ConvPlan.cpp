@@ -89,7 +89,7 @@ struct PartitionVariables {
   Split<popsolver::Variable> outChanSplit;
   // indexed by kernel dimension.
   std::vector<popsolver::Variable> kernelSplit;
-  popsolver::Variable inChanSplit;
+  Split<popsolver::Variable> inChanSplit;
   popsolver::Variable convGroupSplit;
   std::vector<unsigned> fieldGrainSize;
 
@@ -387,7 +387,8 @@ std::ostream &operator<<(std::ostream &os, const Partition &p) {
      << "             kernelSplit           ";
   printContainer(p.kernelSplit, os);
   os << "\n"
-     << "             inChanSplit           " << p.inChanSplit << "\n"
+     << "             inChanSplit.serial    " << p.inChanSplit.serial << "\n"
+     << "             inChanSplit.parallel  " << p.inChanSplit.parallel << "\n"
      << "             convGroupSplit        " << p.convGroupSplit << "\n"
      << "             fieldAxisGrainSize    ";
   printContainer(p.fieldAxisGrainSize, os);
@@ -741,6 +742,7 @@ template <typename T> struct Estimates {
 
   // extra information that can be used for logging.
   T rearrangeBeforeSliceCycles;
+  T memsetZeroBeforeAddInPlace;
   T dynamicSliceCycles;
   T transformCycles;
   T exchangeCycles;
@@ -748,6 +750,7 @@ template <typename T> struct Estimates {
   T partialCalcCycles;
   T reduceCycles;
   T dynamicUpdateCycles;
+  T addInPlaceCycles;
 
   T rearrangeBeforeSliceTempBytes;
   T rearrangeBeforeSliceTempDuringRearrangeBytes;
@@ -1891,7 +1894,7 @@ static popsolver::Variable addExchangeCycleEstimate(
     cycleSumOperands.push_back(partialSumCyclesFirstStage);
 
     auto reduceDimSizes = partitionsNextLevel.kernelSplit;
-    reduceDimSizes.push_back(partitionsNextLevel.inChanSplit);
+    reduceDimSizes.push_back(partitionsNextLevel.inChanSplit.parallel);
     const auto reductionDepth = m.product(reduceDimSizes);
     const auto resultType = types[level + 1].resultType;
     const auto partialSumCyclesRemainingStages = m.call(
@@ -1952,7 +1955,7 @@ addReduceCycleEstimate(popsolver::Model &m,
   outputsPerLevel.clear();
   for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
     auto reduceDimSizes = partitionVars[level].kernelSplit;
-    reduceDimSizes.push_back(partitionVars[level].inChanSplit);
+    reduceDimSizes.push_back(partitionVars[level].inChanSplit.parallel);
     const auto reductionDepth = m.product(reduceDimSizes);
     outputsPerLevel.push_back(m.ceildiv(partialsPerTile, reductionDepth));
     bool floatPartials = types[level + 1].resultType == poplar::FLOAT;
@@ -2011,6 +2014,33 @@ addReduceCycleEstimate(popsolver::Model &m,
   return std::make_pair(
       m.sum(cycleSumOperands, "reduceCycleEstimate"),
       m.max(tempBytesMaxOperands, "reduceCycleTempBytesEstimate"));
+}
+
+// the number of inputs in the tile level of the hierarchy is how many
+// inputs *after* broadcast, here we want to know how many there are before
+// so take the number of inputs at the hierarchy above and evenly split them.
+static popsolver::Variable
+addInputsPerTile(popsolver::Model &m, const popsolver::Variable usedTiles,
+                 const std::vector<popsolver::Variable> &inputsPerLevel,
+                 const ConvParams &params) {
+  assert(!inputsPerLevel.empty());
+  const auto inputsPerIPU = [&] {
+    // when there is only one IPU the "previous level" is actually the original
+    // convolution parameters.
+    if (inputsPerLevel.size() == 1) {
+      // we don't need to take into account the kernel transforms here because
+      // the transformation is applied after the dynamic slice, which is why
+      // we want to calculate the number of inputs per tile.
+      const auto numberOfInputs =
+          product(params.inputFieldShape) * params.batchSize *
+          params.inputChannelsPerConvGroup * params.numConvGroups;
+      return m.addConstant(numberOfInputs);
+    } else {
+      return inputsPerLevel[inputsPerLevel.size() - 2];
+    }
+  }();
+
+  return m.ceildiv(inputsPerIPU, usedTiles);
 }
 
 // the number of weights in the tile level of the hierarchy is how many
@@ -2173,7 +2203,7 @@ addTransformCycleEstimate(
   std::vector<popsolver::Variable> ipuSplits = {
       partitionVars[ipuLevel].batchSplit,
       partitionVars[ipuLevel].convGroupSplit,
-      partitionVars[ipuLevel].inChanSplit,
+      partitionVars[ipuLevel].inChanSplit.parallel,
       partitionVars[ipuLevel].outChanSplit.parallel};
   ipuSplits.insert(ipuSplits.end(), partitionVars[ipuLevel].fieldSplit.begin(),
                    partitionVars[ipuLevel].fieldSplit.end());
@@ -2287,23 +2317,21 @@ template <typename F>
 popsolver::Variable
 addDynamicSliceEstimate(popsolver::Model &m, const unsigned numWorkers,
                         const popsolver::Variable &elementsPerTile,
-                        const PartitionVariables &tileSplits,
+                        const popsolver::Variable &serialSplit,
                         const F &getElementsPerWord) {
-  const auto &outChanSerialSplit = tileSplits.outChanSplit.serial;
-
   // assume we have to slice an even amount of weights on each tile for each
   // each split.
-  const auto sliceSize = m.ceildiv(elementsPerTile, outChanSerialSplit);
+  const auto sliceSize = m.ceildiv(elementsPerTile, serialSplit);
   const auto elementsPerWord = getElementsPerWord();
 
-  const std::vector<popsolver::Variable> vars = {outChanSerialSplit, sliceSize};
+  const std::vector<popsolver::Variable> vars = {serialSplit, sliceSize};
   return m.call(vars, [elementsPerWord, numWorkers](const auto &vars) {
-    const auto &outChanSerialSplit = vars[0];
+    const auto &serialSplit = vars[0];
     const auto &sliceSize = vars[1];
 
-    assert(outChanSerialSplit != 0);
+    assert(serialSplit != 0);
     // when not splitting serially we require no dynamic slicing or updating.
-    if (outChanSerialSplit == 1) {
+    if (serialSplit == 1) {
       return 0u;
     }
 
@@ -2320,10 +2348,10 @@ addDynamicSliceEstimate(popsolver::Model &m, const unsigned numWorkers,
 static popsolver::Variable
 addDynamicSliceEstimate(popsolver::Model &m, const poplar::Target &target,
                         const popsolver::Variable &weightsPerTile,
-                        const PartitionVariables &tileSplits,
+                        const popsolver::Variable &serialSplit,
                         const ConvParams &params) {
   const auto workers = target.getNumWorkerContexts();
-  return addDynamicSliceEstimate(m, workers, weightsPerTile, tileSplits, [&] {
+  return addDynamicSliceEstimate(m, workers, weightsPerTile, serialSplit, [&] {
     // the weights type is always the same as the input type.
     const auto weightsType = params.inputType;
 
@@ -2337,18 +2365,90 @@ addDynamicUpdateEstimate(popsolver::Model &m, const poplar::Target &target,
                          const popsolver::Variable &outputsPerTile,
                          const PartitionVariables &tileSplits,
                          const std::vector<ConvTypes> &types) {
+  const auto &outChanSerialSplit = tileSplits.outChanSplit.serial;
   const auto workers = target.getNumWorkerContexts();
-  return addDynamicSliceEstimate(m, workers, outputsPerTile, tileSplits, [&] {
-    // currently we only support splitting the output channels serially and only
-    // when in the intra-IPU level. TODO: T12878 Assert that this is the case.
-    assert(types.size() > 0);
-    const unsigned intraTileLevel = types.size() - 1;
+  return addDynamicSliceEstimate(
+      m, workers, outputsPerTile, outChanSerialSplit, [&] {
+        // currently the output channels are serially split only in the
+        // intra-IPU level. TODO: T12878 Assert that this is the case.
+        assert(types.size() > 0);
+        const unsigned intraTileLevel = types.size() - 1;
 
-    const auto outputsType = types[intraTileLevel].resultType;
-    const auto outputsPerWord = target.getVectorWidth(outputsType) / 2;
+        const auto outputsType = types[intraTileLevel].resultType;
+        const auto outputsPerWord = target.getVectorWidth(outputsType) / 2;
 
-    return outputsPerWord;
+        return outputsPerWord;
+      });
+}
+
+static popsolver::Variable outputOperationInPlaceEstimate(
+    popsolver::Model &m, const unsigned cyclesPerVector,
+    const unsigned loopOverhead, const unsigned numWorkers,
+    const unsigned vectorWidth, const popsolver::Variable &outputsPerTile,
+    const PartitionVariables &tileSplits) {
+  // Input channels serial splits do not cause a corresponding split in the
+  // outputs. Hence the operation must be performed on the whole output
+  const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
+  const std::vector<popsolver::Variable> vars = {inChanSerialSplit,
+                                                 outputsPerTile};
+  return m.call(vars, [vectorWidth, numWorkers, cyclesPerVector,
+                       loopOverhead](const auto &vars) {
+    const auto &inChanSerialSplit = vars[0];
+    const auto &outputsPerTile = vars[1];
+
+    assert(inChanSerialSplit != 0);
+    // when not splitting serially we require no inplace addition
+    if (inChanSerialSplit == 1) {
+      return 0u;
+    }
+
+    // rough cycles estimate of vertex overhead plus inner loop
+    const auto innerLoopCycles =
+        cyclesPerVector * ceildiv(outputsPerTile, numWorkers * vectorWidth);
+    return (loopOverhead + innerLoopCycles) * numWorkers;
   });
+}
+
+// estimation function for addInPlace accumulation of input-channel-serially
+// split convolution partials
+static popsolver::Variable
+addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
+                   const popsolver::Variable &outputsPerTile,
+                   const PartitionVariables &tileSplits,
+                   const std::vector<ConvTypes> &types) {
+  // currently the input channels are serially split only in the
+  // intra-IPU level. TODO: T12878 Assert that this is the case.
+  assert(types.size() > 0);
+  const auto numWorkers = target.getNumWorkerContexts();
+  const unsigned intraTileLevel = types.size() - 1;
+  const auto outputsType = types[intraTileLevel].resultType;
+  const auto vectorWidth = target.getVectorWidth(outputsType);
+  const unsigned cyclesPerVector = 3;
+  const unsigned cyclesLoopOverhead = 20;
+  return outputOperationInPlaceEstimate(m, cyclesPerVector, cyclesLoopOverhead,
+                                        numWorkers, vectorWidth, outputsPerTile,
+                                        tileSplits);
+}
+
+// estimation function for zero memory setting of output before addInPlace
+// operations for every input channel serial split convolution
+static popsolver::Variable
+memsetZeroEstimate(popsolver::Model &m, const poplar::Target &target,
+                   const popsolver::Variable &outputsPerTile,
+                   const PartitionVariables &tileSplits,
+                   const std::vector<ConvTypes> &types) {
+  // currently the input channels are serially split only in the
+  // intra-IPU level. TODO: T12878 Assert that this is the case.
+  assert(types.size() > 0);
+  const auto numWorkers = target.getNumWorkerContexts();
+  const unsigned intraTileLevel = types.size() - 1;
+  const auto outputsType = types[intraTileLevel].resultType;
+  const auto vectorWidth = target.getVectorWidth(outputsType);
+  const unsigned cyclesPerVector = 1;
+  const unsigned cyclesLoopOverhead = 0;
+  return outputOperationInPlaceEstimate(m, cyclesPerVector, cyclesLoopOverhead,
+                                        numWorkers, vectorWidth, outputsPerTile,
+                                        tileSplits);
 }
 
 // cycles, temp persistent bytes for rearranged version of weights,
@@ -2379,9 +2479,11 @@ addRearrangeBeforeSliceEstimate(popsolver::Model &m,
   // No super-tile send as we can't rely on sending+receiving tiles allowing
   // super-tile send/receive concurrently.
   //
-  // isSeriallySplit is 0 when outChanSplit.serial == 1 and 1 otherwise.
+  // isSeriallySplit is 1 if and only if any serial split (either
+  // inChanSplit.serial or outChanSplit.serial) is greater than 1.
   const auto isSeriallySplit = m.addVariable(0u, 1u, "isSeriallySplit");
-  m.less(isSeriallySplit, tileSplits.outChanSplit.serial);
+  m.less(isSeriallySplit, m.product({tileSplits.inChanSplit.serial,
+                                     tileSplits.outChanSplit.serial}));
 
   const auto exchangeCycles =
       exchangeEstimator.getCycles(weightsPerTile, params.inputType, level);
@@ -2435,7 +2537,8 @@ static Estimates<popsolver::Variable> addEstimates(
     variables.push_back(vars.batchSplit);
     variables.push_back(vars.outChanSplit.parallel);
     variables.push_back(vars.outChanSplit.serial);
-    variables.push_back(vars.inChanSplit);
+    variables.push_back(vars.inChanSplit.parallel);
+    variables.push_back(vars.inChanSplit.serial);
     variables.push_back(vars.convGroupSplit);
     variables.insert(variables.end(), vars.fieldSplit.begin(),
                      vars.fieldSplit.end());
@@ -2459,12 +2562,14 @@ static Estimates<popsolver::Variable> addEstimates(
 
   const auto &intraTileSplits = partitionVars.back();
 
-  // create a variable that is the number of weights per tile before being
+  // create variables for the number of inputs and weights per tile before being
   // transformed and broadcast out. this is so we can calculate how much data
   // is dynamically sliced for serial convolutions. when calculating this we
   // assume the weights are distributed evenly.
   const auto weightsPerTile =
       addWeightsPerTile(m, usedTiles, weightsPerLevel, transformedOnceParams);
+  const auto inputsPerTile =
+      addInputsPerTile(m, usedTiles, inputsPerLevel, transformedOnceParams);
 
   // create a variable that represents that most amount of partials that will
   // live on a single tile. this is enough as a cycle estimate is how long the
@@ -2497,7 +2602,9 @@ static Estimates<popsolver::Variable> addEstimates(
       target, transformedOnceParams, types.back().partialType, method,
       slicWindowWidth, numConvUnitsRequired, options, cache);
 
-  const auto serialSplits = intraTileSplits.outChanSplit.serial;
+  const std::vector<popsolver::Variable> serialSplitFactors = {
+      intraTileSplits.inChanSplit.serial, intraTileSplits.outChanSplit.serial};
+  const auto serialSplits = m.product(serialSplitFactors);
 
   // Add a redundant inequality that relates the cycles required to calculate
   // the partial sums with the maximum number of MACs per cycle. Although this
@@ -2534,21 +2641,30 @@ static Estimates<popsolver::Variable> addEstimates(
 
   // if this convolution has been split serially we must include the cycle cost
   // for performing the dynamic slice / update as well as multiplying our new
-  // total by the amount of times we plan to execute this convolution. if the
-  // outChanSplit.serial variable is 1 then these cycle counts should be zero.
-  e.dynamicSliceCycles = addDynamicSliceEstimate(
-      m, target, weightsPerTile, intraTileSplits, transformedOnceParams);
+  // total by the amount of times we plan to execute this convolution.
+  auto inputsDynamicSliceCycles = addDynamicSliceEstimate(
+      m, target, inputsPerTile, intraTileSplits.inChanSplit.serial,
+      transformedOnceParams);
+  auto weightsDynamicSliceCycles = addDynamicSliceEstimate(
+      m, target, weightsPerTile, serialSplits, transformedOnceParams);
+  e.dynamicSliceCycles =
+      m.sum({inputsDynamicSliceCycles, weightsDynamicSliceCycles});
 
   const auto &outputsPerTile = outputsPerLevel.back();
   e.dynamicUpdateCycles = addDynamicUpdateEstimate(m, target, outputsPerTile,
                                                    intraTileSplits, types);
+  e.memsetZeroBeforeAddInPlace =
+      memsetZeroEstimate(m, target, outputsPerTile, intraTileSplits, types);
+  e.addInPlaceCycles =
+      addInPlaceEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
   e.totalCycles =
       m.sum({e.dynamicSliceCycles, e.transformCycles, e.exchangeCycles,
              e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
-             e.dynamicUpdateCycles});
+             e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
-  e.totalCycles = m.sum({e.totalCycles, e.rearrangeBeforeSliceCycles});
+  e.totalCycles = m.sum({e.memsetZeroBeforeAddInPlace, e.totalCycles,
+                         e.rearrangeBeforeSliceCycles});
 
   // take the total amount of temp bytes alive at the same time.
   e.totalTempBytes =
@@ -2610,8 +2726,8 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
       auto bwdP = p;
-      bwdP.fieldSplit.back() = p.inChanSplit;
-      bwdP.inChanSplit = p.fieldSplit.back();
+      bwdP.fieldSplit.back() = p.inChanSplit.parallel;
+      bwdP.inChanSplit.parallel = p.fieldSplit.back();
       bwdP.inChanGrainSize = p.fieldGrainSize.back();
       bwdP.fieldGrainSize.back() = inChansPerGroup;
       bwdPartitionVars.push_back(bwdP);
@@ -2713,8 +2829,8 @@ static Estimates<popsolver::Variable> addWuEstimates(
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
       auto wuP = p;
-      wuP.outChanSplit.parallel = p.inChanSplit;
-      wuP.inChanSplit = p.outChanSplit.parallel;
+      wuP.outChanSplit.parallel = p.inChanSplit.parallel;
+      wuP.inChanSplit.parallel = p.outChanSplit.parallel;
       wuP.inChanGrainSize = p.outChanGrainSize;
       wuP.outChanGrainSize = p.inChanGrainSize;
       wuP.fieldGrainSize = std::vector<unsigned>(numFieldDims, 1);
@@ -2782,9 +2898,10 @@ static Partition makePartition(const popsolver::Solution &s,
   Partition partition(
       std::move(fieldSplitValues), s[vars.batchSplit],
       {s[vars.outChanSplit.serial], s[vars.outChanSplit.parallel]},
-      std::move(kernelSplitValues), s[vars.inChanSplit], s[vars.convGroupSplit],
-      vars.fieldGrainSize, vars.convGroupGrainSize, vars.inChanGrainSize,
-      vars.outChanGrainSize);
+      std::move(kernelSplitValues),
+      {s[vars.inChanSplit.serial], s[vars.inChanSplit.parallel]},
+      s[vars.convGroupSplit], vars.fieldGrainSize, vars.convGroupGrainSize,
+      vars.inChanGrainSize, vars.outChanGrainSize);
   return partition;
 }
 
@@ -3128,7 +3245,7 @@ static void applyPartitionPlanConstraint(popsolver::Model &m,
     constrainVar("batchSplit", p.batchSplit);
     constrainSplitVar("outChanSplit", p.outChanSplit);
     constrainVars("kernelSplit", p.kernelSplit);
-    constrainVar("inChanSplit", p.inChanSplit);
+    constrainSplitVar("inChanSplit", p.inChanSplit);
     constrainVar("convGroupSplit", p.convGroupSplit);
     // All other PartitionVariables members are dependent on these splits.
   }
@@ -3269,7 +3386,7 @@ getUsedTiles(popsolver::Model &m,
     std::vector<popsolver::Variable> splits;
     splits.push_back(p.batchSplit);
     splits.push_back(p.outChanSplit.parallel);
-    splits.push_back(p.inChanSplit);
+    splits.push_back(p.inChanSplit.parallel);
     splits.push_back(p.convGroupSplit);
     splits.insert(splits.end(), p.fieldSplit.begin(), p.fieldSplit.end());
     splits.insert(splits.end(), p.kernelSplit.begin(), p.kernelSplit.end());
@@ -3599,18 +3716,21 @@ static Estimates<popsolver::Variable> constructModel(
     // that has an inter-IPU level split.
     assert(numLevelsOfHierarchy >= 2);
     if (numLevelsOfHierarchy == 2 && level == numLevelsOfHierarchy - 2) {
-      // TODO: T10408 We do not support splitting the output channels serially
-      // during a joint plan as that will become an input channel serial split
-      // during the weight update, which is not currently supported.
+      // TODO: T10408 We do not support splitting the input channels serially
+      // during a joint plan as that will become a serial field split
+      // during the backward pass, which is not currently supported.
       if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
-        p.outChanSplit.serial = m.addConstant(
-            1, arrIndStr(level) + ".partition.outChanSplit.serial");
+        p.inChanSplit.serial = m.addConstant(
+            1, arrIndStr(level) + ".partition.inChanSplit.serial");
       } else {
-        p.outChanSplit.serial =
-            addPartitionConstant(m, options, level, "outChanSplit.serial", [&] {
+        p.inChanSplit.serial =
+            addPartitionConstant(m, options, level, "inChanSplit.serial", [&] {
               return m.addVariable(1, levelMaxSplit);
             });
       }
+      p.outChanSplit.serial =
+          addPartitionConstant(m, options, level, "outChanSplit.serial",
+                               [&] { return m.addVariable(1, levelMaxSplit); });
 
       // we must avoid splitting the convolutions serially when it will
       // produce different sized convolutions as this is implemented as a
@@ -3621,7 +3741,17 @@ static Estimates<popsolver::Variable> constructModel(
           transformedViewParams.getNumOutputChansPerConvGroup();
       m.factorOf(std::max(initialOutputChansPerGroup, 1ul),
                  p.outChanSplit.serial);
+
+      const auto initialInputChansPerConvGroup =
+          transformedViewParams.getNumInputChansPerConvGroup();
+      m.factorOf(std::max(initialInputChansPerConvGroup, 1ul),
+                 p.inChanSplit.serial);
+
+      // Only support one kind of serial split at a time (for now)
+      m.equal(m.min({p.inChanSplit.serial, p.outChanSplit.serial}), 1);
     } else {
+      p.inChanSplit.serial =
+          m.addConstant(1, arrIndStr(level) + ".partition.outChanSplit.serial");
       p.outChanSplit.serial =
           m.addConstant(1, arrIndStr(level) + ".partition.outChanSplit.serial");
     }
@@ -3630,9 +3760,11 @@ static Estimates<popsolver::Variable> constructModel(
         m.product({p.outChanSplit.parallel, p.outChanSplit.serial});
     m.lessOrEqual(totalOutChanSplit, prevConvSize.numOutChanGrains);
 
-    p.inChanSplit = m.addVariable(1, levelMaxSplit,
-                                  arrIndStr(level) + ".partition.inChanSplit");
-    m.lessOrEqual(p.inChanSplit, prevConvSize.numInChanGrains);
+    p.inChanSplit.parallel = m.addVariable(
+        1, levelMaxSplit, arrIndStr(level) + ".partition.inChanSplit.parallel");
+    auto totalInChanSplit =
+        m.product({p.inChanSplit.parallel, p.inChanSplit.serial});
+    m.lessOrEqual(totalInChanSplit, prevConvSize.numInChanGrains);
 
     p.convGroupGrainSize = convGroupGrainSize[level];
     p.outChanGrainSize = outChanGrainSize[level];
@@ -3684,13 +3816,13 @@ static Estimates<popsolver::Variable> constructModel(
                                       totalOutChanSplit);
       ceildivConstrainDivisorWithVars(m, nextConvSize.numInChanGrains,
                                       prevConvSize.numInChanGrains,
-                                      p.inChanSplit);
+                                      totalInChanSplit);
     } else {
       nextConvSize.numOutChanGrains = m.ceildivConstrainDivisor(
           prevConvSize.numOutChanGrains, totalOutChanSplit,
           arrIndStr(level + 1) + ".size.outChanGrains");
       nextConvSize.numInChanGrains = m.ceildivConstrainDivisor(
-          prevConvSize.numInChanGrains, p.inChanSplit,
+          prevConvSize.numInChanGrains, totalInChanSplit,
           arrIndStr(level + 1) + ".size.inChanGrains");
     }
 
@@ -3824,6 +3956,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.totalTempBytes = s[e.totalTempBytes];
 
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
+  cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
   cost.transformCycles = s[e.transformCycles];
   cost.exchangeCycles = s[e.exchangeCycles];
@@ -3831,6 +3964,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.partialCalcCycles = s[e.partialCalcCycles];
   cost.reduceCycles = s[e.reduceCycles];
   cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
+  cost.addInPlaceCycles = s[e.addInPlaceCycles];
 
   cost.rearrangeBeforeSliceTempBytes = s[e.rearrangeBeforeSliceTempBytes];
   cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
@@ -4645,6 +4779,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                    cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
                cost.rearrangeBeforeSliceTempBytes,
                cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
+  logging::debug("   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
+                 cost.memsetZeroBeforeAddInPlace);
   logging::log(l, "   - dynamic slice: {} cycles, unknown bytes",
                cost.dynamicSliceCycles);
   logging::log(l, "   - transform: {} cycles, {} bytes", cost.transformCycles,
@@ -4658,6 +4794,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                cost.reduceTempBytes);
   logging::log(l, "   - dynamic update: {} cycles, unknown bytes",
                cost.dynamicUpdateCycles);
+  logging::debug("   - add in-place: {} cycles, unknown bytes",
+                 cost.addInPlaceCycles);
   logging::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
                cost.totalTempBytes);
 }
@@ -5011,7 +5149,8 @@ void writePlanConstraintsFile(const Plan &plan, const std::string filePath) {
     constraints.add(keySfx + "outChanSplit.serial", p.outChanSplit.serial);
     constraints.add(keySfx + "outChanSplit.parallel", p.outChanSplit.parallel);
     constrainValues(keySfx + "kernelSplit", p.kernelSplit);
-    constraints.add(keySfx + "inChanSplit", p.inChanSplit);
+    constraints.add(keySfx + "inChanSplit.serial", p.inChanSplit.serial);
+    constraints.add(keySfx + "inChanSplit.parallel", p.inChanSplit.parallel);
     constraints.add(keySfx + "convGroupSplit", p.convGroupSplit);
   }
 
@@ -5139,9 +5278,8 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   const auto numPartitions = plan.partitions.size();
   for (unsigned i = 0; i != numPartitions; ++i) {
-    plan.partitions[i].inChanSplit =
-        fwdPlan.partitions[i].outChanSplit.parallel;
-    plan.partitions[i].outChanSplit = {1, fwdPlan.partitions[i].inChanSplit};
+    plan.partitions[i].inChanSplit = fwdPlan.partitions[i].outChanSplit;
+    plan.partitions[i].outChanSplit = fwdPlan.partitions[i].inChanSplit;
     plan.partitions[i].outChanGrainSize = fwdPlan.partitions[i].inChanGrainSize;
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
@@ -5194,7 +5332,9 @@ static Plan getFullyConnectedBwdPlan(const Plan &fwdPlan) {
   plan.method = getFullyConnectedBwdMethod(fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   for (auto &partition : plan.partitions) {
-    std::swap(partition.fieldSplit.back(), partition.inChanSplit);
+    // Input channel serial split cannot be swapped with Field Splitting as
+    // serial Field Splitting is not supported yet.
+    std::swap(partition.fieldSplit.back(), partition.inChanSplit.parallel);
     std::swap(partition.fieldAxisGrainSize.back(), partition.inChanGrainSize);
   }
   plan.inChansPerGroup = plan.partitions.back().inChanGrainSize;

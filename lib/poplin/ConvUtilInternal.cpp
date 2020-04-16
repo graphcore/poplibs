@@ -462,7 +462,7 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
   const unsigned batchSplit = 1;
   const Split<unsigned> outChanSplit = {1, 1};
   std::vector<unsigned> kernelSplit(numFieldDims, 1U);
-  const unsigned inChanSplit = 1;
+  const Split<unsigned> inChanSplit = {1, 1};
   const unsigned convGroupSplit = 1;
   std::vector<unsigned> fieldAxisGrainSize(numFieldDims, 1U);
   const unsigned convGroupGrainSize = 1;

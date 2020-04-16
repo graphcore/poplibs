@@ -127,13 +127,13 @@ namespace internal {
 static std::unordered_set<std::string> validPartitionConstraintVar = {
     "convGroupSplit",
     "batchSplit",
-    "inChanSplit",
 };
 static std::unordered_set<std::string> validPartitionConstraintVars = {
     "fieldSplit",
     "kernelSplit",
 };
 static std::unordered_set<std::string> validPartitionConstraintSplitVar = {
+    "inChanSplit",
     "outChanSplit",
 };
 static std::unordered_set<std::string> validTransformConstraintBool = {

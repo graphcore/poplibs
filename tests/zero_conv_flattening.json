@@ -13,7 +13,10 @@
                 "parallel": 1
             },
             "kernelSplit":{ "0": 1, "1": 1 },
-            "inChanSplit": 1,
+            "inChanSplit":{
+                "serial": 1,
+                "parallel": 1
+            },
             "convGroupSplit": 1
         }
     },
@@ -31,7 +34,10 @@
                 "parallel": 1
             },
             "kernelSplit": { "0": 1, "1": 1 },
-            "inChanSplit": 3,
+            "inChanSplit":{
+                "serial": 1,
+                "parallel": 3
+            },
             "convGroupSplit": 1
         }
     },

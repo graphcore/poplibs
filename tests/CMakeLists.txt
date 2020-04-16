@@ -5597,6 +5597,17 @@ add_multitarget_test(
                  )
 
 add_multitarget_test(
+         NAME gemm_20x40x10_input_channel_serialization
+         COMMAND general_matrix_multiply
+                 --m 20
+                 --k 40
+                 --n 10
+                 --tiles-per-ipu=4
+                 --input-type=half
+                 --output-type=half
+                 --plan-constraints={\"0\":{\"partition\":{\"inChanSplit\":{\"serial\":5,\"parallel\":4}}}})
+
+add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
          COMMAND rnn_layer
                  --sequence-size 3

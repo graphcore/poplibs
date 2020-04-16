@@ -117,6 +117,29 @@ static unsigned getTransformedSize(const std::vector<std::size_t> &size,
   return truncatedDilatedPaddedSize;
 }
 
+// Reorder the underlying memory regions of a tensor to make sliced regions
+// contiguous on each tile.
+static Tensor
+remapTensorToContiguousTileRegions(Graph &graph, Tensor t,
+                                   const std::vector<std::size_t> &shape,
+                                   const unsigned grouping) {
+  // TODO: T12871 Implement poplibs_expensive_assert like in poplar.
+  // This could be used to check, for example:
+  // poplibs_expensive_assert(t.getContiguousRegions().size() == 1);
+  auto mapping = graph.getTileMapping(t);
+  auto inverseMapping = poplibs::getInverseMapping(mapping);
+  t = t.flatten();
+  std::vector<Tensor> toConcat;
+  toConcat.reserve(inverseMapping.size());
+  for (const auto &i : inverseMapping) {
+    assert(i.begin() % grouping == 0 && i.end() % grouping == 0);
+    toConcat.push_back(t.slice(i.begin(), i.end()));
+  }
+  t = concat(toConcat).reshape(shape);
+  graph.setTileMapping(t, mapping);
+  return t;
+}
+
 unsigned ConvParams::getTruncatedInputSize(unsigned dim) const {
   return getTruncatedSize(inputFieldShape[dim],
                           inputTransform.truncationLower[dim],
@@ -298,7 +321,7 @@ linearizeTileIndices(const Target &target,
     const auto fwdcg = levelIndices.cg;
     auto fwdFieldSplit = levelPartition.fieldSplit;
     const auto &fwdKernelSplit = levelPartition.kernelSplit;
-    auto fwdInChanSplit = levelPartition.inChanSplit;
+    auto fwdInChanSplit = levelPartition.inChanSplit.parallel;
     const auto &fwdBatchSplit = levelPartition.batchSplit;
     auto fwdOutChanSplit = levelPartition.outChanSplit.parallel;
     switch (plan.linearizeTileOrder) {
@@ -532,10 +555,11 @@ static void iteratePartitionParallel(
     for (unsigned b = 0; b != batchSplit; ++b) {
       const auto batchBegin = (b * batchSize) / batchSplit;
       const auto batchEnd = ((b + 1) * batchSize) / batchSplit;
-
-      for (unsigned ic = 0; ic != inChanSplit; ++ic) {
-        const auto inChanGrainBegin = (ic * inChanNumGrains) / inChanSplit;
-        const auto inChanGrainEnd = ((ic + 1) * inChanNumGrains) / inChanSplit;
+      for (unsigned ic = 0; ic != inChanSplit.parallel; ++ic) {
+        const auto inChanGrainBegin =
+            (ic * inChanNumGrains) / inChanSplit.parallel;
+        const auto inChanGrainEnd =
+            ((ic + 1) * inChanNumGrains) / inChanSplit.parallel;
         const auto inChanBegin = inChanGrainBegin * inChanGrainSize;
         const auto inChanEnd =
             std::min(inChanGrainEnd * inChanGrainSize, numInChans);
@@ -592,6 +616,7 @@ static void iteratePartitionSerial(
   const unsigned numOutChans = params->getNumOutputChansPerConvGroup();
   const unsigned numInChans = params->getNumInputChansPerConvGroup();
   const auto outChanSplit = partition.outChanSplit;
+  const auto inChanSplit = partition.inChanSplit;
 
   std::vector<unsigned> zeroSpatialIndices(numFieldDims, 0);
   std::vector<unsigned> outFieldEnd(numFieldDims);
@@ -601,12 +626,19 @@ static void iteratePartitionSerial(
     kernelEnd[dim] = params->kernelShape[dim];
   }
 
-  for (unsigned oc = 0; oc != outChanSplit.serial; ++oc) {
-    const auto outChanBegin = (oc * numOutChans) / outChanSplit.serial;
-    const auto outChanEnd = ((oc + 1) * numOutChans) / outChanSplit.serial;
-    f({0, 0, zeroSpatialIndices, oc, 0, zeroSpatialIndices},
-      {0, numConvGroups, 0, batchSize, zeroSpatialIndices, outFieldEnd,
-       outChanBegin, outChanEnd, 0, numInChans, zeroSpatialIndices, kernelEnd});
+  for (unsigned ic = 0; ic != inChanSplit.serial; ++ic) {
+    // Since serial splits use the same vertex instance, numInChans must be an
+    // integer multiple of inChanSplit.serial
+    const auto inChanBegin = (ic * numInChans) / inChanSplit.serial;
+    const auto inChanEnd = ((ic + 1) * numInChans) / inChanSplit.serial;
+    for (unsigned oc = 0; oc != outChanSplit.serial; ++oc) {
+      const auto outChanBegin = (oc * numOutChans) / outChanSplit.serial;
+      const auto outChanEnd = ((oc + 1) * numOutChans) / outChanSplit.serial;
+      f({0, 0, zeroSpatialIndices, oc, ic, zeroSpatialIndices},
+        {0, numConvGroups, 0, batchSize, zeroSpatialIndices, outFieldEnd,
+         outChanBegin, outChanEnd, inChanBegin, inChanEnd, zeroSpatialIndices,
+         kernelEnd});
+    }
   }
 }
 
@@ -2094,18 +2126,24 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
                                         level, indices, t, true /* isActs */,
                                         serial);
   }
-
+  unsigned inChanSerialSplit = 1;
+  if (serial && level < plan.partitions.size()) {
+    inChanSerialSplit = plan.partitions[level].inChanSplit.serial;
+  }
   const auto numConvGroups = params->getNumConvGroups();
   const auto convGroupsPerGroup = getConvGroupsPerGroup(plan, numConvGroups);
   assert(numConvGroups % convGroupsPerGroup == 0);
 
   const auto numInChans = params->getNumInputChansPerConvGroup();
-  const auto inChansPerGroup = getInChansPerGroup(plan, numInChans);
+  const auto inChansPerGroup =
+      getInChansPerGroup(plan, numInChans / inChanSerialSplit);
+  assert(numInChans % inChanSerialSplit == 0);
   assert(numInChans % inChansPerGroup == 0);
 
   std::vector<std::size_t> tensorShape = {
+      inChanSerialSplit,
       numConvGroups / convGroupsPerGroup,
-      numInChans / inChansPerGroup,
+      numInChans / (inChansPerGroup * inChanSerialSplit),
       params->getBatchSize(),
   };
   tensorShape.insert(tensorShape.end(), params->inputFieldShape.begin(),
@@ -2114,8 +2152,24 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   tensorShape.push_back(inChansPerGroup);
 
   auto t = graph.addVariable(params->inputType, tensorShape, name);
-  t = unsplitActivationFromGroups(t);
+  t = unsplitActivationFromGroups(t.dimRoll(0, 1).flatten(1, 3));
   mapActivations(graph, params, plan, level, serial, indices, t, options);
+
+  // If we're splitting serially then reorder underlying memory regions
+  // to make sliced regions contiguous on each tile respecting existing
+  // grain size etc.
+  if (inChanSerialSplit > 1) {
+    // Recover original shape (that is contiguous in memory).
+    t = splitActivationIntoGroups(t, convGroupsPerGroup, inChansPerGroup)
+            .reshapePartial(
+                1, 2,
+                {inChanSerialSplit,
+                 numInChans / (inChansPerGroup * inChanSerialSplit)})
+            .dimRoll(1, 0);
+    t = remapTensorToContiguousTileRegions(graph, t, tensorShape,
+                                           inChansPerGroup);
+    t = unsplitActivationFromGroups(t.dimRoll(0, 1).flatten(1, 3));
+  }
   return t;
 }
 
@@ -2177,12 +2231,14 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                                         serial);
   }
 
+  unsigned inChanSerialSplit = 1;
   unsigned outChanSerialSplit = 1;
-  if (serial && level < plan.partitions.size()) {
+  if (serial && (level < plan.partitions.size())) {
+    inChanSerialSplit = plan.partitions[level].inChanSplit.serial;
     outChanSerialSplit = plan.partitions[level].outChanSplit.serial;
-    assert(plan.partitions[level].totalSerialSplit() == outChanSerialSplit);
   }
-
+  auto serialSplitIndex = (inChanSerialSplit > 1) ? 2 : 1;
+  const auto totalSerialSplit = inChanSerialSplit * outChanSerialSplit;
   const auto numConvGroups = params->getNumConvGroups();
   const auto weightConvGroupsPerGroup =
       getConvGroupsPerGroup(plan, numConvGroups);
@@ -2201,60 +2257,59 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
       weightNumOutChanGroups / outChanSerialSplit;
 
   const auto inNumChans = params->getNumInputChansPerConvGroup();
-  const auto weightInChansPerGroup = getInChansPerGroup(plan, inNumChans);
+  assert(inNumChans % inChanSerialSplit == 0);
+  const auto weightNumInChansPerSerialSplit = inNumChans / inChanSerialSplit;
+  const auto weightInChansPerGroup =
+      getInChansPerGroup(plan, weightNumInChansPerSerialSplit);
   assert(inNumChans % weightInChansPerGroup == 0);
   const auto weightNumInChanGroups = inNumChans / weightInChansPerGroup;
-
-  std::vector<std::size_t> weightsShape = {
-      outChanSerialSplit, weightNumConvGroupGroups,
-      weightNumOutChanGroupsPerSerialSplit, weightNumInChanGroups};
+  const auto weightNumInChanGroupsPerSerialSplit =
+      weightNumInChanGroups / inChanSerialSplit;
+  std::vector<std::size_t> weightsShape = {totalSerialSplit,
+                                           weightNumConvGroupGroups,
+                                           weightNumOutChanGroupsPerSerialSplit,
+                                           weightNumInChanGroupsPerSerialSplit};
   weightsShape.insert(weightsShape.end(), params->kernelShape.begin(),
                       params->kernelShape.end());
   weightsShape.push_back(weightConvGroupsPerGroup);
   weightsShape.push_back(weightOutChansPerGroup);
   weightsShape.push_back(weightInChansPerGroup);
-
   auto weights = graph.addVariable(params->inputType, weightsShape, name);
-  weights = unsplitWeightsFromGroups(weights.dimRoll(0, 1).flatten(1, 3));
+  weights = unsplitWeightsFromGroups(
+      weights.dimRoll(0, serialSplitIndex)
+          .flatten(serialSplitIndex, serialSplitIndex + 2));
   mapWeights(graph, params, plan, level, serial, indices, weights, options);
 
   // If we're splitting serially then reorder underlying memory regions
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
-  //
-  // We do this by querying the calculated tile mapping using the contiguous
-  // tensor, calculating the inverse mapping from this, and
+  auto remapSplitTensorToContiguousTileRegions =
+      [&](const Tensor &weightsTensor, const unsigned chanIndex,
+          const unsigned splitFactor, const unsigned weightsPerSplit) {
+        // Recover original shape (that is contiguous in memory).
+        Tensor t = splitWeightsIntoGroups(
+                       weightsTensor, weightConvGroupsPerGroup,
+                       weightInChansPerGroup, weightOutChansPerGroup)
+                       .reshapePartial(chanIndex, chanIndex + 1,
+                                       {splitFactor, weightsPerSplit})
+                       .dimRoll(chanIndex, 0);
+        auto grouping = weightConvGroupsPerGroup * weightOutChansPerGroup *
+                        weightInChansPerGroup;
+        t = remapTensorToContiguousTileRegions(graph, t, weightsShape,
+                                               grouping);
+        t = unsplitWeightsFromGroups(
+            t.dimRoll(0, chanIndex).flatten(chanIndex, chanIndex + 2));
+        return t;
+      };
+  if (inChanSerialSplit > 1) {
+    weights = remapSplitTensorToContiguousTileRegions(
+        weights, serialSplitIndex, inChanSerialSplit,
+        weightNumInChanGroupsPerSerialSplit);
+  }
   if (outChanSerialSplit > 1) {
-    // Recover original shape (that is contiguous in memory).
-    weights =
-        splitWeightsIntoGroups(weights, weightConvGroupsPerGroup,
-                               weightInChansPerGroup, weightOutChansPerGroup)
-            .reshapePartial(
-                1, 2,
-                {outChanSerialSplit, weightNumOutChanGroupsPerSerialSplit})
-            .dimRoll(1, 0);
-
-    // TODO: T12871 Implement poplibs_expensive_assert like in poplar.
-    // This could be used to check, for example:
-    // poplibs_expensive_assert(weights.getContiguousRegions().size() == 1);
-
-    auto mapping = graph.getTileMapping(weights);
-    auto inverseMapping = poplibs::getInverseMapping(mapping);
-
-    weights = weights.flatten();
-    std::vector<Tensor> toConcat;
-    toConcat.reserve(inverseMapping.size());
-    for (const auto &i : inverseMapping) {
-#ifndef NDEBUG
-      auto grouping = weightConvGroupsPerGroup * weightOutChansPerGroup *
-                      weightInChansPerGroup;
-#endif
-      assert(i.begin() % grouping == 0 && i.end() % grouping == 0);
-      toConcat.push_back(weights.slice(i.begin(), i.end()));
-    }
-    weights = concat(toConcat).reshape(weightsShape);
-    graph.setTileMapping(weights, mapping);
-    weights = unsplitWeightsFromGroups(weights.dimRoll(0, 1).flatten(1, 3));
+    weights = remapSplitTensorToContiguousTileRegions(
+        weights, serialSplitIndex, outChanSerialSplit,
+        weightNumOutChanGroupsPerSerialSplit);
   }
   return weights;
 }
@@ -3887,44 +3942,55 @@ static std::size_t getSerialSliceIndex(const Partition &partition,
                                        const ConvIndices &serialIndices,
                                        bool isActs) {
   // We only handle output channel splits currently.
-  assert(partition.totalSerialSplit() == partition.outChanSplit.serial);
-  assert(serialIndices.ic + serialIndices.b + serialIndices.oc ==
-         serialIndices.oc);
-  if (!isActs) {
-    return serialIndices.oc;
+  assert(partition.totalSerialSplit() ==
+         partition.inChanSplit.serial * partition.outChanSplit.serial);
+  assert((partition.inChanSplit.serial == 1) ||
+         (partition.outChanSplit.serial == 1));
+  if (isActs) {
+    return serialIndices.ic;
+  } else if (partition.inChanSplit.serial > 1) {
+    return serialIndices.ic;
   }
-  return 0;
+  return serialIndices.oc;
 }
 
 static Tensor stitchSerialSlices(const std::vector<Tensor> &slices, bool isActs,
                                  const Partition &partition) {
   // We only handle output channel splits currently.
   assert(!slices.empty());
-  assert(partition.totalSerialSplit() == partition.outChanSplit.serial);
-  if (!isActs) {
-    assert(partition.totalSerialSplit() == slices.size());
-    return concat(slices, slices[0].rank() - 2);
+  assert(partition.totalSerialSplit() ==
+         partition.inChanSplit.serial * partition.outChanSplit.serial);
+  assert((partition.inChanSplit.serial == 1) ||
+         (partition.outChanSplit.serial == 1));
+  if (isActs) {
+    return concat(slices, slices[0].rank() - 1);
+  } else if (partition.inChanSplit.serial > 1) {
+    return concat(slices, slices[0].rank() - 1);
   }
-  assert(slices.size() == 1);
-  return slices[0];
+  return concat(slices, slices[0].rank() - 2);
 }
 
 static std::tuple<CanonicalConvParams, ConvIndices>
 preprocessForSerialSlice(Tensor *input, Tensor *weights,
                          const CanonicalConvParams &params,
                          const Partition &partition) {
-  const unsigned numInputSlices = 1;
-  const unsigned numWeightsSlices = partition.outChanSplit.serial;
-  // For now we only support output channel splitting.
-  assert(numInputSlices == 1);
-  assert(partition.outChanSplit.serial == partition.totalSerialSplit());
+  const unsigned numInputSlices = partition.inChanSplit.serial;
+  const unsigned numWeightsSlices =
+      partition.inChanSplit.serial * partition.outChanSplit.serial;
+  assert(partition.inChanSplit.serial * partition.outChanSplit.serial ==
+         partition.totalSerialSplit());
   assert(partition.totalSerialSplit() > 1);
   std::vector<Tensor> inputSlices;
   std::vector<Tensor> weightsSlices;
   if (input) {
+    assert(input->dim(input->rank() - 1) % partition.inChanSplit.serial == 0);
     inputSlices.resize(numInputSlices);
   }
   if (weights) {
+    // Check that a serial input channel split precisely divides the
+    // input channels available at this point.
+    assert(weights->dim(weights->rank() - 1) % partition.inChanSplit.serial ==
+           0);
     // Check that a serial output channel split precisely divides the
     // output channels available at this point.
     assert(weights->dim(weights->rank() - 2) % partition.outChanSplit.serial ==
@@ -3962,21 +4028,35 @@ preprocessForSerialSlice(Tensor *input, Tensor *weights,
         }
       });
 
+  auto refactorSplitDimToOutermost = [](Tensor t, unsigned dim,
+                                        unsigned factor) {
+    const auto chans = t.dim(dim);
+    assert(chans % factor == 0);
+    const auto chansPerSlice = chans / factor;
+    return t.reshapePartial(dim, dim + 1, {factor, chansPerSlice})
+        .dimRoll(dim, 0);
+  };
+
   if (input) {
     *input = stitchSerialSlices(inputSlices, true /* isActs */, partition);
+    if (partition.inChanSplit.serial > 1) {
+      *input = refactorSplitDimToOutermost(*input, input->rank() - 1,
+                                           partition.inChanSplit.serial);
+    }
   }
   if (weights) {
-    *weights = stitchSerialSlices(weightsSlices, false /* isActs */, partition);
-    const auto outChansDim = weights->rank() - 2;
-    const auto outChans = weights->dim(outChansDim);
-    assert(outChans % partition.outChanSplit.serial == 0);
-    const auto outChansPerSlice = outChans / partition.outChanSplit.serial;
-    // Factor out sliced channels in tensor expression.
-    *weights =
-        weights
-            ->reshapePartial(outChansDim, outChansDim + 1,
-                             {partition.outChanSplit.serial, outChansPerSlice})
-            .dimRoll(outChansDim, 0);
+    if (partition.inChanSplit.serial > 1) {
+      *weights =
+          stitchSerialSlices(weightsSlices, false /* !isActs */, partition);
+      *weights = refactorSplitDimToOutermost(*weights, weights->rank() - 1,
+                                             partition.inChanSplit.serial);
+    }
+    if (partition.outChanSplit.serial > 1) {
+      *weights =
+          stitchSerialSlices(weightsSlices, false /* !isActs */, partition);
+      *weights = refactorSplitDimToOutermost(*weights, weights->rank() - 2,
+                                             partition.outChanSplit.serial);
+    }
   }
   return std::make_tuple(parallelParams, indices);
 }
@@ -4019,20 +4099,33 @@ static boost::optional<Tensor> convolutionImpl(
       // and if so, rearrange before the loop rather than after as this will be
       // very expensive.
       auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
-      if (dimIsSplitOverTiles(graph, weightsSlice, 0)) {
-        logging::debug("'{}': forcing rearrangement of weights before slice "
+      auto rearrangeIfSplitOverTiles = [&](Tensor &slice, bool isActs) {
+        auto sliceKind = isActs ? "input" : "weights";
+        logging::debug("'{}': forcing rearrangement of {} before slice "
                        "because sliced dimension is split over tiles",
-                       debugPrefix);
-        auto weightsSliceRearranged = createWeightsImpl(
+                       debugPrefix, sliceKind);
+        auto createSliceMethod = isActs ? createInputImpl : createWeightsImpl;
+        auto sliceRearranged = createSliceMethod(
             graph, serialParams, level, true, indices,
-            debugPrefix + "/weightsRearranged", plan, options);
-        preprocessForSerialSlice(nullptr, &weightsSliceRearranged, serialParams,
-                                 partition);
-        weightsSlice = popops::rearrange::regroupIfBeneficial(
-            graph, weightsSlice, weightsSliceRearranged, parentLoop,
-            debugPrefix + "/regroupBeforeSlice");
-        parentLoop.add(Copy(weightsSlice, weightsSliceRearranged));
-        weightsSlice = weightsSliceRearranged;
+            debugPrefix + "/" + sliceKind + "Rearranged", plan, options);
+        auto inSliceRearranged = isActs ? &sliceRearranged : nullptr;
+        auto weightsSliceRearranged = isActs ? nullptr : &sliceRearranged;
+        preprocessForSerialSlice(inSliceRearranged, weightsSliceRearranged,
+                                 serialParams, partition);
+        slice = popops::rearrange::regroupIfBeneficial(
+            graph, slice, sliceRearranged, parentLoop,
+            debugPrefix + "/" + sliceKind + "RegroupBeforeSlice");
+        parentLoop.add(Copy(slice, sliceRearranged));
+        return sliceRearranged;
+      };
+      if ((partition.inChanSplit.serial > 1) &&
+          dimIsSplitOverTiles(graph, inSlice, 0)) {
+        inSlice = rearrangeIfSplitOverTiles(inSlice, true);
+      }
+      if (((partition.inChanSplit.serial > 1) ||
+           (partition.outChanSplit.serial > 1)) &&
+          dimIsSplitOverTiles(graph, weightsSlice, 0)) {
+        weightsSlice = rearrangeIfSplitOverTiles(weightsSlice, false);
       }
       loopCounter = graph.addVariable(
           UNSIGNED_INT, {1}, debugPrefix + "/loopCounter" + levelSuffix);
@@ -4040,10 +4133,21 @@ static boost::optional<Tensor> convolutionImpl(
       popops::zero(graph, loopCounter, parentLoop,
                    debugPrefix + "/initLoopCounter" + levelSuffix);
       auto &thisLoop = loopPre[level].back();
-      weightsSlice =
-          dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, thisLoop,
-                       debugPrefix + "/serialSlice" + levelSuffix)
-              .squeeze({0});
+      if (partition.inChanSplit.serial > 1) {
+        inSlice = dynamicSlice(graph, inSlice, loopCounter, {0}, {1}, thisLoop,
+                               debugPrefix + "/inputSerialSlice" + levelSuffix)
+                      .squeeze({0});
+        weightsSlice =
+            dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, thisLoop,
+                         debugPrefix + "/weightsSerialSlice" + levelSuffix)
+                .squeeze({0});
+      }
+      if (partition.outChanSplit.serial > 1) {
+        weightsSlice =
+            dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, thisLoop,
+                         debugPrefix + "/weightsSerialSlice" + levelSuffix)
+                .squeeze({0});
+      }
     }
   }
 
@@ -4126,7 +4230,7 @@ static boost::optional<Tensor> convolutionImpl(
       // add an extra dimension at the beginning that we can reduce over.
       const auto &partition = plan.partitions[level];
       const auto numPartials =
-          partition.inChanSplit * product(partition.kernelSplit);
+          partition.inChanSplit.parallel * product(partition.kernelSplit);
       partialsShape.insert(partialsShape.begin(), numPartials);
     }
 
@@ -4154,7 +4258,7 @@ static boost::optional<Tensor> convolutionImpl(
   } else {
     const auto &partition = plan.partitions[level];
     const auto numPartials =
-        partition.inChanSplit * product(partition.kernelSplit);
+        partition.inChanSplit.parallel * product(partition.kernelSplit);
     const auto outputSplit = partition.convGroupSplit * partition.batchSplit *
                              product(partition.fieldSplit) *
                              partition.outChanSplit.parallel;
@@ -4244,13 +4348,19 @@ static boost::optional<Tensor> convolutionImpl(
       // [G1][CO1][N][R]...[G2][CO2] -> [R][G1][CO1][N]...[G2][CO2]
       partials = partials.dimRoll(3, 0);
 
-      out = multiStageGroupedReduce(graph, partials, resultType,
+      // Avoid reducing to the result type for serial input channel splitting
+      // until inPlace addition of all serial splits have completed.
+      auto reducedType =
+          (partition.inChanSplit.serial > 1) ? partialType : resultType;
+      out = multiStageGroupedReduce(graph, partials, reducedType,
                                     reduceComputeSets[level], options,
                                     debugPrefix);
       out = unsplitActivationFromGroups(out);
     }
   }
-  if (out.elementType() != resultType) {
+  const auto &partition = plan.partitions[level];
+  if ((out.elementType() != resultType) &&
+      (partition.inChanSplit.serial == 1)) {
     if (reduceComputeSets[level].empty()) {
       reduceComputeSets[level].push_back(
           graph.addComputeSet(debugPrefix + "/Cast"));
@@ -4266,8 +4376,30 @@ static boost::optional<Tensor> convolutionImpl(
 
   // Update.
   if (level < plan.partitions.size()) {
-    const auto &partition = plan.partitions[level];
-    if (partition.totalSerialSplit() > 1) {
+    if (partition.inChanSplit.serial > 1) {
+      auto &thisLoop = loopPost[level].back();
+      auto zero = graph.addConstant(out.elementType(), out.shape(), 0,
+                                    debugPrefix + "/zero");
+      auto serialOut = graph.clone(out, debugPrefix + "/serialOut");
+      auto mapping = graph.getTileMapping(out);
+      graph.setTileMapping(zero, mapping);
+
+      // Zero-Initialise destination tensor
+      auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
+      parentLoop.add(Copy(zero, serialOut));
+
+      // Accumulate the results into the destination tensor serialOut
+      addInPlace(graph, serialOut, out, thisLoop,
+                 debugPrefix + "/serialOut" + levelSuffix);
+      out = serialOut;
+
+      // Increment counter
+      auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1);
+      graph.setTileMapping(loopIncrement, 0);
+      addInPlace(graph, loopCounter, loopIncrement, thisLoop,
+                 debugPrefix + "/loopIncrement" + levelSuffix);
+    }
+    if (partition.outChanSplit.serial > 1) {
       auto &thisLoop = loopPost[level].back();
 
       // Make this tensor view suitable as a slice of the full output.
@@ -4294,6 +4426,13 @@ static boost::optional<Tensor> convolutionImpl(
       out = serialOut.dimRoll(0, serialOut.rank() - 2)
                 .flatten(serialOut.rank() - 2, serialOut.rank());
     }
+  }
+
+  // Casting to the final result type (i.e., the result type of the outermost
+  // level) should be deferred until all the serial splits have executed.
+  if ((out.elementType() != resultType) && (partition.inChanSplit.serial > 1)) {
+    out = cast(graph, out, resultType, transformPostSerial[level].back(),
+               debugPrefix);
   }
 
   // Inverse transform.
@@ -4330,7 +4469,7 @@ static std::string convSuffix(const CanonicalConvParams &params) {
 }
 
 static bool requiresReduction(const Partition &partition) {
-  if (partition.inChanSplit != 1)
+  if (partition.inChanSplit.parallel != 1)
     return true;
   for (const auto &split : partition.kernelSplit) {
     if (split != 1)

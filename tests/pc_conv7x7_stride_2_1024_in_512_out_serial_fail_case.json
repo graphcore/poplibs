@@ -16,7 +16,10 @@
         "parallel": 1
       },
       "kernelSplit": {"0": 1, "1": 1},
-      "inChanSplit": 7,
+      "inChanSplit": {
+        "serial": 1,
+        "parallel": 7
+      },
       "convGroupSplit": 1
     }
   }
