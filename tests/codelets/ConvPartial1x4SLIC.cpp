@@ -255,10 +255,13 @@ int main(int argc, char **argv) try {
 
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
-  createConvPartialSlicVertex(
-      graph, windowWidth, convGroupsPerGroup, chansPerGroup, 0, params, prog,
-      copyWritten, fwdCS, inGrouped, weightsGrouped, outGrouped, "vertex");
+  Sequence postFwdProg;
+  createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
+                              chansPerGroup, 0, params, prog, copyWritten,
+                              fwdCS, postFwdProg, inGrouped, weightsGrouped,
+                              outGrouped, "vertex");
   prog.add(Execute(fwdCS));
+  prog.add(postFwdProg);
 
   // Get ordinary view of input/weights/output without grouping for reference
   // etc.

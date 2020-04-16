@@ -3299,7 +3299,8 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
                                  unsigned chansPerGroup, unsigned tile,
                                  ConvParams params, Sequence &transformPre,
                                  Tensor &copyWritten, ComputeSet fwdCS,
-                                 Tensor in, Tensor weights, Tensor out,
+                                 Sequence &postConvProg, Tensor in,
+                                 Tensor weights, Tensor out,
                                  const std::string &debugPrefix) {
   assert(params == params.canonicalize());
 
@@ -3524,7 +3525,7 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
     const auto zeros =
         graph.addConstant(partialsType, outputPadding.shape(), 0);
     graph.setTileMapping(zeros, 0);
-    transformPre.add(Copy(zeros, outputPadding));
+    postConvProg.add(Copy(zeros, outputPadding));
   }
 
   // We also need an extra buffer for our vertex, 16-byte aligned, with size
@@ -3577,6 +3578,7 @@ struct ComputeSetsGroup {
   boost::optional<ComputeSet>
       pre; // if vertex requires a cast need pre compute set
   ComputeSet convolveCS;
+  Sequence postProg;
   boost::optional<ComputeSet>
       post; // if output reuqires cast needs post compute set
   ComputeSetsGroup(ComputeSet convolveCS) : convolveCS(convolveCS) {}
@@ -3587,6 +3589,7 @@ struct ComputeSetsGroup {
       seq.add(Execute(pre.get()));
     }
     seq.add(Execute(convolveCS));
+    seq.add(postProg);
     if (post) {
       seq.add(Execute(post.get()));
     }
@@ -3733,7 +3736,8 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     createConvPartialSlicVertex(
         graph, plan.slicWindowWidth, plan.convGroupsPerGroup,
         plan.partialChansPerGroup, tile, params, transformPre, copyWritten,
-        convolveCS.convolveCS, in, weights, out, debugPrefix);
+        convolveCS.convolveCS, convolveCS.postProg, in, weights, out,
+        debugPrefix);
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();
