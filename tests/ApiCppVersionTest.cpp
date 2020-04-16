@@ -46,8 +46,6 @@
 #include <popops/codelets.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
-#include <popsolver/Model.hpp>
-#include <popsolver/Variable.hpp>
 #include <poputil/Broadcast.hpp>
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>

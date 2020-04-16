@@ -43,10 +43,12 @@ add_library(poplin SHARED
 
 target_link_libraries(poplin
   PUBLIC
-    poplar popops poputil popsolver
+    poplar popops poputil
   PRIVATE
+    poplibs_support
+    popsolver
+    Boost::boost
     TBB::TBB
-    poplibs_support Boost::boost
 )
 
 target_include_directories(poplin

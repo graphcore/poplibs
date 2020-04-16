@@ -81,10 +81,11 @@ add_library(popops SHARED
 
 target_link_libraries(popops
   PUBLIC
-    poplar poputil popsolver ${CMAKE_DL_LIBS}
+    poplar poputil ${CMAKE_DL_LIBS}
   PRIVATE
     TBB::TBB
     poplibs_support
+    popsolver
     Boost::boost
     Boost::filesystem
     Boost::system

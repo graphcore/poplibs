@@ -2,7 +2,7 @@ include(GNUInstallDirs)
 
 find_package(Boost 1.65.1 REQUIRED)
 
-add_library(popsolver SHARED
+add_library(popsolver STATIC
   Constraint.cpp
   Constraint.hpp
   Model.cpp
@@ -25,18 +25,3 @@ target_include_directories(popsolver
   PRIVATE
     .
 )
-
-install(TARGETS popsolver
-        EXPORT popsolver
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        COMPONENT popsolver
-        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-install(EXPORT popsolver
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/popsolver
-        FILE popsolver-targets.cmake
-        COMPONENT popsolver)
-
-install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/popsolver
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        COMPONENT popsolver)
