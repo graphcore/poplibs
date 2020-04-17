@@ -25,7 +25,8 @@ public:
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
         partialDataType(partialDataTypeIn),
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
-        isRhsSparse(true), isResSparse(false) {
+        isRhsSparse(true), isResSparse(false),
+        subBlockMask(SubBlockMask::None) {
 
     for (int iDim = 0; iDim < 3; ++iDim) {
       if (dim[iDim] % blockSize[iDim] != 0) {
@@ -67,7 +68,8 @@ public:
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
         partialDataType(partialDataTypeIn),
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(true),
-        isRhsSparse(true), isResSparse(false) {
+        isRhsSparse(true), isResSparse(false),
+        subBlockMask(SubBlockMask::None) {
     assert(0);
   }
 
@@ -75,11 +77,12 @@ public:
                const std::array<int, 3> &blockSize,
                const std::vector<unsigned char> &resSparsityIn,
                poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
-               poplar::Type partialDataTypeIn, float memoryCycleRatioIn)
+               poplar::Type partialDataTypeIn, float memoryCycleRatioIn,
+               SubBlockMask subBlockMaskIn = SubBlockMask::None)
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
         partialDataType(partialDataTypeIn),
         memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
-        isRhsSparse(false), isResSparse(true) {
+        isRhsSparse(false), isResSparse(true), subBlockMask(subBlockMaskIn) {
     for (int iDim = 0; iDim < 3; ++iDim) {
       if (dim[iDim] % blockSize[iDim] != 0) {
         throw poputil::poplibs_error(
@@ -113,6 +116,7 @@ public:
   bool isLhsSparse;
   bool isRhsSparse;
   bool isResSparse;
+  SubBlockMask subBlockMask;
 };
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
@@ -141,9 +145,10 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                const std::vector<unsigned char> &resSparsity,
                                poplar::Type inDataType,
                                poplar::Type outDataType,
-                               poplar::Type partialDataType)
+                               poplar::Type partialDataType,
+                               SubBlockMask subBlockMask)
     : impl(new BSMatMulImpl(dim, blockSize, resSparsity, inDataType,
-                            outDataType, partialDataType, 0.0)) {}
+                            outDataType, partialDataType, 0.0, subBlockMask)) {}
 
 BSMatMulParams::BSMatMulParams(BSMatMulParams &&other) = default;
 
@@ -224,7 +229,8 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
 
   std::vector<int> tileAssignment;
   hg.partitionGraph(tileAssignment);
-  hg.createProgramMatMul(tileAssignment, graph, prog, debugPrefix);
+  hg.createProgramMatMul(tileAssignment, impl->subBlockMask, graph, prog,
+                         debugPrefix);
 
   if (hg.matC->isDense()) {
     return ((BlockDenseMatrix *)hg.matC.get())->denseMatrix;

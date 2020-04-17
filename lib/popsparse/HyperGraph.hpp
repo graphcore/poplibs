@@ -7,9 +7,11 @@
 #include <vector>
 
 #include "BSMatrix.hpp"
+#include "popsparse/experimental/BlockSparse.hpp"
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 #include <poplar/Type.hpp>
+#include <random>
 
 // empirical constant
 const int MUL_NODES_SPLIT_FACTOR = 2;
@@ -144,7 +146,7 @@ public:
 
   // Creates a program to perform matmul
   void createProgramMatMul(std::vector<int> &tileAssignment,
-                           poplar::Graph &graph,
+                           SubBlockMask subBlockMask, poplar::Graph &graph,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix);
 
@@ -161,6 +163,10 @@ public:
       const std::map<unsigned int, poplar::Tensor> &partialDataIn,
       const std::vector<unsigned int> &nodeCTileId, poplar::Graph &graph,
       const std::string &debugPrefix, poplar::program::Sequence &prog);
+
+  void applySubBlockMask(SubBlockMask subBlockMask, poplar::Graph &graph,
+                         const std::string &debugPrefix,
+                         poplar::program::Sequence &prog);
 
   void partitionGraph(std::vector<int> &tileAssignment);
 
@@ -229,6 +235,14 @@ private:
 
   // Represents graph in a zoltan format
   ZoltanGraph getDataForZoltan();
+
+  poplar::Tensor createSubMaskTensor(SubBlockMask mask, poplar::Graph &graph,
+                                     const std::string &debugPrefix);
+
+  unsigned int getRandomTile() {
+    std::mt19937 randomEngine;
+    return randomEngine() % nTile;
+  }
 };
 
 } // namespace experimental

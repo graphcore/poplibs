@@ -109,7 +109,6 @@ void populateMatrixData(const std::array<int, 3> &dim,
       float val = 0.0f;
       if (!sparsity || (*sparsity)[i * nColBlock + j] == 1) {
         val = static_cast<float>(randomEngine()) / static_cast<float>(INT_MAX);
-
         for (int r = blockRowStart; r < blockRowEnd; r++)
           for (int c = blockColStart; c < blockColEnd; c++)
             rhsMatrix[r][c] = val;
@@ -166,11 +165,18 @@ BSMatMulParams createBsMatMul(const std::array<int, 3> &dim,
                               const std::array<int, 3> &blockSize,
                               const std::vector<unsigned char> &sparsity,
                               poplar::Type dataType, bool isResSparse,
-                              bool rhsNeedTranspose) {
-  if (isResSparse)
+                              bool rhsNeedTranspose,
+                              const std::string &subBlockMask) {
+  if (isResSparse) {
+    SubBlockMask mask = SubBlockMask::None;
+    if (subBlockMask == "ZeroUpperTriangle") {
+      mask = SubBlockMask::ZeroUpperTriangle;
+    } else if (subBlockMask == "ZeroLowerTriangle") {
+      mask = SubBlockMask::ZeroLowerTriangle;
+    }
     return BSMatMulParams(dim, blockSize, sparsity, dataType, dataType,
-                          dataType);
-  else
+                          dataType, mask);
+  } else
     return BSMatMulParams(dim, blockSize, sparsity, rhsNeedTranspose, dataType,
                           dataType, dataType);
 }
@@ -196,6 +202,7 @@ int main(int argc, char **argv) {
   DeviceType deviceType = DeviceType::Hw;
   std::string sparsityFileName = "sparsity.txt";
   std::string profileDir = ".";
+  std::string subBlockMask = "None";
   int lhsBlockRowSize = 36;
   int lhsBlockColSize = 8;
   int rhsBlockSize = 8;
@@ -288,7 +295,11 @@ int main(int argc, char **argv) {
        "Number of calls to Engine::run")
       // check-result
       ("check-result", po::value<int>(&checkResult)->default_value(checkResult),
-       "check if the ressult is correct");
+       "check if the ressult is correct")(
+          "sub-block-mask",
+          po::value<std::string>(&subBlockMask)->default_value(subBlockMask),
+          "the mask inside a block: None, ZeroUpperTriangle, "
+          "ZeroLowerTriangle");
 
   po::variables_map vm;
   try {
@@ -318,8 +329,12 @@ int main(int argc, char **argv) {
               << lhsBlockRowSize << ".\n";
     return 1;
   }
-  auto device =
-      createTestDevice(deviceType, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+
+  bool compileIPUCode = false;
+  if (deviceType == DeviceType::IpuModel)
+    compileIPUCode = true;
+  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
+                                 ipuModel.tilesPerIPU, compileIPUCode);
 
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -374,16 +389,16 @@ int main(int argc, char **argv) {
 
   BSMatMulParams bsMatMulObj =
       createBsMatMul(dim, blockSize, sparsity, dataType, isResMatrixSparse,
-                     (bool)rhsNeedTranspose);
+                     (bool)rhsNeedTranspose, subBlockMask);
 
-  unsigned long flops;
+  double flops;
   if (vm.count("dense-matmul") != 0) {
-    flops = dim[0] * dim[1] * dim[2] * 2;
+    flops = dim[0] * dim[1] * dim[2] * 2.0;
   } else {
     if (!isResMatrixSparse) {
-      flops = nonZeroBlock * dim[0] * blockSize[1] * blockSize[2] * 2;
+      flops = nonZeroBlock * dim[0] * blockSize[1] * blockSize[2] * 2.0;
     } else {
-      flops = nonZeroBlock * dim[1] * blockSize[0] * blockSize[2] * 2;
+      flops = nonZeroBlock * dim[1] * blockSize[0] * blockSize[2] * 2.0;
     }
   }
 
@@ -500,6 +515,8 @@ int main(int argc, char **argv) {
   auto engineOptions = defaultEngineOptions;
   if (doProfiling) {
     engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("debug.instrumentExternalExchange", "true");
+    engineOptions.set("debug.loweredVarDumpFile", profileDir + "/vars.capnp");
   }
 
   Sequence allSequence;
@@ -538,8 +555,7 @@ int main(int argc, char **argv) {
     double avgTime = elapsedSeconds.count() / runs;
     std::cout << "average kernel run time: " << avgTime * 1000000 << " mcs\n";
     std::cout << "flop: " << flops << "\n";
-    std::cout << "GFLOPS: " << (int)(flops / 1000000000.0 / avgTime + 0.5)
-              << "\n";
+    std::cout << "GFLOPS: " << flops / 1000000000.0 / avgTime << "\n";
   });
 
   if (deviceType != DeviceType::Cpu && doProfiling) {
@@ -593,12 +609,15 @@ int main(int argc, char **argv) {
     for (int r = 0; r < dim[0]; r++) {
       for (int c = 0; c < dim[2]; c++) {
         float sum = 0.0f;
-        int br = r / lhsBlockRowSize;
-        int bc = c / rhsBlockSize;
-        if (sparsity[br * rhsBlockCols + bc] != 0) {
-          for (int cmul = 0; cmul < dim[1]; cmul++) {
-            sum += lhsHost[r][cmul] *
-                   (rhsNeedTranspose ? (rhsHost[c][cmul]) : (rhsHost[cmul][c]));
+        if (!((subBlockMask == "ZeroUpperTriangle" && r < c) ||
+              (subBlockMask == "ZeroLowerTriangle" && r > c))) {
+          int br = r / lhsBlockRowSize;
+          int bc = c / rhsBlockSize;
+          if (sparsity[br * rhsBlockCols + bc] != 0) {
+            for (int cmul = 0; cmul < dim[1]; cmul++) {
+              sum += lhsHost[r][cmul] * (rhsNeedTranspose ? (rhsHost[c][cmul])
+                                                          : (rhsHost[cmul][c]));
+            }
           }
         }
         hostMatC[r][c] = sum;

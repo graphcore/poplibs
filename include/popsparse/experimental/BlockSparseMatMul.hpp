@@ -3,6 +3,7 @@
 #ifndef POPSPARSE_BLOCK_SPARSE_MATMUL_H
 #define POPSPARSE_BLOCK_SPARSE_MATMUL_H
 
+#include "BlockSparse.hpp"
 #include <array>
 #include <poplar/Graph.hpp>
 
@@ -133,12 +134,16 @@ public:
    *
    * \param partialDataType partial data type
    *
+   * \param SubBlockMask    the mask inside a block, check BlockSparse.hpp
+   *                        for details
+   *
    */
   BSMatMulParams(const std::array<int, 3> &dim,
                  const std::array<int, 3> &blockSize,
                  const std::vector<unsigned char> &resSparsity,
                  poplar::Type inDataType, poplar::Type outDataType,
-                 poplar::Type partialDataType);
+                 poplar::Type partialDataType,
+                 SubBlockMask subBlockMask = SubBlockMask::None);
 
   BSMatMulParams(BSMatMulParams &&other);
 

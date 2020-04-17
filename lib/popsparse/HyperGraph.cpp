@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "HyperGraph.hpp"
+#include "BSUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Zero.hpp"
 #include <algorithm>
@@ -10,11 +11,11 @@
 #include <cstdlib>
 #include <memory>
 #include <poplin/codelets.hpp>
+#include <popops/ElementWise.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
-#include <random>
 #include <zoltan_cpp.h>
 
 #define DEBUG_INFO 0
@@ -598,6 +599,7 @@ void HyperGraph::addCodelets(poplar::Graph &graph) {
 }
 
 void HyperGraph::createProgramMatMul(std::vector<int> &tileAssignment,
+                                     SubBlockMask subBlockMask,
                                      poplar::Graph &graph,
                                      poplar::program::Sequence &prog,
                                      const std::string &debugPrefix) {
@@ -607,6 +609,10 @@ void HyperGraph::createProgramMatMul(std::vector<int> &tileAssignment,
                          debugPrefix, prog);
 
   createComputeSetReduce(partialData, nodeCTileId, graph, debugPrefix, prog);
+
+  if (subBlockMask != SubBlockMask::None) {
+    applySubBlockMask(subBlockMask, graph, debugPrefix, prog);
+  }
 }
 
 void HyperGraph::createComputeSetMatMul(
@@ -740,7 +746,6 @@ void HyperGraph::createComputeSetMatMul(
   // TODO
   // Move this logic out to partitioner
   // Also try to let zoltan do the partitioning and compare the results
-  std::mt19937 randomEngine;
 
   nodeCTileId.resize(nodeC.size());
   const std::vector<poplar::Tensor> &blockDataC = matC->getBlockTensor();
@@ -784,7 +789,7 @@ void HyperGraph::createComputeSetMatMul(
     if (max == -1) {
       // This node does not have any input, so it is zero block
       // put it on a random tile
-      tileId = randomEngine() % nTile;
+      tileId = getRandomTile();
     }
 
     assert(tileId >= 0);
@@ -977,6 +982,46 @@ void HyperGraph::createComputeSetReduce(
                 minC, maxC);
 
   prog.add(poplar::program::Execute(reduceCS));
+}
+
+void HyperGraph::applySubBlockMask(SubBlockMask subBlockMask,
+                                   poplar::Graph &graph,
+                                   const std::string &debugPrefix,
+                                   poplar::program::Sequence &prog) {
+  const int blockRowC = matC->getBlockRow();
+  const int blockColC = matC->getBlockCol();
+  const int rowC = matC->getRowCount();
+  const int colC = matC->getColCount();
+  const int nRowC = rowC / blockRowC;
+  const int nColC = colC / blockColC;
+
+  std::vector<unsigned char> sparsity(nRowC * nColC, 0);
+  auto blockIdMatrixC = matC->getBlockIdMatrix();
+  for (int r = 0; r < nRowC; r++) {
+    for (int c = 0; c < nColC; c++) {
+      if (blockIdMatrixC[r][c] != -1) {
+        sparsity[r * nColC + c] = 1;
+      }
+    }
+  }
+
+  std::vector<bool> emptyRowsMask; // Not used, only for sparse softmax
+  std::vector<unsigned> diagBlockIdxs;
+  std::vector<poplar::Tensor> maskBlocks;
+  bsCreateMaskTensor(graph, blockRowC, blockColC, nRowC, nColC, sparsity.data(),
+                     subBlockMask, 0.0f, 1.0f, outDataType, maskBlocks,
+                     diagBlockIdxs, emptyRowsMask, debugPrefix);
+
+  const std::vector<poplar::Tensor> &blocks = matC->getBlockTensor();
+  std::vector<poplar::Tensor> diagonalBlocks;
+  for (auto b : diagBlockIdxs) {
+    diagonalBlocks.push_back(blocks[b].expand({0}));
+  }
+
+  if (!diagonalBlocks.empty()) {
+    popops::mulInPlace(graph, concat(diagonalBlocks), concat(maskBlocks), prog,
+                       debugPrefix + "/subBlockMasked");
+  }
 }
 
 } // namespace experimental

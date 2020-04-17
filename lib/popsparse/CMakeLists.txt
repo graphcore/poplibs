@@ -6,6 +6,9 @@ add_library(popsparse SHARED
   BlockSparseMatMul.cpp
   BSMatrix.cpp
   HyperGraph.cpp
+  BSOps.cpp
+  BSUtils.cpp
+  BSNonLinearity.cpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
   )
 

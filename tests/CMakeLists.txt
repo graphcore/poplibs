@@ -435,6 +435,7 @@ add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp)
 if(TARGET popsparse)
   add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS IpuModel Hw)
+  add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS IpuModel Hw)
 endif()
 
 if (NOT "asan" IN_LIST SANITIZERS)
