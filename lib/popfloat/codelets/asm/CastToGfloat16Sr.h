@@ -8,16 +8,14 @@
 
 #define mCorrParams m2
 
-#define mRemainder m3
 #define maskOut_0 m3
 #define setMode m3
 
 #define mCount m4
-#define srMaskBase m4
-#define mRoundOp m4
 
-#define nIterations m3
-#define enNanoo m5
+#define nIterations m5
+#define mRoundOp m5
+#define mQuotient m5
 
 #define maskOut_1 m6
 #define mRoundMode m6
@@ -26,11 +24,11 @@
 
 #define mCastToGF16 m8
 
-#define mRowCount m9
+#define mRemainder m9
 
-#define mInRow m10
+#define mWorkerIdx m10
 
-#define mOutRow m11
+#define mCastParams m11
 
 #define scaleFloat a0
 #define scaleClamp a0

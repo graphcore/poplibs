@@ -9,21 +9,26 @@
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+#include "poplibs_support/TileConstants.hpp"
+
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 using namespace poplar;
 
 namespace popfloat {
 namespace experimental {
 
-template <typename FPType> class CastToGfloat16InPlace : public Vertex {
+template <typename FPType, bool NANOO, RoundType RMODE>
+class CastToGfloat16InPlaceSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  Input<Vector<int, SPAN, 8>> param;
-  Vector<InOut<Vector<FPType, SPAN, 8>>, SPAN> inOut;
-  Vector<uint32_t, ONE_PTR, 8> srMask;
-  unsigned roundMode;
-  bool enNanoo;
+  CastToGfloat16InPlaceSupervisor();
+
+  Input<Vector<int, COMPACT_PTR, 8>> param;
+  InOut<Vector<FPType, COMPACT_PTR, 8>> inOut;
+  unsigned short elementsPerWorker;
+  unsigned short lastWorkerParams;
+  Vector<uint32_t, COMPACT_PTR, 8> castParam;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
   bool compute() {
@@ -34,7 +39,8 @@ public:
     uint64_t clampF32In;
     uint32_t scaleIn, clampF16In;
     uint16_t twoPwrM10Mman, f16Pwr10;
-    enNanooInf = enNanoo ? (~0) : 0;
+
+    enNanooInf = NANOO ? (~0) : 0;
 
     std::memcpy(&halfExpMaskV4,
                 &param[POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET],
@@ -79,76 +85,89 @@ public:
     vecAsUInt<float, uint32_t, 1>(&maxValue, &maxBits);
 
     short4 scaledIn;
-    for (unsigned Idx = 0; Idx < inOut.size(); ++Idx) {
-      unsigned len = inOut[Idx].size();
-      unsigned nv = (len + POPFLOAT_GF16_VEC_SIZE - 1) / POPFLOAT_GF16_VEC_SIZE;
-      for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF16_VEC_SIZE) {
-        unsigned maxPerCall =
-            (len < POPFLOAT_GF16_VEC_SIZE) ? len : POPFLOAT_GF16_VEC_SIZE;
-        for (unsigned idx = 0; idx != POPFLOAT_GF16_VEC_SIZE; ++idx) {
-          float tmp = (float)0.0;
-          if (idx < maxPerCall) {
-            short inBits;
-            std::memcpy(&inBits, &inOut[Idx][POPFLOAT_GF16_VEC_SIZE * j + idx],
-                        sizeof(inBits));
-            tmp = floatFromHalfBits(inBits);
-            if (abs(tmp) > maxValue) {
-              if (!enNanoo) {
-                tmp = (tmp > 0) ? maxValue : -maxValue;
-              } else {
-                uint16_t qnanMask;
-                qnanMask = POPFLOAT_FP16_GEN_QNAN;
-                qnanMask |= (tmp > 0) ? 0 : POPFLOAT_FP16_SIGN_MASK;
-                tmp = floatFromHalfBits(POPFLOAT_FP16_GEN_QNAN);
-              }
+
+    auto lastWorker = lastWorkerParams & 0xFF;
+    auto remainder = (lastWorkerParams >> 8) & 0xFF;
+
+    unsigned len =
+        (CTXT_WORKERS * elementsPerWorker + lastWorker) * 4 + remainder;
+    unsigned nv = (len + POPFLOAT_GF16_VEC_SIZE - 1) / POPFLOAT_GF16_VEC_SIZE;
+    for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF16_VEC_SIZE) {
+      unsigned maxPerCall =
+          (len < POPFLOAT_GF16_VEC_SIZE) ? len : POPFLOAT_GF16_VEC_SIZE;
+      for (unsigned idx = 0; idx != POPFLOAT_GF16_VEC_SIZE; ++idx) {
+        float tmp = (float)0.0;
+        if (idx < maxPerCall) {
+          short inBits;
+          std::memcpy(&inBits, &inOut[POPFLOAT_GF16_VEC_SIZE * j + idx],
+                      sizeof(inBits));
+          tmp = floatFromHalfBits(inBits);
+          if (abs(tmp) > maxValue) {
+            if (!NANOO) {
+              tmp = (tmp > 0) ? maxValue : -maxValue;
+            } else {
+              uint16_t qnanMask;
+              qnanMask = POPFLOAT_FP16_GEN_QNAN;
+              qnanMask |= (tmp > 0) ? 0 : POPFLOAT_FP16_SIGN_MASK;
+              tmp = floatFromHalfBits(POPFLOAT_FP16_GEN_QNAN);
             }
           }
-          poplar::IeeeHalf scaledTmp(tmp * scale);
-          scaledIn[idx] = scaledTmp.bit16();
         }
-
-        uint64_t inValueV4 = 0;
-        vecAsUInt<short4, uint64_t, 1>(&scaledIn, &inValueV4);
-        uint64_t sgnV4, outValueV4, expV4, isNanOrInf, nanValue;
-        sgnV4 = inValueV4 & halfSgnMaskV4;
-        outValueV4 = inValueV4 ^ sgnV4;
-
-        isNanOrInf = gfloat16_nan_or_inf(inValueV4, halfExpMaskV4, enNanooInf);
-
-        nanValue = isNanOrInf & halfGenQnanV4;
-        inValueV4 = inValueV4 & (~isNanOrInf);
-        expV4 = inValueV4 & halfExpMaskV4;
-
-        uint64_t manMaskV4 = outBitsMaskV4 | minDnrmV4;
-
-        uint64_t corrV4 = gfloat16_correction(inValueV4, manMaskV4, expV4,
-                                              (RoundType)roundMode);
-
-        uint64_t maskOutV4;
-        maskOutV4 = addF16v4(outValueV4, corrV4);
-        float gf16MaxValue =
-            floatFromHalfBits(gf16CalmpOut[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
-        if (enNanoo) {
-          maskOutV4 =
-              genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
-        } else {
-          maskOutV4 = clipF16v4(maskOutV4, gf16MaxValue);
-        }
-
-        maskOutV4 = maskOutV4 & manMaskV4;
-        maskOutV4 = maskOutV4 | nanValue;
-        maskOutV4 = maskOutV4 | sgnV4;
-
-        std::memcpy(&inOut[Idx][POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
-                    sizeof(maskOutV4));
+        poplar::IeeeHalf scaledTmp(tmp * scale);
+        scaledIn[idx] = scaledTmp.bit16();
       }
+
+      uint64_t inValueV4 = 0;
+      vecAsUInt<short4, uint64_t, 1>(&scaledIn, &inValueV4);
+      uint64_t sgnV4, outValueV4, expV4, isNanOrInf, nanValue;
+      sgnV4 = inValueV4 & halfSgnMaskV4;
+      outValueV4 = inValueV4 ^ sgnV4;
+
+      isNanOrInf = gfloat16_nan_or_inf(inValueV4, halfExpMaskV4, enNanooInf);
+
+      nanValue = isNanOrInf & halfGenQnanV4;
+      inValueV4 = inValueV4 & (~isNanOrInf);
+      expV4 = inValueV4 & halfExpMaskV4;
+
+      uint64_t manMaskV4 = outBitsMaskV4 | minDnrmV4;
+
+      uint64_t corrV4 =
+          gfloat16_correction(inValueV4, manMaskV4, expV4, (RoundType)RMODE);
+
+      uint64_t maskOutV4;
+      maskOutV4 = addF16v4(outValueV4, corrV4);
+      float gf16MaxValue =
+          floatFromHalfBits(gf16CalmpOut[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
+      if (NANOO) {
+        maskOutV4 = genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
+      } else {
+        maskOutV4 = clipF16v4(maskOutV4, gf16MaxValue);
+      }
+
+      maskOutV4 = maskOutV4 & manMaskV4;
+      maskOutV4 = maskOutV4 | nanValue;
+      maskOutV4 = maskOutV4 | sgnV4;
+
+      std::memcpy(&inOut[POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
+                  sizeof(maskOutV4));
     }
     return true;
   }
 };
 
-template class CastToGfloat16InPlace<half>;
-template class CastToGfloat16InPlace<float>;
+#define CAST_TO_GFLOAT16_INPLACE(RM)                                           \
+  template class CastToGfloat16InPlaceSupervisor<half, true, RM>;              \
+  template class CastToGfloat16InPlaceSupervisor<float, true, RM>;             \
+  template class CastToGfloat16InPlaceSupervisor<half, false, RM>;             \
+  template class CastToGfloat16InPlaceSupervisor<float, false, RM>;
+
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::RZ)
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::RA)
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::RN)
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::RU)
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::RD)
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::SR)
+CAST_TO_GFLOAT16_INPLACE(popfloat::experimental::RoundType::SX)
 
 } // end namespace experimental
 } // end namespace popfloat

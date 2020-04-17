@@ -1,7 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifndef POPFLOAT_CYCLE_COUNT_H
 #define POPFLOAT_CYCLE_COUNT_H
-#include "GfloatConst.hpp"
+#include "asm/GfloatConst.hpp"
 
 #define POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_GFLOAT16_OUTPUT 5
 #define POPFLOAT_CAST_TO_GF16_CYCLE_COUNT_GFLOAT8_OUTPUT 4

@@ -9,23 +9,27 @@
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+#include "poplibs_support/TileConstants.hpp"
+
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 using namespace poplar;
 
 namespace popfloat {
 namespace experimental {
 
-template <typename FPType, typename GFType>
-class CastToGfloat32 : public Vertex {
+template <typename FPType, typename GFType, bool NANOO, RoundType RMODE>
+class CastToGfloat32Supervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  Input<Vector<int, SPAN, 8>> param;
-  Vector<Input<Vector<FPType, SPAN, 8>>, SPAN> in;
-  Vector<Output<Vector<GFType, SPAN, 8>>, SPAN> out;
-  Vector<uint32_t, ONE_PTR, 8> srMask;
-  unsigned roundMode;
-  bool enNanoo;
+  CastToGfloat32Supervisor();
+
+  Input<Vector<int, COMPACT_PTR, 8>> param;
+  Input<Vector<FPType, COMPACT_PTR, 8>> in;
+  Output<Vector<GFType, COMPACT_PTR, 8>> out;
+  unsigned short elementsPerWorker;
+  unsigned short lastWorkerParams;
+  Vector<uint32_t, COMPACT_PTR, 8> castParam;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
@@ -36,7 +40,7 @@ public:
     unsigned int EN_DENORM;
     float2 fpOutClamp;
 
-    nanMaskV2 = enNanoo ? (~0) : 0;
+    nanMaskV2 = NANOO ? (~0) : 0;
 
     std::memcpy(&outManMaskV2,
                 &param[POPFLOAT_CAST_TO_GF32_PARAM_NORM_MANT_MASK_OFFSET],
@@ -71,110 +75,123 @@ public:
                 &param[POPFLOAT_CAST_TO_GF32_PARAM_EN_DENORM_OFFSET],
                 sizeof(EN_DENORM));
 
+    auto lastWorker = lastWorkerParams & 0xFF;
+    auto remainder = (lastWorkerParams >> 8) & 0xFF;
+
     float2 inV2;
-    for (unsigned Idx = 0; Idx < in.size(); ++Idx) {
-      unsigned len = in[Idx].size();
-      unsigned nv = (len + POPFLOAT_GF32_VEC_SIZE - 1) / POPFLOAT_GF32_VEC_SIZE;
+    unsigned len =
+        (CTXT_WORKERS * elementsPerWorker + lastWorker) * 2 + remainder;
+    unsigned nv = (len + POPFLOAT_GF32_VEC_SIZE - 1) / POPFLOAT_GF32_VEC_SIZE;
 
-      for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF32_VEC_SIZE) {
-        unsigned maxPerCall =
-            (len < POPFLOAT_GF32_VEC_SIZE) ? len : POPFLOAT_GF32_VEC_SIZE;
-        for (unsigned idx = 0; idx != POPFLOAT_GF32_VEC_SIZE; ++idx) {
-          inV2[idx] = 0;
-          if (idx < maxPerCall) {
-            inV2[idx] = in[Idx][POPFLOAT_GF32_VEC_SIZE * j + idx];
-          }
+    for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF32_VEC_SIZE) {
+      unsigned maxPerCall =
+          (len < POPFLOAT_GF32_VEC_SIZE) ? len : POPFLOAT_GF32_VEC_SIZE;
+      for (unsigned idx = 0; idx != POPFLOAT_GF32_VEC_SIZE; ++idx) {
+        inV2[idx] = 0;
+        if (idx < maxPerCall) {
+          inV2[idx] = in[POPFLOAT_GF32_VEC_SIZE * j + idx];
         }
+      }
 
-        uint64_t inValueV2 = 0;
-        vecAsUInt<float2, uint64_t, 1>(&inV2, &inValueV2);
+      uint64_t inValueV2 = 0;
+      vecAsUInt<float2, uint64_t, 1>(&inV2, &inValueV2);
 
-        float2 tmpV2;
-        uint64_t isNanOrInf, nanValue;
-        isNanOrInf = (~inValueV2) & expMaskV2;
-        float2 zeroVec;
-        uintAsVec<float2, uint64_t, 1>(&zeroVec, 0);
-        uintAsVec<float2, uint64_t, 1>(&tmpV2, isNanOrInf);
-        compareF32v2Eq(tmpV2, zeroVec, &isNanOrInf);
-        uint64_t sgnV2, outValueV2, expV2;
+      float2 tmpV2;
+      uint64_t isNanOrInf, nanValue;
+      isNanOrInf = (~inValueV2) & expMaskV2;
+      float2 zeroVec;
+      uintAsVec<float2, uint64_t, 1>(&zeroVec, 0);
+      uintAsVec<float2, uint64_t, 1>(&tmpV2, isNanOrInf);
+      compareF32v2Eq(tmpV2, zeroVec, &isNanOrInf);
+      uint64_t sgnV2, outValueV2, expV2;
 
-        isNanOrInf = nanMaskV2 & isNanOrInf;
-        nanValue = isNanOrInf & inValueV2;
-        sgnV2 = inValueV2 & sgnMaskV2;
-        outValueV2 = inValueV2 ^ sgnV2;
-        expV2 = inValueV2 & expMaskV2;
+      isNanOrInf = nanMaskV2 & isNanOrInf;
+      nanValue = isNanOrInf & inValueV2;
+      sgnV2 = inValueV2 & sgnMaskV2;
+      outValueV2 = inValueV2 ^ sgnV2;
+      expV2 = inValueV2 & expMaskV2;
 
-        float2 fpExp;
-        uintAsVec<float2, uint64_t, 1>(&fpExp, expV2);
+      float2 fpExp;
+      uintAsVec<float2, uint64_t, 1>(&fpExp, expV2);
 
-        uint64_t manMaskV2, isDenormV2;
-        compareF32v2Lt(fpExp, fpMinNorm, &isDenormV2);
-        int minNorm;
-        vecAsUInt<float, int, 1>(&fpMinNorm, &minNorm);
-        manMaskV2 = outManMaskV2;
-        if (EN_DENORM) {
-          manMaskV2 = manMaskV2 & (~isDenormV2);
-          float2 dnrmMan;
-          dnrmMan = subF32v2(fpExp, fpHalfMinValue);
-          uint64_t denormV2;
-          vecAsUInt<float2, uint64_t, 1>(&dnrmMan, &denormV2);
-          denormV2 = denormV2 | sgnExpMaskV2;
-          denormV2 = denormV2 & isDenormV2;
-          manMaskV2 = manMaskV2 | denormV2;
-        }
+      uint64_t manMaskV2, isDenormV2;
+      compareF32v2Lt(fpExp, fpMinNorm, &isDenormV2);
+      int minNorm;
+      vecAsUInt<float, int, 1>(&fpMinNorm, &minNorm);
+      manMaskV2 = outManMaskV2;
+      if (EN_DENORM) {
+        manMaskV2 = manMaskV2 & (~isDenormV2);
+        float2 dnrmMan;
+        dnrmMan = subF32v2(fpExp, fpHalfMinValue);
+        uint64_t denormV2;
+        vecAsUInt<float2, uint64_t, 1>(&dnrmMan, &denormV2);
+        denormV2 = denormV2 | sgnExpMaskV2;
+        denormV2 = denormV2 & isDenormV2;
+        manMaskV2 = manMaskV2 | denormV2;
+      }
 
-        float2 fpOut;
-        uintAsVec<float2, uint64_t, 1>(&fpOut, outValueV2);
+      float2 fpOut;
+      uintAsVec<float2, uint64_t, 1>(&fpOut, outValueV2);
 
-        if ((RoundType)roundMode != RoundType::RZ) {
-          float2 corrV2;
-          uintAsVec<float2, uint64_t, 1>(&corrV2, 0);
+      if (RMODE != RoundType::RZ) {
+        float2 corrV2;
+        uintAsVec<float2, uint64_t, 1>(&corrV2, 0);
 
-          if ((RoundType)roundMode == RoundType::SR) {
-            uint64_t randBits;
-            gfloat32_correction_sr(corrV2, manMaskV2, expV2, randBits,
-                                   fpHalfMinValue);
-          } else {
-            gfloat32_correction_dr(corrV2, expMaskV2, inValueV2, manMaskV2,
-                                   expV2, (RoundType)roundMode);
-          }
-
-          fpOut = addF32v2(fpOut, corrV2);
-          vecAsUInt<float2, uint64_t, 1>(&fpOut, &outValueV2);
-        }
-
-        float gf32MaxValue = fpOutClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX];
-        if (enNanoo) {
-          float2 Out;
-          uint64_t isGtVec, inVec, outVec;
-          compareF32v2Gt(fpOut, gf32MaxValue, &isGtVec);
-          vecAsUInt<float2, uint64_t, 1>(&fpOut, &inVec);
-          inVec = inVec & (~isGtVec);
-          outVec = qnanMaskV2 & isGtVec;
-          outVec = outVec | inVec;
-          uintAsVec<float2, uint64_t, 1>(&fpOut, outVec);
-          fpOut = genQnanOverflowF32(fpOut, gf32MaxValue, qnanMaskV2);
+        if (RMODE == RoundType::SR) {
+          uint64_t randBits;
+          gfloat32_correction_sr(corrV2, manMaskV2, expV2, randBits,
+                                 fpHalfMinValue);
         } else {
-          fpOut = clipF32v2(fpOut, gf32MaxValue);
+          gfloat32_correction_dr(corrV2, expMaskV2, inValueV2, manMaskV2, expV2,
+                                 RMODE);
         }
 
-        uint64_t maskOutV2;
-        vecAsUInt<float2, uint64_t, 1>(&fpOut, &maskOutV2);
-        maskOutV2 = maskOutV2 & manMaskV2;
-        maskOutV2 = maskOutV2 | nanValue;
-        maskOutV2 = maskOutV2 | sgnV2;
-        uintAsVec<float2, uint64_t, 1>(&fpOut, maskOutV2);
-        for (unsigned idx = 0; idx != maxPerCall; ++idx) {
-          out[Idx][POPFLOAT_GF32_VEC_SIZE * j + idx] = fpOut[idx];
-        }
+        fpOut = addF32v2(fpOut, corrV2);
+        vecAsUInt<float2, uint64_t, 1>(&fpOut, &outValueV2);
+      }
+
+      float gf32MaxValue = fpOutClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX];
+      if (NANOO) {
+        float2 Out;
+        uint64_t isGtVec, inVec, outVec;
+        compareF32v2Gt(fpOut, gf32MaxValue, &isGtVec);
+        vecAsUInt<float2, uint64_t, 1>(&fpOut, &inVec);
+        inVec = inVec & (~isGtVec);
+        outVec = qnanMaskV2 & isGtVec;
+        outVec = outVec | inVec;
+        uintAsVec<float2, uint64_t, 1>(&fpOut, outVec);
+        fpOut = genQnanOverflowF32(fpOut, gf32MaxValue, qnanMaskV2);
+      } else {
+        fpOut = clipF32v2(fpOut, gf32MaxValue);
+      }
+
+      uint64_t maskOutV2;
+      vecAsUInt<float2, uint64_t, 1>(&fpOut, &maskOutV2);
+      maskOutV2 = maskOutV2 & manMaskV2;
+      maskOutV2 = maskOutV2 | nanValue;
+      maskOutV2 = maskOutV2 | sgnV2;
+      uintAsVec<float2, uint64_t, 1>(&fpOut, maskOutV2);
+      for (unsigned idx = 0; idx != maxPerCall; ++idx) {
+        out[POPFLOAT_GF32_VEC_SIZE * j + idx] = fpOut[idx];
       }
     }
     return true;
   }
 };
 
-template class CastToGfloat32<float, float>;
-template class CastToGfloat32<float, half>;
+#define CAST_TO_GFLOAT32(RM)                                                   \
+  template class CastToGfloat32Supervisor<float, float, true, RM>;             \
+  template class CastToGfloat32Supervisor<float, half, true, RM>;              \
+  template class CastToGfloat32Supervisor<float, float, false, RM>;            \
+  template class CastToGfloat32Supervisor<float, half, false, RM>;
+
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::RZ)
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::RA)
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::RN)
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::RU)
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::RD)
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::SR)
+CAST_TO_GFLOAT32(popfloat::experimental::RoundType::SX)
 
 } // end namespace experimental
 } // end namespace popfloat

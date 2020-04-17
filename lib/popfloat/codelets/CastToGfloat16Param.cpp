@@ -1,5 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "GfloatConst.hpp"
+#include "asm/GfloatConst.hpp"
 #include "popfloatUtils.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>

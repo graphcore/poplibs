@@ -17,6 +17,8 @@ add_library(popfloat SHARED
 target_link_libraries(popfloat
   PUBLIC
     poplar poputil popops ${CMAKE_DL_LIBS}
+  PRIVATE
+    poplibs_support
 )
 
 target_include_directories(popfloat
@@ -62,9 +64,10 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CastToGfloat32SrInPlace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/PackedGfloatParams.cpp
   HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/GfloatConst.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatUtils.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/popfloatCodelets.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/GfloatConst.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/popfloatCommon.inc
 )
 
 install(TARGETS popfloat

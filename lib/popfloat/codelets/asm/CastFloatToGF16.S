@@ -6,33 +6,54 @@
 #include "GfloatConst.hpp"
 #include "CastFloatToGF16.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "popfloatCommon.inc"
 
 .macro CAST_FLOAT_TO_GF16 FORMAT
-DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\()
-.section .text.castFloatToGf16_\FORMAT\()
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16Supervisor___popfloat__experimental__FormatType__\FORMAT\()
+.section .text.castFloatToGf16Supervisor_\FORMAT\()
 .align 4
-  .globl __runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\()
-  .type __runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\(), @function
-  __runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\():
+  .globl __runCodelet_popfloat__experimental__CastFloatToGf16Supervisor___popfloat__experimental__FormatType__\FORMAT\()
+  .type __runCodelet_popfloat__experimental__CastFloatToGf16Supervisor___popfloat__experimental__FormatType__\FORMAT\(), @function
+  __runCodelet_popfloat__experimental__CastFloatToGf16Supervisor___popfloat__experimental__FormatType__\FORMAT\():
 
-  ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
-  ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
-  ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
-  ld32         $mRowCount     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET+1
-  add          $mRowCount     , $mRowCount            , -1
-1:
-  ld32step     $mInRow        , $mzero                , $mBaseIn+=        , 1
-  ld32step     $mOutRow       , $mzero                , $mBaseOut+=       , 2
+.supervisor
+castFloatToGf16Supervisor_\FORMAT\():
+  POPFLOAT_SUPERVISOR_CAST_OP castFloatToGf16_\FORMAT\()
+
+.worker
+castFloatToGf16_\FORMAT\():
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mGf16Param, $mvertex_base, POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseIn, $mvertex_base, POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseOut, $mvertex_base, POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mGf16Param
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mBaseIn
+  setzi        $mTMemBase     , (TMEM_REGION0_BASE_ADDR / 4)
+  POPFLOAT_CONVERT_SCALED_PTR32_TO_PTR $mBaseOut $mTMemBase
   {
-    ld32         $mCount        , $mzero                , $mBaseIn          , 0;
+    ldz16        $mCount        , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ELEMENTS_PER_WORKER_OFFSET;
     or           $signMask      , $azero                , POPFLOAT_FP32_SIGN_MASK
   }
+  POPFLOAT_GET_WORKER_INDEX $mWorkerIdx
+  ldz16        $mCount        , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ELEMENTS_PER_WORKER_OFFSET
+  cmpult       $mRemainder    , $mWorkerIdx           , $mQuotient
+  add          $mCount        , $mCount               , $mRemainder
+  ldz8         $mQuotient     , $mvertex_base         , $mzero            , 2 *   POPFLOAT_VBASE_CAST_LAST_WORKER_PARAM_OFFSET
+  cmpult       $mRemainder    , $mWorkerIdx           , $mQuotient
+  add          $mCount        , $mCount               , $mRemainder
+  ldz8         $mRemainder    , $mvertex_base         , $mzero            , 2 *   POPFLOAT_VBASE_CAST_LAST_WORKER_PARAM_OFFSET + 1
+  cmpeq        $mQuotient     , $mQuotient            , $mWorkerIdx
+  mul          $mRemainder    , $mRemainder           , $mQuotient
+  brz          $mQuotient     , 1f
+  cmpult       $mQuotient     , $mzero                , $mRemainder
+  add          $mCount        , $mCount               , $mQuotient
+1:
+  brz          $mCount        , 6f
+  ld64step     $azeros        , $mzero                , $mBaseIn+=        , $mWorkerIdx
+  ld32step     $azero         , $mzero                , $mBaseOut+=       , $mWorkerIdx
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
+    ld64step     $inValueV2     , $mzero                , $mBaseIn+=        , CTXT_WORKERS;
     f32v2mul     $sgnMaskV2     , $signMask:B           , $azeros
   }
-  add          $mCount        , $mCount               , 1
-  shr          $mCount        , $mCount               , 1
   andc64       $outValueV2    , $inValueV2            , $sgnMaskV2
   and64        $sgnV2         , $inValueV2            , $sgnMaskV2;
 .ifc \FORMAT, BFLOAT16
@@ -44,25 +65,21 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloa
   }
 2:
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=        , 1;
+    ld64step     $inValueV2     , $mzero                , $mBaseIn+=       , CTXT_WORKERS;
     sort4x16hi   $outValue0     , $outValue0            , $outValue1
   }
   {
-    st32step     $outValue0     , $mzero                , $mOutRow+=      , 1;
+    st32step     $outValue0     , $mzero                , $mBaseOut+=     , CTXT_WORKERS;
     or64         $outValueV2    , $inValueV2            , $azeros
   }
 3:
   {
-    ld32         $mCount        , $mzero                , $mBaseIn          , 0;
+    brz          $mRemainder    , 6f
     sort4x16hi   $outValue0     , $outValue0            , $outValue1
   }
-  ldb16        $outValue1     , $mzero                , $mOutRow        , 1
-  {
-    and          $mCount        , $mCount               , 1
-    roll16       $outValue0     , $outValue0            , $outValue1
-  }
-  brz          $mCount        , 5f
-  st32step     $outValue0     , $mzero                , $mOutRow+=      , 1
+  ldb16        $outValue1     , $mzero                , $mBaseOut         , 1
+  roll16       $outValue0     , $outValue0            , $outValue1
+  st32step     $outValue0     , $mzero                , $mBaseOut+=        , CTXT_WORKERS
 #else
 .error "GF16_BFLOAT not enabled"
 #endif
@@ -71,13 +88,16 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloa
 .ifc \FORMAT, NO___DENORM___GF16
 #ifdef POPFLOAT_ENABLE_GF32_CLASS_GF16_NO_DENORM
   ld64         $manExpMaskV2  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_BITS_MASK_OFFSET/2)
+  bri          5f
 4:
+  st32step     $mOutV2        , $mzero                , $mBaseOut+=       , CTXT_WORKERS;
+5:
   {
     ld32         $biasCorrection, $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_PACK_EXP_ALIGN_OFFSET);
     sort4x16hi   $sgnF16V2      , $sign0                , $sign1
   }
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
+    ld64step     $inValueV2     , $mzero                , $mBaseIn+=        , CTXT_WORKERS;
     f32v2mul     $outValueV2    , $biasCorrection:B     , $outValueV2
   }
   and64        $outValueV2    , $outValueV2           , $manExpMaskV2
@@ -98,19 +118,20 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloa
     or           $mOutV2        , $mOutSgn              , $outManExp;
     andc64       $outValueV2    , $inValueV2            , $sgnMaskV2
   }
-  brz          $mCount        , 4f
   {
-    st32step     $mOutV2        , $mzero                , $mOutRow+=        , 1;
+    brnzdec      $mCount        , 4b
     and64        $sgnV2         , $inValueV2            , $sgnMaskV2
   }
-  brnzdec      $mCount        , 4b
 #else
-.error "GF16_N_DENORM not enabled"
+.error "GF16_EN_DENORM not enabled"
 #endif
 .else
 .ifc \FORMAT, ENABLE___DENORM___GF16
 #ifdef POPFLOAT_ENABLE_GF32_CLASS_GF16_EN_DENORM
+  bri          5f
 4:
+  st32step     $mOutV2        , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+5:
   {
     ld32         $fpMinNorm     , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF32_PARAM_MIN_NORM_OFFSET);
     sort4x16hi   $sgnF16V2      , $sign0                , $sign1
@@ -133,7 +154,7 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloa
     andc64       $outValueV2    , $outValueV2           , $isDenormV2
   }
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
+    ld64step     $inValueV2     , $mzero                , $mBaseIn+=        , CTXT_WORKERS;
     f32v2mul     $outValueV2    , $biasCorrection:B     , $outValueV2
   }
   {
@@ -156,12 +177,10 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloa
     or           $mOutV2        , $mOutSgn              , $mOutValue0;
     andc64       $outValueV2    , $inValueV2            , $sgnMaskV2
   }
-  brz          $mCount        , 4f
   {
-    st32step     $mOutV2        , $mzero                , $mOutRow+=        , 1;
+    brnzdec      $mCount        , 4b
     and64        $sgnV2         , $inValueV2            , $sgnMaskV2
   }
-  brnzdec      $mCount        , 4b
 #else
 .error "GF16_EN_DENORM not enabled"
 #endif
@@ -170,21 +189,17 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf16___popfloa
 .endif // ENABLE___DENORM___GF16
 .endif // NO___DENORM___GF16
 4:
-  ld32         $mCount        , $mzero                , $mBaseIn          , 0
-  and          $mCount        , $mCount               , 1
-  brz          $mCount        , 4f
-  ld32         $mOutSgn       , $mzero                , $mOutRow          , 1
+  brz          $mRemainder    , 4f
+  ld32         $mOutSgn       , $mzero                , $mBaseOut         , 1
   roll16       $mOutV2        , $mOutSgn              , $mOutV2
   roll16       $mOutV2        , $mOutV2               , $mOutV2
 4:
-  st32step     $mOutV2        , $mzero                , $mOutRow+=        , 1
+  st32step     $mOutV2        , $mzero                , $mBaseOut+=       , 1
 .endif // BFLOAT16
-5:
-  ld32step     $mCount        , $mzero                , $mBaseIn+=        , 1
-  brnzdec      $mRowCount     , 1b
+6:
   exitz        $mzero
-.size castFloatToGf16_\FORMAT\(),\
-  .-__runCodelet_popfloat__experimental__CastFloatToGf16___popfloat__experimental__FormatType__\FORMAT\()
+.size castFloatToGf16Supervisor_\FORMAT\(),\
+  .-__runCodelet_popfloat__experimental__CastFloatToGf16Supervisor___popfloat__experimental__FormatType__\FORMAT\()
 .endm
 
 CAST_FLOAT_TO_GF16 BFLOAT16

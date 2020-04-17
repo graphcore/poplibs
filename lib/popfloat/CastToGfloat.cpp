@@ -1,7 +1,8 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popfloat/experimental/CastToGfloat.hpp"
-#include "codelets/GfloatConst.hpp"
+#include "codelets/asm/GfloatConst.hpp"
 #include "popfloat/experimental/CastToHalf.hpp"
+#include "poplibs_support/OptionParsing.hpp"
 #include "popops/ElementWiseUtil.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -10,6 +11,8 @@
 #include <popfloat/experimental/GfloatExpr.hpp>
 #include <popfloat/experimental/GfloatExprUtil.hpp>
 #include <popops/Cast.hpp>
+
+#include "poplibs_support/TileConstants.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -22,6 +25,87 @@ using namespace poputil;
 
 namespace popfloat {
 namespace experimental {
+static std::tuple<unsigned, unsigned>
+getInterleavedWorkSplit(const unsigned nElements, const unsigned grainSize) {
+  const auto elementsPerWorker = (nElements / grainSize) / CTXT_WORKERS;
+  auto remainder = nElements - (grainSize * CTXT_WORKERS * elementsPerWorker);
+  const auto lastWorker = remainder / grainSize;
+  remainder = remainder % grainSize;
+  return std::make_tuple(elementsPerWorker, (lastWorker + (remainder << 8)));
+}
+static std::vector<Interval>
+flatten(const std::vector<std::vector<Interval>> &intervals2D) {
+  std::vector<Interval> flattenedIntervals;
+  for (const auto &intervals1D : intervals2D) {
+    flattenedIntervals.insert(flattenedIntervals.end(), std::begin(intervals1D),
+                              std::end(intervals1D));
+  }
+  return flattenedIntervals;
+}
+
+void GfloatCast::GfloatFormatOptions::parseGfloatFormatOptions(
+    const poplar::OptionFlags &options) {
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+
+  const OptionSpec gfFormatSpec{
+      {"numMantissaBits", OptionHandler::createWithInteger(numMantissaBits)},
+      {"numExponentBits", OptionHandler::createWithInteger(numExponentBits)},
+      {"numExponentBias", OptionHandler::createWithInteger(numExponentBias)},
+      {"enableDenorms", OptionHandler::createWithBool(enableDenorms)},
+      {"enableInfsAndNans", OptionHandler::createWithBool(enableInfsAndNans)}};
+  for (const auto &entry : options) {
+    gfFormatSpec.parse(entry.first, entry.second);
+  }
+}
+
+void GfloatCast::GfloatCastOptions::parseGfloatCastOptions(
+    const poplar::OptionFlags &options) {
+  using poplibs::OptionHandler;
+  using poplibs::OptionSpec;
+
+  const OptionSpec gfCastSpec{
+      {"roundMode",
+       OptionHandler::createWithEnum(
+           roundMode, {{"INV", popfloat::experimental::RoundType::INV},
+                       {"RZ", popfloat::experimental::RoundType::RZ},
+                       {"RA", popfloat::experimental::RoundType::RA},
+                       {"RN", popfloat::experimental::RoundType::RN},
+                       {"RU", popfloat::experimental::RoundType::RU},
+                       {"RD", popfloat::experimental::RoundType::RD},
+                       {"SR", popfloat::experimental::RoundType::SR},
+                       {"SX", popfloat::experimental::RoundType::SX}})},
+      {"numSRBits", OptionHandler::createWithInteger(numSRBits)},
+      {"srNoiseDensity",
+       OptionHandler::createWithEnum(
+           srNoiseDensity,
+           {{"INVALID", popfloat::experimental::SRDensityType::INVALID},
+            {"UNIFORM", popfloat::experimental::SRDensityType::UNIFORM},
+            {"NORMAL", popfloat::experimental::SRDensityType::NORMAL},
+            {"TRUNCATED_NORMAL",
+             popfloat::experimental::SRDensityType::TRUNCATED_NORMAL},
+            {"BERNOULLI", popfloat::experimental::SRDensityType::BERNOULLI},
+            {"LOGISTIC", popfloat::experimental::SRDensityType::LOGISTIC},
+            {"TRUNCATED_LOGISTIC",
+             popfloat::experimental::SRDensityType::TRUNCATED_LOGISTIC},
+            {"LAPLACE", popfloat::experimental::SRDensityType::LAPLACE},
+            {"TRUNCATED_LAPLACE",
+             popfloat::experimental::SRDensityType::TRUNCATED_LAPLACE},
+            {"LOGIT_NORMAL",
+             popfloat::experimental::SRDensityType::LOGIT_NORMAL},
+            {"TRUNCATED_LOGIT_NORMAL",
+             popfloat::experimental::SRDensityType::TRUNCATED_LOGIT_NORMAL}})},
+      {"srNoiseOffset", OptionHandler::createWithDouble(srNoiseOffset)},
+      {"srNoiseScale", OptionHandler::createWithDouble(srNoiseScale)},
+      {"srNoiseMax", OptionHandler::createWithDouble(srNoiseMax)},
+      {"srNoiseMin", OptionHandler::createWithDouble(srNoiseMin)},
+      {"bernoulliProb", OptionHandler::createWithDouble(bernoulliProb)},
+      {"enableNanooMode", OptionHandler::createWithBool(enableNanooMode)}};
+
+  for (const auto &entry : options) {
+    gfCastSpec.parse(entry.first, entry.second);
+  }
+}
 
 GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
                                        unsigned numExponentBits,
@@ -139,6 +223,12 @@ GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
 
   std::memcpy(&packedFloatParameters, &packed, sizeof(packedFloatParameters));
 }
+
+GfloatCast::FormatConfig::FormatConfig(GfloatFormatOptions formatOptions,
+                                       poplar::Type calculationType)
+    : FormatConfig(formatOptions.numMantissaBits, formatOptions.numExponentBits,
+                   formatOptions.numExponentBias, formatOptions.enableDenorms,
+                   formatOptions.enableInfsAndNans, calculationType) {}
 
 GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
                                        unsigned numExponentBits,
@@ -259,6 +349,21 @@ GfloatCast::FormatConfig::FormatConfig(unsigned numMantissaBits,
   std::memcpy(&packedFloatParameters, &packed, sizeof(packedFloatParameters));
 }
 
+GfloatCast::FormatConfig::FormatConfig(const FormatConfig &formatConfig) {
+  calculationType = formatConfig.getCalculationType();
+  numMantissaBits = formatConfig.getNumMantissaBits();
+  numExponentBits = formatConfig.getNumExponentBits();
+  exponentBias = formatConfig.getExponentBias();
+  enableDenorms = formatConfig.isDenormEnabled();
+  enableInfsAndNans = formatConfig.infAndNansEnabled();
+  nativeType = formatConfig.getNativeType();
+  storageType = formatConfig.getStorageType();
+  formatType = formatConfig.getFormatType();
+  packedFloatParameters = formatConfig.getPackedFloatParameters();
+  blockFloat = formatConfig.isBlockFloat();
+  packedFloatBits = formatConfig.getPackedFloatBits();
+}
+
 static unsigned gfloatParamSize(Type calculationType) {
   if (calculationType == HALF) {
     return POPFLOAT_CAST_TO_GF16_TOTAL_PARAM_SIZE;
@@ -282,7 +387,15 @@ GfloatCast::RoundConfig::RoundConfig(const GfloatCast::RoundConfig &roundCfg) {
   noiseParams = roundCfg.getNoiseParams();
   densityParam = roundCfg.getDensityParam();
   srBitMask = roundCfg.getSRBitMask();
+  roundingParams = roundCfg.getRoundingParams();
 }
+
+GfloatCast::RoundConfig::RoundConfig(GfloatCastOptions castOptions,
+                                     poplar::Type calculationType)
+    : RoundConfig(RoundType::INV, castOptions.numSRBits, calculationType,
+                  SRDensityType::INVALID, castOptions.srNoiseOffset,
+                  castOptions.srNoiseScale, castOptions.srNoiseMax,
+                  castOptions.srNoiseMin, castOptions.bernoulliProb) {}
 
 GfloatCast::RoundConfig::RoundConfig(RoundType roundMode, unsigned numSRBits,
                                      Type calculationType,
@@ -306,8 +419,33 @@ GfloatCast::RoundConfig::RoundConfig(RoundType roundMode, unsigned numSRBits,
   float scaleIn_ = 1.0;
   float offsetIn_ = 0.0;
 
+  unsigned srMask = 0;
+  if (calculationType == FLOAT) {
+    unsigned usedBits = (numSRBits < POPFLOAT_NUM_FP32_MANTISSA_BITS)
+                            ? numSRBits
+                            : POPFLOAT_NUM_FP32_MANTISSA_BITS;
+    srMask = (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS - usedBits)) - 1;
+    srMask = ~srMask;
+  } else if (calculationType == HALF) {
+    unsigned usedBits = (numSRBits < POPFLOAT_NUM_FP16_MANTISSA_BITS)
+                            ? numSRBits
+                            : POPFLOAT_NUM_FP16_MANTISSA_BITS;
+    srMask = (1 << (POPFLOAT_NUM_FP16_MANTISSA_BITS - usedBits)) - 1;
+    srMask = (~srMask) & 0xFFFF;
+    srMask = srMask | (srMask << 16);
+  }
+  srBitMask = {srMask, srMask};
+
+  roundingParams.resize(POPFLOAT_ROUND_PARAMS_TOTAL_SIZE);
+  roundingParams[POPFLOAT_CAST_PARAMS_SR_MASK_OFFSET] = srMask;
+  roundingParams[POPFLOAT_CAST_PARAMS_SR_MASK_OFFSET + 1] = srMask;
+
   if ((roundModeType == RoundType::SX) &&
       (srNoiseDensity != SRDensityType::INVALID)) {
+    roundingParams.resize(calculationType == FLOAT
+                              ? POPFLOAT_SR_ROUND_PARAMS_FP32_TOTAL_SIZE
+                              : POPFLOAT_SR_ROUND_PARAMS_FP16_TOTAL_SIZE);
+
     if (srNoiseDensity == SRDensityType::UNIFORM) {
       assert((srNoiseMin >= 0.0) && (srNoiseMax <= 1.0));
 
@@ -427,6 +565,21 @@ GfloatCast::RoundConfig::RoundConfig(RoundType roundMode, unsigned numSRBits,
       noiseParams = {corrScaleInBits[0],  corrScaleInBits[1],
                      corrScaleOutBits[0], corrScaleOutBits[1],
                      corrClampBits[0],    corrClampBits[1]};
+
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_SCALE_IN_OFFSET] =
+          corrScaleInBits[0];
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_SCALE_IN_OFFSET + 1] =
+          corrScaleInBits[1];
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_SCALE_OUT_OFFSET] =
+          corrScaleOutBits[0];
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_SCALE_OUT_OFFSET + 1] =
+          corrScaleOutBits[1];
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_CLAMP_OUT_OFFSET] =
+          corrClampBits[0];
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_CLAMP_OUT_OFFSET + 1] =
+          corrClampBits[1];
+      roundingParams[POPFLOAT_CAST_PARAMS_FP32_DENSITY_PARAM_OFFSET] =
+          densityParam;
     } else {
       short corrScaleIn[2], corrScaleOut[2], corrClamp[2];
       corrScaleIn[0] = singleToHalf(offsetIn_);
@@ -444,28 +597,16 @@ GfloatCast::RoundConfig::RoundConfig(RoundType roundMode, unsigned numSRBits,
       std::memcpy(&corrClampBits, corrClamp, sizeof(corrClampBits));
 
       noiseParams = {corrScaleInBits, corrScaleOutBits, corrClampBits};
+
+      roundingParams[POPFLOAT_CAST_PARAMS_FP16_SCALE_IN_OFFSET] =
+          corrScaleInBits;
+      roundingParams[POPFLOAT_CAST_PARAMS_FP16_SCALE_OUT_OFFSET] =
+          corrScaleOutBits;
+      roundingParams[POPFLOAT_CAST_PARAMS_FP16_CLAMP_OUT_OFFSET] =
+          corrClampBits;
+      roundingParams[POPFLOAT_CAST_PARAMS_FP16_DENSITY_PARAM_OFFSET] =
+          densityParam;
     }
-  }
-
-  if (calculationType == FLOAT) {
-    unsigned srMask = 0;
-    unsigned usedBits = (numSRBits < POPFLOAT_NUM_FP32_MANTISSA_BITS)
-                            ? numSRBits
-                            : POPFLOAT_NUM_FP32_MANTISSA_BITS;
-    srMask = (1 << (POPFLOAT_NUM_FP32_MANTISSA_BITS - usedBits)) - 1;
-    srMask = ~srMask;
-
-    srBitMask = {srMask, srMask};
-  } else if (calculationType == HALF) {
-    unsigned srMask = 0;
-    unsigned usedBits = (numSRBits < POPFLOAT_NUM_FP16_MANTISSA_BITS)
-                            ? numSRBits
-                            : POPFLOAT_NUM_FP16_MANTISSA_BITS;
-    srMask = (1 << (POPFLOAT_NUM_FP16_MANTISSA_BITS - usedBits)) - 1;
-    srMask = (~srMask) & 0xFFFF;
-    srMask = srMask | (srMask << 16);
-
-    srBitMask = {srMask, srMask};
   }
 }
 
@@ -476,6 +617,9 @@ GfloatCast::CastConfig::CastConfig(FormatType floatFormatType,
     : calculationType(calculationType), storageType(storageType),
       roundConfig(roundCfg), enableNanooMode(enableNanooMode),
       floatFormatType(floatFormatType) {
+  castParams = roundCfg.getRoundingParams();
+  castParams.push_back(enableNanooMode);
+
   switch (floatFormatType) {
   case FormatType::IEEE_FP16:
   case FormatType::QUANTISED_FP16:
@@ -517,29 +661,43 @@ static std::string gfloatCastVertexName(const GfloatCast::CastConfig &gfCastCfg,
                                         bool inPlace = false) {
   if (gfCastCfg.getCalculationType() == HALF) {
     if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
-      return inPlace
-                 ? templateVertex(
-                       "popfloat::experimental::CastToGfloat16SrInPlace",
-                       inType)
-                 : templateVertex("popfloat::experimental::CastToGfloat16Sr",
-                                  inType, outType);
+      return inPlace ? templateVertex("popfloat::experimental::"
+                                      "CastToGfloat16SrInPlaceSupervisor",
+                                      inType, gfCastCfg.isNanooModeEnabled(),
+                                      gfCastCfg.getSRNoiseDensity())
+                     : templateVertex(
+                           "popfloat::experimental::CastToGfloat16SrSupervisor",
+                           inType, outType, gfCastCfg.isNanooModeEnabled(),
+                           gfCastCfg.getSRNoiseDensity());
     } else {
-      return inPlace
-                 ? templateVertex(
-                       "popfloat::experimental::CastToGfloat16InPlace", inType)
-                 : templateVertex("popfloat::experimental::CastToGfloat16",
-                                  inType, outType);
+      return inPlace ? templateVertex("popfloat::experimental::"
+                                      "CastToGfloat16InPlaceSupervisor",
+                                      inType, gfCastCfg.isNanooModeEnabled(),
+                                      gfCastCfg.getRoundMode())
+                     : templateVertex(
+                           "popfloat::experimental::CastToGfloat16Supervisor",
+                           inType, outType, gfCastCfg.isNanooModeEnabled(),
+                           gfCastCfg.getRoundMode());
     }
   } else if (gfCastCfg.getCalculationType() == FLOAT) {
     if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
-      return inPlace
-                 ? "popfloat::experimental::CastToGfloat32SrInPlace"
-                 : templateVertex("popfloat::experimental::CastToGfloat32Sr",
-                                  inType, outType);
+      return inPlace ? templateVertex("popfloat::experimental::"
+                                      "CastToGfloat32SrInPlaceSupervisor",
+                                      gfCastCfg.isNanooModeEnabled(),
+                                      gfCastCfg.getSRNoiseDensity())
+                     : templateVertex(
+                           "popfloat::experimental::CastToGfloat32SrSupervisor",
+                           inType, outType, gfCastCfg.isNanooModeEnabled(),
+                           gfCastCfg.getSRNoiseDensity());
     } else {
-      return inPlace ? "popfloat::experimental::CastToGfloat32InPlace"
-                     : templateVertex("popfloat::experimental::CastToGfloat32",
-                                      inType, outType);
+      return inPlace ? templateVertex("popfloat::experimental::"
+                                      "CastToGfloat32InPlaceSupervisor",
+                                      gfCastCfg.isNanooModeEnabled(),
+                                      gfCastCfg.getRoundMode())
+                     : templateVertex(
+                           "popfloat::experimental::CastToGfloat32Supervisor",
+                           inType, outType, gfCastCfg.isNanooModeEnabled(),
+                           gfCastCfg.getRoundMode());
     }
   } else {
     throw poputil::poplibs_error(
@@ -551,13 +709,14 @@ static std::string gfloatPackVertexName(Type calculationType, Type storageType,
                                         FormatType formatType) {
   if (calculationType == FLOAT) {
     if (storageType == SHORT) {
-      return templateVertex("popfloat::experimental::CastFloatToGf16",
+      return templateVertex("popfloat::experimental::CastFloatToGf16Supervisor",
                             formatType);
     } else if (storageType == CHAR) {
-      return "popfloat::experimental::CastFloatToGf8";
+      return "popfloat::experimental::CastFloatToGf8Supervisor";
     }
   } else if (calculationType == HALF) {
-    return templateVertex("popfloat::experimental::CastHalfToGf8", formatType);
+    return templateVertex("popfloat::experimental::CastHalfToGf8Supervisor",
+                          formatType);
   }
   throw poputil::poplibs_error(
       "popfloat::gfloatPackVertexName: Cast calculation type not supported");
@@ -567,13 +726,14 @@ const std::string gfloatToNativeVertexName(Type calculationType, Type inType,
                                            FormatType formatType) {
   if (calculationType == FLOAT) {
     if (inType == SHORT) {
-      return templateVertex("popfloat::experimental::CastGf16ToFloat",
+      return templateVertex("popfloat::experimental::CastGf16ToFloatSupervisor",
                             formatType);
     } else if (inType == CHAR) {
-      return "popfloat::experimental::CastGf8ToFloat";
+      return "popfloat::experimental::CastGf8ToFloatSupervisor";
     }
   } else if (calculationType == HALF) {
-    return templateVertex("popfloat::experimental::CastGf8ToHalf", formatType);
+    return templateVertex("popfloat::experimental::CastGf8ToHalfSupervisor",
+                          formatType);
   }
   throw poputil::poplibs_error(
       "popfloat::gfloatToNativeVertexName: Calculation type not supported");
@@ -582,7 +742,7 @@ const std::string gfloatToNativeVertexName(Type calculationType, Type inType,
 GfloatCast::GfloatCast(const FormatConfig &formatCfg,
                        const RoundConfig &roundCfg, const bool enableNanooMode,
                        const SpecType &GFType, const SpecType &NativeType)
-    : formatCfg(formatCfg), gfParams(new Tensor()) {
+    : formatCfg(formatCfg), gfParams(new Tensor()), castOpParamSet(false) {
   Type nativeToGFStorageType = formatCfg.getStorageType();
   if (GFType != SpecType::AUTO) {
     nativeToGFStorageType = specTypeToPoplarType(GFType);
@@ -602,6 +762,25 @@ GfloatCast::GfloatCast(const FormatConfig &formatCfg,
       gfToNativeStorageType);
 
   gfParams = nullptr;
+}
+
+GfloatCast::GfloatCast(const GfloatFormatOptions &formatOtions,
+                       const GfloatCastOptions &castOptions,
+                       Type calculationType, const SpecType &GFType,
+                       const SpecType &NativeType)
+    : GfloatCast(FormatConfig(formatOtions, calculationType),
+                 RoundConfig(castOptions, calculationType),
+                 castOptions.enableNanooMode, GFType, NativeType) {}
+
+GfloatCast::GfloatCast(const GfloatCast &gfloatCast) {
+  nativeToGFCastCfg = gfloatCast.getNativeToGFConfig();
+  gfToNativeCastCfg = gfloatCast.getGFToNativeConfig();
+  formatCfg = gfloatCast.getFormatConfig();
+  castOpParamSet = false;
+  if (gfloatCast.isCastOpParamSet()) {
+    gfParams = std::make_unique<Tensor>(gfloatCast.getCastOpParams());
+    castOpParamSet = true;
+  }
 }
 
 Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
@@ -643,6 +822,7 @@ void GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs) {
   gfParams = std::make_unique<Tensor>(
       createCastOpParamsTensor(graph, cs, formatCfg.getCalculationType(),
                                formatCfg.getPackedFloatParameters()));
+  castOpParamSet = true;
 }
 
 void GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
@@ -702,40 +882,36 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
   graph.reorderToSimplify(&outFlat, {&inFlat});
 
   const auto mapping = graph.getTileMapping(outFlat);
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(input.elementType()),
-                         target.getAtomicStoreGranularity());
 
   const auto vertexTemplate =
       gfloatCastVertexName(gfCastCfg, input.elementType(), outType);
 
-  auto vSrMask = gfCastCfg.getSRBitMask();
-  auto noiseParams = gfCastCfg.getNoiseParams();
-  auto densityParam = gfCastCfg.getDensityParam();
+  unsigned grainSize = (gfCastCfg.getCalculationType() == FLOAT) ? 2 : 4;
 
+  auto castParam = gfCastCfg.getCastParams();
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
+
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, mapping[tile]);
 
-    auto vertexRegions = splitRegionsBetweenWorkers(
-        target, tileContiguousRegions, grainSize, 2 * grainSize);
+    const auto intervals = flatten(tileContiguousRegions);
 
-    for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs, vertexTemplate,
-                               {{"param", param},
-                                {"in", inFlat.slices(regions)},
-                                {"out", outFlat.slices(regions)}});
-      unsigned roundMode = (unsigned)gfCastCfg.getRoundMode();
-      if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
-        graph.setInitialValue(v["corrParams"], noiseParams);
-        graph.setInitialValue(v["distParam"], densityParam);
-        roundMode = (unsigned)gfCastCfg.getSRNoiseDensity();
-      }
-      graph.setInitialValue(v["roundMode"], roundMode);
-      graph.setInitialValue(v["enNanoo"], gfCastCfg.isNanooModeEnabled());
-      graph.setInitialValue(v["srMask"], vSrMask);
-      graph.setTileMapping(v, tile);
-    }
+    auto inputSlice = concat(inFlat.slices(intervals));
+    auto outputSlice = concat(outFlat.slices(intervals));
+
+    unsigned elementsPerWorker, lastWorkerParams;
+    std::tie(elementsPerWorker, lastWorkerParams) =
+        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+
+    auto v = graph.addVertex(
+        cs, vertexTemplate,
+        {{"param", param}, {"in", inputSlice}, {"out", outputSlice}});
+    graph.setInitialValue(v["castParam"], gfCastCfg.getCastParams());
+    graph.setInitialValue(v["elementsPerWorker"], elementsPerWorker);
+    graph.setInitialValue(v["lastWorkerParams"], lastWorkerParams);
+    graph.setTileMapping(v, tile);
   }
 
   return output;
@@ -755,28 +931,34 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
   graph.reorderToSimplify(&outFlat, {&inFlat});
 
   const auto mapping = graph.getTileMapping(outFlat);
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(input.elementType()),
-                         target.getAtomicStoreGranularity());
 
   const std::string vertexTemplate = gfloatPackVertexName(
       gfCastCfg.getCalculationType(), gfCastCfg.getStorageType(),
       gfCastCfg.getFormatType());
 
+  unsigned grainSize = (gfCastCfg.getStorageType() == CHAR) ? 4 : 2;
+
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
+
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, mapping[tile]);
+    const auto intervals = flatten(tileContiguousRegions);
 
-    auto vertexRegions = splitRegionsBetweenWorkers(
-        target, tileContiguousRegions, grainSize, 2 * grainSize);
+    auto inputSlice = concat(inFlat.slices(intervals));
+    auto outputSlice = concat(outFlat.slices(intervals));
 
-    for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs, vertexTemplate,
-                               {{"param", param},
-                                {"in", inFlat.slices(regions)},
-                                {"out", outFlat.slices(regions)}});
-      graph.setTileMapping(v, tile);
-    }
+    unsigned elementsPerWorker, lastWorkerParams;
+    std::tie(elementsPerWorker, lastWorkerParams) =
+        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+
+    auto v = graph.addVertex(
+        cs, vertexTemplate,
+        {{"param", param}, {"in", inputSlice}, {"out", outputSlice}});
+    graph.setInitialValue(v["elementsPerWorker"], elementsPerWorker);
+    graph.setInitialValue(v["lastWorkerParams"], lastWorkerParams);
+    graph.setTileMapping(v, tile);
   }
 
   return output;
@@ -832,39 +1014,32 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
 
   auto inFlat = input.flatten();
   const auto mapping = graph.getTileMapping(inFlat);
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(input.elementType()),
-                         target.getAtomicStoreGranularity());
 
   const auto vertexTemplate = gfloatCastVertexName(
       gfCastCfg, input.elementType(), input.elementType(), true);
 
-  auto vSrMask = gfCastCfg.getSRBitMask();
-  auto noiseParams = gfCastCfg.getNoiseParams();
-  auto densityParam = gfCastCfg.getDensityParam();
+  unsigned grainSize = (gfCastCfg.getCalculationType() == FLOAT) ? 2 : 4;
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
+
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(inFlat, mapping[tile]);
+    const auto intervals = flatten(tileContiguousRegions);
 
-    auto vertexRegions = splitRegionsBetweenWorkers(
-        target, tileContiguousRegions, grainSize, 2 * grainSize);
+    auto inputSlice = concat(inFlat.slices(intervals));
 
-    for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(
-          cs, vertexTemplate,
-          {{"param", param}, {"inOut", inFlat.slices(regions)}});
-      unsigned roundMode = (unsigned)gfCastCfg.getRoundMode();
-      if (gfCastCfg.getSRNoiseDensity() != SRDensityType::INVALID) {
-        graph.setInitialValue(v["corrParams"], noiseParams);
-        graph.setInitialValue(v["distParam"], densityParam);
-        roundMode = (unsigned)gfCastCfg.getSRNoiseDensity();
-      }
-      graph.setInitialValue(v["roundMode"], roundMode);
-      graph.setInitialValue(v["enNanoo"], gfCastCfg.isNanooModeEnabled());
-      graph.setInitialValue(v["srMask"], vSrMask);
-      graph.setTileMapping(v, tile);
-    }
+    unsigned elementsPerWorker, lastWorkerParams;
+    std::tie(elementsPerWorker, lastWorkerParams) =
+        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+
+    auto v = graph.addVertex(cs, vertexTemplate,
+                             {{"param", param}, {"inOut", inputSlice}});
+    graph.setInitialValue(v["castParam"], gfCastCfg.getCastParams());
+    graph.setInitialValue(v["elementsPerWorker"], elementsPerWorker);
+    graph.setInitialValue(v["lastWorkerParams"], lastWorkerParams);
+    graph.setTileMapping(v, tile);
   }
 }
 
@@ -906,28 +1081,34 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
   graph.reorderToSimplify(&outFlat, {&inFlat});
 
   const auto mapping = graph.getTileMapping(outFlat);
-  const auto grainSize =
-      std::max<unsigned>(target.getVectorWidth(output.elementType()),
-                         target.getAtomicStoreGranularity());
 
   const std::string vertexTemplate =
       gfloatToNativeVertexName(gfCastCfg.getCalculationType(),
                                input.elementType(), gfCastCfg.getFormatType());
+  unsigned grainSize = (gfCastCfg.getCalculationType() == FLOAT) ? 2 : 4;
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
+    if (mapping[tile].empty())
+      continue;
+
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(outFlat, mapping[tile]);
 
-    auto vertexRegions = splitRegionsBetweenWorkers(
-        target, tileContiguousRegions, grainSize, 2 * grainSize);
+    const auto intervals = flatten(tileContiguousRegions);
 
-    for (const auto &regions : vertexRegions) {
-      auto v = graph.addVertex(cs, vertexTemplate,
-                               {{"param", param},
-                                {"in", inFlat.slices(regions)},
-                                {"out", outFlat.slices(regions)}});
-      graph.setTileMapping(v, tile);
-    }
+    auto inputSlice = concat(inFlat.slices(intervals));
+    auto outputSlice = concat(outFlat.slices(intervals));
+
+    unsigned elementsPerWorker, lastWorkerParams;
+    std::tie(elementsPerWorker, lastWorkerParams) =
+        getInterleavedWorkSplit(inputSlice.numElements(), grainSize);
+
+    auto v = graph.addVertex(
+        cs, vertexTemplate,
+        {{"param", param}, {"in", inputSlice}, {"out", outputSlice}});
+    graph.setInitialValue(v["elementsPerWorker"], elementsPerWorker);
+    graph.setInitialValue(v["lastWorkerParams"], lastWorkerParams);
+    graph.setTileMapping(v, tile);
   }
 
   return output;

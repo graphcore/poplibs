@@ -192,6 +192,7 @@ bool castNativeToGfloatCheck(float *inVec, T *outVec, unsigned sizeVec,
     fpOut *= std::pow(2.0, e_single - manSizeFp32);
     if (fpOut < minValue) {
       fpOut = 0.0;
+      s_single = 0;
     }
     std::memcpy(&inBits, &fpOut, sizeof(inBits));
 

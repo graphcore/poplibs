@@ -3,30 +3,31 @@
 #define CAST_GF8_TO_FLOAT_H
 
 #define mInValue0 m0
+#define mCastParams m0
 
 #define mInValueV2 m1
 #define mInValue1 m1
 
 #define mManSh0 m2
-#define mBaseIn m2
+#define mQuotient m2
 
 #define mManSh1 m3
-#define mBaseOut m3
 
 #define mCount m4
+#define mTMemBase m4
 
 #define mBiasCorr m5
 
 #define mExpManMask m6
-#define mRemainder m6
+#define mWorkerIdx m6
 
-#define mInRow m7
+#define mBaseOut m7
 
-#define mOutRow m8
+#define mBaseIn m8
 
 #define mGF8Param m9
 
-#define mRowCount m10
+#define mRemainder m10
 
 #define fpHalf a1
 

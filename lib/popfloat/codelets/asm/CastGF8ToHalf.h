@@ -2,37 +2,33 @@
 #ifndef CAST_GF8_TO_HALF_H
 #define CAST_GF8_TO_HALF_H
 
-#define mInRow m0
+#define mBaseIn m0
 
-#define mOutRow m1
-#define mFP8Load m1
+#define mBaseOut m1
 
 #define mF8SignMask m2
 
 #define mManShr m3
-#define mFinalCount m3
+#define mQuotient m3
 
 #define mSignValueV4 m4
 #define mSignV2_1 m4
-#define mBaseIn m4
 
-#define mBaseOut m5
 #define mSignV2_0 m5
-#define mRemainder m5
 
 #define mCount m6
+#define mTMemBase m6
 
 #define mInValueV2_1 m7
 #define mInValueV4 m7
 
 #define mInValueV2_0 m8
-#define mFP8Input m8
 
 #define mGF8Param m9
 
-#define mRowCount m10
+#define mWorkerIdx m10
 
-#define mCastToHalf m11
+#define mRemainder m11
 
 #define outF16V4_0 a0
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "GfloatConst.hpp"
+#include "asm/GfloatConst.hpp"
 #include "popfloatUtils.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include <array>
@@ -17,7 +17,7 @@ namespace experimental {
 
 class PackedGfloatParams : public Vertex {
 public:
-  Output<Vector<int, ONE_PTR>> gfStruct;
+  Vector<Output<int>, ONE_PTR> gfStruct;
   unsigned manBits;
   unsigned expBits;
   int expBias;

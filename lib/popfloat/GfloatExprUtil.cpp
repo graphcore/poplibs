@@ -87,6 +87,8 @@ std::string srDensityTypeToString(SRDensityType dist) {
 poplar::Type specTypeToPoplarType(SpecType specType) {
   if (specType == SpecType::FP32) {
     return poplar::FLOAT;
+  } else if (specType == SpecType::BF16) {
+    return poplar::FLOAT;
   } else if (specType == SpecType::FP16) {
     return poplar::HALF;
   } else if (specType == SpecType::INT32) {
@@ -97,6 +99,40 @@ poplar::Type specTypeToPoplarType(SpecType specType) {
     return poplar::CHAR;
   }
   throw poputil::poplibs_error("popfloat::SpecType: format not supported");
+}
+
+std::string specTypeToString(SpecType specType) {
+  if (specType == SpecType::FP32) {
+    return "FP32";
+  } else if (specType == SpecType::BF16) {
+    return "BF16";
+  } else if (specType == SpecType::FP16) {
+    return "FP16";
+  } else if (specType == SpecType::INT32) {
+    return "INT32";
+  } else if (specType == SpecType::INT16) {
+    return "INT16";
+  } else if (specType == SpecType::INT8) {
+    return "INT8";
+  } else if (specType == SpecType::AUTO) {
+    return "AUTO";
+  }
+  throw poputil::poplibs_error("popfloat::SpecType: format not supported");
+}
+
+SpecType poplarTypeToSpecType(poplar::Type dType) {
+  if (dType == poplar::FLOAT) {
+    return SpecType::FP32;
+  } else if (dType == poplar::HALF) {
+    return SpecType::FP16;
+  } else if (dType == poplar::INT) {
+    return SpecType::INT32;
+  } else if (dType == poplar::SHORT) {
+    return SpecType::INT16;
+  } else if (dType == poplar::CHAR) {
+    return SpecType::INT8;
+  }
+  throw poputil::poplibs_error("poplar::Type: format not supported");
 }
 
 } // end namespace experimental

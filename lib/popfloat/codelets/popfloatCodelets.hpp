@@ -2,7 +2,7 @@
 #ifndef popfloat_codelets_vec_h
 #define popfloat_codelets_vec_h
 
-#include "GfloatConst.hpp"
+#include "asm/GfloatConst.hpp"
 #include "popfloatUtils.hpp"
 #include <array>
 #include <cmath>

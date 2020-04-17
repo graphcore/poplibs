@@ -3,7 +3,7 @@
 #define CAST_FLOAT_TO_GF16_H
 
 #define mOutShr m0
-#define outManExp m0
+#define mQuotient m0
 
 #define mOutV2 m1
 #define mOutValue0 m1
@@ -13,6 +13,7 @@
 #define mRemainder m3
 
 #define mCount m4
+#define mTMemBase m4
 
 #define mOutSgn m5
 
@@ -22,11 +23,11 @@
 
 #define mBaseOut m8
 
-#define mRowCount m9
+#define mCastParams m9
 
-#define mInRow m10
+#define mWorkerIdx m10
 
-#define mOutRow m11
+#define outManExp m11
 
 #define outValue0 a0
 

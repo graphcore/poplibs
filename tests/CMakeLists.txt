@@ -6985,7 +6985,7 @@ add_multitarget_test(
                  --tiles-per-ipu=32
                  --exp=4
                  --man=7
-                 --bias=4
+                 --bias=3
                  --sr-noise-density=TruncatedLogitNormal
                  --sr-noise-min=0.0
                  --sr-noise-max=0.9

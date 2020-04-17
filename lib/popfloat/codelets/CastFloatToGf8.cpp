@@ -9,19 +9,23 @@
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 using namespace poplar;
 
 namespace popfloat {
 namespace experimental {
 
-class CastFloatToGf8 : public Vertex {
+class CastFloatToGf8Supervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  Input<Vector<int, SPAN, 8>> param;
-  Vector<Input<Vector<float, SPAN, 8>>, SPAN> in;
-  Vector<Output<Vector<char, SPAN, 8>>, SPAN> out;
+  CastFloatToGf8Supervisor();
+
+  Input<Vector<int, COMPACT_PTR, 8>> param;
+  Input<Vector<float, COMPACT_PTR, 8>> in;
+  Output<Vector<char, COMPACT_PTR, 4>> out;
+  unsigned short elementsPerWorker;
+  unsigned short lastWorkerParams;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 

@@ -5,10 +5,8 @@
 #define nIterations m0
 #define srMaskBase m0
 #define isBernoulli m0
-#define enNanoo m0
 #define mRoundMode m0
 
-#define mRemainder m1
 #define maskOut_0 m1
 #define setMode m1
 
@@ -18,7 +16,6 @@
 
 #define mGf32Param m4
 
-#define enDenorm m5
 #define mRoundOp m5
 #define maskOut_1 m5
 
@@ -26,13 +23,14 @@
 
 #define mBaseOut m7
 
-#define mCorrParams m8
+#define mQuotient m8
+#define enDenorm m8
 
-#define mRowCount m9
+#define mCastParams m9
 
-#define mInRow m10
+#define mWorkerIdx m10
 
-#define mOutRow m11
+#define mRemainder m11
 
 #define maskOut0 a0
 

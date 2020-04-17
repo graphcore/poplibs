@@ -4,88 +4,94 @@
 #include "GfloatConst.hpp"
 #include "arch/gc_tile_defines.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "popfloatCommon.inc"
 
-.macro CAST_TO_GFLOAT16 TYPE1 TYPE2 INPLACE
-  ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
-  ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
-  ld32         $mRowCount     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_SIZE_PTR_OFFSET
-  add          $mRowCount     , $mRowCount            , -1
+.macro CAST_TO_GFLOAT16 TYPE1 TYPE2 NANOO RMODE INPLACE
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mGf16Param, $mvertex_base, POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseIn, $mvertex_base, POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
+  POPFLOAT_GET_WORKER_INDEX $mWorkerIdx
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mGf16Param
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mCastParams
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mBaseIn
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mBaseOut
 .if \INPLACE == 1
-  ld32         $enNanoo       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_NANOO_OFFSET
+  ldz16        $mCount        , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_ELEMENTS_PER_WORKER_OFFSET
+  ldz8         $mQuotient     , $mvertex_base         , $mzero            , 2 * POPFLOAT_VBASE_CAST_INPLACE_LAST_WORKER_PARAM_OFFSET
 .else
-  ld32         $enNanoo       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_NANOO_OFFSET
+  ldz16        $mCount        , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ELEMENTS_PER_WORKER_OFFSET
+  ldz8         $mQuotient     , $mvertex_base         , $mzero            , 2 *   POPFLOAT_VBASE_CAST_LAST_WORKER_PARAM_OFFSET
 .endif
-  setzi        $mCastToGF16   , .Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()
+  cmpult       $mRemainder    , $mWorkerIdx           , $mQuotient
+  add          $mCount        , $mCount               , $mRemainder
 .if \INPLACE == 1
-  ld32         $mRoundMode    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_ROUND_MODE_OFFSET
+  ldz8         $mRemainder    , $mvertex_base         , $mzero            , 2 * POPFLOAT_VBASE_CAST_INPLACE_LAST_WORKER_PARAM_OFFSET + 1
 .else
-  ld32         $mRoundMode    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ROUND_MODE_OFFSET
+  ldz8         $mRemainder    , $mvertex_base         , $mzero            , 2 *   POPFLOAT_VBASE_CAST_LAST_WORKER_PARAM_OFFSET + 1
 .endif
-  brz          $mRoundMode    , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.if \INPLACE == 1
-  ld32         $srManMask     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPLACE_SR_MASK_OFFSET
-.else
-  ld32         $srManMask     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_SR_MASK_OFFSET
+  cmpeq        $mQuotient     , $mQuotient            , $mWorkerIdx
+  mul          $mRemainder    , $mRemainder           , $mQuotient
+  brz          $mQuotient     , 1f
+  cmpult       $mQuotient     , $mzero                , $mRemainder
+  add          $mCount        , $mCount               , $mQuotient
+1:
+  brz          $mCount        , .Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\()
+  add          $mCount        , $mCount               , -1
+  ld64step     $azeros        , $mzero                , $mBaseIn+=        , $mWorkerIdx
+  ld64step     $azeros        , $mzero                , $mBaseOut+=       , $mWorkerIdx
+.ifnc \TYPE1, half
+  ld64step     $azeros        , $mzero                , $mBaseIn+=        , $mWorkerIdx
 .endif
-  ld64         $srMaskV4      , $mzero                , $srManMask        , 0
-  st64         $srMaskV4      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_SR_MASK_OFFSET/2)
-  setzi        $mCastToGF16   , .Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_sx
-  setzi        $mRoundOp      , .Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_sr
-  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_STOCHASTIC
-  movz         $mCastToGF16   , $setMode              , $mRoundOp
-  brnz         $setMode       , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  setzi        $mRoundOp      , .Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_ra
-  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_NEAREST_AWAY
-  movz         $mCastToGF16   , $setMode              , $mRoundOp
-  brnz         $setMode       , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  setzi        $mRoundOp      , .Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_rn
-  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_NEAREST_EVEN
-  movz         $mCastToGF16   , $setMode              , $mRoundOp
-  brnz         $setMode       , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
-  {
-    ld64         $halfMinDnrmV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);  
-    setzi        $scaleHalf     , 0x3800
-  }
-  f16v4mul     $halfMinDnrmV4 , $scaleHalf:BL         , $halfMinDnrmV4
-  st64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
-  setzi        $mRoundOp      , .Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_ru
-  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_POS_INF
-  movz         $mCastToGF16   , $setMode              , $mRoundOp
-  brnz         $setMode       , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  ld32         $mGf16Param    , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
-  {
-    ld64         $halfMinDnrmV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);  
-    setzi        $scaleHalf     , 0x3800
-  }
-  f16v4mul     $halfMinDnrmV4 , $scaleHalf:BL         , $halfMinDnrmV4
-  st64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
-  setzi        $mRoundOp      , .Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_rd
-  cmpeq        $setMode       , $mRoundMode           , POPFLOAT_ROUND_TO_NEG_INF
-  movz         $mCastToGF16   , $setMode              , $mRoundOp
-.Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\():
+.ifnc \TYPE2, half
+  ld64step     $azeros        , $mzero                , $mBaseOut+=       , $mWorkerIdx
+.endif
   ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2)
-  ld32step     $mInRow        , $mzero                , $mBaseIn+=        , 1
-  ld32step     $mCount        , $mzero                , $mBaseIn+=        , 1
-  ld32step     $mOutRow       , $mzero                , $mBaseOut+=       , 2
-  ld64step     $inValueV4     , $mzero                , $mInRow+=         , 1
-  brz          $mCount        , .Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.Lcast_to_gfloat16_inner_start_\TYPE1\()_\TYPE2\()_\INPLACE\():
-.ifnc \TYPE1, float
+.ifc \TYPE1, half
+  ld64step     $inValueV4     , $mzero                , $mBaseIn+=        , CTXT_WORKERS
+.else
+  ld64step     $inValueV4     , $mzero                , $mBaseIn+=        , 1
+.endif
+.ifc \RMODE, RU
+  {
+    ld64         $halfMinDnrmV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);
+    setzi        $scaleHalf     , 0x3800
+  }
+  f16v4mul     $halfMinDnrmV4 , $scaleHalf:BL         , $halfMinDnrmV4
+  st64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
+.endif
+.ifc \RMODE, RD
+  {
+    ld64         $halfMinDnrmV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);
+    setzi        $scaleHalf     , 0x3800
+  }
+  f16v4mul     $halfMinDnrmV4 , $scaleHalf:BL         , $halfMinDnrmV4
+  st64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
+.endif
+  bri          1f
+.Lcast_to_gfloat16_inner_start_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\():
+.ifc \TYPE2, half
+  st64step     $outValueV4    , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+.else
+  st64step     $outValueV2_0  , $mzero                , $mBaseOut+=       , 1
+  st64step     $outValueV2_1  , $mzero                , $mBaseOut+=       , (2*CTXT_WORKERS-1)
+.endif
+1:
+.ifc \TYPE1, half
+.ifnc \NANOO, true
   ld32         $inputClampF16 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_FP16_IN_OFFSET);
-  brnz         $enNanoo       , 1f
   f16v4clamp   $inValueV4     , $inValueV4            , $inputClampF16    // Clip values before scaling (CLAMP)
+.endif
 1:
   {
     ld64         $halfExpMaskV4 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_EXPONENT_MASK_OFFSET/2);
     f16v4mul     $outValueV4    , $scaleHalf:BL         , $inValueV4        // Scale values
   }
 .else
-  ld64step     $inValueV2_1   , $mzero                , $mInRow+=         , 1;
-  brz          $enNanoo       , 1f
+  ld64step     $inValueV2_1   , $mzero                , $mBaseIn+=        , (2*CTXT_WORKERS-1);
+.ifnc \NANOO, true
   ld64         $inputClampF32 , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_FP32_IN_OFFSET/2);
   f32v2clamp   $inValueV2_0   , $inValueV2_0          , $inputClampF32    // Clip values before scaling (CLAMP)
   f32v2clamp   $inValueV2_1   , $inValueV2_1          , $inputClampF32    // Clip values before scaling (CLAMP)
+.endif
 1:
   f32v2mul     $inValueV2_0   , $scaleFloat:B         , $inValueV2_0      // Scale values
   f32v2mul     $inValueV2_1   , $scaleFloat:B         , $inValueV2_1      // Scale values and generate Nan if value is outside the range
@@ -94,7 +100,6 @@
     f32v4tof16   $outValueV4    , $inValueF32V4                             // Copy f32v4 vector to f16.
   }
 .endif
-.Lcalculate_truncation_mask_\TYPE1\()_\TYPE2\()_\INPLACE\():
   {
     ld64         $outBitMaskV4  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_MIN_DNRM_OFFSET/2);
     and64        $expV4         , $outValueV4           , $halfExpMaskV4    // Extract exponents
@@ -107,11 +112,9 @@
     ld64         $outBitMaskV4  , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_NORM_MAN_MASK_OFFSET/2);
     and64        $isDenormV4    , $isDenormV4           , $outBitMaskV4
   }
-  {
-    br           $mCastToGF16
-    or64         $outBitMaskV4  , $isDenormV4           , $outBitMaskV4
-  }
-.Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_ra:
+  or64         $outBitMaskV4  , $isDenormV4           , $outBitMaskV4
+.ifnc \RMODE, RZ
+.ifc \RMODE, RA
   {
     st64         $outValueV4    , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_OUTPUT_OFFSET/2);
     setzi        $halfMinDnrm   , 1
@@ -126,8 +129,8 @@
     ld64         $outValueV4    , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_OUTPUT_OFFSET/2);
     f16v4mul     $roundCorrV4   , $scalePm1:BL          , $roundCorrV4
   }
-  bri          .Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_rn:
+.else
+.ifc \RMODE, RN
   {
     st64         $expV4         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_EXPONENT_OFFSET/2);
     setzi        $halfMinDnrm   , 1
@@ -159,8 +162,8 @@
     ld64         $expV4         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_EXPONENT_OFFSET/2);
     or64         $roundCorrV4   , $roundCorrV4          , $manLsbMaskV4     // Create RN mask
   }
-  bri          .Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_ru:
+.else
+.ifc \RMODE, RU
   {
     ld64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
     f16v4absadd  $isPositiveV4  , $azeros               , $outValueV4
@@ -172,8 +175,8 @@
     ld64         $expV4         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_EXPONENT_OFFSET/2);
     andc64       $roundCorrV4   , $isPositiveV4         , $outBitMaskV4     // Mask correction bits
   }
-  bri          .Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_rd:
+.else
+.ifc \RMODE, RD
   {
     ld64         $halfMinDnrmV4 , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_HALF_MIN_OFFSET/2)
     f16v4absadd  $isPositiveV4  , $azeros               , $outValueV4
@@ -185,14 +188,14 @@
     ld64         $expV4         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_EXPONENT_OFFSET/2);
     andc64       $roundCorrV4   , $isNegativeV4         , $outBitMaskV4     // Mask correction bits
   }
-  bri          .Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_sx:
+.else
+.ifc \RMODE, SX
   {
     ld32         $scaleP10      , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_POWER2_10_OFFSET);
     not64        $roundCorrV4   , $outBitMaskV4                             // Truncated bits
   }
   {
-    ld64         $srMaskV4      , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_SR_MASK_OFFSET/2)
+    ld64         $srMaskV4      , $mCastParams          , $mzero            , (POPFLOAT_CAST_PARAMS_SR_MASK_OFFSET/2)
     f16v4mul     $roundCorrV4   , $scaleP10:BL          , $roundCorrV4      // Treat truncated bits as a denorm, then convert to a norm FP16 value
   }
   {
@@ -205,11 +208,17 @@
     ld64         $expV4         , $mworker_base         , $mzero            , (POPFLOAT_CAST_TO_GF16_STACK_EXPONENT_OFFSET/2)
     and64        $randomBitsV4  , $randomBitsV4         , $manLsbMaskV4
   }
-  bri          .Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()
-.Lcalc_correction_\TYPE1\()_\TYPE2\()_\INPLACE\()_sr:
+.else
+.ifc \RMODE, SR
   urand64      $randomBitsV4                                              // Generate random bit pattern
   andc64       $roundCorrV4   , $randomBitsV4         , $outBitMaskV4     // Apply SR bit mask
-.Ladd_correction_\TYPE1\()_\TYPE2\()_\INPLACE\():
+.endif // .ifc \RMODE, SR
+.endif // .ifc \RMODE, SX
+.endif // .ifc \RMODE, RD
+.endif // .ifc \RMODE, RU
+.endif // .ifc \RMODE, RN
+.endif // .ifc \RMODE, RA
+.endif // .ifc \RMODE, RZ
   or64         $roundCorrV4   , $expV4                , $roundCorrV4      // Add exponent to truncated bits
   {
     ld64         $signV4        , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SIGN_MASK_OFFSET/2);
@@ -225,10 +234,8 @@
     ld32         $scaledClamp   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET);
     f16v4cmple   $zeroOutMaskV4 , $scaledMin:BU         , $outValueV4
   }
-  {
-    brz            $enNanoo       , .LclampOutput_\TYPE1\()_\TYPE2\()_\INPLACE\()
-    and64          $outValueV4    , $outValueV4           , $zeroOutMaskV4
-  }
+  and64        $outValueV4    , $outValueV4           , $zeroOutMaskV4
+.ifc \NANOO, true
   f16v4cmplt   $outNanMaskV4  , $scaledClamp:BU       , $outValueV4
   {
     ld64         $qNanV4        , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_QNAN_OUTPUT_OFFSET/2);
@@ -239,126 +246,201 @@
     ld32         $scaledClamp   , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_CLAMP_OUTPUT_OFFSET);
     or64         $outValueV4    , $outNanMaskV4         , $outValueV4
   }
-.LclampOutput_\TYPE1\()_\TYPE2\()_\INPLACE\():
+.endif
   {
-    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET/2);    
+    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET/2);
     f16v4clamp   $outValueV4    , $outValueV4           , $scaledClamp
   }
   {
-    ld64step     $inValueV4     , $mzero                , $mInRow+=         , 1;
+.ifc \TYPE1, half
+    ld64step     $inValueV4     , $mzero                , $mBaseIn+=        , CTXT_WORKERS;
+.else
+    ld64step     $inValueV4     , $mzero                , $mBaseIn+=        , 1;
+.endif
     or64         $outValueV4    , $outValueV4           , $signV4
   }
-  cmpult       $mRemainder    , $mCount               , 4
+  f16v4cmpeq   $signV4        , $outValueV4           , $azeros           // Mask for +/-0.0
+  andc64       $outValueV4    , $outValueV4           , $signV4           // Convert all -0.0 into +0.0
 .ifc \TYPE2, half
   {
     ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2);
     f16v4mul     $outValueV4    , $scaleHalf:BL         , $outValueV4       // Scale values
   }
-  brnz         $mRemainder    , .Lcast_to_gfloat16_inner_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  add          $mCount        , $mCount               , -4
-  st64step     $outValueV4    , $mzero                , $mOutRow+=        , 1
 .else
+  f16v2tof32   $outValueV2_0  , $outValueV4_0
+  f16v2tof32   $outValueV2_1  , $outValueV4_1
+  f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_0     // Scale values
   {
-    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_IN_RECIP_OFFSET/2);    
-    f16v2tof32   $outValueV2_0  , $outValueV4_0
-  }
-  {
-    brnz         $mRemainder    , .Lcast_to_gfloat16_inner_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\()
-    f16v2tof32   $outValueV2_1  , $outValueV4_1
-  }
-  {
-    add          $mCount        , $mCount               , -4
-    f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_0     // Scale values
-  }
-  {
-    st64step     $outValueV2_0  , $mzero                , $mOutRow+=        , 1
+    ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2);
     f32v2mul     $outValueV2_1  , $scaleFloat:B         , $outValueV2_1     // Scale values
   }
-  st64step     $outValueV2_1  , $mzero                , $mOutRow+=        , 1
 .endif
-  ld64         $scale         , $mGf16Param           , $mzero            , (POPFLOAT_CAST_TO_GF16_PARAM_SCALE_INPUT_OFFSET/2);
-  brnz         $mCount        , .Lcast_to_gfloat16_inner_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  bri          .Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\()
-
-.Lcast_to_gfloat16_inner_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\():
+  brnzdec      $mCount        , .Lcast_to_gfloat16_inner_start_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\()
+  brnz         $mRemainder    , 1f
 .ifc \TYPE2, half
-  cmpult       $mRemainder    , $mCount               , 3
+  st64step     $outValueV4    , $mzero                , $mBaseOut+=       , CTXT_WORKERS
 .else
-  {
-    cmpult       $mRemainder    , $mCount               , 3
-    f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_0     // Scale values
-  }
+  st64step     $outValueV2_0  , $mzero                , $mBaseOut+=       , 1
+  st64step     $outValueV2_1  , $mzero                , $mBaseOut+=       , 0
 .endif
-  brnz         $mRemainder    , .Lcast_to_gfloat16_inner_last2_\TYPE1\()_\TYPE2\()_\INPLACE\()
+  exitz        $mzero
+1:
+  cmpult       $mCount        , $mRemainder           , 3
+  brnz         $mCount        , .Lcast_to_gfloat16_inner_last2_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\()
 .ifc \TYPE2, half
   {
-    st32step     $outValueV4_0  , $mzero                , $mOutRow+=        , 1
+    st32step     $outValueV4_0  , $mzero                , $mBaseOut+=       , 1
     or           $outValueV4_0  , $outValueV4_1         , $azero
   }
 .else
   {
-    st64step     $outValueV2_0  , $mzero                , $mOutRow+=        , 1
-    f32v2mul     $outValueV2_0  , $scaleFloat:B         , $outValueV2_1      // Scale values
+    st64step     $outValueV2_0  , $mzero                , $mBaseOut+=       , 1
+    or64         $outValueV2_0  , $outValueV2_1         , $azeros
   }
 .endif
-  add          $mCount        , $mCount               , -2
-
-.Lcast_to_gfloat16_inner_last2_\TYPE1\()_\TYPE2\()_\INPLACE\():
-  cmpult       $mRemainder    , $mCount               , 2
-  brnz         $mRemainder    , .Lcast_to_gfloat16_inner_last1_\TYPE1\()_\TYPE2\()_\INPLACE\()
-  bri          .Lcast_to_gfloat16_inner_store_\TYPE1\()_\TYPE2\()_\INPLACE\()
-
-.Lcast_to_gfloat16_inner_last1_\TYPE1\()_\TYPE2\()_\INPLACE\():
+  add          $mRemainder    , $mRemainder           , -2
+.Lcast_to_gfloat16_inner_last2_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\():
+  cmpult       $mCount        , $mRemainder           , 2
+  brnz         $mCount        , .Lcast_to_gfloat16_inner_last1_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\()
 .ifc \TYPE2, half
-  ldb16        $outValueV4_1  , $mzero                , $mOutRow          , 1
+  st32step     $outValueV4_0  , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+.else
+  st64step     $outValueV2_0  , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+.endif
+  exitz        $mzero
+.Lcast_to_gfloat16_inner_last1_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\():
+.ifc \TYPE2, half
+  ldb16        $outValueV4_1  , $mzero                , $mBaseOut         , 1
   sort4x16lo   $outValueV4_0  , $outValueV4_0         , $outValueV4_1
 .endif
-
-.Lcast_to_gfloat16_inner_store_\TYPE1\()_\TYPE2\()_\INPLACE\():
-  st32step     $outValueV4_0  , $mzero                , $mOutRow+=        , 1
-
-.Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\():
-  brnzdec      $mRowCount     , .Lcast_to_gfloat16_outer_start_\TYPE1\()_\TYPE2\()_\INPLACE\()
+  st32step     $outValueV4_0  , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+.Lcast_to_gfloat16_outer_epilog_\TYPE1\()_\TYPE2\()_\INPLACE\()_\NANOO\()_\RMODE\():
   exitz        $mzero
 .endm
 
-.macro CAST_TO_GFLOAT16_OP TYPE1 TYPE2
-DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
-.section .text.castToGfloat16_\TYPE1\()_to_\TYPE2\()
+.macro CAST_TO_GFLOAT16_OP TYPE1 TYPE2 NANOO RMODE
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastToGfloat16Supervisor___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\()
+.section .text.castToGfloat16Supervisor_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\()
 .align 4
-  .globl __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
-  .type __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\(), @function
-  __runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat16Supervisor___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat16Supervisor___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat16Supervisor___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\():
 
+.supervisor
+castToGfloat16Supervisor_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\():
+  POPFLOAT_SUPERVISOR_CAST_OP castToGfloat16_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\()
+
+.worker
+castToGfloat16_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\():
 .align 8
-  ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
-  CAST_TO_GFLOAT16 \TYPE1, \TYPE2, 0
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseOut, $mvertex_base, POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mCastParams, $mvertex_base, POPFLOAT_VBASE_CAST_ROUNDING_PARAM_OFFSET
+  CAST_TO_GFLOAT16 \TYPE1, \TYPE2, \NANOO, \RMODE, 0
 
-.size castToGfloat16_\TYPE1\()_to_\TYPE2\(),\
-  .-__runCodelet_popfloat__experimental__CastToGfloat16___\TYPE1\()_\TYPE2\()
+.size castToGfloat16Supervisor_\TYPE1\()_to_\TYPE2\()_\NANOO\()_\RMODE\(),\
+  .-__runCodelet_popfloat__experimental__CastToGfloat16Supervisor___\TYPE1\()_\TYPE2\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\()
 .endm
 
-.macro CAST_TO_GFLOAT16_INPLACE_OP TYPE
-DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()
-.section .text.castToGfloat16InPlace_\TYPE\()
+.macro CAST_TO_GFLOAT16_INPLACE_OP TYPE NANOO RMODE
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastToGfloat16InPlaceSupervisor___\TYPE\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\()
+.section .text.castToGfloat16InPlaceSupervisor_\TYPE\()_\NANOO\()_\RMODE\()
 .align 4
-  .globl __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()
-  .type __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\(), @function
-  __runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\():
+  .globl __runCodelet_popfloat__experimental__CastToGfloat16InPlaceSupervisor___\TYPE\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\()
+  .type __runCodelet_popfloat__experimental__CastToGfloat16InPlaceSupervisor___\TYPE\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\(), @function
+  __runCodelet_popfloat__experimental__CastToGfloat16InPlaceSupervisor___\TYPE\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\():
 
+.supervisor
+castToGfloat16InPlaceSupervisor_\TYPE\()_\NANOO\()_\RMODE\():
+  POPFLOAT_SUPERVISOR_CAST_OP castToGfloat16InPlace_\TYPE\()_\NANOO\()_\RMODE\()
+.worker
+castToGfloat16InPlace_\TYPE\()_\NANOO\()_\RMODE\():
 .align 8
-  ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
-  CAST_TO_GFLOAT16 \TYPE, \TYPE, 1
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseOut, $mvertex_base, POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mCastParams, $mvertex_base, POPFLOAT_VBASE_CAST_INPLACE_ROUNDING_PARAM_OFFSET
+  CAST_TO_GFLOAT16 \TYPE, \TYPE, \NANOO, \RMODE, 1
 
-.size castToGfloat16InPlace_\TYPE\(),\
-  .-__runCodelet_popfloat__experimental__CastToGfloat16InPlace___\TYPE\()
+.size castToGfloat16InPlaceSupervisor_\TYPE\()_\NANOO\()_\RMODE\(),\
+  .-__runCodelet_popfloat__experimental__CastToGfloat16InPlaceSupervisor___\TYPE\()_\NANOO\()_popfloat__experimental__RoundType__\RMODE\()
 .endm
 
-CAST_TO_GFLOAT16_OP float, float
-CAST_TO_GFLOAT16_OP float, half
-CAST_TO_GFLOAT16_OP half , half
+CAST_TO_GFLOAT16_OP float, float, true, RZ
+CAST_TO_GFLOAT16_OP float, float, true, RA
+CAST_TO_GFLOAT16_OP float, float, true, RN
+CAST_TO_GFLOAT16_OP float, float, true, RU
+CAST_TO_GFLOAT16_OP float, float, true, RD
+CAST_TO_GFLOAT16_OP float, float, true, SR
+CAST_TO_GFLOAT16_OP float, float, true, SX
 
-CAST_TO_GFLOAT16_INPLACE_OP float
-CAST_TO_GFLOAT16_INPLACE_OP half
+CAST_TO_GFLOAT16_OP float, half, true, RZ
+CAST_TO_GFLOAT16_OP float, half, true, RA
+CAST_TO_GFLOAT16_OP float, half, true, RN
+CAST_TO_GFLOAT16_OP float, half, true, RU
+CAST_TO_GFLOAT16_OP float, half, true, RD
+CAST_TO_GFLOAT16_OP float, half, true, SR
+CAST_TO_GFLOAT16_OP float, half, true, SX
+
+CAST_TO_GFLOAT16_OP half , half, true, RZ
+CAST_TO_GFLOAT16_OP half , half, true, RA
+CAST_TO_GFLOAT16_OP half , half, true, RN
+CAST_TO_GFLOAT16_OP half , half, true, RU
+CAST_TO_GFLOAT16_OP half , half, true, RD
+CAST_TO_GFLOAT16_OP half , half, true, SR
+CAST_TO_GFLOAT16_OP half , half, true, SX
+
+CAST_TO_GFLOAT16_OP float, float, false, RZ
+CAST_TO_GFLOAT16_OP float, float, false, RA
+CAST_TO_GFLOAT16_OP float, float, false, RN
+CAST_TO_GFLOAT16_OP float, float, false, RU
+CAST_TO_GFLOAT16_OP float, float, false, RD
+CAST_TO_GFLOAT16_OP float, float, false, SR
+CAST_TO_GFLOAT16_OP float, float, false, SX
+
+CAST_TO_GFLOAT16_OP float, half, false, RZ
+CAST_TO_GFLOAT16_OP float, half, false, RA
+CAST_TO_GFLOAT16_OP float, half, false, RN
+CAST_TO_GFLOAT16_OP float, half, false, RU
+CAST_TO_GFLOAT16_OP float, half, false, RD
+CAST_TO_GFLOAT16_OP float, half, false, SR
+CAST_TO_GFLOAT16_OP float, half, false, SX
+
+CAST_TO_GFLOAT16_OP half , half, false, RZ
+CAST_TO_GFLOAT16_OP half , half, false, RA
+CAST_TO_GFLOAT16_OP half , half, false, RN
+CAST_TO_GFLOAT16_OP half , half, false, RU
+CAST_TO_GFLOAT16_OP half , half, false, RD
+CAST_TO_GFLOAT16_OP half , half, false, SR
+CAST_TO_GFLOAT16_OP half , half, false, SX
+
+CAST_TO_GFLOAT16_INPLACE_OP float, true, RZ
+CAST_TO_GFLOAT16_INPLACE_OP float, true, RA
+CAST_TO_GFLOAT16_INPLACE_OP float, true, RN
+CAST_TO_GFLOAT16_INPLACE_OP float, true, RU
+CAST_TO_GFLOAT16_INPLACE_OP float, true, RD
+CAST_TO_GFLOAT16_INPLACE_OP float, true, SR
+CAST_TO_GFLOAT16_INPLACE_OP float, true, SX
+
+CAST_TO_GFLOAT16_INPLACE_OP half, true, RZ
+CAST_TO_GFLOAT16_INPLACE_OP half, true, RA
+CAST_TO_GFLOAT16_INPLACE_OP half, true, RN
+CAST_TO_GFLOAT16_INPLACE_OP half, true, RU
+CAST_TO_GFLOAT16_INPLACE_OP half, true, RD
+CAST_TO_GFLOAT16_INPLACE_OP half, true, SR
+CAST_TO_GFLOAT16_INPLACE_OP half, true, SX
+
+CAST_TO_GFLOAT16_INPLACE_OP float, false, RZ
+CAST_TO_GFLOAT16_INPLACE_OP float, false, RA
+CAST_TO_GFLOAT16_INPLACE_OP float, false, RN
+CAST_TO_GFLOAT16_INPLACE_OP float, false, RU
+CAST_TO_GFLOAT16_INPLACE_OP float, false, RD
+CAST_TO_GFLOAT16_INPLACE_OP float, false, SR
+CAST_TO_GFLOAT16_INPLACE_OP float, false, SX
+
+CAST_TO_GFLOAT16_INPLACE_OP half, false, RZ
+CAST_TO_GFLOAT16_INPLACE_OP half, false, RA
+CAST_TO_GFLOAT16_INPLACE_OP half, false, RN
+CAST_TO_GFLOAT16_INPLACE_OP half, false, RU
+CAST_TO_GFLOAT16_INPLACE_OP half, false, RD
+CAST_TO_GFLOAT16_INPLACE_OP half, false, SR
+CAST_TO_GFLOAT16_INPLACE_OP half, false, SX
 
 #endif

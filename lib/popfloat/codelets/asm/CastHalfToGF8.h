@@ -9,9 +9,10 @@
 #define mGF16ManDiff m2
 
 #define mCount m3
+#define mTMemBase m4
 
 #define mOutSign m4
-#define mRemainder m4
+#define mQuotient m4
 
 #define mOut m5
 #define mExpManV1 m5
@@ -21,13 +22,11 @@
 
 #define mGf8Param m7
 
-#define mRowCount m8
+#define mCastParams m8
 
-#define mInRow m9
+#define mWorkerIdx m9
 
-#define mOutRow m10
-
-#define mSaveAsGF8 m11
+#define mRemainder m10
 
 #define outFp8V2_0 a0
 

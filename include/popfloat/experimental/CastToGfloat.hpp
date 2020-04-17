@@ -8,6 +8,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
+#include <poplar/Type.hpp>
 
 #include <functional>
 
@@ -53,6 +54,28 @@ namespace experimental {
 
 class GfloatCast {
 public:
+  struct GfloatFormatOptions {
+    unsigned numMantissaBits;
+    unsigned numExponentBits;
+    unsigned numExponentBias;
+    bool enableDenorms;
+    bool enableInfsAndNans;
+
+    void parseGfloatFormatOptions(const poplar::OptionFlags &options);
+
+    GfloatFormatOptions(const poplar::OptionFlags &options) {
+      parseGfloatFormatOptions(options);
+    }
+
+    GfloatFormatOptions() {
+      numMantissaBits = 10;
+      numExponentBits = 5;
+      numExponentBias = 15;
+      enableDenorms = true;
+      enableInfsAndNans = true;
+    }
+  };
+
   struct FormatConfig {
     FormatConfig() = default;
 
@@ -80,9 +103,15 @@ public:
                  popfloat::experimental::SpecType specCalculationType =
                      popfloat::experimental::SpecType::AUTO);
 
+    FormatConfig(GfloatFormatOptions formatOptions,
+                 poplar::Type calculationType);
+
     FormatConfig(unsigned numMantissaBits, unsigned numExponentBits,
                  int exponentBias, bool enableDenorms, bool enableInfsAndNans,
                  poplar::Type calculationType);
+
+    /* Copy constructor */
+    FormatConfig(const FormatConfig &formatConfig);
 
     poplar::Type getCalculationType() const { return calculationType; }
     poplar::Type getNativeType() const { return nativeType; }
@@ -109,6 +138,20 @@ public:
     bool isBlockFloat() const { return blockFloat; };
 
     unsigned getPackedFloatParameters() const { return packedFloatParameters; };
+
+    bool operator==(FormatConfig &other) const {
+      const auto numMantissaBits_ = other.getNumMantissaBits();
+      const auto numExponentBits_ = other.getNumExponentBits();
+      const auto exponentBias_ = other.getExponentBias();
+      const auto enableDenorms_ = other.isDenormEnabled();
+      const auto enableInfsAndNans_ = other.infAndNansEnabled();
+      const auto calculationType_ = other.getCalculationType();
+
+      return std::tie(numMantissaBits, numExponentBits, exponentBias,
+                      enableDenorms, enableInfsAndNans, calculationType) ==
+             std::tie(numMantissaBits_, numExponentBits_, exponentBias_,
+                      enableDenorms_, enableInfsAndNans_, calculationType_);
+    }
 
   private:
     /*
@@ -222,6 +265,36 @@ public:
     unsigned packedFloatBits;
   };
 
+  struct GfloatCastOptions {
+    popfloat::experimental::RoundType roundMode;
+    popfloat::experimental::SRDensityType srNoiseDensity;
+    unsigned numSRBits;
+    double srNoiseOffset;
+    double srNoiseScale;
+    double srNoiseMax;
+    double srNoiseMin;
+    double bernoulliProb;
+    bool enableNanooMode;
+
+    void parseGfloatCastOptions(const poplar::OptionFlags &options);
+
+    GfloatCastOptions(const poplar::OptionFlags &options) {
+      parseGfloatCastOptions(options);
+    }
+
+    GfloatCastOptions() {
+      roundMode = popfloat::experimental::RoundType::INV;
+      srNoiseDensity = popfloat::experimental::SRDensityType::INVALID;
+      numSRBits = 24;
+      srNoiseOffset = 0.0;
+      srNoiseScale = 0.0;
+      srNoiseMax = 0.0;
+      srNoiseMin = 0.0;
+      bernoulliProb = 0.0;
+      enableNanooMode = true;
+    }
+  };
+
   struct RoundConfig {
     /*
      * RoundConfig: This structure stores the configuration parameters for
@@ -249,6 +322,8 @@ public:
 
     RoundConfig(const GfloatCast::RoundConfig &roundCfg);
 
+    RoundConfig(GfloatCastOptions castOptions, poplar::Type calculationType);
+
     const popfloat::experimental::RoundType getRoundMode() const {
       return roundModeType;
     }
@@ -258,6 +333,7 @@ public:
     const popfloat::experimental::SRDensityType getSRNoiseDensity() const {
       return srNoiseDensity;
     }
+    std::vector<unsigned> getRoundingParams() const { return roundingParams; }
     std::vector<unsigned> getNoiseParams() const { return noiseParams; }
     const unsigned getDensityParam() const { return densityParam; }
 
@@ -424,6 +500,11 @@ public:
      * srBitMask: Bit mask used for stochastic rounding
      */
     std::vector<unsigned> srBitMask;
+
+    /*
+     * roundingParams: a vector of all rounding parameters
+     */
+    std::vector<unsigned> roundingParams;
   };
 
   /*
@@ -510,6 +591,8 @@ public:
 
     const bool isNanooModeEnabled() const { return enableNanooMode; }
 
+    std::vector<unsigned> getCastParams() const { return castParams; }
+
     const poplar::Type getCalculationType() const { return calculationType; }
     const poplar::Type getStorageType() const { return storageType; }
 
@@ -522,6 +605,10 @@ public:
     }
 
     const bool getStoreAsNative() const { return storeAsNative; }
+
+    std::vector<unsigned> getRoundingParams() const {
+      return roundConfig.getRoundingParams();
+    }
 
   private:
     CastConfig(popfloat::experimental::FormatType floatFormatType,
@@ -601,6 +688,11 @@ public:
      * bit representation.
      */
     bool storeAsNative;
+
+    /*
+     * castParams: A vector of all parameters used by cast vertex
+     */
+    std::vector<unsigned> castParams;
   };
 
   /** GfloatCast class constructor
@@ -640,6 +732,19 @@ public:
                  popfloat::experimental::SpecType::AUTO,
              const popfloat::experimental::SpecType &NativeType =
                  popfloat::experimental::SpecType::AUTO);
+
+  GfloatCast(const GfloatFormatOptions &formatOtions,
+             const GfloatCastOptions &castOptions, poplar::Type calculationType,
+             const popfloat::experimental::SpecType &GFType =
+                 popfloat::experimental::SpecType::AUTO,
+             const popfloat::experimental::SpecType &NativeType =
+                 popfloat::experimental::SpecType::AUTO);
+
+  /** GfloatCast class copy constructor
+   *
+   * \param GfloatCast: A GfloatCast instance.
+   */
+  GfloatCast(const GfloatCast &gfloatCast);
 
   /** Create a cast function's parameters tensor.
    *
@@ -928,6 +1033,12 @@ public:
     return gfToNativeCastCfg.getStorageType();
   }
 
+  /** Get FormatConfig member
+   *
+   * \return FormatConfig
+   */
+  const FormatConfig getFormatConfig() const { return formatCfg; }
+
   /** Get nativeToGFCastCfg
    *
    * \return CastConfig
@@ -948,11 +1059,51 @@ public:
     return nativeToGFCastCfg.getStoreAsNative();
   }
 
-private:
+  /** Get Cast op params tensor
+   *
+   * \return Tensor
+   */
+  poplar::Tensor getCastOpParams() const { return *gfParams; }
+
+  /** Get Cast op params tensor
+   *
+   * \return Tensor
+   */
+  bool isCastOpParamSet() const { return castOpParamSet; }
+
+  /** Set Cast op params tensor from constant tensor
+   *
+   */
+  void setGfloatCastParameters(poplar::Tensor *gfParams_) {
+    gfParams.reset(gfParams_);
+  }
+
+  const bool isNanooModeEnabled() const {
+    return nativeToGFCastCfg.isNanooModeEnabled();
+  }
+
+  std::vector<unsigned> getSRBitMask() const {
+    return nativeToGFCastCfg.getSRBitMask();
+  }
+
+  const popfloat::experimental::RoundType getRoundMode() const {
+    return nativeToGFCastCfg.getRoundMode();
+  }
+
+  const bool inPlaceOp(poplar::Type outType) const {
+    return nativeToGFCastCfg.inPlaceOp(outType);
+  }
+
+  std::vector<unsigned> getRoundingParams() const {
+    return nativeToGFCastCfg.getRoundingParams();
+  }
+
+protected:
   CastConfig nativeToGFCastCfg;
   CastConfig gfToNativeCastCfg;
   FormatConfig formatCfg;
   std::unique_ptr<poplar::Tensor> gfParams;
+  bool castOpParamSet;
 };
 
 } // end namespace experimental

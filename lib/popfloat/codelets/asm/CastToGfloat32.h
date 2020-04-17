@@ -7,7 +7,6 @@
 #define enHalfMin m1
 #define mRoundMode m1
 
-#define mRemainder m2
 #define srManMask m2
 #define setMode m2
 
@@ -22,13 +21,13 @@
 
 #define mBaseOut m7
 
-#define enNanoo m8
+#define mQuotient m8
 
-#define mRowCount m9
+#define mCastParams m9
 
-#define mInRow m10
+#define mWorkerIdx m10
 
-#define mOutRow m11
+#define mRemainder m11
 
 #define expV2                                                                  \
   a0:                                                                          \

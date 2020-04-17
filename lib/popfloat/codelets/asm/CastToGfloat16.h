@@ -9,24 +9,21 @@
 #define mRoundMode m2
 
 #define setMode m3
-#define mRemainder m3
 
 #define mCount m4
 
-#define enNanoo m5
 
 #define mCastToGF16 m6
 
 #define mGf16Param m7
 
-#define srManMask m8
-#define mRoundOp m8
+#define mRemainder m8
 
-#define mRowCount m9
+#define mQuotient m9
 
-#define mInRow m10
+#define mCastParams m10
 
-#define mOutRow m11
+#define mWorkerIdx m11
 
 #define scaleFloat a0
 #define scaleClamp a0

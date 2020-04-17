@@ -3,32 +3,31 @@
 #define CAST_GF16_TO_FLOAT_H
 
 #define mInValue0 m0
-#define mCastOp m0
+#define mWorkerIdx m0
 
+#define mCastParams m1
 #define mInValueV2 m1
 #define mInValue1 m1
 
 #define mManSh0 m2
-#define mBaseIn m2
+#define mQuotient m2
 
 #define mManSh1 m3
-#define mBaseOut m3
 
-#define setLoadGF16 m4
 #define mCount m4
+#define mTMemBase m4
 
 #define mBiasCorr m5
 
 #define mExpManMask m6
-#define mRemainder m6
 
-#define mInRow m7
+#define mRemainder m7
 
-#define mOutRow m8
+#define mBaseOut m8
 
 #define mGF16Param m9
 
-#define mRowCount m10
+#define mBaseIn m10
 
 #define mCastToFloat m11
 

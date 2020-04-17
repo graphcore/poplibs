@@ -2,11 +2,13 @@
 #ifndef POPFLOAT_UTILS_H
 #define POPFLOAT_UTILS_H
 
-#include "GfloatConst.hpp"
+#include "asm/GfloatConst.hpp"
 #include "ipudef.h"
 #include <array>
 #include <cmath>
 #include <poplar/IeeeHalf.hpp>
+
+using namespace poplar;
 
 namespace popfloat {
 namespace experimental {

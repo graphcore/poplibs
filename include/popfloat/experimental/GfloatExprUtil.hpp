@@ -13,6 +13,7 @@ namespace experimental {
 std::string roundTypeToString(RoundType rmode);
 std::string formatTypeToString(FormatType fmt);
 std::string srDensityTypeToString(SRDensityType dist);
+std::string specTypeToString(SpecType specType);
 poplar::Type specTypeToPoplarType(SpecType specType);
 
 } // end namespace experimental
@@ -40,6 +41,13 @@ struct VertexTemplateToString<popfloat::experimental::SRDensityType> {
   to_string(const popfloat::experimental::SRDensityType &dist) {
     return "popfloat::experimental::SRDensityType::" +
            popfloat::experimental::srDensityTypeToString(dist);
+  }
+};
+
+template <> struct VertexTemplateToString<popfloat::experimental::SpecType> {
+  static std::string to_string(const popfloat::experimental::SpecType &spec) {
+    return "popfloat::experimental::SpecType::" +
+           popfloat::experimental::specTypeToString(spec);
   }
 };
 } // end namespace poputil

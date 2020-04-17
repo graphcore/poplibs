@@ -6,36 +6,70 @@
 #include "GfloatConst.hpp"
 #include "CastFloatToGF8.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "popfloatCommon.inc"
 
-DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8
-.section .text.castFloatToGf8
+DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8Supervisor
+.section .text.castFloatToGf8Supervisor
 .align 4
-  .globl __runCodelet_popfloat__experimental__CastFloatToGf8
-  .type __runCodelet_popfloat__experimental__CastFloatToGf8, @function
-  __runCodelet_popfloat__experimental__CastFloatToGf8:
+  .globl __runCodelet_popfloat__experimental__CastFloatToGf8Supervisor
+  .type __runCodelet_popfloat__experimental__CastFloatToGf8Supervisor, @function
+  __runCodelet_popfloat__experimental__CastFloatToGf8Supervisor:
+.supervisor
+castFloatToGf8Supervisor:
+  POPFLOAT_SUPERVISOR_CAST_OP castFloatToGf8
 
-  ld32         $mGf8Param     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
-  ld32         $mBaseIn       , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
-  ld32         $mBaseOut      , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
-  ld32         $mRowCount     , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET+1
-  add          $mRowCount     , $mRowCount            , -1
-1:
-  ld32step     $mInRow        , $mzero                , $mBaseIn+=        , 1
-  ld32step     $mOutRow       , $mzero                , $mBaseOut+=       , 2
+.worker
+castFloatToGf8:
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mGf8Param, $mvertex_base, POPFLOAT_VBASE_CAST_GFLOAT_PARAM_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseIn, $mvertex_base, POPFLOAT_VBASE_CAST_INPUT_BASE_PTR_OFFSET
+  POPFLOAT_MAYBE_LOAD_SCALED_PTR $mBaseOut, $mvertex_base, POPFLOAT_VBASE_CAST_OUTPUT_BASE_PTR_OFFSET
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mGf8Param
+  POPFLOAT_CONVERT_SCALED_PTR64_TO_PTR $mBaseIn
+  setzi        $mTMemBase     , (TMEM_REGION0_BASE_ADDR / 4)
+  POPFLOAT_CONVERT_SCALED_PTR32_TO_PTR $mBaseOut $mTMemBase
   {
-    ld32         $mCount        , $mzero                , $mBaseIn          , 0;
+    ldz16        $mCount        , $mvertex_base         , $mzero            , POPFLOAT_VBASE_CAST_ELEMENTS_PER_WORKER_OFFSET;
     or           $signMask      , $azero                , POPFLOAT_FP32_SIGN_MASK
   }
+  POPFLOAT_GET_WORKER_INDEX $mWorkerIdx
+  ldz8         $mQuotient     , $mvertex_base         , $mzero            , 2 *   POPFLOAT_VBASE_CAST_LAST_WORKER_PARAM_OFFSET
+  cmpult       $mRemainder    , $mWorkerIdx           , $mQuotient
+  add          $mCount        , $mCount               , $mRemainder
+  ldz8         $mRemainder    , $mvertex_base         , $mzero            , 2 *   POPFLOAT_VBASE_CAST_LAST_WORKER_PARAM_OFFSET + 1
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
+    cmpeq        $mQuotient     , $mQuotient            , $mWorkerIdx
+    setzi        $increment0    , (2*CTXT_WORKERS - 1)
+  }
+  {
+    mul          $mRemainder    , $mRemainder           , $mQuotient;
+    setzi        $increment1    , 1
+  }
+  brz          $mQuotient     , 1f
+  cmpult       $mQuotient     , $mzero                , $mRemainder
+  add          $mCount        , $mCount               , $mQuotient
+1:
+  brz          $mCount        , 4f
+  ld32step     $azero         , $mzero                , $mBaseOut+=       , $mWorkerIdx
+  ld64step     $azeros        , $mzero                , $mBaseIn+=        , $mWorkerIdx
+  ld64step     $azeros        , $mzero                , $mBaseIn+=        , $mWorkerIdx
+  {
+    ld64step     $inValueV2     , $mzero                , $mBaseIn+=        , 1;
     f32v2mul     $sgnMaskV2     , $signMask:B           , $azeros
   }
-  add          $mCount        , $mCount               , 3
-  shr          $mCount        , $mCount               , 2
-  andc64       $outValueV2    , $inValueV2            , $sgnMaskV2
-  and64        $sgnV2         , $inValueV2            , $sgnMaskV2;
+  {
+    st32         $mRemainder    , $mworker_base         , $mzero            , 4;
+    andc64       $outValueV2    , $inValueV2            , $sgnMaskV2
+  }
+  {
+    st64         $increment     , $mworker_base         , $mzero            , 1;
+    and64        $sgnV2         , $inValueV2            , $sgnMaskV2;
+  }
   add          $mCount        , $mCount               , -1
-4:
+  bri          1f
+3:
+  st32step     $mOutV2        , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+1:
+  setzi        $mIncrementPtr , 2
 .align 8
   setzi        $mStackOffset  , 0
   rpt          2              , ((2f-1f)/8) - 1
@@ -57,7 +91,7 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8
     andc64       $outV2         , $outV2                , $fpExpMaskV2;
   }
   {
-    nop;
+    ld32         $mIncrement    , $mworker_base         , $mzero            , $mIncrementPtr
     and64        $outV2         , $outV2                , $isDenormV2
   }
   {
@@ -65,7 +99,7 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8
     andc64       $outValueV2    , $outValueV2           , $isDenormV2
   }
   {
-    ld64step     $inValueV2     , $mzero                , $mInRow+=         , 1;
+    ld64step     $inValueV2     , $mzero                , $mBaseIn+=        , $mIncrement;
     f32v2mul     $outValueV2    , $biasCorrection:B     , $outValueV2
   }
   {
@@ -73,7 +107,7 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8
     or64         $outValueV2    , $outValueV2           , $outV2
   }
   {
-    nop;
+    add          $mIncrementPtr , $mIncrementPtr        , 1;
     and64        $outValueV2    , $outValueV2           , $manExpMaskV2
   }
   {
@@ -108,24 +142,23 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8
   ld32         $mOutValue0    , $mworker_base         , $mzero            , 0;
   ld32         $mOutValue1    , $mworker_base         , $mzero            , 1;
   sort8x8hi    $mOutV2        , $mOutValue0           , $mOutValue1
-  brz          $mCount        , 2f
-  st32step     $mOutV2        , $mzero                , $mOutRow+=        , 1;
-  brnzdec      $mCount        , 4b
+  brnzdec      $mCount        , 3b
 2:
-  and          $mCount        , $mCount               , 3
-  brnz         $mCount        , 2f
-  st32step     $mOutV2        , $mzero                , $mOutRow+=        , 1
-  bri          4f
-2:
-  cmpult       $mRemainder    , $mCount               , 3
-  ld32         $mOutValue1    , $mzero                , $mOutRow          , 0
+  ld32         $mRemainder    , $mworker_base         , $mzero            , 4;
   brnz         $mRemainder    , 2f
+  st32step     $mOutV2        , $mzero                , $mBaseOut+=       , CTXT_WORKERS
+  exitz        $mzero
+2:
+  cmpult       $mCount        , $mRemainder           , 3
+  brnz         $mCount    , 2f
+  ld32         $mOutValue1    , $mzero                , $mBaseOut         , 0
+  brnz         $mCount        , 2f
   roll8l       $mOutV2        , $mOutValue1           , $mOutV2
   roll8r       $mOutV2        , $mOutV2               , $mOutV2
   bri          3f
 2:
-  cmpult       $mRemainder    , $mCount               , 2
-  brnz         $mRemainder    , 2f
+  cmpult       $mCount        , $mRemainder           , 2
+  brnz         $mCount        , 2f
   roll16       $mOutV2        , $mOutValue1           , $mOutV2
   roll16       $mOutV2        , $mOutV2               , $mOutV2
   bri          3f
@@ -133,12 +166,10 @@ DEF_STACK_USAGE 0 __runCodelet_popfloat__experimental__CastFloatToGf8
   roll8r       $mOutV2        , $mOutValue1           , $mOutV2
   roll8l       $mOutV2        , $mOutV2               , $mOutV2
 3:
-  st32step     $mOutV2        , $mzero                , $mOutRow+=        , 1
+  st32step     $mOutV2        , $mzero                , $mBaseOut+=       , CTXT_WORKERS
 4:
-  ld32step     $mCount        , $mzero                , $mBaseIn+=        , 1
-  brnzdec      $mRowCount     , 1b
   exitz        $mzero
 
-.size castFloatToGf8, .-__runCodelet_popfloat__experimental__CastFloatToGf8
+.size castFloatToGf8Supervisor, .-__runCodelet_popfloat__experimental__CastFloatToGf8Supervisor
 
 #endif

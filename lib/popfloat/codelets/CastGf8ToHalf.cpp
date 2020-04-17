@@ -9,19 +9,26 @@
 #include <poplar/Vertex.hpp>
 #include <print.h>
 
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
+#include "poplibs_support/TileConstants.hpp"
+
+static constexpr auto COMPACT_PTR = poplar::VectorLayout::COMPACT_PTR;
 
 using namespace poplar;
 
 namespace popfloat {
 namespace experimental {
 
-template <FormatType FORMAT> class CastGf8ToHalf : public Vertex {
+template <FormatType FORMAT>
+class CastGf8ToHalfSupervisor
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  Input<Vector<int, SPAN, 8>> param;
-  Vector<Input<Vector<char, SPAN, 4>>, SPAN> in;
-  Vector<Output<Vector<half, SPAN, 8>>, SPAN> out;
+  CastGf8ToHalfSupervisor();
+
+  Input<Vector<int, COMPACT_PTR, 8>> param;
+  Input<Vector<char, COMPACT_PTR, 4>> in;
+  Output<Vector<half, COMPACT_PTR, 8>> out;
+  unsigned short elementsPerWorker;
+  unsigned short lastWorkerParams;
 
   IS_EXTERNAL_CODELET(EXTERNAL_CODELET);
 
@@ -60,63 +67,64 @@ public:
     }
     vecAsUInt<ushort4, uint64_t, 1>(&fp16Sgn, &halfSgnMaskV4);
 
-    for (unsigned Idx = 0; Idx < in.size(); ++Idx) {
-      unsigned len = in[Idx].size();
-      unsigned nv = (len + POPFLOAT_GF16_VEC_SIZE - 1) / POPFLOAT_GF16_VEC_SIZE;
+    auto lastWorker = lastWorkerParams & 0xFF;
+    auto remainder = (lastWorkerParams >> 8) & 0xFF;
 
-      for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF16_VEC_SIZE) {
-        char4 gf8V4;
-        std::memcpy(&gf8V4, &in[Idx][POPFLOAT_GF16_VEC_SIZE * j],
-                    sizeof(gf8V4));
-        char gfV8[2 * POPFLOAT_GF16_VEC_SIZE];
-        for (int idx = 0; idx < POPFLOAT_GF16_VEC_SIZE; ++idx) {
-          gfV8[2 * idx + 0] = 0;
-          gfV8[2 * idx + 1] = gf8V4[idx];
-        }
-        uint64_t maskOutV4, sgnV4, expV4;
-        vecAsUInt<char, uint64_t, 8>(gfV8, &maskOutV4);
+    unsigned len =
+        (CTXT_WORKERS * elementsPerWorker + lastWorker) * 4 + remainder;
+    unsigned nv = (len + POPFLOAT_GF16_VEC_SIZE - 1) / POPFLOAT_GF16_VEC_SIZE;
 
-        sgnV4 = maskOutV4 & halfSgnMaskV4;
-        maskOutV4 = maskOutV4 ^ sgnV4;
-
-        if (FORMAT == FormatType::MAX_NORM_ALIGN_GF8) {
-          uint16_t maxExpBits = 0x7800; // 32768.0
-
-          uint64_t hfTmpV4;
-          expV4 = maskOutV4 & halfExpMaskV4;
-          hfTmpV4 = addF16v4(hfTmpV4, maxExpBits);
-
-          uint64_t isMaxExpV4, maxExpV4;
-          compareF16v4Eq(expV4, hfTmpV4, &isMaxExpV4);
-          maxExpV4 = maskOutV4 | halfExpMaskV4;
-          maxExpV4 = maxExpV4 & isMaxExpV4;
-          maskOutV4 = maskOutV4 & ~isMaxExpV4;
-
-          uint16_t hlf2Pm1Bits = 0x3800;
-          maskOutV4 = mulF16v4(maskOutV4, hlf2Pm1Bits);
-          maskOutV4 = maskOutV4 | maxExpV4;
-        } else if (FORMAT == FormatType::MIN_NORM_ALIGN_GF8) {
-          maskOutV4 = (maskOutV4 >> 8) << gf8ShrAlign;
-        }
-        float gf16MaxValue =
-            floatFromHalfBits(hlfClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
-        uint64_t hfpOut;
-        if (PROP_NAN) {
-          hfpOut = genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
-        } else {
-          hfpOut = clipF16v4(maskOutV4, gf16MaxValue);
-        }
-        maskOutV4 = hfpOut | sgnV4;
-        std::memcpy(&out[Idx][POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
-                    sizeof(maskOutV4));
+    for (unsigned j = 0; j != nv; ++j, len -= POPFLOAT_GF16_VEC_SIZE) {
+      char4 gf8V4;
+      std::memcpy(&gf8V4, &in[POPFLOAT_GF16_VEC_SIZE * j], sizeof(gf8V4));
+      char gfV8[2 * POPFLOAT_GF16_VEC_SIZE];
+      for (int idx = 0; idx < POPFLOAT_GF16_VEC_SIZE; ++idx) {
+        gfV8[2 * idx + 0] = 0;
+        gfV8[2 * idx + 1] = gf8V4[idx];
       }
+      uint64_t maskOutV4, sgnV4, expV4;
+      vecAsUInt<char, uint64_t, 8>(gfV8, &maskOutV4);
+
+      sgnV4 = maskOutV4 & halfSgnMaskV4;
+      maskOutV4 = maskOutV4 ^ sgnV4;
+
+      if (FORMAT == FormatType::MAX_NORM_ALIGN_GF8) {
+        uint16_t maxExpBits = 0x7800; // 32768.0
+
+        uint64_t hfTmpV4;
+        expV4 = maskOutV4 & halfExpMaskV4;
+        hfTmpV4 = addF16v4(hfTmpV4, maxExpBits);
+
+        uint64_t isMaxExpV4, maxExpV4;
+        compareF16v4Eq(expV4, hfTmpV4, &isMaxExpV4);
+        maxExpV4 = maskOutV4 | halfExpMaskV4;
+        maxExpV4 = maxExpV4 & isMaxExpV4;
+        maskOutV4 = maskOutV4 & ~isMaxExpV4;
+
+        uint16_t hlf2Pm1Bits = 0x3800;
+        maskOutV4 = mulF16v4(maskOutV4, hlf2Pm1Bits);
+        maskOutV4 = maskOutV4 | maxExpV4;
+      } else if (FORMAT == FormatType::MIN_NORM_ALIGN_GF8) {
+        maskOutV4 = (maskOutV4 >> 8) << gf8ShrAlign;
+      }
+      float gf16MaxValue =
+          floatFromHalfBits(hlfClamp[POPFLOAT_IPU_CLAMP_INDEX_MAX]);
+      uint64_t hfpOut;
+      if (PROP_NAN) {
+        hfpOut = genQnanOverflowF16(maskOutV4, gf16MaxValue, halfGenQnanV4);
+      } else {
+        hfpOut = clipF16v4(maskOutV4, gf16MaxValue);
+      }
+      maskOutV4 = hfpOut | sgnV4;
+      std::memcpy(&out[POPFLOAT_GF16_VEC_SIZE * j], &maskOutV4,
+                  sizeof(maskOutV4));
     }
     return true;
   }
 };
-template class CastGf8ToHalf<FormatType::MIN_NORM_ALIGN_GF8>;
-template class CastGf8ToHalf<FormatType::ONE_FIVE_TWO_GF8>;
-template class CastGf8ToHalf<FormatType::MAX_NORM_ALIGN_GF8>;
+template class CastGf8ToHalfSupervisor<FormatType::MIN_NORM_ALIGN_GF8>;
+template class CastGf8ToHalfSupervisor<FormatType::ONE_FIVE_TWO_GF8>;
+template class CastGf8ToHalfSupervisor<FormatType::MAX_NORM_ALIGN_GF8>;
 
 } // end namespace experimental
 } // end namespace popfloat

@@ -45,6 +45,7 @@ enum class SRDensityType {
 
 enum class SpecType {
   FP32,  // Select poplar::FLOAT to store the cast output
+  BF16,  // Select poplar::BFLOAT to store the cast output
   FP16,  // Select poplar::HALF to store the cast output
   INT8,  // Select poplar::CHAR to store the cast output
   INT16, // Select poplar::SHORT to store the cast output
@@ -54,4 +55,4 @@ enum class SpecType {
 
 } // end namespace experimental
 } // end namespace popfloat
-#endif // _experimental_popfloat_gfloat_expr_hpp_
+#endif // _popfloat_experimental_gfloat_expr_hpp_
