@@ -2480,96 +2480,33 @@ static std::vector<Tensor> reorderWeightsTensor(std::vector<Tensor> &in,
   return reorderedIn;
 }
 
-static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
-                                       unsigned tile,
-                                       const CanonicalConvParams &params,
-                                       ComputeSet fwdCS, Tensor in,
-                                       Tensor weights, Tensor out,
-                                       bool use128BitConvUnitLoad,
-                                       const std::string &debugPrefix) {
-  const auto &target = graph.getTarget();
-  const auto weightsPerConvUnit =
-      target.getWeightsPerConvUnit(in.elementType() == FLOAT);
-  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
-  if (convUnitWeightHeight != 1) {
-    assert(weights.dim(3) % convUnitWeightHeight == 0);
-    assert(params->inputTransform.truncationLower[0] == 0);
-    assert(params->inputTransform.truncationUpper[0] == 0);
-    assert(params->inputTransform.dilation[0] == 1);
-    assert(params->inputTransform.paddingLower[0] == 0);
-    assert(params->inputTransform.paddingUpper[0] == 0);
-  }
+struct ConvVertexSpatialPartition {
+  std::vector<std::size_t> outBeginIndices;
+  unsigned outXWidth;
+  std::vector<std::size_t> inBeginIndices;
+  unsigned inXWidth;
+  unsigned context;
+  unsigned subKernelPosition;
+};
 
-  const auto numFieldDims = params->getNumFieldDims();
-  const unsigned numConvGroupGroups = out.dim(0);
-  const unsigned numOutChanGroups = out.dim(1);
-  const unsigned numInChanGroups = in.dim(1);
-  const auto outChansPerGroup = plan.partialChansPerGroup;
-  const unsigned inChansPerGroup = plan.inChansPerGroup;
-
-  // AMP vertices only support having a single conv group per grouping.
-  assert(plan.convGroupsPerGroup == 1);
-
-  auto isNonZero = [](unsigned x) { return x != 0; };
-
-  // If the number of input channels is zero, the output could still be only
-  // padding. The 1x1 vertex requires the input channels to be non-zero to
-  // write zero to the output. Hence we always use a nx1 vertex if number
-  // of input channels is zero.
-  bool nx1Vertex =
-      numInChanGroups * inChansPerGroup == 0 ||
-      product(params->kernelShape) != 1 ||
-      params->inputTransform.dilation != params->outputTransform.stride ||
-      std::any_of(params->outputTransform.paddingLower.begin(),
-                  params->outputTransform.paddingLower.end(), isNonZero) ||
-      std::any_of(params->outputTransform.paddingUpper.begin(),
-                  params->outputTransform.paddingUpper.end(), isNonZero);
-  bool flipOut = params->inputTransform.flip[numFieldDims - 1];
-
-  std::vector<Tensor> weightsWindow;
-  for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
-    for (unsigned ozg = 0; ozg < numOutChanGroups; ++ozg) {
-      for (unsigned izg = 0; izg < numInChanGroups; ++izg) {
-        auto window = weights[cg][ozg][izg].flatten();
-        weightsWindow.push_back(window.flatten());
-      }
-    }
-  }
-
-  const auto contextsPerVertex = target.getNumWorkerContexts();
-  // The number of n x 1 x ... 1 slices required to cover the kernel in each
-  // dimension.
+std::vector<ConvVertexSpatialPartition>
+createPartitions(const CanonicalConvParams &params,
+                 unsigned convUnitWeightHeight, unsigned convUnitWeightWidth,
+                 unsigned contextsPerVertex) {
   auto numSubKernelSlices = params->kernelShape;
   assert(numSubKernelSlices[0] % convUnitWeightHeight == 0);
+  assert(numSubKernelSlices.back() % convUnitWeightWidth == 0);
   numSubKernelSlices[0] /= convUnitWeightHeight;
+  numSubKernelSlices.back() /= convUnitWeightWidth;
   const auto numSubKernelPositions = product(numSubKernelSlices);
+  const auto numFieldDims = params->getNumFieldDims();
 
-  auto kernelInnerElements =
-      product(numSubKernelSlices) / numSubKernelSlices[0];
-  auto inStrideX = params->outputTransform.stride.back();
-  auto outStrideX = params->inputTransform.dilation.back();
-  const auto strideDivisor = gcd(inStrideX, outStrideX);
-  inStrideX /= strideDivisor;
-  outStrideX /= strideDivisor;
+  std::vector<ConvVertexSpatialPartition> partitions;
 
-  const auto convInputLoadElems =
-      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
-
-  std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
-                                              numSubKernelPositions);
-  struct Partition {
-    std::vector<std::size_t> outBeginIndices;
-    unsigned outXWidth;
-    std::vector<std::size_t> inBeginIndices;
-    unsigned inXWidth;
-    unsigned context;
-    unsigned subKernelPosition;
-  };
-
-  std::vector<Partition> partitions;
   for (unsigned k = 0; k != numSubKernelPositions; ++k) {
     auto kernelBeginIndices = unflattenIndex(numSubKernelSlices, k);
     kernelBeginIndices[0] = kernelBeginIndices[0] * convUnitWeightHeight;
+    kernelBeginIndices.back() = kernelBeginIndices.back() * convUnitWeightWidth;
     std::vector<unsigned> tileConvOutBegin;
     std::vector<unsigned> tileConvOutSize;
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
@@ -2648,6 +2585,88 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
       }
     }
   }
+  return partitions;
+}
+
+static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
+                                       unsigned tile,
+                                       const CanonicalConvParams &params,
+                                       ComputeSet fwdCS, Tensor in,
+                                       Tensor weights, Tensor out,
+                                       bool use128BitConvUnitLoad,
+                                       const std::string &debugPrefix) {
+  const auto &target = graph.getTarget();
+  const auto weightsPerConvUnit =
+      target.getWeightsPerConvUnit(in.elementType() == FLOAT);
+  const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
+  if (convUnitWeightHeight != 1) {
+    assert(weights.dim(3) % convUnitWeightHeight == 0);
+    assert(params->inputTransform.truncationLower[0] == 0);
+    assert(params->inputTransform.truncationUpper[0] == 0);
+    assert(params->inputTransform.dilation[0] == 1);
+    assert(params->inputTransform.paddingLower[0] == 0);
+    assert(params->inputTransform.paddingUpper[0] == 0);
+  }
+
+  const auto numFieldDims = params->getNumFieldDims();
+  const unsigned numConvGroupGroups = out.dim(0);
+  const unsigned numOutChanGroups = out.dim(1);
+  const unsigned numInChanGroups = in.dim(1);
+  const auto outChansPerGroup = plan.partialChansPerGroup;
+  const unsigned inChansPerGroup = plan.inChansPerGroup;
+
+  // AMP vertices only support having a single conv group per grouping.
+  assert(plan.convGroupsPerGroup == 1);
+
+  auto isNonZero = [](unsigned x) { return x != 0; };
+
+  // If the number of input channels is zero, the output could still be only
+  // padding. The 1x1 vertex requires the input channels to be non-zero to
+  // write zero to the output. Hence we always use a nx1 vertex if number
+  // of input channels is zero.
+  bool nx1Vertex =
+      numInChanGroups * inChansPerGroup == 0 ||
+      product(params->kernelShape) != 1 ||
+      params->inputTransform.dilation != params->outputTransform.stride ||
+      std::any_of(params->outputTransform.paddingLower.begin(),
+                  params->outputTransform.paddingLower.end(), isNonZero) ||
+      std::any_of(params->outputTransform.paddingUpper.begin(),
+                  params->outputTransform.paddingUpper.end(), isNonZero);
+  bool flipOut = params->inputTransform.flip[numFieldDims - 1];
+
+  std::vector<Tensor> weightsWindow;
+  for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
+    for (unsigned ozg = 0; ozg < numOutChanGroups; ++ozg) {
+      for (unsigned izg = 0; izg < numInChanGroups; ++izg) {
+        auto window = weights[cg][ozg][izg].flatten();
+        weightsWindow.push_back(window.flatten());
+      }
+    }
+  }
+
+  const auto contextsPerVertex = target.getNumWorkerContexts();
+  // The number of n x 1 x ... 1 slices required to cover the kernel in each
+  // dimension.
+  auto numSubKernelSlices = params->kernelShape;
+  assert(numSubKernelSlices[0] % convUnitWeightHeight == 0);
+  numSubKernelSlices[0] /= convUnitWeightHeight;
+  const auto numSubKernelPositions = product(numSubKernelSlices);
+
+  auto kernelInnerElements =
+      product(numSubKernelSlices) / numSubKernelSlices[0];
+  auto inStrideX = params->outputTransform.stride.back();
+  auto outStrideX = params->inputTransform.dilation.back();
+  const auto strideDivisor = gcd(inStrideX, outStrideX);
+  inStrideX /= strideDivisor;
+  outStrideX /= strideDivisor;
+
+  const auto convInputLoadElems =
+      target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
+
+  const auto convUnitWeightWidth = 1u;
+  auto partitions = createPartitions(params, convUnitWeightHeight,
+                                     convUnitWeightWidth, contextsPerVertex);
+
   assert(!partitions.empty());
   std::vector<std::size_t> inputBatchAndFieldShape = {params->getBatchSize()};
   std::vector<std::size_t> outputBatchAndFieldShape = {params->getBatchSize()};
@@ -2663,9 +2682,10 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     // a 1x1 vertex. To avoid having two types of 1x1 vertices we just make it
     // a nx1 vertex if there's more than one partition.
     std::vector<unsigned> partitionsPerContext(contextsPerVertex);
-    std::for_each(
-        partitions.begin(), partitions.end(),
-        [&](const Partition &p) { partitionsPerContext[p.context] += 1; });
+    std::for_each(partitions.begin(), partitions.end(),
+                  [&](const ConvVertexSpatialPartition &p) {
+                    partitionsPerContext[p.context] += 1;
+                  });
 
     // find if any of the contexts has more than one partition
     unsigned contextsHaveMoreThanOnePartition = false;
@@ -2677,6 +2697,9 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     }
     useConvPartial1x1OutVertex = !contextsHaveMoreThanOnePartition;
   }
+
+  std::vector<std::vector<unsigned>> worklist(contextsPerVertex *
+                                              numSubKernelPositions);
 
   // create worklist now that dimensions of all splits are known
   for (const auto &p : partitions) {
@@ -3357,7 +3380,8 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
                                  Sequence &postConvProg, Tensor in,
                                  Tensor weights, Tensor out,
                                  const std::string &debugPrefix) {
-  assert(params == params.canonicalize());
+
+  const auto outputStride = params.outputTransform.stride.back();
 
   const auto &target = graph.getTarget();
   const auto numWorkerContexts = target.getNumWorkerContexts();
@@ -3375,7 +3399,6 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   };
 #endif
   assert(isAll(1u, params.kernelTransform.dilation));
-  assert(isAll(1u, params.outputTransform.stride));
   assert(isAll(0u, params.outputTransform.truncationLower));
   assert(isAll(0u, params.outputTransform.truncationUpper));
 
@@ -3450,71 +3473,36 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   const auto numConvGroupGroups = out.dim(0);
 
   bool useShortTypes = true;
-  const auto shortTypesVertexClass =
-      templateVertex("poplin::ConvPartial1x4SLIC", inType, partialsType,
-                     /* useShortTypes */ true);
-  const unsigned maxShortWorklistValue =
-      graph.getMaxVertexFieldValue(shortTypesVertexClass, "worklists");
-  const unsigned maxRptCount = target.getRptCountMax();
+  const auto shortTypesVertexClass = templateVertex(
+      "poplin::ConvPartial1x4SLIC", inType, partialsType, outputStride,
+      /* useShortTypes */ true);
   std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
                                                      numSubKernels);
+  const auto slicWindowHeight = 1u;
+  auto partitions = createPartitions(params, slicWindowHeight, slicWindowWidth,
+                                     numWorkerContexts);
 
-  const auto numFieldElems = product(outputSpatialShape);
-  const unsigned fieldElemsPerWorker =
-      ceildiv(numFieldElems, numWorkerContexts);
-  const unsigned fieldElemsPerRow = outputSpatialShape.back();
-  unsigned remainingFieldElems = numFieldElems;
-
-  for (unsigned context = 0; context < numWorkerContexts; ++context) {
-    const unsigned fieldElemsThisContext =
-        std::min(remainingFieldElems, fieldElemsPerWorker);
-    for (unsigned kg = 0; kg < numSubKernels; ++kg) {
-      unsigned outOffset = (numFieldElems - remainingFieldElems);
-      auto kernelPosition = unflattenIndex(kernelGroups, kg);
-      kernelPosition.back() *= slicWindowWidth;
-
-      const auto calcInOffset = [&](const unsigned unpaddedOutOffset) {
-        auto inputOffsets =
-            unflattenIndex(outputSpatialShape, unpaddedOutOffset);
-        for (unsigned d = 0; d < params.getNumFieldDims(); ++d) {
-          // +1 because outer-most dimension is batch size.
-          inputOffsets[d + 1] += kernelPosition[d];
-        }
-        return flattenIndex(inputSpatialShape, inputOffsets);
-      };
-
-      // transform outOffset into paddedOutOffset
-      const auto calcPaddedOffset = [&](const unsigned unpaddedOutOffset) {
-        auto paddedOutputOffsets =
-            unflattenIndex(outputSpatialShape, unpaddedOutOffset);
-        for (unsigned d = 0; d < numFieldDims; ++d) {
-          // +1 because outer-most dimension is batch size.
-          paddedOutputOffsets[d + 1] += params.outputTransform.paddingLower[d];
-        }
-        return flattenIndex(paddedOutputSpatialShape, paddedOutputOffsets);
-      };
-
-      unsigned remainingElemsThisContext = fieldElemsThisContext;
-      while (remainingElemsThisContext != 0) {
-        const auto elemsThisRow =
-            std::min((fieldElemsPerRow - (outOffset % fieldElemsPerRow)),
-                     remainingElemsThisContext);
-        const auto inOffset = calcInOffset(outOffset);
-        const auto paddedOutOffset = calcPaddedOffset(outOffset);
-        worklists[kg * numWorkerContexts + context].push_back(inOffset);
-        worklists[kg * numWorkerContexts + context].push_back(paddedOutOffset);
-        worklists[kg * numWorkerContexts + context].push_back(elemsThisRow);
-        useShortTypes &= (inOffset <= maxShortWorklistValue &&
-                          paddedOutOffset <= maxShortWorklistValue &&
-                          elemsThisRow <= maxShortWorklistValue);
-        useShortTypes &= (std::max(elemsThisRow, 5u) - 5 <= maxRptCount);
-        outOffset += elemsThisRow;
-        remainingElemsThisContext -= elemsThisRow;
-      }
-    }
-    remainingFieldElems -= fieldElemsThisContext;
+  std::vector<std::size_t> inputBatchAndFieldShape = {params.getBatchSize()};
+  std::vector<std::size_t> outputBatchAndFieldShape = {params.getBatchSize()};
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    inputBatchAndFieldShape.push_back(params.inputFieldShape[dim]);
+    outputBatchAndFieldShape.push_back(params.getOutputSize(dim));
   }
-  assert(remainingFieldElems == 0);
+
+  // create worklist now that dimensions of all splits are known
+  for (const auto &p : partitions) {
+    if (p.inBeginIndices.size() == 0) {
+      continue;
+    }
+    const auto outBeginOffset =
+        flattenIndex(outputBatchAndFieldShape, p.outBeginIndices);
+    const auto inBeginOffset =
+        flattenIndex(inputBatchAndFieldShape, p.inBeginIndices);
+    const auto wIndex = p.subKernelPosition * numWorkerContexts + p.context;
+    worklists[wIndex].push_back(inBeginOffset);
+    worklists[wIndex].push_back(outBeginOffset);
+    worklists[wIndex].push_back(p.outXWidth);
+  }
 
   // Determine whether or not we can use the assembly implementation
   // with short types.
@@ -3606,8 +3594,9 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
       "outFieldBuffer");
   graph.setTileMapping(outFieldBuffer, tile);
 
-  const auto vertexClass = templateVertex("poplin::ConvPartial1x4SLIC", inType,
-                                          partialsType, useShortTypes);
+  const auto vertexClass =
+      templateVertex("poplin::ConvPartial1x4SLIC", inType, partialsType,
+                     outputStride, useShortTypes);
   auto v = graph.addVertex(fwdCS, vertexClass);
   graph.setTileMapping(v, tile);
 
@@ -3616,6 +3605,7 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   graph.connect(v["out"], outWindow);
   graph.connect(v["outFieldBuffer"], outFieldBuffer);
   graph.setFieldSize(v["worklists"], worklists.size());
+
   for (unsigned i = 0; i < worklists.size(); ++i) {
     const auto t = graph.addConstant(UNSIGNED_SHORT, {worklists[i].size()},
                                      worklists[i].data(), "worklists");

@@ -539,7 +539,7 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
 inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials, bool implicitZeroing) {
+    bool floatPartials, unsigned outputStride, bool implicitZeroing) {
   // TODO: we currently only target SLIC for half->float.
   // TODO: we currently only target kernel width of 4.
   assert(!floatActivations);
@@ -567,22 +567,35 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
         workerCycles += 1; // Extra branch to exit
       }
       std::uint64_t rowCycles = 0;
-      if (numFieldElems < 5) {
-        if (implicitZeroing) {
-          rowCycles += 10 + (numFieldElems > 1 ? numFieldElems : 0) + 3;
-        } else {
-          rowCycles += 7;
-          if (numFieldElems == 1) {
-            rowCycles += 6;
+      if (outputStride == 1) {
+        if (numFieldElems < 5) {
+          if (implicitZeroing) {
+            rowCycles += 10 + (numFieldElems > 1 ? numFieldElems : 0) + 3;
           } else {
-            rowCycles += 1 + (numFieldElems - 1) + 2 + (4 - numFieldElems) + 2 +
-                         (3 - (4 - numFieldElems)) + 3;
+            rowCycles += 7;
+            if (numFieldElems == 1) {
+              rowCycles += 6;
+            } else {
+              rowCycles += 1 + (numFieldElems - 1) + 2 + (4 - numFieldElems) +
+                           2 + (3 - (4 - numFieldElems)) + 3;
+            }
           }
+        } else {
+          // Cycles for > 5 field elements matches for implicit
+          // zeroing vs. normal
+          rowCycles += 15 + (numFieldElems - 5);
         }
-        // Cycles for > 5 field elements matches for implicit
-        // zeroing vs. normal
       } else {
-        rowCycles += 15 + (numFieldElems - 5);
+        // outputStride == 2
+        if (numFieldElems < 3) {
+          // Cycles for > 3 field elements matches for implicit
+          // zeroing vs. normal
+          rowCycles += 7 + (numFieldElems == 1 ? 3 : 5) + 3;
+        } else {
+          // Cycles for < 3 field elements matches for implicit
+          // zeroing vs. normal
+          rowCycles += 15 + 2 * (numFieldElems - 3);
+        }
       }
       // 2 passes over input data
       workerCycles += 3 + rowCycles * 2;

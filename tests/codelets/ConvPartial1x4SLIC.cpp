@@ -41,6 +41,12 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using namespace poplibs_support;
 
+unsigned stridedDimSize(unsigned inputSize, unsigned kernelSize,
+                        unsigned stride, bool applyStride = true) {
+  const auto outputSize = inputSize - kernelSize + 1;
+  return applyStride ? (outputSize + stride - 1) / stride : outputSize;
+}
+
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
@@ -57,6 +63,7 @@ int main(int argc, char **argv) try {
   ShapeOption<unsigned> outputPaddingLower(0);
   ShapeOption<unsigned> outputPaddingUpper(0);
   unsigned batchSize = 1;
+  unsigned outputStride = 1;
 
   Type inputType = HALF;
   Type partialsType = FLOAT;
@@ -108,6 +115,9 @@ int main(int argc, char **argv) try {
     ("output-padding-upper",
      po::value<ShapeOption<unsigned>>(&outputPaddingUpper),
      "Output padding upper")
+    ("output-stride",
+     po::value<unsigned>(&outputStride)->default_value(outputStride),
+     "Output stride in the innermost dimension")
   ;
   // clang-format on
   po::variables_map vm;
@@ -163,11 +173,15 @@ int main(int argc, char **argv) try {
   outputPaddingUpper.broadcast(numFieldDims);
 
   std::vector<std::size_t> outputFieldSize(inputFieldSize.size());
-  std::vector<std::size_t> paddedOutputFieldSize(inputFieldSize.size());
+  std::vector<std::size_t> stridedPaddedOutputFieldSize(inputFieldSize.size());
+
   for (unsigned d = 0; d < numFieldDims; ++d) {
     outputFieldSize[d] = inputFieldSize[d] - kernelSize[d] + 1;
-    paddedOutputFieldSize[d] =
-        outputPaddingLower[d] + outputFieldSize[d] + outputPaddingUpper[d];
+
+    const auto unpaddedDimSize = stridedDimSize(
+        inputFieldSize[d], kernelSize[d], outputStride, d == numFieldDims - 1);
+    stridedPaddedOutputFieldSize[d] =
+        outputPaddingLower[d] + unpaddedDimSize + outputPaddingUpper[d];
   }
   auto device = createTestDevice(deviceType, 1, 1);
   const auto &target = device.getTarget();
@@ -187,8 +201,9 @@ int main(int argc, char **argv) try {
                       {convGroupsPerGroup, chansPerGroup, chansPerGroup});
   std::vector<std::size_t> outputShape = {convGroupGroups, outChanGroups,
                                           batchSize};
-  outputShape.insert(outputShape.end(), paddedOutputFieldSize.begin(),
-                     paddedOutputFieldSize.end());
+  outputShape.insert(outputShape.end(), stridedPaddedOutputFieldSize.begin(),
+                     stridedPaddedOutputFieldSize.end());
+
   outputShape.insert(outputShape.end(), {convGroupsPerGroup, chansPerGroup});
 
   const auto inGroupedWithOverread =
@@ -225,6 +240,7 @@ int main(int argc, char **argv) try {
                             inChans,   outChans,  convGroups};
   params.outputTransform.paddingLower = outputPaddingLower;
   params.outputTransform.paddingUpper = outputPaddingUpper;
+  params.outputTransform.stride.back() = outputStride;
   std::cout << "params=" << params << std::endl;
 
   Sequence prog;
@@ -298,10 +314,10 @@ int main(int argc, char **argv) try {
   if (!ignoreData) {
     rawHostIn = allocateHostMemoryForTensor(in, "in", graph, uploadProg,
                                             downloadProg, tmap);
-    rawHostOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
-                                             downloadProg, tmap);
     rawHostWeights = allocateHostMemoryForTensor(
         weights, "weights", graph, uploadProg, downloadProg, tmap);
+    rawHostOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                             downloadProg, tmap);
   }
 
   OptionFlags engineOptions;
@@ -321,12 +337,15 @@ int main(int argc, char **argv) try {
       boost::extents[batchSize][convGroups * inChans][product(inputFieldSize)]);
   boost::multi_array<double, 4> hostWeights(
       boost::extents[convGroups][outChans][inChans][product(kernelSize)]);
+
   boost::multi_array<double, 3> hostOut(
       boost::extents[batchSize][convGroups * outChans]
-                    [product(paddedOutputFieldSize)]);
+                    [product(stridedPaddedOutputFieldSize)]);
+
   // 0 biases just for the reference convolution implementation.
   boost::multi_array<double, 1> hostBiases(
       boost::extents[convGroups * outChans]);
+
   auto printMultiArrayContents = [](std::ostream &o, const auto &arr) {
     o << "{";
     bool first = true;
@@ -340,26 +359,31 @@ int main(int argc, char **argv) try {
     o << "}";
   };
 
-  std::mt19937 randomEngine;
-  writeRandomValues(target, inputType, hostIn, -1.0, +5.0, randomEngine);
-  writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
+  if (!ignoreData) {
+    std::mt19937 randomEngine;
+    writeRandomValues(target, inputType, hostIn, -1.0, +5.0, randomEngine);
+    writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
+    std::cout << "Input: ";
+    printMultiArrayContents(std::cout, hostIn);
+    std::cout << "\nWeights: ";
+    printMultiArrayContents(std::cout, hostWeights);
+    std::cout << "\n";
 
-  std::cout << "Input: ";
-  printMultiArrayContents(std::cout, hostIn);
-  std::cout << "\nWeights: ";
-  printMultiArrayContents(std::cout, hostWeights);
-  std::cout << "\n";
-  copy(target, hostIn, inputType, rawHostIn.get());
-  copy(target, hostWeights, inputType, rawHostWeights.get());
-
+    copy(target, hostIn, inputType, rawHostIn.get());
+    copy(target, hostWeights, inputType, rawHostWeights.get());
+  }
   device.bind([&](const Device &d) { engine.loadAndRun(d); });
 
   if (!ignoreData) {
     boost::multi_array<double, 3> modelOut(
         boost::extents[batchSize][convGroups * outChans]
-                      [product(paddedOutputFieldSize)]);
+                      [product(stridedPaddedOutputFieldSize)]);
     std::vector<unsigned> modelOutputPaddingLower = outputPaddingLower;
     std::vector<unsigned> modelOutputPaddingUpper = outputPaddingUpper;
+
+    std::vector<unsigned> strides(numFieldDims, 1);
+    strides.back() = outputStride;
+
     poplibs_test::conv::convolution(
         // Input:
         vectorConvert<unsigned>(inputFieldSize),
@@ -380,7 +404,7 @@ int main(int argc, char **argv) try {
         // Output:
         std::vector<unsigned>(numFieldDims, 0), // truncationLower
         std::vector<unsigned>(numFieldDims, 0), // truncationUpper
-        std::vector<unsigned>(numFieldDims, 1), // stride
+        strides,                                // stride
         modelOutputPaddingLower,                // paddingLower
         modelOutputPaddingUpper,                // paddingUpper
         // Buffers:
@@ -395,7 +419,6 @@ int main(int argc, char **argv) try {
     std::cout << "\nModel[" << modelOut.num_elements() << "]: ";
     printMultiArrayContents(std::cout, modelOut);
     std::cout << "\n";
-
     bool matchesModel =
         checkIsClose("fwd", hostOut, modelOut, HALF_REL_TOL, HALF_ABS_TOL);
     if (!matchesModel) {

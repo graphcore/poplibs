@@ -562,12 +562,14 @@ static std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
 }
 
 static std::uint64_t getConvPartialSlicInnerLoopCycles(
-    bool implicitZeroing, unsigned batchElements,
+    unsigned outStride, bool implicitZeroing, unsigned batchElements,
     const std::vector<unsigned> &outShape, unsigned numWorkerContexts,
     unsigned slicWindowWidth, bool floatActivations, bool floatPartials) {
-  // SLIC doesn't support output striding and input dilation.
-  const std::vector<unsigned> inputDilation(outShape.size(), 1);
-  const auto &outputStride = inputDilation;
+  // SLIC doesn't support input dilation
+  std::vector<unsigned> inputDilation(outShape.size(), 1);
+  // SLIC only supports output striding (of 1 or 2) in the innermost dimension.
+  std::vector<unsigned> outputStride(outShape.size(), 1);
+  outputStride.back() = outStride;
 
   const auto partition = partitionConvPartialByWorker(
       batchElements, outShape, numWorkerContexts, inputDilation, outputStride);
@@ -582,10 +584,9 @@ static std::uint64_t getConvPartialSlicInnerLoopCycles(
       worklist[context].push_back(workerOutWidth);
     }
   }
-
   return getConvPartialSlicSupervisorCycleInnerLoopEstimate(
       worklist, numWorkerContexts, slicWindowWidth, floatActivations,
-      floatPartials, implicitZeroing);
+      floatPartials, outputStride.back(), implicitZeroing);
 }
 
 static std::uint64_t estimateCastCycles(unsigned outputSize,
@@ -1239,7 +1240,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   case Plan::Method::SLIC: {
     return m.call(
         convSizeVarsVector,
-        [&target, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
+        [&target, params, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, transformedInputDilation, transformedOutputStride,
          slicWindowWidth, floatActivations, floatPartials,
          cache](const auto &values) {
@@ -1250,8 +1251,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 #ifndef NDEBUG
           const auto isOne = [](const auto &x) { return x == 1; };
 #endif
-          assert(std::all_of(std::begin(transformedOutputStride),
-                             std::end(transformedOutputStride), isOne));
+          assert(std::all_of(transformedOutputStride.begin(),
+                             transformedOutputStride.end() - 1, isOne) &&
+                 transformedOutputStride.back() <= 2);
 
           // current vertex requirements
           assert(inChansPerGroup == outChansPerGroup);
@@ -1279,11 +1281,13 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
           const auto implicitZeroInnerLoopCycles =
               cache->mGetConvPartialSlicInnerLoopCycles(
+                  params.outputTransform.stride.back(),
                   /* implicitZeroing */ true, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
                   slicWindowWidth, floatActivations, floatPartials);
           const auto innerLoopCycles =
               cache->mGetConvPartialSlicInnerLoopCycles(
+                  params.outputTransform.stride.back(),
                   /* implicitZeroing */ false, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
                   slicWindowWidth, floatActivations, floatPartials);
@@ -1291,7 +1295,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               getConvPartialSlicSupervisorCycleWeightLoadEstimate(
                   convGroupsPerGroup, inChansPerGroup,
                   target.getNumWorkerContexts(), slicWindowWidth);
-
           return cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
               implicitZeroInnerLoopCycles, innerLoopCycles, weightLoadCycles,
               tileNumConvGroups, numWeightBlocks, slicWindowWidth,
@@ -3298,9 +3301,10 @@ static popsolver::Variable getInputFieldSize(popsolver::Model &m,
   return inputFieldSize;
 }
 
-// SLIC is not possible when the output has striding because this is implemented
-// by striding the weights window across the input which cannot be done if SLIC
-// handles the sliding. input dilation is also an issue because that is
+// SLIC is only possible when the output has a stride of 1 or 2 in the  inner
+// most dimension because this is implemented by striding the
+// weights window across the input which is done by the SLIC vertex.
+// Input dilation is also an issue because that is
 // represented as output striding. kernel dilation would be possible if we
 // realised the zeros in the weights before loading it into the CWEI registers,
 // this is not currently modelled (and would incur a performance overhead) so
@@ -3322,7 +3326,12 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
 
     m.equal(m.addConstant(lvl1Params.outputTransform.truncationLower[dim]), 0);
     m.equal(m.addConstant(lvl1Params.outputTransform.truncationUpper[dim]), 0);
-    m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
+
+    if (dim == p.fieldGrainSize.size() - 1) {
+      m.lessOrEqual(m.addConstant(lvl1Params.outputTransform.stride[dim]), 2);
+    } else {
+      m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
+    }
   }
 }
 
@@ -4919,8 +4928,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
               bestPlan = candidate;
               bestCost = candidateCost;
 
-              logging::debug("Found new best candidate plan: {}",
-                             candidateCost);
+              logging::debug("Found new best candidate plan using {}: {}",
+                             candidate.method, candidateCost);
               logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost);
             }
           }
@@ -5248,7 +5257,7 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
     }
   }
 
-  logging::debug("Found best plan: {}.", cost);
+  logging::debug("Found best plan using {}: {}.", plan.method, cost);
   logging::debug(
       "  for input {}x({}x{}x{}), kernel {}, output = {}x({}x{}x{}), pass={}",
       params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),

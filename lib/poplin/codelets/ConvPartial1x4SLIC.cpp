@@ -23,7 +23,8 @@ constexpr bool hasAssemblyVersion() {
          std::is_same<AccumType, float>::value && useShortTypes;
 }
 
-template <typename FPType, typename AccumType, bool useShortTypes>
+template <typename FPType, typename AccumType, unsigned outStride,
+          bool useShortTypes>
 class [[poplar::constraint(
     "elem(**in) != elem(**out)",
     "elem(**in) != elem(*outFieldBuffer)")]] ConvPartial1x4SLIC
@@ -104,6 +105,7 @@ public:
                                 : &outFieldBuffer[outFieldBufferOffset];
       for (unsigned kg = 0; kg < numSubKernels; ++kg) {
         const auto &w = weights[cg * numSubKernels + kg];
+
         for (unsigned context = 0; context < NUM_WORKERS; ++context) {
           const auto &wl = worklists[kg * NUM_WORKERS + context];
           unsigned wi = 0;
@@ -112,15 +114,20 @@ public:
             const auto outOffset = wl[wi + 1];
             const auto numFieldElems = wl[wi + 2];
 
-            for (unsigned i = 0; i < numFieldElems; ++i) {
+            for (unsigned i = 0; i < numFieldElems * outStride;
+                 i += outStride) {
               // From here we are replicating the core SLIC loop
               for (unsigned outChan = 0; outChan < outChansPerGroup;
                    ++outChan) {
                 for (unsigned convGroup = 0; convGroup < convGroupsPerGroup;
                      ++convGroup) {
-                  const auto outIndex =
-                      (outOffset + i) * convGroupsPerGroup * outChansPerGroup +
-                      convGroup * outChansPerGroup + outChan;
+
+                  // Apply outStride to stride the output
+                  const auto outIndex = (outOffset + i / outStride) *
+                                            convGroupsPerGroup *
+                                            outChansPerGroup +
+                                        convGroup * outChansPerGroup + outChan;
+
                   // Implicitly zero partials on the first pass.
                   AccumType sum = 0;
                   if (kg > 0) {
@@ -156,7 +163,10 @@ public:
   }
 };
 
-template class ConvPartial1x4SLIC<half, float, false>;
-template class ConvPartial1x4SLIC<half, float, true>;
+template class ConvPartial1x4SLIC<half, float, 1, false>;
+template class ConvPartial1x4SLIC<half, float, 1, true>;
+
+template class ConvPartial1x4SLIC<half, float, 2, false>;
+template class ConvPartial1x4SLIC<half, float, 2, true>;
 
 } // end namespace poplin

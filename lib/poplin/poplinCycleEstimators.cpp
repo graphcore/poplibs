@@ -197,7 +197,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
 // TODO: T12902 Add cost estimates for non-limited version?
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
-    const Type &accumType, bool /* useShortTypes */) {
+    const Type &accumType, unsigned outStride, bool /* useShortTypes */) {
   CODELET_SCALAR_VAL(mode, unsigned char);
   CODELET_SCALAR_VAL(numSubKernelsM1, unsigned);
   CODELET_SCALAR_VAL(numConvGroupGroupsM1, unsigned);
@@ -246,10 +246,11 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
   const auto implicitZeroingInnerCycles =
       getConvPartialSlicSupervisorCycleInnerLoopEstimate(
           workerPartitions, numWorkerContexts, slicWindowWidth,
-          floatActivations, floatPartials, /* implicitZeroing */ true);
+          floatActivations, floatPartials, outStride,
+          /* implicitZeroing */ true);
   const auto innerCycles = getConvPartialSlicSupervisorCycleInnerLoopEstimate(
       workerPartitions, numWorkerContexts, slicWindowWidth, floatActivations,
-      floatPartials, /* implicitZeroing */ false);
+      floatPartials, outStride, /* implicitZeroing */ false);
   const auto weightLoadCycles =
       getConvPartialSlicSupervisorCycleWeightLoadEstimate(
           convGroupsPerGroup, chansPerGroup, numWorkerContexts,
@@ -576,8 +577,10 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, true,
                             16),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, true),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 1, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 1, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 2, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 2, false),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),

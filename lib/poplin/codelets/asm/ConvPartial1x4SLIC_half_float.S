@@ -3,13 +3,14 @@
 // Computes a 1x4 convolution using SLIC. A contiguous field is
 // partitioned between workers for each position of each 1x4
 // sub-kernel.
-// 
+//
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_float_true ## suffix
+#define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_float_1_true ## suffix
+#define CODELET_SYMBOL_STRIDE2(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_float_2_true ## suffix
 
 //=============
 #define LOG2_SIZEOF_OUT_ATOM 2
@@ -71,7 +72,8 @@
 #define SUPERVISOR_STACK_OFFSET_worklists_deltan_ptr (SUPERVISOR_STACK_BASE_OFFSET + 8)
 #define SUPERVISOR_STACK_OFFSET_num_sub_kernels_m1 (SUPERVISOR_STACK_BASE_OFFSET + 12)
 #define SUPERVISOR_STACK_OFFSET_swap_out_ptrs_on_load (SUPERVISOR_STACK_BASE_OFFSET + 16)
-#define SUPERVISOR_STACK_SIZE (20 + 4) // Extra 4 bytes to align to 8 byte boundary
+#define SUPERVISOR_STACK_OFFSET_worker_fn_ptr (SUPERVISOR_STACK_BASE_OFFSET + 20)
+#define SUPERVISOR_STACK_SIZE (24) // (aligns to 8 byte boundary)
 //=============
 
 //=============
@@ -82,14 +84,13 @@
 #define msupervisor_vertex_base m0
 #define s_worklists_base_ptr m1
 #define s_num_conv_group_groups_m1 m2
-#define s_out_ptr_iterator m3
 #define s_mode m4
 #define s_weights_ptr_iterator m5
 #define s_worker_function m6
 #define s_worklists_deltan_ptr m7
 #define s_out_field_buffer_ptr m8
 //=============
-// Jump table for weight loading routines 
+// Jump table for weight loading routines
 .section .data.CODELET_SYMBOL(_worker_load_weights_jump_table), "a", @progbits
 .align 4
 CODELET_SYMBOL(_worker_load_weights_jump_table):
@@ -99,13 +100,39 @@ CODELET_SYMBOL(_worker_load_weights_jump_table):
 
 // Supervisor uses MAX_STACK_SIZE, workers  don't use any stack
 DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL()
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_STRIDE2()
 
-.section .text.CODELET_SYMBOL(), "ax"
 .global CODELET_SYMBOL()
 .type CODELET_SYMBOL(), @function
+
+.global CODELET_SYMBOL_STRIDE2()
+.type CODELET_SYMBOL_STRIDE2(), @function
+
+.section .text.CODELET_SYMBOL(entry_stride2), "ax"
+.align 4
+.supervisor
+CODELET_SYMBOL_STRIDE2():
+  // The only differences in codelet execution come in the worker function body,
+  // much much later on.  So put a pointer to the required function onto the stack
+  // to pick up later.  This will mean that we will link just the functions(s)
+  // required whereas using a flag would reference both labels
+//=============
+#define s_worker_fn_ptr m3
+//=============
+  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(stride2)
+  bri CODELET_SYMBOL(common_entry)
+
+.section .text.CODELET_SYMBOL(entry_stride1), "ax"
 .align 4
 .supervisor
 CODELET_SYMBOL():
+  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(stride1)
+  bri CODELET_SYMBOL(common_entry)
+
+.section .text.CODELET_SYMBOL(), "ax"
+.align 4
+.supervisor
+CODELET_SYMBOL(common_entry):
   // Calculation of $s_worklists_base_ptr is essentially the critical path as
   // it requires 4 instructions to load, mask and store it for a total of 19 cycles minimum
   // (6 cycles * 3 instructions for load, shl, shr + 1 cycle to issue the store)
@@ -113,6 +140,7 @@ CODELET_SYMBOL():
   ld32 $s_worklists_deltan_ptr, $msupervisor_vertex_base, $mzero, (SUPERVISOR_STATE_OFFSET_worklists + 4)/4
   // Setup space on the stack to store m9/m10 and worker state.
   add $sp, $sp, -MAX_STACK_SIZE
+
   setzi $s_worker_function, CODELET_SYMBOL(_worker_load_weights_jump_table)
   ldz8 $s_mode, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_mode/1
   ld32 $s_out_field_buffer_ptr, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_outFieldBuffer/4
@@ -121,7 +149,12 @@ CODELET_SYMBOL():
   shl $s_worklists_deltan_ptr, $s_worklists_deltan_ptr, 8
   // Store m9 and m10 (lr) away on stack as we want to use these registers.
   st32 $m10, $sp, $mzero, SUPERVISOR_STACK_OFFSET_m10/4
+  st32 $s_worker_fn_ptr, $sp, $mzero, SUPERVISOR_STACK_OFFSET_worker_fn_ptr/4
 //=============
+#undef s_worker_fn_ptr
+//=============
+//=============
+#define s_out_ptr_iterator m3
 #define s_swap_out_ptrs_on_load m10
 //=============
   ldz8 $s_swap_out_ptrs_on_load, $msupervisor_vertex_base, $mzero, SUPERVISOR_STATE_OFFSET_outPtrLoadOffset/1
@@ -156,7 +189,7 @@ CODELET_SYMBOL():
 //=============
 #define s_worker_function2 m10
 //=============
-  setzi $s_worker_function2, CODELET_SYMBOL(_worker_process_group)
+  ld32 $s_worker_function2, $sp, $mzero, SUPERVISOR_STACK_OFFSET_worker_fn_ptr/4
 //=============
 #undef s_out_field_buffer_ptr
 #undef s_worklists_base_ptr
@@ -304,9 +337,16 @@ CODELET_SYMBOL():
 // partial loads.
 #define w_output_pair2 a6:7
 //=============
-.global CODELET_SYMBOL(_worker_process_group)
-.type CODELET_SYMBOL(_worker_process_group), @function
-CODELET_SYMBOL(_worker_process_group):
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Worker function, entry point macro definition
+.macro worker_fn WORK_MACRO_POSTFIX
+  .global CODELET_SYMBOL(\WORK_MACRO_POSTFIX)
+.type CODELET_SYMBOL(\WORK_MACRO_POSTFIX), @function
+    .align 8
+    nop // rpt alignment
+CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
   { get $w_id, $WSR
     setzi $a0, (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT) }
   { and $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
@@ -358,12 +398,12 @@ CODELET_SYMBOL(_worker_process_group):
 
   ld32 $w_implicit_zero_and_strides, $mvertex_base, $mzero, PROCESS_GROUP_WORKER_STATE_OFFSET_implicit_zero_and_strides/4
 
-  // Loop over work items
-.Lworker_process_group_worklist_loop:
+// Loop over work items
+.Lworker_process_group_worklist_loop\@:
 //=============
 #define w_in_offset m7
 //=============
-    ldz16step $w_in_offset, $mzero, $w_worklist_ptr+=, 1 
+    ldz16step $w_in_offset, $mzero, $w_worklist_ptr+=, 1
     // The offset for both input/output is in terms of field elements, so we
     // must multiply this by:
     // (convGroupsPerGroup * outChansPerGroup * sizeof(type))
@@ -396,13 +436,41 @@ CODELET_SYMBOL(_worker_process_group):
     // If there's nothing to do, move on to the next work item.
     brz $w_num_field_elems, 5f
 
-    { brpos $w_implicit_zero_and_strides, 4f; fnop }
+    brpos $w_implicit_zero_and_strides, 4f
 
-.macro worker_process_group_field_row_implicit_zero ID SLIC_FLAGS
+    // Implicit zeroing path
+    worker_process_group_field_row_implicit_zero_\WORK_MACRO_POSTFIX W0 TSLIC_F16V4_1x4_W0
+    ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1
+    add $w_last_out_ptr, $w_last_out_ptr, 2 * PARTIAL_ELEM_SIZE
+    add $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
+    worker_process_group_field_row_implicit_zero_\WORK_MACRO_POSTFIX W1 TSLIC_F16V4_1x4_W1
+    brnzdec $w_work_items, .Lworker_process_group_worklist_loop\@
+    exitz $mzero
+
+    .align 8 // Rpt align given repeats in macros below
+4:
+    worker_process_group_field_row_\WORK_MACRO_POSTFIX W0 TSLIC_F16V4_1x4_W0
+    ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1
+    add $w_last_out_ptr, $w_last_out_ptr, 2 * PARTIAL_ELEM_SIZE
+    add $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
+    worker_process_group_field_row_\WORK_MACRO_POSTFIX W1 TSLIC_F16V4_1x4_W1
+5:
+    { brnzdec $w_work_items, .Lworker_process_group_worklist_loop\@; fnop }
+0:
+  exitz $mzero
+.endm
+
+////////////////////////////////////////////////////////////////////////////////
+// Macro definitions to process data using SLIC instrutions
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+// >= 5 items, output stride = 1 with implicit zero
+.macro worker_process_group_field_row_implicit_zero_stride1 ID SLIC_FLAGS
     tapack $w_inoutout_triptr, $w_in_ptr, $w_last_out_ptr, $w_curr_out_ptr
 
     add $w_num_field_elems, $w_num_field_elems, -5
-    brneg $w_num_field_elems, .Lworker_process_group_field_row_implicit_zero_lt6_elems_\ID
+    brneg $w_num_field_elems, .Lworker_process_group_field_row_implicit_zero_stride1_lt5_elems_\ID
     ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
@@ -431,8 +499,10 @@ CODELET_SYMBOL(_worker_process_group):
 .Lworker_process_group_field_row_implicit_zero_end_\ID:
 .endm // worker_process_group_field_row_implicit_zero
 
-.macro worker_process_group_field_row_implicit_zero_lt6_elems ID SLIC_FLAGS
-.Lworker_process_group_field_row_implicit_zero_lt6_elems_\ID:
+////////////////////////////////////////////////////////////////////////////////
+// < 5 items, output stride = 1 with implicit zero
+.macro worker_process_group_field_row_implicit_zero_stride1_lt5_elems ID SLIC_FLAGS
+.Lworker_process_group_field_row_implicit_zero_stride1_lt5_elems_\ID:
     // + 5 (back to original num field elems) - 2
     add $w_num_field_elems, $w_num_field_elems, (5 - 2)
     ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
@@ -446,6 +516,7 @@ CODELET_SYMBOL(_worker_process_group):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     // Handle 1 element separately
     brneg $w_num_field_elems, 3f
+
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     rpt $w_num_field_elems, (2f - 1f) / 8 - 1
@@ -457,25 +528,20 @@ CODELET_SYMBOL(_worker_process_group):
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
     bri .Lworker_process_group_field_row_implicit_zero_end_\ID
-3:  
+3:
     f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
     { bri .Lworker_process_group_field_row_implicit_zero_end_\ID; fnop }
-.endm // worker_process_group_field_row_implicit_zero_lt6_elems
+.endm // worker_process_group_field_row_implicit_zero_lt5_elems
 
-    // Implicit zeroing path
-    worker_process_group_field_row_implicit_zero W0 TSLIC_F16V4_1x4_W0
-    ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1
-    add $w_last_out_ptr, $w_last_out_ptr, 2 * PARTIAL_ELEM_SIZE
-    add $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
-    worker_process_group_field_row_implicit_zero W1 TSLIC_F16V4_1x4_W1
-    bri 5f
-4:
-.macro worker_process_group_field_row ID SLIC_FLAGS
+
+////////////////////////////////////////////////////////////////////////////////
+// >= 5 items, output stride = 1 with no implicit zero
+.macro worker_process_group_field_row_stride1 ID SLIC_FLAGS
     tapack $w_inoutout_triptr, $w_in_ptr, $w_last_out_ptr, $w_curr_out_ptr
 
     add $w_num_field_elems, $w_num_field_elems, -5
-    brneg $w_num_field_elems, .Lworker_process_group_field_row_lt6_elems_\ID
+    brneg $w_num_field_elems, .Lworker_process_group_field_row_stride1_lt5_elems_\ID
 
     ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
@@ -505,8 +571,10 @@ CODELET_SYMBOL(_worker_process_group):
 .Lworker_process_group_field_row_end_\ID:
 .endm // worker_process_group_field_row
 
-.macro worker_process_group_field_row_lt6_elems ID SLIC_FLAGS
-.Lworker_process_group_field_row_lt6_elems_\ID:
+////////////////////////////////////////////////////////////////////////////////
+// < 5 items, output stride = 1 with no implicit zero
+.macro worker_process_group_field_row_stride1_lt5_elems ID SLIC_FLAGS
+.Lworker_process_group_field_row_stride1_lt5_elems_\ID:
     // + 5 (back to original num field elems) - 1
     add $w_num_field_elems, $w_num_field_elems, (5 - 1)
     ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
@@ -514,6 +582,7 @@ CODELET_SYMBOL(_worker_process_group):
       f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
     // Handle remainder of 1 field element case separately
     brz $w_num_field_elems, 3f
+
     rpt $w_num_field_elems, (2f - 1f) / 8 - 1
 1:
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
@@ -545,28 +614,188 @@ CODELET_SYMBOL(_worker_process_group):
     f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
     { bri .Lworker_process_group_field_row_end_\ID; fnop }
-.endm // worker_process_group_field_row_lt6_elems
+.endm // worker_process_group_field_row_lt5_elems
 
-    worker_process_group_field_row W0 TSLIC_F16V4_1x4_W0
-    ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1
-    add $w_last_out_ptr, $w_last_out_ptr, 2 * PARTIAL_ELEM_SIZE
-    add $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
-    worker_process_group_field_row W1 TSLIC_F16V4_1x4_W1
-5:
-    { brnzdec $w_work_items, .Lworker_process_group_worklist_loop; fnop }
-0:
-  exitz $mzero
-// Instantiate routines used in the loop body
-  worker_process_group_field_row_implicit_zero_lt6_elems W0 TSLIC_F16V4_1x4_W0
-  worker_process_group_field_row_implicit_zero_lt6_elems W1 TSLIC_F16V4_1x4_W1
-  worker_process_group_field_row_lt6_elems W0 TSLIC_F16V4_1x4_W0
-  worker_process_group_field_row_lt6_elems W1 TSLIC_F16V4_1x4_W1
+////////////////////////////////////////////////////////////////////////////////
+// >= 3 items, output stride = 2 with implicit zero
+.macro worker_process_group_field_row_implicit_zero_stride2 ID SLIC_FLAGS
+    tapack $w_inoutout_triptr, $w_in_ptr, $w_last_out_ptr, $w_curr_out_ptr
+
+    add $w_num_field_elems, $w_num_field_elems, -3
+    brneg $w_num_field_elems, .Lworker_process_group_field_row_implicit_zero_stride2_lt3_elems_\ID
+    ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+
+    { rpt $w_num_field_elems, (2f - 1f) / 8 - 1; fnop }
+1:
+    { ld2xst64pace $w_input_and_partials_pairs, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b010100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+2:
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+.Lworker_process_group_field_row_implicit_zero_stride2_end_\ID:
+.endm // worker_process_group_field_row_implicit_zero_stride2
+
+////////////////////////////////////////////////////////////////////////////////
+// < 3 items, output stride = 2 with no implicit zero
+.macro worker_process_group_field_row_stride2_lt3_elems ID SLIC_FLAGS
+.Lworker_process_group_field_row_stride2_lt3_elems_\ID:
+    // + 3 (back to original num field elems) - 1
+    add $w_num_field_elems, $w_num_field_elems, (3 - 1)
+
+    ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+
+    // Branch to handle remainder of 1 field element case
+    brz $w_num_field_elems, 3f
+    // 2 field elements
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    // Write result
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS //}
+    // Overwrite dummy result
+    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
+    {bri .Lworker_process_group_field_row_stride2_end_\ID; fnop}
+
+// One field element case
+3:
+    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
+    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
+    { bri .Lworker_process_group_field_row_stride2_end_\ID; fnop }
+.endm // worker_process_group_field_row_stride2_lt3_elems
+
+////////////////////////////////////////////////////////////////////////////////
+// >= 3 items, output stride = 2 with no implicit zero
+.macro worker_process_group_field_row_stride2 ID SLIC_FLAGS
+    tapack $w_inoutout_triptr, $w_in_ptr, $w_last_out_ptr, $w_curr_out_ptr
+
+    add $w_num_field_elems, $w_num_field_elems, -3
+    brneg $w_num_field_elems, .Lworker_process_group_field_row_stride2_lt3_elems_\ID
+
+    ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $azeros, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $azeros, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $azeros, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $azeros, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+
+    { rpt $w_num_field_elems, (2f - 1f) / 8 - 1; fnop }
+1:
+    { ld2xst64pace $w_input_and_partials_pairs, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b010100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1000
+      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+2:
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1111
+      f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1111
+.Lworker_process_group_field_row_stride2_end_\ID:
+.endm // worker_process_group_field_row_stride2
+
+////////////////////////////////////////////////////////////////////////////////
+// < 3 items, output stride = 2 with implicit zero
+.macro worker_process_group_field_row_implicit_zero_stride2_lt3_elems ID SLIC_FLAGS
+.Lworker_process_group_field_row_implicit_zero_stride2_lt3_elems_\ID:
+    // + 3 (back to original num field elems) - 2
+    add $w_num_field_elems, $w_num_field_elems, (3 - 2)
+    ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    // Branch to handle 1 element
+    brneg $w_num_field_elems, 3f
+    // Must be 2 elements (store, dummy store, store)
+    { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
+    bri .Lworker_process_group_field_row_implicit_zero_stride2_end_\ID
+3:
+    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
+    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
+    bri .Lworker_process_group_field_row_implicit_zero_stride2_end_\ID
+.endm // worker_process_group_field_row_implicit_zero_lt3_elems
+
+////////////////////////////////////////////////////////////////////////////////
+// Use the worker function and macros above to build the code for the stride = 1
+// case
+.section .text.CODELET_SYMBOL(worker_fn_stride1), "ax"
+  // Instantiate the worker entry point and loop body
+  worker_fn stride1
+  // Instantiate routines used in the loop body
+  worker_process_group_field_row_implicit_zero_stride1_lt5_elems W0 TSLIC_F16V4_1x4_W0
+  worker_process_group_field_row_implicit_zero_stride1_lt5_elems W1 TSLIC_F16V4_1x4_W1
+  worker_process_group_field_row_stride1_lt5_elems W0 TSLIC_F16V4_1x4_W0
+  worker_process_group_field_row_stride1_lt5_elems W1 TSLIC_F16V4_1x4_W1
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Use the worker function and macros above to build the code for the stride = 2
+// case
+.section .text.CODELET_SYMBOL(worker_fn_stride2), "ax"
+  // Instantiate the worker entry point and loop body
+  worker_fn stride2
+  // Instantiate routines used in the loop body for stride = 2
+  worker_process_group_field_row_implicit_zero_stride2_lt3_elems W0 TSLIC_F16V4_1x4_W0
+  worker_process_group_field_row_implicit_zero_stride2_lt3_elems W1 TSLIC_F16V4_1x4_W1
+  worker_process_group_field_row_stride2_lt3_elems W0 TSLIC_F16V4_1x4_W0
+  worker_process_group_field_row_stride2_lt3_elems W1 TSLIC_F16V4_1x4_W1
+
 //=============
 #undef w_rem
 #undef w_out_ptr
 #undef w_id
 //=============
 
+
+////////////////////////////////////////////////////////////////////////////////
 // Worker weight loading routines
 //=============
 #define w_id m0
@@ -578,6 +807,7 @@ CODELET_SYMBOL(_worker_process_group):
 //=============
 .global CODELET_SYMBOL(_worker_load_weights_4x1x1)
 .type CODELET_SYMBOL(_worker_load_weights_4x1x1), @function
+.section .text.CODELET_SYMBOL(), "ax"
 CODELET_SYMBOL(_worker_load_weights_4x1x1):
   get $w_id, $WSR
   and $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
