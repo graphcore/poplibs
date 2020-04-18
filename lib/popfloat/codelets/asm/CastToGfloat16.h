@@ -12,7 +12,6 @@
 
 #define mCount m4
 
-
 #define mCastToGF16 m6
 
 #define mGf16Param m7
