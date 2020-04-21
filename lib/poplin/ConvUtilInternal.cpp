@@ -1,5 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "ConvUtilInternal.hpp"
+#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplin/ConvUtil.hpp"
@@ -10,6 +11,7 @@
 #include <boost/optional.hpp>
 #include <cassert>
 #include <poplar/Tensor.hpp>
+#include <unordered_map>
 
 using namespace poplar;
 using namespace poputil;
@@ -478,6 +480,136 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
           convGroupGrainSize,
           inChanGrainSize,
           outChanGrainSize};
+}
+
+static constexpr auto allButNumConvGroups = poplibs_support::makeStructHelper(
+    &ConvParams::inputType, &ConvParams::outputType, &ConvParams::batchSize,
+    &ConvParams::inputFieldShape, &ConvParams::kernelShape,
+    &ConvParams::inputChannelsPerConvGroup,
+    &ConvParams::outputChannelsPerConvGroup, &ConvParams::inputTransform,
+    &ConvParams::kernelTransform, &ConvParams::outputTransform);
+
+bool isEqual(const OptionFlags &of1, const OptionFlags &of2) {
+  std::unordered_map<std::string, std::string> map1(of1.begin(), of1.end());
+  std::unordered_map<std::string, std::string> map2(of2.begin(), of2.end());
+  return map1 == map2;
+}
+
+bool canBeCombined(const multiconv::ConvolutionArgs &ca1,
+                   const multiconv::ConvolutionArgs &ca2) {
+  return allButNumConvGroups.eq(ca1.params, ca2.params) &&
+         isEqual(ca1.options, ca2.options);
+}
+
+bool canBeCombined(
+    const std::vector<multiconv::ConvolutionArgs> &convolutionArgs) {
+  auto it = convolutionArgs.begin();
+  const auto first = it;
+  while (++it != convolutionArgs.end()) {
+    if (!canBeCombined(*first, *it)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::vector<std::vector<const multiconv::ConvolutionArgs *>>
+groupCombinables(const std::vector<multiconv::ConvolutionArgs> &args) {
+  std::vector<std::vector<const multiconv::ConvolutionArgs *>> grouped;
+  for (auto &ca : args) {
+    bool found(false);
+    for (auto &g : grouped) {
+      if (canBeCombined(ca, *g[0])) {
+        const multiconv::ConvolutionArgs *aux = &ca;
+        g.push_back(aux);
+        found = true;
+      }
+    }
+    if (!found) {
+      const multiconv::ConvolutionArgs *aux = &ca;
+      grouped.push_back({aux});
+    }
+  }
+  return grouped;
+}
+
+// Returns the combination (aggregates numConvGroups) of
+// multiple compatible convolution parameters
+ConvParams combineConvParams(const std::vector<ConvParams> &convParams) {
+  assert(!convParams.empty());
+  std::size_t numConvGroups(0);
+  for (const auto &cp : convParams) {
+    numConvGroups += cp.numConvGroups;
+  }
+  ConvParams cp(convParams[0]);
+  cp.numConvGroups = numConvGroups;
+  return cp;
+}
+
+multiconv::ConvolutionArgs
+combine(const std::vector<multiconv::ConvolutionArgs> &convolutionArgs) {
+  multiconv::ConvolutionArgs combined;
+  if (convolutionArgs.empty()) {
+    return combined;
+  }
+  assert(canBeCombined(convolutionArgs));
+  std::vector<ConvParams> convParams;
+  std::vector<poplar::Tensor> inputs;
+  std::vector<poplar::Tensor> weights;
+  for (const auto &cp : convolutionArgs) {
+    convParams.push_back(cp.params);
+    inputs.push_back(cp.inputs);
+    weights.push_back(cp.weights);
+  }
+  combined.params = combineConvParams(convParams);
+  combined.inputs = concat(inputs, 1);
+  combined.weights = concat(weights, 0);
+  combined.options = convolutionArgs[0].options;
+  return combined;
+}
+
+std::vector<multiconv::ConvolutionArgs>
+combine(const std::vector<std::vector<const multiconv::ConvolutionArgs *>>
+            &groups) {
+  std::vector<multiconv::ConvolutionArgs> convolutionArgs;
+  for (const auto &group : groups) {
+    std::vector<multiconv::ConvolutionArgs> combinedArgs;
+    for (const auto ca : group) {
+      combinedArgs.push_back(*ca);
+    }
+    convolutionArgs.push_back(combine(combinedArgs));
+  }
+  return convolutionArgs;
+}
+
+std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
+                                  const poplar::Tensor &out) {
+  assert(!convParams.empty());
+  std::vector<Interval> intervals;
+  std::size_t prev(0);
+  const std::size_t outputChannelsPerConvGroup =
+      convParams[0].outputChannelsPerConvGroup;
+  for (const auto &cp : convParams) {
+    const auto intervalSize = cp.numConvGroups * outputChannelsPerConvGroup;
+    intervals.push_back({prev, prev + intervalSize});
+    prev += intervalSize;
+  }
+  return out.slices(intervals, 1);
+}
+
+std::vector<poplar::Tensor> split(
+    const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups,
+    const std::vector<poplar::Tensor> &outs) {
+  std::vector<poplar::Tensor> splitOuts;
+  for (unsigned i(0); i < groups.size(); ++i) {
+    std::vector<ConvParams> convParams;
+    for (const auto ca : groups[i]) {
+      convParams.push_back(ca->params);
+    }
+    const auto s = split(convParams, outs[i]);
+    splitOuts.insert(splitOuts.end(), s.begin(), s.end());
+  }
+  return splitOuts;
 }
 
 } // namespace poplin

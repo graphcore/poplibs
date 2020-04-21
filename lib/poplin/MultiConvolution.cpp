@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplin/MultiConvolution.hpp"
 
+#include "ConvUtilInternal.hpp"
 #include "poplin/Convolution.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -34,13 +35,18 @@ std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
             poplar::program::Sequence &prog, const std::string &debugPrefix,
             PlanningCache *cache) {
+  // Optimisation: try combining similar-size convolutions
+  const auto groups = groupCombinables(args);
+  const auto combined = combine(groups);
+
   std::vector<poplar::Tensor> outs;
-  for (const auto &arg : args) {
+  for (const auto &arg : combined) {
     outs.push_back(poplin::convolution(graph, arg.inputs, arg.weights,
                                        arg.params, false, prog, debugPrefix,
                                        arg.options, cache));
   }
-  return outs;
+
+  return split(groups, outs);
 }
 
 std::vector<poplar::Tensor>

@@ -7,6 +7,7 @@
 
 #include "ConvPlan.hpp"
 #include "poplin/ConvUtil.hpp"
+#include "poplin/MultiConvolution.hpp"
 #include "poputil/VarStructure.hpp"
 #include <boost/optional.hpp>
 #include <poplar/Tensor.hpp>
@@ -148,6 +149,30 @@ int getInRowStride(const ConvParams &params, unsigned fieldElems,
 Partition splitConvIntoAmpVertices(const ConvParams &params,
                                    unsigned numMachineStrideBits, int inStride,
                                    int inRowStride);
+
+// Checks that multiple ConvolutionArgs can be combined
+bool canBeCombined(
+    const std::vector<multiconv::ConvolutionArgs> &convolutionArgs);
+
+// Returns a vector of groups of combinable convolution arguments
+std::vector<std::vector<const multiconv::ConvolutionArgs *>>
+groupCombinables(const std::vector<multiconv::ConvolutionArgs> &args);
+
+// Returns the combination (aggregates convolution parameters and concatenates
+// input tensors) of multiple compatible convolution arguments.
+multiconv::ConvolutionArgs
+combine(const std::vector<multiconv::ConvolutionArgs> &convolutionArgs);
+
+std::vector<multiconv::ConvolutionArgs> combine(
+    const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups);
+
+// Splits the result of a combined multi-convolution
+std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
+                                  const poplar::Tensor &out);
+
+std::vector<poplar::Tensor> split(
+    const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups,
+    const std::vector<poplar::Tensor> &out);
 
 } // End namespace poplin
 
