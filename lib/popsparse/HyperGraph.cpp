@@ -1,4 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+
 #include "HyperGraph.hpp"
 #include "BSUtils.hpp"
 #include "poplibs_support/logging.hpp"

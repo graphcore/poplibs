@@ -1,4 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+
 #define BOOST_TEST_MODULE BlockSparseTest
 #include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>

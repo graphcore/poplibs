@@ -1,4 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+
 #include "BSMatrix.hpp"
 #include "popops/Zero.hpp"
 

@@ -1,5 +1,4 @@
-
-// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #include "BSNonLinearity.hpp"
 #include "BSOps.hpp"

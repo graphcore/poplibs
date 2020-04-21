@@ -1,4 +1,5 @@
-// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+
 #include "BSUtils.hpp"
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>

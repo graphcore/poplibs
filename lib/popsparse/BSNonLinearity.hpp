@@ -1,4 +1,4 @@
-// Copyright (c) 2019, Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #ifndef popsparse_BSNonLinearity_hpp
 #define popsparse_BSNonLinearity_hpp
