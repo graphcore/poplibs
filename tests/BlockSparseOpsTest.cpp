@@ -1,4 +1,4 @@
-// Copyright (c) Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE BlockSparseOpsTest
 #include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
@@ -310,8 +310,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   }
   mainSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, mainSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
@@ -600,8 +599,7 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   }
   mainSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"target.workerStackSizeInBytes", "0x200"},
-                                  {"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
 
   Engine engine(graph, mainSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
