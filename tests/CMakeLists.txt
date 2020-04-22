@@ -6,23 +6,6 @@ find_package(Threads REQUIRED)
 #Controls verbose debug output on creating test cases
 set(DEBUG_TEST_GENERATION FALSE)
 
-# ipu1 is our default arch, so convert ipu1->ipu
-list(TRANSFORM ENABLED_IPU_ARCH_NAMES REPLACE "ipu1" "ipu" OUTPUT_VARIABLE ABBREV_TARGETS)
-list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "Sim" OUTPUT_VARIABLE SIM_VARIANTS)
-list(TRANSFORM SIM_VARIANTS APPEND ":cpp" OUTPUT_VARIABLE SIMCPP_VARIANTS)
-list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "IpuModel" OUTPUT_VARIABLE IPUMODEL_VARIANTS)
-
-set(DEFAULT_TEST_VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw" CACHE STRING
-    "The device variants to run tests on when no variants are set explicitly")
-
-if (DEFINED ENV{POPLAR_SDK_ENABLED})
-set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS}" CACHE STRING
-      "Generate tests for these devices and variants")
-else()
-set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS}" CACHE STRING
-      "Generate tests for these devices and variants")
-endif()
-
 add_subdirectory(popsolver)
 
 # Compile the public headers using C++11.

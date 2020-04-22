@@ -15,15 +15,20 @@ enable_testing()
 #        OFF if state retention is disabled
 set(RETAIN_WORKER_STATE ON CACHE BOOL "Enable tile worker state retention")
 
+# ipu1 is our default arch, so convert ipu1->ipu
+list(TRANSFORM ENABLED_IPU_ARCH_NAMES REPLACE "ipu1" "ipu" OUTPUT_VARIABLE ABBREV_TARGETS)
+list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "Sim" OUTPUT_VARIABLE SIM_VARIANTS)
+list(TRANSFORM SIM_VARIANTS APPEND ":cpp" OUTPUT_VARIABLE SIMCPP_VARIANTS)
+list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "IpuModel" OUTPUT_VARIABLE IPUMODEL_VARIANTS)
 
-set(DEFAULT_TEST_VARIANTS "IpuModel;Sim;Hw" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2" CACHE STRING
+set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
 else()
-  set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2;Sim;Sim:cpp;Sim2;Sim2:cpp" CACHE STRING
+set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
 endif()
 
