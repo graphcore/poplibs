@@ -25,6 +25,7 @@ add_library(poplin SHARED
   ConvValidation.cpp
   CreateConvPartialVertex.hpp
   MatMul.cpp
+  MultiConvolution.cpp
   FullyConnected.cpp
   MeshGrid.cpp
   Norms.cpp
