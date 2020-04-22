@@ -4788,8 +4788,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                    cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
                cost.rearrangeBeforeSliceTempBytes,
                cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
-  logging::debug("   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
-                 cost.memsetZeroBeforeAddInPlace);
+  logging::log(l, "   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
+               cost.memsetZeroBeforeAddInPlace);
   logging::log(l, "   - dynamic slice: {} cycles, unknown bytes",
                cost.dynamicSliceCycles);
   logging::log(l, "   - transform: {} cycles, {} bytes", cost.transformCycles,
@@ -4803,8 +4803,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                cost.reduceTempBytes);
   logging::log(l, "   - dynamic update: {} cycles, unknown bytes",
                cost.dynamicUpdateCycles);
-  logging::debug("   - add in-place: {} cycles, unknown bytes",
-                 cost.addInPlaceCycles);
+  logging::log(l, "   - add in-place: {} cycles, unknown bytes",
+               cost.addInPlaceCycles);
   logging::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
                cost.totalTempBytes);
 }
