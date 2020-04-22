@@ -2061,9 +2061,10 @@ static void mapActivationsOrWeights(
   const auto minBytesPerTile = isActs ? 128 : 256;
   const auto minElementsPerTile =
       (minBytesPerTile + inTypeSize - 1) / inTypeSize;
-  const auto grainSize = isActs
-                             ? plan.inChansPerGroup
-                             : plan.inChansPerGroup * plan.partialChansPerGroup;
+  const auto grainSize = isActs ? plan.inChansPerGroup * plan.convGroupsPerGroup
+                                : plan.inChansPerGroup *
+                                      plan.partialChansPerGroup *
+                                      plan.convGroupsPerGroup;
   auto usage = calculateActivationsOrWeightsUsage(
       graph, params, plan, level, serial, isActs ? &in : nullptr,
       isActs ? nullptr : &in, indices, grainSize, minElementsPerTile, options);
