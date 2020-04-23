@@ -1,32 +1,26 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Specialisation 3 STRIDED_REDUCE - Overview:
+// Specialisation 3 SINGLE_OUTPUT_REGION - Overview:
 // `partials` is a single edge
 // `out` is a single edge
-// The vertex treats partials as a 2D array, size {`numPartials`, `partialsWidth`}
-// Eg, for partialsWidth = 12, numPartials = 3
+// The vertex treats partials as a 2D array, size {`numPartials`, `numOutputs`}
+// Eg, for numOutputs = 12, numPartials = 3
 // 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
 // 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
 // 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
 //
-// The output will be the sum of each 'column', computed for `numOutputs` only,
-// eg for `numOutputs` = 8
-// 3, 6, 9, 12, 15, 18, 21, 24
+// The output will be the sum of each 'column':
+// 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36,
 //
 // Constraints:
 // The output must be 32bit aligned, partials must be 64bit aligned.
-// Num outputs must be based on a 64-bit partials input width:
-// reduce float -> half  : 2 half outputs
-// reduce float -> float : 2 float outputs
-// reduce half  -> half  : 4 half outputs
-// reduce half  -> float : 4 float outputs
+// Num outputs must result in a 64-bit multiple (ie - 2 floats or 4 halves)
 //
 // Operation/speed:
 // Accumulate down columns, 64 bits at once (2 floats or 4 halves), using a
 // stride to skip to the next row.
-// This results in an inner loop that takes 1 cycle per 64 bits processed
-// (2 floats or 4 halves).
+// This results in an inner loop that takes 1 cycle per 64 bits processed (2 floats or 4 halves).
 
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
@@ -38,15 +32,13 @@
 #define IN_OFFSET            2
 #define NUM_OUTPUTS_OFFSET   4
 #define NUM_PARTIALS_OFFSET  6
-#define PARTIALS_WIDTH_OFFSET 8
-#define SCALE_OFFSET         10
+#define SCALE_OFFSET         8
 #else
 #define OUT_OFFSET           0
 #define IN_OFFSET            4
 #define NUM_OUTPUTS_OFFSET   8
 #define NUM_PARTIALS_OFFSET  10
-#define PARTIALS_WIDTH_OFFSET 12
-#define SCALE_OFFSET         16
+#define SCALE_OFFSET         12
 #endif
 
 #define PTR32_SHL_BITS   2
@@ -81,22 +73,22 @@ popops__\OP\()_half_\OUT_TYPE\()_\UPDATE\()_popops__ReductionSpecialisation__##s
 .equ LOG2_PARTIAL_SIZE, 2
 
 DEF_STACK_USAGE 0 .text.REDUCE_FLOAT(Reduce,3common)
-.globl REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
-.type REDUCE_FLOAT(Reduce,STRIDED___REDUCE), @function
-.globl REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE)
-.type REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE), @function
+.globl REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION), @function
+.globl REDUCE_FLOAT(ScaledReduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_FLOAT(ScaledReduce,SINGLE___OUTPUT___REGION), @function
 
 .section .text.REDUCE_FLOAT(Reduce,3common), "ax"
-.align 4
+.align 8
 
 REDUCE_FLOAT(Reduce,3common):
-REDUCE_FLOAT(Reduce,STRIDED___REDUCE):
+REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION):
 setzi $BASE, TMEM_REGION0_BASE_ADDR
 {
   bri        1f
   or         $SCALE, $azero, FLOAT_1_0
 }
-REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE):
+REDUCE_FLOAT(ScaledReduce,SINGLE___OUTPUT___REGION):
   // As scale uses a SCALED_PTR32 there is no downside to having partials also
   // use SCALED_PTR32 as we can load and use the same base address
 #ifdef VECTOR_AVAIL_SCALED_PTR32
@@ -132,46 +124,39 @@ REDUCE_FLOAT(ScaledReduce,STRIDED___REDUCE):
   ld32 $m0, $mzero, $mzero, 0 // issue a null address read to stop
 9:
   shr $OUT_COUNT, $m2, 3-LOG2_PARTIAL_SIZE
-  ldz16 $STRIDE, $mvertex_base, $mzero, PARTIALS_WIDTH_OFFSET/2
-
-  mov $m6, $m1 // Load working partials ptr
+  // $m6 holds the rewind in bytes from the final partial back to the first for
+  // the next output loop. Note the core loop makes an extra stride
+  add $m6, $m3, 1
+  mul $m6, $m6, $m2
+  shl $m6, $m6, LOG2_PARTIAL_SIZE // float partials
+  sub $m6, $m6, 8
   // $STRIDE = 64bit offset between consecutive partials for the same output
- {shr $STRIDE, $STRIDE, 3-LOG2_PARTIAL_SIZE
+ {shr $STRIDE, $m2, 3-LOG2_PARTIAL_SIZE
   uput  $FP_CLR, $ZAACC}
   bri 4f
 
-.align 8 // Rpt alignment
 float_loop\@:
-  // $m6 points to the first partial to be accumulated for this output
+  // $m1 points to the first partial to be accumulated for this output
   // $STRIDE is the step between consecutive partials for the same output
-  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+  {ld64step $a0:1, $BASE, $m1+=, $STRIDE
   or $a2, $azero, \INITIAL_VALUE}
   {rpt $m3, (3f-2f)/8-1
   mov $a3,$a2}
   // last pass will overread 8 bytes
 2:
 .ifc "\OP_USES_ACC","true"
- {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+ {ld64step $a0:1, $BASE, $m1+=, $STRIDE
   \INSTRUCTION $a0:3}
 .else
- {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+ {ld64step $a0:1, $BASE, $m1+=, $STRIDE
   \INSTRUCTION $a2:3, $a2:3, $a0:1}
 .endif
 3:
 .ifc "\OP_USES_ACC","true"
- // advance to first partial for the next output
- // Process the last one loaded
- {add $m1, $m1, 8
-  \INSTRUCTION $a0:3}
   // Get the result from the accumulators if they were used
   f32v2gina $a2:3, $azeros, 0
-.else
- // advance to first partial for the next output
- // Process the last one loaded
- {add $m1, $m1, 8
-  \INSTRUCTION $a2:3, $a2:3, $a0:1}
 .endif
-  {mov $m6, $m1
+ {sub $m1, $m1, $m6 // advance to first partial for the next output
   f32v2mul  $a2:3, $SCALE:B, $a2:3}
 
 .ifc "\OUT_TYPE","float"
@@ -193,7 +178,7 @@ float_loop\@:
 4:
   brnzdec $OUT_COUNT, float_loop\@
   exitnz $mzero
-.size REDUCE_FLOAT(Reduce,STRIDED___REDUCE), .-REDUCE_FLOAT(Reduce,STRIDED___REDUCE)
+.size REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION), .-REDUCE_FLOAT(Reduce,SINGLE___OUTPUT___REGION)
 .endm
 
 //******************************************************************************
@@ -263,22 +248,22 @@ float_loop\@:
 
 DEF_STACK_USAGE 0 .text.REDUCE_HALF(Reduce,3common)
 
-.globl REDUCE_HALF(Reduce,STRIDED___REDUCE)
-.type REDUCE_HALF(Reduce,STRIDED___REDUCE), @function
-.globl REDUCE_HALF(ScaledReduce,STRIDED___REDUCE)
-.type REDUCE_HALF(ScaledReduce,STRIDED___REDUCE), @function
+.globl REDUCE_HALF(Reduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_HALF(Reduce,SINGLE___OUTPUT___REGION), @function
+.globl REDUCE_HALF(ScaledReduce,SINGLE___OUTPUT___REGION)
+.type REDUCE_HALF(ScaledReduce,SINGLE___OUTPUT___REGION), @function
 
 .section .text.REDUCE_HALF(Reduce,3common), "ax"
 .align 4
 
 REDUCE_HALF(Reduce,3common):
-REDUCE_HALF(Reduce,STRIDED___REDUCE):
+REDUCE_HALF(Reduce,SINGLE___OUTPUT___REGION):
 setzi $BASE, TMEM_REGION0_BASE_ADDR
 {
   bri        1f
   or         $SCALE, $azero, FLOAT_1_0
 }
-REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
+REDUCE_HALF(ScaledReduce,SINGLE___OUTPUT___REGION):
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   ldz16      $SCRATCH, $mvertex_base, $mzero, SCALE_OFFSET/2 // load scale
   setzi      $BASE, TMEM_REGION0_BASE_ADDR
@@ -315,40 +300,41 @@ REDUCE_HALF(ScaledReduce,STRIDED___REDUCE):
   ld32 $m0, $mzero, $mzero, 0 // issue a null address read to stop
 9:
   shr $OUT_COUNT, $m2, 3-LOG2_PARTIAL_SIZE
-  ldz16 $STRIDE, $mvertex_base, $mzero, PARTIALS_WIDTH_OFFSET/2
-  mov $m6, $m1 // Load working pointer
+  // $m6 holds the rewind in bytes from the final partial back to the first for
+  // the next output loop. Note the core loop makes an extra stride
+  add $m6, $m3, 1
+  mul $m6, $m6, $m2
+  shl $m6, $m6, LOG2_PARTIAL_SIZE // half partials
+  sub $m6, $m6, 8
   // STRIDE = 64bit offset between consecutive partials for the same output
- {shr $STRIDE, $STRIDE, 3-LOG2_PARTIAL_SIZE
+ {shr $STRIDE, $m2, 3-LOG2_PARTIAL_SIZE
   uput  $FP_CLR, $ZAACC}
   bri 4f
 
 .align 8 //Repeat alignment given variable code size above
 half_loop\@:
-  // $m6 points to the first partial to be accumulated for this output
+  // $m1 points to the first partial to be accumulated for this output
   // $STRIDE is the step between consecutive partials for the same output
-  {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+  {ld64step $a0:1, $BASE, $m1+=, $STRIDE
    mov $a2,$a7}
   {rpt $m3, (3f-2f)/8-1
    mov $a3,$a7}
+  // last pass will overread 8 bytes
   // There is no f16v4sqadd, so use f16v8 for all types
 2:
 .ifc "\OP_USES_ACC","true"
- {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+ {ld64step $a0:1, $BASE, $m1+=, $STRIDE
   \INSTRUCTION $a0:3}
 .else
- {ld64step $a0:1, $BASE, $m6+=, $STRIDE
+ {ld64step $a0:1, $BASE, $m1+=, $STRIDE
   \INSTRUCTION $a2:3,$a0:1,$a2:3}
 .endif
 3:
 // Extract result from accumulators if necessary, apply scale and store
 .ifc "\OP_USES_ACC","true"
-  // Process the last one loaded
-  // advance to first partial for the next output
-  {add $m1, $m1, 8 // Load working pointer
-  \INSTRUCTION $a0:3}
  // If using the acc the result is in float so we apply the float scale and
  // cast to half if required
- {mov $m6, $m1 // Load working ptr
+ {sub $m1, $m1, $m6 // advance to first partial for the next output
   f32v2gina $a0:1, $azeros, 0}
   .ifc "\OUT_TYPE","float"
     STORE_FLOAT_RESULT_FROM_ACCUMULATORS \UPDATE
@@ -358,14 +344,10 @@ half_loop\@:
   .endif
 .endif
 .ifc "\OP_USES_ACC","false"
-  // Process the last one loaded
-  // advance to first partial for the next output
-  {add $m1, $m1, 8
-  \INSTRUCTION $a2:3,$a0:1,$a2:3}
   // If not using the acc then the result is in half. Cast so that we can
   // apply scale, and then cast back.
   // Here we will always output half
-  {mov $m6,$m1  // Load working pointer
+  {sub $m1, $m1, $m6 // advance to first partial for the next output
   f16v2tof32 $a0:1, $a2}
   f16v2tof32 $a2:3, $a3
   f32v2mul  $a2:3, $SCALE:B, $a2:3
