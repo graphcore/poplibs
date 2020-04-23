@@ -15,8 +15,13 @@ enable_testing()
 #        OFF if state retention is disabled
 set(RETAIN_WORKER_STATE ON CACHE BOOL "Enable tile worker state retention")
 
+find_package(poplar REQUIRED)
+
+# build for all architectures that the Poplar we are using supports.
+message("Enabled architectures: ${POPLAR_ENABLED_IPU_ARCH_NAMES}")
+
 # ipu1 is our default arch, so convert ipu1->ipu
-list(TRANSFORM ENABLED_IPU_ARCH_NAMES REPLACE "ipu1" "ipu" OUTPUT_VARIABLE ABBREV_TARGETS)
+list(TRANSFORM POPLAR_ENABLED_IPU_ARCH_NAMES REPLACE "ipu1" "ipu" OUTPUT_VARIABLE ABBREV_TARGETS)
 list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "Sim" OUTPUT_VARIABLE SIM_VARIANTS)
 list(TRANSFORM SIM_VARIANTS APPEND ":cpp" OUTPUT_VARIABLE SIMCPP_VARIANTS)
 list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "IpuModel" OUTPUT_VARIABLE IPUMODEL_VARIANTS)
@@ -87,7 +92,6 @@ else()
   set(Boost_USE_STATIC_LIBS ON)
 endif()
 
-find_package(poplar REQUIRED)
 find_package(Boost 1.65.1 REQUIRED regex)
 find_package(TBB REQUIRED)
 find_package(zoltan QUIET)
