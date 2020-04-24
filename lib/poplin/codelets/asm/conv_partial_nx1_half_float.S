@@ -9,6 +9,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 // =============================================================================
@@ -19,25 +20,25 @@
 
 // =============================================================================
 
-#define CODELET_NAME_128 __runCodelet_poplin__ConvPartialnx1___float_float_true_true_8
-#define CODELET_NAME_64 __runCodelet_poplin__ConvPartialnx1___float_float_true_false_8
+#define CODELET_NAME_128 __runCodelet_poplin__ConvPartialnx1___half_float_true_true_8
+#define CODELET_NAME_64 __runCodelet_poplin__ConvPartialnx1___half_float_true_false_8
 
 // =============================================================================
 
 // Vertex input, output and weight data atom size constants
 
-// The number of AMP outputs with input and weight data == float
-#define AMP_OUTPUTS_FLOAT               8
-#define LOG2_AMP_OUTPUTS_FLOAT          3
-// log2(AMP_OUTPUTS_FLOAT)
-#define AMP_INPUTS_FLOAT                8
+// The number of AMP outputs with input and weight data == half
+#define AMP_OUTPUTS_HALF                8
+#define LOG2_AMP_OUTPUTS_HALF           3
+// log2(AMP_OUTPUTS_HALF)
+#define AMP_INPUTS_HALF                 16
 // sizeof(input) in bytes
-#define SIZEOF_IN_ATOM                  4
+#define SIZEOF_IN_ATOM                  2
 // sizeof(output) in bytes
 #define SIZEOF_OUT_ATOM                 4
 #define LOG2_SIZEOF_OUT_ATOM            2
 // sizeof(weights) in bytes
-#define SIZEOF_WEIGHTS_ATOM             4
+#define SIZEOF_WEIGHTS_ATOM             2
 
 // =============================================================================
 
@@ -109,6 +110,7 @@
 
 // =============================================================================
 
+
 // Vertex state shared between workers
 // The supervisor sets up a common state for workers to use
 #define WKR_INOUTSTRIDES1               0      // word
@@ -119,10 +121,65 @@
 #define WKR_ZERO_INFO                   20     // word
 #define WKR_OUTCHANS_PER_GROUP_X4       24     // word
 #define WKR_PARTITION_BASE              28     // word
-#define WKR_INCHANS_PER_GROUP_X4        32     // word
-#define WKR_STATE_SIZE                  (WKR_INCHANS_PER_GROUP_X4 + 4) // bytes
+#define WKR_INCHANS_PER_GROUP_X2        32     // word
+#define WKR_STATE_SIZE                  (WKR_INCHANS_PER_GROUP_X2 + 4) // bytes
 
 // =============================================================================
+
+// Zero output/partials
+// Uses same vertex state as the convolution
+//
+// Performance: 14 + num_samples / 2
+
+DEF_STACK_USAGE 0 convNx1ZeroOutFieldFloat
+.section ".text.convNx1ZeroOutFieldFloat", FUNCTION_IS_WORKER
+.global convNx1ZeroOutFieldFloat
+.type convNx1ZeroOutFieldFloat, @function
+.align 8
+
+#define wkr_id_zv                       m0
+#define zero_info_zv                    m1
+#define zero_info_div_12_zv             m2
+// Registers above must be retained between calls
+#define outchan_ptr_zv                  m3
+nop
+convNx1ZeroOutFieldFloat:
+get           $wkr_id_zv, $WSR
+and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
+ld32          $zero_info_zv, $mvertex_base, WKR_ZERO_INFO/4
+
+shr           $zero_info_div_12_zv, $zero_info_zv, (3 - LOG2_SIZEOF_OUT_ATOM)
+
+// For n with 0 <= n <= 65533 this does a division by 6 with the remainder
+// split amongst workers.
+add           $zero_info_div_12_zv, $zero_info_div_12_zv, 6
+sub           $zero_info_div_12_zv, $zero_info_div_12_zv, $wkr_id_zv
+mul           $zero_info_div_12_zv, $zero_info_div_12_zv, 21845
+shr           $zero_info_div_12_zv, $zero_info_div_12_zv, 17
+
+// Minus 1 so we can quickly store the last element below
+add           $zero_info_zv, $zero_info_zv, -1
+
+.global convNx1ZeroOutFieldFloatReentry
+.type convNx1ZeroOutFieldFloatReentry, @function
+convNx1ZeroOutFieldFloatReentry:
+ld32          $outchan_ptr_zv, $mvertex_base, WKR_OUTCHAN_PTR/4
+// Unconditionally write the last element in all the workers
+st32          $azero, $outchan_ptr_zv, $mzero, $zero_info_zv
+ld64step      $azeros, $mzero, $outchan_ptr_zv+=, $wkr_id_zv
+rpt           $zero_info_div_12_zv, (Loop_end_zero_64 - Loop_start_zero_64)/8 - 1
+Loop_start_zero_64:
+  {
+    st64step      $azeros, $mzero, $outchan_ptr_zv+=, 6
+    fnop
+  }
+Loop_end_zero_64:
+exitz         $mzero
+
+.size convNx1ZeroOutFieldFloat, . - convNx1ZeroOutFieldFloat
+
+// =============================================================================
+
 
 // Non loop overhead:
 //      zero Partitions:         7
@@ -132,18 +189,19 @@
 //      Number of field elems = 0
 //             18 cycles
 //      Number of field elems = 1
-//             34 cycles
+//             30 cycles
 //      Number of field elems = 2
-//             45 cycles
+//             34 cycles
 //      Number of field elems >= 3
-//             46 + (num_field_elems - 3) * 8
+//             35 + (num_field_elems - 3) * 4
 
-.section ".text.convPartialNx1Flattened_float_float", "ax"
-.type convPartialNx1Flattened_float_float, @function
+.section ".text.convPartialNx1Flattened", "ax"
+.type convPartialNx1Flattened, @function
 .align 8
 nop
+.worker
 convPartialNx1FlattenedAligned:
-convPartialNx1Flattened_float_float:
+convPartialNx1Flattened:
 // worker register mapping
 #define wkr_id_v                       m0
 #define partition_table_v              m1
@@ -155,7 +213,7 @@ convPartialNx1Flattened_float_float:
 #define inoutstrides1_v                m4
 #define inoutstrides2_v                m5
 #define out_chans_per_group_x4         m6
-#define in_chans_per_group_x4          m7
+#define in_chans_per_group_x2          m7
 #define tripacked_addr                 m8:9
 #define in_addr_v                      m8
 #define in_offset_v                    m8
@@ -164,16 +222,6 @@ convPartialNx1Flattened_float_float:
 #define inchan_ptr_v                   m10
 #define outchan_ptr_v                  m11
 
-#define X_IN_0                         $a0
-#define X_IN_1                         $a1
-#define X_IN                           $a0:1
-#define P_IN                           $a2:3
-#define X_IN__P_IN                     $a0:3
-#define NULL2                          $a4:5
-#define P_OUT                          $a6:7
-#define NULL1                          $a14
-#define NULL                           $azeros
-
 get           $wkr_id_v, $WSR
 and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 
@@ -181,28 +229,31 @@ and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [in-row-stride1][in-row-stride0][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
-ld32          $in_chans_per_group_x4, $mvertex_base, WKR_INCHANS_PER_GROUP_X4/4
+ld32          $in_chans_per_group_x2, $mvertex_base, WKR_INCHANS_PER_GROUP_X2/4
 ld32          $out_chans_per_group_x4, $mvertex_base, WKR_OUTCHANS_PER_GROUP_X4/4
 
-convPartialNx1Flattened_float_float_StateRetained:
+convPartialNx1FlattenedStateRetained:
 
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
 ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
 
-// extract offset and delta: upper 14 bits gives number of partitions
-// lower 18 bits give offset to common base for the vector list
+// extract offset and delta: upper X bits gives number of partitions
+// lower Y bits give offset to common base for the vector list
+// For DeltaN: X = 18, Y = 14
+// For DeltaNElements: X and Y are based on memory alignment used
 shr           $num_partitions_v, $partition_struct_v, DELTAN_OFFSET_BITS
 // exit if no work to be done for worker
 brz           $num_partitions_v, L_Conv_end
 shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
 // Offset needs to be converted from elements to bytes.
-// Hence shift right is less by ELEM_TO_BYTES_CONV
+// Hence shift rigth is less by ELEM_TO_BYTES_CONV
 shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
 ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 add           $partition_v, $partition_v, $partition_base_v
 
 ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
+
 
 // This following approximates num_partitions/3 - 1 for values
 // [3:3:2^14-1]. The case of zero is handled above
@@ -226,7 +277,7 @@ PartitionLoop:
 
   // form input address
   ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
-  mul           $in_offset_v, $in_offset_v, $in_chans_per_group_x4
+  mul           $in_offset_v, $in_offset_v, $in_chans_per_group_x2
   add           $in_addr_v, $inchan_ptr_v, $in_offset_v
 
   // form output address
@@ -240,16 +291,16 @@ PartitionLoop:
   // Form packed address
   tapack        $tripacked_addr, $in_addr_v, $out_addr_v, $out_addr_v
   // *input-ptr += 0; *partials-ptr += 1
-  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $mzero, 0b0011
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0011
   {
-    // *input-ptr += 0; *partials-ptr += 1
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $mzero, 0b0011
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P0
+    // input-ptr += 0; partials-ptr += 1
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0011
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P0
   }
   {
     // *input-ptr += 0; *partials-ptr += 1
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $mzero, 0b0011
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P2
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0011
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P1
   }
   // jump to specialisation for number of field samples equal to 1
   // Note: when num_fpv = 0, 3 partials will be loaded but with an post
@@ -257,160 +308,126 @@ PartitionLoop:
   brneg         $num_fp_v, ConvNumFpEq1
   {
     // *input-ptr += 0; *partials-ptr += out-stride
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $inoutstrides1_v, 0b0111
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
   }
   {
     // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P6
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+  }
+  {
+    // *input-ptr += in-row-stride1; partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
 
-  // Start providing inputs ----------------------------------------------------
-
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
+  {
+    // *input-ptr += in-stride; *partials_ptr += out-stride
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0110
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
+  }
+  {
+    // *input-ptr += in-row-stride0; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+  }
   {
     // *input-ptr += in-row-stride1; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0011
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+    f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
   }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
   {
-    // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P3
-  }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
-  {
-    // *input-ptr += in-stride; *partials-ptr += out-stride
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides1_v, 0b0110
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P5
-  }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
-  {
-    // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P7
-  }
-
-  // Start recording output ----------------------------------------------------
-
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
-  {
-    // *input-ptr += in-row-stride1; *partials-ptr += 1; *out-ptr += 1
-    ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b000011
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P1
-  }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
-  {
-    // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += 1
-    ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b000010
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P3
+    // *input-ptr += in-row-stride0; *partials += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
   rpt $num_fp_v, (Loop_end_Amp-Loop_start_Amp)/8-1
 Loop_start_Amp:
     {
-      nop
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
-    }
-    {
       // *input-ptr += in-stride; *partials-ptr += out-stride; *out-ptr += 1
-      ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides1_v, 0b000110
-      f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P5
-    }
-    {
-      nop
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
-    }
-    {
-      // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += out-stride
-      ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b010010
-      f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P7
-    }
-    {
-      nop
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
-    }
-    {
-      // *input-ptr += in-row-stride1; *partials-ptr += 1; *out-ptr += 1
-      ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b000011
-      f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P1
-    }
-    {
-      nop
-      f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
+      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $inoutstrides1_v, 0b000110
+      f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
     }
     {
       // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += 1
-      ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b000010
-      f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P3
+      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b000010
+      f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
+    }
+    {
+      // *input-ptr += in-row-stride1; *partials-ptr += 1; *out-ptr += 1
+      ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $inoutstrides2_v, 0b000011
+      f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+    }
+    {
+      // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += out-stride
+      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b010010
+      f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
     }
 Loop_end_Amp:
-
-  f32sisoamp    P_OUT, X_IN_0, $a2:3, TAMP_F32_E4_P4
   {
-    // *input-ptr += in-stride; *partials-ptr += 0; *out-ptr += 1
-    ld2xst64pace  X_IN__P_IN, P_OUT, $tripacked_addr+=, $inoutstrides1_v, 0b001110
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P5
+    // *input-ptr += in-stride; *partials-ptr += out-stride; out-ptr += 1
+    ld2xst64pace  $a0:3, $a4:5, $tripacked_addr+=, $inoutstrides1_v, 0b000110
+    f16v4sisoamp  $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P2
   }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
   {
-    // *input-ptr += in-row-stride0, *out-ptr += out-stride
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b0110
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P7
+    // input-ptr += in-row-stride0; partials-ptr += 1; out-ptr += 1
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
   }
-
-  // Stop providing partials ---------------------------------------------------
-
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P0
   {
-    // input-ptr += in-row-stride1; out-ptr += 1
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b0011
-    f32sisoamp    P_OUT, X_IN_1, NULL, TAMP_F32_E4_P1
+    // input-ptr += in-row-stride1; partials-ptr += 1; out-ptr += 1
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+    f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
   }
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P2
   {
-    // input-ptr += in-row-stride0; out-ptr += 1
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    f32sisoamp    P_OUT, X_IN_1, NULL, TAMP_F32_E4_P3
+    // input-ptr += in-row-stride0; partials-ptr += 1; out-ptr += out-stride
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b0110
+    f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
   }
 StoreFinalAmpOutputs2:
-
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P4
   {
-    // *input-ptr += 0; *out-ptr += 1
-    ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $mzero, 0b0011
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P5
+    // *input-ptr += in-stride; *out-ptr += 1
+    ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b0000
+    f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P2
   }
-  f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P6
-  {
-    // *out-ptr += out-stride
-    st64pace      P_OUT, $tripacked_addr+=, $inoutstrides1_v, 0b01
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P7
-  }
-  // Stop providing input ------------------------------------------------------
-  f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P0
   {
     // *out-ptr += 1
-    st64pace      P_OUT, $tripacked_addr+=, $mzero, 0b00
-    f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P2
+    st64pace  $a6:7, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
   }
-
+  {
+    // *out-ptr += 1
+    st64pace  $a4:5, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P0
+  }
+  {
+    // *out-ptr += out-stride
+    st64pace  $a6:7, $tripacked_addr+=, $inoutstrides1_v, 0b01
+    f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P1
+  }
 StoreFinalAmpOutputs1:
   // The partials for the next iteration may be loaded here but would require
   // the input and output addresses to be computed.
   {
     // *out-ptr += 1
-    st64pace      P_OUT, $tripacked_addr+=, $mzero, 0b00
-    f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P4
+    st64pace      $a4:5, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P2
   }
   {
     // *out-ptr += 1
-    st64pace      P_OUT, $tripacked_addr+=, $mzero, 0b00
-    f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P6
+    st64pace      $a6:7, $tripacked_addr+=, $mzero, 0b00
+    f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P3
   }
-  // *out-ptr += 0
-  st64pace      P_OUT, $tripacked_addr+=, $mzero, 0b11
+  // *out-ptr += 1
+  st64pace      $a4:5, $tripacked_addr+=, $mzero, 0b00
+  // *out-ptr += 1
+  st64pace      $a6:7, $tripacked_addr+=, $mzero, 0b00
 
 L_Partition_end:
   brnzdec       $num_partitions_v, PartitionLoop
@@ -431,42 +448,36 @@ add           $num_fp_v, $num_fp_v, 1
 brneg         $num_fp_v, L_Partition_end
 {
   // *input-ptr += 0; *partials-ptr += 0
-  ld2x64pace    NULL, P_IN, $tripacked_addr+=, $mzero, 0b1111
-  f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b1111
+  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
 }
 {
-  // *input-ptr += in-row-stride0; *partials-ptr += (1)
-  ld2x64pace    X_IN, NULL, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-  f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P6
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+  f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
 }
-f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P0
 {
-  // *input-ptr += in-row-stride1; *partials-ptr += (1)
-  ld2x64pace    X_IN, NULL, $tripacked_addr+=, $inoutstrides2_v, 0b0011
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P1
+  // *input-ptr += in-row-stride1; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P0
 }
-f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P2
 {
-  // *input-ptr += in-row-stride0; *partials-ptr += (1)
-  ld2x64pace    X_IN, NULL, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P3
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
-f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P4
 {
-  // *input-ptr += 0; *partials-ptr += 0
-  ld2x64pace    X_IN, NULL, $tripacked_addr+=, $mzero, 0b1111
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P5
+  // *input-ptr += in-stride; *partials_ptr += 0
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides1_v, 0b1110
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P2
 }
-f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P6
-f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P7
-f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P0
+f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P3
+f16v4sisoamp  $a4:5, $azeros, $azeros, TAMP_F16V4_E4_P0
 {
-  // *out-ptr += 1
-  st64pace      P_OUT, $tripacked_addr+=, $mzero, 0b00
-  f32sisoamp    P_OUT, NULL1, NULL, TAMP_F32_E4_P2
+  // Jump to common part to store final samples
+  bri           StoreFinalAmpOutputs1
+  f16v4sisoamp  $a6:7, $azeros, $azeros, TAMP_F16V4_E4_P1
 }
-// Jump to common part to store final samples
-bri           StoreFinalAmpOutputs1
 
 // =============================================================================
 
@@ -481,57 +492,51 @@ bri           StoreFinalAmpOutputs1
 ConvNumFpEq2:
   {
     // *input-ptr += 0; *partials-ptr += out-stride
-    ld2x64pace    NULL, P_IN, $tripacked_addr+=, $inoutstrides1_v, 0b0111
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P4
+    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
   }
   {
     // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    f32sisoamp    P_OUT, NULL1, P_IN, TAMP_F32_E4_P6
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
   }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P0
   {
-    // *input-ptr += in-row-stride1; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0011
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P1
+    // *input-ptr += in-row-stride1; partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
   }
-  f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P2
   {
     // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P3
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
 
 #define inoutstrides2_eq2_v   num_fp_v
 andc          $inoutstrides2_eq2_v, $inoutstrides2_v, 0x3ff
 
-f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P4
 {
-  // *input-ptr += in-stride; *partials-ptr += 0
-  ld2x64pace    X_IN, P_IN, $tripacked_addr+=, $inoutstrides1_v, 0b1110
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P5
+  // *input-ptr += in-stride; *partials_ptr += 0
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b1110
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
 }
-f32sisoamp    P_OUT, X_IN_0, P_IN, TAMP_F32_E4_P6
 {
-  // *input-ptr += in-row-stride0; *partials-ptr += (1)
-  ld2x64pace    X_IN, NULL, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0010
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P7
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0110
+  f16v4sisoamp  $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
 }
-f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P0
 {
-  // input-ptr += in-row-stride1; *out-ptr += 1
-  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0011
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P1
+  // input-ptr += in-row-stride1; partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0111
+  f16v4sisoamp  $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
 }
-f32sisoamp    P_OUT, X_IN_0, NULL, TAMP_F32_E4_P2
 {
-  // input-ptr += in-row-stride0; *out-ptr += 1
-  ldst64pace    X_IN, P_OUT, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0010
-  f32sisoamp    NULL2, X_IN_1, NULL, TAMP_F32_E4_P3
+  // input-ptr += in-row-stride0; partials += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0110
+  f16v4sisoamp  $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
 bri           StoreFinalAmpOutputs2
 
-.size convPartialNx1Flattened_float_float, . - convPartialNx1Flattened_float_float
+.size convPartialNx1Flattened, . - convPartialNx1Flattened
 
 
 // =============================================================================
@@ -614,15 +619,17 @@ bri           StoreFinalAmpOutputs2
 
 .macro CONV_NX1 LDTYPE
 
+
 .if \LDTYPE == LD64
-DEF_STACK_USAGE TOT_STACK_SIZE CODELET_NAME_64
+DEF_STACK_USAGE  TOT_STACK_SIZE  CODELET_NAME_64
 .section .text.CODELET_NAME_64
+.align 4
 .type CODELET_NAME_64, @function
 .globl CODELET_NAME_64
 CODELET_NAME_64:
 
 .elseif \LDTYPE == LD128
-DEF_STACK_USAGE TOT_STACK_SIZE CODELET_NAME_128
+DEF_STACK_USAGE  TOT_STACK_SIZE  CODELET_NAME_128
 .section .text.CODELET_NAME_128
 .type CODELET_NAME_128, @function
 .globl CODELET_NAME_128
@@ -643,10 +650,9 @@ lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 //-----------------------------------------------------------------------------
 #if WORKER_REG_STATE_RETAINED
-setzi         $wkr_function_s, convPartialNx1Flattened_float_float
+setzi         $wkr_function_s, convPartialNx1Flattened
 #endif
 and           $temp_1_s, $temp_1_s, 0x3FF
-
 ldz16         $temp_5_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ldz16         $temp_7_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
@@ -700,18 +706,17 @@ mul           $temp_5_s, $inchans_per_group_s, SIZEOF_IN_ATOM
 //-----------------------------------------------------------------------------
 mul           $temp_4_s, $outchans_per_group_s, SIZEOF_OUT_ATOM
 or            $strides_s, $strides_s, $outstride_s
-shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS_FLOAT
+shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS_HALF
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
 #else
 shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
-
 setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloat
 
 // Scale output and input channels per group to scale input and output offsets.
 // Scaling depends on sizeof(input) and sizeof(output)
-st32          $temp_5_s, $wkr_base, WKR_INCHANS_PER_GROUP_X4/4
+st32          $temp_5_s, $wkr_base, WKR_INCHANS_PER_GROUP_X2/4
 //-----------------------------------------------------------------------------
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
 or            $strides_s, $strides_s, $in_row_stride_s
@@ -769,13 +774,13 @@ st32          $partition_ptr_b_s, $sp, (STACK_BASE + STACK_PARTITION_PTR)/4
 setzi         $jmp_addr_s, 0
 
 brz           $amp_kernel_height_s, JmpAddrSelEnd_\LDTYPE\()
-mul           $temp_6_s, $temp_2_s, AMP_INPUTS_FLOAT/2 * SIZEOF_WEIGHTS_ATOM
+mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/2 * SIZEOF_WEIGHTS_ATOM
 setzi         $jmp_addr_s, AmpHeightEq2_\LDTYPE\()
 // a bubble here instead of using 3 nop instructions
 add           $amp_kernel_height_s, $amp_kernel_height_s, -1
 brz           $amp_kernel_height_s, JmpAddrSelEnd_\LDTYPE\()
 setzi         $jmp_addr_s, AmpHeightEq4_\LDTYPE\()
-mul           $temp_6_s, $temp_2_s, AMP_INPUTS_FLOAT/4 * SIZEOF_WEIGHTS_ATOM
+mul           $temp_6_s, $temp_2_s, AMP_INPUTS_HALF/4 * SIZEOF_WEIGHTS_ATOM
 JmpAddrSelEnd_\LDTYPE\():
 
 // The only call to this function may be zero out partials
@@ -867,8 +872,8 @@ AmpOutGroupLoop_\LDTYPE\():
 #if WORKER_REG_STATE_RETAINED
             // we reuse $inchan_ptr_s as it has already been saved to vertex
             // state
-            setzi         $inchan_ptr_s, convPartialNx1Flattened_float_float_StateRetained
-#endif            
+            setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained
+#endif
             ld128putcs    0
             ld128putcs    2
             ld128putcs    4
@@ -884,7 +889,7 @@ AmpOutGroupLoop_\LDTYPE\():
             st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 #else
-            setzi         $wkr_function_s, convPartialNx1Flattened_float_float
+            setzi         $wkr_function_s, convPartialNx1Flattened
 #endif
             ld128putcs    20
             ld128putcs    22
@@ -897,7 +902,7 @@ AmpOutGroupLoop_\LDTYPE\():
 #if WORKER_REG_STATE_RETAINED
             // we reuse $inchan_ptr_s as it has already been saved to vertex
             // state
-            setzi         $inchan_ptr_s, convPartialNx1Flattened_float_float_StateRetained
+            setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained
 #endif
             ld64putcs    0
             ld64putcs    1
@@ -924,7 +929,7 @@ AmpOutGroupLoop_\LDTYPE\():
             st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 #else
-            setzi         $wkr_function_s, convPartialNx1Flattened_float_float
+            setzi         $wkr_function_s, convPartialNx1Flattened
 #endif
             ld64putcs    20
             ld64putcs    21
@@ -947,7 +952,7 @@ AmpHeightRun_\LDTYPE\():
             runall        $wkr_function_s, $wkr_base, 0
 
             // wind pointer to point to next amp subgroup
-            add           $outchan_ptr_s, $outchan_ptr_s, SIZEOF_OUT_ATOM * AMP_OUTPUTS_FLOAT
+            add           $outchan_ptr_s, $outchan_ptr_s, SIZEOF_OUT_ATOM * AMP_OUTPUTS_HALF
             brnzdec       $amp_out_subgroup_count_s, AmpOutGroupLoop_\LDTYPE\()
 
           add           $partition_ptr_s, $partition_ptr_s, 6 * 4
@@ -994,7 +999,7 @@ br            $amp_height_jump_s
 // =============================================================================
 
 // Code fragement to load CWEI with coefficients when the weights tensor
-// innermost dimensions are [AMP_OUTPUTS_FLOAT * m][AMP_INPUTS_FLOAT/2]
+// innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/2]
 AmpHeightEq2_\LDTYPE\():
 put           $CCCSLOAD, $weights_ptr_s
 add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr
@@ -1003,7 +1008,7 @@ add           $weights_ptr_s_h, $weights_ptr_s, $weights_ptr_h_incr
 #if WORKER_REG_STATE_RETAINED
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
-setzi         $inchan_ptr_s, convPartialNx1Flattened_float_float_StateRetained
+setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained
 #endif
 ld128putcs    0
 ld128putcs    4
@@ -1021,7 +1026,7 @@ ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 #else
-setzi         $wkr_function_s, convPartialNx1Flattened_float_float
+setzi         $wkr_function_s, convPartialNx1Flattened
 #endif
 ld128putcs    10
 ld128putcs    14
@@ -1034,7 +1039,7 @@ ld128putcs    30
 #if WORKER_REG_STATE_RETAINED
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
-setzi         $inchan_ptr_s, convPartialNx1Flattened_float_float_StateRetained
+setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained
 #endif
 ld64putcs     0
 ld64putcs     1
@@ -1062,7 +1067,7 @@ ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 #else
-setzi         $wkr_function_s, convPartialNx1Flattened_float_float
+setzi         $wkr_function_s, convPartialNx1Flattened
 #endif
 ld64putcs     10
 ld64putcs     11
@@ -1083,13 +1088,13 @@ ld64putcs     31
 .endif
 
 // update weight pointer by the amount of coefficient
-add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_FLOAT * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_FLOAT/2
+add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_HALF * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_HALF/2
 bri           AmpHeightRun_\LDTYPE\()
 
 // =============================================================================
 
 // Code fragement to load CWEI with coefficients when the weights tensor
-// innermost dimensions are [AMP_OUTPUTS_FLOAT * m][AMP_INPUTS_FLOAT/4]
+// innermost dimensions are [AMP_OUTPUTS_HALF * m][AMP_INPUTS_HALF/4]
 // TODO: T12867 If code is shared between the 64-bit and 128-bit weight load
 // versions, then this part of the code can be shared. It needs to be in a
 // common section.
@@ -1097,7 +1102,7 @@ AmpHeightEq4_\LDTYPE\():
 #if WORKER_REG_STATE_RETAINED
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
-setzi         $inchan_ptr_s, convPartialNx1Flattened_float_float_StateRetained
+setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained
 #endif
 
 put           $CCCSLOAD, $weights_ptr_s
@@ -1136,7 +1141,7 @@ ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 #else
-setzi         $wkr_function_s, convPartialNx1Flattened_float_float
+setzi         $wkr_function_s, convPartialNx1Flattened
 #endif
 ld64putcs     3
 ld64putcs     7
@@ -1147,7 +1152,7 @@ ld64putcs     23
 ld64putcs     27
 ld64putcs     31
 // update weight pointer by the number of coefficients used up as the next time
-add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_FLOAT * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_FLOAT/4
+add           $weights_ptr_s, $weights_ptr_s, AMP_OUTPUTS_HALF * SIZEOF_WEIGHTS_ATOM * AMP_INPUTS_HALF/4
 bri           AmpHeightRun_\LDTYPE\()
 
 .if \LDTYPE == LD64
