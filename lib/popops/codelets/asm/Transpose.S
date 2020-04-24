@@ -251,9 +251,13 @@ TRANSPOSE_2D_INT:
     sub    $STRIDE, 1, $STRIDE
 
     // This should be the largest stride calculated so check it:
-    // Is this -ve stride going to be bigger than a signed 10 bit range?
+    // Is this negative stride going to exceed a signed 10 bit range?
     cmpslt  $mSCRATCH2, $STRIDE, -512
     brnz    $mSCRATCH2, TransposeAT4SlowPath
+    // Rows are used as a positive stride that must be within the same 10-bit
+    // signed range, so check these too.
+    cmpult  $mSCRATCH2, $IN_ROWS, 512
+    brz     $mSCRATCH2, TransposeAT4SlowPath
 
     //Mask off so we can pack it
     and    $STRIDE, $STRIDE, 0x3ff

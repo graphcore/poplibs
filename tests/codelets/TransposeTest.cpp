@@ -31,7 +31,7 @@ struct TestParams {
   bool force2d;
 };
 
-std::vector<TestParams> TestList = {
+std::vector<TestParams> SmallTestList = {
     {1, 10, 1, false},  {7, 1, 2, false},   {8, 4, 1, false},
     {24, 4, 2, false},  {4, 4, 3, false},   {4, 4, 1, false},
     {5, 7, 2, false},   {16, 16, 3, true},  {16, 16, 3, false},
@@ -40,6 +40,10 @@ std::vector<TestParams> TestList = {
     {8, 4, 1, true},    {16, 4, 2, true},   {16, 4, 5, false},
     {16, 4, 6, false},  {16, 4, 15, false}, {16, 4, 18, false},
     {16, 4, 31, false},
+};
+
+std::vector<TestParams> T19548TestList = {
+    {512, 4, 1, true},
 };
 
 //*************************************************
@@ -54,26 +58,30 @@ std::vector<TestParams> TestList = {
 // hold max_matrices of max_rowsxMAX_COLUMNS but often much of the data
 // is expected to be zero.  This is checked as well as the "wanted" data.
 //*************************************************
-void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
+void TransposeTest(const Type &dataType, bool useSupervisorVertex,
+                   const std::vector<TestParams> &testList) {
 
   // determine the sizes of arrays required
-  auto test_count = TestList.size();
+  auto test_count = testList.size();
 
-  auto max_rows = std::max_element(TestList.begin(), TestList.end(),
-                                   [](TestParams &a, TestParams &b) {
-                                     return (a.rows < b.rows);
-                                   })
-                      ->rows;
-  auto max_cols = std::max_element(TestList.begin(), TestList.end(),
-                                   [](TestParams &a, TestParams &b) {
-                                     return (a.cols < b.cols);
-                                   })
-                      ->cols;
-  auto max_matrices = std::max_element(TestList.begin(), TestList.end(),
-                                       [](TestParams &a, TestParams &b) {
-                                         return (a.matrices < b.matrices);
-                                       })
-                          ->matrices;
+  auto max_rows =
+      std::max_element(testList.begin(), testList.end(),
+                       [](const TestParams &a, const TestParams &b) {
+                         return (a.rows < b.rows);
+                       })
+          ->rows;
+  auto max_cols =
+      std::max_element(testList.begin(), testList.end(),
+                       [](const TestParams &a, const TestParams &b) {
+                         return (a.cols < b.cols);
+                       })
+          ->cols;
+  auto max_matrices =
+      std::max_element(testList.begin(), testList.end(),
+                       [](const TestParams &a, const TestParams &b) {
+                         return (a.matrices < b.matrices);
+                       })
+          ->matrices;
   // Whole data array size
   auto total_size = max_rows * max_cols * max_matrices;
 
@@ -123,16 +131,16 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
   std::vector<Program> programs(test_count);
 
   for (std::size_t tests = 0; tests < test_count; tests++) {
-    auto matrices = TestList[tests].matrices;
-    auto rows = TestList[tests].rows;
-    auto cols = TestList[tests].cols;
+    auto matrices = testList[tests].matrices;
+    auto rows = testList[tests].rows;
+    auto cols = testList[tests].cols;
 
     Sequence sequence;
 
     ComputeSet testComputeSet = graph.addComputeSet("computeTranspose2d");
     const auto fastVariant =
         canUseFastTranspose(target, dataType, rows, cols, matrices) &&
-        !TestList[tests].force2d;
+        !testList[tests].force2d;
 
     std::string vertexName = "popops::Transpose2d";
     if (fastVariant) {
@@ -206,9 +214,9 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
   std::vector<double> outHost(total_size);
 
   for (std::size_t tests = 0; tests < test_count; tests++) {
-    auto matrices = TestList[tests].matrices;
-    auto rows = TestList[tests].rows;
-    auto cols = TestList[tests].cols;
+    auto matrices = testList[tests].matrices;
+    auto rows = testList[tests].rows;
+    auto cols = testList[tests].cols;
 
     copy(target, inTest.data(), inTest.size(), dataType, input.get());
 
@@ -241,18 +249,41 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(TransposeTest_half_true) { TransposeTest(HALF, true); }
+BOOST_AUTO_TEST_CASE(TransposeTest_half_true) {
+  TransposeTest(HALF, true, SmallTestList);
+}
 BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_short_true) {
-  TransposeTest(UNSIGNED_SHORT, true);
+  TransposeTest(UNSIGNED_SHORT, true, SmallTestList);
 }
-BOOST_AUTO_TEST_CASE(TransposeTest_short_true) { TransposeTest(SHORT, true); }
-BOOST_AUTO_TEST_CASE(TransposeTest_float_false) { TransposeTest(FLOAT, false); }
+BOOST_AUTO_TEST_CASE(TransposeTest_short_true) {
+  TransposeTest(SHORT, true, SmallTestList);
+}
+
+BOOST_AUTO_TEST_CASE(TransposeTest_float_false) {
+  TransposeTest(FLOAT, false, SmallTestList);
+}
 BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false) {
-  TransposeTest(UNSIGNED_INT, false);
+  TransposeTest(UNSIGNED_INT, false, SmallTestList);
 }
-BOOST_AUTO_TEST_CASE(TransposeTest_int_false) { TransposeTest(INT, false); }
-BOOST_AUTO_TEST_CASE(TransposeTest_half_false) { TransposeTest(HALF, false); }
+BOOST_AUTO_TEST_CASE(TransposeTest_int_false) {
+  TransposeTest(INT, false, SmallTestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_float_false_T19548) {
+  TransposeTest(FLOAT, false, T19548TestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false_T19548) {
+  TransposeTest(UNSIGNED_INT, false, T19548TestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_int_false_T19548) {
+  TransposeTest(INT, false, T19548TestList);
+}
+
+BOOST_AUTO_TEST_CASE(TransposeTest_half_false) {
+  TransposeTest(HALF, false, SmallTestList);
+}
 BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_short_false) {
-  TransposeTest(UNSIGNED_SHORT, false);
+  TransposeTest(UNSIGNED_SHORT, false, SmallTestList);
 }
-BOOST_AUTO_TEST_CASE(TransposeTest_short_false) { TransposeTest(SHORT, false); }
+BOOST_AUTO_TEST_CASE(TransposeTest_short_false) {
+  TransposeTest(SHORT, false, SmallTestList);
+}

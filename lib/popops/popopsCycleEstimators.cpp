@@ -2164,9 +2164,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
   if (is4ByteType) {
     if (((numSrcRows & 1) == 0) && ((numSrcColumns & 1) == 0) &&
         (numSrcColumns / 2 < hardwareRptCountConstraint) &&
-        (numSrcRows * (numSrcColumns - 2) / 2 < 512)) { // Largest stride used
+        (numSrcRows * (numSrcColumns - 2) / 2 < 512) && // Largest stride used
+        (numSrcRows < 512)) { // Used as a stride over output.
       // Float, fast path estimates
-      cycles = 25 + matrices * (11 + (numSrcRows / 2) *
+      cycles = 27 + matrices * (11 + (numSrcRows / 2) *
                                          (6 + 3 * (numSrcColumns / 2 - 1)));
     } else {
       // Float, slow path estimates based on numSrcRows being even
