@@ -21,7 +21,9 @@ template <typename FPType, typename AccumType, bool useLimitedVer,
           unsigned numConvUnits>
 constexpr bool hasAssembly() {
   return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
-         useLimitedVer == true && numConvUnits == 8;
+         useLimitedVer == true &&
+         (numConvUnits == 8 ||
+          (numConvUnits == 16 && std::is_same<AccumType, half>()));
 }
 
 /**
@@ -101,7 +103,11 @@ public:
 
     const auto usedContexts =
         worklists.size() / (kernelOuterSize * kernelInnerElements);
-    const auto outStrideThresh = std::is_same<AccumType, float>() ? -6 : -4;
+    auto outStrideThresh = std::is_same<AccumType, float>() ? -6 : -4;
+    // For dual AMP codelets need to offset stride threshold by extra 8 elements
+    if (numConvUnits > 8) {
+      outStrideThresh += -8;
+    }
 
     const auto flipOut = transformedOutStride < outStrideThresh;
     const int outStride =

@@ -262,6 +262,36 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   return maxWorkerCycles;
 }
 
+inline unsigned getConvPartialAmpSupervisorCycleWeightLoadEstimate(
+    unsigned convUnitInputLoadElemsPerCycle, unsigned numConvUnits,
+    unsigned convUnitCoeffLoadBytesPerCycle, bool floatActivations,
+    unsigned filterHeight) {
+
+  // Number of load instruction per AMP loop (See Loop_start_Amp label)
+  unsigned numInputLoadsInnerLoop = 4;
+
+  // When using AMP 4 engines number of loads need to be halved
+  if (numConvUnits == 4) {
+    numInputLoadsInnerLoop /= 2;
+  }
+
+  // Nx1 specific - due to data shuffeling can't use ld128 for filter height
+  // equal to 4 so it's always uses ld64. On MK1 and MK2 ld128 allows to
+  // load 16 bytes per cycle hence convUnitCoeffLoadBytesPerCycle need to be
+  // halved
+  if (filterHeight == 4 && convUnitCoeffLoadBytesPerCycle > 8) {
+    convUnitCoeffLoadBytesPerCycle /= 2;
+  }
+
+  unsigned weightsLoadCycles =
+      (convUnitInputLoadElemsPerCycle * // 2 for floats and 4 for halves
+       numInputLoadsInnerLoop * numConvUnits *
+       (floatActivations ? 4 : 2)) / // convert elements to bytes
+      convUnitCoeffLoadBytesPerCycle;
+
+  return weightsLoadCycles;
+}
+
 inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCyclesWithZeroing,
     std::uint64_t innerLoopCyclesWithoutZeroing, unsigned numConvGroups,
@@ -274,10 +304,12 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
 
   const auto retentionSavings =
       conv1x1WorkerRetentionSavings(floatActivations, floatPartials);
-  auto numInputLoadsInnerLoop = numConvUnits / 2;
-  const auto numLoads =
-      convUnitInputLoadElemsPerCycle * numInputLoadsInnerLoop * numConvUnits *
-      (floatActivations ? 4 : 2) / convUnitCoeffLoadBytesPerCycle;
+
+  // Filter height is not applicable to 1x1 vertex so set it to 1
+  const auto numLoads = getConvPartialAmpSupervisorCycleWeightLoadEstimate(
+      convUnitInputLoadElemsPerCycle, numConvUnits,
+      convUnitCoeffLoadBytesPerCycle, floatActivations, 1);
+
   const uint64_t supervisorNonloopOverhead = 50;
 #if WORKER_REG_STATE_RETAINED
   const unsigned outPassesOverhead = 7;
@@ -356,28 +388,21 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
   // Core loop cycles for vertex will all engines in use
   auto coreCycles = floatActivations ? 8 : 4;
-  auto numInputLoadsInnerLoop = 4;
   // when using half of AMP engines need to reduce core cycles as well
   if (numConvUnits == 4) {
     coreCycles /= 2;
-    numInputLoadsInnerLoop /= 2;
   }
 
   const auto retentionSavings =
       convnx1WorkerRetentionSavings(floatActivations, floatPartials);
   unsigned usedContexts = workerPartitions.size();
   unsigned numOutChanPasses = outChansPerGroup / numConvUnits;
-  // TODO: T12901 Update for float input when assembler code is written.
-  if (filterHeight == 4 && convUnitCoeffLoadBytesPerCycle >= 8)
-    convUnitCoeffLoadBytesPerCycle = 8;
-  const auto numLoads =
-      convUnitInputLoadElemsPerCycle * // 2 for floats and 4 for halves
-      numInputLoadsInnerLoop *         // number of input channels
-      numConvUnits *                   // num of out chans = num of conv units
-      (floatActivations ? 4 : 2) /     // convert channels to bytes
-      convUnitCoeffLoadBytesPerCycle;
+
   // innermostLoopCycles is the cycles in the innermost supervisor loop
-  uint64_t innermostLoopCycles = numLoads;
+  uint64_t innermostLoopCycles =
+      getConvPartialAmpSupervisorCycleWeightLoadEstimate(
+          convUnitInputLoadElemsPerCycle, numConvUnits,
+          convUnitCoeffLoadBytesPerCycle, floatActivations, filterHeight);
 
   // additional load cycles dependent on filterHeight
   switch (filterHeight) {

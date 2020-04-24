@@ -707,7 +707,7 @@ shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
 shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
 
-setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloat
+setzi         $wkr_function_s_z, convNx1ZeroOutField_float
 
 // Scale output and input channels per group to scale input and output offsets.
 // Scaling depends on sizeof(input) and sizeof(output)
@@ -757,7 +757,7 @@ ZeroOutChanGroup_\LDTYPE\():
 #endif
     runall        $wkr_function_s_z, $wkr_base, 0
 #if WORKER_REG_STATE_RETAINED
-    setzi         $wkr_function_s_z, convNx1ZeroOutFieldFloatReentry
+    setzi         $wkr_function_s_z, convNx1ZeroOutFieldReentry_float
 #endif
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\LDTYPE\()
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_\LDTYPE\()
@@ -868,7 +868,7 @@ AmpOutGroupLoop_\LDTYPE\():
             // we reuse $inchan_ptr_s as it has already been saved to vertex
             // state
             setzi         $inchan_ptr_s, convPartialNx1Flattened_float_float_StateRetained
-#endif            
+#endif
             ld128putcs    0
             ld128putcs    2
             ld128putcs    4
