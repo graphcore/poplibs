@@ -42,8 +42,8 @@ IpuModel,default,bert_reduce_3,2800,572296,2576
 IpuModel,default,bert_reduce_4,4615,1168616,16632
 IpuModel,default,conv_5x200_1_in_100_out_bs1440,310245,187675847,203832
 IpuModel,default,embedding_small,204145,49312062,55852
-IpuModel,default,embedding_vlarge,148065,57612382,77080
-IpuModel,default,embedding_vlarge_large_indices,1147367,164576874,161548
+IpuModel,default,embedding_vlarge,148065,57612318,77080
+IpuModel,default,embedding_vlarge_large_indices,1147367,164576394,161548
 IpuModel,default,fc_layer_1440x100x200,23485,14441901,132696
 IpuModel,default,fc_layer_1440x200x400,40726,40435262,135896
 IpuModel,default,fc_layer_16x1324x100,11245,2464522,131608
