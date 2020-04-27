@@ -62,8 +62,10 @@ int main(int argc, char **argv) try {
   ShapeOption<std::size_t> kernelSizeOption;
   ShapeOption<unsigned> outputPaddingLower(0);
   ShapeOption<unsigned> outputPaddingUpper(0);
+  ShapeOption<unsigned> outputTruncationLower(0);
+  ShapeOption<unsigned> outputTruncationUpper(0);
+  ShapeOption<unsigned> outputStride(1);
   unsigned batchSize = 1;
-  unsigned outputStride = 1;
 
   Type inputType = HALF;
   Type partialsType = FLOAT;
@@ -116,8 +118,14 @@ int main(int argc, char **argv) try {
      po::value<ShapeOption<unsigned>>(&outputPaddingUpper),
      "Output padding upper")
     ("output-stride",
-     po::value<unsigned>(&outputStride)->default_value(outputStride),
-     "Output stride in the innermost dimension")
+     po::value<ShapeOption<unsigned>>(&outputStride),
+     "Output stride")
+    ("output-truncation-lower",
+     po::value<ShapeOption<unsigned>>(&outputTruncationLower),
+     "Output truncation lower")
+    ("output-truncation-upper",
+     po::value<ShapeOption<unsigned>>(&outputTruncationUpper),
+     "Output truncation upper")
   ;
   // clang-format on
   po::variables_map vm;
@@ -171,6 +179,9 @@ int main(int argc, char **argv) try {
   }
   outputPaddingLower.broadcast(numFieldDims);
   outputPaddingUpper.broadcast(numFieldDims);
+  outputTruncationLower.broadcast(numFieldDims);
+  outputTruncationUpper.broadcast(numFieldDims);
+  outputStride.broadcast(numFieldDims);
 
   std::vector<std::size_t> outputFieldSize(inputFieldSize.size());
   std::vector<std::size_t> stridedPaddedOutputFieldSize(inputFieldSize.size());
@@ -178,10 +189,11 @@ int main(int argc, char **argv) try {
   for (unsigned d = 0; d < numFieldDims; ++d) {
     outputFieldSize[d] = inputFieldSize[d] - kernelSize[d] + 1;
 
-    const auto unpaddedDimSize = stridedDimSize(
-        inputFieldSize[d], kernelSize[d], outputStride, d == numFieldDims - 1);
+    const auto unpaddedDimSize =
+        stridedDimSize(inputFieldSize[d], kernelSize[d], outputStride[d]);
     stridedPaddedOutputFieldSize[d] =
-        outputPaddingLower[d] + unpaddedDimSize + outputPaddingUpper[d];
+        outputPaddingLower[d] + unpaddedDimSize + outputPaddingUpper[d] -
+        outputTruncationLower[d] - outputTruncationUpper[d];
   }
   auto device = createTestDevice(deviceType, 1, 1);
   const auto &target = device.getTarget();
@@ -240,7 +252,9 @@ int main(int argc, char **argv) try {
                             inChans,   outChans,  convGroups};
   params.outputTransform.paddingLower = outputPaddingLower;
   params.outputTransform.paddingUpper = outputPaddingUpper;
-  params.outputTransform.stride.back() = outputStride;
+  params.outputTransform.truncationLower = outputTruncationLower;
+  params.outputTransform.truncationUpper = outputTruncationUpper;
+  params.outputTransform.stride = outputStride;
   std::cout << "params=" << params << std::endl;
 
   Sequence prog;
@@ -378,9 +392,10 @@ int main(int argc, char **argv) try {
                       [product(stridedPaddedOutputFieldSize)]);
     std::vector<unsigned> modelOutputPaddingLower = outputPaddingLower;
     std::vector<unsigned> modelOutputPaddingUpper = outputPaddingUpper;
+    std::vector<unsigned> modelOutputTruncationLower = outputTruncationLower;
+    std::vector<unsigned> modelOutputTruncationUpper = outputTruncationUpper;
 
-    std::vector<unsigned> strides(numFieldDims, 1);
-    strides.back() = outputStride;
+    std::vector<unsigned> modelStrides = outputStride;
 
     poplibs_test::conv::convolution(
         // Input:
@@ -400,11 +415,11 @@ int main(int argc, char **argv) try {
         std::vector<unsigned>(numFieldDims, 0), // paddingUpper
         std::vector<bool>(numFieldDims, false), // flip
         // Output:
-        std::vector<unsigned>(numFieldDims, 0), // truncationLower
-        std::vector<unsigned>(numFieldDims, 0), // truncationUpper
-        strides,                                // stride
-        modelOutputPaddingLower,                // paddingLower
-        modelOutputPaddingUpper,                // paddingUpper
+        modelOutputTruncationLower, // truncationLower
+        modelOutputTruncationUpper, // truncationUpper
+        modelStrides,               // stride
+        modelOutputPaddingLower,    // paddingLower
+        modelOutputPaddingUpper,    // paddingUpper
         // Buffers:
         hostIn, hostWeights, hostBiases, modelOut);
 

@@ -3439,8 +3439,6 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   };
 #endif
   assert(isAll(1u, params.kernelTransform.dilation));
-  assert(isAll(0u, params.outputTransform.truncationLower));
-  assert(isAll(0u, params.outputTransform.truncationUpper));
 
   // TODO: unlike AMP, SLIC needs to apply field transforms before using them.
   // for now we just constrain against them in the planner.

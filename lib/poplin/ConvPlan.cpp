@@ -1248,12 +1248,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
                            inChansPerGroup, outChansPerGroup);
 
-#ifndef NDEBUG
-          const auto isOne = [](const auto &x) { return x == 1; };
-#endif
-          assert(std::all_of(transformedOutputStride.begin(),
-                             transformedOutputStride.end() - 1, isOne) &&
-                 transformedOutputStride.back() <= 2);
+          assert(transformedOutputStride.back() <= 2);
 
           // current vertex requirements
           assert(inChansPerGroup == outChansPerGroup);
@@ -3324,13 +3319,8 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
     m.equal(m.addConstant(lvl1Params.kernelTransform.paddingUpper[dim]), 0);
     m.equal(m.addConstant(lvl1Params.kernelTransform.flip[dim]), 0);
 
-    m.equal(m.addConstant(lvl1Params.outputTransform.truncationLower[dim]), 0);
-    m.equal(m.addConstant(lvl1Params.outputTransform.truncationUpper[dim]), 0);
-
     if (dim == p.fieldGrainSize.size() - 1) {
       m.lessOrEqual(m.addConstant(lvl1Params.outputTransform.stride[dim]), 2);
-    } else {
-      m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]), 1);
     }
   }
 }

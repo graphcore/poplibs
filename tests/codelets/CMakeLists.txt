@@ -790,7 +790,7 @@ foreach(MODE 0 1 2)
         --chans-per-group=${CHANS_PER_GROUP}
         --in-field-size={4,4}
         --kernel-size={1,4}
-        --output-stride=${OUT_STRIDE}
+        --output-stride={1,${OUT_STRIDE}}
         LABELS codelet
       VARIANTS "Cpu;IpuModel;Sim;Hw")
 
@@ -803,7 +803,7 @@ foreach(MODE 0 1 2)
         --conv-group-groups=4
         --in-field-size={4,20}
         --kernel-size={4,4}
-        --output-stride=${OUT_STRIDE}
+        --output-stride={1,${OUT_STRIDE}}
         LABELS codelet
       VARIANTS "Cpu;IpuModel;Sim;Hw")
 
@@ -818,7 +818,7 @@ foreach(MODE 0 1 2)
         --batch-size=4
         --in-field-size={24,24}
         --kernel-size={8,8}
-        --output-stride=${OUT_STRIDE}
+        --output-stride={1,${OUT_STRIDE}}
       LABELS codelet
     VARIANTS "Cpu;IpuModel;Sim;Hw")
 
@@ -833,7 +833,7 @@ foreach(MODE 0 1 2)
         --batch-size=4
         --in-field-size={24,24}
         --kernel-size={3,12}
-        --output-stride=${OUT_STRIDE}
+        --output-stride={1,${OUT_STRIDE}}
       LABELS codelet
       VARIANTS "Cpu;IpuModel;Sim;Hw")
 
@@ -850,7 +850,7 @@ foreach(MODE 0 1 2)
         --kernel-size={2,1,4}
         --output-padding-lower={1,1,1}
         --output-padding-upper={1,1,2}
-        --output-stride=${OUT_STRIDE}
+        --output-stride={1,1,${OUT_STRIDE}}
       LABELS codelet
       VARIANTS "Cpu;IpuModel;Sim;Hw")
 
@@ -867,8 +867,72 @@ foreach(MODE 0 1 2)
         --kernel-size={2,1,4}
         --output-padding-lower={1,1,1}
         --output-padding-upper={1,1,2}
-        --output-stride=${OUT_STRIDE}
+        --output-stride={1,1,${OUT_STRIDE}}
       LABELS codelet
       VARIANTS "Cpu;IpuModel;Sim;Hw")
   endforeach() # OUT_STRIDE
 endforeach() # MODE
+
+foreach(OUT_STRIDE 2 3 4)
+  add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_1_${OUT_STRIDE}_1"
+    COMMAND ConvPartial1x4SLIC
+      --input-type=half
+      --partials-type=float
+      --conv-groups-per-group=4
+      --chans-per-group=1
+      --conv-group-groups=1
+      --batch-size=1
+      --in-field-size={10,8,11}
+      --kernel-size={1,1,4}
+      --output-stride={1,${OUT_STRIDE},1}
+    LABELS codelet
+    VARIANTS "Cpu;IpuModel;Sim;Hw")
+
+  add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_${OUT_STRIDE}_${OUT_STRIDE}_2"
+    COMMAND ConvPartial1x4SLIC
+      --input-type=half
+      --partials-type=float
+      --conv-groups-per-group=4
+      --chans-per-group=1
+      --conv-group-groups=1
+      --batch-size=1
+      --in-field-size={10,8,11}
+      --kernel-size={1,1,4}
+      --output-stride={${OUT_STRIDE},${OUT_STRIDE},2}
+    LABELS codelet
+    VARIANTS "Cpu;IpuModel;Sim;Hw")
+endforeach() # OUT_STRIDE
+
+foreach(LOWER_TRUNCATION 0 1 2)
+  foreach(UPPER_TRUNCATION 0 1 3)
+    add_multitarget_test(NAME "ConvPartial1x4SLIC_truncation1_upper${UPPER_TRUNCATION}_lower${LOWER_TRUNCATION}"
+      COMMAND ConvPartial1x4SLIC
+        --input-type=half
+        --partials-type=float
+        --conv-groups-per-group=4
+        --chans-per-group=1
+        --conv-group-groups=1
+        --batch-size=1
+        --in-field-size={10,8,11}
+        --kernel-size={1,1,4}
+        --output-truncation-lower={0,0,${LOWER_TRUNCATION}}
+        --output-truncation-upper={0,0,${UPPER_TRUNCATION}}
+      LABELS codelet
+      VARIANTS "Cpu;IpuModel;Sim;Hw")
+
+    add_multitarget_test(NAME "ConvPartial1x4SLIC_truncation2_upper${UPPER_TRUNCATION}_lower${LOWER_TRUNCATION}"
+      COMMAND ConvPartial1x4SLIC
+        --input-type=half
+        --partials-type=float
+        --conv-groups-per-group=4
+        --chans-per-group=1
+        --conv-group-groups=1
+        --batch-size=1
+        --in-field-size={10,8,11}
+        --kernel-size={1,1,4}
+        --output-truncation-upper={0,1,${UPPER_TRUNCATION}}
+        --output-truncation-lower={1,${LOWER_TRUNCATION},0}
+      LABELS codelet
+      VARIANTS "Cpu;IpuModel;Sim;Hw")
+  endforeach() # UPPER_TRUNCATION
+endforeach() # LOWER_TRUNCATION
