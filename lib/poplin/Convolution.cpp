@@ -2775,9 +2775,17 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   // fill in worklist
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
   int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
+  int halfStrideAdj = -4;
+  int floatStrideAdj = -6;
+  // For dual AMP codelets need to offset output stride by extra 8 elements
+  if (plan.numConvUnitsRequired > 8) {
+    halfStrideAdj += -8;
+    floatStrideAdj += -8;
+  }
 
   int transformedOutStride =
-      (plan.types.back().partialType == poplar::FLOAT ? -6 : -4) +
+      (plan.types.back().partialType == poplar::FLOAT ? floatStrideAdj
+                                                      : halfStrideAdj) +
       (flipOut ? -scaledOutStride : scaledOutStride);
 
   int transformedInRowStride =

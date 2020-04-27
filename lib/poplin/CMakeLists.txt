@@ -74,12 +74,14 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdPartials.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdReduce.cpp
   ASM_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_supervisor.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_float_8_and_half_half_h16.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_supervisor.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float_8_and_half_half_16.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
