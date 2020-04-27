@@ -128,11 +128,16 @@ public:
                 const auto &wl = worklists[k * usedContexts + context];
                 unsigned wi = 0;
                 while (wi < wl.size()) {
-                  auto outOffset = wl[wi];
+                  const auto accumTypeSize =
+                      std::is_same<AccumType, float>() ? 4 : 2;
+                  const auto typeSize = std::is_same<FPType, float>() ? 4 : 2;
+                  const auto outOffset =
+                      (wl[wi] * 8) / (outChansPerGroup * accumTypeSize);
                   // The numFieldElems values from worklist is less by 3
-                  auto numFieldElems =
+                  const auto numFieldElems =
                       static_cast<WorkListNumFieldType>(wl[wi + 1]) + 3;
-                  auto inOffset = wl[wi + 2];
+                  const auto inOffset =
+                      (wl[wi + 2] * 8) / (inChansPerGroup * typeSize);
 
                   wi += 3;
                   for (unsigned i = 0; i < numFieldElems; ++i) {

@@ -2716,10 +2716,33 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
             ? p.outXWidth
             : (p.outXWidth + outStrideX - 1) / outStrideX;
     const auto wIndex = p.subKernelPosition * contextsPerVertex + p.context;
+
     worklist[wIndex].push_back(outOffset);
     worklist[wIndex].push_back(numFieldElems);
     worklist[wIndex].push_back(inBeginOffset);
   }
+
+  // Encode worklist offsets
+  [&](std::vector<std::vector<unsigned>> &worklists) {
+    const auto outElementTypeSize = out.elementType() == HALF ? 2 : 4;
+    const auto inElementTypeSize = in.elementType() == HALF ? 2 : 4;
+    // We represent the the worklist offset as:
+    // offset = field offset * chansPerGroup * size(element) / 8
+    // This works because we know chansPerGroup * size(element) % 8 = 0, from
+    // the constraints on the vertex. Which means in the vertex we just need to
+    // multiply by 8 to get the offset relative to the base.
+    assert((outChansPerGroup * outElementTypeSize) % 8 == 0);
+    assert((inChansPerGroup * inElementTypeSize) % 8 == 0);
+
+    for (auto &worklist : worklists) {
+      for (unsigned i = 0; i < worklist.size(); i += 3) {
+        worklist[i] = (worklist[i] * outChansPerGroup * outElementTypeSize) / 8;
+      }
+      for (unsigned i = 2; i < worklist.size(); i += 3) {
+        worklist[i] = (worklist[i] * inChansPerGroup * inElementTypeSize) / 8;
+      }
+    }
+  }(worklist);
 
   std::vector<Tensor> outWindow;
   std::vector<Tensor> inWindow;

@@ -118,10 +118,8 @@
 #define WKR_OUTCHAN_PTR                 12     // word
 #define WKR_PARTITION_PTR               16     // word
 #define WKR_ZERO_INFO                   20     // word
-#define WKR_OUTCHANS_PER_GROUP_X2       24     // word
-#define WKR_PARTITION_BASE              28     // word
-#define WKR_INCHANS_PER_GROUP_X2        32     // word
-#define WKR_STATE_SIZE                  (WKR_INCHANS_PER_GROUP_X2 + 4) // bytes
+#define WKR_PARTITION_BASE              24     // word
+#define WKR_STATE_SIZE                  (WKR_PARTITION_BASE + 4) // bytes
 
 // =============================================================================
 
@@ -184,7 +182,7 @@ exitz         $mzero
 
 // Non loop overhead:
 //      zero Partitions:         7
-//      non-zero partitions:     19
+//      non-zero partitions:     17
 //
 // Loop performance:
 //      Number of field elems = 0
@@ -213,8 +211,6 @@ convPartialNx1FlattenedHalf:
 #define num_fp_v                       m3
 #define inoutstrides2_v                m5
 #define inoutstrides1_v                m4
-#define out_chans_per_group_x2         m6
-#define in_chans_per_group_x2          m7
 #define tripacked_addr                 m8:9
 #define in_addr_v                      m8
 #define in_offset_v                    m8
@@ -232,8 +228,6 @@ and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [in-row-stride1][in-row-stride0][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
-ld32          $in_chans_per_group_x2, $mvertex_base, WKR_INCHANS_PER_GROUP_X2/4
-ld32          $out_chans_per_group_x2, $mvertex_base, WKR_OUTCHANS_PER_GROUP_X2/4
 
 convPartialNx1FlattenedHalfStateRetained:
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
@@ -253,7 +247,6 @@ add           $partition_v, $partition_v, $partition_base_v
 
 ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr_v, $mvertex_base, WKR_OUTCHAN_PTR/4
-
 
 // This following approximates num_partitions/3 - 1 for values
 // [3:3:2^14-1]. The case of zero is handled above
@@ -276,7 +269,7 @@ PartitionLoop:
 
   // form input address
   ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
-  mul           $in_offset_v, $in_offset_v, $in_chans_per_group_x2
+  shl           $in_offset_v, $in_offset_v, 3
   add           $in_addr_v, $inchan_ptr_v, $in_offset_v
 
   // form output address
@@ -284,7 +277,7 @@ PartitionLoop:
   // partition. This allows us to wind the pointer to the next partition
   ldz16step     $out_offset_v, $mzero, $partition_v+=, 3
 
-  mul           $out_offset_v, $out_offset_v, $out_chans_per_group_x2
+  shl           $out_offset_v, $out_offset_v, 3
   add           $out_addr_v, $outchan_ptr_v, $out_offset_v
 
   // Form packed address
@@ -524,7 +517,7 @@ bri           StoreFinalAmpOutputs2
 //   Kernel Height = 1: 15 + LOADCYLES + workerCycles
 //   Kernel Height = 2: 46 + LOADCYLES + workerCycles
 //   Kernel Height = 4: 41 + 19 + 32 + workerCycles
-// 101 + numConvGroups * (16 + numInChanGroups * (14 + numOutChanGroups * (14 + innerLoopCycles)))
+// 99 + numConvGroups * (16 + numInChanGroups * (14 + numOutChanGroups * (14 + innerLoopCycles)))
 //
 // Where innerLoopCycles are:
 // Ky * (14 + Kx * (17 + AmpOutGroupLoop cycles ))
@@ -643,22 +636,23 @@ st32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 // bits
 // inoutstrides = [0][in-stride][out-stride]
 shr           $outstride_s, $outstride_s, 2
+//-----------------------------------------------------------------------------
 shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 
 st32          $temp_5_s, $sp, (STACK_BASE + STACK_NUM_OUTCHAN_M1)/4
 st32          $temp_7_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
 
 st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
-//-----------------------------------------------------------------------------
 shl           $temp_1_s, $temp_1_s, 10
 and           $outstride_s, $outstride_s, 0x3FF
+//-----------------------------------------------------------------------------
 and           $in_row_stride_s, $in_row_stride_s, 0x3FF
 ldz16         $temp_5_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 ldz16         $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/2
 ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
-//-----------------------------------------------------------------------------
 shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 or            $temp_4_s, $outstride_s, $temp_1_s
+//-----------------------------------------------------------------------------
 shl           $in_row_stride_s, $in_row_stride_s, 20
 
 // A second input strides registers has packed strides
@@ -671,19 +665,23 @@ setzi         $strides_s, 0x400
 bri           StridesSet_\LDTYPE\()
 SetInStridesHeightEq4_\LDTYPE\():
 shr           $strides_s, $in_row_stride_s, 10
+//-----------------------------------------------------------------------------
 StridesSet_\LDTYPE\():
 st32          $partition_ptr_b_s, $wkr_base, WKR_PARTITION_BASE/4
+
 #if defined(VECTORLIST_AVAIL_DELTAN)
 ldz16         $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/2
 #else
 ld32          $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/4
 #endif
+
 st32          $temp_4_s, $wkr_base, WKR_INOUTSTRIDES1/4
 mul           $temp_5_s, $inchans_per_group_s, SIZEOF_IN_ATOM
-//-----------------------------------------------------------------------------
 mul           $temp_4_s, $outchans_per_group_s, SIZEOF_OUT_ATOM
 or            $strides_s, $strides_s, $outstride_s
+//-----------------------------------------------------------------------------
 shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS_HALF
+
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
 #else
@@ -694,36 +692,38 @@ setzi         $wkr_function_s_z, convNx1ZeroOutFieldHalf
 
 // Scale output and input channels per group to scale input and output offsets.
 // Scaling depends on sizeof(input) and sizeof(output)
-st32          $temp_5_s, $wkr_base, WKR_INCHANS_PER_GROUP_X2/4
-//-----------------------------------------------------------------------------
 ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
 or            $strides_s, $strides_s, $in_row_stride_s
 ldz16         $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
+//-----------------------------------------------------------------------------
+add           $temp_4_s, $temp_2_s, -1
+
 #if defined(VECTORLIST_AVAIL_DELTAN)
 or            $partition_ptr_b_s, $partition_ptr_b_s, (TMEM_REGION0_BASE_ADDR << 13)
 #else
 nop           // keep nop for 6 instructions pipeline
 #endif
-st32          $temp_4_s, $wkr_base, WKR_OUTCHANS_PER_GROUP_X2/4
-add           $temp_4_s, $temp_2_s, -1
-//-----------------------------------------------------------------------------
+
+ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
+
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
 ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #else
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
-ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
 
 st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
+st32          $temp_6_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
+//-----------------------------------------------------------------------------
+add           $temp_6_s, $temp_6_s, 1
+
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
 #else
 shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
-st32          $temp_6_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
-add           $temp_6_s, $temp_6_s, 1
+
 ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
-//-----------------------------------------------------------------------------
 
 ZeroConvGroup_\LDTYPE\():
   ldz16         $outchan_count_z_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
@@ -852,7 +852,7 @@ AmpOutGroupLoop_\LDTYPE\():
             // we reuse $inchan_ptr_s as it has already been saved to vertex
             // state
             setzi         $inchan_ptr_s, convPartialNx1FlattenedHalfStateRetained
-#endif            
+#endif
             ld128putcs    0
             ld128putcs    2
             ld128putcs    4

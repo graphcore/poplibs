@@ -105,8 +105,7 @@
 // If flag is non-zero, partials must be zeroed
 #define WKR_ZERO_FLAG             12   // word
 // Gap to be left in bytes after all partials are written for a field position
-#define WKR_OUTCHANS_PER_GROUP    16   // word
-#define WKR_PARTITION             20
+#define WKR_PARTITION             16
 #define WKR_VERTEX_SIZE           24   // bytes
 
 // =============================================================================
@@ -114,19 +113,19 @@
 .section ".text.convPartialFlattenedField_float_float", "ax"
 .type convPartialFlattenedField_float_float, @function
 .align 8
-nop
 .worker
-
 // worker code:
 //     num_field_pos = 0
-//         28
+//         24
 //     num_field_pos == 1
-//         44 + (2 + 8) * first_input_group
+//         46 + (2 + zeroCyclesPerGroup * num_field_pos) * first_input_group
 //     num_field_pos == 2
-//         44 + (2 + 8 * 2) * first_input_group
+//         46 + (2 + zeroCyclesPerGroup * num_field_pos) * first_input_group
 //     num_field_pos >= 3
-//         44  + (2 + 8 * num_field_pos) * first_input_group
+//         46  + (2 + zeroCyclesPerGroup * num_field_pos) * first_input_group
 //                          + (num_field_pos - 3) * 8
+//
+// where zeroCyclesPerGroup = 4
 //
 // first_in_group is set to a 1 for the first input channel group of every
 // convolution, in which case no partial is loaded.
@@ -140,17 +139,13 @@ convPartialFlattenedField_float_float:
 #define inchan_ptr                m0
 #define outchan_ptr               m1
 #define partition_w               m2
-#define num_outchans_per_groupx4  m3
 #define zero_outchan              m4
 #define num_elems                 m5
 #define stride1                   m6
 #define stride2                   m7
 #define num_elems_plus_3          m7
-// $inchan_ptr_iter and $outchan_ptr_iter must be the same as $tripacked_addr pair
 #define in_off                    m8
-#define inchan_ptr_iter           m8
 #define out_off                   m9
-#define outchan_ptr_iter          m9
 #define tripacked_addr            m8:9
 #define cmp_res                   m10
 #define stride3                   m10
@@ -179,24 +174,22 @@ ld32          $partition_w, $mvertex_base, WKR_PARTITION/4
 ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
 ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
 
-ld32          $num_outchans_per_groupx4, $mvertex_base, WKR_OUTCHANS_PER_GROUP/4
 ld32          $zero_outchan, $mvertex_base, WKR_ZERO_FLAG/4
 
+ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 // There are always as many partitions as the number of worker contexts. Each
 // partition has 3 entries.
 ldz16step     $out_off, $wkr_id, $partition_w+=, 1
-mul           $out_off, $out_off, $num_outchans_per_groupx4
 lds16step     $num_elems, $wkr_id, $partition_w+=, 1
 ldz16step     $in_off, $wkr_id, $partition_w+=, 1
-mul           $in_off, $in_off, NUM_INCHAN_GROUPS * SIZEOF_FLOAT
-ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 
-add           $inchan_ptr_iter, $inchan_ptr, $in_off
-add           $outchan_ptr_iter, $outchan_ptr, $out_off
+// Do x8 and add at the same time, n.b. we aren't actually loading here
+ld64step      $azeros, $mzero, $inchan_ptr+=, $in_off
+ld64step      $azeros, $mzero, $outchan_ptr+=, $out_off
 
 brz           $zero_outchan, Amp_start
 // The two input pointers will be retained even though store pointer is incremented
-tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
 add           $num_elems_plus_3, $num_elems, 3
 {
   rpt         $num_elems_plus_3, (LZeroLoopEnd - LZeroLoopBegin)/8 - 1
@@ -242,7 +235,7 @@ AfterStrideSet:
 
 
 // Get compact representation of physical addresses
-tapack        $tripacked_addr, $inchan_ptr_iter, $outchan_ptr_iter, $outchan_ptr_iter
+tapack        $tripacked_addr, $inchan_ptr, $outchan_ptr, $outchan_ptr
 
 // Assumption that groups in conv is directly stored as actual value -1
 //   &input += 0, &partials += 1
@@ -562,7 +555,7 @@ CODELET_NAME_128_float_float:
 #endif
   st32          $m9, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE0/4
   st32          $m10, $sp, WKR_VERTEX_SIZE/4 + SUP_STACK_CALLEE_SAVE1/4
-  shl           $amp_group_s, $amp_group_s, 2
+  shr           $amp_group_s, $amp_group_s, LOG2_AMP_OUTPUTS
   shr           $outstride_s, $outstride_s, 1
 // ----------------------------------------------------------------------------
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
@@ -576,10 +569,10 @@ CODELET_NAME_128_float_float:
   nop           // keep nop for 6 instructions pipeline
   nop           // keep nop for 6 instructions pipeline
 #endif
-  st32          $amp_group_s,  $wkr_vertex, WKR_OUTCHANS_PER_GROUP/4
+  nop
   and           $temp_s, $outstride_s, 0x3FF
 // ----------------------------------------------------------------------------
-  shr           $amp_group_s, $amp_group_s, (LOG2_AMP_OUTPUTS + 2)
+  nop
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
   add           $inchan_vectors_s, $inchan_vectors_s, $tmem_base
   st32          $partition_s, $sp, WKR_PARTITION/4

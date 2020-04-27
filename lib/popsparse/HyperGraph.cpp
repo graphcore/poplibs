@@ -823,14 +823,21 @@ void HyperGraph::createComputeSetMatMul(
   int leftover = batchSize % nWorker;
   std::array<int, 18> worklist;
   int offset = 0;
+
+  const auto convOutChannels = matB.getBlockCol();
+  const auto outElementTypeSize = outDataType == poplar::HALF ? 2 : 4;
+  const auto inElementTypeSize = inDataType == poplar::HALF ? 2 : 4;
+  // Ensure compression on offsets will be correct (divide by 8 is exact)
+  assert((convOutChannels * outElementTypeSize) % 8 == 0);
+  assert((convInChannels * inElementTypeSize) % 8 == 0);
   // Distrubute batchSize between workers as even as possible
   for (int i = 0; i < 6; ++i) {
-    worklist[i * 3] = offset;
-    worklist[i * 3 + 2] = offset;
+    worklist[i * 3] = (offset * convOutChannels * outElementTypeSize) / 8;
     int curWorkerSize = (i < leftover ? workerSize + 1 : workerSize);
     // The ConvPartial1x1Out vertex expects worklists[3i+1] to be the number of
     // elements minus 3.
     worklist[i * 3 + 1] = curWorkerSize - 3;
+    worklist[i * 3 + 2] = (offset * convInChannels * inElementTypeSize) / 8;
     offset += curWorkerSize;
   }
 
@@ -870,16 +877,16 @@ void HyperGraph::createComputeSetMatMul(
     graph.connect(v["weights"], inputB);
     // TODO: test for all supported shapes.
     // Figure out parameters for the best performance.
-    graph.setInitialValue(v["outChansPerGroup"], matB.getBlockCol());
+    graph.setInitialValue(v["outChansPerGroup"], convOutChannels);
     graph.setInitialValue(v["inChansPerGroup"], convInChannels);
     graph.setInitialValue(v["numOutGroupsM1"], 0);
     graph.setInitialValue(v["numInGroups"], inputA.size());
     graph.setInitialValue(v["transformedInStride"], 1);
     graph.setInitialValue(v["numConvGroupsM1"], 0);
     if (partialDataType == poplar::FLOAT) {
-      graph.setInitialValue(v["transformedOutStride"], matB.getBlockCol() - 6);
+      graph.setInitialValue(v["transformedOutStride"], convOutChannels - 6);
     } else {
-      graph.setInitialValue(v["transformedOutStride"], matB.getBlockCol() - 4);
+      graph.setInitialValue(v["transformedOutStride"], convOutChannels - 4);
     }
 
     graph.connect(v["worklists"], t);

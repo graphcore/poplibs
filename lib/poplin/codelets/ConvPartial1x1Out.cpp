@@ -88,12 +88,16 @@ public:
           const auto &w = weights[cg * numOutGroups * numInGroups +
                                   ig * numOutGroups + (numOutGroups - 1 - og)];
           for (unsigned context = 0; context < usedContexts; ++context) {
-            auto outOffset = worklists[3 * context];
+            const auto accumTypeSize = std::is_same<AccumType, float>() ? 4 : 2;
+            const auto typeSize = std::is_same<FPType, float>() ? 4 : 2;
+            const auto outOffset = (worklists[3 * context] * 8) /
+                                   (outChansPerGroup * accumTypeSize);
             // The numFieldElems values from worklist is less by 3
-            int numFieldElems =
+            const int numFieldElems =
                 static_cast<WorkListNumFieldType>(worklists[3 * context + 1]) +
                 3;
-            auto inOffset = worklists[3 * context + 2];
+            const auto inOffset =
+                (worklists[3 * context + 2] * 8) / (inChansPerGroup * typeSize);
 
             for (unsigned i = 0; i < numFieldElems; ++i) {
               for (unsigned outChan = 0; outChan < outChansPerGroup;
