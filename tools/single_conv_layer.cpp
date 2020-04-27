@@ -47,6 +47,44 @@ using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions;
 
+// Returns error code indicative of how far it exceeds tolerance
+// 0 -> 0-1x
+// 11 -> 1-2x
+// 12 -> 2-3x
+// 13 -> 3-4x
+// ...
+template <std::size_t N>
+static int withinTolerance(const std::string &name,
+                           const boost::multi_array<double, N> &actual,
+                           const boost::multi_array<double, N> &expected,
+                           double relativeTolerance, double absoluteTolerance) {
+  auto multiplier = 1;
+  for (; multiplier <= 5; multiplier++) {
+    auto pass =
+        checkIsClose(name, actual, expected, relativeTolerance * multiplier,
+                     absoluteTolerance * multiplier);
+    if (pass) {
+      if (multiplier == 1) {
+        return 0;
+      } else {
+        std::cerr << name << " required an increase of tolerance by "
+                  << multiplier << "x (abs=" << absoluteTolerance * multiplier
+                  << ", rel=" << (relativeTolerance * multiplier) * 100.0
+                  << "%) to pass\n";
+        return 10 + multiplier - 1;
+      }
+    } else {
+      std::cerr << name << " validation failed with tolerance of (abs="
+                << absoluteTolerance * multiplier
+                << ", rel=" << (relativeTolerance * multiplier) * 100.0
+                << "%)\n";
+    }
+  }
+  std::cerr << "increased tolerance by " << (multiplier - 1)
+            << "x, but still failed validation for " << name << "\n";
+  return 1;
+}
+
 static void overloadConstraintsFromFile(const std::string &path,
                                         std::string &s) {
   if (!path.empty()) {
@@ -236,11 +274,13 @@ int main(int argc, char **argv) try {
     ("inference-only", "Benchmark inference only")
     ("tolerance", po::value<double>(&relativeTolerance),
      "Relative tolerance to use when validating results against the reference "
-     "model")
+     "model. Upon failure, the error code relates to what multiple of this tolerance failed. "
+     "Error code 11 -> 1-2x; 12 -> 2-3x; 13 -> 3-4x, e.g. tolerance of 2 and failure of 5, returns error code 12.")
     ("absolute-tolerance",
      po::value<double>(&absoluteTolerance),
      "Absolute tolerance to use when validating results against the reference "
-     "model")
+     "model. Upon failure, the error code relates to what multiple of this tolerance failed. "
+     "Error code 11 -> 1-2x; 12 -> 2-3x; 13 -> 3-4x, e.g. tolerance of 2 and failure of 5, returns error code 12.")
     ("ipus",
      po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
@@ -781,7 +821,11 @@ int main(int argc, char **argv) try {
     });
 
     // Validate against a reference model.
-    bool matchesModel = true;
+    int fwdErrorCode = 0;
+    int bwdErrorCode = 0;
+    int weightsErrorCode = 0;
+    int biasesErrorCode = 0;
+
     if (!ignoreData) {
       boost::multi_array<double, 3> modelNextAct(
           boost::extents[batchSize * replicationFactor][fwdOutChans]
@@ -796,8 +840,11 @@ int main(int argc, char **argv) try {
           hostPrevAct, hostWeights, hostBiases, modelNextAct);
       if (doFwdPass) {
         copy(target, outputType, rawHostNextAct.get(), hostNextAct);
-        matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
-                                     relativeTolerance, absoluteTolerance);
+        auto errorCode = withinTolerance("fwd", hostNextAct, modelNextAct,
+                                         relativeTolerance, absoluteTolerance);
+        if (errorCode) {
+          fwdErrorCode = errorCode;
+        }
       }
     }
 
@@ -841,8 +888,12 @@ int main(int argc, char **argv) try {
               outputTruncationLower, outputTruncationUpper, stride,
               outputPaddingLower, outputPaddingUpper, hostZDeltas, modelWeights,
               modelPrevDeltas);
-          matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
-                                       relativeTolerance, absoluteTolerance);
+          auto errorCode =
+              withinTolerance("bwd", hostPrevDeltas, modelPrevDeltas,
+                              relativeTolerance, absoluteTolerance);
+          if (errorCode) {
+            bwdErrorCode = errorCode;
+          }
         }
         if (doWuPass) {
           copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
@@ -871,20 +922,23 @@ int main(int argc, char **argv) try {
                 suffix = "_ipu" + std::to_string(i);
               boost::multi_array<double, 4> hostWeights =
                   duplicatedHostWeights[i];
-              matchesModel &=
-                  checkIsClose("weights" + suffix, hostWeights, modelWeights,
-                               relativeTolerance, absoluteTolerance);
+              auto errorCode =
+                  withinTolerance("weights" + suffix, hostWeights, modelWeights,
+                                  relativeTolerance, absoluteTolerance);
+              if (errorCode) {
+                weightsErrorCode = errorCode;
+              }
+
               if (bias) {
                 boost::multi_array<double, 1> hostBiases =
                     duplicatedHostBiases[i];
-                matchesModel &=
-                    checkIsClose("biases" + suffix, hostBiases, modelBiases,
-                                 relativeTolerance, absoluteTolerance);
+                errorCode =
+                    withinTolerance("biases" + suffix, hostBiases, modelBiases,
+                                    relativeTolerance, absoluteTolerance);
+                if (errorCode) {
+                  biasesErrorCode = errorCode;
+                }
               }
-            }
-            if (!matchesModel) {
-              std::cerr << "Validation failed\n";
-              return 1;
             }
           } else {
             // Determinism check
@@ -900,6 +954,27 @@ int main(int argc, char **argv) try {
         }
       }
     }
+
+    if (!ignoreData) {
+      const std::vector<std::pair<std::string, int>> results{
+          {"fwd", fwdErrorCode},
+          {"bwd", bwdErrorCode},
+          {"weights", weightsErrorCode},
+          {"biases", biasesErrorCode},
+      };
+      for (const auto result : results) { // Report all failures
+        if (result.second) {
+          std::cerr << result.first << " validation failed with error code "
+                    << result.second << "\n";
+        }
+      }
+      for (const auto result : results) {
+        if (result.second) {
+          return result.second; // Return first failing error code
+        }
+      }
+    }
+
   } // for num_determinism_checks
 
   if (jsonProfileOut) {

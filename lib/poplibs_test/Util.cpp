@@ -187,21 +187,16 @@ bool checkIsClose(const std::string &name, const FPType *actual,
   auto end = it + N;
   bool isClose = true;
   for (; it != end; ++it, ++expected) {
-    if (!checkIsClose(*it, *expected, relativeTolerance)) {
-      if (std::fabs(*expected) < 0.01 &&
-          checkIsClose(*it, *expected, 5 * relativeTolerance)) {
-        std::cerr << "close to mismatch on element ";
-        // values close to zero have 5x the tolerance
-      } else if (std::fabs(*expected - *it) < absoluteTolerance) {
-        std::cerr << "within absolute tolerance bounds on element ";
-      } else {
-        std::cerr << "mismatch on element ";
-        isClose = false;
-      }
+    if (!checkIsClose(*it, *expected, relativeTolerance) &&
+        std::fabs(*expected - *it) > absoluteTolerance) {
+      isClose = false;
       const auto n = it - actual;
+      std::cerr << "mismatch on element ";
       std::cerr << prettyCoord(name, n, shape) << ':';
       std::cerr << " expected=" << *expected;
-      std::cerr << " actual=" << *it << '\n';
+      std::cerr << " actual=" << *it;
+      std::cerr << " (abs=" << *it - *expected;
+      std::cerr << ", rel=" << ((*it / *expected) - 1.0) * 100.0 << "%)\n";
     }
   }
   return isClose;
