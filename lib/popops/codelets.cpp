@@ -40,9 +40,8 @@ void addReduceCodelets(poplar::Graph &graph) {
              {ReductionSpecialisation::DEFAULT,
               ReductionSpecialisation::SCALAR_OUTPUT_REGIONS,
               ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT,
-              ReductionSpecialisation::SINGLE_OUTPUT_REGION,
-              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS,
-              ReductionSpecialisation::PARTIALS_EQUAL_SIZE}) {
+              ReductionSpecialisation::STRIDED_REDUCE,
+              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS}) {
           // continuous reductions do not take the specialisation
           // as a template parameter
           std::string opName = getReductionVertexOpName(operation);
@@ -59,9 +58,8 @@ void addReduceCodelets(poplar::Graph &graph) {
         for (auto specialisation :
              {ReductionSpecialisation::DEFAULT,
               ReductionSpecialisation::SCALAR_OUTPUT_REGIONS,
-              ReductionSpecialisation::SINGLE_OUTPUT_REGION,
-              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS,
-              ReductionSpecialisation::PARTIALS_EQUAL_SIZE}) {
+              ReductionSpecialisation::STRIDED_REDUCE,
+              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS}) {
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(
               opName, p.first, p.second, isUpdate, specialisation, true);

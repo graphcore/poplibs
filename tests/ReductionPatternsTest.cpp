@@ -171,7 +171,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsTruncatedPattern) {
   // 0 1 1 1 0 1 1 1 0 1 1
   // So, 2 patterns: 1 1 1 0 and 1 1 are expected:
   std::vector<std::vector<PartialsPattern>> expected = {
-      {{3, 1, 4, 2, 0}, {2, 9, 0, 1, 0}}};
+      {{3, 1, 4, 2, 0}, {2, 9, 1, 1, 0}}};
 
   gatherReductionPatterns(reductions, regions, columns);
   printResult(reductions);
@@ -211,7 +211,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsAllOnePattern) {
   // Given 4 columns, and concatenating the region described, those in
   // column 0 are given by 1's:
   // 1 1 1
-  std::vector<std::vector<PartialsPattern>> expected = {{{3, 0, 0, 1, 0}}};
+  std::vector<std::vector<PartialsPattern>> expected = {{{3, 0, 1, 1, 0}}};
 
   gatherReductionPatterns(reductions, regions, columns);
   printResult(reductions);
@@ -250,7 +250,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsMultiRegion) {
   // Region 1: 1 0 0 1
   // Region 2: 1
   std::vector<std::vector<PartialsPattern>> expected = {
-      {{1, 0, 0, 1, 0}, {1, 0, 3, 2, 1}, {1, 0, 0, 1, 2}}};
+      {{1, 0, 1, 1, 0}, {1, 0, 3, 2, 1}, {1, 0, 1, 1, 2}}};
 
   gatherReductionPatterns(reductions, regions, columns);
   printResult(reductions);
@@ -279,7 +279,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsLongerOne) {
   // 0 0 1 1 0 1 1 0 1 1 1 1 0 0
   // So, the patterns: 1 1 0, 1 1 are expected:
   std::vector<std::vector<PartialsPattern>> expected = {
-      {{2, 2, 3, 2, 0}, {4, 8, 0, 1, 0}}};
+      {{2, 2, 3, 2, 0}, {4, 8, 1, 1, 0}}};
 
   gatherReductionPatterns(reductions, regions, columns);
   printResult(reductions);
@@ -370,7 +370,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsGrouped2Groups) {
   // Here we have a groupable pattern with columns 0, 1 in it and then an
   // individual patten with column 2 in it.
   std::vector<std::vector<PartialsPattern>> expected = {{{1, 0, 2, 7, 0}},
-                                                        {{1, 14, 0, 1, 0}}};
+                                                        {{1, 14, 1, 1, 0}}};
   BOOST_TEST(checkResult(groupedReductions, expected, {{0, 1}, {2}}));
 }
 
@@ -424,7 +424,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsMultiRegion3Patterns) {
   gatherReductionPatterns(reductions, regions, columns);
   printResult(reductions);
   std::vector<std::vector<PartialsPattern>> expected = {
-      {{2, 0, 4, 1, 0}, {3, 4, 0, 1, 0}, {1, 0, 0, 1, 1}}};
+      {{2, 0, 4, 1, 0}, {3, 4, 1, 1, 0}, {1, 0, 1, 1, 1}}};
   BOOST_TEST(checkResult(reductions, expected, {{0}}));
 }
 
