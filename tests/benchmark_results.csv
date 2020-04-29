@@ -39,7 +39,7 @@ IpuModel,default,bert_reduce_0,1466,600904,864
 IpuModel,default,bert_reduce_1,1476,638024,864
 IpuModel,default,bert_reduce_2,2340,554344,2592
 IpuModel,default,bert_reduce_3,2340,554344,2592
-IpuModel,default,bert_reduce_4,2271,1036876,1092
+IpuModel,default,bert_reduce_4,2225,1036900,1092
 IpuModel,default,conv_5x200_1_in_100_out_bs1440,311303,187637543,203832
 IpuModel,default,embedding_small,204145,49103670,63084
 IpuModel,default,embedding_vlarge,148065,57612318,77080
@@ -155,10 +155,10 @@ IpuModel,default,mobilenet_depthwise_3,47409,36341578,136472
 IpuModel,default,mobilenet_depthwise_4,35767,33317445,137576
 IpuModel,default,mobilenet_depthwise_5,41601,28765702,135784
 IpuModel,default,mobilenet_depthwise_6,12960,16676689,135400
-IpuModel,default,resnet50_tr_bs1_bm128L0A0_reduce,2015,320962,676
-IpuModel,default,resnet50_tr_bs1_bm128L0_reduce,2193,924396,1172
-IpuModel,default,resnet50_tr_bs1_bm64L0A0_reduce,2046,521602,844
-IpuModel,default,resnet50_tr_bs1_cnv_reduce,2366,1918748,1908
+IpuModel,default,resnet50_tr_bs1_bm128L0A0_reduce,2009,321262,676
+IpuModel,default,resnet50_tr_bs1_bm128L0_reduce,2230,925484,1152
+IpuModel,default,resnet50_tr_bs1_bm64L0A0_reduce,2063,522690,824
+IpuModel,default,resnet50_tr_bs1_cnv_reduce,2421,1919548,1896
 IpuModel,default,resnet50_tr_bs4_bm128L0A0,44096,49962274,136600
 IpuModel,default,resnet50_tr_bs4_bm128L0A1,98343,72545153,138488
 IpuModel,default,resnet50_tr_bs4_bm128L0A2,52471,53192054,136600
