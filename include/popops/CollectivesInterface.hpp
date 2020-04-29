@@ -59,6 +59,18 @@ public:
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {}) = 0;
 
+  virtual poplar::Tensor
+  replicatedReduceScatter(poplar::Graph &graph, const poplar::Tensor &data,
+                          popops::Operation op, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &optionFlags = {}) = 0;
+
+  virtual poplar::Tensor
+  replicatedAllGather(poplar::Graph &graph, const poplar::Tensor &data,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &optionFlags = {}) = 0;
+
   static std::shared_ptr<ReplicatedCollectivesInterface> defaultImpl;
 };
 

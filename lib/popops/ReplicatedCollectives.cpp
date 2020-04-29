@@ -83,6 +83,18 @@ public:
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix,
                       const poplar::OptionFlags &options) override;
+
+  poplar::Tensor
+  replicatedReduceScatter(poplar::Graph &graph, const poplar::Tensor &data,
+                          popops::Operation op, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix,
+                          const poplar::OptionFlags &optionFlags) override;
+
+  poplar::Tensor
+  replicatedAllGather(poplar::Graph &graph, const poplar::Tensor &data,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &optionFlags) override;
 };
 
 // boost::dll::import returns boost::shared_ptr but since we cannot expose
@@ -869,6 +881,14 @@ poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
                                        popops::Operation op, Sequence &prog,
                                        const std::string &debugPrefix,
                                        const OptionFlags &optionFlags) {
+
+  return impl->replicatedReduceScatter(graph, toReduce, op, prog, debugPrefix,
+                                       optionFlags);
+}
+
+poplar::Tensor ReplicatedCollectives::replicatedReduceScatter(
+    Graph &graph, const Tensor &toReduce, popops::Operation op, Sequence &prog,
+    const std::string &debugPrefix, const OptionFlags &optionFlags) {
   if (toReduce.rank() != 1) {
     throw poputil::poplibs_error("Input tensor to replicatedReduceScatter "
                                  "must have rank 1, but had rank " +
@@ -895,6 +915,13 @@ poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
                                    Sequence &prog,
                                    const std::string &debugPrefix,
                                    const poplar::OptionFlags &optionFlags) {
+  return impl->replicatedAllGather(graph, toGather, prog, debugPrefix,
+                                   optionFlags);
+}
+
+poplar::Tensor ReplicatedCollectives::replicatedAllGather(
+    Graph &graph, const Tensor &toGather, Sequence &prog,
+    const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
   logging::info("replicatedAllGather data={}, name={}", toGather.shape(),
                 debugPrefix);
   logging::debug("Replicated all gather begin ({}B)",
