@@ -4,6 +4,7 @@
 #include "ConvOptions.hpp"
 #include "TestDevice.hpp"
 #include "poplin/CanonicalConvParams.hpp"
+#include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
@@ -14,12 +15,20 @@
 const auto testIpuName = deviceTypeToIPUName(TEST_TARGET);
 
 static auto params = poplin::ConvParams{poplar::FLOAT, // Data type
-                                        1,             // batch size
+                                        2,             // batch size
                                         {4, 4},        // input field shape
                                         {3, 3},        // kernel shape
-                                        1,             // input channels
-                                        1,             // output channels
-                                        1};            // conv groups
+                                        3,             // input channels
+                                        4,             // output channels
+                                        5};            // conv groups
+
+static auto fcParams = poplin::ConvParams{poplar::FLOAT, // Data type
+                                          1,             // batch size
+                                          {4},           // input field shape
+                                          {1},           // kernel shape
+                                          3,             // input channels
+                                          4,             // output channels
+                                          5};            // conv groups
 
 BOOST_AUTO_TEST_CASE(getPlan) {
   poplar::Graph graph(poplar::Target::createCPUTarget());
@@ -37,6 +46,64 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
 
   poplin::getPlan(target, params, poplin::ConvOptions(target), &cache);
   poplin::getPlan(target, params, poplin::ConvOptions(target), &cache);
+}
+
+BOOST_AUTO_TEST_CASE(StartTileIsPassOblivious) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(2, testIpuName));
+  auto &target = graph.getTarget();
+
+  poplin::PlanningCache cache;
+
+  const auto getPlanForPass = [&](poplin::Pass pass,
+                                  const poplin::ConvParams &params) {
+    poplin::ConvOptions options(target);
+    options.pass = pass;
+    auto plan = poplin::getPlan(target, params, options, &cache);
+    BOOST_TEST_MESSAGE(pass);
+    return plan;
+  };
+
+  const auto checkStartTileAndDirection = [&](poplin::Pass pass,
+                                              const poplin::ConvParams &params,
+                                              const poplin::Plan &expected) {
+    auto plan = getPlanForPass(pass, params);
+
+    BOOST_CHECK_EQUAL(expected.startTile, plan.startTile);
+    BOOST_CHECK_EQUAL(expected.linearizeTileDirection,
+                      plan.linearizeTileDirection);
+  };
+
+  {
+    // INFERENCE_FWD does not need to be invariant and so isn't guaranteed
+    // to match.
+    const auto expected = getPlanForPass(poplin::Pass::NONE, params);
+    checkStartTileAndDirection(poplin::Pass::TRAINING_FWD, params, expected);
+    checkStartTileAndDirection(poplin::Pass::TRAINING_BWD,
+                               poplin::getGradientParams(params), expected);
+    checkStartTileAndDirection(poplin::Pass::TRAINING_WU,
+                               poplin::getWeightUpdateParams(params), expected);
+  }
+
+  {
+    // Once T16758 is fixed we should be able to check that all of these plans
+    // are the same, not just the FC / non-FC split between passes.
+    // FC_INFERENCE_FWD does not need to be invariant and so isn't guaranteed
+    // to match.
+    const auto expected =
+        getPlanForPass(poplin::Pass::FC_TRAINING_FWD, fcParams);
+
+    auto bwdParams = fcParams;
+    std::swap(bwdParams.inputFieldShape.front(),
+              bwdParams.outputChannelsPerConvGroup);
+    checkStartTileAndDirection(poplin::Pass::FC_TRAINING_BWD, bwdParams,
+                               expected);
+
+    auto wuParams = fcParams;
+    std::swap(wuParams.inputChannelsPerConvGroup,
+              wuParams.outputChannelsPerConvGroup);
+    checkStartTileAndDirection(poplin::Pass::FC_TRAINING_WU, wuParams,
+                               expected);
+  }
 }
 
 // Test some simple aspects of plan constraining that we currently support

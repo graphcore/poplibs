@@ -34,7 +34,6 @@ class ConvOptions {
 public:
   // proportion of tile memory available for this convolution.
   double availableMemoryProportion = .6;
-  unsigned startTileMultiplier = 0;
   /// The pass this layer corresponds to.
   Pass pass = Pass::NONE;
   poplar::Type partialsType = poplar::FLOAT;
@@ -54,21 +53,24 @@ public:
   bool enableMultiStageReduce = true;
   // Remap output tensor if its layout is poor
   bool remapOutputTensor = true;
+  // Use the ConvParams to pseudo-randomly select a start tile and direction
+  // to lay out the convolution across the tiles.
+  bool enableConvDithering = true;
 
   void parseConvOptions(const poplar::OptionFlags &options);
   bool operator<(const ConvOptions &other) const {
     using poplibs_support::makeStructHelper;
 
     const auto helper = makeStructHelper(
-        &ConvOptions::availableMemoryProportion,
-        &ConvOptions::startTileMultiplier, &ConvOptions::numIPUs,
+        &ConvOptions::availableMemoryProportion, &ConvOptions::numIPUs,
         &ConvOptions::tilesPerIPU, &ConvOptions::pass,
         &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
         &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
         &ConvOptions::planConstraints,
         &ConvOptions::planConstraintsOutputFilename,
         &ConvOptions::enableAmpHalfEnginesPlan,
-        &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor);
+        &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor,
+        &ConvOptions::enableConvDithering);
     return helper.lt(*this, other);
   }
   ConvOptions(const poplar::Target &target)
