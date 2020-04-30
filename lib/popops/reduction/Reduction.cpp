@@ -7,8 +7,6 @@
 #include <sstream>
 #include <vector>
 
-#include <boost/functional/hash.hpp>
-
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
 
@@ -58,25 +56,6 @@ struct ReductionTypes {
   // The type for values sent between tiles on the exchange.
   Type interTile;
 };
-
-// pick a random start tile for the intermediate to intermediate reductions to
-// use. this is an attempt to better balance work across the tiles in a large
-// model without having the whole model available at this point.
-unsigned getStartTile(const std::vector<std::size_t> &inShape,
-                      const std::vector<std::size_t> &outShape,
-                      const ReduceParams &params, const unsigned tilesPerIPU) {
-  // starting seed: 2^32/phi, where phi is the golden ratio.
-  std::size_t seed = 0x9e3779b9UL;
-  boost::hash_range(seed, std::begin(inShape), std::end(inShape));
-  boost::hash_range(seed, std::begin(outShape), std::end(outShape));
-
-  using T = std::underlying_type_t<decltype(params.op)>;
-  boost::hash_combine(seed, static_cast<T>(params.op));
-  boost::hash_combine(seed, params.update);
-  boost::hash_combine(seed, params.useScale);
-
-  return seed % tilesPerIPU;
-}
 
 // Reduce a 2D tensor in the first dimension. No other tensor shape
 // is supported. The tensor must be at least 1x2.
@@ -167,13 +146,6 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
         params.op = Operation::ADD;
     }
 
-    // each intermediateToIntermediate stage begins from the same tile. we
-    // should be able to improve this by being a bit smarter and distributing
-    // the tiles across the stages so that exchange of the partials is less.
-    const auto &target = graph.getTarget();
-    const auto startTile =
-        getStartTile(in.shape(), outputShape, params, target.getTilesPerIPU());
-
     for (unsigned i = 0;; ++i) {
       // At each point, see if it is worth doing another reduction stage or if
       // we should just do the final reduction, and if so should we do
@@ -190,7 +162,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
         // Don't do the scale or update.
         ip = intermediateToIntermediate(
             graph, ip, params.op, reductionTypes.interTile, csList,
-            reductionResultTensors, startTile,
+            reductionResultTensors,
             debugPrefix + "/ReduceStage" + std::to_string(i), debug);
         // If it was a SQUARE_ADD, then at this point we have now done the
         // SQUARE - change it to an ADD.
@@ -353,8 +325,6 @@ void reduceWithOutputProgOrCss(
       bool mappingComplete;
       graph.getTileMapping(out.get(), &mappingComplete);
       if (!mappingComplete) {
-        logging::warn("reduceWithOutput was given an output without a complete "
-                      "mapping. Mapping it linearly instead.");
         poputil::mapTensorLinearly(graph, out.get());
       }
     } else {
