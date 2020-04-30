@@ -173,9 +173,14 @@ CODELET_NAME:
 //                       inChanGroups * (15 + inChanOverhead +
 //                                       outChanGroups * (19 +
 //                                                        AmpGroups * 16 + LOADCYCLES))))
-// Where AMP groups = OutChansPerGroup / 8
-// and LOADCYCLES = 32 for 128 bit load
-//                = 64 for 64 bit load
+// Where AMP groups = OutChansPerGroup / (8 or 16)
+// and number of weights load depending on AMP engines:
+// for 8 AMP engines:
+// LOADCYLES = 16 (if LDTYPE = 128)
+//           = 32 (if LDTYPE = 64)
+// for 16 AMP engines:
+// LOADCYLES = 32 (if LDTYPE = 128)
+//           = 64 (if LDTYPE = 64)
 //
 // inChanOverhead = 0 if worker state is not retained
 //                = 1 if worker state is retained

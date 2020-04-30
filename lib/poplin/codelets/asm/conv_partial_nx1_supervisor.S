@@ -88,6 +88,10 @@
 //
 // Where innerLoopCycles are:
 // Ky * (14 + Kx * (17 + AmpOutGroupLoop cycles ))
+// for 8 AMPs engines:
+// LOADCYLES = 16 (if LDTYPE = 128)
+//           = 32 (if LDTYPE = 64)
+// for 16 AMPs engines:
 // LOADCYLES = 32 (if LDTYPE = 128)
 //           = 64 (if LDTYPE = 64)
 // STACK VARIABLES for supervisor
@@ -161,22 +165,22 @@
 .ifc \ACTIVATIONS_TYPE, half
     .equ SIZEOF_IN_ATOM,             2
     .equ AMP_INPUTS,                 16
+    .equ SIZEOF_WEIGHTS_ATOM,        2
 .endif
 .ifc \ACTIVATIONS_TYPE, float
     .equ SIZEOF_IN_ATOM,             4
     .equ AMP_INPUTS,                 8
+    .equ SIZEOF_WEIGHTS_ATOM,        4
 .endif
 
 .ifc \PARTIALS_TYPE, half
     .equ SIZEOF_OUT_ATOM,            2
     .equ LOG2_SIZEOF_OUT_ATOM,       1
-    .equ SIZEOF_WEIGHTS_ATOM,        2
     .equ OUTSTRIDE_TO_LOADS,         2
 .endif
 .ifc \PARTIALS_TYPE, float
     .equ SIZEOF_OUT_ATOM,            4
     .equ LOG2_SIZEOF_OUT_ATOM,       2
-    .equ SIZEOF_WEIGHTS_ATOM,        2
     .equ OUTSTRIDE_TO_LOADS,         1
 .endif
 

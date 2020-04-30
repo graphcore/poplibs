@@ -67,7 +67,6 @@ convPartialFlattenedField_\COMMAND\():
 #define outchan_ptr                 m1
 #define tripacked_addr              m0:1
 #define partition_w                 m2
-#define outchans_per_group_in_bytes m2
 #define in_off                      m3
 #define out_off                     m4
 #define num_elems                   m5

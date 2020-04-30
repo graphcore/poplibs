@@ -21,7 +21,8 @@ constexpr bool hasAssembly() {
   return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
          useLimitedVer == true &&
          (numConvUnits == 8 ||
-          (numConvUnits == 16 && std::is_same<AccumType, half>()));
+          (numConvUnits == 16 &&
+           (std::is_same<AccumType, half>() || std::is_same<FPType, float>())));
 }
 
 /**
