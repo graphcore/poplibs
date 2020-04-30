@@ -379,6 +379,8 @@ add_unit_test(CloneNTest CloneNTest.cpp
               VARIANTS ${IPUMODEL_VARIANTS} ${SIM_VARIANTS})
 add_unit_test(WinogradConvolution WinogradConv.cpp
               VARIANTS ${TimesOutOnSim})
+add_unit_test(HostSliceTensorTest HostSliceTensorTest.cpp
+              VARIANTS Sim)
 add_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_unit_test(BigNLVertices BigNLVertices.cpp)
 add_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)

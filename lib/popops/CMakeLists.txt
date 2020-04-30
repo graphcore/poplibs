@@ -23,6 +23,7 @@ add_library(popops SHARED
   ExprOpUtil.hpp
   Gather.cpp
   GatherInternal.cpp
+  HostSliceTensor.cpp
   NaN.cpp
   Operation.cpp
   Pad.cpp
