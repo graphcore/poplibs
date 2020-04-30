@@ -495,14 +495,22 @@ groupPartials(std::vector<PartialsDescription> &partialsDescription,
 // parameter to splitOutputRegionsForWorkers which is far simpler than a per
 // reduction array.
 
-unsigned findGrainSizeForOp(Graph &graph, Type partialType) {
-  // The grain size could be doubled for ADD (and SQUARE_ADD) because
-  // these operations have dedicated instructions on Colossus that can operate
-  // on twice as much data as all the other operations (MUL etc).  BUT at
-  // present only the inefficient specialisation 0,1 use those instructions. So
-  // split based on grainSize not grainSize *2.
+unsigned findGrainSizeForOp(Graph &graph, Type partialType,
+                            Operation &operation) {
+  // NOTE - The efficient (not specialisation 0,1) vertices available don't
+  // benefit from a vector width of 2 * grainSize. In fact splitting to
+  // grainSize produces a speed increase.  However it comes at a small cost in
+  // memory which in some models was pushing it beyond the tile limit.  This
+  // should be revisited. See T19945 for details.
 
-  return graph.getTarget().getVectorWidth(partialType);
+  const unsigned grainSize = graph.getTarget().getVectorWidth(partialType);
+  if (operation == popops::Operation::ADD ||
+      operation == popops::Operation::SQUARE_ADD) {
+    return grainSize * 2;
+  }
+  // Other reductions (including MAX and MIN) can generally be split between
+  // workers with the basic grain size
+  return grainSize;
 }
 
 // dividePartials: Accepts a number of groupedPartials structures, each of which
@@ -602,8 +610,7 @@ dividePartials(std::vector<PartialsDescription> &groupedPartials, Graph &graph,
   const unsigned remainingWorkers = numWorkers > partialsResult.size()
                                         ? numWorkers - partialsResult.size()
                                         : 1;
-  const unsigned grainSize = findGrainSizeForOp(graph, inType);
-
+  const unsigned grainSize = findGrainSizeForOp(graph, inType, params.op);
   outRegions = splitOutputRegionsForWorkers(grainSize, remainingWorkers, inType,
                                             outRegions);
 
@@ -992,7 +999,7 @@ IntermediatePartials intermediateToIntermediate(
   const auto inType = castComputeSet ? poplar::FLOAT : ipIn.dataType();
   const auto &target = graph.getTarget();
 
-  const unsigned grainSize = findGrainSizeForOp(graph, inType);
+  const unsigned grainSize = findGrainSizeForOp(graph, inType, op);
   if (grainSize == 0)
     throw poputil::poplibs_error("Zero vector width for type " +
                                  inType.toString());
@@ -1424,8 +1431,8 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
 
     // Determine the grainSize based on partials type, we have no easy way to
     // compare partials widths so don't assume anything about them
-    const unsigned grainSize = findGrainSizeForOp(graph, inVertexType);
-
+    const unsigned grainSize =
+        findGrainSizeForOp(graph, inVertexType, params.op);
     // Split them if it would make it faster by processing them separately
     // with different vertices.
     outputRegionsSplit = splitOutputRegionsForWorkers(
