@@ -45,6 +45,7 @@ max_chans_per_group = 128
 max_stride = 4
 max_flops = 500000
 max_flops_per_tile = 50000
+max_start_tile_multiplier = 100
 
 def geometric_sequence(a, r):
     """
@@ -293,6 +294,7 @@ def make_params(num_ipus):
                 geometric_choice(range(1, max_kernel_dilation + 1), 0.5)
             )
 
+    params.conv_options['startTileMultiplier'] = random.randint(0, max_start_tile_multiplier/2) * 2
     params.conv_options['use128BitConvUnitLoad'] = random.choice([True, False])
     return params
 

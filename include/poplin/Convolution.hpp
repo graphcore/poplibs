@@ -113,11 +113,6 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *       If true, the output of the convolution is remapped if the output
  *       is detected to have a poor layout.
- *
- *    * `enableConvDithering`       (true, false) [=true]
- *
- *       If true, then convolutions with different parameters will be laid out
- *       from different tiles in an effort to improve tile balance in models.
  */
 /*[INTERNAL]
  *    * `numIPUs` Integer [=target.getNumIPUs()]
@@ -166,6 +161,13 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *    * `partialsType.interTile` (half, float) [=`partialsType`]
  *
  *      Data type of inter-tile partials.
+ *
+ *    * `startTileMultiplier` An even integer [=0]
+ *
+ *      Multiplier used to distribute convolutions across an IPU. If 0,
+ *      workload will be distributed across tiles starting from the first tile.
+ *      For any other value, distribution will start from a reproducible random
+ *      number depending on the chosen value and the convolution parameters.
  *
  *    * `tilesPerIPU` Integer [=target.getTilesPerIPU()]
  *

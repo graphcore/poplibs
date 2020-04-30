@@ -169,19 +169,13 @@ struct Plan {
     SLIC,
     // Outer product of two vectors.
     OUTER_PRODUCT,
-  } method = Method::MAC;
-
+  } method;
   enum class LinearizeTileOrder {
     STANDARD,
     FC_WU,
     FC_BWD_AS_CONV
   } linearizeTileOrder = LinearizeTileOrder::STANDARD;
   unsigned startTile;
-  enum class LinearizeTileDirection {
-    ASCENDING = 0,
-    DESCENDING = 1
-  } linearizeTileDirection = LinearizeTileDirection::ASCENDING;
-
   // True if there is no weight rearrangement between the forward / backward /
   // weight update passes, in which case the plan for all passes can be
   // determined from the plan for one pass.
@@ -193,7 +187,7 @@ struct Plan {
        unsigned partialChansPerGroup_, unsigned slicWindowWidth_,
        unsigned numConvUnitsRequired_, Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
-       Plan::LinearizeTileDirection linearizeTileDirection_, bool isJointPlan)
+       bool isJointPlan)
       : partitions(std::move(partitions_)), types(std::move(types_)),
         convGroupsPerGroup(convGroupsPerGroup_),
         inChansPerGroup(inChansPerGroup_),
@@ -201,7 +195,6 @@ struct Plan {
         slicWindowWidth(slicWindowWidth_),
         numConvUnitsRequired(numConvUnitsRequired_), method(method_),
         linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
-        linearizeTileDirection(linearizeTileDirection_),
         isJointPlan(isJointPlan) {}
 
   unsigned totalParallelSplit() const {
@@ -220,9 +213,6 @@ struct Plan {
 
 std::ostream &operator<<(std::ostream &os, const Plan::Method &m);
 std::istream &operator>>(std::istream &is, Plan::Method &m);
-
-std::ostream &operator<<(std::ostream &os, Plan::LinearizeTileDirection d);
-
 std::ostream &operator<<(std::ostream &os, const Plan &p);
 
 std::vector<unsigned> getTileHierarchy(const poplar::Target &target);

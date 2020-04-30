@@ -349,30 +349,10 @@ linearizeTileIndices(const Target &target,
                              fwdInChanSplit, fwdBatchSplit, fwdOutChanSplit);
     tile = tile * hierarchy[i] + linearizedIndex;
   }
-
-  // split into a per-IPU tile here so that any wrap around from the dithering
-  // stays on the same IPU.
   assert(tile < target.getNumTiles());
   const auto tilesPerIpu = target.getTilesPerIPU();
   const auto ipu = tile / tilesPerIpu;
-
-  // make sure that we utilise 64-bit exchange if it is available.
-  assert(plan.startTile % target.getTilesPerSharedExchangeBus() == 0);
-
-  // dither
-  assert(plan.startTile < tilesPerIpu);
-  tile = (tile + plan.startTile) % tilesPerIpu;
-
-  // direction
-  switch (plan.linearizeTileDirection) {
-  case Plan::LinearizeTileDirection::ASCENDING:
-    break;
-  case Plan::LinearizeTileDirection::DESCENDING:
-    tile = tilesPerIpu - tile - 1;
-  }
-
-  assert(tile < tilesPerIpu);
-  return ipu * tilesPerIpu + tile % tilesPerIpu;
+  return ipu * tilesPerIpu + (plan.startTile + tile) % tilesPerIpu;
 }
 
 static std::pair<unsigned, unsigned>
