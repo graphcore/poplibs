@@ -2,6 +2,7 @@
 #ifndef _popsolver_Constraint_hpp_
 #define _popsolver_Constraint_hpp_
 
+#include <boost/optional.hpp>
 #include <functional>
 #include <poplar/ArrayRef.hpp>
 #include <popsolver/Variable.hpp>
@@ -24,16 +25,18 @@ public:
 class GenericAssignment : public Constraint {
   // first variable is the result, remaining variables are the arguments
   std::vector<Variable> vars;
-  std::function<unsigned(const std::vector<unsigned> &values)> f;
+  std::function<boost::optional<unsigned>(const std::vector<unsigned> &values)>
+      f;
   // Vector for storing variable values, used in the propagate() method. This
   // is a class member instead of a local variable to reduce the number of
   // allocations needed.
   std::vector<unsigned> values;
 
 public:
-  GenericAssignment(
-      Variable result, std::vector<Variable> vars_,
-      std::function<unsigned(const std::vector<unsigned> &values)> f)
+  GenericAssignment(Variable result, std::vector<Variable> vars_,
+                    std::function<boost::optional<unsigned>(
+                        const std::vector<unsigned> &values)>
+                        f)
       : vars(), f(f), values(vars_.size()) {
     vars.reserve(vars_.size() + 1);
     vars.push_back(result);

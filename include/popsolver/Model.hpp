@@ -3,6 +3,7 @@
 #ifndef popsolver_Model_hpp
 #define popsolver_Model_hpp
 
+#include <boost/optional.hpp>
 #include <cassert>
 #include <functional>
 #include <memory>
@@ -44,6 +45,9 @@ public:
   const_iterator end() const { return domains.end(); }
   std::size_t size() const { return domains.size(); }
   void push_back(const Domain &d) { domains.push_back(d); }
+  template <typename... Args> void emplace_back(Args &&... args) {
+    domains.emplace_back(std::forward<Args>(args)...);
+  }
 };
 
 class Solution {
@@ -141,7 +145,9 @@ public:
   /// Add a new variable that is the result of applying the specified function
   /// to the specified variables.
   Variable call(std::vector<Variable> vars,
-                std::function<unsigned(const std::vector<unsigned> &values)> f,
+                std::function<boost::optional<unsigned>(
+                    const std::vector<unsigned> &values)>
+                    f,
                 const std::string &debugName = "");
   /// Find a solution that minimizes the value of the specified variables.
   /// Lexicographical comparison is used to compare the values of the variables.

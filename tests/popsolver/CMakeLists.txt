@@ -18,6 +18,7 @@ function(add_popsolver_unit_test name)
 endfunction()
 
 add_popsolver_unit_test(Div Div.cpp)
+add_popsolver_unit_test(GenericAssignment GenericAssignment.cpp)
 add_popsolver_unit_test(Less Less.cpp)
 add_popsolver_unit_test(LessOrEqual LessOrEqual.cpp)
 add_popsolver_unit_test(Max Max.cpp)

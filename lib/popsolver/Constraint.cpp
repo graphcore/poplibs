@@ -273,11 +273,15 @@ bool GenericAssignment::propagate(Scheduler &scheduler) {
     values[i - 1] = domains[vars[i]].val();
   }
   const auto result = vars[0];
-  const auto x = f(values);
-  if (x < domains[result].min() || x > domains[result].max())
+  const boost::optional<unsigned> x = f(values);
+  if (!x) {
     return false;
-  if (domains[result].min() != x || domains[result].max() != x) {
-    scheduler.set(result, x);
+  }
+  if (x.get() < domains[result].min() || x.get() > domains[result].max()) {
+    return false;
+  }
+  if (domains[result].min() != x.get() || domains[result].max() != x.get()) {
+    scheduler.set(result, x.get());
   }
   return true;
 }

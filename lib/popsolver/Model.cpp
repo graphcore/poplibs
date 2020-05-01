@@ -217,10 +217,11 @@ void Model::factorOf(unsigned left, Variable right) {
   equal(left, product({result, right}));
 }
 
-Variable
-Model::call(std::vector<Variable> vars,
-            std::function<unsigned(const std::vector<unsigned> &values)> f,
-            const std::string &debugName) {
+Variable Model::call(std::vector<Variable> vars,
+                     std::function<boost::optional<unsigned>(
+                         const std::vector<unsigned> &values)>
+                         f,
+                     const std::string &debugName) {
   for (auto var : vars) {
     isCallOperand[var.id] = true;
   }
