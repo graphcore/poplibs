@@ -1816,7 +1816,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --kernel-size 3
                  --stride 2
                  --input-channels 96
-                 --output-channels 95
+                 --output-channels 96
                  --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_i5_a1x1
           PARAMS --field {17,17}

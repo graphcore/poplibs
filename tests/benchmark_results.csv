@@ -108,7 +108,7 @@ IpuModel,default,inception_tr_bs4_i2_b1x1,26714,33645730,135256
 IpuModel,default,inception_tr_bs4_i3_a1x1,33750,34200250,137368
 IpuModel,default,inception_tr_bs4_i3_b1x1,28393,36474947,135832
 IpuModel,default,inception_tr_bs4_i4_a3x3,220907,159445770,155160
-IpuModel,default,inception_tr_bs4_i4_b3x3b,49243,45846175,141464
+IpuModel,default,inception_tr_bs4_i4_b3x3b,44908,35900305,141464
 IpuModel,default,inception_tr_bs4_i5_a1x1,49117,43629817,138488
 IpuModel,default,inception_tr_bs4_i5_b1x1,37075,35017338,136024
 IpuModel,default,inception_tr_bs4_i5_b1x7,43426,40317878,136856
