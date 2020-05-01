@@ -413,9 +413,7 @@ ZeroOutChanGroup_float_float:
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
     runall        $wkr_function_s_z, $wkr_base, 0
-#if WORKER_REG_STATE_RETAINED
     setzi         $wkr_function_s_z, convNx1ZeroOutFieldReentry_float
-#endif
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_float_float
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_float_float
 

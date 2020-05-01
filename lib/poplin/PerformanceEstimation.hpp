@@ -14,48 +14,28 @@ inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
   return floatActivations ? 58 : 63;
 }
 
-inline static std::uint64_t convNx1Overhead() {
-#if WORKER_REG_STATE_RETAINED
-  return 101;
-#else
-  return 99;
-#endif
-}
+inline static std::uint64_t convNx1Overhead() { return 101; }
 
 // Number of worker cycle savings if state retention is used.
 // The first entry is the total savings and the second is
 // because of retention of state related to input channel processing.
 inline static std::pair<std::uint64_t, std::uint64_t>
 conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials) {
-#if WORKER_REG_STATE_RETAINED
   if (floatActivations == false && floatPartials == true) {
     return std::make_pair(11, 3);
   } else {
     return std::make_pair(0, 0);
   }
-#else
-  (void)floatActivations;
-  (void)floatPartials;
-  return std::make_pair(0, 0);
-#endif
 }
 
 inline static std::uint64_t
 convnx1WorkerRetentionSavings(bool /*floatActivations */,
                               bool /*floatPartials */) {
-#if WORKER_REG_STATE_RETAINED
   return 4;
-#else
-  return 0;
-#endif
 }
 
 inline static std::uint64_t zeroPartialsRetentionSavings(bool floatPartials) {
-#if WORKER_REG_STATE_RETAINED
   return floatPartials ? 9 : 10;
-#else
-  return 0;
-#endif
 }
 
 inline std::uint64_t getDenseDotProductCycles(bool isFloat, unsigned size) {
@@ -312,13 +292,8 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
       convUnitCoeffLoadBytesPerCycle, floatActivations, 1);
 
   const uint64_t supervisorNonloopOverhead = 50;
-#if WORKER_REG_STATE_RETAINED
   const unsigned outPassesOverhead = 7;
   const unsigned excessInChanOverhead = 1;
-#else
-  const unsigned excessInChanOverhead = 0;
-  const unsigned outPassesOverhead = 6;
-#endif
   return supervisorNonloopOverhead +
          numWorkerContexts *
              (retentionSavings.first +
@@ -374,8 +349,7 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleOuterLoopEstimate(
       numWorkerContexts * zeroPartialsRetentionSavings(floatPartials) +
       // Supervisor code loop to zero partials. brnzdec loops mean
       // 6-cycle stall for all but last iteration.
-      numConvGroups * (numOutGroups * (16 + WORKER_REG_STATE_RETAINED ? 1 : 0) +
-                       (numOutGroups - 1) * 6 + 1) +
+      numConvGroups * (numOutGroups * 17 + (numOutGroups - 1) * 6 + 1) +
       (numConvGroups - 1) * 6 + 1 +
       // Supervisor code loop over conv/in/out groups
       numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
@@ -422,9 +396,7 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     innermostLoopCycles += 20 * filterHeight;
   }
 
-#if WORKER_REG_STATE_RETAINED
   innermostLoopCycles += 3;
-#endif
 
   uint64_t innerLoopCycles = 0;
   for (auto ky = 0U; ky != kernelOuterElems; ++ky) {

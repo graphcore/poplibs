@@ -41,8 +41,7 @@
 // Note: 3 extra double word reads are done for num_field_pos={0,1,2}. These are
 //       guaranteed to be non-strided
 //
-// The very first call of the worker requires 11 more cycles if
-//    WORKER_REG_STATE_RETAINED != 0
+// The very first call of the worker requires 11 more cycles
 // Otherwise all calls of workers requires 11 cycles more for a given input channel
 //                                         8 cycles when an input channel changes
 

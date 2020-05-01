@@ -54,8 +54,7 @@ nop
 //                      29  + (num_field_pos - 3) * 4
 //
 //
-// The very first call of the worker requires 11 more cycles if
-//    WORKER_REG_STATE_RETAINED != 0
+// The very first call of the worker requires 11 more cycles 
 // Otherwise all calls of workers requires 11 cycles more for a given input channel
 //                                         8 cycles when an input channel changes
 

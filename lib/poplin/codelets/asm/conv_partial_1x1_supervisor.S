@@ -311,9 +311,7 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 
         add           $outvec_s, $outvec_s, \AMP_OUTPUTS * SIZE_OF_PARTIALS_TYPE
         runall        $wkr_function, $wkr_vertex, 0
-#if WORKER_REG_STATE_RETAINED
         setzi         $wkr_function, convPartialFlattenedFieldStateRetainedInChanPtr_\COMMAND\()
-#endif
         // increment output vector pointer for the AMP loop
         brnzdec $amp_group_s, AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
       ld32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
@@ -333,9 +331,7 @@ AmpGroupLoop_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
     // processing the output channel group
     sync          TEXCH_SYNCZONE_LOCAL
     st32          $add_zero_in_stride_s, $wkr_vertex, WKR_IN_OUT_STRIDES/4
-#if WORKER_REG_STATE_RETAINED
     setzi         $wkr_function, convPartialFlattenedFieldStateRetained_\COMMAND\()
-#endif
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
     // expand scaled pointer
     shl           $invec_s, $invec_s, 3

@@ -10,11 +10,6 @@ include(AddGPLibrary)
 
 enable_testing()
 
-
-# Set to ON if worker state is to be retained between calls.
-#        OFF if state retention is disabled
-set(RETAIN_WORKER_STATE ON CACHE BOOL "Enable tile worker state retention")
-
 find_package(poplar REQUIRED)
 
 # build for all architectures that the Poplar we are using supports.
@@ -47,14 +42,6 @@ if($ENV{CLICOLOR_FORCE})
     add_compile_options("-fcolor-diagnostics")
   endif()
 endif()
-
-if (${RETAIN_WORKER_STATE})
-  set(RETAIN_WORKER_STATE_VAL 1)
-else()
-  set(RETAIN_WORKER_STATE_VAL 0)
-endif()
-
-string(APPEND CMAKE_CXX_FLAGS " -DWORKER_REG_STATE_RETAINED=${RETAIN_WORKER_STATE_VAL}")
 
 # Enable LLVM sanitisers if requested (only supported for Clang currently).
 if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
@@ -127,7 +114,6 @@ set(ENABLED_IPU_ARCH_NAMES "${POPLAR_ENABLED_IPU_ARCH_NAMES}")
 
 # Set up popc flags.
 set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)
-list(APPEND POPC_FLAGS -DWORKER_REG_STATE_RETAINED=${RETAIN_WORKER_STATE_VAL})
 
 if(CMAKE_BUILD_TYPE STREQUAL Debug)
   list(APPEND POPC_FLAGS -g)

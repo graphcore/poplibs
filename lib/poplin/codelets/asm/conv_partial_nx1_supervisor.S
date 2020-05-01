@@ -214,17 +214,13 @@ add           $sp, $sp, -TOT_STACK_SIZE
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
 //-----------------------------------------------------------------------------
-#if WORKER_REG_STATE_RETAINED
 setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 and           $temp_1_s, $temp_1_s, 0x3FF
 ldz16         $temp_5_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
 ldz16         $temp_7_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
 st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-#if WORKER_REG_STATE_RETAINED
 st32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-#endif
 
 // in-stride and out-stride are packed in one register. Out-stride
 // must be scaled by atom size because 64 bit writes are used
@@ -331,9 +327,7 @@ ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\(
     ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
     runall        $wkr_function_s_z, $wkr_base, 0
-#if WORKER_REG_STATE_RETAINED
     setzi         $wkr_function_s_z, convNx1ZeroOutFieldReentry_\PARTIALS_TYPE\()
-#endif
     brnzdec       $outchan_count_z_s, ZeroOutChanGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
   brnzdec       $convgroup_count_s_z, ZeroConvGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
 
@@ -510,11 +504,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
 // versions, then this part of the code can be shared. It needs to be in a
 // common section.
 AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
-#if WORKER_REG_STATE_RETAINED
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
 setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained_\COMMAND\()
-#endif
 
 .if \AMP_OUTPUTS == 8
 put           $CCCSLOAD, $weights_ptr_s
@@ -548,13 +540,9 @@ ld64putcs     22
 ld64putcs     26
 ld64putcs     30
 put           $CCCSLOAD, $weights_ptr_s_h
-#if WORKER_REG_STATE_RETAINED
 ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 ld64putcs     3
 ld64putcs     7
 ld64putcs     11
@@ -620,13 +608,9 @@ ld64putcs     30
 ld64putcs     58
 ld64putcs     62
 put           $CCCSLOAD, $weights_ptr_s_h
-#if WORKER_REG_STATE_RETAINED
 ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 ld64putcs     3
 ld64putcs     7
 ld64putcs     35
@@ -659,11 +643,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
 // Macro to load weights for Nx1 kernel when AMP Height is 1
 
 .macro LOAD_WEIGHTS_NX1_AMP_HEIGHT_1 LDTYPE NUM_ENGINES COMMAND
-#if WORKER_REG_STATE_RETAINED
             // we reuse $inchan_ptr_s as it has already been saved to vertex
             // state
             setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained_\COMMAND\()
-#endif
 .if \LDTYPE == 128 && \NUM_ENGINES == 8
             ld128putcs    0
             ld128putcs    2
@@ -675,13 +657,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
             ld128putcs    14
             ld128putcs    16
             ld128putcs    18
-#if WORKER_REG_STATE_RETAINED
             ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-            setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
             ld128putcs    20
             ld128putcs    22
             ld128putcs    24
@@ -708,13 +686,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
             ld128putcs    46
             ld128putcs    16
             ld128putcs    18
-#if WORKER_REG_STATE_RETAINED
             ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-            setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
             ld128putcs    20
             ld128putcs    22
             ld128putcs    48
@@ -751,13 +725,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
             ld64putcs    17
             ld64putcs    18
             ld64putcs    19
-#if WORKER_REG_STATE_RETAINED
             ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-            setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
             ld64putcs    20
             ld64putcs    21
             ld64putcs    22
@@ -808,13 +778,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
             ld64putcs    17
             ld64putcs    18
             ld64putcs    19
-#if WORKER_REG_STATE_RETAINED
             ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
             ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-            setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
             ld64putcs    20
             ld64putcs    21
             ld64putcs    22
@@ -854,11 +820,9 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
 // Macro to load weights for Nx1 kernel when AMP Height is 2
 
 .macro LOAD_WEIGHTS_NX1_AMP_HEIGHT_2 LDTYPE NUM_ENGINES COMMAND
-#if WORKER_REG_STATE_RETAINED
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
 setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained_\COMMAND\()
-#endif
 .if \LDTYPE == 128 && \NUM_ENGINES == 8
 ld128putcs    0
 ld128putcs    4
@@ -871,13 +835,9 @@ ld128putcs    28
 put           $CCCSLOAD, $weights_ptr_s_h
 ld128putcs    2
 ld128putcs    6
-#if WORKER_REG_STATE_RETAINED
 ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 ld128putcs    10
 ld128putcs    14
 ld128putcs    18
@@ -907,13 +867,9 @@ ld128putcs    2
 ld128putcs    6
 ld128putcs    34
 ld128putcs    38
-#if WORKER_REG_STATE_RETAINED
 ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 ld128putcs    10
 ld128putcs    14
 ld128putcs    42
@@ -949,13 +905,9 @@ ld64putcs     2
 ld64putcs     3
 ld64putcs     6
 ld64putcs     7
-#if WORKER_REG_STATE_RETAINED
 ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 ld64putcs     10
 ld64putcs     11
 ld64putcs     14
@@ -1011,13 +963,9 @@ ld64putcs     34
 ld64putcs     35
 ld64putcs     38
 ld64putcs     39
-#if WORKER_REG_STATE_RETAINED
 ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-#else
-setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-#endif
 ld64putcs     10
 ld64putcs     11
 ld64putcs     14
