@@ -966,8 +966,8 @@ bool reductionBenefitsFromPreExchangeCast(const IntermediatePartials &ipIn) {
 IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const Type &outType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const std::string &debugPrefix,
-    ReductionDebug *debug) {
+    ResultTensors &reductionResultTensors, const unsigned startTile,
+    const std::string &debugPrefix, ReductionDebug *debug) {
 
   logging::debug("DebugStr: {}", debugPrefix);
   // Debug information.
@@ -1046,7 +1046,7 @@ IntermediatePartials intermediateToIntermediate(
   // Divide a by b, rounding up.
   auto udiv = [](unsigned a, unsigned b) { return (a + b - 1) / b; };
 
-  unsigned t = 0;
+  unsigned t = startTile;
   unsigned ival = 0;
   // Debug variables
   unsigned debugTiles = 0;

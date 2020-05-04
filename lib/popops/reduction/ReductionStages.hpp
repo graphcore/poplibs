@@ -98,6 +98,8 @@ IntermediatePartials inputToIntermediateNoExchange(
 ///                 added as a Sequence of Executes afterwards.
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
+/// \param startTile The tile to begin linearly laying out the intermediate
+///                  reduction stages.
 /// \param debugPrefix
 /// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
@@ -105,8 +107,8 @@ IntermediatePartials inputToIntermediateNoExchange(
 IntermediatePartials intermediateToIntermediate(
     poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const poplar::Type &outType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const std::string &debugPrefix,
-    ReductionDebug *debug);
+    ResultTensors &reductionResultTensors, unsigned startTile,
+    const std::string &debugPrefix, ReductionDebug *debug);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
 /// may or may not be done at the location of the output tensor. If the output
