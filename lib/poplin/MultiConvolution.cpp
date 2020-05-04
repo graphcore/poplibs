@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplin/MultiConvolution.hpp"
+#include "ConvolutionInternal.hpp"
 
 #include "ConvUtilInternal.hpp"
 #include "poplin/Convolution.hpp"
@@ -36,7 +37,8 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
             const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const std::string &debugPrefix, PlanningCache *cache) {
   // Optimisation: try combining similar-size convolutions
-  const auto groups = groupCombinables(args);
+  const auto argsWithConvOptions = convertToConvOptions(graph, args);
+  const auto groups = groupCombinables(argsWithConvOptions);
   const auto combined = combine(groups);
 
   std::vector<poplar::Tensor> outs;

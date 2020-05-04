@@ -4596,12 +4596,13 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
   preplanConvolutionsImpl(commonTarget, convsImpl, cache);
 }
 
-static Tensor convolution(Graph &graph, const poplar::Tensor &in_,
-                          const poplar::Tensor &weights_,
-                          const CanonicalConvParams &params,
-                          bool transposeAndFlipWeights, Sequence &prog,
-                          const std::string &debugPrefix,
-                          const ConvOptions &options, PlanningCache *cache) {
+static Tensor convolutionInternal(Graph &graph, const poplar::Tensor &in_,
+                                  const poplar::Tensor &weights_,
+                                  const CanonicalConvParams &params,
+                                  bool transposeAndFlipWeights, Sequence &prog,
+                                  const std::string &debugPrefix,
+                                  const ConvOptions &options,
+                                  PlanningCache *cache) {
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto weights = weights_;
   if (weights.rank() == params->getNumFieldDims() + 2) {
@@ -4744,9 +4745,8 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::Tensor &weights, const ConvParams &params,
                    bool transposeAndFlipWeights, Sequence &prog,
-                   const std::string &debugPrefix,
-                   const poplar::OptionFlags &options_, PlanningCache *cache) {
-  const ConvOptions options(graph.getTarget(), options_);
+                   const std::string &debugPrefix, const ConvOptions &options,
+                   PlanningCache *cache) {
 
   if (logging::shouldLog(logging::Level::Info)) {
     logging::info("convolution");
@@ -4780,8 +4780,9 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
         params.outputTransform.truncationUpper, params.outputTransform.stride);
   }
 
-  auto output = convolution(graph, in, weights, params, transposeAndFlipWeights,
-                            prog, debugPrefix, options, cache);
+  auto output =
+      convolutionInternal(graph, in, weights, params, transposeAndFlipWeights,
+                          prog, debugPrefix, options, cache);
 
   // Introspect output tensor to check if it has a decent layout as a bad layout
   // impacts operations using the tensor in both memory and cycles. This is a
@@ -4793,6 +4794,16 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
     }
   }
   return output;
+}
+
+Tensor convolution(Graph &graph, const poplar::Tensor &in,
+                   const poplar::Tensor &weights, const ConvParams &params,
+                   bool transposeAndFlipWeights, Sequence &prog,
+                   const std::string &debugPrefix,
+                   const poplar::OptionFlags &options_, PlanningCache *cache) {
+  const ConvOptions options(graph.getTarget(), options_);
+  return convolution(graph, in, weights, params, transposeAndFlipWeights, prog,
+                     debugPrefix, options, cache);
 }
 
 static uint64_t getFlops(const ConvParams &params) {

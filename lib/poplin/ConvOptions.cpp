@@ -116,6 +116,8 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
   }
 }
 
+decltype(ConvOptions::helper) ConvOptions::helper;
+
 namespace internal {
 
 // Listings of currently handled plan constraints of different types.

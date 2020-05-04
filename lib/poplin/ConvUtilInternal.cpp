@@ -483,6 +483,17 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
           outChanGrainSize};
 }
 
+std::vector<ConvArgsWithConvOptions>
+convertToConvOptions(poplar::Graph &graph,
+                     const std::vector<multiconv::ConvolutionArgs> &args) {
+  std::vector<ConvArgsWithConvOptions> v;
+  for (const auto &arg : args) {
+    const ConvOptions options(graph.getTarget(), arg.options);
+    v.push_back({arg.inputs, arg.weights, arg.params, options});
+  }
+  return v;
+}
+
 static constexpr auto allButNumConvGroups = poplibs_support::makeStructHelper(
     &ConvParams::inputType, &ConvParams::outputType, &ConvParams::batchSize,
     &ConvParams::inputFieldShape, &ConvParams::kernelShape,
@@ -490,20 +501,18 @@ static constexpr auto allButNumConvGroups = poplibs_support::makeStructHelper(
     &ConvParams::outputChannelsPerConvGroup, &ConvParams::inputTransform,
     &ConvParams::kernelTransform, &ConvParams::outputTransform);
 
-bool isEqual(const OptionFlags &of1, const OptionFlags &of2) {
-  std::unordered_map<std::string, std::string> map1(of1.begin(), of1.end());
-  std::unordered_map<std::string, std::string> map2(of2.begin(), of2.end());
-  return map1 == map2;
+bool isEqual(const ConvOptions &co1, const ConvOptions &co2) {
+  return co1 == co2;
 }
 
-bool canBeCombined(const multiconv::ConvolutionArgs &ca1,
-                   const multiconv::ConvolutionArgs &ca2) {
+bool canBeCombined(const ConvArgsWithConvOptions &ca1,
+                   const ConvArgsWithConvOptions &ca2) {
   return allButNumConvGroups.eq(ca1.params, ca2.params) &&
          isEqual(ca1.options, ca2.options);
 }
 
 bool canBeCombined(
-    const std::vector<multiconv::ConvolutionArgs> &convolutionArgs) {
+    const std::vector<ConvArgsWithConvOptions> &convolutionArgs) {
   auto it = convolutionArgs.begin();
   const auto first = it;
   while (++it != convolutionArgs.end()) {
@@ -514,21 +523,19 @@ bool canBeCombined(
   return true;
 }
 
-std::vector<std::vector<const multiconv::ConvolutionArgs *>>
-groupCombinables(const std::vector<multiconv::ConvolutionArgs> &args) {
-  std::vector<std::vector<const multiconv::ConvolutionArgs *>> grouped;
+std::vector<std::vector<const ConvArgsWithConvOptions *>>
+groupCombinables(const std::vector<ConvArgsWithConvOptions> &args) {
+  std::vector<std::vector<const ConvArgsWithConvOptions *>> grouped;
   for (auto &ca : args) {
     bool found(false);
     for (auto &g : grouped) {
       if (canBeCombined(ca, *g[0])) {
-        const multiconv::ConvolutionArgs *aux = &ca;
-        g.push_back(aux);
+        g.push_back(&ca);
         found = true;
       }
     }
     if (!found) {
-      const multiconv::ConvolutionArgs *aux = &ca;
-      grouped.push_back({aux});
+      grouped.push_back({&ca});
     }
   }
   return grouped;
@@ -547,12 +554,9 @@ ConvParams combineConvParams(const std::vector<ConvParams> &convParams) {
   return cp;
 }
 
-multiconv::ConvolutionArgs
-combine(const std::vector<multiconv::ConvolutionArgs> &convolutionArgs) {
-  multiconv::ConvolutionArgs combined;
-  if (convolutionArgs.empty()) {
-    return combined;
-  }
+ConvArgsWithConvOptions
+combine(const std::vector<ConvArgsWithConvOptions> &convolutionArgs) {
+  assert(!convolutionArgs.empty());
   assert(canBeCombined(convolutionArgs));
   std::vector<ConvParams> convParams;
   std::vector<poplar::Tensor> inputs;
@@ -562,19 +566,16 @@ combine(const std::vector<multiconv::ConvolutionArgs> &convolutionArgs) {
     inputs.push_back(cp.inputs);
     weights.push_back(cp.weights);
   }
-  combined.params = combineConvParams(convParams);
-  combined.inputs = concat(inputs, 1);
-  combined.weights = concat(weights, 0);
-  combined.options = convolutionArgs[0].options;
-  return combined;
+  return ConvArgsWithConvOptions{concat(inputs, 1), concat(weights, 0),
+                                 combineConvParams(convParams),
+                                 convolutionArgs[0].options};
 }
 
-std::vector<multiconv::ConvolutionArgs>
-combine(const std::vector<std::vector<const multiconv::ConvolutionArgs *>>
-            &groups) {
-  std::vector<multiconv::ConvolutionArgs> convolutionArgs;
+std::vector<ConvArgsWithConvOptions> combine(
+    const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups) {
+  std::vector<ConvArgsWithConvOptions> convolutionArgs;
   for (const auto &group : groups) {
-    std::vector<multiconv::ConvolutionArgs> combinedArgs;
+    std::vector<ConvArgsWithConvOptions> combinedArgs;
     for (const auto ca : group) {
       combinedArgs.push_back(*ca);
     }
@@ -598,9 +599,9 @@ std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
   return out.slices(intervals, 1);
 }
 
-std::vector<poplar::Tensor> split(
-    const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups,
-    const std::vector<poplar::Tensor> &outs) {
+std::vector<poplar::Tensor>
+split(const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups,
+      const std::vector<poplar::Tensor> &outs) {
   std::vector<poplar::Tensor> splitOuts;
   for (unsigned i(0); i < groups.size(); ++i) {
     std::vector<ConvParams> convParams;

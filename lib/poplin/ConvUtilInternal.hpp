@@ -5,6 +5,7 @@
 
 /// A collection of utility functions that are internal to poplin.
 
+#include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/MultiConvolution.hpp"
@@ -150,29 +151,41 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
                                    unsigned numMachineStrideBits, int inStride,
                                    int inRowStride);
 
+// Auxiliary structure similar to ConvolutionArgs
+struct ConvArgsWithConvOptions {
+  poplar::Tensor inputs;
+  poplar::Tensor weights;
+  ConvParams params;
+  ConvOptions options;
+};
+
+// Converts OptionFlags in ConvolutionArgs to ConvOptions
+std::vector<ConvArgsWithConvOptions>
+convertToConvOptions(poplar::Graph &graph,
+                     const std::vector<multiconv::ConvolutionArgs> &args);
+
 // Checks that multiple ConvolutionArgs can be combined
-bool canBeCombined(
-    const std::vector<multiconv::ConvolutionArgs> &convolutionArgs);
+bool canBeCombined(const std::vector<ConvArgsWithConvOptions> &convolutionArgs);
 
 // Returns a vector of groups of combinable convolution arguments
-std::vector<std::vector<const multiconv::ConvolutionArgs *>>
-groupCombinables(const std::vector<multiconv::ConvolutionArgs> &args);
+std::vector<std::vector<const ConvArgsWithConvOptions *>>
+groupCombinables(const std::vector<ConvArgsWithConvOptions> &args);
 
 // Returns the combination (aggregates convolution parameters and concatenates
 // input tensors) of multiple compatible convolution arguments.
-multiconv::ConvolutionArgs
-combine(const std::vector<multiconv::ConvolutionArgs> &convolutionArgs);
+ConvArgsWithConvOptions
+combine(const std::vector<ConvArgsWithConvOptions> &convolutionArgs);
 
-std::vector<multiconv::ConvolutionArgs> combine(
-    const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups);
+std::vector<ConvArgsWithConvOptions> combine(
+    const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups);
 
 // Splits the result of a combined multi-convolution
 std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
                                   const poplar::Tensor &out);
 
-std::vector<poplar::Tensor> split(
-    const std::vector<std::vector<const multiconv::ConvolutionArgs *>> &groups,
-    const std::vector<poplar::Tensor> &out);
+std::vector<poplar::Tensor>
+split(const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups,
+      const std::vector<poplar::Tensor> &out);
 // Given a vector of group weights and a number of elements,
 // distribute them among the groups proportionally to their weights.
 // If noEmptyGroups is set, at least one element is assigned to every group

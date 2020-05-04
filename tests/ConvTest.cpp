@@ -169,8 +169,9 @@ std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
   }
 
   // Combine convolution parameters and tensors
-  BOOST_CHECK(poplin::canBeCombined(convolutionArgs));
-  auto ca = poplin::combine(convolutionArgs);
+  auto argsWithConvOptions = convertToConvOptions(graph, convolutionArgs);
+  BOOST_CHECK(poplin::canBeCombined(argsWithConvOptions));
+  auto ca = poplin::combine(argsWithConvOptions);
 
   // Create a single convolution
   poplar::program::Sequence prog;
@@ -245,43 +246,38 @@ void runAndCheckConvolution(TestDevice &device, Graph &graph,
 }
 
 BOOST_AUTO_TEST_CASE(MultiConvCanBeCombined) {
+  auto createArgsPair = [](Graph &graph) {
+    auto cp1 = createParams();
+    auto ca1 = createConvolutionArgs(graph, cp1);
+    auto cp2 = createParams();
+    auto ca2 = createConvolutionArgs(graph, cp2);
+    return convertToConvOptions(graph, {ca1, ca2});
+  };
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   Graph graph(device.getTarget());
   {
-    auto cp1 = createParams();
-    auto cp2 = createParams();
-    auto ca1 = createConvolutionArgs(graph, cp1);
-    auto ca2 = createConvolutionArgs(graph, cp2);
-    ca1.params.batchSize = 1;
-    ca2.params.batchSize = 2;
-    BOOST_CHECK(!poplin::canBeCombined({ca1, ca2}));
+    auto args = createArgsPair(graph);
+    args[0].params.batchSize = 1;
+    args[1].params.batchSize = 2;
+    BOOST_CHECK(!poplin::canBeCombined(args));
   }
   {
-    auto cp1 = createParams();
-    auto cp2 = createParams();
-    auto ca1 = createConvolutionArgs(graph, cp1);
-    auto ca2 = createConvolutionArgs(graph, cp2);
-    ca1.params.inputFieldShape = {1, 1};
-    ca2.params.inputFieldShape = {2, 2};
-    BOOST_CHECK(!poplin::canBeCombined({ca1, ca2}));
+    auto args = createArgsPair(graph);
+    args[0].params.inputFieldShape = {1, 1};
+    args[1].params.inputFieldShape = {2, 2};
+    BOOST_CHECK(!poplin::canBeCombined(args));
   }
   {
-    auto cp1 = createParams();
-    auto cp2 = createParams();
-    auto ca1 = createConvolutionArgs(graph, cp1);
-    auto ca2 = createConvolutionArgs(graph, cp2);
-    ca1.params.kernelTransform.paddingLower = {0, 0};
-    ca2.params.kernelTransform.paddingLower = {1, 1};
-    BOOST_CHECK(!poplin::canBeCombined({ca1, ca2}));
+    auto args = createArgsPair(graph);
+    args[0].params.kernelTransform.paddingLower = {0, 0};
+    args[1].params.kernelTransform.paddingLower = {1, 1};
+    BOOST_CHECK(!poplin::canBeCombined(args));
   }
   {
-    auto cp1 = createParams();
-    auto cp2 = createParams();
-    auto ca1 = createConvolutionArgs(graph, cp1);
-    auto ca2 = createConvolutionArgs(graph, cp2);
-    ca1.options.set("opt1", "v1");
-    ca2.options.set("opt1", "v2");
-    BOOST_CHECK(!poplin::canBeCombined({ca1, ca2}));
+    auto args = createArgsPair(graph);
+    args[0].options.interIpuPartialsType = poplar::FLOAT;
+    args[1].options.interIpuPartialsType = poplar::HALF;
+    BOOST_CHECK(!poplin::canBeCombined(args));
   }
 }
 

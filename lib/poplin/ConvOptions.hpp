@@ -58,21 +58,27 @@ public:
   bool enableConvDithering = false;
 
   void parseConvOptions(const poplar::OptionFlags &options);
-  bool operator<(const ConvOptions &other) const {
-    using poplibs_support::makeStructHelper;
 
-    const auto helper = makeStructHelper(
-        &ConvOptions::availableMemoryProportion, &ConvOptions::numIPUs,
-        &ConvOptions::tilesPerIPU, &ConvOptions::pass,
-        &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
-        &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
-        &ConvOptions::planConstraints,
-        &ConvOptions::planConstraintsOutputFilename,
-        &ConvOptions::enableAmpHalfEnginesPlan,
-        &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor,
-        &ConvOptions::enableConvDithering);
+private:
+  static constexpr auto helper = poplibs_support::makeStructHelper(
+      &ConvOptions::availableMemoryProportion, &ConvOptions::numIPUs,
+      &ConvOptions::tilesPerIPU, &ConvOptions::pass, &ConvOptions::partialsType,
+      &ConvOptions::interTilePartialsType, &ConvOptions::interIpuPartialsType,
+      &ConvOptions::use128BitConvUnitLoad, &ConvOptions::planConstraints,
+      &ConvOptions::planConstraintsOutputFilename,
+      &ConvOptions::enableAmpHalfEnginesPlan,
+      &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor,
+      &ConvOptions::enableConvDithering);
+
+public:
+  bool operator<(const ConvOptions &other) const {
     return helper.lt(*this, other);
   }
+
+  bool operator==(const ConvOptions &other) const {
+    return helper.eq(*this, other);
+  }
+
   ConvOptions(const poplar::Target &target)
       : numIPUs(target.getNumIPUs()), tilesPerIPU(target.getTilesPerIPU()) {}
 
