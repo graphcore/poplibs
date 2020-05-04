@@ -33,6 +33,8 @@ createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args,
 
 std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
+            const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
+            const std::string &debugPrefix, PlanningCache *cache) {
             poplar::program::Sequence &prog, const std::string &debugPrefix,
             PlanningCache *cache) {
   // Optimisation: try combining similar-size convolutions
@@ -42,8 +44,8 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
   std::vector<poplar::Tensor> outs;
   for (const auto &arg : combined) {
     outs.push_back(poplin::convolution(graph, arg.inputs, arg.weights,
-                                       arg.params, false, prog, debugPrefix,
-                                       arg.options, cache));
+                                       arg.params, transposeAndFlipWeights,
+                                       prog, debugPrefix, arg.options, cache));
   }
 
   return split(groups, outs);

@@ -82,6 +82,7 @@ struct ConvolutionArgs {
  * \param graph       The graph that the operations will be added to.
  * \param args        Collection of inputs, weights, and convolution parameters
  *                    specifying each convolution in the multiconvolution.
+ * \param transposeAndFlipWeights Prepare the weights for the backwards pass.
  * \param prog        Poplar program sequence to append the operations onto.
  * \param debugPrefix Name of the operation, for debugging.
  * \param cache       Optional pointer to a planning cache to use.
@@ -89,7 +90,7 @@ struct ConvolutionArgs {
  */
 std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
-            poplar::program::Sequence &prog,
+            bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const std::string &debugPrefix = "",
             poplin::PlanningCache *cache = nullptr);
 

@@ -129,25 +129,13 @@ BOOST_AUTO_TEST_CASE(SimpleMultiConvFwdPassWithSameConvParams) {
       graph,
       {{prevAct[0], weights[0], fwdParams, fwdOptions},
        {prevAct[1], weights[1], fwdParams, fwdOptions}},
-      fwdProg, "fwd/", &cache);
-
-  // Create transposed/flipped weights for bwd pass
-  std::vector<Tensor> bwdWeights{
-      poplin::createWeights(graph, bwdParams, "bwdWeights0", bwdOptions,
-                            &cache),
-      poplin::createWeights(graph, bwdParams, "bwdWeights1", bwdOptions,
-                            &cache),
-  };
-  poplin::weightsTransposeChansFlipXY(graph, weights[0], bwdWeights[0], revProg,
-                                      "bwd/");
-  poplin::weightsTransposeChansFlipXY(graph, weights[1], bwdWeights[1], revProg,
-                                      "bwd/");
+      false, fwdProg, "fwd/", &cache);
 
   auto prevDeltas = poplin::multiconv::convolution(
       graph,
-      {{zDeltas[0], bwdWeights[0], bwdParams, bwdOptions},
-       {zDeltas[1], bwdWeights[1], bwdParams, bwdOptions}},
-      revProg, "bwd/", &cache);
+      {{zDeltas[0], weights[0], bwdParams, bwdOptions},
+       {zDeltas[1], weights[1], bwdParams, bwdOptions}},
+      true, revProg, "bwd/", &cache);
 
   auto scale = graph.addConstant(dataType, {}, -learningRate);
   graph.setTileMapping(scale, 0);
