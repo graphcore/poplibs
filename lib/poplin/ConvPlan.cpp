@@ -1244,7 +1244,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         [&target, params, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, transformedInputDilation, transformedOutputStride,
          slicWindowWidth, floatActivations, floatPartials,
-         cache](const auto &values) {
+         cache](const auto &values) -> boost::optional<unsigned> {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
                            inChansPerGroup, outChansPerGroup);
@@ -1255,8 +1255,10 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           assert(inChansPerGroup == outChansPerGroup);
           assert(convGroupsPerGroup * inChansPerGroup == 4);
 
-          assert(ceildiv(convSize.inChanSize, inChansPerGroup) == 1);
-          assert(ceildiv(convSize.outChanSize, outChansPerGroup) == 1);
+          if (ceildiv(convSize.inChanSize, inChansPerGroup) != 1 ||
+              ceildiv(convSize.outChanSize, outChansPerGroup) != 1) {
+            return boost::none;
+          }
 
           const auto tileNumConvGroups =
               ceildiv(convSize.convGroupSize, convGroupsPerGroup);
@@ -3324,6 +3326,9 @@ static void addSLICConstraints(popsolver::Model &m, const PartitionVariables &p,
       m.lessOrEqual(m.addConstant(lvl1Params.outputTransform.stride[dim]), 2);
     }
   }
+
+  m.equal(s.numInChanGrains, 1);
+  m.equal(s.numOutChanGrains, 1);
 }
 
 // The Outer Product method can only be used if certain criteria are met (e.g.
@@ -3778,53 +3783,12 @@ static Estimates<popsolver::Variable> constructModel(
     nextConvSize.numConvGroupGrains = m.ceildivConstrainDivisor(
         prevConvSize.numConvGroupGrains, p.convGroupSplit,
         arrIndStr(level + 1) + ".size.convGroupGrains");
-    if (level == numLevelsOfHierarchy - 2 &&
-        convVertexType.method == Plan::Method::SLIC) {
-      // Like popsolver::Model::ceildiv(ConstrainDivisor) but with already
-      // instantiated output variables.
-      auto ceildivWithVars = [&](Model &m, const Variable &result,
-                                 const Variable &left, const Variable &right) {
-        auto resultTimesRight = m.product({result, right});
-        m.lessOrEqual(left, resultTimesRight);
-        m.less(resultTimesRight, m.sum({left, right}));
-      };
-      auto ceildivConstrainDivisorWithVars =
-          [&](Model &m, const Variable &result, const Variable &left,
-              const Variable &right) {
-            ceildivWithVars(m, result, left, right);
-            m.less(m.product({result, right}), m.sum({left, result}));
-          };
-      // Workaround for T17645. We would constrain in/out chan grains to be
-      // equal 1 in the model except the call constraint later on that
-      // calculates the cycle estimates for SLIC relies on never getting
-      // invalid parameters, i.e. when there is greater than one input
-      // or output channel group. The call constraint may be evaluated
-      // before the equal constraint and so we get invalid parameters and
-      // an assert.
-      //
-      // Ideally we would fix this by having the call constraint be able
-      // to flag invalid parameters (T17632). We don't yet have this
-      // and we instead construct the num{In,Out}ChanGrains as constants
-      // and apply constraints backwards to ensure they are never not
-      // equal 1.
-      nextConvSize.numOutChanGrains =
-          m.addConstant(1u, arrIndStr(level + 1) + ".size.outChanGrains");
-      nextConvSize.numInChanGrains =
-          m.addConstant(1u, arrIndStr(level + 1) + ".size.inChanGrains");
-      ceildivConstrainDivisorWithVars(m, nextConvSize.numOutChanGrains,
-                                      prevConvSize.numOutChanGrains,
-                                      totalOutChanSplit);
-      ceildivConstrainDivisorWithVars(m, nextConvSize.numInChanGrains,
-                                      prevConvSize.numInChanGrains,
-                                      totalInChanSplit);
-    } else {
-      nextConvSize.numOutChanGrains = m.ceildivConstrainDivisor(
-          prevConvSize.numOutChanGrains, totalOutChanSplit,
-          arrIndStr(level + 1) + ".size.outChanGrains");
-      nextConvSize.numInChanGrains = m.ceildivConstrainDivisor(
-          prevConvSize.numInChanGrains, totalInChanSplit,
-          arrIndStr(level + 1) + ".size.inChanGrains");
-    }
+    nextConvSize.numOutChanGrains = m.ceildivConstrainDivisor(
+        prevConvSize.numOutChanGrains, totalOutChanSplit,
+        arrIndStr(level + 1) + ".size.outChanGrains");
+    nextConvSize.numInChanGrains = m.ceildivConstrainDivisor(
+        prevConvSize.numInChanGrains, totalInChanSplit,
+        arrIndStr(level + 1) + ".size.inChanGrains");
 
     convSize.push_back(std::move(nextConvSize));
 
