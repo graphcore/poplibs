@@ -20,7 +20,8 @@
                 "skip": 77,
                 "bailout": 10
             },
-            "weight": 1.0
+            "weight": 1.0,
+            "parallel": 40
         },
         {
             "name": "single conv layer - Sim",
@@ -40,7 +41,8 @@
                 "skip": 77,
                 "bailout": 10
             },
-            "weight": 1.0
+            "weight": 1.0,
+            "parallel": 40
         }
     ]
 }
