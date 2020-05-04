@@ -35,8 +35,6 @@ std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
             const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const std::string &debugPrefix, PlanningCache *cache) {
-            poplar::program::Sequence &prog, const std::string &debugPrefix,
-            PlanningCache *cache) {
   // Optimisation: try combining similar-size convolutions
   const auto groups = groupCombinables(args);
   const auto combined = combine(groups);
