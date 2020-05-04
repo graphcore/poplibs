@@ -627,13 +627,14 @@ static std::uint64_t estimateConvReduceCycles(
   // Output size depends on the depth used in the reduction
   unsigned outputSizeThisStage = outputSize * reductionDepth;
   for (auto d : reductionPlan) {
-    const auto depthThisStage = (remainingDepth + d - 1) / d;
-    outputSizeThisStage =
-        (outputSizeThisStage + depthThisStage - 1) / depthThisStage;
+    const auto depthThisStage = ceildiv(remainingDepth, d);
+    remainingDepth = ceildiv(remainingDepth, depthThisStage);
+    const auto stageOutputIsFloat =
+        remainingDepth == 1 ? floatOutput : floatPartials;
+    outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
     cycles += getReduceCycleEstimate(outputSizeThisStage, depthThisStage,
-                                     dataPathWidth, floatOutput, floatPartials,
-                                     numWorkers);
-    remainingDepth = (remainingDepth + depthThisStage - 1) / depthThisStage;
+                                     dataPathWidth, stageOutputIsFloat,
+                                     floatPartials, numWorkers);
   }
 
   if (remainingDepth > 1) {
