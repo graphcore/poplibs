@@ -19,6 +19,7 @@
 #include "poputil/exceptions.hpp"
 #include "tbb/concurrent_unordered_map.h"
 #include "tbb/parallel_for.h"
+#include <boost/functional/hash.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <cassert>
@@ -451,6 +452,19 @@ std::istream &operator>>(std::istream &is, Plan::Method &m) {
   return is;
 }
 
+std::ostream &operator<<(std::ostream &os, Plan::LinearizeTileDirection d) {
+  switch (d) {
+  case Plan::LinearizeTileDirection::ASCENDING:
+    return os << "ASCENDING";
+  case Plan::LinearizeTileDirection::DESCENDING:
+    return os << "DESCENDING";
+  }
+
+  auto id = static_cast<std::underlying_type_t<decltype(d)>>(d);
+  throw poputil::poplibs_error("Unrecognised tile direction <" +
+                               std::to_string(id) + ">");
+}
+
 std::ostream &operator<<(std::ostream &os, const Plan &p) {
   os << "  Plan:";
   const auto numLevels = p.transforms.size();
@@ -468,7 +482,9 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
      << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n"
-     << "        isJointPlan             " << p.isJointPlan << "\n";
+     << "        isJointPlan             " << p.isJointPlan << "\n"
+     << "        startTile               " << p.startTile << "\n"
+     << "        linearizeTileDirection  " << p.linearizeTileDirection << "\n";
   return os;
 }
 
@@ -834,34 +850,97 @@ static Cost highestCost(std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max());
 
 // Pick a tile to start laying out the convolution on. We pick a "random" tile
-// by hashing the convolution parameters in an attempt to evenly distribute
-// across the entire tile range. If we always start from the same tile we will
-// see the higher tiles getting much less data than everything else.
-static unsigned getStartTile(const poplar::Target &target,
-                             const ConvParams &params,
-                             const ConvOptions &options, bool isJointPlan) {
-  // Use a start tile of 0 for joint plans to avoid the risk of exchanging
-  // weights. TODO: T12875 Investigate whether this is necessary.
-  if (isJointPlan) {
-    return 0;
+// by hashing the forward shape in an attempt to evenly distribute across the
+// entire tile range. The start tile granularity is such that we always start
+// on a new column, and we also decide whether to lay the data out in ascending
+// or descending tile order. We make an effort (using the Pass) to give the
+// forward, backward and weight update passes the same start tile and direction.
+static std::pair<unsigned, Plan::LinearizeTileDirection>
+getStartTile(const poplar::Target &target, const ConvParams &params,
+             const ConvOptions &options) {
+  if (!options.enableConvDithering) {
+    return std::make_pair(0u, Plan::LinearizeTileDirection::ASCENDING);
   }
 
-  // Always start on an even tile because the convolutions rely on 64-bit sends.
-  if (options.startTileMultiplier % 2 != 0) {
-    throw poputil::poplibs_error(
-        "Must start distributing convolutions on an even tile.");
-  }
+  const auto seed = [&] {
+    // starting seed: 2^32/phi, where phi is the golden ratio.
+    std::size_t seed = 0x9e3779b9UL;
+    boost::hash_combine(seed, params.numConvGroups);
 
-  // A multiplier of zero effectively disables the dithering.
-  if (options.startTileMultiplier == 0) {
-    return 0;
-  }
+    // fully connected layers swap the channels and field dimensions around so
+    // for those to remain pass oblivious we must handle them separately. this
+    // basically means that all non-inference fully connected layers will have
+    // the same dithering, T19546 tracks improving this and also once T16758 is
+    // fixed we can remove this.
+    if (options.pass == Pass::FC_TRAINING_FWD ||
+        options.pass == Pass::FC_TRAINING_BWD ||
+        options.pass == Pass::FC_TRAINING_WU) {
+      boost::hash_combine(seed, params.batchSize);
+      assert(params.inputFieldShape.size() == 1);
+      const auto x = params.inputFieldShape.front() *
+                     params.inputChannelsPerConvGroup *
+                     params.outputChannelsPerConvGroup;
+      boost::hash_combine(seed, x);
+      return seed;
+    }
 
-  const auto numTiles = target.getNumTiles();
-  const auto numEvenTiles =
-      std::max(1U, numTiles / options.startTileMultiplier);
-  return (std::hash<ConvParams>()(params) % numEvenTiles) *
-         options.startTileMultiplier;
+    // use the forward pass shape to determine the start column and direction.
+    // this is easier than hashing the whole params in a pass oblivious manner.
+    auto shape = [&] {
+      switch (options.pass) {
+      // if no pass, assume forward and training.
+      case Pass::NONE:
+      case Pass::FC_INFERENCE_FWD:
+      case Pass::INFERENCE_FWD:
+      case Pass::TRAINING_FWD:
+        return params.inputFieldShape;
+
+      case Pass::TRAINING_BWD:
+        return params.getOutputFieldShape();
+
+      case Pass::TRAINING_WU:
+        return params.inputFieldShape;
+
+      case Pass::FC_TRAINING_FWD:
+      case Pass::FC_TRAINING_BWD:
+      case Pass::FC_TRAINING_WU:
+        // handled above.
+        break;
+      }
+
+      throw poputil::poplibs_error("Unknown pass to determine start tile.");
+    }();
+
+    boost::hash_range(seed, std::begin(shape), std::end(shape));
+    if (options.pass == Pass::INFERENCE_FWD ||
+        options.pass == Pass::FC_INFERENCE_FWD) {
+      boost::hash_combine(seed, params.batchSize);
+      boost::hash_combine(seed, params.outputChannelsPerConvGroup);
+      boost::hash_combine(seed, params.inputChannelsPerConvGroup);
+    } else {
+      // we must combine the batch and channels in a commutative way to get the
+      // same result for each pass.
+      auto x = params.batchSize * params.outputChannelsPerConvGroup *
+               params.inputChannelsPerConvGroup;
+      boost::hash_combine(seed, x);
+    }
+
+    return seed;
+  }();
+
+  // we always do start tile dithering per-IPU because when we wrap around we
+  // need to stay on the same IPU.
+  const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
+
+  const auto numSuperTiles =
+      ceildiv(target.getTilesPerIPU(), tilesPerSuperTile);
+  unsigned startTile = (seed % numSuperTiles) * tilesPerSuperTile;
+
+  const auto numDirections = 2;
+  auto direction =
+      static_cast<Plan::LinearizeTileDirection>(seed % numDirections);
+
+  return std::make_pair(startTile, direction);
 }
 
 static unsigned getConvUnitsPerTile(const poplar::Target &target,
@@ -3907,12 +3986,13 @@ static std::pair<Plan, Cost> choosePlan(
   for (const auto &p : partitionVars) {
     partitions.push_back(makePartition(s, p));
   }
+  auto startTile = getStartTile(target, params, options);
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.convGroupsPerGroup, convVertexType.inChansPerGroup,
             convVertexType.partialChansPerGroup, convVertexType.slicWindowWidth,
             convVertexType.numConvUnitsRequired, convVertexType.method,
-            Plan::LinearizeTileOrder::STANDARD,
-            getStartTile(target, params, options, isJointPlan), isJointPlan);
+            Plan::LinearizeTileOrder::STANDARD, startTile.first,
+            startTile.second, isJointPlan);
   plan.transforms = transforms;
 
   Cost cost;

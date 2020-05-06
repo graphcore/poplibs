@@ -2582,7 +2582,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_1
                  --stride={2,2}
                  --tiles-per-ipu=24
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"0\"}
+                 --convolution-options={\"partialsType\":\"float\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_2
@@ -2603,7 +2603,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_2
                  --stride={4,2}
                  --tiles-per-ipu=24
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"34\"}
+                 --convolution-options={\"partialsType\":\"float\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_3
@@ -2624,7 +2624,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_3
                  --stride={2,2}
                  --tiles-per-ipu=24
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"72\"}
+                 --convolution-options={\"partialsType\":\"float\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_4
@@ -2645,7 +2645,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_4
                  --stride={1,1}
                  --tiles-per-ipu=16
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"8\"}
+                 --convolution-options={\"partialsType\":\"float\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_5
@@ -2666,7 +2666,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_5
                  --stride={2,1}
                  --tiles-per-ipu=24
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"58\"}
+                 --convolution-options={\"partialsType\":\"half\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_6
@@ -2687,7 +2687,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --stride={1,3}
                  --tiles-per-ipu=16
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
+                 --convolution-options={\"partialsType\":\"half\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_7
@@ -2708,7 +2708,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_7
                  --stride={1,1}
                  --tiles-per-ipu=16
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"44\"}
+                 --convolution-options={\"partialsType\":\"half\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_8
@@ -2729,7 +2729,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_8
                  --stride={1,2}
                  --tiles-per-ipu=1
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
+                 --convolution-options={\"partialsType\":\"float\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_9
@@ -2750,7 +2750,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_9
                  --stride={1,2}
                  --tiles-per-ipu=16
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"float\",\"startTileMultiplier\":\"32\"}
+                 --convolution-options={\"partialsType\":\"float\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_10
@@ -2771,7 +2771,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
                  --stride={1,2}
                  --tiles-per-ipu=24
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"8\"}
+                 --convolution-options={\"partialsType\":\"half\"}
          VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 #Check reduction patterns.
@@ -6195,7 +6195,7 @@ add_multitarget_test(
                  --stride={1,2,1}
                  --tiles-per-ipu=2
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"half\",\"startTileMultiplier\":\"0\"})
+                 --convolution-options={\"partialsType\":\"half\"})
 
 # Convolution seen in resnet 50 which exposed a bug when generating WU pass
 add_multitarget_test(

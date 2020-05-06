@@ -57,8 +57,6 @@ std::ostream &operator<<(std::ostream &os, const Pass p) {
 std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << "Option: availableMemoryProportion     ";
   os << opts.availableMemoryProportion << "\n";
-  os << "        startTileMultiplier           ";
-  os << opts.startTileMultiplier << "\n";
   os << "        pass                          ";
   os << opts.pass << "\n";
   os << "        partialsType                  ";
@@ -104,8 +102,6 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithEnum(interIpuPartialsType, partialsTypeMap)},
       {"use128BitConvUnitLoad",
        OptionHandler::createWithBool(use128BitConvUnitLoad)},
-      {"startTileMultiplier",
-       OptionHandler::createWithInteger(startTileMultiplier)},
       {"planConstraints",
        makeConvPlanConstraintsOptionHandler(planConstraints)},
       {"planConstraintsOutputFilename",
