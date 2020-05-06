@@ -24,7 +24,7 @@ namespace popops {
 // param isRead - whether the tensor is going to be read from the host
 //                or have it's data written to the host (with isRead true
 //                tile imbalance is likely to be greater)
-// return - 2 tensor, the indices which will have size sjape[0] and the
+// return - 2 tensors, the indices which will have size shape[0] and the
 //         tensor that will be written to
 struct IndicesAndTensor {
   poplar::Tensor indices;

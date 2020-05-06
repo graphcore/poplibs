@@ -60,7 +60,7 @@ struct XBs {
   }
 };
 
-struct PacketsPair {
+struct PacketsAndIndices {
   std::vector<poplar::Tensor> packets;
   std::vector<unsigned> indices;
 };
@@ -110,14 +110,14 @@ static XBs findAvailableXBs(const poplar::Graph &graph) {
   return result;
 }
 
-static PacketsPair splitIntoPackets(poplar::Tensor &t,
-                                    const poplar::Graph &graph,
-                                    const bool isRead) {
+static PacketsAndIndices splitIntoPackets(poplar::Tensor &t,
+                                          const poplar::Graph &graph,
+                                          const bool isRead) {
   const unsigned packetSizeInBytes =
       isRead ? readPacketSizeInBytes : writePacketSizeInBytes;
   const unsigned packetSize =
       packetSizeInBytes / graph.getTarget().getTypeSize(t.elementType());
-  PacketsPair result;
+  PacketsAndIndices result;
   result.packets.reserve(t.numElements() / packetSize);
   result.indices.reserve(t.numElements() / packetSize);
   std::unordered_map<unsigned, unsigned> sizeBreakDown;
@@ -161,7 +161,7 @@ static std::vector<unsigned> numPacketsPerTile(const XBs &xbs,
   return result;
 }
 
-static void assignTileMappings(const PacketsPair &packets,
+static void assignTileMappings(const PacketsAndIndices &packets,
                                const poplar::Tensor &indices, const XBs &xbs,
                                poplar::Graph &graph) {
   assert(packets.packets.size() % indices.dim(0) == 0);
