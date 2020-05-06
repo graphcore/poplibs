@@ -16,8 +16,8 @@
 #include <boost/variant.hpp>
 
 #include "poplibs_support/Algorithms.hpp"
-#include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poputil/OptionParsing.hpp"
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/print.hpp>
 #include <popops/Cast.hpp>

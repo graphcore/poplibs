@@ -5,7 +5,7 @@
 #include "HyperGraph.hpp"
 #include <iostream>
 #include <memory>
-#include <poplibs_support/OptionParsing.hpp>
+#include <poputil/OptionParsing.hpp>
 #include <poputil/exceptions.hpp>
 
 namespace popsparse {

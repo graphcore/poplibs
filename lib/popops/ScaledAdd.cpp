@@ -1,9 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popops/ScaledAdd.hpp"
-#include "poplibs_support/OptionParsing.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Rearrange.hpp"
+#include "poputil/OptionParsing.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"

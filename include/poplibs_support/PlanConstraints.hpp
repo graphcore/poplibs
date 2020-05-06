@@ -2,7 +2,7 @@
 #ifndef poplibs_support_PlanConstraints_hpp
 #define poplibs_support_PlanConstraints_hpp
 
-#include "poplibs_support/OptionParsing.hpp"
+#include "poputil/OptionParsing.hpp"
 
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>

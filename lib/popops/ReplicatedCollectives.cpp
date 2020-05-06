@@ -4,12 +4,12 @@
 
 #include "CollectivesProgram.hpp"
 #include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Reduce.hpp"
+#include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"

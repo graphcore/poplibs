@@ -2,12 +2,12 @@
 #include "poplin/MatMul.hpp"
 #include "ConvOptions.hpp"
 #include "poplibs_support/Compiler.hpp"
-#include "poplibs_support/OptionParsing.hpp"
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/Convolution.hpp"
 #include "popops/Rearrange.hpp"
 #include "popops/ScaledAdd.hpp"
+#include "poputil/OptionParsing.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
 #include <cassert>

@@ -131,12 +131,17 @@ public:
   OptionSpec(initializer_list_t &&handlers) : handlers(std::move(handlers)) {}
 
   // Validate and handle options based on the spec
-  void parse(poplar::StringRef option, poplar::StringRef value) const {
+  void parse(poplar::StringRef option, poplar::StringRef value,
+             bool ignoreUnknown = false) const {
     auto it = handlers.find(option);
     if (it == handlers.end()) {
-      std::stringstream s;
-      s << "Unrecognised option '" << option << "'";
-      throw poplar::invalid_option(s.str());
+      if (ignoreUnknown) {
+        return;
+      } else {
+        std::stringstream s;
+        s << "Unrecognised option '" << option << "'";
+        throw poplar::invalid_option(s.str());
+      }
     }
     try {
       const auto &handler = it->second;

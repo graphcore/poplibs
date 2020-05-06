@@ -7,7 +7,6 @@
 #include <cassert>
 #include <cstdint>
 #include <poplibs_support/Compiler.hpp>
-#include <poplibs_support/OptionParsing.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/Convolution.hpp>
@@ -19,6 +18,7 @@
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Zero.hpp>
+#include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VarStructure.hpp>

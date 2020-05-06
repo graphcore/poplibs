@@ -22,7 +22,6 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/IclUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/logging.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/OptionParsing.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/PlanConstraints.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/print.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/StructHelper.hpp
