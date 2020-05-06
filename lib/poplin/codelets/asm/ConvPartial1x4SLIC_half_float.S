@@ -13,7 +13,7 @@
 #define CODELET_SYMBOL_STRIDE2(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_float_2_true ## suffix
 
 //=============
-#define LOG2_SIZEOF_OUT_ATOM 2
+#define OUTPUT_STRIDE 2
 #define NUM_WEIGHTS_PER_WORKER_LOOP 64
 #define INPUT_ELEM_SIZE 2
 #define WEIGHTS_ELEM_SIZE 2
@@ -215,7 +215,7 @@ CODELET_SYMBOL(common_entry):
     ld32step $s_out_ptr, $mzero, $s_out_ptr_iterator+=, 1
     nop
     nop
-    or $s_implicit_zero_or_strides, $s_implicit_zero_or_strides, 2
+    or $s_implicit_zero_or_strides, $s_implicit_zero_or_strides, OUTPUT_STRIDE
     st32 $s_swap_out_ptrs_on_load, $sp, $mzero, PROCESS_GROUP_WORKER_STATE_OFFSET_swap_out_ptrs_on_load/4
     st32 $s_in_ptr, $sp, $mzero, PROCESS_GROUP_WORKER_STATE_OFFSET_in_ptr/4
     st32 $s_out_ptr, $sp, $mzero, (PROCESS_GROUP_WORKER_STATE_OFFSET_out_ptrs + 4)/4
@@ -276,7 +276,7 @@ CODELET_SYMBOL(common_entry):
       st32 $s_worklists_deltan_ptr, $sp, $mzero, (PROCESS_GROUP_WORKER_STATE_OFFSET_worklist + 4)/4
       add $s_worklists_deltan_ptr, $s_worklists_deltan_ptr, BYTES_PER_DELTAN * CTXT_WORKERS
 
-      or $s_implicit_zero_or_strides, $mzero, 2
+      or $s_implicit_zero_or_strides, $mzero, OUTPUT_STRIDE
       runall $s_worker_function2, $sp, 0
       sync TEXCH_SYNCZONE_LOCAL
       st32 $s_implicit_zero_or_strides, $sp, $mzero, PROCESS_GROUP_WORKER_STATE_OFFSET_implicit_zero_and_strides/4
@@ -495,8 +495,8 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+.Lworker_process_group_field_row_implicit_zero_write_and_end_\ID:
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-.Lworker_process_group_field_row_implicit_zero_end_\ID:
 .endm // worker_process_group_field_row_implicit_zero
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -526,12 +526,12 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
 2:
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    bri .Lworker_process_group_field_row_implicit_zero_end_\ID
+    bri .Lworker_process_group_field_row_implicit_zero_write_and_end_\ID
+
 3:
-    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    { bri .Lworker_process_group_field_row_implicit_zero_end_\ID; fnop }
+    { bri .Lworker_process_group_field_row_implicit_zero_write_and_end_\ID
+      f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+.align 8 // MAintain alignment for the next macro and its repeat loop
 .endm // worker_process_group_field_row_implicit_zero_lt5_elems
 
 
@@ -567,8 +567,8 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+.Lworker_process_group_field_row_write_and_end_\ID:
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-.Lworker_process_group_field_row_end_\ID:
 .endm // worker_process_group_field_row
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -602,8 +602,7 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
 2:
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    bri .Lworker_process_group_field_row_end_\ID
+    bri .Lworker_process_group_field_row_write_and_end_\ID
 3:
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
@@ -611,9 +610,10 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
-    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    { bri .Lworker_process_group_field_row_end_\ID; fnop }
+
+    { bri .Lworker_process_group_field_row_write_and_end_\ID
+     f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+.align 8 // Maintain alignment for the next macro and its repeat loop
 .endm // worker_process_group_field_row_lt5_elems
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -650,8 +650,8 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+.Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID:
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
-.Lworker_process_group_field_row_implicit_zero_stride2_end_\ID:
 .endm // worker_process_group_field_row_implicit_zero_stride2
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -665,30 +665,36 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
       f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
-      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
-      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
-    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
-      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
 
     // Branch to handle remainder of 1 field element case
     brz $w_num_field_elems, 3f
+
     // 2 field elements
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
       f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     // Write result
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-      f16v4sisoslic $w_output_pair, $w_input_pair, $w_partials_pair, \SLIC_FLAGS }
-    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS //}
-    // Overwrite dummy result
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    {bri .Lworker_process_group_field_row_stride2_end_\ID; fnop}
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
 
-// One field element case
+    // Overwrite dummy result after branch
+    {bri .Lworker_process_group_field_row_stride2_write_and_end_\ID
+     f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS}
+
+// One field element case, don't push the 2nd partials that were read in, as they can be an
+// over-read and therefore if not valid inputs could cause an exception
 3:
-    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    { bri .Lworker_process_group_field_row_stride2_end_\ID; fnop }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+    { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
+      f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
+
+    { bri .Lworker_process_group_field_row_stride2_write_and_end_\ID
+     f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
 .endm // worker_process_group_field_row_stride2_lt3_elems
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -726,8 +732,8 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1111
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
+.Lworker_process_group_field_row_stride2_write_and_end_\ID:
     ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1111
-.Lworker_process_group_field_row_stride2_end_\ID:
 .endm // worker_process_group_field_row_stride2
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -755,12 +761,10 @@ CODELET_SYMBOL(\WORK_MACRO_POSTFIX):
       f16v4sisoslic $w_output_pair, $w_input_pair, $azeros, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b1100
       f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS }
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    bri .Lworker_process_group_field_row_implicit_zero_stride2_end_\ID
+    bri .Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID
 3:
-    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS
-    ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0111
-    bri .Lworker_process_group_field_row_implicit_zero_stride2_end_\ID
+    {bri .Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID
+    f16v4sisoslic $w_output_pair, $azeros, $azeros, \SLIC_FLAGS}
 .endm // worker_process_group_field_row_implicit_zero_lt3_elems
 
 ////////////////////////////////////////////////////////////////////////////////
