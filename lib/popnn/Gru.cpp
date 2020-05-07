@@ -886,7 +886,7 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
       GruParams tmp_params(params);
       tmp_params.timeSteps = 1;
       auto inputGradRearranged =
-          createInput(graph, params, debugPrefix + "/inputGradSeq")[0];
+          createInput(graph, tmp_params, debugPrefix + "/inputGradSeq")[0];
 
       bwdLoopBody.add(Copy(inputGrad, inputGradRearranged));
       prog.add(WriteUndef(*inputGradSeq));
