@@ -55,7 +55,7 @@ public:
   bool remapOutputTensor = true;
   // Use the ConvParams to pseudo-randomly select a start tile and direction
   // to lay out the convolution across the tiles.
-  bool enableConvDithering = true;
+  bool enableConvDithering = false;
 
   void parseConvOptions(const poplar::OptionFlags &options);
   bool operator<(const ConvOptions &other) const {
