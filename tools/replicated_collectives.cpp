@@ -203,6 +203,9 @@ int main(int argc, char **argv) {
   bool forceMapping = false;
   bool inPlace = false;
   unsigned forceIpu = 0;
+  // GCL only options.
+  std::string maxBytesPerTile;
+
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -241,7 +244,11 @@ int main(int argc, char **argv) {
          "for all elements onto one ipu")
     ("iterations,i",
      po::value(&iterations)->default_value(1),
-     "Number of time the allReduce operation is called");
+     "Number of time the allReduce operation is called")
+    ("gcl",
+      "Set to use the GCL collectives implementation")
+    ("gcl-max-bytes-per-tile", po::value<std::string>(&maxBytesPerTile),
+      "The maximum number of bytes on one tile for one round of reduction");
   // clang-format on
 
   po::variables_map vm;
@@ -319,6 +326,18 @@ int main(int argc, char **argv) {
   if (vm.count("use-replicated-implementation")) {
     options.set("useReplicatedImplementation", "true");
   }
+  if (vm.count("gcl")) {
+    options.set("useGclCollectives", "true");
+  }
+  if (vm.count("gcl-max-bytes-per-tile")) {
+    if (vm.count("gcl")) {
+      options.set("maxBytesPerTile", maxBytesPerTile);
+    } else {
+      std::cerr << "gcl-max-bytes-per-tile only supported with --gcl\n";
+      std::abort();
+    }
+  }
+
   input = createTensorToReduce(graph, type, numElements, shuffleMapping,
                                forceMapping, forceIpu);
   output = createOnIpuShuffled(graph, type, input);
