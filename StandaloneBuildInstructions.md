@@ -6,7 +6,7 @@
 
 In order to build Poplibs standalone, the latest version of the Poplar SDK must be downloaded and installed. Please see https://support.graphcore.ai/hc/en-us/articles/360001118534-Poplar-SDK-TensorFlow-Installation-Instructions
 
-### CMake Version 3.10.0 or greater
+### CMake Version 3.10.2 or greater
 
 On Ubuntu 18.04:
 

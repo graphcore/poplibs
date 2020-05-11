@@ -740,10 +740,10 @@ foreach(MODE 0 1 2)
     set(CHANS_PER_GROUP 4)
   endif()
   foreach(OUT_STRIDE 1 2)
-    string(JOIN "_" TEST_NAME_PREFIX
-           "ConvPartial1x4SLIC"
-           "cgpg${CONV_GROUPS_PER_GROUP}"
-           "cpg${CHANS_PER_GROUP}"
+    string(CONCAT TEST_NAME_PREFIX
+           "ConvPartial1x4SLIC" "_"
+           "cgpg${CONV_GROUPS_PER_GROUP}" "_"
+           "cpg${CHANS_PER_GROUP}" "_"
            "st${OUT_STRIDE}")
 
     add_multitarget_test(NAME "${TEST_NAME_PREFIX}_x4_y4_kx4_ky1"

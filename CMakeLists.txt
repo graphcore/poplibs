@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12)
+cmake_minimum_required(VERSION 3.10.2) # Default version in Ubuntu 18.04.
 project(poplibs)
 
 include(GNUInstallDirs)
@@ -16,10 +16,17 @@ find_package(poplar REQUIRED)
 message("Enabled architectures: ${POPLAR_ENABLED_IPU_ARCH_NAMES}")
 
 # ipu1 is our default arch, so convert ipu1->ipu
-list(TRANSFORM POPLAR_ENABLED_IPU_ARCH_NAMES REPLACE "ipu1" "ipu" OUTPUT_VARIABLE ABBREV_TARGETS)
-list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "Sim" OUTPUT_VARIABLE SIM_VARIANTS)
-list(TRANSFORM SIM_VARIANTS APPEND ":cpp" OUTPUT_VARIABLE SIMCPP_VARIANTS)
-list(TRANSFORM ABBREV_TARGETS REPLACE "ipu" "IpuModel" OUTPUT_VARIABLE IPUMODEL_VARIANTS)
+# Note the extra ';' appended to POPLAR_ENABLED_IPU_ARCH_NAMES. This allows the
+# REPLACE function to work on the last item in the list. This may be simplified
+# using 'list(TRANSFORM' if we upgrade to CMake 3.12.
+string(REPLACE "ipu1;" "ipu;" ABBREV_TARGETS "${POPLAR_ENABLED_IPU_ARCH_NAMES};")
+string(REPLACE "ipu;" "Sim;" SIM_VARIANTS "${ABBREV_TARGETS}")
+list(REMOVE_AT SIM_VARIANTS -1) # Remove empty element at end
+string(REPLACE "ipu;" "Sim;" SIMCPP_VARIANTS "${ABBREV_TARGETS}")
+string(REPLACE ";" ":cpp;" SIMCPP_VARIANTS "${ABBREV_TARGETS}")
+list(REMOVE_AT SIMCPP_VARIANTS -1) # Remove empty element at end
+string(REPLACE "ipu;" "IpuModel;" IPUMODEL_VARIANTS "${ABBREV_TARGETS}")
+list(REMOVE_AT IPUMODEL_VARIANTS -1) # Remove empty element at end
 
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
