@@ -2,17 +2,7 @@
 #include "TestDevice.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/print.hpp"
-#include <algorithm>
-#include <boost/multi_array.hpp>
-#include <boost/optional.hpp>
-#include <boost/optional/optional_io.hpp>
-#include <boost/program_options.hpp>
-#include <boost/test/tools/floating_point_comparison.hpp>
-#include <cassert>
-#include <exception>
-#include <fstream>
-#include <istream>
-#include <ostream>
+
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplibs_support/Compiler.hpp>
@@ -31,9 +21,22 @@
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
+
+#include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
+#include <boost/program_options.hpp>
+#include <boost/test/tools/floating_point_comparison.hpp>
+
+#include <algorithm>
+#include <cassert>
+#include <exception>
+#include <fstream>
+#include <istream>
+#include <ostream>
 #include <random>
 
-// Default tolerances used in tests
+// Default tolerances used in tests with uniform distributions of random data
 #define FLOAT_REL_TOL 0.01
 #define HALF_REL_TOL 0.1
 #define FLOAT_ABS_TOL 1e-6
@@ -46,44 +49,6 @@ using namespace poputil;
 using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions;
-
-// Returns error code indicative of how far it exceeds tolerance
-// 0 -> 0-1x
-// 11 -> 1-2x
-// 12 -> 2-3x
-// 13 -> 3-4x
-// ...
-template <std::size_t N>
-static int withinTolerance(const std::string &name,
-                           const boost::multi_array<double, N> &actual,
-                           const boost::multi_array<double, N> &expected,
-                           double relativeTolerance, double absoluteTolerance) {
-  auto multiplier = 1;
-  for (; multiplier <= 5; multiplier++) {
-    auto pass =
-        checkIsClose(name, actual, expected, relativeTolerance * multiplier,
-                     absoluteTolerance * multiplier);
-    if (pass) {
-      if (multiplier == 1) {
-        return 0;
-      } else {
-        std::cerr << name << " required an increase of tolerance by "
-                  << multiplier << "x (abs=" << absoluteTolerance * multiplier
-                  << ", rel=" << (relativeTolerance * multiplier) * 100.0
-                  << "%) to pass\n";
-        return 10 + multiplier - 1;
-      }
-    } else {
-      std::cerr << name << " validation failed with tolerance of (abs="
-                << absoluteTolerance * multiplier
-                << ", rel=" << (relativeTolerance * multiplier) * 100.0
-                << "%)\n";
-    }
-  }
-  std::cerr << "increased tolerance by " << (multiplier - 1)
-            << "x, but still failed validation for " << name << "\n";
-  return 1;
-}
 
 static void overloadConstraintsFromFile(const std::string &path,
                                         std::string &s) {
@@ -605,6 +570,86 @@ int main(int argc, char **argv) try {
     }
   }
 
+  const auto opLimit = [=]() -> size_t {
+    auto isFloatingPointType = [](Type t) { return t == HALF || t == FLOAT; };
+    if (isFloatingPointType(inputType) || isFloatingPointType(outputType)) {
+      const auto lowestPrecisionDataType =
+          (inputType == HALF || outputType == HALF) ? HALF : FLOAT;
+      // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+      // https://en.wikipedia.org/wiki/Single-precision_floating-point_format
+      const auto maxContiguousRepresentableInteger =
+          lowestPrecisionDataType == HALF ? 2048 : 16777216;
+
+      // Naively increasing n by a factor of 10 is still very unlikely to
+      // over/underflow. Since it's so unlikely, we'll pad this value a little.
+      const auto modifier = 10;
+      return maxContiguousRepresentableInteger * modifier;
+    } else {
+      // Integral types represent all integers exactly
+      return std::numeric_limits<int>::max();
+    }
+  }();
+
+  // For a large conv, the accumulation may exceed the range exactly
+  // representable by the floating point type (most likely half), so we should
+  // default to uniform random number generation in that case.
+  const auto convIsLarge = [=]() {
+    const auto opsPerOutputElement = [](const poplin::ConvParams &params,
+                                        uint64_t macs) -> uint64_t {
+      const auto numberOfOutputElements =
+          product(params.getOutputFieldShape()) * params.getNumOutputChans();
+      if (numberOfOutputElements != 0) {
+        return macs / (numberOfOutputElements);
+      } else {
+        return 0; // Zero conv group case
+      }
+    };
+    if (doFwdPass) {
+      const auto macs = poplin::getFwdFlops(params) / 2;
+      if (opsPerOutputElement(params, macs) > opLimit) {
+        return true;
+      }
+    }
+    if (doBwdPass) {
+      const auto macs = poplin::getBwdFlops(bwdParams) / 2;
+      if (opsPerOutputElement(bwdParams, macs) > opLimit) {
+        return true;
+      }
+    }
+    if (doWuPass) {
+      const auto macs = poplin::getWuFlops(params) / 2;
+      if (opsPerOutputElement(params, macs) > opLimit) {
+        return true;
+      }
+    }
+    return false;
+  }();
+
+  // To avoid destructive addition (a + b) + c != a + (b + c), which is
+  // particuarlly poor with halves, we look to only using values which we can
+  // represent exactly, such that (a + b) + c == a + (b + c).
+  // Accumulating random binary distribution of {-1, 1}, with a mean of 0
+  // provides us this most of the time. Such that accumulating many items from
+  // this distribution is unlikely to be not exactly representable as it should
+  // generally be a small number. It's less likely the larger the convolution
+  // however.
+
+  // We also disable this for determinism checks, which is testing stochastic
+  // rounding specifically.
+  const bool useUniformRandomData = numDeterminismChecks || convIsLarge;
+
+  if (useUniformRandomData) {
+    std::cout << "Using uniform random data\n";
+  } else {
+    std::cout << "Using random binary {-1,1} data with no error tolerance\n";
+    if (vm["tolerance"].empty()) {
+      relativeTolerance = 0;
+    }
+    if (vm["absolute-tolerance"].empty()) {
+      absoluteTolerance = 0;
+    }
+  }
+
   // Create tensors.
   Tensor prevAct =
       poplin::createInput(graph, params, "prevAct", fwdOptions, &cache);
@@ -647,7 +692,13 @@ int main(int argc, char **argv) try {
   }
 
   auto revProg = Sequence();
-  const auto learningRate = 0.05;
+  const auto learningRate = [&]() {
+    if (useUniformRandomData) {
+      return 0.05;
+    } else {
+      return 1.0;
+    }
+  }();
 
   if (doBwdPass) {
     // we may be able to reuse the forward pass convolution if the convoltution
@@ -767,10 +818,23 @@ int main(int argc, char **argv) try {
                     [product(outFieldSize)]);
   std::mt19937 randomEngine;
   auto target = parentGraph.getTarget();
-  writeRandomValues(target, inputType, hostPrevAct, -1.0, +5.0, randomEngine);
-  writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
+  if (useUniformRandomData) {
+    writeRandomValues(target, inputType, hostPrevAct, -1.0, +5.0, randomEngine);
+    writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
+  } else {
+    writeRandomBinaryValues(target, inputType, hostPrevAct, -1.0, 1.0,
+                            randomEngine);
+    writeRandomBinaryValues(target, inputType, hostWeights, -1.0, 1.0,
+                            randomEngine);
+  }
   if (bias) {
-    writeRandomValues(target, outputType, hostBiases, -2.0, +6.0, randomEngine);
+    if (useUniformRandomData) {
+      writeRandomValues(target, outputType, hostBiases, -2.0, +6.0,
+                        randomEngine);
+    } else {
+      writeRandomBinaryValues(target, outputType, hostBiases, -1.0, 1.0,
+                              randomEngine);
+    }
   } else {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
@@ -792,7 +856,12 @@ int main(int argc, char **argv) try {
   boost::multi_array<double, 3> hostZDeltas(
       boost::extents[batchSize * replicationFactor]
                     [bwdParams.getNumInputChans()][product(outFieldSize)]);
-  writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
+  if (useUniformRandomData) {
+    writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
+  } else {
+    writeRandomBinaryValues(target, inputType, hostZDeltas, -1.0, 1.0,
+                            randomEngine);
+  }
 
   for (unsigned i(0); i < numDeterminismChecks + 1; ++i) {
 
@@ -821,10 +890,10 @@ int main(int argc, char **argv) try {
     });
 
     // Validate against a reference model.
-    int fwdErrorCode = 0;
-    int bwdErrorCode = 0;
-    int weightsErrorCode = 0;
-    int biasesErrorCode = 0;
+    bool fwdFailed = false;
+    bool bwdFailed = false;
+    bool weightsFailed = false;
+    bool biasesFailed = false;
 
     if (!ignoreData) {
       boost::multi_array<double, 3> modelNextAct(
@@ -840,11 +909,8 @@ int main(int argc, char **argv) try {
           hostPrevAct, hostWeights, hostBiases, modelNextAct);
       if (doFwdPass) {
         copy(target, outputType, rawHostNextAct.get(), hostNextAct);
-        auto errorCode = withinTolerance("fwd", hostNextAct, modelNextAct,
-                                         relativeTolerance, absoluteTolerance);
-        if (errorCode) {
-          fwdErrorCode = errorCode;
-        }
+        fwdFailed = !checkIsClose("fwd", hostNextAct, modelNextAct,
+                                  relativeTolerance, absoluteTolerance);
       }
     }
 
@@ -888,12 +954,8 @@ int main(int argc, char **argv) try {
               outputTruncationLower, outputTruncationUpper, stride,
               outputPaddingLower, outputPaddingUpper, hostZDeltas, modelWeights,
               modelPrevDeltas);
-          auto errorCode =
-              withinTolerance("bwd", hostPrevDeltas, modelPrevDeltas,
-                              relativeTolerance, absoluteTolerance);
-          if (errorCode) {
-            bwdErrorCode = errorCode;
-          }
+          bwdFailed = !checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                    relativeTolerance, absoluteTolerance);
         }
         if (doWuPass) {
           copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
@@ -922,21 +984,21 @@ int main(int argc, char **argv) try {
                 suffix = "_ipu" + std::to_string(i);
               boost::multi_array<double, 4> hostWeights =
                   duplicatedHostWeights[i];
-              auto errorCode =
-                  withinTolerance("weights" + suffix, hostWeights, modelWeights,
-                                  relativeTolerance, absoluteTolerance);
-              if (errorCode) {
-                weightsErrorCode = errorCode;
+              auto failed =
+                  !checkIsClose("weights" + suffix, hostWeights, modelWeights,
+                                relativeTolerance, absoluteTolerance);
+              if (failed) {
+                weightsFailed = true;
               }
 
               if (bias) {
                 boost::multi_array<double, 1> hostBiases =
                     duplicatedHostBiases[i];
-                errorCode =
-                    withinTolerance("biases" + suffix, hostBiases, modelBiases,
-                                    relativeTolerance, absoluteTolerance);
-                if (errorCode) {
-                  biasesErrorCode = errorCode;
+                failed =
+                    !checkIsClose("biases" + suffix, hostBiases, modelBiases,
+                                  relativeTolerance, absoluteTolerance);
+                if (failed) {
+                  biasesFailed = true;
                 }
               }
             }
@@ -957,20 +1019,19 @@ int main(int argc, char **argv) try {
 
     if (!ignoreData) {
       const std::vector<std::pair<std::string, int>> results{
-          {"fwd", fwdErrorCode},
-          {"bwd", bwdErrorCode},
-          {"weights", weightsErrorCode},
-          {"biases", biasesErrorCode},
+          {"fwd", fwdFailed},
+          {"bwd", bwdFailed},
+          {"weights", weightsFailed},
+          {"biases", biasesFailed},
       };
       for (const auto result : results) { // Report all failures
         if (result.second) {
-          std::cerr << result.first << " validation failed with error code "
-                    << result.second << "\n";
+          std::cerr << result.first << " validation failed\n";
         }
       }
-      for (const auto result : results) {
+      for (const auto result : results) { // Abort if any failed
         if (result.second) {
-          return result.second; // Return first failing error code
+          return EXIT_FAILURE;
         }
       }
     }

@@ -64,37 +64,64 @@ void attachStreams(Engine &e,
 }
 
 template <typename T>
+void roundToHalfPrecision(const Target &target, T *begin, T *end) {
+  auto N = end - begin;
+  std::vector<char> buf(N * target.getTypeSize(poplar::HALF));
+  detail::copyToDevice(target, begin, buf.data(), N);
+  detail::copyFromDevice(target, buf.data(), begin, N);
+}
+
+template <typename T, typename F>
+void writeValues(T *begin, T *end, F generator) {
+  for (auto it = begin; it != end; ++it) {
+    *it = generator();
+  }
+}
+
+template <typename T>
+void writeRandomBinaryValues(const Target &target, const Type &type, T *begin,
+                             T *end, T a, T b, std::mt19937 &randomEngine) {
+  if (type == poplar::FLOAT || type == poplar::HALF) {
+    boost::random::bernoulli_distribution<> dist{};
+    writeValues(begin, end, [&]() { return dist(randomEngine) ? a : b; });
+    if (type == poplar::HALF) {
+      roundToHalfPrecision(target, begin, end);
+    }
+  } else {
+    throw poputil::poplibs_error("Unsupported type");
+  }
+}
+
+template void writeRandomBinaryValues<double>(const Target &target,
+                                              const Type &type, double *begin,
+                                              double *end, double a, double b,
+                                              std::mt19937 &randomEngine);
+template void writeRandomBinaryValues<unsigned>(const Target &target,
+                                                const Type &type,
+                                                unsigned *begin, unsigned *end,
+                                                unsigned a, unsigned b,
+                                                std::mt19937 &randomEngine);
+
+template <typename T>
 void writeRandomValues(const Target &target, const Type &type, T *begin, T *end,
                        T min, T max, std::mt19937 &randomEngine) {
   if (type == poplar::FLOAT || type == poplar::HALF) {
     boost::random::uniform_real_distribution<> dist(min, max);
-    for (auto it = begin; it != end; ++it) {
-      *it = dist(randomEngine);
+    writeValues(begin, end, [&]() { return dist(randomEngine); });
+    if (type == poplar::HALF) {
+      roundToHalfPrecision(target, begin, end);
     }
   } else if (type == poplar::INT) {
     boost::random::uniform_int_distribution<int> dist(min, max);
-    for (auto it = begin; it != end; ++it) {
-      *it = dist(randomEngine);
-    }
+    writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else if (type == poplar::UNSIGNED_INT) {
     boost::random::uniform_int_distribution<unsigned> dist(min, max);
-    for (auto it = begin; it != end; ++it) {
-      *it = dist(randomEngine);
-    }
+    writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else if (type == poplar::BOOL) {
     boost::random::uniform_int_distribution<unsigned> dist(0, 1);
-    for (auto it = begin; it != end; ++it) {
-      *it = static_cast<bool>(dist(randomEngine));
-    }
+    writeValues(begin, end, [&]() { return dist(randomEngine); });
   } else {
     throw poputil::poplibs_error("Unknown type");
-  }
-  // Round floating point values to nearest representable value on device.
-  if (type == poplar::HALF) {
-    auto N = end - begin;
-    std::vector<char> buf(N * target.getTypeSize(type));
-    detail::copyToDevice(target, begin, buf.data(), N);
-    detail::copyFromDevice(target, buf.data(), begin, N);
   }
 }
 

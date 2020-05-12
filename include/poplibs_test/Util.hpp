@@ -3,11 +3,6 @@
 #ifndef poplibs_test_Util_hpp
 #define poplibs_test_Util_hpp
 
-#include <boost/lexical_cast.hpp>
-#include <boost/multi_array.hpp>
-#include <cassert>
-#include <iostream>
-#include <memory>
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
@@ -15,6 +10,14 @@
 #include <poplar/Target.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
+
+#include <boost/lexical_cast.hpp>
+#include <boost/multi_array.hpp>
+
+#include <cassert>
+#include <functional>
+#include <iostream>
+#include <memory>
 #include <random>
 #include <stdexcept>
 
@@ -76,6 +79,29 @@ allocateHostMemoryForTensor(const poplar::Tensor &t, const std::string &name,
 
 void attachStreams(poplar::Engine &e,
                    const std::vector<std::pair<std::string, char *>> &map);
+
+template <typename T>
+void writeRandomBinaryValues(const poplar::Target &target,
+                             const poplar::Type &type, T *begin, T *end, T a,
+                             T b, std::mt19937 &randomEngine);
+
+template <class T, std::size_t N>
+void inline writeRandomBinaryValues(const poplar::Target &target,
+                                    const poplar::Type &type,
+                                    boost::multi_array<T, N> &x, T a, T b,
+                                    std::mt19937 &randomEngine) {
+  return writeRandomBinaryValues(
+      target, type, x.data(), x.data() + x.num_elements(), a, b, randomEngine);
+}
+
+template <class T>
+void inline writeRandomBinaryValues(const poplar::Target &target,
+                                    const poplar::Type &type,
+                                    poplibs_support::MultiArray<T> &x, T a, T b,
+                                    std::mt19937 &randomEngine) {
+  return writeRandomBinaryValues(
+      target, type, x.data(), x.data() + x.numElements(), a, b, randomEngine);
+}
 
 /// Fill a vector with values in the interval [min:max)
 /// The specific values returned seem the same on ubuntu/gcc and
