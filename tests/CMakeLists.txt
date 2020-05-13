@@ -1519,9 +1519,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                      --ipus 2
                      --binary $<TARGET_FILE:single_conv_layer>
              VARIANTS "Hw;${IPUMODEL_VARIANTS}")
-    if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
-      set_tests_properties(Hw_default_multi_ipu_conv_random_${n} PROPERTIES RUN_SERIAL TRUE)
-    endif()
   endforeach()
 
   # Some of the following benchmarks use quite a lot of host memory, too much
@@ -2792,9 +2789,6 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
   add_multitarget_test(NAME multi_ipu_reduce_random_${n}
            COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus=2
            VARIANTS "Hw;${IPUMODEL_VARIANTS}")
-  if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
-    set_tests_properties(Hw_default_multi_ipu_reduce_random_${n} PROPERTIES RUN_SERIAL TRUE)
-  endif()
 endforeach()
 
 add_unit_test(collective-control-code
