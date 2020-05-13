@@ -107,31 +107,17 @@
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 //****************************************************************************
-// Macro and constants to divide by 24 (24 is the number of input floats
+// Constants to divide by 24 (24 is the number of input floats
 // processed in 1 loop pass by all workers combined)
 //****************************************************************************
 #define RECIPROCAL_3_SHL17 ((((1 << 17) - 1) / 3) + 1)
 #define LOG2_24_OVER_3 3
 #define LOG2_12_OVER_3 2
-.macro SPLIT_BETWEEN_WORKERS_24 n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_24_OVER_3)
-    mul \rem, \size, 24
-    sub \rem, \n, \rem
-.endm
 //****************************************************************************
-// Macro and constants to divide by 48 (48 is the number of input halves
+// Constants to divide by 48 (48 is the number of input halves
 // processed in 1 loop pass by all workers combined)
 //****************************************************************************
 #define LOG2_48_OVER_3 4
-.macro SPLIT_BETWEEN_WORKERS_48 n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_48_OVER_3)
-    mul \rem, \size, 48
-    sub \rem, \n, \rem
-.endm
 
 //****************************************************************************
 // Supervisor pre-process:
@@ -152,7 +138,13 @@
 
 //Using ---------- Every 6 instructions to indicate supervisor pipeline -------
 
-.macro SUPERVISOR_PRE_PROCESS WKR_DIV_SHIFT WKR_DIV_MPY WORKER_ENTRY_LABEL
+.macro SUPERVISOR_PRE_PROCESS WKR_DIV_MPY WORKER_ENTRY_LABEL
+
+.if \WKR_DIV_MPY == 48
+  .equ  WKR_DIV_SHIFT, LOG2_48_OVER_3
+.else
+  .equ  WKR_DIV_SHIFT, LOG2_24_OVER_3
+.endif
   // NOTE: S_ELEMS_REM calculation is a bootleneck here so need to keep all
   //       these NOP instruction to preserve 6 instructions pipeline
   // Load and decode the output SCALED32_PTR for an output ptr
@@ -183,7 +175,7 @@
   st32  $S_NUM_ELEMS, $sp, $mzero, STACK_NUM_ELEMS
 //-----------------------------------------------------------------------------
   nop
-  shr   $S_ELEMS_LOOPS, $S_ELEMS_LOOPS, (17 + \WKR_DIV_SHIFT)
+  shr   $S_ELEMS_LOOPS, $S_ELEMS_LOOPS, (17 + WKR_DIV_SHIFT)
 #if COMPACT_VECTOR_TYPES_AVAILABLE
   nop   // keep nop for 6 instructions pipeline
   add   $S_PARTIALS, $S_PARTIALS, $S_SCRATCH
@@ -237,7 +229,7 @@
 // Reduce add float_half. ( Partials = half Output = float )
 //****************************************************************************
 
-#define ReduceAdd_Float_Half __runCodelet_poplin__ReduceAdd___float_half
+#define ReduceAdd_Float_Half __runCodelet_poplin__ReduceAdd___float_half_false_false
 
 DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Half
 .section .text.Reduce_Float_Half, "ax"
@@ -248,7 +240,7 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Half
 
 ReduceAdd_Float_Half:
 
-  SUPERVISOR_PRE_PROCESS LOG2_48_OVER_3 48 reduce_add_worker_fh
+  SUPERVISOR_PRE_PROCESS 48 reduce_add_worker_fh
 
   // Pass the stack pointer to the worker, so it sees the pre-processed vertex state
   runall       $S_WORKER_ENTRY, $sp, 0
@@ -434,7 +426,7 @@ reduce_add_worker_fh:
 // Reduce add half_half. ( Partials = half Output = half )
 //****************************************************************************
 
-#define ReduceAdd_Half_Half __runCodelet_poplin__ReduceAdd___half_half
+#define ReduceAdd_Half_Half __runCodelet_poplin__ReduceAdd___half_half_false_false
 DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Half
 .section .text.Reduce_Half_Half, "ax"
 .globl ReduceAdd_Half_Half
@@ -443,7 +435,7 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Half
 .supervisor
 
 ReduceAdd_Half_Half:
-  SUPERVISOR_PRE_PROCESS LOG2_48_OVER_3 48 reduce_add_worker_hh
+  SUPERVISOR_PRE_PROCESS 48 reduce_add_worker_hh
   runall       $S_WORKER_ENTRY, $sp, 0
   add          $sp, $sp, STACK_SIZE
   sync         TEXCH_SYNCZONE_LOCAL
@@ -469,6 +461,9 @@ reduce_add_worker_hh:
   bri     .Lno_loop8_hh
 
 .Lelems_loop8_hh:
+  // Store with a stride so that we progress to this worker's next output:
+  // Write and step our own output (1) PLUS
+  // the other 5 worker's work: 5 workers with 2x64 bits each = (5*2)
   st64step    $VAL12, $mzero, $OUT_PTR+=,1+(5*2)
 .Lelems_loop8_hh_1st:
   mov      $SCRATCH, $PARTIALS
@@ -493,8 +488,11 @@ reduce_add_worker_hh:
 
   {brnzdec     $ELEMS_LOOPS, .Lelems_loop8_hh
    f16v2gina   $VAL2, $azero, 0}
-   // Store the last one
-   st64step    $VAL12, $mzero, $OUT_PTR+=,1+(5*2)
+  // Store the last one
+  // Store with a stride so that we progress to this worker's next output:
+  // Write and step our own output (1) PLUS
+  // the other 5 worker's work: 5 workers with 2x64 bits each = (5*2)
+  st64step    $VAL12, $mzero, $OUT_PTR+=,1+(5*2)
 
   // Groups of 8 columns complete.  Now 0-7 columns left
 .Lno_loop8_hh:
@@ -622,7 +620,7 @@ reduce_add_worker_hh:
 // Reduce add half_float. ( Partials = float Output = half )
 //****************************************************************************
 
-#define ReduceAdd_Half_Float __runCodelet_poplin__ReduceAdd___half_float
+#define ReduceAdd_Half_Float __runCodelet_poplin__ReduceAdd___half_float_false_false
 DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Float
 .section .text.Reduce_Half_Float, "ax"
 .globl ReduceAdd_Half_Float
@@ -630,7 +628,7 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Half_Float
 .align 8
 .supervisor
 ReduceAdd_Half_Float:
-  SUPERVISOR_PRE_PROCESS LOG2_24_OVER_3 24 reduce_add_worker_hf
+  SUPERVISOR_PRE_PROCESS 24 reduce_add_worker_hf
   runall       $S_WORKER_ENTRY, $sp, 0
   add          $sp, $sp, STACK_SIZE
   sync         TEXCH_SYNCZONE_LOCAL
@@ -769,7 +767,7 @@ reduce_add_worker_hf:
 // Reduce add float_float. ( Partials = float Output = float )
 //****************************************************************************
 
-#define ReduceAdd_Float_Float __runCodelet_poplin__ReduceAdd___float_float
+#define ReduceAdd_Float_Float __runCodelet_poplin__ReduceAdd___float_float_false_false
 DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Float
 .section .text.Reduce_Float_Float, "ax"
 .globl ReduceAdd_Float_Float
@@ -777,7 +775,7 @@ DEF_STACK_SIZE_OWN STACK_SIZE ReduceAdd_Float_Float
 .align 8
 .supervisor
 ReduceAdd_Float_Float:
-  SUPERVISOR_PRE_PROCESS LOG2_24_OVER_3 24 reduce_add_worker_ff
+  SUPERVISOR_PRE_PROCESS 24 reduce_add_worker_ff
   runall       $S_WORKER_ENTRY, $sp, 0
   add          $sp, $sp, STACK_SIZE
   sync         TEXCH_SYNCZONE_LOCAL
@@ -820,6 +818,9 @@ reduce_add_worker_ff:
    f32v2gina  $VAL12, $azeros, 0}
   {st64step   $VAL12, $mzero, $OUT_PTR+=,1
    f32v2gina  $VAL34, $azeros, 0}
+  // Store with a stride so that we progress to this worker's next output:
+  // Write and step our own output (1) PLUS
+  // the other 5 worker's work: 5 workers with 2x64 bits each = (5*2)
   st64step    $VAL34, $mzero, $OUT_PTR+=,1+(5*2)
   brnzdec     $ELEMS_LOOPS, .Lelems_loop4_ff
 
