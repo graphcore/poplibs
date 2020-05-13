@@ -1279,13 +1279,6 @@ void multiUpdatePoorlyMappedSlices() {
   BOOST_TEST_MESSAGE("Total exchange code and vertex state bytes is "
                      << exchangeCodeBytes + vertexStateBytes);
 
-  // measuredBytesWithOptimisation indicates the bytes for exchange code and
-  // vertex state assuming we rearrange inputs to the update before
-  // broadcasting. This was measured at the time of implementation.
-  constexpr static unsigned measuredBytesWithOptimisation = 6799;
-  BOOST_CHECK_LE(exchangeCodeBytes + vertexStateBytes,
-                 measuredBytesWithOptimisation * 2u);
-
   std::stringstream ss;
   e.printProfileSummary(ss, {
                                 {"showExecutionSteps", "true"},
