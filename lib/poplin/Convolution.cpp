@@ -3440,15 +3440,12 @@ static void createConvPartialHorizontalMacVertex(
 //  in: [G1][CI1]...[G2][CI2]
 //  out: [G1][CO1]...[G2][CO2]
 //  weights: [G1][CO1][CI1]...[G2][CO2][CI2]
-void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
-                                 unsigned convGroupsPerGroup,
-                                 unsigned chansPerGroup, unsigned tile,
-                                 ConvParams params, Sequence &transformPre,
-                                 Tensor &copyWritten, ComputeSet fwdCS,
-                                 Sequence &postConvProg, Tensor in,
-                                 Tensor weights, Tensor out,
-                                 const std::string &debugPrefix) {
-
+void createConvPartialSlicVertex(
+    Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
+    unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
+    ConvParams params, Sequence &transformPre, Tensor &copyWritten,
+    ComputeSet fwdCS, Sequence &postConvProg, Tensor in, Tensor weights,
+    Tensor out, const std::string &debugPrefix) {
   const auto outputStride = params.outputTransform.stride.back();
 
   const auto &target = graph.getTarget();
@@ -3541,7 +3538,7 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   bool useShortTypes = true;
   const auto shortTypesVertexClass = templateVertex(
       "poplin::ConvPartial1x4SLIC", inType, partialsType, outputStride,
-      /* useShortTypes */ true);
+      /* useShortTypes */ true, convUnitsRequired);
   std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
                                                      numSubKernels);
   const auto slicWindowHeight = 1u;
@@ -3569,7 +3566,6 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
     worklists[wIndex].push_back(outBeginOffset);
     worklists[wIndex].push_back(p.outXWidth);
   }
-
   // Determine whether or not we can use the assembly implementation
   // with short types.
   if (numSubKernels - 1 >
@@ -3639,7 +3635,8 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
 
   // We also need an extra buffer for our vertex, 16-byte aligned, with size
   // equal the number of output elements per conv group group, plus 8 bytes to
-  // enforce (&out[i][0] - &outFieldBuffer[0]) % 16 == 8 so that we
+  // enforce (&out[i][0] - &outFieldBuffer[0]) % 16 == 8
+  // (or == 0 for the case where output == HALF and stride = 2) so that we
   // can use ld2xst64pace in the codelet even when out and outFieldBuffer
   // reside in the same bank.
   //
@@ -3649,9 +3646,17 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
   // use the weight storage (1cgx4ocx4ic) but for now we'll keep it
   // simple and uniform.
   constexpr unsigned extraBytes = 200u;
+  const auto bytesForAlignedBufferOffset =
+      (out.elementType() == HALF && params.outputTransform.stride.back() == 2)
+          ? 8
+          : 0;
   assert(extraBytes % 16 == 8);
-  assert(extraBytes % target.getTypeSize(partialsType) == 0);
-  const auto extraOutputElems = extraBytes / target.getTypeSize(partialsType);
+  assert((extraBytes + bytesForAlignedBufferOffset) %
+             target.getTypeSize(partialsType) ==
+         0);
+
+  const auto extraOutputElems = (extraBytes + bytesForAlignedBufferOffset) /
+                                target.getTypeSize(partialsType);
   const auto numFieldElemsIncludingPadding = product(paddedOutputSpatialShape);
   const auto outFieldBuffer = graph.addVariable(
       partialsType,
@@ -3662,7 +3667,7 @@ void createConvPartialSlicVertex(Graph &graph, unsigned slicWindowWidth,
 
   const auto vertexClass =
       templateVertex("poplin::ConvPartial1x4SLIC", inType, partialsType,
-                     outputStride, useShortTypes);
+                     outputStride, useShortTypes, convUnitsRequired);
   auto v = graph.addVertex(fwdCS, vertexClass);
   graph.setTileMapping(v, tile);
 
@@ -3846,9 +3851,9 @@ static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     assert(plan.inChansPerGroup == plan.partialChansPerGroup);
     createConvPartialSlicVertex(
         graph, plan.slicWindowWidth, plan.convGroupsPerGroup,
-        plan.partialChansPerGroup, tile, params, transformPre, copyWritten,
-        convolveCS.convolveCS, convolveCS.postProg, in, weights, out,
-        debugPrefix);
+        plan.partialChansPerGroup, plan.numConvUnitsRequired, tile, params,
+        transformPre, copyWritten, convolveCS.convolveCS, convolveCS.postProg,
+        in, weights, out, debugPrefix);
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();

@@ -740,100 +740,109 @@ foreach(MODE 0 1 2)
     set(CHANS_PER_GROUP 4)
   endif()
   foreach(OUT_STRIDE 1 2)
-    string(CONCAT TEST_NAME_PREFIX
-           "ConvPartial1x4SLIC" "_"
-           "cgpg${CONV_GROUPS_PER_GROUP}" "_"
-           "cpg${CHANS_PER_GROUP}" "_"
-           "st${OUT_STRIDE}")
+    foreach(PARTIALS_TYPE half float)
+      if(${PARTIALS_TYPE} STREQUAL "half")
+        set(SLIC_TEST_VARIANTS "Cpu;IpuModel2;Sim2")
+      else()
+        set(SLIC_TEST_VARIANTS "Cpu;IpuModel;Sim;Hw")
+      endif()
 
-    add_multitarget_test(NAME "${TEST_NAME_PREFIX}_x4_y4_kx4_ky1"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-        --chans-per-group=${CHANS_PER_GROUP}
-        --in-field-size={4,4}
-        --kernel-size={1,4}
-        --output-stride={1,${OUT_STRIDE}}
+      string(CONCAT TEST_NAME_PREFIX
+             "ConvPartial1x4SLIC" "_"
+             "cgpg${CONV_GROUPS_PER_GROUP}" "_"
+             "cpg${CHANS_PER_GROUP}" "_"
+             "st${OUT_STRIDE}" "_"
+             "${PARTIALS_TYPE}")
+
+      add_multitarget_test(NAME "${TEST_NAME_PREFIX}_x4_y4_kx4_ky1"
+        COMMAND ConvPartial1x4SLIC
+          --input-type=half
+          --partials-type=${PARTIALS_TYPE}
+          --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+          --chans-per-group=${CHANS_PER_GROUP}
+          --in-field-size={4,4}
+          --kernel-size={1,4}
+          --output-stride={1,${OUT_STRIDE}}
+          LABELS codelet
+        VARIANTS ${SLIC_TEST_VARIANTS})
+
+      add_multitarget_test(NAME "${TEST_NAME_PREFIX}_cgg4_x20_y4_kx4_ky4"
+        COMMAND ConvPartial1x4SLIC
+          --input-type=half
+          --partials-type=${PARTIALS_TYPE}
+          --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+          --chans-per-group=${CHANS_PER_GROUP}
+          --conv-group-groups=4
+          --in-field-size={4,20}
+          --kernel-size={4,4}
+          --output-stride={1,${OUT_STRIDE}}
+          LABELS codelet
+        VARIANTS ${SLIC_TEST_VARIANTS})
+
+      # Intentionally even no. of 1x4 sub-kernels
+      add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs4_cgg4_x24_y24_kx8_ky8"
+        COMMAND ConvPartial1x4SLIC
+          --input-type=half
+          --partials-type=${PARTIALS_TYPE}
+          --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+          --chans-per-group=${CHANS_PER_GROUP}
+          --conv-group-groups=4
+          --batch-size=4
+          --in-field-size={24,24}
+          --kernel-size={8,8}
+          --output-stride={1,${OUT_STRIDE}}
         LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
+      VARIANTS ${SLIC_TEST_VARIANTS})
 
-    add_multitarget_test(NAME "${TEST_NAME_PREFIX}_cgg4_x20_y4_kx4_ky4"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-        --chans-per-group=${CHANS_PER_GROUP}
-        --conv-group-groups=4
-        --in-field-size={4,20}
-        --kernel-size={4,4}
-        --output-stride={1,${OUT_STRIDE}}
+      # Intentionally odd no. of 1x4 sub-kernels
+      add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs4_cgg4_x24_y24_kx12_ky3"
+        COMMAND ConvPartial1x4SLIC
+          --input-type=half
+          --partials-type=${PARTIALS_TYPE}
+          --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+          --chans-per-group=${CHANS_PER_GROUP}
+          --conv-group-groups=4
+          --batch-size=4
+          --in-field-size={24,24}
+          --kernel-size={3,12}
+          --output-stride={1,${OUT_STRIDE}}
         LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
+        VARIANTS ${SLIC_TEST_VARIANTS})
 
-    # Intentionally even no. of 1x4 sub-kernels
-    add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs4_cgg4_x24_y24_kx8_ky8"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-        --chans-per-group=${CHANS_PER_GROUP}
-        --conv-group-groups=4
-        --batch-size=4
-        --in-field-size={24,24}
-        --kernel-size={8,8}
-        --output-stride={1,${OUT_STRIDE}}
-      LABELS codelet
-    VARIANTS "Cpu;IpuModel;Sim;Hw")
+      # Output padding
+      add_multitarget_test(NAME "${TEST_NAME_PREFIX}_output_padding"
+        COMMAND ConvPartial1x4SLIC
+          --input-type=half
+          --partials-type=${PARTIALS_TYPE}
+          --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+          --chans-per-group=${CHANS_PER_GROUP}
+          --conv-group-groups=1
+          --batch-size=1
+          --in-field-size={3,2,5}
+          --kernel-size={2,1,4}
+          --output-padding-lower={1,1,1}
+          --output-padding-upper={1,1,2}
+          --output-stride={1,1,${OUT_STRIDE}}
+        LABELS codelet
+        VARIANTS ${SLIC_TEST_VARIANTS})
 
-    # Intentionally odd no. of 1x4 sub-kernels
-    add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs4_cgg4_x24_y24_kx12_ky3"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-        --chans-per-group=${CHANS_PER_GROUP}
-        --conv-group-groups=4
-        --batch-size=4
-        --in-field-size={24,24}
-        --kernel-size={3,12}
-        --output-stride={1,${OUT_STRIDE}}
-      LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
-
-    # Output padding
-    add_multitarget_test(NAME "${TEST_NAME_PREFIX}_output_padding"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-        --chans-per-group=${CHANS_PER_GROUP}
-        --conv-group-groups=1
-        --batch-size=1
-        --in-field-size={3,2,5}
-        --kernel-size={2,1,4}
-        --output-padding-lower={1,1,1}
-        --output-padding-upper={1,1,2}
-        --output-stride={1,1,${OUT_STRIDE}}
-      LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
-
-    # T18510 - Try and catch overreads with NaNs
-    add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs1_cgg1_x70_kx4"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-        --chans-per-group=${CHANS_PER_GROUP}
-        --conv-group-groups=1
-        --batch-size=1
-        --in-field-size={3,2,5}
-        --kernel-size={2,1,4}
-        --output-padding-lower={1,1,1}
-        --output-padding-upper={1,1,2}
-        --output-stride={1,1,${OUT_STRIDE}}
-      LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
+      # T18510 - Try and catch overreads with NaNs
+      add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs1_cgg1_x70_kx4"
+        COMMAND ConvPartial1x4SLIC
+          --input-type=half
+          --partials-type=${PARTIALS_TYPE}
+          --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
+          --chans-per-group=${CHANS_PER_GROUP}
+          --conv-group-groups=1
+          --batch-size=1
+          --in-field-size={3,2,5}
+          --kernel-size={2,1,4}
+          --output-padding-lower={1,1,1}
+          --output-padding-upper={1,1,2}
+          --output-stride={1,1,${OUT_STRIDE}}
+        LABELS codelet
+        VARIANTS ${SLIC_TEST_VARIANTS})
+    endforeach() # PARTIALS_TYPE
   endforeach() # OUT_STRIDE
 endforeach() # MODE
 

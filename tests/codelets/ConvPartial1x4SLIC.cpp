@@ -150,11 +150,6 @@ int main(int argc, char **argv) try {
     throw poputil::poplibs_error("Only inputType=HALF is currently supported");
   }
 
-  if (partialsType != FLOAT) {
-    throw poputil::poplibs_error(
-        "Only partialsType=FLOAT is currently supported");
-  }
-
   if (inChanGroups != 1) {
     throw poputil::poplibs_error(
         "ConvPartial1x4SLIC vertex only handles 1 input channel group");
@@ -286,10 +281,11 @@ int main(int argc, char **argv) try {
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
   Sequence postFwdProg;
+  const auto convUnitsRequired = (partialsType == HALF) ? 16 : 8;
   createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
-                              chansPerGroup, 0, params, prog, copyWritten,
-                              fwdCS, postFwdProg, inGrouped, weightsGrouped,
-                              outGrouped, "vertex");
+                              chansPerGroup, convUnitsRequired, 0, params, prog,
+                              copyWritten, fwdCS, postFwdProg, inGrouped,
+                              weightsGrouped, outGrouped, "vertex");
   prog.add(Execute(fwdCS));
   prog.add(postFwdProg);
 
@@ -375,6 +371,7 @@ int main(int argc, char **argv) try {
     std::mt19937 randomEngine;
     writeRandomValues(target, inputType, hostIn, -1.0, +5.0, randomEngine);
     writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
+
     std::cout << "Input: ";
     printMultiArrayContents(std::cout, hostIn);
     std::cout << "\nWeights: ";

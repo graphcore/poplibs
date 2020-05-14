@@ -17,19 +17,23 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTANELEMENTS;
 
 namespace poplin {
 
-template <typename FPType, typename AccumType, bool useShortTypes>
+template <typename FPType, typename AccumType, bool useShortTypes,
+          unsigned numConvUnits>
 constexpr bool hasAssemblyVersion() {
   return std::is_same<FPType, half>::value &&
-         std::is_same<AccumType, float>::value && useShortTypes;
+         (std::is_same<AccumType, float>::value ||
+          std::is_same<AccumType, half>::value) &&
+         useShortTypes && (numConvUnits == 8 || numConvUnits == 16);
 }
 
 template <typename FPType, typename AccumType, unsigned outStride,
-          bool useShortTypes>
+          bool useShortTypes, unsigned numConvUnits>
 class [[poplar::constraint(
     "elem(**in) != elem(**out)",
     "elem(**in) != elem(*outFieldBuffer)")]] ConvPartial1x4SLIC
     : public SupervisorVertexIf<
-          hasAssemblyVersion<FPType, AccumType, useShortTypes>() &&
+          hasAssemblyVersion<FPType, AccumType, useShortTypes,
+                             numConvUnits>() &&
           ASM_CODELETS_ENABLED> {
   // when we add support for 1x3 this can become a template parameter.
   constexpr static unsigned windowWidth = 4u;
@@ -77,7 +81,8 @@ public:
   const UnsignedType numSubKernelsM1;
   const UnsignedType numConvGroupGroupsM1;
 
-  IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType, AccumType, useShortTypes>()));
+  IS_EXTERNAL_CODELET(
+      (hasAssemblyVersion<FPType, AccumType, useShortTypes, numConvUnits>()));
 
   bool compute() {
     const auto convInputLoadElems = std::is_same<FPType, float>::value
@@ -163,10 +168,16 @@ public:
   }
 };
 
-template class ConvPartial1x4SLIC<half, float, 1, false>;
-template class ConvPartial1x4SLIC<half, float, 1, true>;
+template class ConvPartial1x4SLIC<half, float, 1, false, 8>;
+template class ConvPartial1x4SLIC<half, float, 1, true, 8>;
 
-template class ConvPartial1x4SLIC<half, float, 2, false>;
-template class ConvPartial1x4SLIC<half, float, 2, true>;
+template class ConvPartial1x4SLIC<half, float, 2, false, 8>;
+template class ConvPartial1x4SLIC<half, float, 2, true, 8>;
+
+template class ConvPartial1x4SLIC<half, half, 1, false, 16>;
+template class ConvPartial1x4SLIC<half, half, 1, true, 16>;
+
+template class ConvPartial1x4SLIC<half, half, 2, false, 16>;
+template class ConvPartial1x4SLIC<half, half, 2, true, 16>;
 
 } // end namespace poplin

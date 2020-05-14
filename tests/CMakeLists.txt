@@ -3623,6 +3623,25 @@ add_multitarget_test(
                 --flip-input=1
                 VARIANTS "IpuModel2;Sim2")
 
+foreach(OUTPUT_STRIDE 1 2)
+  add_multitarget_test(
+          NAME "conv_dual_slic_half_1x4_stride_${OUTPUT_STRIDE}"
+          COMMAND single_conv_layer
+                  --input-channels=4
+                  --output-channels=4
+                  --conv-groups=4
+                  --field={8,128}
+                  --kernel-size={1,4}
+                  --stride={1,${OUTPUT_STRIDE}}
+                  --tiles-per-ipu=4
+                  --single-phase=fwd
+                   --data-type=half
+                   --batch-size=4
+                  --convolution-options={\"partialsType\":\"half\"}
+                  --fwd-plan-constraints={\"method\":\"SLIC\"}
+                  VARIANTS "IpuModel2;Sim2")
+endforeach()
+
 # conv_batch_float test split into the three component phases
 add_multitarget_test(
          NAME conv_batch_float_fwd

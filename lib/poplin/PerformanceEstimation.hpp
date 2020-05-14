@@ -493,10 +493,9 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
     unsigned numSubKernels, unsigned slicWindowWidth, bool floatActivations,
     bool floatPartials) {
-  // TODO: we currently only target SLIC for half->float
+
   // TODO: we currently only target a kernel width of 4.
   assert(!floatActivations);
-  assert(floatPartials);
   assert(slicWindowWidth == 4);
   assert(numConvGroupGroups >= 1);
   assert(numSubKernels >= 1);
@@ -536,13 +535,14 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
 // sub-kernels.
 inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
-    unsigned numWorkerContexts, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials, unsigned outputStride, bool implicitZeroing) {
-  // TODO: we currently only target SLIC for half->float.
+    unsigned numWorkerContexts, unsigned numConvUnits, unsigned slicWindowWidth,
+    bool floatActivations, bool floatPartials, unsigned outputStride,
+    bool implicitZeroing) {
   // TODO: we currently only target kernel width of 4.
   assert(!floatActivations);
-  assert(floatPartials);
   assert(slicWindowWidth == 4);
+
+  const unsigned inputDataPasses = numConvUnits == 16 ? 1 : 2;
 
   std::uint64_t maxWorkerCycles = 0;
 
@@ -595,8 +595,8 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
           rowCycles += 15 + 2 * (numFieldElems - 3);
         }
       }
-      // 2 passes over input data
-      workerCycles += 3 + rowCycles * 2;
+      // Account for the passes over input data
+      workerCycles += 3 + rowCycles * inputDataPasses;
     }
 
     maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);

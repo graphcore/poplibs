@@ -10,10 +10,10 @@ namespace poplin {
 
 void createConvPartialSlicVertex(
     poplar::Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
-    unsigned chansPerGroup, unsigned tile, ConvParams params,
-    poplar::program::Sequence &transformPre, poplar::Tensor &copyWritten,
-    poplar::ComputeSet fwdCS, poplar::program::Sequence &postConvProg,
-    poplar::Tensor in, poplar::Tensor weights, poplar::Tensor out,
-    const std::string &debugPrefix);
+    unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
+    ConvParams params, poplar::program::Sequence &transformPre,
+    poplar::Tensor &copyWritten, poplar::ComputeSet fwdCS,
+    poplar::program::Sequence &postConvProg, poplar::Tensor in,
+    poplar::Tensor weights, poplar::Tensor out, const std::string &debugPrefix);
 
 } // namespace poplin

@@ -580,7 +580,8 @@ static std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
 static std::uint64_t getConvPartialSlicInnerLoopCycles(
     unsigned outStride, bool implicitZeroing, unsigned batchElements,
     const std::vector<unsigned> &outShape, unsigned numWorkerContexts,
-    unsigned slicWindowWidth, bool floatActivations, bool floatPartials) {
+    unsigned numConvUnits, unsigned slicWindowWidth, bool floatActivations,
+    bool floatPartials) {
   // SLIC doesn't support input dilation
   std::vector<unsigned> inputDilation(outShape.size(), 1);
   // SLIC only supports output striding (of 1 or 2) in the innermost dimension.
@@ -601,8 +602,8 @@ static std::uint64_t getConvPartialSlicInnerLoopCycles(
     }
   }
   return getConvPartialSlicSupervisorCycleInnerLoopEstimate(
-      worklist, numWorkerContexts, slicWindowWidth, floatActivations,
-      floatPartials, outputStride.back(), implicitZeroing);
+      worklist, numWorkerContexts, numConvUnits, slicWindowWidth,
+      floatActivations, floatPartials, outputStride.back(), implicitZeroing);
 }
 
 static std::uint64_t estimateCastCycles(unsigned outputSize,
@@ -1322,7 +1323,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         convSizeVarsVector,
         [&target, params, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, transformedInputDilation, transformedOutputStride,
-         slicWindowWidth, floatActivations, floatPartials,
+         numConvUnitsRequired, slicWindowWidth, floatActivations, floatPartials,
          cache](const auto &values) -> boost::optional<unsigned> {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -1361,13 +1362,15 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ true, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
-                  slicWindowWidth, floatActivations, floatPartials);
+                  numConvUnitsRequired, slicWindowWidth, floatActivations,
+                  floatPartials);
           const auto innerLoopCycles =
               cache->mGetConvPartialSlicInnerLoopCycles(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ false, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
-                  slicWindowWidth, floatActivations, floatPartials);
+                  numConvUnitsRequired, slicWindowWidth, floatActivations,
+                  floatPartials);
           const auto weightLoadCycles =
               getConvPartialSlicSupervisorCycleWeightLoadEstimate(
                   convGroupsPerGroup, inChansPerGroup,
@@ -1479,7 +1482,6 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
     return vectorWidth;
   case Plan::Method::SLIC:
     assert(!floatActivations);
-    assert(floatPartials);
     return vectorWidth * slicWindowWidth * 2;
   case Plan::Method::AMP: {
     unsigned numConvUnits;
@@ -4227,8 +4229,8 @@ static void getConvVertexSLICCandidates(
     const poplar::Type &outputType, const poplar::Type &partialType,
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
     std::vector<ConvVertexType> &candidates) {
-  // TODO: SLIC is currently only supported for half->float operations.
-  if (inputType != poplar::HALF || partialType != poplar::FLOAT) {
+
+  if (inputType != poplar::HALF) {
     return;
   }
 
@@ -4258,7 +4260,6 @@ static void getConvVertexSLICCandidates(
       return boost::none;
     }
   }();
-
   const bool floatActivations = inputType == poplar::FLOAT;
   const bool floatPartials = partialType == poplar::FLOAT;
   bool ampFloatPartials = floatPartials;
@@ -4268,18 +4269,26 @@ static void getConvVertexSLICCandidates(
     ampFloatPartials = true;
     numConvUnits = getNumConvUnits(floatActivations, ampFloatPartials, target);
   }
+  // List the number of conv units used in the candidate vertices which are
+  // available - either on this hardware or implemented at present
+  std::vector<unsigned> convUnitsCandidates;
+  if (floatPartials) {
+    convUnitsCandidates.push_back(8);
+  } else {
+    if (numConvUnits == 16) {
+      convUnitsCandidates.push_back(16);
+      // TODO - extend this with 8 for the single half variant
+    } else {
+      return;
+    }
+  }
+
   const auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
   const unsigned weightsPerConvUnit =
       target.getWeightsPerConvUnit(floatActivations);
 
   // the numbers below are hardcoded but dependent on the expected machine
-  // model that the real hardware models. ie. we expect 8 conv units and
-  // 16 weights per conv unit (as SLIC currently only supports input type as
-  // half and partial type as float).
-  if (numConvUnits != 8) {
-    throw poputil::poplibs_error(
-        "Unsupported number of conv units for the SLIC instruction.");
-  }
+  // model that the real hardware models. ie. we expect 16 weights per conv unit
 
   if (weightsPerConvUnit != 16) {
     throw poputil::poplibs_error("Unsupported number of weights per conv "
@@ -4293,7 +4302,7 @@ static void getConvVertexSLICCandidates(
     assert(options.pass == Pass::FC_TRAINING_FWD);
     // There are a number of transformations between different passes when a
     // joint plan is being used which would need updating to handle SLIC.
-    // T17666 tracks this. For the timebeing, don't allow joint plans with
+    // T17666 tracks this. For the time being, don't allow joint plans with
     // SLIC.
     return;
   }
@@ -4304,21 +4313,23 @@ static void getConvVertexSLICCandidates(
   };
   std::array<Candidate, 3> groupings{Candidate{1u, 4u}, Candidate{2u, 2u},
                                      Candidate{4u, 1u}};
+  for (const auto convUnits : convUnitsCandidates) {
+    for (const auto &grouping : groupings) {
+      if (constrainedConvGroupsPerGroup &&
+          *constrainedConvGroupsPerGroup != grouping.groups) {
+        continue;
+      }
 
-  for (const auto &grouping : groupings) {
-    if (constrainedConvGroupsPerGroup &&
-        *constrainedConvGroupsPerGroup != grouping.groups) {
-      continue;
+      if (constrainedChansPerGroup &&
+          *constrainedChansPerGroup != grouping.channels) {
+        continue;
+      }
+
+      candidates.emplace_back(Plan::Method::SLIC, inputType, outputType,
+                              ampPartialType, grouping.groups,
+                              grouping.channels, grouping.channels,
+                              slicWindowWidth, convUnits);
     }
-
-    if (constrainedChansPerGroup &&
-        *constrainedChansPerGroup != grouping.channels) {
-      continue;
-    }
-
-    candidates.emplace_back(Plan::Method::SLIC, inputType, outputType,
-                            ampPartialType, grouping.groups, grouping.channels,
-                            grouping.channels, slicWindowWidth, 0);
   }
 }
 
