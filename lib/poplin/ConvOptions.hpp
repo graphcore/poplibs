@@ -51,9 +51,6 @@ public:
   // significantly reduce code size. This comes at the cost of increasing the
   // number of cycles.
   bool enableMultiStageReduce = true;
-  // Enable a faster reduction vertex, but at the cost of partials being stored
-  // in one contiguous block in interleaved memory
-  bool enableFastReduce = false;
   // Remap output tensor if its layout is poor
   bool remapOutputTensor = true;
   // Use the ConvParams to pseudo-randomly select a start tile and direction
@@ -72,8 +69,8 @@ public:
         &ConvOptions::planConstraints,
         &ConvOptions::planConstraintsOutputFilename,
         &ConvOptions::enableAmpHalfEnginesPlan,
-        &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
-        &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering);
+        &ConvOptions::enableMultiStageReduce, &ConvOptions::remapOutputTensor,
+        &ConvOptions::enableConvDithering);
     return helper.lt(*this, other);
   }
   ConvOptions(const poplar::Target &target)
