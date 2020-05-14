@@ -16,17 +16,12 @@ find_package(poplar REQUIRED)
 message("Enabled architectures: ${POPLAR_ENABLED_IPU_ARCH_NAMES}")
 
 # ipu1 is our default arch, so convert ipu1->ipu
-# Note the extra ';' appended to POPLAR_ENABLED_IPU_ARCH_NAMES. This allows the
-# REPLACE function to work on the last item in the list. This may be simplified
-# using 'list(TRANSFORM' if we upgrade to CMake 3.12.
-string(REPLACE "ipu1;" "ipu;" ABBREV_TARGETS "${POPLAR_ENABLED_IPU_ARCH_NAMES};")
-string(REPLACE "ipu;" "Sim;" SIM_VARIANTS "${ABBREV_TARGETS}")
-list(REMOVE_AT SIM_VARIANTS -1) # Remove empty element at end
-string(REPLACE "ipu;" "Sim;" SIMCPP_VARIANTS "${ABBREV_TARGETS}")
-string(REPLACE ";" ":cpp;" SIMCPP_VARIANTS "${ABBREV_TARGETS}")
-list(REMOVE_AT SIMCPP_VARIANTS -1) # Remove empty element at end
-string(REPLACE "ipu;" "IpuModel;" IPUMODEL_VARIANTS "${ABBREV_TARGETS}")
-list(REMOVE_AT IPUMODEL_VARIANTS -1) # Remove empty element at end
+# Note: This may be simplified using 'list(TRANSFORM' if we upgrade to CMake 3.12.
+string(REPLACE "ipu1" "ipu" ABBREV_TARGETS "${POPLAR_ENABLED_IPU_ARCH_NAMES}")
+string(REPLACE "ipu" "Sim" SIM_VARIANTS "${ABBREV_TARGETS}")
+string(REPLACE ";" ":cpp;" SIMCPP_VARIANTS "${SIM_VARIANTS}")
+string(APPEND SIMCPP_VARIANTS ":cpp")
+string(REPLACE "ipu" "IpuModel" IPUMODEL_VARIANTS "${ABBREV_TARGETS}")
 
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
