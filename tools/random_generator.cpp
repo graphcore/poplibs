@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/RandomSeed.hpp>
@@ -40,44 +41,46 @@ using poplibs_test::Pass;
 template <typename T, bool deviceHalf>
 static void
 readAndConvertTensor(const Target &target, Engine &eng,
-                     const std::string &handle, T *out, std::size_t N,
+                     const std::string &handle, std::vector<T> &out,
+                     std::size_t N,
                      typename std::enable_if<!deviceHalf, int>::type = 0) {
-  eng.readTensor(handle, out, &out[N]);
+  eng.readTensor(handle, out.data(), &out[N]);
 }
 
 template <typename T, bool deviceHalf = false>
 static void readAndConvertTensor(
-    const Target &target, Engine &eng, const std::string &handle, T *out,
-    std::size_t N,
+    const Target &target, Engine &eng, const std::string &handle,
+    std::vector<T> &out, std::size_t N,
     typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
                             int>::type = 0) {
   std::vector<char> buf(target.getTypeSize(HALF) * N);
   eng.readTensor(handle, buf.data(), buf.data() + buf.size());
-  copyDeviceHalfToFloat(target, buf.data(), out, N);
+  copyDeviceHalfToFloat(target, buf.data(), out.data(), N);
 }
 
 template <typename T, bool deviceHalf>
 static void
 convertAndWriteTensor(const Target &target, Engine &eng,
-                      const std::string &handle, T *in, std::size_t N,
+                      const std::string &handle, const std::vector<T> &in,
+                      std::size_t N,
                       typename std::enable_if<!deviceHalf, int>::type = 0) {
-  eng.writeTensor(handle, in);
+  eng.writeTensor(handle, in.data());
 }
 
 template <typename T, bool deviceHalf = false>
 static void convertAndWriteTensor(
-    const Target &target, Engine &eng, const std::string &handle, T *in,
-    std::size_t N,
+    const Target &target, Engine &eng, const std::string &handle,
+    const std::vector<T> &in, std::size_t N,
     typename std::enable_if<std::is_same<T, float>::value && deviceHalf,
                             int>::type = 0) {
   std::vector<char> buf(target.getTypeSize(HALF) * N);
-  copyFloatToDeviceHalf(target, in, buf.data(), N);
+  copyFloatToDeviceHalf(target, in.data(), buf.data(), N);
   eng.writeTensor(handle, buf.data());
 }
 
 template <typename T>
-static bool validateUniform(T *mat, unsigned int inSize, double minVal,
-                            double maxVal, double percentError) {
+static bool validateUniform(const std::vector<T> &mat, unsigned int inSize,
+                            double minVal, double maxVal, double percentError) {
   bool boundsMet = true;
   double mean = 0;
   double maxSeen = minVal, minSeen = maxVal;
@@ -139,8 +142,8 @@ static bool validateUniform(T *mat, unsigned int inSize, double minVal,
 }
 
 template <typename T>
-static bool validateBernoulli(T *mat, unsigned int inSize, float prob,
-                              double percentError) {
+static bool validateBernoulli(const std::vector<T> &mat, unsigned int inSize,
+                              float prob, double percentError) {
   bool validEvents = true;
   double probEst = 0;
   // compute mean and variance and check bounds
@@ -169,8 +172,9 @@ static bool validateBernoulli(T *mat, unsigned int inSize, float prob,
 }
 
 template <typename T>
-static bool validateNormal(T *mat, unsigned int inSize, float actualMean,
-                           float actualStdDev, double percentError) {
+static bool validateNormal(const std::vector<T> &mat, unsigned int inSize,
+                           float actualMean, float actualStdDev,
+                           double percentError) {
   double mean = 0;
   // compute mean and variance and check bounds
   for (auto r = 0U; r != inSize; ++r) {
@@ -210,9 +214,9 @@ static bool validateNormal(T *mat, unsigned int inSize, float actualMean,
 }
 
 template <typename T>
-static bool validateTruncNormal(T *mat, unsigned int inSize, float actualMean,
-                                float actualStdDev, float alpha,
-                                double percentError) {
+static bool validateTruncNormal(const std::vector<T> &mat, unsigned int inSize,
+                                float actualMean, float actualStdDev,
+                                float alpha, double percentError) {
   bool boundsMet = true;
   double mean = 0;
   // compute mean and variance and check bounds
@@ -268,8 +272,9 @@ static bool validateTruncNormal(T *mat, unsigned int inSize, float actualMean,
 }
 
 template <typename T, bool deviceHalf = false>
-static bool validateDropout(T *hOut, unsigned inSize, float dropoutProb,
-                            float tolerance, double percentError) {
+static bool validateDropout(const std::vector<T> &hOut, unsigned inSize,
+                            float dropoutProb, float tolerance,
+                            double percentError) {
   // Check number of zeros
   std::size_t numDropout = 0;
   for (std::size_t i = 0; i != inSize; ++i) {
@@ -337,6 +342,7 @@ int main(int argc, char **argv) {
   float prob;
   float percentError;
   bool deviceHalf;
+  bool fpChecking;
   unsigned inSize;
   std::string randTest;
   DeviceType deviceType = DeviceType::Cpu; // IpuModel;
@@ -383,7 +389,11 @@ int main(int argc, char **argv) {
      "| TruncatedNormal | Dropout | SetSeeds | SetHwSeeds")
     ("in-size",
      po::value<unsigned>(&inSize)->default_value(12),
-     "Vector size");
+     "Vector size")
+    ("fp-checking",
+     po::value(&fpChecking)->default_value(true),
+     "Enable hardware floating-point checks"
+  );
   // clang-format on
 
   po::variables_map vm;
@@ -440,8 +450,15 @@ int main(int argc, char **argv) {
   auto tSeed = graph.addVariable(poplar::UNSIGNED_INT, {2}, "tSeed");
   graph.setTileMapping(tSeed, 0);
 
-  auto reference = graph.addVariable(dType, {inSize}, "ref");
-  mapTensorLinearly(graph, reference);
+  // We pad the dropout input with trailing NaNs. Add extra padding if there is
+  // an odd half, so that the host copy is a multiple of 4 bytes
+  unsigned padSize = 0;
+  if (deviceHalf)
+    padSize += inSize % 2;
+  auto paddedInSize = inSize + padSize;
+  auto paddedReference = graph.addVariable(dType, {paddedInSize}, "ref");
+  auto reference = paddedReference.slice({0, inSize});
+  mapTensorLinearly(graph, paddedReference);
 
   poprand::setSeed(graph, tSeed, seedModifier, randProg, "setSeed");
 
@@ -499,39 +516,44 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (fpChecking) {
+    if (deviceType == DeviceType::Cpu)
+      std::cerr << "Warning: fp-checking not supported on CPU target\n";
+    poplar::FloatingPointBehaviour checkAll(true, true, true, false, true);
+    poplar::setFloatingPointBehaviour(graph, randProg, checkAll,
+                                      "/initialValue");
+  }
   graph.createHostWrite("tSeed", tSeed);
 
   auto *seedToUseInTest = defaultSeed ? nullptr : &tSeed;
 
-  auto flpRandOut = std::unique_ptr<float[]>(new float[inSize]);
-  auto intRandOut = std::unique_ptr<int[]>(new int[inSize]);
+  std::vector<float> flpRandOut(paddedInSize);
+  std::vector<int> intRandOut(paddedInSize);
 
   // validate returns false on success
   auto validate = [&]() {
     if (randTest == "Normal") {
-      return validateNormal<float>(flpRandOut.get(), inSize, mean, stdDev,
+      return validateNormal<float>(flpRandOut, inSize, mean, stdDev,
                                    percentError);
     } else if (randTest == "TruncatedNormal") {
-      return validateTruncNormal<float>(flpRandOut.get(), inSize, mean, stdDev,
-                                        alpha, percentError);
+      return validateTruncNormal<float>(flpRandOut, inSize, mean, stdDev, alpha,
+                                        percentError);
     } else if ((randTest == "Uniform") || (randTest == "UniformInt")) {
       if (dType == poplar::INT) {
-        return validateUniform<int>(intRandOut.get(), inSize, minVal, maxVal,
-                                    percentError);
+        return validateUniform(intRandOut, inSize, minVal, maxVal,
+                               percentError);
       } else {
-        return validateUniform<float>(flpRandOut.get(), inSize, minVal, maxVal,
-                                      percentError);
+        return validateUniform(flpRandOut, inSize, minVal, maxVal,
+                               percentError);
       }
     } else if ((randTest == "Bernoulli") or (randTest == "BernoulliInt")) {
       if (dType == poplar::INT) {
-        return validateBernoulli<int>(intRandOut.get(), inSize, prob,
-                                      percentError);
+        return validateBernoulli<int>(intRandOut, inSize, prob, percentError);
       } else {
-        return validateBernoulli<float>(flpRandOut.get(), inSize, prob,
-                                        percentError);
+        return validateBernoulli<float>(flpRandOut, inSize, prob, percentError);
       }
     } else if (randTest == "Dropout") {
-      return validateDropout<float>(flpRandOut.get(), inSize, prob,
+      return validateDropout<float>(flpRandOut, inSize, prob,
                                     deviceHalf ? HALF_REL_TOL : FLOAT_REL_TOL,
                                     percentError);
     }
@@ -539,16 +561,20 @@ int main(int argc, char **argv) {
   };
   Tensor out;
   if (testType == TestType::Dropout) {
-    auto flpInput = std::unique_ptr<float[]>(new float[inSize]);
+    std::vector<float> flpInput(paddedInSize);
 
     for (unsigned idx = 0; idx != inSize; ++idx) {
-      flpInput.get()[idx] = 1.0;
+      flpInput[idx] = 1.0;
+    }
+    for (unsigned idx = inSize; idx != paddedInSize; ++idx) {
+      flpInput[idx] = std::numeric_limits<float>::signaling_NaN();
     }
 
-    auto in = graph.addVariable(dType, {inSize}, "in");
-    mapTensorLinearly(graph, in);
+    auto paddedIn = graph.addVariable(dType, {paddedInSize}, "paddedIn");
+    auto in = paddedIn.slice({0, inSize});
+    mapTensorLinearly(graph, paddedIn);
 
-    graph.createHostWrite("in", in);
+    graph.createHostWrite("paddedIn", paddedIn, true);
 
     auto seedsReadBefore = poplar::getHwSeeds(graph, randProg);
 
@@ -568,11 +594,11 @@ int main(int argc, char **argv) {
       dev.bind([&](const Device &d) {
         engine.load(d);
         engine.writeTensor("tSeed", hSeed);
-        convertAndWriteTensor<float, true>(target, engine, "in", flpInput.get(),
-                                           inSize);
+        convertAndWriteTensor<float, true>(target, engine, "paddedIn", flpInput,
+                                           paddedInSize);
         engine.run();
         readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
-                                          flpRandOut.get(), inSize);
+                                          flpRandOut, inSize);
         engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
                           hostSeedsReadBefore.data() +
                               hostSeedsReadBefore.size());
@@ -585,11 +611,11 @@ int main(int argc, char **argv) {
       dev.bind([&](const Device &d) {
         engine.load(d);
         engine.writeTensor("tSeed", hSeed);
-        convertAndWriteTensor<float, false>(target, engine, "in",
-                                            flpInput.get(), inSize);
+        convertAndWriteTensor<float, false>(target, engine, "paddedIn",
+                                            flpInput, paddedInSize);
         engine.run();
         readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
-                                           flpRandOut.get(), inSize);
+                                           flpRandOut, inSize);
         engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
                           hostSeedsReadBefore.data() +
                               hostSeedsReadBefore.size());
@@ -650,13 +676,13 @@ int main(int argc, char **argv) {
         engine.run();
         if (dType == poplar::INT) {
           readAndConvertTensor<int, false>(graph.getTarget(), engine, "out",
-                                           intRandOut.get(), inSize);
+                                           intRandOut, inSize);
         } else if (deviceHalf) {
           readAndConvertTensor<float, true>(graph.getTarget(), engine, "out",
-                                            flpRandOut.get(), inSize);
+                                            flpRandOut, inSize);
         } else {
           readAndConvertTensor<float, false>(graph.getTarget(), engine, "out",
-                                             flpRandOut.get(), inSize);
+                                             flpRandOut, inSize);
         }
         engine.readTensor("seedsReadBefore", hostSeedsReadBefore.data(),
                           hostSeedsReadBefore.data() +

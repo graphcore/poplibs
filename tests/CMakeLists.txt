@@ -6260,7 +6260,8 @@ add_multitarget_test(
                  --seed=4538342
                  --seed-modifier=1243547
                  --half-data-type=true
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6273,7 +6274,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=4538342
                  --seed-modifier=1243547
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=2
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6286,7 +6288,7 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=4538342
                  --seed-modifier=1243547
-                 --in-size=40000
+                 --in-size=40001
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6299,7 +6301,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=4538342
                  --seed-modifier=1243547
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6312,7 +6315,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=4538342
                  --seed-modifier=1243547
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6325,7 +6329,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=6513234
                  --seed-modifier=24543
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6337,7 +6342,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=986427
                  --seed-modifier=1234
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6349,7 +6355,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=9885343
                  --seed-modifier=8643232
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6361,7 +6368,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=9786553
                  --seed-modifier=6765354
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6373,7 +6381,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=876854
                  --seed-modifier=89766465
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6387,7 +6396,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=827437
                  --seed-modifier=7665654
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6400,7 +6410,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=1452764
                  --seed-modifier=7861245
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6415,7 +6426,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=1387532
                  --seed-modifier=985436
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6429,7 +6441,8 @@ add_multitarget_test(
                  --percent-error=5.0
                  --seed=8956342
                  --seed-modifier=249065
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6441,7 +6454,8 @@ add_multitarget_test(
                  --percent-error=2.0
                  --seed=9887532
                  --seed-modifier=575329
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=2
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6454,10 +6468,36 @@ add_multitarget_test(
                  --percent-error=2.0
                  --seed=9077511
                  --seed-modifier=709815
-                 --in-size=40000
+                 --in-size=20001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-
+add_multitarget_test(
+         NAME random_gen_dropout_half_rem2
+         COMMAND random_generator
+                 --rand-test=Dropout
+                 --half-data-type=true
+                 --prob=0.25
+                 --percent-error=2.0
+                 --seed=9077511
+                 --seed-modifier=709815
+                 --in-size=20002
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+add_multitarget_test(
+         NAME random_gen_dropout_half_rem3
+         COMMAND random_generator
+                 --rand-test=Dropout
+                 --half-data-type=true
+                 --prob=0.25
+                 --percent-error=2.0
+                 --seed=9077511
+                 --seed-modifier=709815
+                 --in-size=20003
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME random_gen_uniform_float_no_seed
@@ -6466,7 +6506,8 @@ add_multitarget_test(
                  --min-val=-1.0
                  --max-val=1.0
                  --percent-error=5.0
-                 --in-size=40000
+                 --in-size=40001
+                 --fp-checking=true
                  --tiles-per-ipu=1
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
@@ -6539,14 +6580,14 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=16
                  VARIANTS ${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_bias30_no_inf_RA
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --round-mode=RA
                  --tiles-per-ipu=32
                  --bias=30
@@ -6556,7 +6597,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=4
                  --man=11
                  --bias=13
@@ -6569,7 +6610,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_4_11_bias13_no_denorm_RN_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=4
                  --man=11
                  --bias=13
@@ -6581,7 +6622,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=3
                  --man=4
                  --bias=3
@@ -6594,7 +6635,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=3
                  --man=4
                  --bias=3
@@ -6606,7 +6647,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_quantise_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=3
                  --man=4
                  --bias=3
@@ -6620,7 +6661,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_3_4_bias3_no_inf_RD_gfloat_as_int_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=3
                  --man=4
                  --bias=3
@@ -6633,7 +6674,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=6
                  --man=9
                  --bias=62
@@ -6647,7 +6688,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_no_denorm_RA_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=6
                  --man=9
                  --bias=62
@@ -6660,7 +6701,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6673,7 +6714,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6685,7 +6726,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_quantise_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6699,7 +6740,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_no_inf_RU_gfloat_as_int_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6712,7 +6753,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6725,7 +6766,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6737,7 +6778,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_quantise_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6751,7 +6792,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_2_bias29_nanoo_RD_gfloat_as_int_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=5
                  --man=2
                  --bias=29
@@ -6764,7 +6805,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=6
                  --man=9
                  --bias=62
@@ -6777,7 +6818,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_9_bias62_no_inf_RZ_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=6
                  --man=9
                  --bias=62
@@ -6789,7 +6830,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_14_bias0_noInf_RU_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=1
                  --man=14
                  --bias=0
@@ -6802,7 +6843,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_14_bias0_noInf_RU_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=1
                  --man=14
                  --bias=0
@@ -6814,7 +6855,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=1
                  --man=6
                  --bias=0
@@ -6827,7 +6868,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=1
                  --man=6
                  --bias=0
@@ -6839,7 +6880,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_quantise_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=1
                  --man=6
                  --bias=0
@@ -6853,7 +6894,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_1_6_bias0_noInf_RA_gfloat_as_int_fp32_calc_type
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=1
                  --man=6
                  --bias=0
@@ -6866,7 +6907,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_0_15_bias-1_RA_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=0
                  --man=15
                  --bias=-1
@@ -6879,7 +6920,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_0_15_bias-1_RA_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=0
                  --man=15
                  --bias=-1
@@ -6891,7 +6932,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_1_bias31_RU_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=6
                  --man=1
                  --bias=31
@@ -6903,7 +6944,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_6_1_bias31_RU_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=6
                  --man=1
                  --bias=31
@@ -6914,7 +6955,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_7_0_bias63_RN_quantise
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=7
                  --man=0
                  --bias=63
@@ -6926,7 +6967,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_1_7_0_bias63_RN_gfloat_as_int
          COMMAND cast_to_gfloat
-                 --input-size=40000
+                 --input-size=40001
                  --exp=7
                  --man=0
                  --bias=63
@@ -6937,7 +6978,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Uniform
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=6
                  --man=9
@@ -6950,7 +6991,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Uniform
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=3
@@ -6963,7 +7004,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Uniform_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=3
@@ -6977,7 +7018,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Normal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=6
                  --man=2
@@ -6990,7 +7031,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Normal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=3
                  --man=6
@@ -7002,7 +7043,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Normal_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=3
                  --man=6
@@ -7016,7 +7057,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedNormal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=5
                  --man=10
@@ -7029,7 +7070,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedNormal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=5
                  --man=2
@@ -7042,7 +7083,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedNormal_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=5
                  --man=2
@@ -7056,7 +7097,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedLaplace
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=7
                  --man=1
@@ -7069,7 +7110,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLaplace
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=5
                  --man=2
@@ -7082,7 +7123,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLaplace_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=5
                  --man=2
@@ -7096,7 +7137,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Laplace
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=13
@@ -7109,7 +7150,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Laplace
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=2
                  --man=4
@@ -7122,7 +7163,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Laplace_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=2
                  --man=4
@@ -7136,7 +7177,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedLogistic
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=11
@@ -7149,7 +7190,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Logistic
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=6
                  --man=7
@@ -7162,7 +7203,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Logistic
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=0
                  --man=7
@@ -7175,7 +7216,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Logistic_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=2
                  --man=9
@@ -7189,7 +7230,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_TruncatedLogitNormal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=3
                  --man=16
@@ -7202,7 +7243,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLogitNormal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=7
@@ -7216,7 +7257,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_TruncatedLogitNormal_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=7
@@ -7231,7 +7272,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_LogitNormal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=2
                  --man=5
@@ -7244,7 +7285,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_LogitNormal
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=6
                  --man=7
@@ -7257,7 +7298,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_LogitNormal_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=2
                  --man=5
@@ -7271,7 +7312,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_float_Bernoulli
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=8
                  --man=7
@@ -7283,7 +7324,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Bernoulli
          COMMAND cast_to_gfloat_sr
-                --input-size=40000
+                --input-size=40001
                 --tiles-per-ipu=32
                 --exp=0
                 --man=3
@@ -7295,7 +7336,7 @@ add_multitarget_test(
 add_multitarget_test(
          NAME cast_to_gfloat_sr_half_Bernoulli_fp32_calc
          COMMAND cast_to_gfloat_sr
-                 --input-size=40000
+                 --input-size=40001
                  --tiles-per-ipu=32
                  --exp=4
                  --man=6
@@ -7384,7 +7425,7 @@ add_multitarget_test(
          #COMMAND embedding_layer
                  #--data-type=half
                  #--shape={1000,200}
-                 #--num-indices=40000
+                 #--num-indices=40001
                  #--use-embedding-plan=1
                  #--ignore-data=1
          #VARIANTS ${IPUMODEL_VARIANTS};Hw)
