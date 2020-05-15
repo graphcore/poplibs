@@ -4724,6 +4724,19 @@ add_multitarget_test(
                 --data-type=half
                 --matmul-options={\"use128BitConvUnitLoad\":\"true\"})
 
+add_multitarget_test(
+        NAME conv3x3_stride_3_in_dilation_2_fwd_conv_dither
+        COMMAND single_conv_layer
+                --single-phase=fwd
+                --input-channels=16
+                --output-channels=16
+                --field={14,14}
+                --kernel-size=3
+                --tiles-per-ipu=1
+                --stride=3
+                --in-dilation=2
+                --convolution-options={\"enableConvDithering\":\"true\"})
+
 add_test(
          NAME fully_connected_half_two_ipu
          COMMAND fully_connected_layer
