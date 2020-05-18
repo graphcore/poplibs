@@ -66,10 +66,10 @@ void setColours(spdlog::sinks::ansicolor_sink<Mutex> &sink) {
   // See https://en.wikipedia.org/wiki/ANSI_escape_code#Colors
   static const std::string brightBlack = "\033[90m";
 
+  // info is unset so that it uses the system default colour.
   sink.set_color(spdlog::level::trace, brightBlack);
   sink.set_color(spdlog::level::debug, sink.cyan);
-  sink.set_color(spdlog::level::info, sink.white);
-  sink.set_color(spdlog::level::warn, sink.yellow + sink.bold);
+  sink.set_color(spdlog::level::warn, sink.yellow);
   sink.set_color(spdlog::level::err, sink.red + sink.bold);
 }
 
