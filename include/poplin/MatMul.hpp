@@ -59,6 +59,12 @@ class PlanningCache;
  *      multiple stages if it would significantly reduce code size. This comes
  *      at the cost of increasing the number of cycles.
  *
+ *    * `enableFastReduce` (true, false) [=false]
+ *
+ *      If true, use a faster reduction vertex if the data types and widths
+ *      allow it.  This comes at the cost of further constraints on memory
+ *      allocation
+ *
  *    * `remapOutputTensor`       (true, false) [=true]
  *
  *       If true, the output of the convolution is remapped if the output

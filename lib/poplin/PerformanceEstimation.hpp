@@ -714,9 +714,26 @@ inline std::uint64_t getOuterProductCycleEstimate(bool isFloat, unsigned width,
 inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
                                        unsigned dataPathWidth,
                                        bool isOutTypeFloat,
-                                       bool isPartialsFloat,
+                                       bool isPartialsFloat, bool singleInput,
+                                       bool constrainPartials,
                                        unsigned numWorkers) {
   unsigned cycles = 0;
+  if (singleInput) {
+    // Simpler optimised vertex, 1 or 2 cycle inner loop
+    const auto cyclesPerInnerLoop = constrainPartials ? 1 : 2;
+    const auto loops = isPartialsFloat ? (outSize / 4) : (outSize / 8);
+    const auto loopsDividedBetweenWorkers = loops / numWorkers;
+    cycles = 32;
+    unsigned outerLoopOverHead;
+    if (isPartialsFloat) {
+      outerLoopOverHead = isOutTypeFloat ? 8 : 7;
+    } else {
+      outerLoopOverHead = isOutTypeFloat ? 10 : 9;
+    }
+    cycles += (cyclesPerInnerLoop * partialsSize + outerLoopOverHead) *
+              loopsDividedBetweenWorkers;
+    return cycles * numWorkers;
+  }
 
   // Supervisor vertex, and new implementation
   if (isPartialsFloat) {

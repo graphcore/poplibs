@@ -89,6 +89,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float_8_and_half_half_16.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_float_8_and_half_half_16.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAddSingleInput.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/OuterProduct.S
