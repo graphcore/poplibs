@@ -256,9 +256,9 @@ inline unsigned getConvPartialAmpSupervisorCycleWeightLoadEstimate(
     numInputLoadsInnerLoop /= 2;
   }
 
-  // Nx1 specific - due to data shuffeling can't use ld128 for filter height
-  // equal to 4 so it's always uses ld64. On MK1 and MK2 ld128 allows to
-  // load 16 bytes per cycle hence convUnitCoeffLoadBytesPerCycle need to be
+  // Nx1 specific - due to data shuffling can't use ld128 for filter height
+  // equal to 4 so it's always uses ld64. ld128 allows to us to
+  // load 16 bytes per cycle hence convUnitCoeffLoadBytesPerCycle needs to be
   // halved
   if (filterHeight == 4 && convUnitCoeffLoadBytesPerCycle > 8) {
     convUnitCoeffLoadBytesPerCycle /= 2;

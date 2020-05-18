@@ -2262,7 +2262,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
   // the slowest ones (transposing 'numTranspositions' matrices).
   // We also add the additional cycles executed, compared to the 'plain'
   // "Transpose" codelet.
-  // transpose_half_from_supervisor does 20 cycles mk2 (21 cycles mk1) and jumps
+  // transpose_half_from_supervisor does 20 or 21 cycles and jumps
   // the first 7 in the worker codelet.
   const std::uint64_t overhead = poplibs::getUnpackCost(srcLayout);
   std::uint64_t maxCycles =
