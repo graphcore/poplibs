@@ -20,7 +20,6 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
-using namespace popops::expr;
 
 namespace {
 
@@ -494,7 +493,7 @@ static Tensor initRingIndexTensor(Graph &graph, const Direction direction,
   // in the middle method. Will often be zero.
   //
   // this expression initialises replica id to clockwise ring index
-  const auto replica = _1;
+  const auto replica = popops::expr::_1;
   const auto replicaMod2 = replica % 2;
 
   const auto id = ((repFactor - 1) * replicaMod2) +
@@ -547,9 +546,11 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
   // create program to change the slice index to it's next value.
   // called every iteration of the repeat
-  popops::mapInPlace(
-      graph, (_1 + (replicationFactor + incrementValue)) % replicationFactor,
-      {program.sliceFragments.getSliceIndex()}, program.incrementIndex);
+  popops::mapInPlace(graph,
+                     (popops::expr::_1 + (replicationFactor + incrementValue)) %
+                         replicationFactor,
+                     {program.sliceFragments.getSliceIndex()},
+                     program.incrementIndex);
   // create the cross replica copy the collective needs
   program.exchangeProg.setCopy(
       crossReplicaCopy(
@@ -760,9 +761,11 @@ static CollectivesProgram unidirectionalRingAllGather(
                           debugPrefix, replicationFactor, startOffset));
   program.firstGatherCopy.add(Copy(toGather, srcBuffer));
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
-  popops::mapInPlace(
-      graph, (_1 + (replicationFactor + incrementValue)) % replicationFactor,
-      {program.sliceFragments.getSliceIndex()}, program.incrementIndex);
+  popops::mapInPlace(graph,
+                     (popops::expr::_1 + (replicationFactor + incrementValue)) %
+                         replicationFactor,
+                     {program.sliceFragments.getSliceIndex()},
+                     program.incrementIndex);
   program.exchangeProg.setCopy(
       crossReplicaCopy(
           graph, srcBuffer, dstBuffer,
@@ -1128,7 +1131,7 @@ createCommunicationMap(unsigned replicationFactor) {
 Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
                                     program::Sequence &sequence,
                                     const std::string &debugPrefix) {
-
+  using namespace popops::expr;
   if (graph.getTopLevelGraph().getReplicationFactor() !=
       graph.getReplicationFactor()) {
     throw poputil::poplibs_error(

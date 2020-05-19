@@ -12,7 +12,6 @@ using namespace poplar::program;
 using namespace poplin;
 using namespace popnn::Rnn;
 using namespace popops;
-using namespace popops::expr;
 using namespace poputil;
 using namespace poplibs_support;
 
@@ -938,6 +937,7 @@ static void basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
             cache);
 
   if (bwdIntermediates.elementType() != weightGrads.biases.elementType()) {
+    using namespace popops::expr;
     popops::mapInPlace(graph,
                        Add(_1, Cast(_2, weightGrads.biases.elementType())),
                        {weightGrads.biases, bwdIntermediates}, prog,
