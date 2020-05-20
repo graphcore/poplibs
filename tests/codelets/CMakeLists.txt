@@ -83,60 +83,6 @@ foreach(OUTER_DIM 48 49 50 51 52 53 54 55 56 500)
   endforeach()
 endforeach()
 
-foreach(OUTER_DIM 4 8 20 24 28 48 52)
-  foreach(INNER_DIM RANGE 1 3)
-    foreach(OUT_TYPE float half)
-      set(VARIANT_NAME
-          "ReduceAddSingleIn_${OUTER_DIM}_${INNER_DIM}_float_${OUT_TYPE}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                           COMMAND ReduceAdd
-                             --partials-type=float
-                             --out-type=${OUT_TYPE}
-                             --outer-dim=${OUTER_DIM}
-                             --inner-dim=${INNER_DIM}
-                             --single-input=true
-                             --constrain-partials=true
-                             LABELS codelet)
-
-      endforeach()
-  endforeach()
-endforeach()
-
-foreach(OUTER_DIM 8 16 40 48 56 96 104)
-  foreach(INNER_DIM RANGE 1 3)
-    foreach(OUT_TYPE float half)
-      set(VARIANT_NAME
-          "ReduceAddSingleIn_${OUTER_DIM}_${INNER_DIM}_half_${OUT_TYPE}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                           COMMAND ReduceAdd
-                             --partials-type=half
-                             --out-type=${OUT_TYPE}
-                             --outer-dim=${OUTER_DIM}
-                             --inner-dim=${INNER_DIM}
-                             --single-input=true
-                             --constrain-partials=true
-                             LABELS codelet)
-      endforeach()
-  endforeach()
-endforeach()
-
-foreach(PARTIALS_TYPE float half)
-  foreach(OUT_TYPE float half)
-    set(VARIANT_NAME
-        "ReduceAddSingleInNoConstrain_${PARTIALS_TYPE}_${OUT_TYPE}")
-    add_multitarget_test(NAME ${VARIANT_NAME}
-                         COMMAND ReduceAdd
-                           --partials-type=${PARTIALS_TYPE}
-                           --out-type=${OUT_TYPE}
-                           --outer-dim=96
-                           --inner-dim=4
-                           --single-input=true
-                           --constrain-partials=false
-                           LABELS codelet)
-    endforeach()
-  endforeach()
-
-
 add_multi_target_test_executable(Reduce Reduce.cpp)
 foreach(OUTER_DIM RANGE 1 16)
   foreach(IN_TYPE half float)

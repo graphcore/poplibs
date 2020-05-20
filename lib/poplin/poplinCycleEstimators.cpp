@@ -404,16 +404,16 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(
                                       dataPathWidth);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(
-    const VertexIntrospector &vertex, const Target &target, const Type &outType,
-    const Type &partialsType, bool singleInput, bool constrainPartials) {
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(const VertexIntrospector &vertex,
+                                     const Target &target, const Type &outType,
+                                     const Type &partialsType) {
   CODELET_FIELD(out);
-  CODELET_SCALAR_VAL(numPartials, unsigned short);
+  CODELET_FIELD(partials);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  return getReduceCycleEstimate(out.size(), numPartials, dataPathWidth,
+  return getReduceCycleEstimate(out.size(), partials.size(), dataPathWidth,
                                 outType == FLOAT, partialsType == FLOAT,
-                                singleInput, constrainPartials,
                                 target.getNumWorkerContexts());
 }
 
@@ -608,20 +608,10 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, false,
                             16),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, true, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, true, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF, true, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF, true, false),
-
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, true, true),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, true, true),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF, true, true),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF, true, true),
-
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, false, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF, false, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF, false, false)};
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF)};
 };
 
 } // end namespace poplin
