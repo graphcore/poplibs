@@ -123,6 +123,10 @@ struct ConvParams {
   }
   std::size_t getNumConvGroups() const { return numConvGroups; }
   std::size_t getNumFieldDims() const { return inputFieldShape.size(); }
+  std::vector<std::size_t> getInputFieldShape() const {
+    return inputFieldShape;
+  }
+  std::vector<std::size_t> getKernelShape() const { return kernelShape; }
   std::size_t getBatchSize() const { return batchSize; }
 
   /// Return the size of input in the specified dimension after truncation.

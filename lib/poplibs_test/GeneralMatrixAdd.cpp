@@ -52,3 +52,23 @@ void poplibs_test::axpby::add(const boost::multi_array_ref<double, 2> matA,
     }
   }
 }
+
+void poplibs_test::axpby::add(const boost::multi_array_ref<double, 3> matA,
+                              const boost::multi_array_ref<double, 3> matB,
+                              boost::multi_array_ref<double, 3> matC,
+                              float alpha, float beta) {
+  for (unsigned i = 0; i < 3; ++i) {
+    assert(matA.shape()[i] == matB.shape()[i]);
+    assert(matA.shape()[i] == matC.shape()[i]);
+  }
+  unsigned matCDepth = matC.shape()[0];
+  unsigned matCRows = matC.shape()[1];
+  unsigned matCCols = matC.shape()[2];
+  for (auto d = 0U; d != matCDepth; ++d) {
+    for (auto r = 0U; r != matCRows; ++r) {
+      for (auto c = 0U; c != matCCols; ++c) {
+        matC[d][r][c] = alpha * matA[d][r][c] + beta * matB[d][r][c];
+      }
+    }
+  }
+}

@@ -13,6 +13,7 @@ add_library(poplibs_test SHARED
   Norms.cpp
   Pooling.cpp
   NonLinearity.cpp
+  Multirate.cpp
   Pass.cpp
   Rnn.cpp
   Util.cpp
@@ -26,6 +27,7 @@ add_library(poplibs_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Norms.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/NonLinearity.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Multirate.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pass.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Rnn.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Util.hpp

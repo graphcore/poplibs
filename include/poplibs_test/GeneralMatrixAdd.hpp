@@ -21,6 +21,11 @@ namespace axpby {
  * Matrix dimensions of op(A) must be equal to op(B)
  */
 
+void add(const boost::multi_array_ref<double, 3> matA,
+         const boost::multi_array_ref<double, 3> matB,
+         boost::multi_array_ref<double, 3> matC, float alpha = 1.0,
+         float beta = 1.0);
+
 void add(const boost::multi_array_ref<double, 2> matA,
          const boost::multi_array_ref<double, 2> matB,
          boost::multi_array_ref<double, 2> matC, float alpha = 1.0,

@@ -137,6 +137,17 @@ void inline writeRandomValues(const poplar::Target &target,
                            min, max, randomEngine);
 }
 
+template <typename T, std::size_t N>
+void inline writeRandomValues(const poplar::Target &target,
+                              const poplar::Type type,
+                              std::vector<boost::multi_array<T, N>> &a,
+                              const T min, const T max,
+                              std::mt19937 &randomEngine) {
+  for (unsigned i = 0; i < a.size(); ++i) {
+    writeRandomValues(target, type, a[i], min, max, randomEngine);
+  }
+}
+
 template <typename T>
 void copy(const poplar::Target &target, const T *src, std::size_t n,
           const poplar::Type &dstType, void *dst) {
@@ -214,6 +225,24 @@ inline void copy(const poplar::Target &target, const poplar::Type &srcType,
 inline void copy(const poplar::Target &target, const poplar::Type &srcType,
                  void *src, poplibs_support::MultiArray<double> &dst) {
   copy(target, srcType, src, dst.data(), dst.numElements());
+}
+
+template <typename T, unsigned N>
+inline void copy(const poplar::Target &target, const poplar::Type &type,
+                 const std::vector<boost::multi_array<T, N>> &src,
+                 const std::vector<std::unique_ptr<char[]>> &dst) {
+  for (unsigned i = 0; i < src.size(); ++i) {
+    copy(target, src[i], type, dst[i].get());
+  }
+}
+
+template <typename T, unsigned N>
+inline void copy(const poplar::Target &target, const poplar::Type &type,
+                 const std::vector<std::unique_ptr<char[]>> &src,
+                 const std::vector<boost::multi_array<T, N>> &dst) {
+  for (unsigned i = 0; i < src.size(); ++i) {
+    copy(target, type, src[i].get(), dst[i]);
+  }
 }
 
 template <typename intType>
