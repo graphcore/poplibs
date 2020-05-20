@@ -110,12 +110,12 @@ value currently being tested.'''.format(PROFILER_FILE_KEYWORD, GRAPH_PROFILE_FIL
         "--title", help="Plot figure title. If not set, test command will be used."
     )
     parser.add_argument(
-        "--max-parallel", type=int, default=8, help="[=%(default)s] Maximum number of parallel "
-        "processes to be running at any time."
+        "--throughput-multiplier", type=float, default=1.0, help="[=%(default)s] Multiplier to "
+        "apply to item rate values."
     )
     parser.add_argument(
-        "--num-iterations", type=int, default=1, help="[=%(default)s] Indicate how many iterations "
-        "your test command uses - so that item rates are calculated correctly."
+        "--max-parallel", type=int, default=8, help="[=%(default)s] Maximum number of parallel "
+        "processes to be running at any time."
     )
     parser.add_argument(
         "command", nargs=argparse.REMAINDER,
@@ -181,7 +181,10 @@ def main():
                 x_values += pickle.load(pickle_file)
                 new_data = pickle.load(pickle_file)
                 for key in new_data:
-                    data[key] += new_data[key]
+                    if type(new_data[key]) is list:
+                        data[key] += new_data[key]
+                    else:
+                        data[key] = new_data[key]
 
                 cmd_str = " ".join(cmd_arr)
                 start = cmd_str.find("{") + 1
@@ -301,9 +304,15 @@ def generate_data(args, params, pattern, x_values, data):
                 if 'compute' in tile_cycles:
                     data['compute_cycles'].append(tile_cycles['compute'])
                     data['exchange_cycles'].append(tile_cycles['doExchange'])
+                    data['stream_copy_cycles'].append(tile_cycles['streamCopy'])
+                    data['sync_cycles'].append(tile_cycles['sync'])
+                    data['global_exchange_cycles'].append(tile_cycles['globalExchange']
+                                                          if 'globalExchange' in tile_cycles else 0)
+        print(" - Clock frequency: {}".format(data['clock_frequency']))
 
 
 def plot_data(var_name, x_values, data, args):
+    bar_width = max(0.1, (max(x_values) - min(x_values)) / max((4 * (len(x_values) - 1)), 1))
     fig, axs = plt.subplots(3, 2, sharex=True, figsize=(7, 7))
     fig.suptitle(args.title if args.title else " ".join(args.command),
                  fontsize="small", wrap=True)
@@ -343,16 +352,20 @@ def plot_data(var_name, x_values, data, args):
     axs[2, 1].yaxis.tick_right()
     item_rate_ax = axs[2, 1].twinx()
     if data['cycles']:
-        axs[2, 1].plot(x_values, np.array(data['cycles'])*100, "C1^", label="Total (x100)")
-        item_rates = (args.num_iterations * data['clock_frequency'] *
-                      np.array(x_values) / np.array(data['cycles']))
-        item_rate_ax.plot(x_values, item_rates, "C0o", label="Items rate", fillstyle='none')
-        item_rate_ax.set_ylabel("Items/second", color='C0')
-        item_rate_ax.tick_params(axis='y', labelcolor='C0')
+        item_rates = (args.throughput_multiplier * data['clock_frequency'] * np.array(x_values) /
+                      np.array(data['cycles']))
+        item_rate_ax.plot(x_values, item_rates, "C5o", label="Items rate", fillstyle='none')
+        item_rate_ax.set_ylabel("Items/second", color='C5')
+        item_rate_ax.tick_params(axis='y', labelcolor='C5')
         item_rate_ax.set_ylim(bottom=0)
     if data['compute_cycles']:
-        axs[2, 1].plot(x_values, data['exchange_cycles'], "C2P", label="Exchange")
-        axs[2, 1].plot(x_values, data['compute_cycles'], "C3*", label="Compute (inc. idle)")
+        v_data = np.array([data['compute_cycles'], data['exchange_cycles'], data['sync_cycles'],
+                           data['stream_copy_cycles'], data['global_exchange_cycles']])
+        labels = ["Compute (inc. idle)", "Exchange", "Sync", "Stream copies", "Global exchange"]
+        cum_size = np.zeros(len(v_data[0]))
+        for lbl, row_data in zip(labels, v_data):
+            axs[2, 1].bar(x_values, row_data, bar_width, bottom=cum_size, zorder=3, label=lbl)
+            cum_size += row_data
     else:
         print("Please enable 'debug.instrumentCompute' to see all cycle counts.")
 
@@ -370,7 +383,7 @@ def plot_data(var_name, x_values, data, args):
                    x_values, data['num_edges'], "C2P",
                    x_values, np.array(data['num_compute_sets'])*1000, "C3*")
     axs[1, 0].legend(["Variables", "Vertices", "Edges", "Compute sets (x1000)"],
-                     ncol=2, loc="center left", bbox_to_anchor=(1, 0.5), fontsize="small")
+                     ncol=2, loc="center left", bbox_to_anchor=(1, 0.6), fontsize="small")
     axs[1, 0].set_ylabel("Quantity")
 
 
@@ -382,10 +395,9 @@ def plot_data(var_name, x_values, data, args):
     v_data = np.array([data['vertex_state'], data['vertex_edge_pointers'],
                        data['vertex_copy_pointers'], data['vertex_descriptors']])
     v_data = np.divide(v_data, MB_SCALE) # Scale bytes -> megabytes
-    width = max(0.1, (max(x_values) - min(x_values)) / max((4 * (len(x_values) - 1)), 1))
     cum_size = np.zeros(len(v_data[0]))
     for _, row_data in enumerate(v_data):
-        axs[0, 1].bar(x_values, row_data, width, bottom=cum_size, zorder=3)
+        axs[0, 1].bar(x_values, row_data, bar_width, bottom=cum_size, zorder=3)
         cum_size += row_data
     axs[0, 1].legend(["State", "Edge pointers", "Copy pointers", "Descriptors"],
                      loc="upper center", ncol=2, fontsize="small",
