@@ -555,13 +555,9 @@ static constexpr auto allButNumConvGroups = poplibs_support::makeStructHelper(
     &ConvParams::outputChannelsPerConvGroup, &ConvParams::inputTransform,
     &ConvParams::kernelTransform, &ConvParams::outputTransform);
 
-bool isEqual(const ConvOptions &co1, const ConvOptions &co2) {
-  return co1 == co2;
-}
-
 template <typename T> bool canBeCombined(const T &ca1, const T &ca2) {
-  return allButNumConvGroups.eq(ca1.params, ca2.params) &&
-         isEqual(ca1.options, ca2.options);
+  return allButNumConvGroups.eq(*ca1.params, *ca2.params) &&
+         ca1.options == ca2.options;
 }
 
 template <typename T>
@@ -630,13 +626,14 @@ groupCombinables<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>(
 
 // Returns the combination (aggregates numConvGroups) of
 // multiple compatible convolution parameters
-ConvParams combineConvParams(const std::vector<ConvParams> &convParams) {
+CanonicalConvParams
+combineConvParams(const std::vector<CanonicalConvParams> &convParams) {
   assert(!convParams.empty());
   std::size_t numConvGroups(0);
   for (const auto &cp : convParams) {
-    numConvGroups += cp.numConvGroups;
+    numConvGroups += cp->numConvGroups;
   }
-  ConvParams cp(convParams[0]);
+  ConvParams cp(*convParams[0]);
   cp.numConvGroups = numConvGroups;
   return cp;
 }
@@ -646,7 +643,7 @@ combine(const std::vector<multiconv::internal::CreateTensorArgs> &args) {
   assert(!args.empty());
   assert(canBeCombined(args));
 
-  std::vector<ConvParams> convParams;
+  std::vector<CanonicalConvParams> convParams;
   for (const auto &arg : args) {
     convParams.push_back(arg.params);
   }
@@ -669,7 +666,7 @@ multiconv::internal::ConvolutionArgs combine(
     const std::vector<multiconv::internal::ConvolutionArgs> &convolutionArgs) {
   assert(!convolutionArgs.empty());
   assert(canBeCombined(convolutionArgs));
-  std::vector<ConvParams> convParams;
+  std::vector<CanonicalConvParams> convParams;
   std::vector<poplar::Tensor> inputs;
   std::vector<poplar::Tensor> weights;
   for (const auto &cp : convolutionArgs) {
@@ -688,7 +685,7 @@ multiconv::internal::CalculateWeightDeltasArgs combine(
   assert(!args.empty());
   assert(canBeCombined(args));
 
-  std::vector<ConvParams> convParams;
+  std::vector<CanonicalConvParams> convParams;
   std::vector<poplar::Tensor> zDeltas;
   std::vector<poplar::Tensor> activations;
   for (const auto &arg : args) {
@@ -708,7 +705,7 @@ combine(const std::vector<multiconv::internal::ConvWeightUpdateArgs<T>> &args) {
   assert(!args.empty());
   assert(canBeCombined(args));
 
-  std::vector<ConvParams> convParams;
+  std::vector<CanonicalConvParams> convParams;
   std::vector<poplar::Tensor> zDeltas;
   std::vector<poplar::Tensor> weights;
   std::vector<poplar::Tensor> activations;
@@ -734,15 +731,15 @@ combine<poplar::Tensor>(
         &args);
 
 std::vector<poplar::Tensor>
-splitOutput(const std::vector<ConvParams> &convParams,
+splitOutput(const std::vector<CanonicalConvParams> &convParams,
             const poplar::Tensor &out) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
   std::size_t prev(0);
   const std::size_t outputChannelsPerConvGroup =
-      convParams[0].outputChannelsPerConvGroup;
+      convParams[0]->outputChannelsPerConvGroup;
   for (const auto &cp : convParams) {
-    const auto intervalSize = cp.numConvGroups * outputChannelsPerConvGroup;
+    const auto intervalSize = cp->numConvGroups * outputChannelsPerConvGroup;
     intervals.push_back({prev, prev + intervalSize});
     prev += intervalSize;
   }
@@ -750,14 +747,14 @@ splitOutput(const std::vector<ConvParams> &convParams,
 }
 
 std::vector<poplar::Tensor>
-splitInput(const std::vector<ConvParams> &convParams,
+splitInput(const std::vector<CanonicalConvParams> &convParams,
            const poplar::Tensor &in) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
   std::size_t prev(0);
-  const std::size_t inChans = convParams[0].inputChannelsPerConvGroup;
+  const std::size_t inChans = convParams[0]->inputChannelsPerConvGroup;
   for (const auto &cp : convParams) {
-    const auto intervalSize = cp.numConvGroups * inChans;
+    const auto intervalSize = cp->numConvGroups * inChans;
     intervals.push_back({prev, prev + intervalSize});
     prev += intervalSize;
   }
@@ -765,13 +762,13 @@ splitInput(const std::vector<ConvParams> &convParams,
 }
 
 std::vector<poplar::Tensor>
-splitWeights(const std::vector<ConvParams> &convParams,
+splitWeights(const std::vector<CanonicalConvParams> &convParams,
              const poplar::Tensor &weights) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
   std::size_t prev(0);
   for (const auto &cp : convParams) {
-    const auto intervalSize = cp.numConvGroups;
+    const auto intervalSize = cp->numConvGroups;
     intervals.push_back({prev, prev + intervalSize});
     prev += intervalSize;
   }

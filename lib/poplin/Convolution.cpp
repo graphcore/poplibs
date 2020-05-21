@@ -4743,14 +4743,15 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
 }
 
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
-                   const poplar::Tensor &weights, const ConvParams &params,
+                   const poplar::Tensor &weights,
+                   const CanonicalConvParams &params,
                    bool transposeAndFlipWeights, Sequence &prog,
                    const std::string &debugPrefix, const ConvOptions &options,
                    PlanningCache *cache) {
 
   logging::info("convolution");
   logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
-  log(2, params);
+  log(2, *params);
 
   auto output =
       convolutionInternal(graph, in, weights, params, transposeAndFlipWeights,
@@ -4762,7 +4763,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   if (options.remapOutputTensor) {
     const auto dimGroupings = detectDimGroupings(graph, output);
     if (dimGroupings.empty()) {
-      return remapOutputTensor(graph, output, prog, params, debugPrefix);
+      return remapOutputTensor(graph, output, prog, *params, debugPrefix);
     }
   }
   return output;
@@ -4974,10 +4975,9 @@ ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {
 
 Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const Tensor &activations_,
-                             const ConvParams &fwdParams_, Sequence &prog,
-                             const std::string &debugPrefix,
+                             const CanonicalConvParams &fwdParams,
+                             Sequence &prog, const std::string &debugPrefix,
                              const ConvOptions &options, PlanningCache *cache) {
-  const CanonicalConvParams fwdParams(fwdParams_);
   const auto numConvGroups = fwdParams->numConvGroups;
 
   // [G][N]...[C]
@@ -5034,11 +5034,9 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
-                             ConvParams params, const Tensor &scale,
+                             CanonicalConvParams params, const Tensor &scale,
                              Sequence &prog, const std::string &debugPrefix,
                              const ConvOptions &options, PlanningCache *cache) {
-  // Adjust params so that weightDelta is of inputType without needing to cast.
-  params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options, cache);
   // update weights
@@ -5053,6 +5051,9 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              Sequence &prog, const std::string &debugPrefix,
                              const poplar::OptionFlags &options_,
                              PlanningCache *cache) {
+  // Adjust params so that weightDelta is of inputType without needing to cast.
+  params.outputType = params.inputType;
+
   ConvOptions options(graph.getTarget(), options_);
   convolutionWeightUpdate(graph, zDeltas, weights, activations,
                           std::move(params), scale, prog, debugPrefix, options,
@@ -5061,11 +5062,9 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
-                             ConvParams params, float scale, Sequence &prog,
-                             const std::string &debugPrefix,
+                             CanonicalConvParams params, float scale,
+                             Sequence &prog, const std::string &debugPrefix,
                              const ConvOptions &options, PlanningCache *cache) {
-  // Adjust params so that weightDelta is of inputType without needing to cast.
-  params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
                                             prog, debugPrefix, options, cache);
   // Add the weight deltas to the weights.
@@ -5084,6 +5083,9 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const std::string &debugPrefix,
                              const poplar::OptionFlags &options_,
                              PlanningCache *cache) {
+  // Adjust params so that weightDelta is of inputType without needing to cast.
+  params.outputType = params.inputType;
+
   ConvOptions options(graph.getTarget(), options_);
   convolutionWeightUpdate(graph, zDeltas, weights, activations,
                           std::move(params), scale, prog, debugPrefix, options,

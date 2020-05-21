@@ -3,6 +3,7 @@
 #ifndef poplin_MultiConvolutionInternal_hpp
 #define poplin_MultiConvolutionInternal_hpp
 
+#include "CanonicalConvParams.hpp"
 #include "poplin/MultiConvolution.hpp"
 
 namespace poplin {
@@ -14,7 +15,7 @@ namespace internal {
 // (like ConvOptions).
 
 struct CreateTensorArgs {
-  ConvParams params;
+  CanonicalConvParams params;
   ConvOptions options;
   std::string name;
 };
@@ -22,14 +23,14 @@ struct CreateTensorArgs {
 struct ConvolutionArgs {
   poplar::Tensor inputs;
   poplar::Tensor weights;
-  ConvParams params;
+  CanonicalConvParams params;
   ConvOptions options;
 };
 
 struct CalculateWeightDeltasArgs {
   poplar::Tensor zDeltas;
   poplar::Tensor activations;
-  ConvParams params;
+  CanonicalConvParams params;
   ConvOptions options;
 };
 
@@ -38,7 +39,7 @@ template <typename ScaleType> struct ConvWeightUpdateArgs {
   poplar::Tensor weights;
   poplar::Tensor activations;
   ScaleType scale;
-  ConvParams params;
+  CanonicalConvParams params;
   ConvOptions options;
 };
 

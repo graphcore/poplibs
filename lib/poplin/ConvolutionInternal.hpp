@@ -21,14 +21,21 @@ poplar::Tensor createWeights(poplar::Graph &graph,
 
 poplar::Tensor
 convolution(poplar::Graph &graph, const poplar::Tensor &in,
-            const poplar::Tensor &weights, const ConvParams &params,
+            const poplar::Tensor &weights, const CanonicalConvParams &params,
             bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const std::string &debugPrefix, const ConvOptions &options,
             PlanningCache *cache = nullptr);
 
 poplar::Tensor calculateWeightDeltas(
     poplar::Graph &graph, const poplar::Tensor &zDeltas_,
-    const poplar::Tensor &activations_, const ConvParams &fwdParams_,
+    const poplar::Tensor &activations_, const CanonicalConvParams &fwdParams_,
+    poplar::program::Sequence &prog, const std::string &debugPrefix,
+    const ConvOptions &options, PlanningCache *cache);
+
+void convolutionWeightUpdate(
+    poplar::Graph &graph, const poplar::Tensor &zDeltas,
+    const poplar::Tensor &weights, const poplar::Tensor &activations,
+    CanonicalConvParams params, const poplar::Tensor &scale,
     poplar::program::Sequence &prog, const std::string &debugPrefix,
     const ConvOptions &options, PlanningCache *cache);
 
@@ -36,16 +43,7 @@ void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::Tensor &zDeltas,
                              const poplar::Tensor &weights,
                              const poplar::Tensor &activations,
-                             ConvParams params, const poplar::Tensor &scale,
-                             poplar::program::Sequence &prog,
-                             const std::string &debugPrefix,
-                             const ConvOptions &options, PlanningCache *cache);
-
-void convolutionWeightUpdate(poplar::Graph &graph,
-                             const poplar::Tensor &zDeltas,
-                             const poplar::Tensor &weights,
-                             const poplar::Tensor &activations,
-                             ConvParams params, float scale,
+                             CanonicalConvParams params, float scale,
                              poplar::program::Sequence &prog,
                              const std::string &debugPrefix,
                              const ConvOptions &options, PlanningCache *cache);

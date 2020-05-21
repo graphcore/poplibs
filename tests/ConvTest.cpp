@@ -111,7 +111,7 @@ ConvParams createParams() {
   p.inputTransform.paddingUpper = {0, 0};
   p.inputTransform.flip = {false, false};
 
-  p.kernelShape = {2, 2};
+  p.kernelShape = {1, 1};
   p.kernelTransform.truncationLower = {0, 0};
   p.kernelTransform.truncationUpper = {0, 0};
   p.kernelTransform.dilation = {1, 1};
@@ -128,10 +128,10 @@ ConvParams createParams() {
   return p;
 }
 
-multiconv::ConvolutionArgs createConvolutionArgs(Graph &graph,
-                                                 const ConvParams &cp) {
+multiconv::ConvolutionArgs
+createConvolutionArgs(Graph &graph, const CanonicalConvParams &cp) {
   multiconv::ConvolutionArgs ca;
-  ca.params = cp;
+  ca.params = *cp;
   poplin::PlanningCache cache;
   OptionFlags convOptions;
   ca.inputs =
@@ -142,7 +142,8 @@ multiconv::ConvolutionArgs createConvolutionArgs(Graph &graph,
 }
 
 std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
-    TestDevice &device, Graph &graph, const std::vector<ConvParams> &convParams,
+    TestDevice &device, Graph &graph,
+    const std::vector<CanonicalConvParams> &convParams,
     const std::vector<boost::multi_array<double, 3>> &hostIns,
     const std::vector<boost::multi_array<double, 4>> &hostWeights) {
   assert(convParams.size() == hostIns.size());
@@ -163,8 +164,8 @@ std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
     rawHostWeights.push_back(
         allocateHostMemoryForTensor(ca.weights, "weights" + std::to_string(i),
                                     graph, uploadProg, downloadProg, tmap));
-    copy(target, hostIns[i], convParams[i].inputType, rawHostIns.back().get());
-    copy(target, hostWeights[i], convParams[i].inputType,
+    copy(target, hostIns[i], convParams[i]->inputType, rawHostIns.back().get());
+    copy(target, hostWeights[i], convParams[i]->inputType,
          rawHostWeights.back().get());
   }
 
@@ -176,8 +177,8 @@ std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
   // Create a single convolution
   poplar::program::Sequence prog;
   poplin::PlanningCache cache;
-  auto out = poplin::convolution(graph, ca.inputs, ca.weights, ca.params, false,
-                                 prog, "conv", {}, &cache);
+  auto out = poplin::convolution(graph, ca.inputs, ca.weights, *ca.params,
+                                 false, prog, "conv", {}, &cache);
   // Split the result tensor
   auto outs = poplin::splitOutput(convParams, out);
   assert(outs.size() == convParams.size());
@@ -198,22 +199,24 @@ std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
   for (unsigned i(0); i < convParams.size(); ++i) {
     const auto cp = convParams[i];
     hostOuts.emplace_back(
-        boost::extents[cp.batchSize]
-                      [cp.numConvGroups * cp.outputChannelsPerConvGroup]
-                      [product(cp.getOutputFieldShape())]);
-    copy(target, cp.outputType, rawHostOuts[i].get(), hostOuts.back());
+        boost::extents[cp->batchSize]
+                      [cp->numConvGroups * cp->outputChannelsPerConvGroup]
+                      [product(cp->getOutputFieldShape())]);
+    copy(target, cp->outputType, rawHostOuts[i].get(), hostOuts.back());
   }
   return hostOuts;
 }
 
-void runAndCheckConvolution(TestDevice &device, Graph &graph,
-                            const std::vector<ConvParams> &convParams) {
+void runAndCheckConvolution(
+    TestDevice &device, Graph &graph,
+    const std::vector<CanonicalConvParams> &convParams) {
   // Write random values to input tensors
   std::vector<boost::multi_array<double, 3>> hostIns;
   std::vector<boost::multi_array<double, 4>> hostWeights;
   std::mt19937 randomEngine;
   auto target = device.getTarget();
-  for (const auto p : convParams) {
+  for (const auto &ccp : convParams) {
+    const auto &p = *ccp;
     hostIns.emplace_back(
         boost::extents[p.batchSize]
                       [p.numConvGroups * p.inputChannelsPerConvGroup]
@@ -234,11 +237,11 @@ void runAndCheckConvolution(TestDevice &device, Graph &graph,
   // Compare results to model
   for (unsigned i(0); i < convParams.size(); ++i) {
     auto params = convParams[i];
-    auto hostBiases = createDummyBiases(params);
-    auto modelOut = createOut(params);
-    convolve(hostIns[i], hostWeights[i], hostBiases, modelOut, params);
-    double absoluteTolerance = params.outputType == FLOAT ? 1e-6 : 1e-5;
-    double relativeTolerance = params.outputType == FLOAT ? 0.01 : 0.1;
+    auto hostBiases = createDummyBiases(*params);
+    auto modelOut = createOut(*params);
+    convolve(hostIns[i], hostWeights[i], hostBiases, modelOut, *params);
+    double absoluteTolerance = params->outputType == FLOAT ? 1e-6 : 1e-5;
+    double relativeTolerance = params->outputType == FLOAT ? 0.01 : 0.1;
     bool isClose = checkIsClose("combined_conv", hostOuts[i], modelOut,
                                 relativeTolerance, absoluteTolerance);
     BOOST_CHECK(isClose);
@@ -246,35 +249,43 @@ void runAndCheckConvolution(TestDevice &device, Graph &graph,
 }
 
 BOOST_AUTO_TEST_CASE(MultiConvCanBeCombined) {
-  auto createArgsPair = [](Graph &graph) {
+  auto createArgsPair = [](Graph &graph, const auto &modify) {
     auto cp1 = createParams();
-    auto ca1 = createConvolutionArgs(graph, cp1);
     auto cp2 = createParams();
+    modify(cp1, cp2);
+
+    auto ca1 = createConvolutionArgs(graph, cp1);
     auto ca2 = createConvolutionArgs(graph, cp2);
     return convertToConvOptions(graph, {ca1, ca2});
   };
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   Graph graph(device.getTarget());
   {
-    auto args = createArgsPair(graph);
-    args[0].params.batchSize = 1;
-    args[1].params.batchSize = 2;
+    auto args =
+        createArgsPair(graph, [](ConvParams &first, ConvParams &second) {
+          first.batchSize = 1;
+          second.batchSize = 2;
+        });
     BOOST_CHECK(!poplin::canBeCombined(args));
   }
   {
-    auto args = createArgsPair(graph);
-    args[0].params.inputFieldShape = {1, 1};
-    args[1].params.inputFieldShape = {2, 2};
+    auto args =
+        createArgsPair(graph, [](ConvParams &first, ConvParams &second) {
+          first.inputFieldShape = {1, 1};
+          second.inputFieldShape = {2, 2};
+        });
     BOOST_CHECK(!poplin::canBeCombined(args));
   }
   {
-    auto args = createArgsPair(graph);
-    args[0].params.kernelTransform.paddingLower = {0, 0};
-    args[1].params.kernelTransform.paddingLower = {1, 1};
+    auto args =
+        createArgsPair(graph, [](ConvParams &first, ConvParams &second) {
+          first.kernelTransform.paddingLower = {0, 0};
+          second.kernelTransform.paddingLower = {1, 1};
+        });
     BOOST_CHECK(!poplin::canBeCombined(args));
   }
   {
-    auto args = createArgsPair(graph);
+    auto args = createArgsPair(graph, [](const auto &, const auto &) {});
     args[0].options.interIpuPartialsType = poplar::FLOAT;
     args[1].options.interIpuPartialsType = poplar::HALF;
     BOOST_CHECK(!poplin::canBeCombined(args));
@@ -348,8 +359,8 @@ BOOST_AUTO_TEST_CASE(SplitOutput) {
 
   // out shape should [B][G * Co]...
   //   where G*Co = (4+5+6)*3 = 45
-  const std::vector<ConvParams> params{makeConvParams(4), makeConvParams(5),
-                                       makeConvParams(6)};
+  const std::vector<CanonicalConvParams> params{
+      makeConvParams(4), makeConvParams(5), makeConvParams(6)};
 
   const auto uut =
       graph.addVariable(poplar::HALF, {batch, (4 + 5 + 6) * outChans, 1});
@@ -381,8 +392,8 @@ BOOST_AUTO_TEST_CASE(SplitInput) {
 
   // out shape should [B][G * Ci]...
   //   where G*Co = (4+5+6)*3 = 45
-  const std::vector<ConvParams> params{makeConvParams(4), makeConvParams(5),
-                                       makeConvParams(6)};
+  const std::vector<CanonicalConvParams> params{
+      makeConvParams(4), makeConvParams(5), makeConvParams(6)};
 
   const auto uut =
       graph.addVariable(poplar::HALF, {batch, (4 + 5 + 6) * inChans, 1});
@@ -413,8 +424,8 @@ BOOST_AUTO_TEST_CASE(SplitWeights) {
   Graph graph(device.getTarget());
 
   // weights shape should [G][Ci][Co]...
-  const std::vector<ConvParams> params{makeConvParams(4), makeConvParams(5),
-                                       makeConvParams(6)};
+  const std::vector<CanonicalConvParams> params{
+      makeConvParams(4), makeConvParams(5), makeConvParams(6)};
 
   const auto uut =
       graph.addVariable(poplar::HALF, {4 + 5 + 6, inChans, outChans, 1});
@@ -450,7 +461,7 @@ BOOST_AUTO_TEST_CASE(CombineCreateTensorArgs) {
       {makeConvParams(6), options, "six"}};
   auto result = combine(args);
 
-  BOOST_TEST(result.params == makeConvParams(4 + 5 + 6));
+  BOOST_TEST(*result.params == makeConvParams(4 + 5 + 6));
   BOOST_TEST(result.options == options);
   // for now only the first name is preserved.
   BOOST_TEST(result.name == "four");
@@ -494,7 +505,7 @@ BOOST_AUTO_TEST_CASE(CombineConvolutionArgs) {
   };
 
   auto result = combine(args);
-  BOOST_TEST(result.params == makeConvParams(5 + 6 + 7));
+  BOOST_TEST(*result.params == makeConvParams(5 + 6 + 7));
   BOOST_TEST(result.options == options);
 
   const unsigned iDim = 1;
@@ -541,7 +552,7 @@ BOOST_AUTO_TEST_CASE(CombineCalculateWeightDeltasArgs) {
   };
 
   auto result = combine(args);
-  BOOST_TEST(result.params == makeConvParams(5 + 6 + 7));
+  BOOST_TEST(*result.params == makeConvParams(5 + 6 + 7));
   BOOST_TEST(result.options == options);
 
   const unsigned d = 1;
@@ -606,7 +617,7 @@ BOOST_AUTO_TEST_CASE(CombineConvWeightUpdateArgs) {
   // for now only the first scale is preserved... obviously needs fixing before
   // multi-convs are complete.
   BOOST_TEST(result.scale == 15);
-  BOOST_TEST(result.params == makeConvParams(5 + 6 + 7));
+  BOOST_TEST(*result.params == makeConvParams(5 + 6 + 7));
   BOOST_TEST(result.options == options);
 
   const unsigned iDim = 1;

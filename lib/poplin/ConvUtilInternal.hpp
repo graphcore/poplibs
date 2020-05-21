@@ -210,12 +210,13 @@ std::vector<T> combine(const std::vector<std::vector<const T *>> &groups) {
 
 // Splits the result of a combined multi-convolution
 std::vector<poplar::Tensor>
-splitOutput(const std::vector<ConvParams> &convParams,
+splitOutput(const std::vector<CanonicalConvParams> &convParams,
             const poplar::Tensor &out);
 std::vector<poplar::Tensor>
-splitInput(const std::vector<ConvParams> &convParams, const poplar::Tensor &in);
+splitInput(const std::vector<CanonicalConvParams> &convParams,
+           const poplar::Tensor &in);
 std::vector<poplar::Tensor>
-splitWeights(const std::vector<ConvParams> &convParams,
+splitWeights(const std::vector<CanonicalConvParams> &convParams,
              const poplar::Tensor &in);
 
 template <typename T, typename F>
@@ -224,7 +225,7 @@ split(const std::vector<std::vector<const T *>> &groups,
       const std::vector<poplar::Tensor> &outs, const F &splitFn) {
   std::vector<poplar::Tensor> splitOuts;
   for (unsigned i(0); i < groups.size(); ++i) {
-    std::vector<ConvParams> convParams;
+    std::vector<CanonicalConvParams> convParams;
     for (const auto ca : groups[i]) {
       convParams.push_back(ca->params);
     }

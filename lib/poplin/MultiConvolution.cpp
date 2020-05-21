@@ -13,7 +13,7 @@ namespace multiconv {
 
 namespace logging = poplibs_support::logging;
 
-void log(const char *name, const std::vector<ConvolutionArgs> &args) {
+static void log(const char *name, const std::vector<ConvolutionArgs> &args) {
   if (logging::shouldLog(logging::Level::Info)) {
     logging::info(name);
     for (unsigned i = 0; i < args.size(); ++i) {
@@ -141,6 +141,14 @@ void convolutionWeightUpdate(poplar::Graph &graph,
   const auto args = preProcess(argsWithConvOptions);
 
   for (const auto &arg : args) {
+    // TODO: convolutionWeightUpdate expects inputType == outputType, handle
+    // when that is not the case.
+    if (arg.params->inputType != arg.params->outputType) {
+      throw poputil::poplibs_error(
+          "multiconv::convolutionWeightUpdate does not support having a "
+          "different input and output type.");
+    }
+
     poplin::convolutionWeightUpdate(graph, arg.zDeltas, arg.weights,
                                     arg.activations, arg.params, arg.scale,
                                     prog, debugPrefix, arg.options, cache);

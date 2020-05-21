@@ -18,6 +18,7 @@ public:
            "canonicalizeParams is not idempotent");
   }
 
+  const ConvParams &operator*() const { return params.get(); }
   const ConvParams *operator->() const { return &params.get(); }
 
   friend bool operator==(const CanonicalConvParams &a,
