@@ -179,7 +179,7 @@ std::vector<boost::multi_array<double, 3>> combineAndRunConvolution(
   auto out = poplin::convolution(graph, ca.inputs, ca.weights, ca.params, false,
                                  prog, "conv", {}, &cache);
   // Split the result tensor
-  auto outs = poplin::split(convParams, out);
+  auto outs = poplin::splitOutput(convParams, out);
   assert(outs.size() == convParams.size());
   // Allocate host memory for split output tensors
   std::vector<std::unique_ptr<char[]>> rawHostOuts;
@@ -293,4 +293,343 @@ BOOST_AUTO_TEST_CASE(MultiConvCombination) {
   cp3.numConvGroups = 3;
 
   runAndCheckConvolution(device, graph, {cp1, cp2, cp3});
+}
+
+const auto printMapping = [](const auto &mapping) {
+  for (unsigned tile = 0; tile < mapping.size(); ++tile) {
+    std::stringstream ss;
+    ss << "tile = " << tile << ", intervals=[ ";
+    for (const auto i : mapping[tile])
+      ss << i << " ";
+    ss << "]";
+
+    BOOST_TEST_MESSAGE(ss.str());
+  }
+};
+
+const auto checkMappingEntirelyOneTile = [](const Graph &graph, const Tensor &t,
+                                            const unsigned i) {
+  auto mapping = graph.getTileMapping(t);
+
+  for (unsigned tile = 0; tile < mapping.size(); ++tile) {
+    if (tile == i) {
+      BOOST_TEST(!mapping[tile].empty());
+    } else {
+      BOOST_TEST(mapping[tile].empty());
+    }
+  }
+};
+
+const auto checkSplitTensorsMappedToSeparateTiles =
+    [](const Graph &graph, const std::vector<Tensor> &result) {
+      BOOST_TEST(result.size() == 3);
+
+      for (unsigned i = 0; i < result.size(); ++i) {
+        std::stringstream ss0;
+        ss0 << "result << " << i << " ";
+        result[i].outputRegions(ss0);
+        BOOST_TEST_MESSAGE(ss0.str());
+
+        // the first conv params should be entirely mapped on tile 0, etc.
+        checkMappingEntirelyOneTile(graph, result[i], i);
+      }
+    };
+
+BOOST_AUTO_TEST_CASE(SplitOutput) {
+  constexpr static auto batch = 2;
+  constexpr static auto outChans = 3;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, batch, {1}, {1}, 1, outChans, convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+
+  // out shape should [B][G * Co]...
+  //   where G*Co = (4+5+6)*3 = 45
+  const std::vector<ConvParams> params{makeConvParams(4), makeConvParams(5),
+                                       makeConvParams(6)};
+
+  const auto uut =
+      graph.addVariable(poplar::HALF, {batch, (4 + 5 + 6) * outChans, 1});
+
+  // map each ConvParam to a separate tile.
+  const unsigned gDim = 1;
+  graph.setTileMapping(uut.slice(0, 4 * outChans, gDim), 0);
+  graph.setTileMapping(uut.slice(4 * outChans, (4 + 5) * outChans, gDim), 1);
+  graph.setTileMapping(
+      uut.slice((4 + 5) * outChans, (4 + 5 + 6) * outChans, gDim), 2);
+  printMapping(graph.getTileMapping(uut));
+
+  // split the output and verify that each one is entirely mapped to the
+  // expected tile.
+  auto result = splitOutput(params, uut);
+  checkSplitTensorsMappedToSeparateTiles(graph, result);
+}
+
+BOOST_AUTO_TEST_CASE(SplitInput) {
+  constexpr static auto batch = 2;
+  constexpr static auto inChans = 3;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, batch, {1}, {1}, inChans, 1, convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+
+  // out shape should [B][G * Ci]...
+  //   where G*Co = (4+5+6)*3 = 45
+  const std::vector<ConvParams> params{makeConvParams(4), makeConvParams(5),
+                                       makeConvParams(6)};
+
+  const auto uut =
+      graph.addVariable(poplar::HALF, {batch, (4 + 5 + 6) * inChans, 1});
+
+  // map each ConvParam to a separate tile.
+  const unsigned gDim = 1;
+  graph.setTileMapping(uut.slice(0, 4 * inChans, gDim), 0);
+  graph.setTileMapping(uut.slice(4 * inChans, (4 + 5) * inChans, gDim), 1);
+  graph.setTileMapping(
+      uut.slice((4 + 5) * inChans, (4 + 5 + 6) * inChans, gDim), 2);
+  printMapping(graph.getTileMapping(uut));
+
+  // split the input and verify that each one is entirely mapped to the
+  // expected tile.
+  auto result = splitInput(params, uut);
+  checkSplitTensorsMappedToSeparateTiles(graph, result);
+}
+
+BOOST_AUTO_TEST_CASE(SplitWeights) {
+  constexpr static auto inChans = 3;
+  constexpr static auto outChans = 4;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, 1, {1}, {1}, inChans, outChans, convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+
+  // weights shape should [G][Ci][Co]...
+  const std::vector<ConvParams> params{makeConvParams(4), makeConvParams(5),
+                                       makeConvParams(6)};
+
+  const auto uut =
+      graph.addVariable(poplar::HALF, {4 + 5 + 6, inChans, outChans, 1});
+
+  // map each ConvParam to a separate tile.
+  const unsigned gDim = 0;
+  graph.setTileMapping(uut.slice(0, 4, gDim), 0);
+  graph.setTileMapping(uut.slice(4, 4 + 5, gDim), 1);
+  graph.setTileMapping(uut.slice(4 + 5, 4 + 5 + 6, gDim), 2);
+  printMapping(graph.getTileMapping(uut));
+
+  // split the input and verify that each one is entirely mapped to the
+  // expected tile.
+  auto result = splitWeights(params, uut);
+  checkSplitTensorsMappedToSeparateTiles(graph, result);
+}
+
+BOOST_AUTO_TEST_CASE(CombineCreateTensorArgs) {
+  constexpr static auto batch = 2;
+  constexpr static auto inChans = 3;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, batch, {1}, {1}, inChans, 1, convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET);
+  ConvOptions options(device.getTarget());
+  options.pass = Pass::FC_TRAINING_WU;
+
+  std::vector<multiconv::internal::CreateTensorArgs> args{
+      {makeConvParams(4), options, "four"},
+      {makeConvParams(5), options, "five"},
+      {makeConvParams(6), options, "six"}};
+  auto result = combine(args);
+
+  BOOST_TEST(result.params == makeConvParams(4 + 5 + 6));
+  BOOST_TEST(result.options == options);
+  // for now only the first name is preserved.
+  BOOST_TEST(result.name == "four");
+}
+
+BOOST_AUTO_TEST_CASE(CombineConvolutionArgs) {
+  constexpr static auto batch = 2;
+  constexpr static auto inChans = 3;
+  constexpr static auto outChans = 4;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, batch, {1}, {1}, inChans, outChans,
+                      convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 8);
+  Graph graph(device.getTarget());
+
+  const auto makeInput = [&graph](unsigned convGroups) {
+    // acts external shape: [N][G * C]...
+    auto t = graph.addVariable(poplar::HALF, {batch, convGroups * inChans, 1});
+    graph.setTileMapping(t, convGroups);
+    return t;
+  };
+
+  const auto makeWeights = [&graph](unsigned convGroups) {
+    // weights external shape: [G][Co][Ci]...
+    auto t =
+        graph.addVariable(poplar::HALF, {convGroups, outChans, inChans, 1});
+    graph.setTileMapping(t, convGroups);
+    return t;
+  };
+
+  ConvOptions options(device.getTarget());
+  options.pass = Pass::FC_TRAINING_WU;
+
+  std::vector<multiconv::internal::ConvolutionArgs> args{
+      {makeInput(5), makeWeights(5), makeConvParams(5), options},
+      {makeInput(6), makeWeights(6), makeConvParams(6), options},
+      {makeInput(7), makeWeights(7), makeConvParams(7), options},
+  };
+
+  auto result = combine(args);
+  BOOST_TEST(result.params == makeConvParams(5 + 6 + 7));
+  BOOST_TEST(result.options == options);
+
+  const unsigned iDim = 1;
+  checkMappingEntirelyOneTile(graph, result.inputs.slice(0, 5 * inChans, iDim),
+                              5);
+  checkMappingEntirelyOneTile(
+      graph, result.inputs.slice(5 * inChans, (5 + 6) * inChans, iDim), 6);
+  checkMappingEntirelyOneTile(
+      graph,
+      result.inputs.slice((5 + 6) * inChans, (5 + 6 + 7) * inChans, iDim), 7);
+
+  const unsigned wDim = 0;
+  checkMappingEntirelyOneTile(graph, result.weights.slice(0, 5, wDim), 5);
+  checkMappingEntirelyOneTile(graph, result.weights.slice(5, 5 + 6, wDim), 6);
+  checkMappingEntirelyOneTile(graph,
+                              result.weights.slice(5 + 6, 5 + 6 + 7, wDim), 7);
+}
+
+BOOST_AUTO_TEST_CASE(CombineCalculateWeightDeltasArgs) {
+  constexpr static auto batch = 2;
+  constexpr static auto inChans = 3;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, batch, {1}, {1}, inChans, 1, convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 8);
+  Graph graph(device.getTarget());
+
+  const auto makeInput = [&graph](unsigned convGroups) {
+    // acts external shape: [N][G * C]...
+    auto t = graph.addVariable(poplar::HALF, {batch, convGroups * inChans, 1});
+    graph.setTileMapping(t, convGroups);
+    return t;
+  };
+
+  ConvOptions options(device.getTarget());
+  options.pass = Pass::FC_TRAINING_WU;
+
+  std::vector<multiconv::internal::CalculateWeightDeltasArgs> args{
+      {makeInput(5), makeInput(5), makeConvParams(5), options},
+      {makeInput(6), makeInput(6), makeConvParams(6), options},
+      {makeInput(7), makeInput(7), makeConvParams(7), options},
+  };
+
+  auto result = combine(args);
+  BOOST_TEST(result.params == makeConvParams(5 + 6 + 7));
+  BOOST_TEST(result.options == options);
+
+  const unsigned d = 1;
+  checkMappingEntirelyOneTile(graph, result.zDeltas.slice(0, 5 * inChans, d),
+                              5);
+  checkMappingEntirelyOneTile(
+      graph, result.zDeltas.slice(5 * inChans, (5 + 6) * inChans, d), 6);
+  checkMappingEntirelyOneTile(
+      graph, result.zDeltas.slice((5 + 6) * inChans, (5 + 6 + 7) * inChans, d),
+      7);
+
+  checkMappingEntirelyOneTile(graph,
+                              result.activations.slice(0, 5 * inChans, d), 5);
+  checkMappingEntirelyOneTile(
+      graph, result.activations.slice(5 * inChans, (5 + 6) * inChans, d), 6);
+  checkMappingEntirelyOneTile(
+      graph,
+      result.activations.slice((5 + 6) * inChans, (5 + 6 + 7) * inChans, d), 7);
+}
+
+BOOST_AUTO_TEST_CASE(CombineConvWeightUpdateArgs) {
+  constexpr static auto batch = 2;
+  constexpr static auto inChans = 3;
+  constexpr static auto outChans = 4;
+
+  const auto makeConvParams = [](unsigned convGroups) {
+    return ConvParams(poplar::HALF, batch, {1}, {1}, inChans, outChans,
+                      convGroups);
+  };
+
+  auto device = createTestDevice(TEST_TARGET, 1, 8);
+  Graph graph(device.getTarget());
+
+  const auto makeInput = [&graph](unsigned convGroups) {
+    // acts external shape: [N][G * C]...
+    auto t = graph.addVariable(poplar::HALF, {batch, convGroups * inChans, 1});
+    graph.setTileMapping(t, convGroups);
+    return t;
+  };
+
+  const auto makeWeights = [&graph](unsigned convGroups) {
+    // weights external shape: [G][Co][Ci]...
+    auto t =
+        graph.addVariable(poplar::HALF, {convGroups, outChans, inChans, 1});
+    graph.setTileMapping(t, convGroups);
+    return t;
+  };
+
+  ConvOptions options(device.getTarget());
+  options.pass = Pass::FC_TRAINING_WU;
+
+  std::vector<multiconv::internal::ConvWeightUpdateArgs<float>> args{
+      {makeInput(5), makeWeights(5), makeInput(5), 15, makeConvParams(5),
+       options},
+      {makeInput(6), makeWeights(6), makeInput(6), 16, makeConvParams(6),
+       options},
+      {makeInput(7), makeWeights(7), makeInput(7), 17, makeConvParams(7),
+       options},
+  };
+
+  auto result = combine(args);
+  // for now only the first scale is preserved... obviously needs fixing before
+  // multi-convs are complete.
+  BOOST_TEST(result.scale == 15);
+  BOOST_TEST(result.params == makeConvParams(5 + 6 + 7));
+  BOOST_TEST(result.options == options);
+
+  const unsigned iDim = 1;
+  checkMappingEntirelyOneTile(graph, result.zDeltas.slice(0, 5 * inChans, iDim),
+                              5);
+  checkMappingEntirelyOneTile(
+      graph, result.zDeltas.slice(5 * inChans, (5 + 6) * inChans, iDim), 6);
+  checkMappingEntirelyOneTile(
+      graph,
+      result.zDeltas.slice((5 + 6) * inChans, (5 + 6 + 7) * inChans, iDim), 7);
+
+  checkMappingEntirelyOneTile(
+      graph, result.activations.slice(0, 5 * inChans, iDim), 5);
+  checkMappingEntirelyOneTile(
+      graph, result.activations.slice(5 * inChans, (5 + 6) * inChans, iDim), 6);
+  checkMappingEntirelyOneTile(
+      graph,
+      result.activations.slice((5 + 6) * inChans, (5 + 6 + 7) * inChans, iDim),
+      7);
+
+  const unsigned wDim = 0;
+  checkMappingEntirelyOneTile(graph, result.weights.slice(0, 5, wDim), 5);
+  checkMappingEntirelyOneTile(graph, result.weights.slice(5, 5 + 6, wDim), 6);
+  checkMappingEntirelyOneTile(graph,
+                              result.weights.slice(5 + 6, 5 + 6 + 7, wDim), 7);
 }

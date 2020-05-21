@@ -2196,9 +2196,9 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   return t;
 }
 
-static Tensor createInput(Graph &graph, const CanonicalConvParams &params,
-                          const std::string &name, const ConvOptions &options,
-                          PlanningCache *cache) {
+Tensor createInput(Graph &graph, const CanonicalConvParams &params,
+                   const std::string &name, const ConvOptions &options,
+                   PlanningCache *cache) {
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
 
   const unsigned level = 0;
@@ -2337,9 +2337,9 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   return weights;
 }
 
-static Tensor createWeights(Graph &graph, const CanonicalConvParams &params,
-                            const std::string &name, const ConvOptions &options,
-                            PlanningCache *cache) {
+Tensor createWeights(Graph &graph, const CanonicalConvParams &params,
+                     const std::string &name, const ConvOptions &options,
+                     PlanningCache *cache) {
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
 
   const unsigned level = 0;
@@ -4748,37 +4748,9 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const std::string &debugPrefix, const ConvOptions &options,
                    PlanningCache *cache) {
 
-  if (logging::shouldLog(logging::Level::Info)) {
-    logging::info("convolution");
-    logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
-    logging::info(
-        "  input={}x({}x{}x{}) padding={}/{} truncation={}/{} dilation={} "
-        "flip={}",
-        params.inputFieldShape, params.getBatchSize(),
-        params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
-        params.inputTransform.paddingLower, params.inputTransform.paddingUpper,
-        params.inputTransform.truncationLower,
-        params.inputTransform.truncationUpper, params.inputTransform.dilation,
-        params.inputTransform.flip);
-    logging::info("  kernel={}x({}x{}x{}) padding={}/{} truncation={}/{} "
-                  "dilation={} flip={}",
-                  params.kernelShape, params.getNumConvGroups(),
-                  params.getNumOutputChansPerConvGroup(),
-                  params.getNumInputChansPerConvGroup(),
-                  params.kernelTransform.paddingLower,
-                  params.kernelTransform.paddingUpper,
-                  params.kernelTransform.truncationLower,
-                  params.kernelTransform.truncationUpper,
-                  params.kernelTransform.dilation, params.kernelTransform.flip);
-    logging::info(
-        "  output={}x({}x{}x{}) padding={}/{} truncation={}/{} stride={}",
-        params.getOutputFieldShape(), params.getBatchSize(),
-        params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
-        params.outputTransform.paddingLower,
-        params.outputTransform.paddingUpper,
-        params.outputTransform.truncationLower,
-        params.outputTransform.truncationUpper, params.outputTransform.stride);
-  }
+  logging::info("convolution");
+  logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
+  log(2, params);
 
   auto output =
       convolutionInternal(graph, in, weights, params, transposeAndFlipWeights,
@@ -5004,8 +4976,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const Tensor &activations_,
                              const ConvParams &fwdParams_, Sequence &prog,
                              const std::string &debugPrefix,
-                             const poplar::OptionFlags &fwdOptions,
-                             PlanningCache *cache) {
+                             const ConvOptions &options, PlanningCache *cache) {
   const CanonicalConvParams fwdParams(fwdParams_);
   const auto numConvGroups = fwdParams->numConvGroups;
 
@@ -5018,8 +4989,6 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                                          fwdParams->inputChannelsPerConvGroup);
 
   auto params = getWeightUpdateParams(fwdParams.getParams());
-  auto options = fwdOptions;
-  options.set("pass", "TRAINING_WU");
 
   // The weight update is equivalent to a convolution where:
   // - wu conv groups = fwd conv groups
@@ -5049,12 +5018,25 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
       weightDeltas.dimShufflePartial({1}, {weightDeltas.rank() - 1}));
 }
 
+Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
+                             const Tensor &activations_,
+                             const ConvParams &fwdParams_, Sequence &prog,
+                             const std::string &debugPrefix,
+                             const poplar::OptionFlags &fwdOptions,
+                             PlanningCache *cache) {
+  auto options_ = fwdOptions;
+  options_.set("pass", "TRAINING_WU");
+
+  const ConvOptions options(graph.getTarget(), options_);
+  return calculateWeightDeltas(graph, zDeltas_, activations_, fwdParams_, prog,
+                               debugPrefix, options, cache);
+}
+
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
                              ConvParams params, const Tensor &scale,
                              Sequence &prog, const std::string &debugPrefix,
-                             const poplar::OptionFlags &options,
-                             PlanningCache *cache) {
+                             const ConvOptions &options, PlanningCache *cache) {
   // Adjust params so that weightDelta is of inputType without needing to cast.
   params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
@@ -5067,10 +5049,21 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
+                             ConvParams params, const Tensor &scale,
+                             Sequence &prog, const std::string &debugPrefix,
+                             const poplar::OptionFlags &options_,
+                             PlanningCache *cache) {
+  ConvOptions options(graph.getTarget(), options_);
+  convolutionWeightUpdate(graph, zDeltas, weights, activations,
+                          std::move(params), scale, prog, debugPrefix, options,
+                          cache);
+}
+
+void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
+                             const Tensor &weights, const Tensor &activations,
                              ConvParams params, float scale, Sequence &prog,
                              const std::string &debugPrefix,
-                             const poplar::OptionFlags &options,
-                             PlanningCache *cache) {
+                             const ConvOptions &options, PlanningCache *cache) {
   // Adjust params so that weightDelta is of inputType without needing to cast.
   params.outputType = params.inputType;
   auto weightDeltas = calculateWeightDeltas(graph, zDeltas, activations, params,
@@ -5083,6 +5076,18 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 
   scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
               debugPrefix + "/UpdateWeights");
+}
+
+void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
+                             const Tensor &weights, const Tensor &activations,
+                             ConvParams params, float scale, Sequence &prog,
+                             const std::string &debugPrefix,
+                             const poplar::OptionFlags &options_,
+                             PlanningCache *cache) {
+  ConvOptions options(graph.getTarget(), options_);
+  convolutionWeightUpdate(graph, zDeltas, weights, activations,
+                          std::move(params), scale, prog, debugPrefix, options,
+                          cache);
 }
 
 // Add a program to update the biases tensor with the gradients derived

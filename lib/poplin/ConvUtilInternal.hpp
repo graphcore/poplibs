@@ -7,6 +7,7 @@
 
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
+#include "MultiConvolutionInternal.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/MultiConvolution.hpp"
 #include "poputil/VarStructure.hpp"
@@ -151,41 +152,88 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
                                    unsigned numMachineStrideBits, int inStride,
                                    int inRowStride);
 
-// Auxiliary structure similar to ConvolutionArgs
-struct ConvArgsWithConvOptions {
-  poplar::Tensor inputs;
-  poplar::Tensor weights;
-  ConvParams params;
-  ConvOptions options;
-};
+// Converts OptionFlags in multiconv input structures to ConvOptions
+std::vector<multiconv::internal::CreateTensorArgs>
+convertToConvOptions(poplar::Graph &graph,
+                     const std::vector<multiconv::CreateTensorArgs> &args);
 
-// Converts OptionFlags in ConvolutionArgs to ConvOptions
-std::vector<ConvArgsWithConvOptions>
+std::vector<multiconv::internal::ConvolutionArgs>
 convertToConvOptions(poplar::Graph &graph,
                      const std::vector<multiconv::ConvolutionArgs> &args);
 
+std::vector<multiconv::internal::CalculateWeightDeltasArgs>
+convertToConvOptions(
+    poplar::Graph &graph,
+    const std::vector<multiconv::CalculateWeightDeltasArgs> &args);
+
+std::vector<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>
+convertToConvOptions(poplar::Graph &graph,
+                     const std::vector<multiconv::ConvWeightUpdateArgs> &args);
+
+std::vector<multiconv::internal::ConvWeightUpdateArgs<float>>
+convertToConvOptions(
+    poplar::Graph &graph,
+    const std::vector<multiconv::ConvWeightUpdateArgsScalar> &args);
+
 // Checks that multiple ConvolutionArgs can be combined
-bool canBeCombined(const std::vector<ConvArgsWithConvOptions> &convolutionArgs);
+template <typename T> bool canBeCombined(const std::vector<T> &convolutionArgs);
 
 // Returns a vector of groups of combinable convolution arguments
-std::vector<std::vector<const ConvArgsWithConvOptions *>>
-groupCombinables(const std::vector<ConvArgsWithConvOptions> &args);
+template <typename T>
+std::vector<std::vector<const T *>>
+groupCombinables(const std::vector<T> &args);
 
 // Returns the combination (aggregates convolution parameters and concatenates
 // input tensors) of multiple compatible convolution arguments.
-ConvArgsWithConvOptions
-combine(const std::vector<ConvArgsWithConvOptions> &convolutionArgs);
+multiconv::internal::CreateTensorArgs
+combine(const std::vector<multiconv::internal::CreateTensorArgs> &args);
+multiconv::internal::ConvolutionArgs
+combine(const std::vector<multiconv::internal::ConvolutionArgs> &args);
+multiconv::internal::CalculateWeightDeltasArgs combine(
+    const std::vector<multiconv::internal::CalculateWeightDeltasArgs> &args);
+template <typename T>
+multiconv::internal::ConvWeightUpdateArgs<T>
+combine(const std::vector<multiconv::internal::ConvWeightUpdateArgs<T>> &args);
 
-std::vector<ConvArgsWithConvOptions> combine(
-    const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups);
+template <typename T>
+std::vector<T> combine(const std::vector<std::vector<const T *>> &groups) {
+  std::vector<T> args;
+  for (const auto &group : groups) {
+    std::vector<T> combinedArgs;
+    for (const auto ca : group) {
+      combinedArgs.push_back(*ca);
+    }
+    args.push_back(combine(combinedArgs));
+  }
+  return args;
+}
 
 // Splits the result of a combined multi-convolution
-std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
-                                  const poplar::Tensor &out);
-
 std::vector<poplar::Tensor>
-split(const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups,
-      const std::vector<poplar::Tensor> &out);
+splitOutput(const std::vector<ConvParams> &convParams,
+            const poplar::Tensor &out);
+std::vector<poplar::Tensor>
+splitInput(const std::vector<ConvParams> &convParams, const poplar::Tensor &in);
+std::vector<poplar::Tensor>
+splitWeights(const std::vector<ConvParams> &convParams,
+             const poplar::Tensor &in);
+
+template <typename T, typename F>
+std::vector<poplar::Tensor>
+split(const std::vector<std::vector<const T *>> &groups,
+      const std::vector<poplar::Tensor> &outs, const F &splitFn) {
+  std::vector<poplar::Tensor> splitOuts;
+  for (unsigned i(0); i < groups.size(); ++i) {
+    std::vector<ConvParams> convParams;
+    for (const auto ca : groups[i]) {
+      convParams.push_back(ca->params);
+    }
+    const auto s = splitFn(convParams, outs[i]);
+    splitOuts.insert(splitOuts.end(), s.begin(), s.end());
+  }
+  return splitOuts;
+}
+
 // Given a vector of group weights and a number of elements,
 // distribute them among the groups proportionally to their weights.
 // If noEmptyGroups is set, at least one element is assigned to every group
@@ -209,6 +257,9 @@ splitTilesByComp(const std::vector<ConvParams> &convParams, unsigned numTiles);
 // assuming that elements are sequentially assigned to each group
 unsigned getGroupIndex(const std::vector<unsigned> &groups,
                        const unsigned element);
+
+// print ConvParams to INFO log level.
+void log(unsigned indent, const ConvParams &params);
 
 } // End namespace poplin
 

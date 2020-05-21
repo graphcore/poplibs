@@ -3,6 +3,7 @@
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "popops/Rearrange.hpp"
 #include "poputil/Util.hpp"
@@ -483,15 +484,68 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
           outChanGrainSize};
 }
 
-std::vector<ConvArgsWithConvOptions>
+std::vector<multiconv::internal::CreateTensorArgs>
+convertToConvOptions(poplar::Graph &graph,
+                     const std::vector<multiconv::CreateTensorArgs> &args) {
+  std::vector<multiconv::internal::CreateTensorArgs> v;
+  for (const auto &arg : args) {
+    const ConvOptions options(graph.getTarget(), arg.options);
+    v.push_back({arg.params, options, arg.name});
+  }
+  return v;
+}
+
+std::vector<multiconv::internal::ConvolutionArgs>
 convertToConvOptions(poplar::Graph &graph,
                      const std::vector<multiconv::ConvolutionArgs> &args) {
-  std::vector<ConvArgsWithConvOptions> v;
+  std::vector<multiconv::internal::ConvolutionArgs> v;
   for (const auto &arg : args) {
     const ConvOptions options(graph.getTarget(), arg.options);
     v.push_back({arg.inputs, arg.weights, arg.params, options});
   }
   return v;
+}
+
+std::vector<multiconv::internal::CalculateWeightDeltasArgs>
+convertToConvOptions(
+    poplar::Graph &graph,
+    const std::vector<multiconv::CalculateWeightDeltasArgs> &args) {
+  std::vector<multiconv::internal::CalculateWeightDeltasArgs> v;
+  for (const auto &arg : args) {
+    const ConvOptions options(graph.getTarget(), arg.options);
+    v.push_back({arg.zDeltas, arg.activations, arg.params, options});
+  }
+  return v;
+}
+
+namespace {
+
+// common method for multiconv::internal::ConvWeightUpdateArgs(WithScalar).
+template <typename ScaleType, typename T>
+std::vector<multiconv::internal::ConvWeightUpdateArgs<ScaleType>>
+convertToConvOptionsImpl(poplar::Graph &graph, const std::vector<T> &args) {
+  std::vector<multiconv::internal::ConvWeightUpdateArgs<ScaleType>> v;
+  for (const auto &arg : args) {
+    const ConvOptions options(graph.getTarget(), arg.options);
+    v.push_back({arg.zDeltas, arg.weights, arg.activations, arg.scale,
+                 arg.params, options});
+  }
+  return v;
+}
+
+} // unnamed namespace
+
+std::vector<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>
+convertToConvOptions(poplar::Graph &graph,
+                     const std::vector<multiconv::ConvWeightUpdateArgs> &args) {
+  return convertToConvOptionsImpl<poplar::Tensor>(graph, args);
+}
+
+std::vector<multiconv::internal::ConvWeightUpdateArgs<float>>
+convertToConvOptions(
+    poplar::Graph &graph,
+    const std::vector<multiconv::ConvWeightUpdateArgsScalar> &args) {
+  return convertToConvOptionsImpl<float>(graph, args);
 }
 
 static constexpr auto allButNumConvGroups = poplibs_support::makeStructHelper(
@@ -505,14 +559,13 @@ bool isEqual(const ConvOptions &co1, const ConvOptions &co2) {
   return co1 == co2;
 }
 
-bool canBeCombined(const ConvArgsWithConvOptions &ca1,
-                   const ConvArgsWithConvOptions &ca2) {
+template <typename T> bool canBeCombined(const T &ca1, const T &ca2) {
   return allButNumConvGroups.eq(ca1.params, ca2.params) &&
          isEqual(ca1.options, ca2.options);
 }
 
-bool canBeCombined(
-    const std::vector<ConvArgsWithConvOptions> &convolutionArgs) {
+template <typename T>
+bool canBeCombined(const std::vector<T> &convolutionArgs) {
   auto it = convolutionArgs.begin();
   const auto first = it;
   while (++it != convolutionArgs.end()) {
@@ -523,9 +576,23 @@ bool canBeCombined(
   return true;
 }
 
-std::vector<std::vector<const ConvArgsWithConvOptions *>>
-groupCombinables(const std::vector<ConvArgsWithConvOptions> &args) {
-  std::vector<std::vector<const ConvArgsWithConvOptions *>> grouped;
+template bool canBeCombined<multiconv::internal::CreateTensorArgs>(
+    const std::vector<multiconv::internal::CreateTensorArgs> &args);
+template bool canBeCombined<multiconv::internal::ConvolutionArgs>(
+    const std::vector<multiconv::internal::ConvolutionArgs> &args);
+template bool canBeCombined<multiconv::internal::CalculateWeightDeltasArgs>(
+    const std::vector<multiconv::internal::CalculateWeightDeltasArgs> &args);
+template bool canBeCombined<multiconv::internal::ConvWeightUpdateArgs<float>>(
+    const std::vector<multiconv::internal::ConvWeightUpdateArgs<float>> &args);
+template bool
+canBeCombined<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>(
+    const std::vector<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>
+        &args);
+
+template <typename T>
+std::vector<std::vector<const T *>>
+groupCombinables(const std::vector<T> &args) {
+  std::vector<std::vector<const T *>> grouped;
   for (auto &ca : args) {
     bool found(false);
     for (auto &g : grouped) {
@@ -541,6 +608,26 @@ groupCombinables(const std::vector<ConvArgsWithConvOptions> &args) {
   return grouped;
 }
 
+template std::vector<std::vector<const multiconv::internal::CreateTensorArgs *>>
+groupCombinables<multiconv::internal::CreateTensorArgs>(
+    const std::vector<multiconv::internal::CreateTensorArgs> &args);
+template std::vector<std::vector<const multiconv::internal::ConvolutionArgs *>>
+groupCombinables<multiconv::internal::ConvolutionArgs>(
+    const std::vector<multiconv::internal::ConvolutionArgs> &args);
+template std::vector<
+    std::vector<const multiconv::internal::CalculateWeightDeltasArgs *>>
+groupCombinables<multiconv::internal::CalculateWeightDeltasArgs>(
+    const std::vector<multiconv::internal::CalculateWeightDeltasArgs> &args);
+template std::vector<
+    std::vector<const multiconv::internal::ConvWeightUpdateArgs<float> *>>
+groupCombinables<multiconv::internal::ConvWeightUpdateArgs<float>>(
+    const std::vector<multiconv::internal::ConvWeightUpdateArgs<float>> &args);
+template std::vector<std::vector<
+    const multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor> *>>
+groupCombinables<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>(
+    const std::vector<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>
+        &args);
+
 // Returns the combination (aggregates numConvGroups) of
 // multiple compatible convolution parameters
 ConvParams combineConvParams(const std::vector<ConvParams> &convParams) {
@@ -554,8 +641,32 @@ ConvParams combineConvParams(const std::vector<ConvParams> &convParams) {
   return cp;
 }
 
-ConvArgsWithConvOptions
-combine(const std::vector<ConvArgsWithConvOptions> &convolutionArgs) {
+multiconv::internal::CreateTensorArgs
+combine(const std::vector<multiconv::internal::CreateTensorArgs> &args) {
+  assert(!args.empty());
+  assert(canBeCombined(args));
+
+  std::vector<ConvParams> convParams;
+  for (const auto &arg : args) {
+    convParams.push_back(arg.params);
+  }
+
+  // TODO: what to do with the nane?
+  return multiconv::internal::CreateTensorArgs{combineConvParams(convParams),
+                                               args[0].options, args[0].name};
+}
+
+namespace {
+
+// tensors are concatinated in the group dimension which is 1 for acts and
+// 0 for weights.
+constexpr unsigned actsGroupDim = 1;
+constexpr unsigned weightsGroupDim = 0;
+
+} // unnamed namespace
+
+multiconv::internal::ConvolutionArgs combine(
+    const std::vector<multiconv::internal::ConvolutionArgs> &convolutionArgs) {
   assert(!convolutionArgs.empty());
   assert(canBeCombined(convolutionArgs));
   std::vector<ConvParams> convParams;
@@ -566,26 +677,65 @@ combine(const std::vector<ConvArgsWithConvOptions> &convolutionArgs) {
     inputs.push_back(cp.inputs);
     weights.push_back(cp.weights);
   }
-  return ConvArgsWithConvOptions{concat(inputs, 1), concat(weights, 0),
-                                 combineConvParams(convParams),
-                                 convolutionArgs[0].options};
+
+  return multiconv::internal::ConvolutionArgs{
+      concat(inputs, actsGroupDim), concat(weights, weightsGroupDim),
+      combineConvParams(convParams), convolutionArgs[0].options};
 }
 
-std::vector<ConvArgsWithConvOptions> combine(
-    const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups) {
-  std::vector<ConvArgsWithConvOptions> convolutionArgs;
-  for (const auto &group : groups) {
-    std::vector<ConvArgsWithConvOptions> combinedArgs;
-    for (const auto ca : group) {
-      combinedArgs.push_back(*ca);
-    }
-    convolutionArgs.push_back(combine(combinedArgs));
+multiconv::internal::CalculateWeightDeltasArgs combine(
+    const std::vector<multiconv::internal::CalculateWeightDeltasArgs> &args) {
+  assert(!args.empty());
+  assert(canBeCombined(args));
+
+  std::vector<ConvParams> convParams;
+  std::vector<poplar::Tensor> zDeltas;
+  std::vector<poplar::Tensor> activations;
+  for (const auto &arg : args) {
+    convParams.push_back(arg.params);
+    zDeltas.push_back(arg.zDeltas);
+    activations.push_back(arg.activations);
   }
-  return convolutionArgs;
+
+  return multiconv::internal::CalculateWeightDeltasArgs{
+      concat(zDeltas, actsGroupDim), concat(activations, actsGroupDim),
+      combineConvParams(convParams), args[0].options};
 }
 
-std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
-                                  const poplar::Tensor &out) {
+template <typename T>
+multiconv::internal::ConvWeightUpdateArgs<T>
+combine(const std::vector<multiconv::internal::ConvWeightUpdateArgs<T>> &args) {
+  assert(!args.empty());
+  assert(canBeCombined(args));
+
+  std::vector<ConvParams> convParams;
+  std::vector<poplar::Tensor> zDeltas;
+  std::vector<poplar::Tensor> weights;
+  std::vector<poplar::Tensor> activations;
+  for (const auto &arg : args) {
+    convParams.push_back(arg.params);
+    zDeltas.push_back(arg.zDeltas);
+    weights.push_back(arg.weights);
+    activations.push_back(arg.activations);
+  }
+
+  // TODO: scale needs thought...
+  return multiconv::internal::ConvWeightUpdateArgs<T>{
+      concat(zDeltas, actsGroupDim),     concat(weights, weightsGroupDim),
+      concat(activations, actsGroupDim), args[0].scale,
+      combineConvParams(convParams),     args[0].options};
+}
+
+template multiconv::internal::ConvWeightUpdateArgs<float> combine<float>(
+    const std::vector<multiconv::internal::ConvWeightUpdateArgs<float>> &args);
+template multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>
+combine<poplar::Tensor>(
+    const std::vector<multiconv::internal::ConvWeightUpdateArgs<poplar::Tensor>>
+        &args);
+
+std::vector<poplar::Tensor>
+splitOutput(const std::vector<ConvParams> &convParams,
+            const poplar::Tensor &out) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
   std::size_t prev(0);
@@ -596,22 +746,36 @@ std::vector<poplar::Tensor> split(const std::vector<ConvParams> &convParams,
     intervals.push_back({prev, prev + intervalSize});
     prev += intervalSize;
   }
-  return out.slices(intervals, 1);
+  return out.slices(intervals, actsGroupDim);
 }
 
 std::vector<poplar::Tensor>
-split(const std::vector<std::vector<const ConvArgsWithConvOptions *>> &groups,
-      const std::vector<poplar::Tensor> &outs) {
-  std::vector<poplar::Tensor> splitOuts;
-  for (unsigned i(0); i < groups.size(); ++i) {
-    std::vector<ConvParams> convParams;
-    for (const auto ca : groups[i]) {
-      convParams.push_back(ca->params);
-    }
-    const auto s = split(convParams, outs[i]);
-    splitOuts.insert(splitOuts.end(), s.begin(), s.end());
+splitInput(const std::vector<ConvParams> &convParams,
+           const poplar::Tensor &in) {
+  assert(!convParams.empty());
+  std::vector<Interval> intervals;
+  std::size_t prev(0);
+  const std::size_t inChans = convParams[0].inputChannelsPerConvGroup;
+  for (const auto &cp : convParams) {
+    const auto intervalSize = cp.numConvGroups * inChans;
+    intervals.push_back({prev, prev + intervalSize});
+    prev += intervalSize;
   }
-  return splitOuts;
+  return in.slices(intervals, actsGroupDim);
+}
+
+std::vector<poplar::Tensor>
+splitWeights(const std::vector<ConvParams> &convParams,
+             const poplar::Tensor &weights) {
+  assert(!convParams.empty());
+  std::vector<Interval> intervals;
+  std::size_t prev(0);
+  for (const auto &cp : convParams) {
+    const auto intervalSize = cp.numConvGroups;
+    intervals.push_back({prev, prev + intervalSize});
+    prev += intervalSize;
+  }
+  return weights.slices(intervals, weightsGroupDim);
 }
 
 std::vector<unsigned>
@@ -678,6 +842,41 @@ unsigned getGroupIndex(const std::vector<unsigned> &groups,
     }
   }
   throw poputil::poplibs_error("Element index exceeds groups size");
+}
+
+void log(unsigned indent, const ConvParams &params) {
+  namespace logging = poplibs_support::logging;
+
+  if (logging::shouldLog(logging::Level::Info)) {
+    std::string prefix(indent, ' ');
+    logging::info(
+        "{}input={}x({}x{}x{}) padding={}/{} truncation={}/{} dilation={} "
+        "flip={}",
+        prefix, params.inputFieldShape, params.getBatchSize(),
+        params.getNumConvGroups(), params.getNumInputChansPerConvGroup(),
+        params.inputTransform.paddingLower, params.inputTransform.paddingUpper,
+        params.inputTransform.truncationLower,
+        params.inputTransform.truncationUpper, params.inputTransform.dilation,
+        params.inputTransform.flip);
+    logging::info("{}kernel={}x({}x{}x{}) padding={}/{} truncation={}/{} "
+                  "dilation={} flip={}",
+                  prefix, params.kernelShape, params.getNumConvGroups(),
+                  params.getNumOutputChansPerConvGroup(),
+                  params.getNumInputChansPerConvGroup(),
+                  params.kernelTransform.paddingLower,
+                  params.kernelTransform.paddingUpper,
+                  params.kernelTransform.truncationLower,
+                  params.kernelTransform.truncationUpper,
+                  params.kernelTransform.dilation, params.kernelTransform.flip);
+    logging::info(
+        "{}output={}x({}x{}x{}) padding={}/{} truncation={}/{} stride={}",
+        prefix, params.getOutputFieldShape(), params.getBatchSize(),
+        params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
+        params.outputTransform.paddingLower,
+        params.outputTransform.paddingUpper,
+        params.outputTransform.truncationLower,
+        params.outputTransform.truncationUpper, params.outputTransform.stride);
+  }
 }
 
 } // namespace poplin
