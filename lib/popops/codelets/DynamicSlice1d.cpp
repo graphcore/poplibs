@@ -35,9 +35,9 @@ public:
   Input<unsigned> offset; // in \a baseT
   Input<Vector<InType, ONE_PTR>> baseT;
   Output<Vector<InType, ONE_PTR>> subT;
-  const unsigned numBaseElements;      // in the slice dimension
-  const unsigned short numSubElements; // in the slice dimension
-  const unsigned short regionSize;     // stride between slices
+  const unsigned numBaseElements; // in the slice dimension
+  const unsigned numSubElements;  // in the slice dimension
+  const unsigned regionSize;      // stride between slices
 
   IS_EXTERNAL_CODELET(!isBool<InType>());
 

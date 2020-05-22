@@ -49,8 +49,8 @@
 #define VOFF_SUBT        2
 #define VOFF_BASE_ELEM   3
 // 16 bit - offsets for use with 16 bit loads
-#define VOFF_SUB_ELEM    (4*2)
-#define VOFF_REGION_SIZE (4*2+1)
+#define VOFF_SUB_ELEM    4
+#define VOFF_REGION_SIZE 5
 
 //****************************************************************************
 // Worker base local variable storage
@@ -153,7 +153,7 @@ DUSS_FLOAT_FUNC:
   call      $mSCRATCH2, load_and_preprocess
 
   // Region size converted into bytes
-  ldz16     $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
+  ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   shl       $REGION_SIZE, $REGION_SIZE, 2
 
 .Lsub_loop:
@@ -303,7 +303,7 @@ DUSS_HALF_FUNC:
   call      $mSCRATCH2, load_and_preprocess
 
   // Region size converted into bytes
-  ldz16     $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
+  ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   shl       $REGION_SIZE, $REGION_SIZE, 1
 .Lsub_loop2:
   // Calculate temporary incrementing pointers for the copy
@@ -456,7 +456,7 @@ load_and_preprocess:
   zero      $BASE_SLICE
 1:
   // Load sub elem, decrement for use as a loop counter
-  ldz16     $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
+  ld32      $SUB_ELEM, $mzero, $mvertex_base, VOFF_SUB_ELEM
   add       $SUB_ELEM, $SUB_ELEM, -1
 
   // Fetch worker ID, masking it out: 0..5
@@ -467,7 +467,7 @@ load_and_preprocess:
 
   // Get region size, use to calculate the elements for this worker for the
   // case where there is no pre loop copy to align
-  ldz16     $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
+  ld32      $REGION_SIZE, $mzero, $mvertex_base, VOFF_REGION_SIZE
   call      $mSCRATCH, divide_work
   st32      $ELEMENTS_PER_WORKER, $mzero, $mworker_base, WOFF_ELEMENTS
 
