@@ -23,7 +23,7 @@ namespace popops {
 namespace {
 
 // Divide a by b, rounding up.
-template <typename T> T udiv(T a, T b) { return ((a + b) - 1) / b; };
+template <typename T> T udiv(T a, T b) { return ((a + b) - 1) / b; }
 
 // Return the approximate number of operations per cycle for the given
 // type and operation. This doesn't account for type conversion, scale or

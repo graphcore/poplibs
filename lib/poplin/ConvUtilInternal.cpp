@@ -434,7 +434,7 @@ int getInRowStride(const ConvParams &params, unsigned fieldElems,
   if (convUnitWeightHeight == 1 || useConvPartial1x1OutVertex)
     inRowStride = 1;
   return inRowStride;
-};
+}
 
 // Split field dimensions such that the stride fits machine stride. This
 // implementation only splits field such that input stride fits. The outermost

@@ -612,6 +612,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF)};
-};
+}
 
 } // end namespace poplin

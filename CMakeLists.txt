@@ -96,9 +96,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # on the compiler ID.
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -Wvla -Wno-maybe-uninitialized")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -pedantic -pedantic-errors -Wvla -Wno-maybe-uninitialized")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -Wvla")
+  string(APPEND CMAKE_CXX_FLAGS " -Wall -Werror -pedantic -pedantic-errors -Wvla")
 endif()
 
 # Add an explicit exported symbols file (a linker flag)

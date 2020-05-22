@@ -28,10 +28,12 @@
 ///}`
 
 #define MAKE_CYCLE_ESTIMATOR_NAME(codelet) getCyclesEstimateFor##codelet
-
+#define CYCLE_ESTIMATOR_ENTRY_NOPARAMS(ns, codelet)                            \
+  poplibs::makeCycleEstimatorEntry(#ns "::" #codelet,                          \
+                                   MAKE_CYCLE_ESTIMATOR_NAME(codelet))
 #define CYCLE_ESTIMATOR_ENTRY(ns, codelet, ...)                                \
   poplibs::makeCycleEstimatorEntry(                                            \
-      #ns "::" #codelet, MAKE_CYCLE_ESTIMATOR_NAME(codelet), ##__VA_ARGS__)
+      #ns "::" #codelet, MAKE_CYCLE_ESTIMATOR_NAME(codelet), __VA_ARGS__)
 
 // These macros reduce boiler plate code when accessing
 // the codelet fields in cycle estimators:

@@ -327,7 +327,7 @@ poplar::Tensor rnnFwdSequence(
   }
   prog.add(Repeat(seqSize, loop));
   return fwdState;
-};
+}
 
 std::pair<Tensor, Tensor> backwardGradientStepImpl(
     Graph &graph, const Tensor &gradientOut, const Tensor &bwdState,
@@ -516,7 +516,7 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
   prog.add(Repeat(seqSize, loop));
   return std::tie(prevLayerGradsVec, feedFwdWeightsDeltaAcc,
                   feedbackWeightsDeltaAcc, biasesDeltaAcc);
-};
+}
 
 } // namespace rnn
 } // namespace popnn

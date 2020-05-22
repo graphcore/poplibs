@@ -2481,7 +2481,7 @@ static bool fitsMachineStride(const Target &target, int stride) {
   int64_t maxLimit = (1 << target.getNumStrideBits()) / 2 - 1;
   int64_t minLimit = -(1 << target.getNumStrideBits()) / 2;
   return stride >= minLimit && stride <= maxLimit;
-};
+}
 
 // Weights for output channel groups is reordered to be reverse order
 static std::vector<Tensor> reorderWeightsTensor(std::vector<Tensor> &in,

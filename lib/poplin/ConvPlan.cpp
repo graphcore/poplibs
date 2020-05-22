@@ -3335,7 +3335,7 @@ static void applyPartitionPlanConstraint(popsolver::Model &m,
 
 static inline std::string arrIndStr(unsigned level) {
   return "[" + std::to_string(level) + "]";
-};
+}
 
 // Mostly for testing purposes. We have some constants fixed to a value which
 // has no effect (serial partitioning currently) while functionality is

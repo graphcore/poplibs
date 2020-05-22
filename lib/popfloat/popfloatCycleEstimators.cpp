@@ -1124,17 +1124,22 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastHalfToGf8Supervisor,
                             FormatType::MAX_NORM_ALIGN_GF8),
 
-      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastFloatToGf8Supervisor),
-      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastGf8ToFloatSupervisor),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popfloat::experimental,
+                                     CastFloatToGf8Supervisor),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popfloat::experimental,
+                                     CastGf8ToFloatSupervisor),
 
-      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Param),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popfloat::experimental,
+                                     CastToGfloat16Param),
 
-      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat32Param),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popfloat::experimental,
+                                     CastToGfloat32Param),
 
-      CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, PackedGfloatParams),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popfloat::experimental,
+                                     PackedGfloatParams),
   };
   return table;
-};
+}
 
 } // end namespace experimental
 } // end namespace popfloat

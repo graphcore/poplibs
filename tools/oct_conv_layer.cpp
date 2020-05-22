@@ -458,7 +458,7 @@ allocateOctHostMemory(Graph &graph, const std::string name,
         parentTensor, prefix + name, graph, uploadProg, downloadProg, tmap);
   }
   return rawHostMem;
-};
+}
 
 // Upsample tensor by a given factor along every dimension
 static Tensor upsampleTensor(Graph &graph, Tensor &input,

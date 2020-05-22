@@ -2547,8 +2547,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, INT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, UNSIGNED_INT, false),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, CircBufIncrIndex),
-      CYCLE_ESTIMATOR_ENTRY(popops, CircOffset),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popops, CircBufIncrIndex),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popops, CircOffset),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Select, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Select, HALF),
@@ -2707,6 +2707,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                                           entry.first.second));
   }
   return table;
-};
+}
 
 } // end namespace popops

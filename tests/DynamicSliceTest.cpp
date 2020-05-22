@@ -80,7 +80,7 @@ std::vector<std::vector<std::vector<float>>> GenDelayData() {
     }
   }
   return result;
-};
+}
 
 // map t's specified dimension across tiles
 static void MapAcrossTiles(Graph &graph, size_t tilesPerIPU, const Tensor &t) {

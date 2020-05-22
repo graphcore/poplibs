@@ -152,8 +152,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, HALF),
       CYCLE_ESTIMATOR_ENTRY(poprand, DropoutSupervisor, FLOAT),
 
-      CYCLE_ESTIMATOR_ENTRY(poprand, SetSeedSupervisor),
+      CYCLE_ESTIMATOR_ENTRY_NOPARAMS(poprand, SetSeedSupervisor),
   };
-};
+}
 
 } // end namespace poprand

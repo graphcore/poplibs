@@ -32,7 +32,7 @@ bool operator!=(const PartialsPattern &lhs, const PartialsPattern &rhs) {
          (lhs.regionOffset != rhs.regionOffset) || (lhs.stride != rhs.stride) ||
          (lhs.outerFactor != rhs.outerFactor) ||
          (lhs.regionIdx != rhs.regionIdx);
-};
+}
 
 bool checkResult(const std::vector<PartialsDescription> &generatedPatterns,
                  const std::vector<std::vector<PartialsPattern>> &patterns,
