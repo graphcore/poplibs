@@ -29,6 +29,7 @@ add_library(poplin SHARED
   MeshGrid.cpp
   Norms.cpp
   PerformanceEstimation.hpp
+  TriangularSolve.cpp
   Winograd.cpp
   Winograd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/codelets.hpp
@@ -38,6 +39,7 @@ add_library(poplin SHARED
   ${CMAKE_SOURCE_DIR}/include/poplin/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/TriangularSolve.hpp
 )
 
 target_link_libraries(poplin

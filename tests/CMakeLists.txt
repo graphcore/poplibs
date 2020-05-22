@@ -465,6 +465,7 @@ add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim;IpuModel)
 add_unit_test(FillTest FillTest.cpp)
+add_unit_test(TriangularSolveTest TriangularSolveTest.cpp)
 
 if(TARGET popsparse)
   add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
