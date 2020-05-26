@@ -41,8 +41,15 @@ function(sanitise_variants variant_name)
   endif()
   set(new_variants "")
   # Only allow each variant if it is enabled:
+  # Tests labelled with VARIANT Hw1 or Hw2 are included if ENABLED_TEST_VARIANTS contains Hw
+  # They are attached to a specific fixture test that checks the hardware architecture
   foreach(variant ${old_variants})
-    if (${variant} IN_LIST ENABLED_TEST_VARIANTS)
+    if (${variant} MATCHES "^Hw")
+      set(variant_to_match "Hw")
+    else()
+      set(variant_to_match ${variant})
+    endif()
+    if (${variant_to_match} IN_LIST ENABLED_TEST_VARIANTS)
       list(APPEND new_variants ${variant})
     endif()
   endforeach()
@@ -53,6 +60,9 @@ endfunction()
 function(add_test_executable name)
   add_executable(${name} ${ARGN})
   if (NOT TEST_TARGET STREQUAL "NoTarget")
+    if (${TEST_TARGET} MATCHES "^Hw")
+      set(TEST_TARGET "Hw")
+    endif()
     set_property(TARGET ${name}
                  APPEND_STRING PROPERTY
                  COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
@@ -126,6 +136,14 @@ if ("Hw" IN_LIST ENABLED_TEST_TARGETS)
                        PROPERTIES FIXTURES_SETUP IpuIsAvailable)
 endif()
 
+function (add_ipu_hw_test version)
+  add_test(NAME CheckIpuHw${version}Available
+        COMMAND EnumerateDevices --;ipu${version}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+  set_tests_properties(CheckIpuHw${version}Available
+        PROPERTIES FIXTURES_SETUP Ipu${version}IsAvailable)
+endfunction()
+
 # Add a test to run with the specified VARIANTS (or all enabled VARIANTS if
 # none are specified). The first parameter is the test name, the following are
 # source files, and finally everything after VARIANTS are variant
@@ -133,7 +151,12 @@ endif()
 #
 # A variation specification must be of the form "target:[config]"
 #
-# Currently supported targets are "Cpu;IpuModel;IpuModel2;Sim;Sim2;Hw"
+# Currently supported targets are "Cpu;IpuModel;IpuModel2;Sim;Sim2;Hw;Hw1;Hw2"
+# Hw variants are attached to specific fixture tests that check the availability of hardware
+# Hw variant works with any architecture version, while Hw1 and Hw2 require particular ones
+# Note that ENABLED_TEST_VARIANTS (AND DEFAULT_TEST_VARIANTS) do not specify particular hardware versions
+# Hw1 and Hw2 variants are enabled if ENABLED_TEST_VARIANTS contains Hw
+# and will only execute if the present hardware complies with the requested architecture version
 # Note that the Cpu target does not support multi-tile tests
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_unit_test name)
@@ -155,6 +178,15 @@ function(add_unit_test name)
   foreach(VARIANT ${add_unit_test_VARIANTS})
     extract_target(VARIANT TEST_TARGET)
     extract_runconfig(VARIANT TEST_CONFIG)
+
+    if (${TEST_TARGET} STREQUAL "Hw1" AND NOT DEFINED hasHw1Test)
+        set (hasHw1Test true PARENT_SCOPE)
+        add_ipu_hw_test(1)
+    endif()
+    if (${TEST_TARGET} STREQUAL "Hw2" AND NOT DEFINED hasHw2Test)
+        set (hasHw2Test true PARENT_SCOPE)
+        add_ipu_hw_test(2)
+    endif()
 
     macro(add_unit_test_impl)
       set(test_name "${TEST_TARGET}_${TEST_CONFIG}_${name}")
@@ -184,9 +216,15 @@ function(add_unit_test name)
       set_tests_properties(${test_name} PROPERTIES
                            ENVIRONMENT "${test_env}")
 
-      if (${TEST_TARGET} STREQUAL "Hw")
-        # Make sure tests that use physical IPUs only run if an appropriate
-        # number were available according to the relevant test fixture:
+      # Make sure tests that use physical IPUs only run if an appropriate
+      # number were available according to the relevant test fixture:
+      if (${TEST_TARGET} STREQUAL "Hw1")
+        set_tests_properties(${test_name}
+          PROPERTIES FIXTURES_REQUIRED Ipu1IsAvailable)
+      elseif (${TEST_TARGET} STREQUAL "Hw2")
+        set_tests_properties(${test_name}
+          PROPERTIES FIXTURES_REQUIRED Ipu2IsAvailable)
+      elseif (${TEST_TARGET} STREQUAL "Hw")
         set_tests_properties(${test_name}
           PROPERTIES FIXTURES_REQUIRED IpuIsAvailable)
       endif()
