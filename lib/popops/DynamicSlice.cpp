@@ -17,6 +17,7 @@
 #include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
 #include "popsolver/Model.hpp"
+#include "poputil/Loop.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VarStructure.hpp"
@@ -1649,27 +1650,6 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
   }
 }
 
-// create a sequence that runs \a loopProgram the number of times stored in
-// \a i. \a i is incremented after each call
-static poplar::program::Sequence
-countedLoop(poplar::Graph &graph, unsigned count, poplar::Tensor &i,
-            poplar::program::Program &loopProgram,
-            const std::string &debugPrefix) {
-  poplar::program::Sequence result;
-  auto one =
-      graph.addConstant(poplar::UNSIGNED_INT, {}, 1, debugPrefix + "/const_1");
-  graph.setTileMapping(one, 0);
-
-  poplar::program::Sequence loopProgramInc;
-  loopProgramInc.add(loopProgram);
-  addInPlace(graph, i.reshape({}), one, loopProgramInc,
-             debugPrefix + "/i/increment");
-
-  result.add(poplar::program::Repeat(count, loopProgramInc));
-
-  return result;
-}
-
 // Implementation of multiSlice with a non-null plan
 static void multiSlicePlanned(Graph &graph, const Tensor &t,
                               const Tensor &offset, const Tensor &slice,
@@ -1942,20 +1922,21 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   }
 
   // looping case
-  Sequence body;
-  auto sIdx = graph.addVariable(UNSIGNED_INT, {1}, dName + "/sIdx");
-  auto zero = graph.addConstant(UNSIGNED_INT, {1}, 0, dName + "/zero");
-  graph.setTileMapping(sIdx, 0);
-  graph.setTileMapping(zero, 0);
-  prog.add(Copy(zero, sIdx));
-  auto tIdx =
-      dynamicSlice(graph, offset, sIdx, {0}, {1}, body, dName + "/sliceIndex")
-          .squeeze({0});
 
-  auto sI = dynamicSlice(graph, t, tIdx, dims, sizes, body, dName + "/slice")
+  prog.add(poputil::countedLoop(
+      graph, offset.dim(0), dName + "/loop", [&](poplar::Tensor sIdx) {
+        Sequence body;
+        auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
+                                 dName + "/sliceIndex")
+                        .squeeze({0});
+
+        auto sI =
+            dynamicSlice(graph, t, tIdx, dims, sizes, body, dName + "/slice")
                 .expand({0});
-  dynamicUpdate(graph, sMulti, sI, sIdx, {0}, {1}, body, dName + "/update");
-  prog.add(countedLoop(graph, offset.dim(0), sIdx, body, dName + "/loop"));
+        dynamicUpdate(graph, sMulti, sI, sIdx, {0}, {1}, body,
+                      dName + "/update");
+        return body;
+      }));
   return sMulti;
 }
 
@@ -2009,21 +1990,19 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
     return;
   }
   // looping case
-  Sequence body;
-  auto sIdx = graph.addVariable(UNSIGNED_INT, {1}, dName + "/sIdx");
-  auto zero = graph.addConstant(UNSIGNED_INT, {1}, 0, dName + "/zero");
-  graph.setTileMapping(sIdx, 0);
-  graph.setTileMapping(zero, 0);
-  prog.add(Copy(zero, sIdx));
-  auto tIdx =
-      dynamicSlice(graph, offset, sIdx, {0}, {1}, body, dName + "/sliceIndex")
-          .squeeze({0});
+  prog.add(countedLoop(
+      graph, offset.dim(0), dName + "/loop", [&](poplar::Tensor sIdx) {
+        Sequence body;
+        auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
+                                 dName + "/sliceIndex")
+                        .squeeze({0});
 
-  auto sI =
-      dynamicSlice(graph, sMulti, sIdx, dims, sizes, body, dName + "/slice")
-          .squeeze({0});
-  dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body, dName + "/update");
-  prog.add(countedLoop(graph, offset.dim(0), sIdx, body, dName + "/loop"));
+        auto sI = dynamicSlice(graph, sMulti, sIdx, dims, sizes, body,
+                               dName + "/slice")
+                      .squeeze({0});
+        dynamicUpdate(graph, t, sI, tIdx, {0}, {1}, body, dName + "/update");
+        return body;
+      }));
 }
 
 // This is derived from multiUpdate, but s is added to t rather than replacing

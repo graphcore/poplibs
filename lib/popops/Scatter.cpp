@@ -3,6 +3,7 @@
 
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
+#include "poputil/Loop.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -265,32 +266,6 @@ poplar::Tensor padVectorWithZeros(poplar::Graph &graph, poplar::Tensor t,
   return poplar::concat({prefix, t, suffix});
 }
 
-template <typename BodyType>
-poplar::program::Sequence countedLoop(poplar::Graph &graph, std::size_t count,
-                                      const std::string &debugPrefix,
-                                      BodyType body) {
-  poplar::program::Sequence prog;
-
-  poplar::Tensor inductionVar = graph.addVariable(poplar::INT, {1});
-  poplar::Tensor zero =
-      graph.addConstant(poplar::INT, {1}, 0, debugPrefix + "/zero");
-  poplar::Tensor one =
-      graph.addConstant(poplar::INT, {1}, 1, debugPrefix + "/one");
-
-  poputil::mapTensorLinearly(graph, inductionVar);
-  graph.setTileMapping(zero, graph.getTileMapping(inductionVar));
-  graph.setTileMapping(one, graph.getTileMapping(inductionVar));
-
-  prog.add(poplar::program::Copy(zero, inductionVar));
-
-  poplar::program::Sequence bodyProg = body(inductionVar);
-  popops::addInPlace(graph, inductionVar, one, bodyProg);
-
-  prog.add(poplar::program::Repeat(count, bodyProg));
-
-  return prog;
-}
-
 // High Level Algorithm.
 //
 // 1. Canonicalize the scatterIndices tensor such that it has rank 2, where
@@ -341,8 +316,8 @@ void scatterInternal(
 
   // The while loop that implements the scatter operation.
   // for (i = 0; i < scatterLoopTripCount; ++i)
-  prog.add(
-      countedLoop(graph, scatterLoopTrip, debugPrefix, [&](poplar::Tensor i) {
+  prog.add(poputil::countedLoop(
+      graph, scatterLoopTrip, debugPrefix, [&](poplar::Tensor i) {
         poplar::program::Sequence prog;
 
         // Pick the index to scatter from scatterIndices based on the

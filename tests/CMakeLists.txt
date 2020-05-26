@@ -396,6 +396,7 @@ add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
+add_unit_test(LoopTest LoopTest.cpp)
 add_unit_test(LossTest LossTest.cpp
               SUITES ArgMinMax TopK SUM_SQUARED_LOSS_suite
                      CROSS_ENTROPY_LOSS_suite Accuracy)
