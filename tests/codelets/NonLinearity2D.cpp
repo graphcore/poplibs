@@ -163,50 +163,51 @@ bool doTest(const DeviceType &deviceType, const Type &dataType,
   const auto absoluteTolerance = dataType == FLOAT ? FLOAT_ATOL : HALF_ATOL;
 
   bool success = true;
-  for (std::size_t testId = 0; testId < numTests; ++testId) {
-    // Fill out the model data, applying the non-linearity to regions to be
-    // processed by the vertex. This allows us to detect over/underwrites
-    // by the vertex as a bonus
-    std::copy(hostActsIn.data(), hostActsIn.data() + hostActsIn.num_elements(),
-              modelActsOut.data());
-    // fill areas of output that should be untouched by backward vertex with
-    // values that should never be output by the vertex
-    std::fill_n(modelGradIn.data(), modelGradIn.num_elements(), 50.0);
-    for (const auto &region : programSlices[testId].intervals) {
-      const auto offset = region.begin();
-      const auto n = region.size();
-      std::copy(hostGradOut.data() + offset, hostGradOut.data() + offset + n,
-                modelGradIn.data() + offset);
-      poplibs_test::bwdNonLinearity(nlType, hostActsIn.data() + offset,
-                                    modelGradIn.data() + offset, n);
-      poplibs_test::nonLinearity(nlType, hostActsIn.data() + offset,
-                                 modelActsOut.data() + offset, n);
-    }
+  device.bind([&](const Device &d) {
+    e.load(d);
+    for (std::size_t testId = 0; testId < numTests; ++testId) {
+      // Fill out the model data, applying the non-linearity to regions to be
+      // processed by the vertex. This allows us to detect over/underwrites
+      // by the vertex as a bonus
+      std::copy(hostActsIn.data(),
+                hostActsIn.data() + hostActsIn.num_elements(),
+                modelActsOut.data());
+      // fill areas of output that should be untouched by backward vertex with
+      // values that should never be output by the vertex
+      std::fill_n(modelGradIn.data(), modelGradIn.num_elements(), 50.0);
+      for (const auto &region : programSlices[testId].intervals) {
+        const auto offset = region.begin();
+        const auto n = region.size();
+        std::copy(hostGradOut.data() + offset, hostGradOut.data() + offset + n,
+                  modelGradIn.data() + offset);
+        poplibs_test::bwdNonLinearity(nlType, hostActsIn.data() + offset,
+                                      modelGradIn.data() + offset, n);
+        poplibs_test::nonLinearity(nlType, hostActsIn.data() + offset,
+                                   modelActsOut.data() + offset, n);
+      }
 
-    copy(target, hostActsIn, dataType, rawHostActsIn.get());
-    copy(target, hostGradOut, dataType, rawHostGradOut.get());
-    // fill areas of output that should be untouched by backward vertex with
-    // values that should never be output by the vertex
-    std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
-    copy(target, hostGradIn, dataType, rawHostGradIn.get());
-    device.bind([&](const Device &d) {
-      e.load(d);
+      copy(target, hostActsIn, dataType, rawHostActsIn.get());
+      copy(target, hostGradOut, dataType, rawHostGradOut.get());
+      // fill areas of output that should be untouched by backward vertex with
+      // values that should never be output by the vertex
+      std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
+      copy(target, hostGradIn, dataType, rawHostGradIn.get());
       e.run(uploadProgIndex);
       e.run(testId);
       e.run(downloadProgIndex);
-    });
-    copy(target, dataType, rawHostActsIn.get(), hostActsOut);
-    copy(target, dataType, rawHostGradIn.get(), hostGradIn);
+      copy(target, dataType, rawHostActsIn.get(), hostActsOut);
+      copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
-    success &= checkIsClose("fwd_" + std::to_string(testId), hostActsOut.data(),
-                            {hostActsOut.num_elements()}, modelActsOut.data(),
-                            modelActsOut.num_elements(), relativeTolerance,
-                            absoluteTolerance);
-    success &= checkIsClose("bwd_" + std::to_string(testId), hostGradIn.data(),
-                            {hostGradIn.num_elements()}, modelGradIn.data(),
-                            modelGradIn.num_elements(), relativeTolerance,
-                            absoluteTolerance);
-  }
+      success &= checkIsClose("fwd_" + std::to_string(testId),
+                              hostActsOut.data(), {hostActsOut.num_elements()},
+                              modelActsOut.data(), modelActsOut.num_elements(),
+                              relativeTolerance, absoluteTolerance);
+      success &= checkIsClose("bwd_" + std::to_string(testId),
+                              hostGradIn.data(), {hostGradIn.num_elements()},
+                              modelGradIn.data(), modelGradIn.num_elements(),
+                              relativeTolerance, absoluteTolerance);
+    }
+  });
   return success;
 }
 

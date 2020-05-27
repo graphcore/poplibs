@@ -166,55 +166,55 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
   boost::multi_array<double, 1> hostGradIn(boost::extents[maxElements]);
   const auto relativeTolerance = TOL;
   const auto absoluteTolerance = dataType == FLOAT ? FLOAT_ATOL : HALF_ATOL;
-  for (std::size_t testId = 0; testId < numTests; ++testId) {
-    copy(target, hostActsIn, dataType, rawHostActsIn.get());
-    copy(target, hostGradOut, dataType, rawHostGradOut.get());
-    // Fill the grad result with a value to check that it isn't overwritten
-    std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
-    copy(target, hostGradIn, dataType, rawHostGradIn.get());
-    device.bind([&](const Device &d) {
-      e.load(d);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    for (std::size_t testId = 0; testId < numTests; ++testId) {
+      copy(target, hostActsIn, dataType, rawHostActsIn.get());
+      copy(target, hostGradOut, dataType, rawHostGradOut.get());
+      // Fill the grad result with a value to check that it isn't overwritten
+      std::fill_n(hostGradIn.data(), hostGradIn.num_elements(), 50.0);
+      copy(target, hostGradIn, dataType, rawHostGradIn.get());
       e.run(uploadProgIndex);
       e.run(testId);
       e.run(downloadProgIndex);
-    });
-    copy(target, dataType, rawHostActsIn.get(), hostActsOut);
-    copy(target, dataType, rawHostGradIn.get(), hostGradIn);
+      copy(target, dataType, rawHostActsIn.get(), hostActsOut);
+      copy(target, dataType, rawHostGradIn.get(), hostGradIn);
 
-    auto &testDesc = programSlices[testId];
-    boost::multi_array<double, 1> modelGradCmp(boost::extents[maxElements]);
-    boost::multi_array<double, 1> modelActsCmp(boost::extents[maxElements]);
+      auto &testDesc = programSlices[testId];
+      boost::multi_array<double, 1> modelGradCmp(boost::extents[maxElements]);
+      boost::multi_array<double, 1> modelActsCmp(boost::extents[maxElements]);
 
-    // Grad In is the result, and is not in place - fill with test data and then
-    // overwrite with the expected result with this test's length
-    std::fill_n(modelGradCmp.data(), modelGradCmp.size(), 50.0);
-    std::copy(modelGradIn.data() + testDesc.offset,
-              modelGradIn.data() + testDesc.offset + testDesc.numElements,
-              modelGradCmp.data() + testDesc.offset);
+      // Grad In is the result, and is not in place - fill with test data and
+      // then overwrite with the expected result with this test's length
+      std::fill_n(modelGradCmp.data(), modelGradCmp.size(), 50.0);
+      std::copy(modelGradIn.data() + testDesc.offset,
+                modelGradIn.data() + testDesc.offset + testDesc.numElements,
+                modelGradCmp.data() + testDesc.offset);
 
-    // Acts Out is the result, and is in place - fill with the input and then
-    // overwrite with the expected result with this test's length
-    std::copy(randomData, randomData + modelActsCmp.size(),
-              modelActsCmp.data());
+      // Acts Out is the result, and is in place - fill with the input and then
+      // overwrite with the expected result with this test's length
+      std::copy(randomData, randomData + modelActsCmp.size(),
+                modelActsCmp.data());
 
-    std::copy(modelActsOut.data() + testDesc.offset,
-              modelActsOut.data() + testDesc.offset + testDesc.numElements,
-              modelActsCmp.data() + testDesc.offset);
+      std::copy(modelActsOut.data() + testDesc.offset,
+                modelActsOut.data() + testDesc.offset + testDesc.numElements,
+                modelActsCmp.data() + testDesc.offset);
 
-    bool validation = true;
-    validation &= checkIsClose("fwd_" + std::to_string(testDesc.offset) + "_" +
-                                   std::to_string(testDesc.numElements),
-                               hostActsOut.data(), {modelActsCmp.size()},
-                               modelActsCmp.data(), modelActsCmp.size(),
-                               relativeTolerance, absoluteTolerance);
-    validation &= checkIsClose("bwd_" + std::to_string(testDesc.offset) + "_" +
-                                   std::to_string(testDesc.numElements),
-                               hostGradIn.data(), {modelGradCmp.size()},
-                               modelGradCmp.data(), modelGradCmp.size(),
-                               relativeTolerance, absoluteTolerance);
-    if (!validation)
-      throw std::runtime_error("Results validation failed");
-  }
+      bool validation = true;
+      validation &= checkIsClose("fwd_" + std::to_string(testDesc.offset) +
+                                     "_" + std::to_string(testDesc.numElements),
+                                 hostActsOut.data(), {modelActsCmp.size()},
+                                 modelActsCmp.data(), modelActsCmp.size(),
+                                 relativeTolerance, absoluteTolerance);
+      validation &= checkIsClose("bwd_" + std::to_string(testDesc.offset) +
+                                     "_" + std::to_string(testDesc.numElements),
+                                 hostGradIn.data(), {modelGradCmp.size()},
+                                 modelGradCmp.data(), modelGradCmp.size(),
+                                 relativeTolerance, absoluteTolerance);
+      if (!validation)
+        throw std::runtime_error("Results validation failed");
+    }
+  });
 }
 
 } // end anonymous namespace

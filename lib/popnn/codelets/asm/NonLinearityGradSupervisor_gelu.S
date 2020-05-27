@@ -56,16 +56,17 @@
 #define FLOAT_ALPHA_TIMES_BETA 0x3D122279   // 3.5677407E-2
 
 // Scratch Offsets in 2xFloats
-#define SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 (0 / 2)
-#define SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA    (2 / 2)
-#define SCRATCH_OFFSET_FLOAT_CLAMP           (4 / 2)
-#define SCRATCH_OFFSET_X_TIMES_GAUSSIAN_PDF  (6 / 2)
+#define SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 (0 / 2) // only for float vertices
+#define SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA    (2 / 2) // all vertices
+#define SCRATCH_OFFSET_FLOAT_CLAMP           (4 / 2) // only for float vertices
+#define SCRATCH_OFFSET_X_TIMES_GAUSSIAN_PDF  (6 / 2) // all vertices
 
 // Scratch Offsets in 1xFloats
-#define SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5   8
-#define SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5 9
-#define SCRATCH_OFFSET_HALF_CLAMP_LIMITS     10
-#define SCRATCH_OFFSET_CONST_M0_5            11
+#define SCRATCH_OFFSET_CONST_HALF_HI_1_0_LO_0_5    0 // only for half vertices
+#define SCRATCH_OFFSET_CONST_HALF_HI_ALPHA_LO_M0_5 1 // only for half vertices
+#define SCRATCH_OFFSET_HALF_CLAMP_LIMITS          10 // only for half vertices
+#define SCRATCH_OFFSET_CONST_M0_5                  8 // all vertices
+
 #define SCRATCH_OFFSET_CONST_ALPHA_TIMES_BETA  (SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA * 2)
 #define SCRATCH_OFFSET_CONST_ALPHA           ((SCRATCH_OFFSET_CONST_FLOAT_ALPHA_ALPHA_TIMES_BETA * 2) + 1)
 #define SCRATCH_OFFSET_CONST_0_5             (SCRATCH_OFFSET_CONST_FLOAT_HI_1_0_LO_0_5 * 2)
@@ -103,7 +104,7 @@
 // NOTE: Register definitions as well as Loop implementation are included here
 #include "NonLinearityGradLoop_gelu.S"
 
-    
+
 DEF_STACK_USAGE 0 HALF_SYMBOL
 
 .section .text.HALF_SYMBOL
