@@ -316,3 +316,109 @@ BOOST_AUTO_TEST_CASE(
         checkIsClose("deltaOutH", hDeltaOutH, hRefDeltaOut, TOL, HALF_ATOL));
   }
 }
+
+BOOST_AUTO_TEST_CASE(
+    NonLinearitySoftMax1D,
+    *utf::tolerance<float>(fpc::percent_tolerance<float>(0.1)) *
+        utf::tolerance<double>(fpc::percent_tolerance<double>(0.1))) {
+  auto device = createTestDevice(TEST_TARGET);
+  auto &target = device.getTarget();
+  Graph graph(target);
+  popnn::addCodelets(graph);
+  popops::addCodelets(graph);
+  poplin::addCodelets(graph);
+  const unsigned numChannels = 128;
+
+  auto actF = graph.addVariable(FLOAT, {numChannels}, "actF");
+  auto actH = graph.addVariable(HALF, {numChannels}, "actH");
+  auto deltaF = graph.addVariable(FLOAT, {numChannels}, "deltaF");
+  auto deltaH = graph.addVariable(HALF, {numChannels}, "deltaH");
+
+  // arbitrary mappings
+  mapTensorLinearly(graph, actF);
+  mapTensorLinearly(graph, actH);
+  mapTensorLinearly(graph, deltaF);
+  mapTensorLinearly(graph, deltaH);
+
+  std::vector<std::pair<std::string, char *>> tmap;
+  Sequence uploadProg, downloadProg;
+
+  auto rawHActF = allocateHostMemoryForTensor(actF, "actF", graph, uploadProg,
+                                              downloadProg, tmap);
+  auto rawHActH = allocateHostMemoryForTensor(actH, "actH", graph, uploadProg,
+                                              downloadProg, tmap);
+  auto rawHDeltaF = allocateHostMemoryForTensor(deltaF, "deltaF", graph,
+                                                uploadProg, downloadProg, tmap);
+  auto rawHDeltaH = allocateHostMemoryForTensor(deltaH, "deltaH", graph,
+                                                uploadProg, downloadProg, tmap);
+
+  boost::multi_array<double, 2> hActIn(boost::extents[1][numChannels]),
+      hDeltaIn(boost::extents[1][numChannels]),
+      hActOutF(boost::extents[1][numChannels]),
+      hActOutH(boost::extents[1][numChannels]),
+      hDeltaOutF(boost::extents[1][numChannels]),
+      hDeltaOutH(boost::extents[1][numChannels]);
+
+  for (unsigned c = 0; c < numChannels; ++c) {
+    double sample = (1.0 - 2 * (c & 1)) * 0.01 * c;
+    hActIn[0][c] = sample;
+    hDeltaIn[0][c] = double(numChannels - c);
+  }
+
+  for (const auto nl :
+       {NonLinearityType::SOFTMAX, NonLinearityType::SOFTMAX_STABLE,
+        NonLinearityType::SOFTMAX_SCALED}) {
+    auto hActOut = hActIn;
+    poplibs_test::nonLinearity(nl, hActOut);
+    if (nl == NonLinearityType::SOFTMAX_SCALED) {
+      for (unsigned i = 0; i < numChannels; i++) {
+        hActOut[0][i] *= SOFTMAX_SCALING;
+      }
+    }
+    // build and run the target code
+    auto fwdProg = Sequence();
+    float nonLinearityScalingF, nonLinearityScalingH;
+    nonLinearityInPlace(graph, nl, actF, nonLinearityScalingF, fwdProg);
+    nonLinearityInPlace(graph, nl, actH, nonLinearityScalingH, fwdProg);
+    const float expectedScaling =
+        nl == NonLinearityType::SOFTMAX_SCALED ? SOFTMAX_SCALING : 1.0f;
+
+    BOOST_TEST(nonLinearityScalingF == expectedScaling);
+    BOOST_TEST(nonLinearityScalingH == expectedScaling);
+
+    copy(target, hActIn, FLOAT, rawHActF.get());
+    copy(target, hActIn, HALF, rawHActH.get());
+    Engine fwdEng(graph, Sequence(uploadProg, fwdProg, downloadProg));
+    attachStreams(fwdEng, tmap);
+    device.bind([&](const Device &d) { fwdEng.loadAndRun(d); });
+    copy(target, FLOAT, rawHActF.get(), hActOutF);
+    copy(target, HALF, rawHActH.get(), hActOutH);
+
+    BOOST_TEST(checkIsClose("actOutF", hActOutF, hActOut, TOL, FLOAT_ATOL));
+    BOOST_TEST(checkIsClose("actOutH", hActOutH, hActOut, TOL, HALF_ATOL));
+
+    auto hRefDeltaOut = hDeltaIn;
+    poplibs_test::bwdNonLinearity(nl, hActIn, hRefDeltaOut);
+
+    auto bwdProg = Sequence();
+    auto deltaFF = nonLinearityInputGradient(graph, nl, actF, deltaF, bwdProg);
+    auto deltaHH = nonLinearityInputGradient(graph, nl, actH, deltaH, bwdProg);
+    bwdProg.add(Copy(deltaFF, deltaF));
+    bwdProg.add(Copy(deltaHH, deltaH));
+
+    copy(target, hActIn, FLOAT, rawHActF.get());
+    copy(target, hActIn, HALF, rawHActH.get());
+    copy(target, hDeltaIn, FLOAT, rawHDeltaF.get());
+    copy(target, hDeltaIn, HALF, rawHDeltaH.get());
+    Engine bwdEng(graph, Sequence(uploadProg, bwdProg, downloadProg));
+    attachStreams(bwdEng, tmap);
+    device.bind([&](const Device &d) { bwdEng.loadAndRun(d); });
+    copy(target, FLOAT, rawHDeltaF.get(), hDeltaOutF);
+    copy(target, HALF, rawHDeltaH.get(), hDeltaOutH);
+
+    BOOST_TEST(
+        checkIsClose("deltaOutF", hDeltaOutF, hRefDeltaOut, TOL, FLOAT_ATOL));
+    BOOST_TEST(
+        checkIsClose("deltaOutH", hDeltaOutH, hRefDeltaOut, TOL, HALF_ATOL));
+  }
+}

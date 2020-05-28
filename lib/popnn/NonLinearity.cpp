@@ -40,10 +40,14 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   const auto fnStr = debugStr + "/SoftMax";
   const auto dType = t.elementType();
   logging::info("softmax t={}, name={}", t.shape(), fnStr);
-
-  if (t.rank() < 2) {
+  if (t.rank() < 1) {
     throw poplibs_error("input tensor to softmax non-linearity must have "
-                        "at least 2 dimensions");
+                        "at least 1 dimension");
+  }
+
+  const bool expandDimension = t.rank() == 1;
+  if (expandDimension) {
+    t = t.expand({0});
   }
 
   // Switch innermost dimension to outer as softmax is done over it
@@ -105,7 +109,7 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
   // If inPlace == true then this is the same as the original tensor.
   auto tRet = tShuf.dimShufflePartial({0, rank - 1}, {rank - 1, 0});
   assert(tRet.shape() == t.shape());
-  return tRet;
+  return expandDimension ? tRet.squeeze({0}) : tRet;
 }
 
 // computes the gradient of softmax along the innermost dimension
