@@ -122,7 +122,228 @@
 #define extra_i     m10
 #define worker_x8_i m5
 
-.macro DEFINE_VERTEX symbol isMaxPool isFloat isBwdPass
+// =============================================================================
+// Inner loop macros
+// =============================================================================
+.macro MAX_POOLING_BWD_FLOAT
+  // pipeline
+  ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
+
+  // note that in for the backwards pass it is correct to index into the
+  // fwdActsIn pointer with outOffset and the fwdActsOut pointer with inOffset.
+  {
+    rpt $numElementsM1, (2f-1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
+    fnop
+  }
+  {
+    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
+    f32v2cmpeq $a0:1, $a0:1, $a2:3
+  }
+  {
+    ld64 $a6:7, $outPtr, $outOffset, 0
+    and64 $a4:5, $a0:1, $a4:5
+  }
+  {
+    ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
+    f32v2add $a6:7, $a4:5, $a6:7
+  }
+  {
+    st64step $a6:7, $outPtr, $outOffset+=, $outStride
+    fnop
+  }
+2:
+  ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
+  {
+    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
+    f32v2cmpeq $a0:1, $a0:1, $a2:3
+  }
+  {
+    ld64 $a6:7, $outPtr, $outOffset, 0
+    and64 $a4:5, $a0:1, $a4:5
+  }
+  f32v2add $a6:7, $a4:5, $a6:7
+  st64step $a6:7, $outPtr, $outOffset+=, $outStride
+.endm
+// =============================================================================
+.macro MAX_POOLING_FWD_FLOAT
+  // pipeline first values
+  ld64 $a0:1, $outPtr, $outOffset, 0
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    fnop
+  }
+  {
+    rpt $numElementsM1, (2f-1f)/8-1
+    f32v2max $a6:7, $a0:1, $a2:3
+  }
+1:
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    fnop
+  }
+  {
+    ld64 $a0:1, $outPtr, $outOffset, $outStride
+    fnop
+  }
+  {
+    st64step $a6:7, $outPtr, $outOffset+=, $outStride
+    f32v2max $a6:7, $a0:1, $a2:3
+  }
+2:
+  st64 $a6:7, $outPtr, $outOffset, 0
+.endm
+// =============================================================================
+.macro MAX_POOLING_BWD_HALF
+ // pipeline
+  ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
+
+  // note that in this loop it is correct to index into the fwdActsIn pointer
+  // with outOffset and the fwdActsOut pointer with inOffset.
+  {
+    rpt $numElementsM1, (2f-1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
+    fnop
+  }
+  {
+    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
+    f16v4cmpeq $a0:1, $a0:1, $a2:3
+  }
+  {
+    ld64 $a6:7, $outPtr, $outOffset, 0
+    and64 $a4:5, $a0:1, $a4:5
+  }
+  {
+    ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
+    f16v4add $a6:7, $a4:5, $a6:7
+  }
+  {
+    st64step $a6:7, $outPtr, $outOffset+=, $outStride
+    fnop
+  }
+2:
+  ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
+  {
+    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
+    f16v4cmpeq $a0:1, $a0:1, $a2:3
+  }
+  {
+    ld64 $a6:7, $outPtr, $outOffset, 0
+    and64 $a4:5, $a0:1, $a4:5
+  }
+  f16v4add $a6:7, $a4:5, $a6:7
+  st64step $a6:7, $outPtr, $outOffset+=, $outStride
+.endm
+// =============================================================================
+.macro MAX_POOLING_FWD_HALF
+  // pipeline first values
+  ld64 $a0:1, $outPtr, $outOffset, 0
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    fnop
+  }
+  {
+    rpt $numElementsM1, (2f-1f)/8-1
+    f16v4max $a6:7, $a0:1, $a2:3
+  }
+1:
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    fnop
+  }
+  {
+    ld64 $a0:1, $outPtr, $outOffset, $outStride
+    fnop
+  }
+  {
+    st64step $a6:7, $outPtr, $outOffset+=, $outStride
+    f16v4max $a6:7, $a0:1, $a2:3
+  }
+2:
+  st64 $a6:7, $outPtr, $outOffset, 0
+.endm
+// =============================================================================
+.macro SUM_POOLING_FLOAT
+  // pipeline first value.
+  ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+  {
+    rpt $numElementsM1, (2f-1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld64 $a0:1, $outPtr, $outOffset, 0
+    f32v2mul $a2:3, $a2:3, $a6:7
+  }
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    f32v2add $a0:1, $a0:1, $a2:3
+  }
+  {
+    st64step $a0:1, $outPtr, $outOffset+=, $outStride
+    fnop
+  }
+2:
+  {
+    ld64 $a0:1, $outPtr, $outOffset, 0
+    f32v2mul $a2:3, $a2:3, $a6:7
+  }
+  f32v2add $a0:1, $a0:1, $a2:3
+  st64step $a0:1, $outPtr, $outOffset+=, $outStride
+.endm
+// =============================================================================
+.macro SUM_POOLING_HALF
+  // pipeline first value
+  ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+  {
+    rpt $numElementsM1, (2f-1f)/8-1
+    fnop
+  }
+1:
+  {
+    ld64 $a0:1, $outPtr, $outOffset, 0
+    f16v4mul $a2:3, $a2:3, $a6:7
+  }
+  {
+    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
+    f16v4add $a0:1, $a0:1, $a2:3
+  }
+  {
+    st64step $a0:1, $outPtr, $outOffset+=, $outStride
+    fnop
+  }
+2:
+  {
+    ld64 $a0:1, $outPtr, $outOffset, 0
+    f16v4mul $a2:3, $a2:3, $a6:7
+  }
+  f16v4add $a0:1, $a0:1, $a2:3
+  st64step $a0:1, $outPtr, $outOffset+=, $outStride
+.endm
+
+// =============================================================================
+// Macro for supervisor entry then worker function
+.macro DEFINE_VERTEX symbol isMaxPool isFloat isBwdPass INNER_LOOP_FUNCTION
+// Set initial value for the actual calculation
+.if \isMaxPool && !\isBwdPass
+  .if \isFloat
+    // -inf
+    .equ INITIAL_VALUE, 0xff800000
+  .else
+    // [-65504, -65504]
+    .equ INITIAL_VALUE, 0xfbfffbff
+  .endif
+.else
+  .equ INITIAL_VALUE, 0
+.endif
 
 .globl \symbol
 .type \symbol @function
@@ -136,7 +357,8 @@ DEF_STACK_USAGE 0 \symbol
   runall $m1, $m0, 0
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
-
+// =====================================
+// Worker entry
 .align 8
 .worker
 kernel\@:
@@ -160,52 +382,17 @@ kernel\@:
   mul $initInfo, $initInfo, $chansPerGroup
 
   // identity for max pool float is -inf, half is -65504 and all sum pool and
-  // max pool grad is 0. split the ldconst up to bundle, also make sure that
-  // each branch uses an even number of instructions to ensure instruction
-  // alignment of the rpt below.
-.if \isMaxPool
-.if \isBwdPass
-  {
-    get $workerPtr, $WSR
-    zero $a0
-  }
-  {
-    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
-    fnop
-  }
-.else
-.if \isFloat
-  {
-    get $workerPtr, $WSR
-    or $a0, $azero, 0xff800000 & ~LDCONST_MASK
-  }
-  {
-    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
-    fnop
-  }
-.else
-  // [-65504, -65504]
-  {
-    get $workerPtr, $WSR
-    setzi $a0, 0xfbfffbff & LDCONST_MASK
-  }
-  {
-    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
-    or $a0, $a0, 0xfbfffbff & ~LDCONST_MASK
-  }
-.endif
-.endif
-.else
-  {
-    get $workerPtr, $WSR
-    zero $a0
-  }
-  {
-    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
-    fnop
-  }
-.endif
+  // max pool grad is 0. (set on macro entry). split the ldconst up to bundle,
+  // although not necessary when zero it doesn't cost any cycles as we can bunde
 
+ {
+    get $workerPtr, $WSR
+    setzi $a0, INITIAL_VALUE & LDCONST_MASK
+  }
+  {
+    and $workerPtr, $workerPtr, CSR_W_WSR__CTXTID_M1__MASK
+    or $a0, $a0, INITIAL_VALUE & ~LDCONST_MASK
+  }
   // Divide work equally per channel amongst workers
   mul $numElems_i, $initInfo, 21846 // sufficient to cover a range of [0:4095*6]
   shr $numElems_i, $numElems_i, 17
@@ -277,15 +464,19 @@ init_loop\@:
 #endif
 
   // sum pooling state includes a scale too.
-.if !\isMaxPool
-.if \isFloat
+.if \isMaxPool
+  // unpack the rest of the scaled pointers at the top level of the state.
+  ld32 $workListBase, $mvertex_base, $mzero, VERTEX_WORK_LIST_BASE_OFFSET/4
+.endif
+.if !\isMaxPool && \isFloat
   ld32 $a6, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET/4
   {
     // unpack the rest of the scaled pointers at the top level of the state.
     ld32 $workListBase, $mvertex_base, $mzero, VERTEX_WORK_LIST_BASE_OFFSET/4
     mov $a7, $a6
   }
-.else
+.endif
+.if !\isMaxPool && !\isFloat
   ldb16 $a6, $mzero, $mvertex_base, VERTEX_SCALE_OFFSET/2
   {
     // unpack the rest of the scaled pointers at the top level of the state.
@@ -293,10 +484,7 @@ init_loop\@:
     mov $a7, $a6
   }
 .endif
-.else
-  // unpack the rest of the scaled pointers at the top level of the state.
-  ld32 $workListBase, $mvertex_base, $mzero, VERTEX_WORK_LIST_BASE_OFFSET/4
-.endif
+
 
 .if \isBwdPass
   // save the two outer pointers on the stack and then load and unpack the
@@ -405,12 +593,12 @@ work_loop\@:
   add $inPos, $inPos, $numElementsM1
   mul $inPos, $inPos, $chansPerGroup
 
-.if !\isFloat
-  shl $inPos, $inPos, 2
-  shl $outPos, $outPos, 2
-.else
+.if \isFloat
   shl $inPos, $inPos, 1
   shl $outPos, $outPos, 1
+.else
+  shl $inPos, $inPos, 2
+  shl $outPos, $outPos, 2
 .endif
 
   // save the final positions onto the stack so we can reuse the registers.
@@ -471,29 +659,29 @@ chan_groups_loop\@:
   ld32 $fwdActsOutPtr, $base, $fwdActsOutPtrPtr, $numChanGroupsM1
   ld32 $fwdActsInPtr, $base, $fwdActsInPtrPtr, $numChanGroupsM1
 #endif
-.endif
+.endif //isBwdPass
 
   // move the two pointers on by the current positions with a dummy load.
 .if \isFloat
   ld32step $mzero, $mzero, $outPtr+=, $outPos
   ld32step $mzero, $mzero, $inPtr+=, $inPos
 
-.if \isBwdPass
-  // note fwdActsInPtr is being offset by outPos and vice versa.
-  // this is intentional.
-  ld32step $mzero, $mzero, $fwdActsInPtr+=, $outPos
-  ld32step $mzero, $mzero, $fwdActsOutPtr+=, $inPos
-.endif
+  .if \isBwdPass
+    // note fwdActsInPtr is being offset by outPos and vice versa.
+    // this is intentional.
+    ld32step $mzero, $mzero, $fwdActsInPtr+=, $outPos
+    ld32step $mzero, $mzero, $fwdActsOutPtr+=, $inPos
+  .endif
 .else
   ldz16step $mzero, $mzero, $outPtr+=, $outPos
   ldz16step $mzero, $mzero, $inPtr+=, $inPos
 
-.if \isBwdPass
-  // note fwdActsInPtr is being offset by outPos and vice versa.
-  // this is intentional.
-  ldz16step $mzero, $mzero, $fwdActsInPtr+=, $outPos
-  ldz16step $mzero, $mzero, $fwdActsOutPtr+=, $inPos
-.endif
+  .if \isBwdPass
+    // note fwdActsInPtr is being offset by outPos and vice versa.
+    // this is intentional.
+    ldz16step $mzero, $mzero, $fwdActsInPtr+=, $outPos
+    ldz16step $mzero, $mzero, $fwdActsOutPtr+=, $inPos
+  .endif
 .endif
 
   // reload the loop condition variable.
@@ -505,210 +693,10 @@ chans_per_group_loop\@:
   shl $outOffset, $chansPerGroup, 3
   mov $inOffset, $outOffset
 
-.if \isMaxPool
-.if \isFloat
-.if \isBwdPass
-  // pipeline
-  ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
-
-  // note that in for the backwards pass it is correct to index into the
-  // fwdActsIn pointer with outOffset and the fwdActsOut pointer with inOffset.
-  {
-    rpt $numElementsM1, (2f-1f)/8-1
-    fnop
-  }
-1:
-  {
-    ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
-    fnop
-  }
-  {
-    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
-    f32v2cmpeq $a0:1, $a0:1, $a2:3
-  }
-  {
-    ld64 $a6:7, $outPtr, $outOffset, 0
-    and64 $a4:5, $a0:1, $a4:5
-  }
-  {
-    ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
-    f32v2add $a6:7, $a4:5, $a6:7
-  }
-  {
-    st64step $a6:7, $outPtr, $outOffset+=, $outStride
-    fnop
-  }
-2:
-  ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
-  {
-    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
-    f32v2cmpeq $a0:1, $a0:1, $a2:3
-  }
-  {
-    ld64 $a6:7, $outPtr, $outOffset, 0
-    and64 $a4:5, $a0:1, $a4:5
-  }
-  f32v2add $a6:7, $a4:5, $a6:7
-  st64step $a6:7, $outPtr, $outOffset+=, $outStride
-.else // if \isBwdPass
-  // pipeline first values
-  ld64 $a0:1, $outPtr, $outOffset, 0
-  {
-    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    fnop
-  }
-  {
-    rpt $numElementsM1, (2f-1f)/8-1
-    f32v2max $a6:7, $a0:1, $a2:3
-  }
-1:
-  {
-    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    fnop
-  }
-  {
-    ld64 $a0:1, $outPtr, $outOffset, $outStride
-    fnop
-  }
-  {
-    st64step $a6:7, $outPtr, $outOffset+=, $outStride
-    f32v2max $a6:7, $a0:1, $a2:3
-  }
-2:
-  st64 $a6:7, $outPtr, $outOffset, 0
-.endif // if \isBwdPass
-.else // if \isFloat
-  // isHalf
-.if \isBwdPass
-  // pipeline
-  ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
-
-  // note that in this loop it is correct to index into the fwdActsIn pointer
-  // with outOffset and the fwdActsOut pointer with inOffset.
-  {
-    rpt $numElementsM1, (2f-1f)/8-1
-    fnop
-  }
-1:
-  {
-    ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
-    fnop
-  }
-  {
-    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
-    f16v4cmpeq $a0:1, $a0:1, $a2:3
-  }
-  {
-    ld64 $a6:7, $outPtr, $outOffset, 0
-    and64 $a4:5, $a0:1, $a4:5
-  }
-  {
-    ld64 $a2:3, $fwdActsOutPtr, $inOffset, 0
-    f16v4add $a6:7, $a4:5, $a6:7
-  }
-  {
-    st64step $a6:7, $outPtr, $outOffset+=, $outStride
-    fnop
-  }
-2:
-  ld64 $a0:1, $fwdActsInPtr, $outOffset, 0
-  {
-    ld64step $a4:5, $inPtr, $inOffset+=, $inStride
-    f16v4cmpeq $a0:1, $a0:1, $a2:3
-  }
-  {
-    ld64 $a6:7, $outPtr, $outOffset, 0
-    and64 $a4:5, $a0:1, $a4:5
-  }
-  f16v4add $a6:7, $a4:5, $a6:7
-  st64step $a6:7, $outPtr, $outOffset+=, $outStride
-.else // if \isBwdPass
-  // pipeline first values
-  ld64 $a0:1, $outPtr, $outOffset, 0
-  {
-    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    fnop
-  }
-  {
-    rpt $numElementsM1, (2f-1f)/8-1
-    f16v4max $a6:7, $a0:1, $a2:3
-  }
-1:
-  {
-    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    fnop
-  }
-  {
-    ld64 $a0:1, $outPtr, $outOffset, $outStride
-    fnop
-  }
-  {
-    st64step $a6:7, $outPtr, $outOffset+=, $outStride
-    f16v4max $a6:7, $a0:1, $a2:3
-  }
-2:
-  st64 $a6:7, $outPtr, $outOffset, 0
-.endif // if \isBwdPass
-.endif // if \isFloat
-.else
-  // sum pooling
-.if \isFloat
-  // pipeline first value.
-  ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-  {
-    rpt $numElementsM1, (2f-1f)/8-1
-    fnop
-  }
-1:
-  {
-    ld64 $a0:1, $outPtr, $outOffset, 0
-    f32v2mul $a2:3, $a2:3, $a6:7
-  }
-  {
-    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    f32v2add $a0:1, $a0:1, $a2:3
-  }
-  {
-    st64step $a0:1, $outPtr, $outOffset+=, $outStride
-    fnop
-  }
-2:
-  {
-    ld64 $a0:1, $outPtr, $outOffset, 0
-    f32v2mul $a2:3, $a2:3, $a6:7
-  }
-  f32v2add $a0:1, $a0:1, $a2:3
-  st64step $a0:1, $outPtr, $outOffset+=, $outStride
-.else // if \isFloat
-  // isHalf
-  // pipeline first value
-  ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-  {
-    rpt $numElementsM1, (2f-1f)/8-1
-    fnop
-  }
-1:
-  {
-    ld64 $a0:1, $outPtr, $outOffset, 0
-    f16v4mul $a2:3, $a2:3, $a6:7
-  }
-  {
-    ld64step $a2:3, $inPtr, $inOffset+=, $inStride
-    f16v4add $a0:1, $a0:1, $a2:3
-  }
-  {
-    st64step $a0:1, $outPtr, $outOffset+=, $outStride
-    fnop
-  }
-2:
-  {
-    ld64 $a0:1, $outPtr, $outOffset, 0
-    f16v4mul $a2:3, $a2:3, $a6:7
-  }
-  f16v4add $a0:1, $a0:1, $a2:3
-  st64step $a0:1, $outPtr, $outOffset+=, $outStride
-.endif // if \isFloat
-.endif // if \isMaxPool
+  // =====================================
+  // Call the selected inner loop function
+  // =====================================
+  \INNER_LOOP_FUNCTION
 
   brnzdec $chansPerGroup, chans_per_group_loop\@
   brnzdec $numChanGroupsM1, chan_groups_loop\@
@@ -724,15 +712,19 @@ epilogue\@:
 .size \symbol, .-\symbol
 
 .endm
+// =============================================================================
+// Instantiate main vertex macros, which will reference the inner loop macro that
+// is passed in
 
-// 2nd parameter is whether or not this is a max pool, 3rd parameter is whether
-// or not the out type is float. 4th parameter is if it is a backwards pass,
-// note this is only the case for max pooling.
-DEFINE_VERTEX __runCodelet_popnn__MaxPooling___float 1 1 0
-DEFINE_VERTEX __runCodelet_popnn__MaxPooling___half 1 0 0
-DEFINE_VERTEX __runCodelet_popnn__MaxPoolingGrad___float 1 1 1
-DEFINE_VERTEX __runCodelet_popnn__MaxPoolingGrad___half 1 0 1
-DEFINE_VERTEX __runCodelet_popnn__SumPooling___float 0 1 0
-DEFINE_VERTEX __runCodelet_popnn__SumPooling___half 0 0 0
+// 2nd parameter is whether or not this is a max pool,
+// 3rd parameter is whether or not the out type is float.
+// 4th parameter is if it is a backwards pass, (only the case for max pooling).
+// 5th parameter is the name of the inner loop macro
+DEFINE_VERTEX __runCodelet_popnn__MaxPooling___float 1 1 0 MAX_POOLING_FWD_FLOAT
+DEFINE_VERTEX __runCodelet_popnn__MaxPooling___half 1 0 0 MAX_POOLING_FWD_HALF
+DEFINE_VERTEX __runCodelet_popnn__MaxPoolingGrad___float 1 1 1 MAX_POOLING_BWD_FLOAT
+DEFINE_VERTEX __runCodelet_popnn__MaxPoolingGrad___half 1 0 1 MAX_POOLING_BWD_HALF
+DEFINE_VERTEX __runCodelet_popnn__SumPooling___float 0 1 0 SUM_POOLING_FLOAT
+DEFINE_VERTEX __runCodelet_popnn__SumPooling___half 0 0 0 SUM_POOLING_HALF
 
 #endif // __IPU__
