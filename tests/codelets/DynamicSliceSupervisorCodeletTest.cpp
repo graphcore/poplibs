@@ -207,46 +207,47 @@ void DynamicSliceCodeletTest(const Type &dataType) {
   // Put test inputs into an array of the correct type ready to use
   std::vector<double> outHost(total_size);
 
-  for (unsigned tests = 0; tests < test_count; tests++) {
-    auto offset = TestList[tests].offset;
-    auto numBaseElements = TestList[tests].numBaseElements;
-    auto numSubElements = TestList[tests].numSubElements;
-    auto columns = TestList[tests].columns;
-    auto dstOffset = TestList[tests].dstOffset;
-    auto update = TestList[tests].update;
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    for (unsigned tests = 0; tests < test_count; tests++) {
+      auto offset = TestList[tests].offset;
+      auto numBaseElements = TestList[tests].numBaseElements;
+      auto numSubElements = TestList[tests].numSubElements;
+      auto columns = TestList[tests].columns;
+      auto dstOffset = TestList[tests].dstOffset;
+      auto update = TestList[tests].update;
 
-    copy(target, inTest.data(), inTest.size(), dataType, input.get());
+      copy(target, inTest.data(), inTest.size(), dataType, input.get());
 
-    device.bind([&](const Device &d) {
-      engine.load(d);
       engine.run(uploadProgIndex);
       engine.run(tests);
       engine.run(downloadProgIndex);
-    });
 
-    copy(target, dataType, output.get(), outHost.data(), outHost.size());
+      copy(target, dataType, output.get(), outHost.data(), outHost.size());
 
-    // Host generated result, start with 0s
-    for (unsigned i = 0; i < total_size; i++)
-      outTest[i] = 0;
+      // Host generated result, start with 0s
+      for (unsigned i = 0; i < total_size; i++)
+        outTest[i] = 0;
 
-    // Run the host version of the codelet to compare against - either
-    // update or non update version
-    if (update) {
-      DynamicUpdateSliceSupervisorHost(offset, outTest, inTest, numBaseElements,
-                                       numSubElements, columns, dstOffset);
-    } else {
-      DynamicSliceSupervisorHost(offset, inTest, outTest, numBaseElements,
-                                 numSubElements, columns, dstOffset);
+      // Run the host version of the codelet to compare against - either
+      // update or non update version
+      if (update) {
+        DynamicUpdateSliceSupervisorHost(offset, outTest, inTest,
+                                         numBaseElements, numSubElements,
+                                         columns, dstOffset);
+      } else {
+        DynamicSliceSupervisorHost(offset, inTest, outTest, numBaseElements,
+                                   numSubElements, columns, dstOffset);
+      }
+
+      // Check the result, in the outTest array
+      // Always check the whole output memory to catch any overwrites
+      bool check = checkIsClose("Test_" + std::to_string(tests), outHost.data(),
+                                {outHost.size()}, outTest.data(),
+                                outTest.size(), 0.0, 0.0);
+      BOOST_CHECK(check);
     }
-
-    // Check the result, in the outTest array
-    // Always check the whole output memory to catch any overwrites
-    bool check = checkIsClose("Test_" + std::to_string(tests), outHost.data(),
-                              {outHost.size()}, outTest.data(), outTest.size(),
-                              0.0, 0.0);
-    BOOST_CHECK(check);
-  }
+  });
 }
 BOOST_AUTO_TEST_CASE(DynamicSliceSupervisorCodeletTest_float) {
   DynamicSliceCodeletTest(FLOAT);

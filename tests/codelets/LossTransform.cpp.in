@@ -200,50 +200,50 @@ void singleTest(const Type &dataType, const LossTransformType &ltType,
   const auto relativeTolerance = TOL;
   const auto absoluteTolerance = dataType == FLOAT ? FLOAT_ATOL : HALF_ATOL;
 
-  for (std::size_t testId = 0; testId < numTests; ++testId) {
-    copy(target, hProbsData, dataType, hProbs.get());
-    copy(target, hExpectedData, dataType, hExpected.get());
-    copy(target, hDeltasData, dataType, hDeltas.get());
-    copy(target, hTransformedData, dataType, hTransformed.get());
-    device.bind([&](const Device &d) {
-      e.load(d);
+  device.bind([&](const Device &d) {
+    e.load(d);
+    for (std::size_t testId = 0; testId < numTests; ++testId) {
+      copy(target, hProbsData, dataType, hProbs.get());
+      copy(target, hExpectedData, dataType, hExpected.get());
+      copy(target, hDeltasData, dataType, hDeltas.get());
+      copy(target, hTransformedData, dataType, hTransformed.get());
       e.run(uploadProgIndex);
       e.run(testId);
       e.run(downloadProgIndex);
-    });
-    copy(target, dataType, hDeltas.get(), hostDeltasResult);
-    copy(target, dataType, hTransformed.get(), hostTransformedResult);
+      copy(target, dataType, hDeltas.get(), hostDeltasResult);
+      copy(target, dataType, hTransformed.get(), hostTransformedResult);
 
-    auto &size = programSizes[testId];
-    auto remainingElements = randomDataSize - size;
+      auto &size = programSizes[testId];
+      auto remainingElements = randomDataSize - size;
 
-    // Check that the computed values are correct
-    const auto deltasAreClose = checkIsClose(
-        "deltas_" + std::to_string(size), hostDeltasResult.data(), {size},
-        deltasExpected.data(), size, relativeTolerance, absoluteTolerance);
+      // Check that the computed values are correct
+      const auto deltasAreClose = checkIsClose(
+          "deltas_" + std::to_string(size), hostDeltasResult.data(), {size},
+          deltasExpected.data(), size, relativeTolerance, absoluteTolerance);
 
-    const auto transformedAreClose = checkIsClose(
-        "transformed_" + std::to_string(size), hostTransformedResult.data(),
-        {size}, transformedExpected.data(), size, relativeTolerance,
-        absoluteTolerance);
+      const auto transformedAreClose = checkIsClose(
+          "transformed_" + std::to_string(size), hostTransformedResult.data(),
+          {size}, transformedExpected.data(), size, relativeTolerance,
+          absoluteTolerance);
 
-    // Check that we did not overwritte anything
-    const auto deltasAreNotOverwritten = checkIsClose(
-        "deltas_over_" + std::to_string(size), hostDeltasResult.data() + size,
-        {remainingElements}, randomB + size, remainingElements,
-        relativeTolerance, absoluteTolerance);
+      // Check that we did not overwritte anything
+      const auto deltasAreNotOverwritten = checkIsClose(
+          "deltas_over_" + std::to_string(size), hostDeltasResult.data() + size,
+          {remainingElements}, randomB + size, remainingElements,
+          relativeTolerance, absoluteTolerance);
 
-    const auto transformedAreNotOverwritten =
-        checkIsClose("transformed_over_" + std::to_string(size),
-                     hostTransformedResult.data() + size, {remainingElements},
-                     randomB + size, remainingElements, relativeTolerance,
-                     absoluteTolerance);
+      const auto transformedAreNotOverwritten =
+          checkIsClose("transformed_over_" + std::to_string(size),
+                       hostTransformedResult.data() + size, {remainingElements},
+                       randomB + size, remainingElements, relativeTolerance,
+                       absoluteTolerance);
 
-    BOOST_CHECK(deltasAreClose);
-    BOOST_CHECK(transformedAreClose);
-    BOOST_CHECK(deltasAreNotOverwritten);
-    BOOST_CHECK(transformedAreNotOverwritten);
-  }
+      BOOST_CHECK(deltasAreClose);
+      BOOST_CHECK(transformedAreClose);
+      BOOST_CHECK(deltasAreNotOverwritten);
+      BOOST_CHECK(transformedAreNotOverwritten);
+    }
+  });
 }
 
 } // end anonymous namespace
