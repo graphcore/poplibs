@@ -375,7 +375,7 @@ def main():
                         help='Number of ipus to use')
     parser.add_argument('--tiles-per-ipu', type=int,
                         help='Number of tiles per ipu to use')
-    parser.add_argument('--num-determinism-checks', type=int, default=2,
+    parser.add_argument('--num-determinism-checks', type=int, default=0,
                         help='Amount of additional identical executions to check determinism (Hw only)')
     args = parser.parse_args()
 

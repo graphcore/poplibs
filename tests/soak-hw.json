@@ -1,7 +1,7 @@
 {
     "tests": [
         {
-            "name": "single conv layer - Hw",
+            "name": "single conv layer - Hw compared against model",
             "program": "${ROOT_DIR}/poplibs/tools/single_conv_layer_random.py",
             "args": [
                 "--seed",
@@ -20,7 +20,31 @@
                 "skip": [77, 245],
                 "bailout": 10
             },
-            "weight": 1.0
+            "weight": 0.9
+        },
+        {
+            "name": "single conv layer - Hw compared against previous runs",
+            "program": "${ROOT_DIR}/poplibs/tools/single_conv_layer_random.py",
+            "args": [
+                "--seed",
+                "${TEST_SEED}",
+                "--device-type",
+                "Hw",
+                "--num-determinism-checks",
+                "5",
+                "--ipus",
+                "1",
+                "--n",
+                "1",
+                "--binary",
+                "${BUILD_DIR}/build/poplibs/tools/single_conv_layer"
+            ],
+            "testArgs": {
+                "timeout": 1200,
+                "skip": [77, 245],
+                "bailout": 10
+            },
+            "weight": 0.1
         }
     ]
 }

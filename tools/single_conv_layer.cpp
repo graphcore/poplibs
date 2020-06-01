@@ -846,6 +846,7 @@ int main(int argc, char **argv) try {
                     [fwdInChansPerConvGroup][product(kernelSize)]);
   boost::multi_array<double, 2> duplicatedHostBiases(
       boost::extents[replicationFactor][fwdOutChans]);
+
   // Used for determinism checking
   boost::multi_array<double, 5> prevExecutionWeights(
       boost::extents[replicationFactor][numConvGroups][fwdOutChansPerConvGroup]
@@ -863,7 +864,67 @@ int main(int argc, char **argv) try {
                             randomEngine);
   }
 
-  for (unsigned i(0); i < numDeterminismChecks + 1; ++i) {
+  const auto fwdModel = [&](const auto &hostPrevAct, const auto &hostWeights,
+                            const auto &hostBiases) {
+    boost::multi_array<double, 3> modelNextAct(
+        boost::extents[batchSize * replicationFactor][fwdOutChans]
+                      [product(outFieldSize)]);
+    poplibs_test::conv::convolution(
+        vectorConvert<unsigned>(inputFieldSize), truncationLower,
+        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+        kernelPaddingUpper, flipKernel, outputTruncationLower,
+        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+        hostPrevAct, hostWeights, hostBiases, modelNextAct);
+    return modelNextAct;
+  };
+
+  const auto bwdModel = [&](const auto &hostZDeltas, const auto &modelWeights) {
+    boost::multi_array<double, 3> modelPrevDeltas(
+        boost::extents[batchSize * replicationFactor][fwdInChans]
+                      [product(inputFieldSize)]);
+    poplibs_test::conv::convolutionBackward(
+        vectorConvert<unsigned>(inputFieldSize), truncationLower,
+        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+        kernelPaddingUpper, flipKernel, outputTruncationLower,
+        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+        hostZDeltas, modelWeights, modelPrevDeltas);
+    return modelPrevDeltas;
+  };
+
+  const auto wuModel = [&](const auto &hostPrevAct, const auto &hostZDeltas,
+                           const auto &hostWeights, const auto &hostBiases) {
+    auto modelWeights = hostWeights;
+    auto modelBiases = hostBiases;
+    poplibs_test::conv::weightUpdate(
+        vectorConvert<unsigned>(inputFieldSize), truncationLower,
+        truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
+        vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
+        kernelTruncationUpper, kernelDilation, kernelPaddingLower,
+        kernelPaddingUpper, flipKernel, outputTruncationLower,
+        outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
+        learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
+    return std::make_pair(modelWeights, modelBiases);
+  };
+
+  enum class DataValidation { AgainstModel, AgainstPreviousRuns };
+  const auto validationMethod = [&]() -> boost::optional<DataValidation> {
+    if (ignoreData) {
+      return boost::none;
+    } else {
+      if (numDeterminismChecks > 0) {
+        return DataValidation::AgainstPreviousRuns;
+      } else {
+        return DataValidation::AgainstModel;
+      }
+    }
+  }();
+
+  for (unsigned determinismCheckIdx = 0;
+       determinismCheckIdx < numDeterminismChecks + 1; ++determinismCheckIdx) {
 
     for (unsigned i = 0; i != replicationFactor; ++i) {
       duplicatedHostWeights[i] = hostWeights;
@@ -880,37 +941,26 @@ int main(int argc, char **argv) try {
     // Run the forward pass.
     dev.bind([&](const Device &d) {
       engine.load(d);
-      if (!ignoreData) {
+      if (validationMethod.has_value()) {
         engine.run(uploadProgIndex);
       }
       engine.run(fwdProgIndex);
-      if (!ignoreData) {
+      if (validationMethod.has_value()) {
         engine.run(downloadProgIndex);
       }
     });
 
-    // Validate against a reference model.
     bool fwdFailed = false;
     bool bwdFailed = false;
     bool weightsFailed = false;
     bool biasesFailed = false;
 
-    if (!ignoreData) {
-      boost::multi_array<double, 3> modelNextAct(
-          boost::extents[batchSize * replicationFactor][fwdOutChans]
-                        [product(outFieldSize)]);
-      poplibs_test::conv::convolution(
-          vectorConvert<unsigned>(inputFieldSize), truncationLower,
-          truncationUpper, inDilation, paddingLower, paddingUpper, flipInput,
-          vectorConvert<unsigned>(kernelSize), kernelTruncationLower,
-          kernelTruncationUpper, kernelDilation, kernelPaddingLower,
-          kernelPaddingUpper, flipKernel, outputTruncationLower,
-          outputTruncationUpper, stride, outputPaddingLower, outputPaddingUpper,
-          hostPrevAct, hostWeights, hostBiases, modelNextAct);
-      if (doFwdPass) {
-        copy(target, outputType, rawHostNextAct.get(), hostNextAct);
-        fwdFailed = !checkIsClose("fwd", hostNextAct, modelNextAct,
-                                  relativeTolerance, absoluteTolerance);
+    if (doFwdPass) {
+      copy(target, outputType, rawHostNextAct.get(), hostNextAct);
+      if (validationMethod == DataValidation::AgainstModel) {
+        fwdFailed = !checkIsClose(
+            "fwd", hostNextAct, fwdModel(hostPrevAct, hostWeights, hostBiases),
+            relativeTolerance, absoluteTolerance);
       }
     }
 
@@ -918,18 +968,16 @@ int main(int argc, char **argv) try {
       boost::multi_array<double, 3> hostPrevDeltas(
           boost::extents[batchSize * replicationFactor]
                         [params.getNumInputChans()][product(inputFieldSize)]);
-      auto modelWeights = hostWeights;
-      auto modelBiases = hostBiases;
       // Run the backwards and/or weight update passes.
       copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
 
       dev.bind([&](const Device &d) {
         engine.load(d);
-        if (!ignoreData) {
+        if (validationMethod.has_value()) {
           engine.run(uploadProgIndex);
         }
         engine.run(revProgIndex);
-        if (!ignoreData) {
+        if (validationMethod.has_value()) {
           engine.run(downloadProgIndex);
         }
       });
@@ -939,85 +987,72 @@ int main(int argc, char **argv) try {
         copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
       }
 
-      if (!ignoreData) {
-        // Validate against a reference model.
-        if (doBwdPass) {
-          boost::multi_array<double, 3> modelPrevDeltas(
-              boost::extents[batchSize * replicationFactor][fwdInChans]
-                            [product(inputFieldSize)]);
-          poplibs_test::conv::convolutionBackward(
-              vectorConvert<unsigned>(inputFieldSize), truncationLower,
-              truncationUpper, inDilation, paddingLower, paddingUpper,
-              flipInput, vectorConvert<unsigned>(kernelSize),
-              kernelTruncationLower, kernelTruncationUpper, kernelDilation,
-              kernelPaddingLower, kernelPaddingUpper, flipKernel,
-              outputTruncationLower, outputTruncationUpper, stride,
-              outputPaddingLower, outputPaddingUpper, hostZDeltas, modelWeights,
-              modelPrevDeltas);
-          bwdFailed = !checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+      if (doBwdPass) {
+        if (validationMethod == DataValidation::AgainstModel) {
+          bwdFailed = !checkIsClose("bwd", hostPrevDeltas,
+                                    bwdModel(hostZDeltas, hostWeights),
                                     relativeTolerance, absoluteTolerance);
         }
-        if (doWuPass) {
-          copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
-          if (bias) {
-            copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
-          }
-          if (!i) {
-            poplibs_test::conv::weightUpdate(
-                vectorConvert<unsigned>(inputFieldSize), truncationLower,
-                truncationUpper, inDilation, paddingLower, paddingUpper,
-                flipInput, vectorConvert<unsigned>(kernelSize),
-                kernelTruncationLower, kernelTruncationUpper, kernelDilation,
-                kernelPaddingLower, kernelPaddingUpper, flipKernel,
-                outputTruncationLower, outputTruncationUpper, stride,
-                outputPaddingLower, outputPaddingUpper, learningRate,
-                hostPrevAct, hostZDeltas, modelWeights, modelBiases);
+      }
+      if (doWuPass) {
+        copy(target, inputType, rawHostWeights.get(), duplicatedHostWeights);
+        if (bias) {
+          copy(target, outputType, rawHostBiases.get(), duplicatedHostBiases);
+        }
 
-            prevExecutionWeights = duplicatedHostWeights;
-            if (bias) {
-              prevExecutionBiases = duplicatedHostBiases;
+        if (validationMethod == DataValidation::AgainstModel) {
+          // Take dimensions and shape from host tensors.
+          auto modelWeights = hostWeights;
+          auto modelBiases = hostBiases;
+          std::tie(modelWeights, modelBiases) =
+              wuModel(hostPrevAct, hostZDeltas, hostWeights, hostBiases);
+
+          for (unsigned i = 0; i != replicationFactor; ++i) {
+            std::string suffix;
+            if (replicationFactor > 1)
+              suffix = "_ipu" + std::to_string(i);
+            boost::multi_array<double, 4> hostWeights =
+                duplicatedHostWeights[i];
+            auto failed =
+                !checkIsClose("weights" + suffix, hostWeights, modelWeights,
+                              relativeTolerance, absoluteTolerance);
+            if (failed) {
+              weightsFailed = true;
             }
 
-            for (unsigned i = 0; i != replicationFactor; ++i) {
-              std::string suffix;
-              if (replicationFactor > 1)
-                suffix = "_ipu" + std::to_string(i);
-              boost::multi_array<double, 4> hostWeights =
-                  duplicatedHostWeights[i];
-              auto failed =
-                  !checkIsClose("weights" + suffix, hostWeights, modelWeights,
-                                relativeTolerance, absoluteTolerance);
+            if (bias) {
+              boost::multi_array<double, 1> hostBiases =
+                  duplicatedHostBiases[i];
+              failed = !checkIsClose("biases" + suffix, hostBiases, modelBiases,
+                                     relativeTolerance, absoluteTolerance);
               if (failed) {
-                weightsFailed = true;
+                biasesFailed = true;
               }
+            }
+          }
+        }
 
-              if (bias) {
-                boost::multi_array<double, 1> hostBiases =
-                    duplicatedHostBiases[i];
-                failed =
-                    !checkIsClose("biases" + suffix, hostBiases, modelBiases,
-                                  relativeTolerance, absoluteTolerance);
-                if (failed) {
-                  biasesFailed = true;
-                }
-              }
+        if (validationMethod == DataValidation::AgainstPreviousRuns) {
+          prevExecutionWeights = duplicatedHostWeights;
+          if (bias) {
+            prevExecutionBiases = duplicatedHostBiases;
+          }
+
+          if (determinismCheckIdx > 0) {
+            if (duplicatedHostWeights != prevExecutionWeights) {
+              weightsFailed = true;
             }
-          } else {
-            // Determinism check
-            bool different = duplicatedHostWeights != prevExecutionWeights;
             if (bias) {
-              different |= duplicatedHostBiases != prevExecutionBiases;
-            }
-            if (different) {
-              std::cerr << "Determinism check failed!\n";
-              return 1;
+              if (duplicatedHostBiases != prevExecutionBiases) {
+                biasesFailed = true;
+              }
             }
           }
         }
       }
     }
 
-    if (!ignoreData) {
+    if (validationMethod.has_value()) {
       const std::vector<std::pair<std::string, int>> results{
           {"fwd", fwdFailed},
           {"bwd", bwdFailed},
