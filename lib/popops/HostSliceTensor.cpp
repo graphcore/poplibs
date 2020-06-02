@@ -235,4 +235,17 @@ IndicesAndTensor createHostSliceableTensor(poplar::Graph &graph,
   return {indices, result};
 }
 
+poplar::Tensor createHostTransferableTensor(poplar::Graph &graph,
+                                            const poplar::Type &type,
+                                            const std::vector<size_t> &shape,
+                                            bool isRead,
+                                            const std::string &debugPrefix) {
+  size_t flattenedSize = std::accumulate(shape.begin(), shape.end(), 1U,
+                                         std::multiplies<size_t>());
+  auto resultPair = createHostSliceableTensor(graph, type, {1, flattenedSize},
+                                              isRead, debugPrefix);
+
+  return resultPair.tensor.reshape(shape);
+}
+
 } // namespace popops

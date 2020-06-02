@@ -93,4 +93,10 @@ BOOST_AUTO_TEST_CASE(Basic) {
       BOOST_CHECK_EQUAL(i5[i][0].size(), 1);
     }
   }
+
+  auto t6 = createHostTransferableTensor(graph, FLOAT, {4, 8, 64}, false);
+  auto m6 = graph.getTileMapping(t6);
+  std::vector<size_t> expected = {4, 8, 64};
+  BOOST_CHECK(t6.shape() == expected);
+  BOOST_CHECK_EQUAL(getNumTiles(m6), 32);
 }
