@@ -65,8 +65,9 @@ static std::vector<poplar::Tensor> postProcessWeights(
 }
 
 template <typename T>
-static MultiPlan getMultiPlan(const poplar::Target &target, const std::vector<T> &args,
-                       PlanningCache *cache) {
+static MultiPlan getMultiPlan(const poplar::Target &target,
+                              const std::vector<T> &args,
+                              PlanningCache *cache) {
   std::vector<CanonicalConvParams> params;
   std::vector<ConvOptions> options;
   for (const auto &arg : args) {
