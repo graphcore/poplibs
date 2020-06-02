@@ -40,26 +40,34 @@ allocateHostMemoryForTensor(const Target &target, const Tensor &t,
 
 std::unique_ptr<char[]>
 allocateHostMemoryForTensor(const Tensor &t, const std::string &name,
-                            Graph &graph, Sequence &uploadProg,
-                            Sequence &downloadProg,
+                            Graph &graph,
+                            boost::optional<Sequence &> uploadProg,
+                            boost::optional<Sequence &> downloadProg,
                             std::vector<std::pair<std::string, char *>> &map) {
   std::unique_ptr<char[]> p = allocateHostMemoryForTensor(
       graph.getTarget(), t, graph.getReplicationFactor());
-  auto downloadId = graph.addDeviceToHostFIFO(name + "_download",
-                                              t.elementType(), t.numElements());
-  downloadProg.add(Copy(t, downloadId, true));
-  auto uploadId = graph.addHostToDeviceFIFO(name + "_upload", t.elementType(),
-                                            t.numElements());
-  uploadProg.add(Copy(uploadId, t, true));
-  map.emplace_back(name, p.get());
+
+  if (downloadProg) {
+    auto downloadId = graph.addDeviceToHostFIFO(
+        name + "_download", t.elementType(), t.numElements());
+    downloadProg->add(Copy(t, downloadId, true));
+    map.emplace_back(name + "_download", p.get());
+  }
+
+  if (uploadProg) {
+    auto uploadId = graph.addHostToDeviceFIFO(name + "_upload", t.elementType(),
+                                              t.numElements());
+    uploadProg->add(Copy(uploadId, t, true));
+    map.emplace_back(name + "_upload", p.get());
+  }
+
   return p;
 }
 
 void attachStreams(Engine &e,
                    const std::vector<std::pair<std::string, char *>> &map) {
   for (const auto &p : map) {
-    e.connectStream(p.first + "_upload", p.second);
-    e.connectStream(p.first + "_download", p.second);
+    e.connectStream(p.first, p.second);
   }
 }
 

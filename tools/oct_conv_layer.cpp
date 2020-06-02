@@ -447,15 +447,15 @@ getConvolutionWeightUpdateArguments(
 static std::vector<std::unique_ptr<char[]>>
 allocateOctHostMemory(Graph &graph, const std::string name,
                       const std::vector<ConvParameters> &params,
-                      const std::vector<Tensor> &tensors, Sequence &uploadProg,
-                      Sequence &downloadProg,
+                      const std::vector<Tensor> &tensors,
+                      boost::optional<Sequence &> uploadProg,
+                      boost::optional<Sequence &> downloadProg,
                       std::vector<std::pair<std::string, char *>> &tmap) {
   std::vector<std::unique_ptr<char[]>> rawHostMem(tensors.size());
   for (unsigned i = 0; i < tensors.size(); ++i) {
-    auto parentTensor = graph.getNonReplicatedTensor(tensors[i]);
     auto prefix = params[i].name;
     rawHostMem[i] = allocateHostMemoryForTensor(
-        parentTensor, prefix + name, graph, uploadProg, downloadProg, tmap);
+        tensors[i], prefix + name, graph, uploadProg, downloadProg, tmap);
   }
   return rawHostMem;
 }
@@ -477,7 +477,6 @@ static Tensor upsampleTensor(Graph &graph, Tensor &input,
     inShuffled = inShuffled.reshape({numDupl, elemsToDupl})
                      .broadcast(samplingRate, 1)
                      .reshape(upSamplingPartial);
-    graph.setTileMapping(inShuffled, 0);
     elemsToDupl *= upSamplingPartial[currDim];
     numDupl = product<std::size_t>(upSamplingPartial) / elemsToDupl;
     currDim--;
@@ -535,12 +534,8 @@ static void postProcess(Graph &graph, std::vector<ConvParameters> &params,
     Tensor tensor = input[i];
     if (params[i].postUpsamplingRate > 1) {
       auto name = params[i].name + "_upsampled";
-      auto upsampledView =
-          upsampleTensor(graph, input[i], params[i].postUpsamplingRate,
-                         params[i].fwdParams.getNumFieldDims());
-      tensor =
-          graph.clone(upsampledView, name, TensorCloneMethod::CREATE_NEW_ORDER);
-      prog.add(Copy(upsampledView, tensor));
+      tensor = upsampleTensor(graph, input[i], params[i].postUpsamplingRate,
+                              params[i].fwdParams.getNumFieldDims());
     }
 
     // Accumulate outputs of individual convolution paths which are of the same
@@ -548,8 +543,9 @@ static void postProcess(Graph &graph, std::vector<ConvParameters> &params,
     if (!params[i].outputData->tensor.valid()) {
       params[i].outputData->tensor = tensor;
     } else {
-      popops::addInPlace(graph, params[i].outputData->tensor, tensor, prog,
-                         params[i].outputData->name);
+      params[i].outputData->tensor =
+          popops::add(graph, params[i].outputData->tensor, tensor, prog,
+                      params[i].outputData->name);
     }
   }
   return;
@@ -1232,12 +1228,12 @@ int main(int argc, char **argv) try {
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawHostOctConvInput =
       allocateOctHostMemory(graph, "octConvInput", octConvParams, octConvInput,
-                            uploadProg, downloadProg, tmap);
+                            uploadProg, boost::none, tmap);
   auto rawHostWeights = allocateOctHostMemory(
       graph, "weights", octConvParams, weights, uploadProg, downloadProg, tmap);
   auto rawHostOctConvOutput =
       allocateOctHostMemory(graph, "octConvOutput", octConvParams,
-                            octConvOutput, uploadProg, downloadProg, tmap);
+                            octConvOutput, boost::none, downloadProg, tmap);
   std::vector<std::unique_ptr<char[]>> rawHostZDeltas;
   std::vector<std::unique_ptr<char[]>> rawHostPrevDeltas;
   if (doBwdPass || doWuPass) {
@@ -1248,7 +1244,7 @@ int main(int argc, char **argv) try {
   if (doBwdPass) {
     rawHostPrevDeltas =
         allocateOctHostMemory(graph, "prevDeltas", octConvParams, prevDeltas,
-                              uploadProg, downloadProg, tmap);
+                              boost::none, downloadProg, tmap);
   }
 
   std::vector<Program> programs;

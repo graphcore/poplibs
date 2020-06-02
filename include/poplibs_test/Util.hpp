@@ -13,6 +13,7 @@
 
 #include <boost/lexical_cast.hpp>
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
 
 #include <cassert>
 #include <functional>
@@ -70,12 +71,11 @@ allocateHostMemoryForTensor(const poplar::Target &target,
                             const poplar::Tensor &t,
                             unsigned replicationFactor);
 
-std::unique_ptr<char[]>
-allocateHostMemoryForTensor(const poplar::Tensor &t, const std::string &name,
-                            poplar::Graph &graph,
-                            poplar::program::Sequence &uploadProg,
-                            poplar::program::Sequence &downloadProg,
-                            std::vector<std::pair<std::string, char *>> &map);
+std::unique_ptr<char[]> allocateHostMemoryForTensor(
+    const poplar::Tensor &t, const std::string &name, poplar::Graph &graph,
+    boost::optional<poplar::program::Sequence &> uploadProg,
+    boost::optional<poplar::program::Sequence &> downloadProg,
+    std::vector<std::pair<std::string, char *>> &map);
 
 void attachStreams(poplar::Engine &e,
                    const std::vector<std::pair<std::string, char *>> &map);

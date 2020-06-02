@@ -294,6 +294,18 @@ function(add_conv_benchmark)
       PARAMS ${CONV_BENCHMARK_PARAMS})
 endfunction()
 
+function(add_oct_conv_benchmark)
+  cmake_parse_arguments(OCT_CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+
+  # common arguments for all oct conv benchmarks
+  list(APPEND OCT_CONV_BENCHMARK_PARAMS --ignore-data)
+  add_benchmark(
+      NAME ${OCT_CONV_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${OCT_CONV_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:oct_conv_layer>
+      PARAMS ${OCT_CONV_BENCHMARK_PARAMS})
+endfunction()
+
 function(add_fc_benchmark)
   cmake_parse_arguments(FC_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
 
@@ -1699,6 +1711,176 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 2048
                  --output-channels 512
                  --batch-size 4)
+
+  # resnet50 octave conv layer (alpha = 0.25) benchmarks (batch size 2). each
+  # name is the enigma name the first time that layer is seen. 
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_cnv_ain0_aout25
+          PARAMS --field {224,224}
+                 --kernel-size 7
+                 --stride 2
+                 --padding 3
+                 --input-channels 4
+                 --output-channels 64
+                 --batch-size 4
+                 --alpha-in 0
+                 --alpha-out 0.25
+          PARALLEL_LEVEL 4)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0_projection_a25
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 64
+                 --output-channels 256
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 4)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0_a25
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 64
+                 --output-channels 64
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0A1_a25
+          PARAMS --field {56,56}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 64
+                 --output-channels 64
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L1A0_a25
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 64
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0_projection_a25
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 256
+                 --output-channels 512
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 4)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0A0_a25
+          PARAMS --field {56,56}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 256
+                 --output-channels 128
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0A1_a25
+          PARAMS --field {28,28}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 128
+                 --output-channels 128
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 4)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0A2_a25
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --input-channels 128
+                 --output-channels 512
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L1A0_a25
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --input-channels 512
+                 --output-channels 128
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0_projection_a25
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 512
+                 --output-channels 1024
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0A0_a25
+          PARAMS --field {28,28}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 512
+                 --output-channels 256
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0A1_a25
+          PARAMS --field {16,16}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 256
+                 --output-channels 256
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0A2_a25
+          PARAMS --field {16,16}
+                 --kernel-size 1
+                 --input-channels 256
+                 --output-channels 1024
+                 --batch-size 4
+                 --alpha 0.25
+          PARALLEL_LEVEL 8)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L1A0_a25
+          PARAMS --field {16,16}
+                 --kernel-size 1
+                 --input-channels 1024
+                 --output-channels 256
+                 --batch-size 4
+                 --alpha 0.25)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm512L0_projection_a25
+          PARAMS --field {16,16}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 1024
+                 --output-channels 2048
+                 --batch-size 4
+                 --alpha 0.25)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm512L0A0_a25
+          PARAMS --field {16,16}
+                 --kernel-size 1
+                 --stride 2
+                 --input-channels 1024
+                 --output-channels 512
+                 --batch-size 4
+                 --alpha 0.25)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm512L0A1_a25
+          PARAMS --field {8,8}
+                 --kernel-size 3
+                 --padding 1
+                 --input-channels 512
+                 --output-channels 512
+                 --batch-size 4
+                 --alpha 0.25)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm512L0A2_a25
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 512
+                 --output-channels 2048
+                 --batch-size 4
+                 --alpha 0.25)
+  add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm512L1A0_a25
+          PARAMS --field {8,8}
+                 --kernel-size 1
+                 --input-channels 2048
+                 --output-channels 512
+                 --batch-size 4
+                 --alpha 0.25)
 
   # inception conv layer benchmarks (batch size 4). each name is the enigma name
   # the first time that layer is seen.
