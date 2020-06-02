@@ -379,6 +379,10 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
                      poplar::program::Sequence &copies,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_, const std::string &debugPrefix) {
+  logging::debug("Regroup: debugstr={}", debugPrefix);
+  logging::debug("  t      shape={}", t.shape());
+  logging::debug("  from   grouping={{{},{}}}", from_.first, from_.second);
+  logging::debug("  to     grouping={{{},{}}}", to_.first, to_.second);
   if (t.rank() <= 1) {
     return t;
   }
@@ -566,6 +570,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
       inGrouping[0].first != refGrouping[0].first &&
       (inGrouping[0].second % grainSize) == 0 &&
       (refGrouping[0].second % grainSize) == 0) {
+    logging::debug("  regrouped");
     Sequence expandingCopies;
     ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
     in = regroupTensor(graph, in, expandingCopies, transposeCS, inGrouping[0],
@@ -579,6 +584,9 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
                            std::size_t preferredGrouping_, Sequence &prog,
                            const std::string &debugPrefix) {
+  logging::debug("Regroup if beneficial (preferred): debugstr={}", debugPrefix);
+  logging::debug("  input        shape={}", in_.shape());
+  logging::debug("  preferred grouping={}", preferredGrouping_);
   auto in = in_;
 
   // If we can't transpose this data type, it's not beneficial to try
@@ -603,6 +611,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
   if (!inGrouping.empty() && inGrouping[0].first != preferredGrouping.first &&
       inGrouping[0].second % grainSize == 0 &&
       preferredGrouping.second % grainSize == 0) {
+    logging::debug("  regrouped");
     ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
     in = regroupTensor(graph, in, prog, transposeCS, inGrouping[0],
                        preferredGrouping, debugPrefix);

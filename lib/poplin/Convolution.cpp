@@ -76,6 +76,22 @@ struct ConvSlice {
     return kernelEnd[dim] - kernelBegin[dim];
   }
 };
+
+class LazyComputeSet {
+  // A compute set that is only instantiated if required
+  Graph &graph;
+  std::string name;
+  boost::optional<ComputeSet> cs;
+
+public:
+  LazyComputeSet(Graph &graph, std::string name) : graph(graph), name(name){};
+  bool hasCS() const { return bool(cs); };
+  operator ComputeSet() {
+    if (!cs)
+      cs = graph.addComputeSet(name);
+    return *cs;
+  };
+};
 } // End anonymous namespace
 
 static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
@@ -1144,7 +1160,7 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
                               boost::optional<Tensor> &weights,
                               const ExpandDimsPlan &expandDimsPlan,
                               Sequence &expandingCopies,
-                              const ComputeSet &transposeCS, bool rearrangeActs,
+                              LazyComputeSet &transposeCS, bool rearrangeActs,
                               bool rearrangeWeights,
                               const std::string &debugPrefix) {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
@@ -1244,7 +1260,7 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
                               unsigned level, boost::optional<Tensor> &acts,
                               boost::optional<Tensor> &weights,
                               Sequence &expandingCopies,
-                              const ComputeSet &transposeCS,
+                              LazyComputeSet &transposeCS,
                               bool rearrangeActs = false,
                               bool rearrangeWeights = false,
                               const std::string &debugPrefix = "") {
@@ -1277,7 +1293,7 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
 static void regroupIfBeneficialForPlan(Graph &graph, const ConvParams &params,
                                        const Plan &plan, unsigned level,
                                        Tensor &in, Sequence &expandingCopies,
-                                       const ComputeSet &transposeCS,
+                                       LazyComputeSet &transposeCS,
                                        const std::string &debugPrefix = "") {
   auto grouping = detectDimGroupings(graph, in);
   auto destGrouping =
@@ -1389,7 +1405,7 @@ static CanonicalConvParams convolutionPreprocess(
   const auto outChanGrainSize = level < plan.partitions.size()
                                     ? plan.partitions[level].outChanGrainSize
                                     : plan.partialChansPerGroup;
-  ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+  LazyComputeSet transposeCS(graph, debugPrefix + "/Transpose");
   Sequence expandingCopies;
 
   // transformations that are applied before serially splitting (which is only
@@ -1668,7 +1684,8 @@ static CanonicalConvParams convolutionPreprocess(
 
   if (rearrangeProg) {
     rearrangeProg->add(expandingCopies);
-    rearrangeProg->add(Execute(transposeCS));
+    if (transposeCS.hasCS())
+      rearrangeProg->add(Execute(transposeCS));
     rearrangeProg->add(rearrangingCopies);
   }
 
