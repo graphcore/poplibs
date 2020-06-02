@@ -3822,7 +3822,7 @@ foreach(OUTPUT_STRIDE 1 2)
                    --batch-size=4
                   --convolution-options={\"partialsType\":\"half\"}
                   --fwd-plan-constraints={\"method\":\"SLIC\"}
-                  VARIANTS "IpuModel2;Sim2")
+                  VARIANTS "IpuModel2;Sim2;Sim;IpuModel")
 endforeach()
 
 # conv_batch_float test split into the three component phases

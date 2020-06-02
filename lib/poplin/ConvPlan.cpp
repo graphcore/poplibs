@@ -1399,8 +1399,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   target.getNumWorkerContexts(), slicWindowWidth);
           return cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
               implicitZeroInnerLoopCycles, innerLoopCycles, weightLoadCycles,
-              tileNumConvGroups, numWeightBlocks, slicWindowWidth,
-              floatActivations, floatPartials);
+              tileNumConvGroups, numWeightBlocks, numConvUnitsRequired,
+              slicWindowWidth, floatActivations, floatPartials);
         });
   }
   case Plan::Method::MAC: {
@@ -4305,10 +4305,10 @@ static void getConvVertexSLICCandidates(
   } else {
     if (numConvUnits == 16) {
       convUnitsCandidates.push_back(16);
-      // TODO - extend this with 8 for the single half variant
-    } else {
-      return;
     }
+    // This is always available with 8, or 16 conv units - let cycle estimates
+    // reject it in favour of the 16 conv unit version if that's available
+    convUnitsCandidates.push_back(8);
   }
 
   const auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;

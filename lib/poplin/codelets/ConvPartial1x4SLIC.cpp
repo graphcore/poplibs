@@ -170,13 +170,16 @@ public:
 
 template class ConvPartial1x4SLIC<half, float, 1, false, 8>;
 template class ConvPartial1x4SLIC<half, float, 1, true, 8>;
-
 template class ConvPartial1x4SLIC<half, float, 2, false, 8>;
 template class ConvPartial1x4SLIC<half, float, 2, true, 8>;
 
+template class ConvPartial1x4SLIC<half, half, 1, false, 8>;
+template class ConvPartial1x4SLIC<half, half, 1, true, 8>;
+template class ConvPartial1x4SLIC<half, half, 2, false, 8>;
+template class ConvPartial1x4SLIC<half, half, 2, true, 8>;
+
 template class ConvPartial1x4SLIC<half, half, 1, false, 16>;
 template class ConvPartial1x4SLIC<half, half, 1, true, 16>;
-
 template class ConvPartial1x4SLIC<half, half, 2, false, 16>;
 template class ConvPartial1x4SLIC<half, half, 2, true, 16>;
 

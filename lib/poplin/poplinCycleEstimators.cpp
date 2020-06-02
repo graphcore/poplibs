@@ -270,8 +270,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
           slicWindowWidth);
   const auto cycles = getConvPartialSlicSupervisorCycleOuterLoopEstimate(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
-      numConvGroupGroups, numSubKernels, slicWindowWidth, floatActivations,
-      floatPartials);
+      numConvGroupGroups, numSubKernels, numConvUnits, slicWindowWidth,
+      floatActivations, floatPartials);
   return cycles;
 }
 
@@ -597,6 +597,13 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 2, true,
                             8),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 2, false,
+                            8),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, true, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, false,
+                            8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, true, 8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, false,
                             8),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, true,

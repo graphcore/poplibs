@@ -58,6 +58,8 @@ int main(int argc, char **argv) try {
   unsigned inChanGroups = 1;
   unsigned outChanGroups = 1;
 
+  unsigned convUnitsRequired = 8;
+
   ShapeOption<std::size_t> inputFieldSizeOption;
   ShapeOption<std::size_t> kernelSizeOption;
   ShapeOption<unsigned> outputPaddingLower(0);
@@ -126,6 +128,9 @@ int main(int argc, char **argv) try {
     ("output-truncation-upper",
      po::value<ShapeOption<unsigned>>(&outputTruncationUpper),
      "Output truncation upper")
+    ("conv-units",
+     po::value<unsigned>(&convUnitsRequired)->default_value(convUnitsRequired),
+     "Conv units to use.  If partials are float(=8), if half (=8 or 16")
   ;
   // clang-format on
   po::variables_map vm;
@@ -281,7 +286,7 @@ int main(int argc, char **argv) try {
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
   Sequence postFwdProg;
-  const auto convUnitsRequired = (partialsType == HALF) ? 16 : 8;
+
   createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
                               chansPerGroup, convUnitsRequired, 0, params, prog,
                               copyWritten, fwdCS, postFwdProg, inGrouped,

@@ -491,8 +491,8 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleWeightLoadEstimate(
 inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
     std::uint64_t implicitZeroingInnerLoopCycles, std::uint64_t innerLoopCycles,
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
-    unsigned numSubKernels, unsigned slicWindowWidth, bool floatActivations,
-    bool floatPartials) {
+    unsigned numSubKernels, unsigned numConvUnits, unsigned slicWindowWidth,
+    bool floatActivations, bool floatPartials) {
 
   // TODO: we currently only target a kernel width of 4.
   assert(!floatActivations);
@@ -500,19 +500,23 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
   assert(numConvGroupGroups >= 1);
   assert(numSubKernels >= 1);
 
-  const std::uint64_t supervisorPreambleCycles = 28;
-  const std::uint64_t supervisorConvGroupGroupsBodyCycles = 15;
+  // Similar, but different function for the 8 convUnits, half partials case
+  const bool half8Conv = (numConvUnits == 8 && floatPartials == false);
+
+  const std::uint64_t supervisorPreambleCycles = half8Conv ? 25 : 28;
+  const std::uint64_t supervisorConvGroupGroupsBodyCycles = half8Conv ? 12 : 15;
   const std::uint64_t supervisorConvGroupGroupsLoopCycles =
       supervisorConvGroupGroupsBodyCycles * numConvGroupGroups +
       6 * (numConvGroupGroups - 1) +
       1; // 6 cycles brnzdec stall for all but last conv group group
   const std::uint64_t supervisorSubKernelBodyCycles =
-      weightLoadCycles + 3 + // deal with whether to swap output pointers or not
-      2 +                    // store new worklist pointer and increment
-      2 +                    // or, store implicit zero/stride
-      6 +                    // runall
-      6 +                    // sync
-      1;                     // load new weights pointer
+      weightLoadCycles +
+      (half8Conv ? 0 : 3) + // deal with whether to swap output pointers or not
+      2 +                   // store new worklist pointer and increment
+      (half8Conv ? 0 : 2) + // or, store implicit zero/stride
+      6 +                   // runall
+      6 +                   // sync
+      1;                    // load new weights pointer
 
   const std::uint64_t supervisorSubKernelLoopCycles =
       supervisorSubKernelBodyCycles * numSubKernels + 6 * (numSubKernels - 1) +
@@ -543,30 +547,35 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
   assert(slicWindowWidth == 4);
 
   const unsigned inputDataPasses = numConvUnits == 16 ? 1 : 2;
+  // Similar, but different function for the 8 convUnits, half partials case
+  const bool half8Conv = (numConvUnits == 8 && floatPartials == false);
+  const unsigned loopDecisionThreshold = (half8Conv ? 6 : 5);
 
   std::uint64_t maxWorkerCycles = 0;
 
   const std::uint64_t workerProcessGroupPreambleCycles =
-      2 + // Get worker ID
-      3 + // Load and maybe switch output pointers
-      1 + // Load input pointer
-      2 + // Load worklist DeltaN for worker
-      4 + // Unpack DeltaN
+      2 +                   // Get worker ID
+      (half8Conv ? 2 : 3) + // Load and maybe switch output pointers
+      1 +                   // Load input pointer
+      2 +                   // Load worklist DeltaN for worker
+      4 +                   // Unpack DeltaN
       2 + // Load base pointer for DeltaN and add to form final worklist pointer
       2 + // Divide number of work items in the list by 3
-      1;  // Load implicit zero flag + strides from stack
+      1 + // Load implicit zero flag + strides from stack
+      (half8Conv ? 1 : 0); // Implicit zero loop decision
   // worker partitions is indexed by [worker][partitions].
+  std::uint64_t cumulativeFieldElems = 0;
   for (const auto &worker : workerPartitions) {
     std::uint64_t workerCycles = workerProcessGroupPreambleCycles;
 
     for (const auto &numFieldElems : worker) {
-      workerCycles += 10; // Pre-amble, brnzdec
+      workerCycles += (half8Conv ? 9 : 10); // Pre-amble, brnzdec
       if (implicitZeroing) {
         workerCycles += 1; // Extra branch to exit
       }
       std::uint64_t rowCycles = 0;
       if (outputStride == 1) {
-        if (numFieldElems < 5) {
+        if (numFieldElems < loopDecisionThreshold) {
           if (implicitZeroing) {
             rowCycles += 10 + (numFieldElems > 1 ? numFieldElems : 0) + 3;
           } else {
@@ -579,9 +588,12 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
             }
           }
         } else {
-          // Cycles for > 5 field elements matches for implicit
-          // zeroing vs. normal
-          rowCycles += 15 + (numFieldElems - 5);
+          if (implicitZeroing) {
+            rowCycles += 15 + (numFieldElems - 5);
+          } else {
+            // Account for decisions on numFieldElements in half8Conv loop
+            rowCycles += 15 + (numFieldElems - 5) + (half8Conv ? 3 : 0);
+          }
         }
       } else {
         // outputStride == 2
@@ -596,13 +608,22 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
         }
       }
       // Account for the passes over input data
-      workerCycles += 3 + rowCycles * inputDataPasses;
+      workerCycles += (floatPartials ? 3 : 0) + rowCycles * inputDataPasses;
+      // Count field elems total so we can account for the merging copy
+      cumulativeFieldElems += numFieldElems;
     }
-
+    // Account for the copy to merge the 2 outputs. Decision only
+    workerCycles += (half8Conv ? 2 : 0);
     maxWorkerCycles = std::max(maxWorkerCycles, workerCycles);
   }
-
-  return maxWorkerCycles * numWorkerContexts;
+  // So far we have the total max cycles for any worker for all the work which
+  // can be spread over many sub kernels.  Only on one pass (of 8 conv, half
+  // vertex) will workers merge the 2 outputs together (When the last sub kernel
+  // is used). Here we add the cycles to account for this on one pass - the
+  // pass where implicit zeroing is used
+  const std::uint64_t copyCycles =
+      (half8Conv && implicitZeroing) ? (2 + 2 * cumulativeFieldElems) : 0;
+  return maxWorkerCycles * numWorkerContexts + copyCycles;
 }
 
 inline std::uint64_t getMatMul2CycleEstimate(unsigned size) {
