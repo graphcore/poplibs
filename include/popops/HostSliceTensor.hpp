@@ -43,7 +43,8 @@ IndicesAndTensor createHostSliceableTensor(poplar::Graph &graph,
 // param shape  - the shape of the tensor created
 // param isRead - whether the tensor will read its data from the host
 //              - or have it's data written to the host. Note if both setting to
-//              - true is likely to make the read operation faster with out affecting
+//              - true is likely to make the read operation faster with out
+//              affecting
 //                the write, but is likely to have greater tile imbalance
 // return       - tensor created
 poplar::Tensor
