@@ -6000,6 +6000,19 @@ add_multitarget_test(
                  --plan-constraints={\"0\":{\"partition\":{\"inChanSplit\":{\"serial\":5,\"parallel\":4}}}})
 
 add_multitarget_test(
+         NAME gemm_using_fast_reduce_vertex
+         COMMAND general_matrix_multiply
+                 --m 20
+                 --k 256
+                 --n 100
+                 --tiles-per-ipu=4
+                 --input-type=half
+                 --output-type=half
+                 --enable-fast-reduce=true
+                 --enable-single-input-reduce=true
+                 )
+
+add_multitarget_test(
          NAME rnn_3x2x38_no_feedfwd
          COMMAND rnn_layer
                  --sequence-size 3

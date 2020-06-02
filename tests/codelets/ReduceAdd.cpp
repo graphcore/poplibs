@@ -20,7 +20,8 @@ using namespace poputil;
 using namespace poplibs_test::util;
 
 static bool doTest(const DeviceType &deviceType, const Type &partialsType,
-                   const Type &outType, unsigned outerDim, unsigned innerDim) {
+                   const Type &outType, unsigned outerDim, unsigned innerDim,
+                   bool singleInput, bool constrainPartials, bool profile) {
   auto device = createTestDevice(deviceType);
   auto &target = device.getTarget();
   Graph graph(target);
@@ -46,20 +47,28 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   Tensor partials;
   partials = graph.addVariable(partialsType, {innerDim, outerDim});
-  Tensor out;
-  out = graph.addVariable(outType, {outerDim + 1});
+
+  auto out = graph.addVariable(outType, {outerDim + 1});
 
   const auto vertexClass =
-      templateVertex("poplin::ReduceAdd", outType, partialsType);
+      templateVertex("poplin::ReduceAdd", outType, partialsType, singleInput,
+                     constrainPartials);
   auto v1 = graph.addVertex(cs, vertexClass);
 
-  for (unsigned i = 0; i < innerDim; ++i) {
-    Tensor Row = partials.slice(i, i + 1, 0);
-    graph.connect(v1["partials"][i], Row.reshape({outerDim}));
+  if (singleInput) {
+    graph.connect(v1["partials"], partials.slice(0, 1, 0).flatten());
+    graph.connect(v1["initialPartial"],
+                  partials.slice(innerDim == 1 ? 0 : 1, innerDim, 0).flatten());
+    graph.setInitialValue(v1["numPartials"], innerDim - 1);
+  } else {
+    for (unsigned i = 0; i < innerDim; ++i) {
+      Tensor Row = partials.slice(i, i + 1, 0);
+      graph.connect(v1["partials"][i], Row.reshape({outerDim}));
+    }
+    graph.setFieldSize(v1["partials"], innerDim);
+    graph.setInitialValue(v1["numPartials"], innerDim);
   }
-  graph.setFieldSize(v1["partials"], innerDim);
   graph.connect(v1["out"], out.slice(0, outerDim));
-  graph.setInitialValue(v1["numPartials"], innerDim);
   graph.setInitialValue(v1["numElems"], outerDim);
 
   graph.setTileMapping(v1, 0);
@@ -72,7 +81,11 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   prog.add(Execute(cs));
 
-  Engine e(graph, prog);
+  OptionFlags engineOptions;
+  if (profile) {
+    engineOptions.set("debug.instrumentCompute", "true");
+  }
+  Engine e(graph, prog, engineOptions);
   auto outSize = out.numElements() * target.getTypeSize(outType);
 
   device.bind([&](const Device &d) {
@@ -90,6 +103,10 @@ static bool doTest(const DeviceType &deviceType, const Type &partialsType,
 
   copy(target, outType, ans_data.data(), answers.data(), outerDim + 1);
 
+  if (profile) {
+    e.printProfileSummary(std::cout,
+                          OptionFlags{{"showExecutionSteps", "true"}});
+  }
   bool success = true;
   for (unsigned i = 0; i < outerDim; ++i) {
     CHECK_IF(success, innerDim * 1.0 * i == answers[i]);
@@ -106,6 +123,9 @@ int main(int argc, char **argv) {
   Type partialsType;
   Type outType;
   unsigned outerDim, innerDim;
+  bool singleInput = false;
+  bool constrainPartials = false;
+  bool profile = false;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -113,6 +133,9 @@ int main(int argc, char **argv) {
     ("device-type",
      po::value<DeviceType>(&deviceType)->required(),
      "Device Type")
+    ("profile",
+     po::value<bool>(&profile)->default_value(profile),
+     "Show a profile report")
     ("partials-type",
      po::value<Type>(&partialsType)->required(),
      "Partials Type")
@@ -124,7 +147,14 @@ int main(int argc, char **argv) {
      "Outer dimension")
     ("inner-dim",
      po::value<unsigned>(&innerDim)->required(),
-     "Inner dimension");
+     "Inner dimension")
+    ("single-input",
+     po::value<bool>(&singleInput)->default_value(singleInput),
+     "Use single input region variant of the vertex")
+    ("constrain-partials",
+     po::value<bool>(&constrainPartials)->default_value(constrainPartials),
+     "Use variant with constrained partials memory allocation")
+    ;
   // clang-format on
   po::variables_map vm;
   try {
@@ -138,8 +168,12 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-
-  if (!doTest(deviceType, partialsType, outType, outerDim, innerDim))
+  if (!singleInput && constrainPartials) {
+    std::cerr << "Error, vertex without singleInput but with constrained"
+                 " partials is not supported\n";
+  }
+  if (!doTest(deviceType, partialsType, outType, outerDim, innerDim,
+              singleInput, constrainPartials, profile))
     return 1;
   return 0;
 }

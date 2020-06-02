@@ -64,6 +64,8 @@ struct MatMulOptions {
   bool inputRHSIsPreArranged = false;
   bool use128BitConvUnitLoad = false;
   bool enableMultiStageReduce = true;
+  bool enableFastReduce = false;
+  bool enableSingleInputReduce = false;
   bool remapOutputTensor = true;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
@@ -75,6 +77,8 @@ struct MatMulOptions {
                                    &MatMulOptions::inputRHSIsPreArranged,
                                    &MatMulOptions::use128BitConvUnitLoad,
                                    &MatMulOptions::enableMultiStageReduce,
+                                   &MatMulOptions::enableFastReduce,
+                                   &MatMulOptions::enableSingleInputReduce,
                                    &MatMulOptions::remapOutputTensor);
 
     return helper.lt(*this, other);
@@ -126,6 +130,10 @@ static MatMulOptions parseMatMulOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(matMulOptions.use128BitConvUnitLoad)},
       {"enableMultiStageReduce",
        OptionHandler::createWithBool(matMulOptions.enableMultiStageReduce)},
+      {"enableFastReduce",
+       OptionHandler::createWithBool(matMulOptions.enableFastReduce)},
+      {"enableSingleInputReduce",
+       OptionHandler::createWithBool(matMulOptions.enableSingleInputReduce)},
       {"remapOutputTensor",
        OptionHandler::createWithBool(matMulOptions.remapOutputTensor)},
       {"availableMemoryProportion",
@@ -149,6 +157,10 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
                   options.use128BitConvUnitLoad ? "true" : "false");
   convOptions.set("enableMultiStageReduce",
                   options.enableMultiStageReduce ? "true" : "false");
+  convOptions.set("enableFastReduce",
+                  options.enableFastReduce ? "true" : "false");
+  convOptions.set("enableSingleInputReduce",
+                  options.enableSingleInputReduce ? "true" : "false");
   convOptions.set("remapOutputTensor",
                   options.remapOutputTensor ? "true" : "false");
   convOptions.set("planConstraints", options.planConstraints);

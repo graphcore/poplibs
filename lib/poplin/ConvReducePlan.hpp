@@ -12,6 +12,14 @@ namespace poplin {
 std::vector<unsigned> getMultiStageReducePlan(unsigned partialsDepth,
                                               bool enableMultiStageReduce);
 
+bool inline checkPartialsSizeForSingleInputReduce(unsigned partialsBytes,
+                                                  unsigned bytesPerTile) {
+  // We don't want to allocate all the partials in one huge chunk if this
+  // is going to cause problems due to its size.
+  // Use a heuristic of 1/32 of the total tile memory as a reasonable proportion
+  return partialsBytes <= bytesPerTile / 32;
+}
+
 } // namespace poplin
 
 #endif // ConvReducePlan_hpp

@@ -623,16 +623,18 @@ static std::uint64_t estimateConvReduceCycles(
     unsigned outputSize, unsigned reductionDepth, bool floatOutput,
     bool floatPartials, unsigned numWorkers, unsigned dataPathWidth,
     unsigned partialsVectorWidth, unsigned outputVectorWidth,
-    bool enableMultiStageReduce) {
+    unsigned bytesPerTile, unsigned bytesPerPartialsElement,
+    bool enableMultiStageReduce, bool enableFastReduce,
+    bool enableSingleInputReduce) {
   if (reductionDepth == 0)
     return 0;
-
   if (reductionDepth == 1) {
-    if (floatOutput == floatPartials)
+    if (floatOutput == floatPartials) {
       return 0;
-    else
+    } else {
       return estimateCastCycles(outputSize, partialsVectorWidth,
                                 outputVectorWidth, numWorkers);
+    }
   }
 
   // Determine number of stages used in the reduction
@@ -643,23 +645,43 @@ static std::uint64_t estimateConvReduceCycles(
   unsigned remainingDepth = reductionDepth;
   // Output size depends on the depth used in the reduction
   unsigned outputSizeThisStage = outputSize * reductionDepth;
+  const unsigned widthForFastReduce = floatPartials ? 4 : 8;
+
   for (auto d : reductionPlan) {
     const auto depthThisStage = ceildiv(remainingDepth, d);
     remainingDepth = ceildiv(remainingDepth, depthThisStage);
     const auto stageOutputIsFloat =
         remainingDepth == 1 ? floatOutput : floatPartials;
     outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
-    cycles += getReduceCycleEstimate(outputSizeThisStage, depthThisStage,
+
+    const auto exchangedPartialsBytes =
+        (depthThisStage - 1) * outputSizeThisStage * bytesPerPartialsElement;
+    bool useSingleInputReduce = enableSingleInputReduce &&
+                                checkPartialsSizeForSingleInputReduce(
+                                    exchangedPartialsBytes, bytesPerTile) &&
+                                (outputSizeThisStage % widthForFastReduce) == 0;
+    const auto depthForEstimate = depthThisStage - useSingleInputReduce;
+
+    cycles += getReduceCycleEstimate(outputSizeThisStage, depthForEstimate,
                                      dataPathWidth, stageOutputIsFloat,
-                                     floatPartials, numWorkers);
+                                     floatPartials, useSingleInputReduce,
+                                     enableFastReduce, numWorkers);
   }
 
   if (remainingDepth > 1) {
     outputSizeThisStage =
         (outputSizeThisStage + remainingDepth - 1) / remainingDepth;
-    cycles += getReduceCycleEstimate(outputSizeThisStage, remainingDepth,
-                                     dataPathWidth, floatOutput, floatPartials,
-                                     numWorkers);
+    const auto exchangedPartialsBytes =
+        (remainingDepth - 1) * outputSizeThisStage * bytesPerPartialsElement;
+    bool useSingleInputReduce = enableSingleInputReduce &&
+                                checkPartialsSizeForSingleInputReduce(
+                                    exchangedPartialsBytes, bytesPerTile) &&
+                                (outputSizeThisStage % widthForFastReduce) == 0;
+    const auto depthForEstimate = remainingDepth - useSingleInputReduce;
+
+    cycles += getReduceCycleEstimate(
+        outputSizeThisStage, depthForEstimate, dataPathWidth, floatOutput,
+        floatPartials, useSingleInputReduce, enableFastReduce, numWorkers);
   }
   return cycles;
 }
@@ -2048,15 +2070,21 @@ addReduceCycleEstimate(popsolver::Model &m,
         target.getVectorWidth(floatPartials ? poplar::FLOAT : poplar::HALF);
     const auto outputVectorWidth =
         target.getVectorWidth(floatOutput ? poplar::FLOAT : poplar::HALF);
+    const auto bytesPerTile = target.getBytesPerTile();
+    const auto bytesPerPartialsElement =
+        target.getTypeSize(floatPartials ? poplar::FLOAT : poplar::HALF);
     const auto cycleEstimate =
         m.call({outputsPerLevel.back(), reductionDepth},
                [floatOutput, floatPartials, numWorkers, dataPathWidth,
-                partialsVectorWidth, outputVectorWidth, &options,
+                partialsVectorWidth, outputVectorWidth, bytesPerTile,
+                bytesPerPartialsElement, &options,
                 cache](const std::vector<unsigned> &vars) -> unsigned {
                  return cache->mEstimateConvReduceCycles(
                      vars[0], vars[1], floatOutput, floatPartials, numWorkers,
                      dataPathWidth, partialsVectorWidth, outputVectorWidth,
-                     options.enableMultiStageReduce);
+                     bytesPerTile, bytesPerPartialsElement,
+                     options.enableMultiStageReduce, options.enableFastReduce,
+                     options.enableSingleInputReduce);
                });
     cycleSumOperands.push_back(cycleEstimate);
     // Temporary memory for the reduction will be given by the number of
