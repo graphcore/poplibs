@@ -5480,6 +5480,20 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
   return plan;
 }
 
+MultiPlan getMultiPlan(const poplar::Target &target,
+                       const std::vector<CanonicalConvParams> &params,
+                       const std::vector<ConvOptions> &options,
+                       PlanningCache *cache) {
+  std::vector<Plan> plans;
+
+  assert(params.size() == options.size());
+  for (unsigned i = 0; i < params.size(); ++i) {
+    plans.push_back(getPlan(target, params[i], options[i], cache));
+  }
+
+  return SerialPlan{std::move(plans)};
+}
+
 static void constrainVariable(popsolver::Model &m, popsolver::Variable v,
                               unsigned value) {
   m.equal(v, value);

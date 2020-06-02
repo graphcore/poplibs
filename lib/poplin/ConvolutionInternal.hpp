@@ -8,45 +8,44 @@
 
 namespace poplin {
 
-poplar::Tensor createInput(poplar::Graph &graph,
+poplar::Tensor createInput(poplar::Graph &graph, const Plan &plan,
                            const CanonicalConvParams &params,
-                           const std::string &name, const ConvOptions &options,
-                           PlanningCache *cache = nullptr);
+                           const std::string &name, const ConvOptions &options);
 
-poplar::Tensor createWeights(poplar::Graph &graph,
+poplar::Tensor createWeights(poplar::Graph &graph, const Plan &plan,
                              const CanonicalConvParams &params,
                              const std::string &name,
-                             const ConvOptions &options,
-                             PlanningCache *cache = nullptr);
+                             const ConvOptions &options);
 
-poplar::Tensor
-convolution(poplar::Graph &graph, const poplar::Tensor &in,
-            const poplar::Tensor &weights, const CanonicalConvParams &params,
-            bool transposeAndFlipWeights, poplar::program::Sequence &prog,
-            const std::string &debugPrefix, const ConvOptions &options,
-            PlanningCache *cache = nullptr);
+poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
+                           const poplar::Tensor &weights, const Plan &plan,
+                           const CanonicalConvParams &params,
+                           bool transposeAndFlipWeights,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix,
+                           const ConvOptions &options);
 
 poplar::Tensor calculateWeightDeltas(
     poplar::Graph &graph, const poplar::Tensor &zDeltas_,
-    const poplar::Tensor &activations_, const CanonicalConvParams &fwdParams_,
-    poplar::program::Sequence &prog, const std::string &debugPrefix,
-    const ConvOptions &options, PlanningCache *cache);
+    const poplar::Tensor &activations_, const Plan &wuPlan,
+    const CanonicalConvParams &wuParams, poplar::program::Sequence &prog,
+    const std::string &debugPrefix, const ConvOptions &wuOptions);
 
 void convolutionWeightUpdate(
     poplar::Graph &graph, const poplar::Tensor &zDeltas,
     const poplar::Tensor &weights, const poplar::Tensor &activations,
-    CanonicalConvParams params, const poplar::Tensor &scale,
+    const Plan &plan, CanonicalConvParams params, const poplar::Tensor &scale,
     poplar::program::Sequence &prog, const std::string &debugPrefix,
-    const ConvOptions &options, PlanningCache *cache);
+    const ConvOptions &options);
 
 void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::Tensor &zDeltas,
                              const poplar::Tensor &weights,
                              const poplar::Tensor &activations,
-                             CanonicalConvParams params, float scale,
-                             poplar::program::Sequence &prog,
+                             const Plan &plan, CanonicalConvParams params,
+                             float scale, poplar::program::Sequence &prog,
                              const std::string &debugPrefix,
-                             const ConvOptions &options, PlanningCache *cache);
+                             const ConvOptions &options);
 
 } // namespace poplin
 

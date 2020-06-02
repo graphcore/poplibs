@@ -2,6 +2,7 @@
 
 #ifndef poplin_internal_ConvPlan_hpp
 #define poplin_internal_ConvPlan_hpp
+#include <boost/variant.hpp>
 #include <iosfwd>
 #include <poplar/Graph.hpp>
 #include <poplin/Convolution.hpp>
@@ -233,6 +234,26 @@ class CanonicalConvParams;
 // virtual-graph dependent fields are not used.
 Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
              const ConvOptions &options, PlanningCache *cache);
+
+// A multiplan which is executed sequentially, each plan using all tiles on the
+// target
+struct SerialPlan {
+  std::vector<Plan> plans;
+};
+// A multiplan which is executed at the same time concurrently, each plan using
+// a fraction of the tiles on the target
+struct ParallelPlan {
+  std::vector<Plan> plans;
+};
+using MultiPlan = boost::variant<SerialPlan, ParallelPlan>;
+
+// Plan for a set of convolutions with the specified parameters. The
+// convolutions occur in parallel, dividing tiles appropriately.
+// If unsuccessful in planning in parallel, will fallback to a serial plan.
+MultiPlan getMultiPlan(const poplar::Target &target,
+                       const std::vector<CanonicalConvParams> &params,
+                       const std::vector<ConvOptions> &options,
+                       PlanningCache *cache);
 
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);

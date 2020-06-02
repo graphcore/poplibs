@@ -876,4 +876,9 @@ void log(unsigned indent, const ConvParams &params) {
   }
 }
 
+ConvOptions getWeightUpdateOptions(ConvOptions fwdOptions) {
+  fwdOptions.pass = Pass::TRAINING_WU;
+  return fwdOptions;
+}
+
 } // namespace poplin

@@ -262,6 +262,10 @@ unsigned getGroupIndex(const std::vector<unsigned> &groups,
 // print ConvParams to INFO log level.
 void log(unsigned indent, const ConvParams &params);
 
+/// Given a set of convolution options for the forward pass modify them to be
+/// applicable for the weight update pass.
+ConvOptions getWeightUpdateOptions(ConvOptions fwdOptions);
+
 } // End namespace poplin
 
 #endif // poplin_ConvUtilInternal_hpp
