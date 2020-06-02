@@ -191,6 +191,8 @@ def make_params(num_ipus):
     if not symmetrical:
         types.append(('half', 'float'))
     params.data_type, params.conv_options['partialsType'] = random.choice(types)
+    params.conv_options['remapOutputTensor'] = random.choice([True, False])
+    params.conv_options['use128BitConvUnitLoad'] = random.choice([True, False])
 
     # We want to avoid generating layers that take a long time to compile/run
     # and therefore we would like to avoid many large parameters. Weight the
@@ -293,7 +295,6 @@ def make_params(num_ipus):
                 geometric_choice(range(1, max_kernel_dilation + 1), 0.5)
             )
 
-    params.conv_options['use128BitConvUnitLoad'] = random.choice([True, False])
     return params
 
 def make_constrained_params(tiles_per_ipu, num_ipus):

@@ -4,8 +4,10 @@
 #include "CanonicalConvParams.hpp"
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
+#include "ConvProgramTree.hpp"
 #include "ConvReduce.hpp"
 #include "ConvUtilInternal.hpp"
+#include "ConvolutionInternal.hpp"
 #include "CreateConvPartialVertex.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Algorithm.hpp"
@@ -3691,35 +3693,25 @@ void createConvPartialSlicVertex(
   graph.setInitialValue(v["numConvGroupGroupsM1"], numConvGroupGroups - 1);
 }
 
-struct ComputeSetsGroup {
-  // The pre and post will be added by the function creating the vertices
-  boost::optional<ComputeSet>
-      pre; // if vertex requires a cast need pre compute set
-  ComputeSet convolveCS;
-  Sequence postProg;
-  boost::optional<ComputeSet>
-      post; // if output reuqires cast needs post compute set
-  ComputeSetsGroup(ComputeSet convolveCS) : convolveCS(convolveCS) {}
-
-  Sequence createProgram() const {
-    Sequence seq;
-    if (pre) {
-      seq.add(Execute(pre.get()));
-    }
-    seq.add(Execute(convolveCS));
-    seq.add(postProg);
-    if (post) {
-      seq.add(Execute(post.get()));
-    }
-    return seq;
+Sequence ConvProgramTree::ComputeSetsGroup::createProgram() const {
+  Sequence seq;
+  if (pre) {
+    seq.add(Execute(pre.get()));
   }
-};
+  seq.add(Execute(convolveCS));
+  seq.add(postProg);
+  if (post) {
+    seq.add(Execute(post.get()));
+  }
+  return seq;
+}
 
 static void createOuterProductVertex(Graph &graph, unsigned tile,
                                      unsigned xBegin, unsigned xEnd,
                                      const ConvParams &params,
-                                     ComputeSetsGroup &fwdCS, Tensor in,
-                                     Tensor weights, const Tensor &out,
+                                     ConvProgramTree::ComputeSetsGroup &fwdCS,
+                                     Tensor in, Tensor weights,
+                                     const Tensor &out,
                                      const std::string &debugPrefix) {
   const auto numFieldDims = params.getNumFieldDims();
   assert(product(params.outputTransform.stride) == 1);
@@ -3818,8 +3810,8 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
 static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                                   ConvParams params, Sequence &transformPre,
                                   Tensor &copyWritten,
-                                  ComputeSetsGroup &convolveCS, Tensor in,
-                                  Tensor weights, Tensor out,
+                                  ConvProgramTree::ComputeSetsGroup &convolveCS,
+                                  Tensor in, Tensor weights, Tensor out,
                                   bool use128BitConvUnitLoad,
                                   const std::string &debugPrefix) {
   assert(params.getNumConvGroups() % plan.convGroupsPerGroup == 0);
@@ -4124,19 +4116,80 @@ preprocessForSerialSlice(Tensor *input, Tensor *weights,
   return std::make_tuple(parallelParams, indices);
 }
 
-static boost::optional<Tensor> convolutionImpl(
-    Graph &graph, const CanonicalConvParams &originalParams, Plan plan,
-    unsigned level, Tensor in, Tensor weights, Tensor &copyWritten,
-    Sequence &initProg, std::vector<std::vector<unsigned>> &loopCounts,
-    std::vector<std::vector<Sequence>> &loopPre,
-    std::vector<Sequence> &transformPre, ComputeSetsGroup &convolveCS,
-    std::vector<std::vector<ComputeSet>> &reduceComputeSets,
-    std::vector<Sequence> &transformPost,
-    std::vector<std::vector<Sequence>> &loopPost,
-    std::vector<std::vector<Sequence>> &transformPostSerial,
-    Sequence &finalizeProg, const std::vector<Split<ConvIndices>> &indices,
-    Tensor partials, unsigned createPartialsLevel,
-    const std::string &debugPrefix, const ConvOptions &options) {
+ConvProgramTree::ConvProgramTree(
+    unsigned numLevels, const std::vector<unsigned> &serialSplitsPerLevel,
+    Tensor copyWritten, ComputeSet convolveCS)
+    : numLevels(numLevels), transformPre(numLevels), transformPost(numLevels),
+      loopPre(numLevels), loopPost(numLevels), transformPostSerial(numLevels),
+      loopCounts(numLevels), reduceComputeSets(numLevels),
+      convolveCSGroup(convolveCS), copyWritten(std::move(copyWritten)) {
+  // For the time being we only support output channel serial splitting and
+  // as such there is at most one loop per level in the hierarchy. When
+  // a decision has been made about how to implement multiple dimensions of
+  // serial slices, this can be nailed down better.
+  for (unsigned level = 0; level < numLevels; ++level) {
+    loopPre[level].emplace_back();
+    loopPost[level].emplace_back();
+    transformPostSerial[level].emplace_back();
+    if (level == numLevels - 1) {
+      loopCounts[level].emplace_back(1);
+    } else {
+      loopCounts[level].emplace_back(serialSplitsPerLevel[level]);
+    }
+  }
+}
+
+void ConvProgramTree::lower(Sequence &prog) {
+  prog.add(WriteUndef(copyWritten));
+  prog.add(initProg);
+  std::vector<Sequence> loopBodies;
+  for (unsigned level = 0; level != numLevels; ++level) {
+    assert(std::accumulate(loopCounts[level].begin(), loopCounts[level].end(),
+                           unsigned(1), std::multiplies<unsigned>()) != 0);
+    assert(loopCounts[level].size() == loopPre[level].size() &&
+           loopPre[level].size() == loopPost[level].size());
+    for (std::size_t i = 0; i != loopCounts[level].size(); ++i) {
+      loopBodies.emplace_back();
+      auto &seq = loopBodies.back();
+      seq.add(loopPre[level][i]);
+    }
+    auto &seq = loopBodies.back();
+    seq.add(transformPre[level]);
+  }
+  loopBodies.back().add(convolveCSGroup.createProgram());
+
+  for (int level = numLevels - 1; level >= 0; --level) {
+    auto &seq = loopBodies.back();
+    for (const auto &reduceCS : reduceComputeSets[level]) {
+      seq.add(Execute(reduceCS));
+    }
+    seq.add(transformPost[level]);
+    for (int i = loopCounts[level].size() - 1; i >= 0; --i) {
+      auto &seq = loopBodies.back();
+      seq.add(loopPost[level][i]);
+      auto &parentSequence =
+          (loopBodies.size() == 1) ? prog : *(loopBodies.end() - 2);
+      if (loopCounts[level][i] > 1) {
+        parentSequence.add(Repeat(loopCounts[level][i], seq));
+      } else {
+        parentSequence.add(seq);
+      }
+      parentSequence.add(transformPostSerial[level][i]);
+      loopBodies.pop_back();
+    }
+  }
+  assert(loopBodies.empty());
+
+  prog.add(finalizeProg);
+}
+
+static boost::optional<Tensor>
+convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
+                Plan plan, unsigned level, Tensor in, Tensor weights,
+                ConvProgramTree &cpt,
+                const std::vector<Split<ConvIndices>> &indices, Tensor partials,
+                unsigned createPartialsLevel, const std::string &debugPrefix,
+                const ConvOptions &options) {
   // Slice.
   Tensor loopCounter;
   Tensor inSlice = in;
@@ -4161,7 +4214,8 @@ static boost::optional<Tensor> convolutionImpl(
       // We check if the given tensor is such that a slice will cause exchange
       // and if so, rearrange before the loop rather than after as this will be
       // very expensive.
-      auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
+      auto &parentLoop =
+          (level == 0) ? cpt.initProg : cpt.loopPre[level - 1].back();
       auto rearrangeIfSplitOverTiles = [&](Tensor &slice, bool isActs) {
         auto sliceKind = isActs ? "input" : "weights";
         logging::debug("'{}': forcing rearrangement of {} before slice "
@@ -4195,7 +4249,7 @@ static boost::optional<Tensor> convolutionImpl(
       graph.setTileMapping(loopCounter, 0);
       popops::zero(graph, loopCounter, parentLoop,
                    debugPrefix + "/initLoopCounter" + levelSuffix);
-      auto &thisLoop = loopPre[level].back();
+      auto &thisLoop = cpt.loopPre[level].back();
       if (partition.inChanSplit.serial > 1) {
         inSlice = dynamicSlice(graph, inSlice, loopCounter, {0}, {1}, thisLoop,
                                debugPrefix + "/inputSerialSlice" + levelSuffix)
@@ -4273,7 +4327,7 @@ static boost::optional<Tensor> convolutionImpl(
   }
   parallelParams = convolutionPreprocess(
       graph, parallelParams.releaseParams(), options, plan, level, levelIndices,
-      inSlice, weightsSlice, false, &transformPre[level], &copyWritten,
+      inSlice, weightsSlice, false, &cpt.transformPre[level], &cpt.copyWritten,
       rearrangeActs, rearrangeWeights, debugPrefix);
 
   // Convolve.
@@ -4306,9 +4360,9 @@ static boost::optional<Tensor> convolutionImpl(
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, indices, plan);
     calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
-                          transformPre.back(), copyWritten, convolveCS, inSlice,
-                          weightsSlice, partials, options.use128BitConvUnitLoad,
-                          debugPrefix);
+                          cpt.transformPre.back(), cpt.copyWritten,
+                          cpt.convolveCSGroup, inSlice, weightsSlice, partials,
+                          options.use128BitConvUnitLoad, debugPrefix);
     out = partials;
 
     if (level == createPartialsLevel) {
@@ -4349,12 +4403,10 @@ static boost::optional<Tensor> convolutionImpl(
                 sliceOutput(nextLevelPartials, slice, plan.convGroupsPerGroup,
                             plan.partialChansPerGroup);
           }
-          auto subOut = convolutionImpl(
-              graph, subParams, plan, level + 1, subIn, subWeights, copyWritten,
-              initProg, loopCounts, loopPre, transformPre, convolveCS,
-              reduceComputeSets, transformPost, loopPost, transformPostSerial,
-              finalizeProg, subIndices, nextLevelPartials, createPartialsLevel,
-              debugPrefix, options);
+          auto subOut =
+              convolutionImpl(graph, subParams, plan, level + 1, subIn,
+                              subWeights, cpt, subIndices, nextLevelPartials,
+                              createPartialsLevel, debugPrefix, options);
           auto outputIndex = getOutputIndex(parallelIndices, partition);
 
           // the shape of each result is the ungrouped internal shape.
@@ -4416,7 +4468,7 @@ static boost::optional<Tensor> convolutionImpl(
       auto reducedType =
           (partition.inChanSplit.serial > 1) ? partialType : resultType;
       out = multiStageGroupedReduce(graph, partials, reducedType,
-                                    reduceComputeSets[level], options,
+                                    cpt.reduceComputeSets[level], options,
                                     debugPrefix);
       out = unsplitActivationFromGroups(out);
     }
@@ -4424,23 +4476,23 @@ static boost::optional<Tensor> convolutionImpl(
   const auto &partition = plan.partitions[level];
   if ((out.elementType() != resultType) &&
       (partition.inChanSplit.serial == 1)) {
-    if (reduceComputeSets[level].empty()) {
-      reduceComputeSets[level].push_back(
+    if (cpt.reduceComputeSets[level].empty()) {
+      cpt.reduceComputeSets[level].push_back(
           graph.addComputeSet(debugPrefix + "/Cast"));
     }
-    out =
-        cast(graph, out, resultType, reduceComputeSets[level][0], debugPrefix);
+    out = cast(graph, out, resultType, cpt.reduceComputeSets[level][0],
+               debugPrefix);
   }
 
   // Inverse transform.
   out = convolutionPostprocess(graph, preTransformParams, originalTransform,
-                               out, false /* serial */, transformPost[level],
-                               debugPrefix);
+                               out, false /* serial */,
+                               cpt.transformPost[level], debugPrefix);
 
   // Update.
   if (level < plan.partitions.size()) {
     if (partition.inChanSplit.serial > 1) {
-      auto &thisLoop = loopPost[level].back();
+      auto &thisLoop = cpt.loopPost[level].back();
       auto zero = graph.addConstant(out.elementType(), out.shape(), 0,
                                     debugPrefix + "/zero");
       auto serialOut = graph.clone(out, debugPrefix + "/serialOut");
@@ -4448,7 +4500,8 @@ static boost::optional<Tensor> convolutionImpl(
       graph.setTileMapping(zero, mapping);
 
       // Zero-Initialise destination tensor
-      auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
+      auto &parentLoop =
+          (level == 0) ? cpt.initProg : cpt.loopPre[level - 1].back();
       parentLoop.add(Copy(zero, serialOut));
 
       // Accumulate the results into the destination tensor serialOut
@@ -4463,7 +4516,7 @@ static boost::optional<Tensor> convolutionImpl(
                  debugPrefix + "/loopIncrement" + levelSuffix);
     }
     if (partition.outChanSplit.serial > 1) {
-      auto &thisLoop = loopPost[level].back();
+      auto &thisLoop = cpt.loopPost[level].back();
 
       // Make this tensor view suitable as a slice of the full output.
       out = out.expand({0});
@@ -4475,7 +4528,8 @@ static boost::optional<Tensor> convolutionImpl(
 
       // WriteUndef the output as it is Read/Write in each iteration but in the
       // course of the entire loop is completely written.
-      auto &parentLoop = (level == 0) ? initProg : loopPre[level - 1].back();
+      auto &parentLoop =
+          (level == 0) ? cpt.initProg : cpt.loopPre[level - 1].back();
       parentLoop.add(WriteUndef(serialOut));
       dynamicUpdate(graph, serialOut, out, loopCounter, {0}, {1}, thisLoop,
                     debugPrefix + "/serialUpdate" + levelSuffix);
@@ -4494,14 +4548,14 @@ static boost::optional<Tensor> convolutionImpl(
   // Casting to the final result type (i.e., the result type of the outermost
   // level) should be deferred until all the serial splits have executed.
   if ((out.elementType() != resultType) && (partition.inChanSplit.serial > 1)) {
-    out = cast(graph, out, resultType, transformPostSerial[level].back(),
+    out = cast(graph, out, resultType, cpt.transformPostSerial[level].back(),
                debugPrefix);
   }
 
   // Inverse transform.
-  out = convolutionPostprocess(graph, originalParams, originalTransform, out,
-                               true /* serial */,
-                               transformPostSerial[level].back(), debugPrefix);
+  out = convolutionPostprocess(
+      graph, originalParams, originalTransform, out, true /* serial */,
+      cpt.transformPostSerial[level].back(), debugPrefix);
   return out;
 }
 
@@ -4598,13 +4652,15 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
   preplanConvolutionsImpl(commonTarget, convsImpl, cache);
 }
 
-static Tensor convolutionInternal(Graph &graph, const poplar::Tensor &in_,
-                                  const poplar::Tensor &weights_,
-                                  const Plan &plan,
-                                  const CanonicalConvParams &params,
-                                  bool transposeAndFlipWeights, Sequence &prog,
-                                  const std::string &debugPrefix,
-                                  const ConvOptions &options) {
+static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
+                                Sequence &prog, const ConvParams &params,
+                                const std::string &debugPrefix);
+
+static Tensor convolutionInternal(
+    Graph &graph, const poplar::Tensor &in_, const poplar::Tensor &weights_,
+    const Plan &plan, const CanonicalConvParams &params,
+    bool transposeAndFlipWeights, ConvProgramTree &cpt,
+    const std::string &debugPrefix, const ConvOptions &options) {
   auto weights = weights_;
   if (weights.rank() == params->getNumFieldDims() + 2) {
     weights = weights.expand({0});
@@ -4614,7 +4670,7 @@ static Tensor convolutionInternal(Graph &graph, const poplar::Tensor &in_,
     auto bwdWeights =
         createWeights(graph, plan, params.getParams(), "bwdWeights", options);
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
-      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog,
+      weightsTransposeChansFlipXY(graph, weights, bwdWeights, cpt.initProg,
                                   debugPrefix);
     }
     weights = bwdWeights;
@@ -4626,91 +4682,32 @@ static Tensor convolutionInternal(Graph &graph, const poplar::Tensor &in_,
   auto in = actsToInternalShape(in_, params->numConvGroups,
                                 params->inputChannelsPerConvGroup);
   verifyInputShapes(params, in, weights);
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
-  const auto numLevels = plan.partitions.size() + 1;
+
   const auto createPartialsLevel = getCreatePartialsLevel(plan);
-
-  // Program run before all others at any level of the hierarchy.
-  Sequence initProg;
-  // Transformations applied before and after the convolution at each level.
-  std::vector<Sequence> transformPre(numLevels), transformPost(numLevels);
-  // Programs to run at the start and end of each loop if present.
-  std::vector<std::vector<Sequence>> loopPre(numLevels), loopPost(numLevels),
-      transformPostSerial(numLevels);
-  std::vector<std::vector<unsigned>> loopCounts(numLevels);
-  Tensor copyWritten = graph.addVariable(params->inputType, {0});
-  std::vector<std::vector<ComputeSet>> reduceComputeSets(numLevels);
-  ComputeSetsGroup convolveCSGroup(
-      graph.addComputeSet(layerName + "/Convolve"));
-  Sequence finalizeProg;
-
-  // For the time being we only support output channel serial splitting and
-  // as such there is at most one loop per level in the hierarchy. When
-  // a decision has been made about how to implement multiple dimensions of
-  // serial slices, this can be nailed down better.
-  for (unsigned level = 0; level < plan.partitions.size() + 1; ++level) {
-    loopPre[level].emplace_back();
-    loopPost[level].emplace_back();
-    transformPostSerial[level].emplace_back();
-    if (level == plan.partitions.size()) {
-      loopCounts[level].emplace_back(1);
-    } else {
-      loopCounts[level].emplace_back(plan.partitions[level].totalSerialSplit());
-    }
-  }
-
   auto activations = *convolutionImpl(
-      graph, params, plan, 0, in, weights, copyWritten, initProg, loopCounts,
-      loopPre, transformPre, convolveCSGroup, reduceComputeSets, transformPost,
-      loopPost, transformPostSerial, finalizeProg, {} /* indices */,
-      {} /* partials */, createPartialsLevel, layerName, options);
-  prog.add(WriteUndef(copyWritten));
-  prog.add(initProg);
-  std::vector<Sequence> loopBodies;
-  for (unsigned level = 0; level != numLevels; ++level) {
-    assert(std::accumulate(loopCounts[level].begin(), loopCounts[level].end(),
-                           unsigned(1), std::multiplies<unsigned>()) != 0);
-    assert(loopCounts[level].size() == loopPre[level].size() &&
-           loopPre[level].size() == loopPost[level].size());
-    for (std::size_t i = 0; i != loopCounts[level].size(); ++i) {
-      loopBodies.emplace_back();
-      auto &seq = loopBodies.back();
-      seq.add(loopPre[level][i]);
-    }
-    auto &seq = loopBodies.back();
-    seq.add(transformPre[level]);
-  }
-  loopBodies.back().add(convolveCSGroup.createProgram());
+      graph, params, plan, 0, in, weights, cpt, {} /* indices */,
+      {} /* partials */, createPartialsLevel, debugPrefix, options);
 
-  for (int level = numLevels - 1; level >= 0; --level) {
-    auto &seq = loopBodies.back();
-    for (const auto &reduceCS : reduceComputeSets[level]) {
-      seq.add(Execute(reduceCS));
-    }
-    seq.add(transformPost[level]);
-    for (int i = loopCounts[level].size() - 1; i >= 0; --i) {
-      auto &seq = loopBodies.back();
-      seq.add(loopPost[level][i]);
-      auto &parentSequence =
-          (loopBodies.size() == 1) ? prog : *(loopBodies.end() - 2);
-      if (loopCounts[level][i] > 1) {
-        parentSequence.add(Repeat(loopCounts[level][i], seq));
-      } else {
-        parentSequence.add(seq);
-      }
-      parentSequence.add(transformPostSerial[level][i]);
-      loopBodies.pop_back();
+  assert(activations.elementType() == params->outputType);
+  auto output = actsToExternalShape(activations);
+
+  // Introspect output tensor to check if it has a decent layout as a bad layout
+  // impacts operations using the tensor in both memory and cycles. This is a
+  // conservative check as we only check if there's a grouping.
+  if (options.remapOutputTensor) {
+    const auto dimGroupings = detectDimGroupings(graph, output);
+    if (dimGroupings.empty()) {
+      return remapOutputTensor(graph, output, cpt.finalizeProg, *params,
+                               debugPrefix);
     }
   }
-  prog.add(finalizeProg);
-  assert(loopBodies.empty());
-  assert(activations.elementType() == params->outputType);
-  return actsToExternalShape(activations);
+
+  return output;
 }
 
-static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
-                                Sequence &prog, const ConvParams &params,
-                                const std::string &debugPrefix) {
+Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
+                         Sequence &prog, const ConvParams &params,
+                         const std::string &debugPrefix) {
   const auto grainSize = 8U;
   const auto minElementsPerTile = 8U;
   std::size_t chansPerGroup, numChanGroups;
@@ -4752,19 +4749,28 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
   log(2, *params);
 
+  const auto numLevels = plan.partitions.size() + 1;
+  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
+
+  const auto serialSplitsPerLevel = [&] {
+    std::vector<unsigned> serialSplits;
+    for (const auto &partition : plan.partitions) {
+      serialSplits.push_back(partition.totalSerialSplit());
+    }
+
+    return serialSplits;
+  }();
+
+  ConvProgramTree cpt(numLevels, serialSplitsPerLevel,
+                      graph.addVariable(params->inputType, {0}),
+                      graph.addComputeSet(layerName + "/Convolve"));
+
   auto output =
       convolutionInternal(graph, in, weights, plan, params,
-                          transposeAndFlipWeights, prog, debugPrefix, options);
+                          transposeAndFlipWeights, cpt, layerName, options);
 
-  // Introspect output tensor to check if it has a decent layout as a bad layout
-  // impacts operations using the tensor in both memory and cycles. This is a
-  // conservative check as we only check if there's a grouping.
-  if (options.remapOutputTensor) {
-    const auto dimGroupings = detectDimGroupings(graph, output);
-    if (dimGroupings.empty()) {
-      return remapOutputTensor(graph, output, prog, *params, debugPrefix);
-    }
-  }
+  cpt.lower(prog);
+
   return output;
 }
 
