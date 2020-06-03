@@ -28,8 +28,10 @@ static unsigned getNumTiles(const std::vector<std::vector<Interval>> &ans,
 }
 
 BOOST_AUTO_TEST_CASE(Basic) {
-  auto device = createTestDevice(TEST_TARGET, 1, 1216);
-  Graph graph(device.getTarget());
+  auto device = createTestDeviceFullSize(TEST_TARGET);
+  auto target = device.getTarget();
+  auto tilesPerIpu = target.getTilesPerIPU();
+  Graph graph(target);
 
   auto t0 = createHostSliceableTensor(graph, FLOAT, {1, 63}, false);
   auto m0 = graph.getTileMapping(t0.tensor);
@@ -48,19 +50,21 @@ BOOST_AUTO_TEST_CASE(Basic) {
   BOOST_CHECK_EQUAL(getNumTiles(i1), 2);
 
   // one packet per tile
-  auto t2 = createHostSliceableTensor(graph, FLOAT, {1, 64 * 1216}, false);
+  auto t2 =
+      createHostSliceableTensor(graph, FLOAT, {1, 64 * tilesPerIpu}, false);
   auto m2 = graph.getTileMapping(t2.tensor);
   auto i2 = graph.getTileMapping(t2.indices);
-  BOOST_CHECK_EQUAL(getNumTiles(m2), 1216);
+  BOOST_CHECK_EQUAL(getNumTiles(m2), tilesPerIpu);
   for (const auto &m : m2) {
     BOOST_CHECK_EQUAL(m.size(), 1);
   }
   BOOST_CHECK_EQUAL(i2[0].size(), 1);
 
-  auto t3 = createHostSliceableTensor(graph, FLOAT, {1, 64 * 1217}, false);
+  auto t3 = createHostSliceableTensor(graph, FLOAT, {1, 64 * (tilesPerIpu + 1)},
+                                      false);
   auto m3 = graph.getTileMapping(t3.tensor);
   auto i3 = graph.getTileMapping(t3.indices);
-  BOOST_CHECK_EQUAL(getNumTiles(m3), 1216);
+  BOOST_CHECK_EQUAL(getNumTiles(m3), tilesPerIpu);
   for (unsigned i = 0; i < m3.size(); ++i) {
     BOOST_CHECK_EQUAL(m3[i].size(), 1);
     if (i == 0) {
@@ -79,11 +83,11 @@ BOOST_AUTO_TEST_CASE(Basic) {
   BOOST_CHECK_EQUAL(getNumTiles(m4), 12);
   BOOST_CHECK_EQUAL(getNumTiles(i4), 6);
 
-  auto t5 =
-      createHostSliceableTensor(graph, FLOAT, {30, (128 * 1216) + 70}, false);
+  auto t5 = createHostSliceableTensor(graph, FLOAT,
+                                      {30, (128 * tilesPerIpu) + 70}, false);
   auto m5 = graph.getTileMapping(t5.tensor);
   auto i5 = graph.getTileMapping(t5.indices);
-  BOOST_CHECK_EQUAL(getNumTiles(m5), 1216);
+  BOOST_CHECK_EQUAL(getNumTiles(m5), tilesPerIpu);
   BOOST_CHECK_EQUAL(getNumTiles(i5), 30);
 
   for (unsigned i = 0; i < m5.size(); ++i) {

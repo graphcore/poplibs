@@ -140,7 +140,7 @@ int main(int argc, char **argv) {
      "Show variable liveness (requires profiling)")
     ("device-type",
      po::value<DeviceType>(&opts.deviceType)->default_value(opts.deviceType),
-     "Device type: Cpu | Sim | Hw | IpuModel")
+     "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("ipus",
      po::value<unsigned>(&opts.numIPUs)->default_value(opts.numIPUs),
      "Number of IPUs")

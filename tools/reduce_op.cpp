@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
      "overhead of upload/download of tensors and slow host-side computation")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       "Device type: Cpu | Sim | Hw | IpuModel")
+       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("profile", "Output profiling report")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)

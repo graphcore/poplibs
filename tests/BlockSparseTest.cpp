@@ -410,9 +410,7 @@ id  idxA_ idxB_
 
 */
 BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulWReduction) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
 
@@ -430,8 +428,8 @@ BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulWReduction) {
   BlockSparseMatrix B(rows, cols, rows_block, cols_block, false,
                       sparsityB.data());
 
-  // Reduction - 1216 tiles
-  HyperGraph hg(A, B, FLOAT, FLOAT, FLOAT, 1216);
+  // Reduction - all tiles
+  HyperGraph hg(A, B, FLOAT, FLOAT, FLOAT, target.getNumTiles());
 
   hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
 

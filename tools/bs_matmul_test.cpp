@@ -224,7 +224,7 @@ int main(int argc, char **argv) {
       // device-type
       ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       "Device type: Cpu | Sim | Hw | IpuModel")
+       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
       // profile
       ("profile", "Output profiling report")
       // profile-execution
@@ -329,7 +329,7 @@ int main(int argc, char **argv) {
   }
 
   bool compileIPUCode = false;
-  if (deviceType == DeviceType::IpuModel)
+  if (isIpuModel(deviceType))
     compileIPUCode = true;
   auto device = createTestDevice(deviceType, ipuModel.numIPUs,
                                  ipuModel.tilesPerIPU, compileIPUCode);

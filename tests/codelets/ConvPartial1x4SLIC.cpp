@@ -336,7 +336,7 @@ int main(int argc, char **argv) try {
   }
 
   Sequence debugSeqIn, debugSeqOut;
-  if (deviceType == DeviceType::IpuModel) {
+  if (isIpuModel(deviceType)) {
     debugSeqIn.add(PrintTensor(in));
     debugSeqIn.add(PrintTensor(weights));
     debugSeqOut.add(PrintTensor(out));

@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
       po::value<DeviceType>(&deviceType)->default_value(deviceType),
-      "Device type: Cpu | Sim | Hw | IpuModel")
+      "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("profile", "Output profiling report to standard output")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)

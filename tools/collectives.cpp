@@ -284,7 +284,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       "Device type: Cpu | Sim | Hw | IpuModel")
+       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("measure-overall-cycles", "Measure overall cycles")
     ("profile", "Output profiling report")
     ("collective", po::value(&collectiveOp)->default_value(collectiveOp),

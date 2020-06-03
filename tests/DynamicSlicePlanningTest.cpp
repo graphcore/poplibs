@@ -20,6 +20,7 @@ void checkPlanner(Type dType, unsigned numEntries, unsigned embeddingSize,
   BOOST_TEST_MESSAGE(
       "Test " << boost::unit_test::framework::current_test_case().p_name);
 
+  // Always check with the number of tiles on ipu1
   auto device = createTestDevice(TEST_TARGET, 1, 1216);
   Graph graph(device.getTarget());
   auto plan = popops::embedding::plan(graph, dType, numEntries, embeddingSize,

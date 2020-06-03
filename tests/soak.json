@@ -10,8 +10,6 @@
                 "IpuModel",
                 "--n",
                 "1",
-                "--tiles-per-ipu",
-                "1216",
                 "--binary",
                 "${BUILD_DIR}/build/poplibs/tools/single_conv_layer"
             ],

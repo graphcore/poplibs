@@ -121,15 +121,18 @@ BOOST_AUTO_TEST_CASE(GatherSimpleTestCase4) {
 
 // A large example for profiling
 // Change the `createTestDevice(TEST_TARGET, 1, 4);` to
-// `createTestDevice(TEST_TARGET, 1, 1216);`
+// `createTestDeviceFullSize(TEST_TARGET);`
 BOOST_AUTO_TEST_CASE(GatherSimpleBigTestCase) {
   const unsigned testBackoff = 8;      // reduce to 1 for a fullsized test
   const unsigned dictSize = 48 * 1024; // dictSize=192kB as they're ints
   const unsigned embeddingSize = 1000 / testBackoff;
   std::vector<int> input(dictSize * embeddingSize);
   std::vector<int> indices = {0, 1};
-  deviceGather(input, {dictSize, embeddingSize}, indices, {2}, 0,
-               1216 / testBackoff);
+  const unsigned wantedTiles = []() {
+    auto device = createTestDeviceFullSize(TEST_TARGET);
+    return device.getTarget().getTilesPerIPU() / testBackoff;
+  }();
+  deviceGather(input, {dictSize, embeddingSize}, indices, {2}, 0, wantedTiles);
 }
 
 BOOST_AUTO_TEST_CASE(GatherSimpleBigTestCase2) {
@@ -138,5 +141,9 @@ BOOST_AUTO_TEST_CASE(GatherSimpleBigTestCase2) {
   std::vector<int> input(dictSize * embeddingSize);
   std::vector<int> indices(50);
   std::iota(indices.begin(), indices.end(), 1);
-  deviceGather(input, {dictSize, embeddingSize}, indices, {50}, 0, 1216 / 16);
+  const unsigned wantedTiles = []() {
+    auto device = createTestDeviceFullSize(TEST_TARGET);
+    return device.getTarget().getTilesPerIPU() / 16;
+  }();
+  deviceGather(input, {dictSize, embeddingSize}, indices, {50}, 0, wantedTiles);
 }

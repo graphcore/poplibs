@@ -133,7 +133,7 @@ endif()
 #
 # A variation specification must be of the form "target:[config]"
 #
-# Currently supported targets are "Cpu;IpuModel;Sim;Hw"
+# Currently supported targets are "Cpu;IpuModel;IpuModel2;Sim;Sim2;Hw"
 # Note that the Cpu target does not support multi-tile tests
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_unit_test name)
@@ -391,7 +391,7 @@ add_unit_test(CloneNTest CloneNTest.cpp
 add_unit_test(WinogradConvolution WinogradConv.cpp
               VARIANTS ${TimesOutOnSim})
 add_unit_test(HostSliceTensorTest HostSliceTensorTest.cpp
-              VARIANTS Sim)
+              VARIANTS ${SIM_VARIANTS})
 add_unit_test(NonLinearityTest NonLinearityTest.cpp)
 add_unit_test(BigNLVertices BigNLVertices.cpp)
 add_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
@@ -430,10 +430,10 @@ add_unit_test(MultiArrayTest MultiArrayTest.cpp VARIANTS NoTarget)
 add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
 add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
-add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp)
+add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim;IpuModel)
 if(TARGET popsparse)
-  add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS IpuModel Hw)
-  add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS IpuModel Hw)
+  add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
+  add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 endif()
 
 if (NOT "asan" IN_LIST SANITIZERS)
@@ -1712,7 +1712,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --batch-size 4)
 
   # resnet50 octave conv layer (alpha = 0.25) benchmarks (batch size 2). each
-  # name is the enigma name the first time that layer is seen. 
+  # name is the enigma name the first time that layer is seen.
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_cnv_ain0_aout25
           PARAMS --field {224,224}
                  --kernel-size 7
@@ -2550,7 +2550,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {147,147}
                  --kernel {3,3}
                  --channels 64
-                 --tiles-per-ipu 1216
                  --stride 2
                  --data-type half
                  --batch-size 1
@@ -2559,7 +2558,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {71,71}
                  --kernel {3,3}
                  --channels 192
-                 --tiles-per-ipu 1216
                  --stride 2
                  --data-type half
                  --batch-size 1
@@ -2568,7 +2566,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {35,35}
                  --kernel {3,3}
                  --channels 192
-                 --tiles-per-ipu 1216
                  --stride 1
                  --data-type half
                  --batch-size 1
@@ -2579,7 +2576,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {35,35}
                  --kernel {3,3}
                  --channels 256
-                 --tiles-per-ipu 1216
                  --stride 1
                  --data-type half
                  --batch-size 1
@@ -2590,7 +2586,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {35,35}
                  --kernel {3,3}
                  --channels 288
-                 --tiles-per-ipu 1216
                  --stride 1
                  --data-type half
                  --batch-size 1
@@ -2601,7 +2596,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {35,35}
                  --kernel {3,3}
                  --channels 288
-                 --tiles-per-ipu 1216
                  --stride 2
                  --data-type half
                  --batch-size 1
@@ -2610,7 +2604,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {17,17}
                  --kernel {3,3}
                  --channels 768
-                 --tiles-per-ipu 1216
                  --stride 1
                  --data-type half
                  --batch-size 1
@@ -2621,7 +2614,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {17,17}
                  --kernel {3,3}
                  --channels 768
-                 --tiles-per-ipu 1216
                  --stride 2
                  --data-type half
                  --batch-size 1
@@ -2630,7 +2622,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {8,8}
                  --kernel {3,3}
                  --channels 1280
-                 --tiles-per-ipu 1216
                  --stride 1
                  --data-type half
                  --batch-size 1
@@ -2641,7 +2632,6 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           PARAMS --field {8,8}
                  --kernel {3,3}
                  --channels 2048
-                 --tiles-per-ipu 1216
                  --stride 1
                  --data-type half
                  --batch-size 1
@@ -2699,8 +2689,7 @@ add_reduction_benchmark(NAME bert_reduce_4
                                --type=half
                                --scale=1.0
                                --update=false
-                               --operation=ADD
-                               --tiles-per-ipu=1216)
+                               --operation=ADD)
 
 # Based on cnv-gn/Fwd/Norm/statistics/power/ConstScale from Resnet50
 add_reduction_benchmark(NAME resnet50_tr_bs1_cnv_reduce
@@ -2709,8 +2698,7 @@ add_reduction_benchmark(NAME resnet50_tr_bs1_cnv_reduce
                                --type=half
                                --scale=1.0
                                --update=false
-                               --operation=SQUARE_ADD
-                               --tiles-per-ipu=1216)
+                               --operation=SQUARE_ADD)
 
 # Based on bm64L0A0-gn/Fwd/Norm/statistics/mean/ConstScale from Resnet50
 add_reduction_benchmark(NAME resnet50_tr_bs1_bm64L0A0_reduce
@@ -2729,8 +2717,7 @@ add_reduction_benchmark(NAME resnet50_tr_bs1_bm128L0A0_reduce
                                --type=half
                                --scale=1.0
                                --update=false
-                               --operation=ADD
-                               --tiles-per-ipu=1216)
+                               --operation=ADD)
 
 # Based on bm128L0-gn/Fwd/Norm/statistics/mean/ConstScale from Resnet50
 add_reduction_benchmark(NAME resnet50_tr_bs1_bm128L0_reduce
@@ -2739,8 +2726,7 @@ add_reduction_benchmark(NAME resnet50_tr_bs1_bm128L0_reduce
                                --type=half
                                --scale=1.0
                                --update=false
-                               --operation=ADD
-                               --tiles-per-ipu=1216)
+                               --operation=ADD)
 
 # a few multi ipu tests that don't take too long that we can run on the Sim.
 add_multitarget_test(NAME multi_ipu_conv_smoke_1
@@ -3871,7 +3857,7 @@ foreach(OUTPUT_STRIDE 1 2)
                    --batch-size=4
                   --convolution-options={\"partialsType\":\"half\"}
                   --fwd-plan-constraints={\"method\":\"SLIC\"}
-                  VARIANTS "IpuModel2;Sim2;Sim;IpuModel")
+                  VARIANTS "${SIM_VARIANTS};${IPUMODEL_VARIANTS}")
 endforeach()
 
 # conv_batch_float test split into the three component phases
@@ -4872,7 +4858,7 @@ add_multitarget_test(
 
 add_unit_test(ExprName
               ExprName.cpp
-              VARIANTS IpuModel)
+              VARIANTS ${IPUMODEL_VARIANTS})
 
 # Replicate across IPUs
 foreach(rf 1 2 4 8 16)
@@ -6478,7 +6464,6 @@ add_multitarget_test(
             --stride={2,2}
             --batch-size=4
             --single-phase=wu
-            --tiles-per-ipu=1216
             --ipus=1
             --wu-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_conv7x7_stride_2_1024_in_512_out_serial_fail_case.json
             VARIANTS ${TimesOutOnSim})

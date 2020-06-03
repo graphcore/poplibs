@@ -300,7 +300,7 @@ endforeach()
 
 add_unit_test(FloatPointBehaviour
               FloatPointBehaviour.cpp
-              VARIANTS Sim
+              VARIANTS ${SIM_VARIANTS}
               LABELS codelet)
 
 add_multi_target_test_executable(ReduceMaxClassGather ReduceMaxClassGather.cpp)
@@ -925,7 +925,7 @@ foreach(OUT_STRIDE 2 3 4)
       --kernel-size={1,1,4}
       --output-stride={1,${OUT_STRIDE},1}
     LABELS codelet
-    VARIANTS "Cpu;IpuModel;Sim;Hw")
+    VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 
   add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_${OUT_STRIDE}_${OUT_STRIDE}_2"
     COMMAND ConvPartial1x4SLIC
@@ -939,7 +939,7 @@ foreach(OUT_STRIDE 2 3 4)
       --kernel-size={1,1,4}
       --output-stride={${OUT_STRIDE},${OUT_STRIDE},2}
     LABELS codelet
-    VARIANTS "Cpu;IpuModel;Sim;Hw")
+    VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 endforeach() # OUT_STRIDE
 
 foreach(LOWER_TRUNCATION 0 1 2)
@@ -957,7 +957,7 @@ foreach(LOWER_TRUNCATION 0 1 2)
         --output-truncation-lower={0,0,${LOWER_TRUNCATION}}
         --output-truncation-upper={0,0,${UPPER_TRUNCATION}}
       LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
+      VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 
     add_multitarget_test(NAME "ConvPartial1x4SLIC_truncation2_upper${UPPER_TRUNCATION}_lower${LOWER_TRUNCATION}"
       COMMAND ConvPartial1x4SLIC
@@ -972,6 +972,6 @@ foreach(LOWER_TRUNCATION 0 1 2)
         --output-truncation-upper={0,1,${UPPER_TRUNCATION}}
         --output-truncation-lower={1,${LOWER_TRUNCATION},0}
       LABELS codelet
-      VARIANTS "Cpu;IpuModel;Sim;Hw")
+      VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
   endforeach() # UPPER_TRUNCATION
 endforeach() # LOWER_TRUNCATION

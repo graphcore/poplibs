@@ -317,10 +317,13 @@ BOOST_AUTO_TEST_CASE(GatherTestCase15) {
   for (unsigned o = 0; o != nOut; ++o)
     for (unsigned col = 0; col != nCols; ++col)
       expected[o * nCols + col] = input[indices[o] * nCols + col];
-
+  const unsigned wantedTiles = []() {
+    auto device = createTestDeviceFullSize(TEST_TARGET);
+    return device.getTarget().getTilesPerIPU() / shrink;
+  }();
   auto result =
       deviceGather(input, {nRows, nCols}, indices, {nOut}, 1, {1}, {1, nCols},
-                   {0}, {0}, {nOut, nCols}, {nCols, nOut}, 1216 / shrink);
+                   {0}, {0}, {nOut, nCols}, {nCols, nOut}, wantedTiles);
 
   BOOST_TEST(result == expected, boost::test_tools::per_element());
 }
