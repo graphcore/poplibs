@@ -500,9 +500,6 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
 
 // Code fragement to load CWEI with coefficients when the weights tensor
 // innermost dimensions are [AMP_OUTPUTS * m][AMP_INPUTS/4]
-// TODO: T12867 If code is shared between the 64-bit and 128-bit weight load
-// versions, then this part of the code can be shared. It needs to be in a
-// common section.
 AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
