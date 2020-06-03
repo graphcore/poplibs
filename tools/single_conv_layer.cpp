@@ -941,11 +941,11 @@ int main(int argc, char **argv) try {
     // Run the forward pass.
     dev.bind([&](const Device &d) {
       engine.load(d);
-      if (validationMethod.has_value()) {
+      if (validationMethod) {
         engine.run(uploadProgIndex);
       }
       engine.run(fwdProgIndex);
-      if (validationMethod.has_value()) {
+      if (validationMethod) {
         engine.run(downloadProgIndex);
       }
     });
@@ -973,11 +973,11 @@ int main(int argc, char **argv) try {
 
       dev.bind([&](const Device &d) {
         engine.load(d);
-        if (validationMethod.has_value()) {
+        if (validationMethod) {
           engine.run(uploadProgIndex);
         }
         engine.run(revProgIndex);
-        if (validationMethod.has_value()) {
+        if (validationMethod) {
           engine.run(downloadProgIndex);
         }
       });
@@ -1052,7 +1052,7 @@ int main(int argc, char **argv) try {
       }
     }
 
-    if (validationMethod.has_value()) {
+    if (validationMethod) {
       const std::vector<std::pair<std::string, int>> results{
           {"fwd", fwdFailed},
           {"bwd", bwdFailed},
