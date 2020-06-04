@@ -105,9 +105,9 @@
 //
 // Loop performance:
 //   With input channels per group % 4 == 0:
-//     partition loop: 19 + num_fp * (7 + outChansPerGroup * (6 + inChansPerGroup/4))
+//     partition loop: 19 + num_fp * (7 + outChansPerGroup * (7 + inChansPerGroup/4))
 //   Otherwise:
-//     partition loop: 19 + num_fp * (7 + outChansPerGroup * (6 + 2*(inChansPerGroup/2 - 1)))
+//     partition loop: 19 + num_fp * (7 + outChansPerGroup * (7 + 2*(inChansPerGroup/2 - 1)))
 
 
 .section ".text.convHorizMacFlattened", "ax"

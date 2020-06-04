@@ -17,8 +17,10 @@ static constexpr auto COMPACT_DELTAN = poplar::VectorListLayout::COMPACT_DELTAN;
 
 namespace poplin {
 
-template <typename AccumType, bool useLimitedVer> constexpr bool hasAssembly() {
-  return std::is_same<AccumType, float>() && useLimitedVer == true;
+template <typename FPType, typename AccumType, bool useLimitedVer>
+constexpr bool hasAssembly() {
+  return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
+         useLimitedVer == true;
 }
 
 /* Perform a series of 1x1 convolutions using the MAC instruction where the
@@ -33,8 +35,9 @@ template <typename AccumType, bool useLimitedVer> constexpr bool hasAssembly() {
 template <class FPType, class AccumType, bool useLimitedVer>
 class [[poplar::constraint(
     "elem(**in) != elem(**weights)")]] ConvPartialHorizontalMac
-    : public SupervisorVertexIf<hasAssembly<AccumType, useLimitedVer>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public SupervisorVertexIf<
+          hasAssembly<FPType, AccumType, useLimitedVer>() &&
+          ASM_CODELETS_ENABLED> {
 public:
   ConvPartialHorizontalMac();
 
@@ -54,6 +57,9 @@ public:
   // transformedOutStride =
   //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
   //   = +1 * "actual output stride" * outChansPerGroup
+  // Due to a fact that MAC codelet for half partials process 2 partials
+  // in one loop iterration transformedOutStride was adjusted accordingly
+  // e.g. if (AccumType == HALF) transformedOutStride /= 2
   const int transformedOutStride;
   const UnsignedType numInGroups;
   const UnsignedType kernelSizeM1;
@@ -61,7 +67,7 @@ public:
   const UnsignedType outChansPerGroup;
   const UnsignedType inChansPerGroup;
 
-  IS_EXTERNAL_CODELET((hasAssembly<AccumType, useLimitedVer>()));
+  IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer>()));
 
   bool compute() {
     const unsigned numWorkers = NUM_WORKERS;
@@ -70,7 +76,10 @@ public:
     const unsigned numOutGroups = numOutGroupsM1 + 1;
     const unsigned numConvGroups = numConvGroupsM1 + 1;
     const auto outStride =
-        transformedOutStride / static_cast<int>(outChansPerGroup) + 1;
+        (std::is_same<AccumType, float>() ? transformedOutStride
+                                          : 2 * transformedOutStride) /
+            static_cast<int>(outChansPerGroup) +
+        1;
     const auto inStride = transformedInStride / inChansPerGroup;
     const unsigned numElems = zerosInfo;
 

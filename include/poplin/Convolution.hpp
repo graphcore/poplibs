@@ -138,7 +138,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *      Constraints on the chosen convolution plan. Example:
  *
- *          {"0", {"transform": {"swapOperands": true},
+ *          {"0": {"transform": {"swapOperands": true},
  *                 "partition": {"fieldSplit":{"1": 4},
  *                               "inChanSplit": 4,
  *                               "outChanSplit": {"parallel": 4}}

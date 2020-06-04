@@ -203,8 +203,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   return zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
                           workerPartitions, numConvGroups, numInGroups,
                           numOutGroups, kernelSize, inChansPerGroup,
-                          outChansPerGroup, numWorkerContexts,
-                          floatActivations);
+                          outChansPerGroup, numWorkerContexts, floatActivations,
+                          floatPartials);
 }
 
 // TODO: T12902 Add cost estimates for non-limited version?

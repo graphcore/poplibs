@@ -708,8 +708,8 @@ static std::uint64_t estimateZeroSupervisorCycles(unsigned fieldSize,
 static std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
     unsigned numOutRows, unsigned tileOutWidth, unsigned outputStrideX,
     unsigned tileKernelHeight, unsigned tileKernelWidth, unsigned numWorkers,
-    bool floatActivations, unsigned inChansPerGroup, unsigned outChansPerGroup,
-    unsigned dataPathWidth);
+    bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
+    unsigned outChansPerGroup, unsigned dataPathWidth);
 
 class PlanningCacheImpl {
 public:
@@ -1053,8 +1053,8 @@ static unsigned getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
 static std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
     unsigned numOutRows, unsigned tileOutWidth, unsigned outputStrideX,
     unsigned tileKernelHeight, unsigned tileKernelWidth, unsigned numWorkers,
-    bool floatActivations, unsigned inChansPerGroup, unsigned outChansPerGroup,
-    unsigned dataPathWidth) {
+    bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
+    unsigned outChansPerGroup, unsigned dataPathWidth) {
   unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numOutRows);
   unsigned numPartRows = numOutRows * rowSplitFactor;
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
@@ -1082,7 +1082,7 @@ static std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
 
   return getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
       workerPartitions, kernelSize, inChansPerGroup, outChansPerGroup,
-      numWorkers, floatActivations);
+      numWorkers, floatActivations, floatPartials);
 }
 
 static bool canUseConvPartial1x1Vertex(
@@ -1409,7 +1409,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         convSizeVarsVector,
         [&target, fieldGrainSize, inChansPerGroup, convGroupsPerGroup,
          outChansPerGroup, transformedInputDilation, cache, outputStrideX,
-         floatActivations](const std::vector<unsigned> &values) {
+         floatActivations, floatPartials](const std::vector<unsigned> &values) {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
                            inChansPerGroup, outChansPerGroup);
@@ -1445,7 +1445,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   numActiveOutRows, tileOutWidth, outputStrideX,
                   tileKernelElements / tileKernelWidth, tileKernelWidth,
                   target.getNumWorkerContexts(), floatActivations,
-                  inChansPerGroup, outChansPerGroup, target.getDataPathWidth());
+                  floatPartials, inChansPerGroup, outChansPerGroup,
+                  target.getDataPathWidth());
           return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
                      innerLoopCycles, tileNumConvGroups, tileNumInGroups,
                      tileNumOutGroups, target.getNumWorkerContexts(),
@@ -4096,7 +4097,13 @@ static void getConvVertexMACCandidates(
     inChansLower = inChansUpper = *constrainedInChansPerGroup;
   }
 
-  const unsigned partialChansPerGroup = 1;
+  unsigned partialChansPerGroup = 1;
+  // MAC codelet for half partials processes 2 partials inside inner loop
+  // to have most optimal load/store pipeline
+  if (!floatPartials) {
+    partialChansPerGroup = 2;
+  }
+
   // This is the only supported partialChansPerGroup for this method.
   if (constrainedPartialChansPerGroup &&
       *constrainedPartialChansPerGroup != partialChansPerGroup) {

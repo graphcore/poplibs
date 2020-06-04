@@ -3610,6 +3610,56 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  VARIANTS ${TimesOutOnSim})
 
+foreach(PARTIALS_TYPE half float)
+foreach(IN_CHANS 2 4 8)
+add_multitarget_test(
+         NAME "conv_mac_${PARTIALS_TYPE}_in_chan_${IN_CHANS}"
+         COMMAND single_conv_layer
+                 --input-channels=${IN_CHANS}
+                 --output-channels=1
+                 --field={7,4}
+                 --kernel-size={4,3}
+                 --tiles-per-ipu=1
+                 --single-phase=fwd
+                 --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                 --fwd-plan-constraints={\"method\":\"MAC\"}
+                 --bias=0)
+endforeach() # IN_CHANS
+
+foreach(OUT_CHANS 1 2 4)
+add_multitarget_test(
+         NAME "conv_mac_${PARTIALS_TYPE}_out_chan_${OUT_CHANS}"
+         COMMAND single_conv_layer
+                 --input-channels=4
+                 --output-channels=${OUT_CHANS}
+                 --field={5,2}
+                 --kernel-size={2,2}
+                 --tiles-per-ipu=1
+                 --single-phase=fwd
+                 --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                 --fwd-plan-constraints={\"method\":\"MAC\"}
+                 --bias=0)
+endforeach() # OUT_CHANS
+
+foreach(FLIP_INPUT 0 1)
+add_multitarget_test(
+         NAME "conv_mac_${PARTIALS_TYPE}_stride_4_flip_input_${FLIP_INPUT}"
+         COMMAND single_conv_layer
+                 --input-channels=8
+                 --output-channels=6
+                 --field={10,7}
+                 --kernel-size={4,4}
+                 --tiles-per-ipu=1
+                 --single-phase=fwd
+                 --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
+                 --fwd-plan-constraints={"method":"MAC","0":{"transform":{"swapOperands":false}}}
+                 --bias=0
+                 --flip-input=${FLIP_INPUT}
+                 --in-dilation={1,4}
+                 --stride={4,1})
+endforeach() # FLIP_INPUT
+endforeach() # PARTIALS_TYPE
+
 foreach(CHANS 8 16 32 64)
 add_multitarget_test(
          NAME "conv_dual_amp_half_1x1_channels_${CHANS}"

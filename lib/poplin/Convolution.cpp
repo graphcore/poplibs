@@ -3249,7 +3249,11 @@ static void createConvPartialHorizontalMacVertex(
 
   bool flipOut = params.inputTransform.flip[xDimIndex];
 
-  assert(outChansPerGroup == 1);
+  if (plan.types.back().partialType == HALF) {
+    assert(outChansPerGroup == 2);
+  } else if (plan.types.back().partialType == FLOAT) {
+    assert(outChansPerGroup == 1);
+  }
   if (in.elementType() == HALF) {
     assert(inChansPerGroup % 2 == 0);
   }
@@ -3380,6 +3384,13 @@ static void createConvPartialHorizontalMacVertex(
                                        : static_cast<int>(outStrideX)) -
                               1) *
                              outChansPerGroup;
+
+  // Due to a fact that MAC codelet for half partials process 2 partials in one
+  // loop iterration transformedOutStride need to be adjusted accordingly
+  if (plan.types.back().partialType == poplar::HALF) {
+    transformedOutStride /= 2;
+  }
+
   const auto transformedInStride = inStrideX * inChansPerGroup;
 
   // Limits for field and worklist elements
