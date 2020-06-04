@@ -273,15 +273,11 @@ function(add_benchmark)
     COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tools/bench.py
             --name ${BENCHMARK_NAME}
-            # For the timebeing this is the only target/config we run.
-            # In future this will need to be passed separately
-            --target IpuModel
             --config default
             --expected_csv ${CMAKE_SOURCE_DIR}/tests/benchmark_results.csv
             ${BENCHMARK_BINARY} ${BENCHMARK_PARAMS}
     LABELS ${BENCHMARK_LABEL}
-    #TODO T17190: enable for "${IPUMODEL_VARIANTS}")
-    VARIANTS "IpuModel")
+    VARIANTS "${IPUMODEL_VARIANTS}")
 endfunction()
 
 function(add_conv_benchmark)

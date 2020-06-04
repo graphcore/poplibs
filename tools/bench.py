@@ -65,6 +65,23 @@ def get_max_temp(liveness, args):
     """Returns sum of maximum memory usage per tile of temporary variables."""
     return sum(liveness["notAlwaysLive"]["maxBytesByTile"])
 
+
+def parse_test_command_args(args):
+    """Function to populate args with additional values extracted from the test command (args.test).
+    For example, add_multitarget_test in tests/CMakeLists.txt appends --device-type to the test
+    command, which is needed by this script. Such values cannot be extracted by the main
+    ArgumentParser as they get captured by args.test."""
+    test_parser = argparse.ArgumentParser(
+        description="Test command argument parser."
+    )
+    test_parser.add_argument(
+        "--device-type",
+        help="Test device type used to look-up expected results."
+    )
+    test_args, _ = test_parser.parse_known_args(args.test)
+    args.device_type = test_args.device_type
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Benchmark regression tool, compares memory and cycles "
@@ -72,9 +89,6 @@ def main():
     )
     parser.add_argument(
         "--name", help="Test name used to look-up expected results"
-    )
-    parser.add_argument(
-        "--target", help="Test target used to look-up expected results"
     )
     parser.add_argument(
         "--config", help="Test config used to look-up expected results"
@@ -87,6 +101,7 @@ def main():
         "test", nargs=argparse.REMAINDER, help="Which test to run"
     )
     args = parser.parse_args()
+    parse_test_command_args(args)
 
     with tempfile.NamedTemporaryFile() as out:
         cmd = args.test + ["--profile-json", out.name]
@@ -103,7 +118,7 @@ def main():
 
     expected_dict = read_results_file(args.expected_csv)
     expected = expected_dict.get(TestKey(
-        target = args.target,
+        target = args.device_type,
         config = args.config,
         name = args.name
     ), NONE)
@@ -127,7 +142,7 @@ def main():
     if not passed:
         out_line = (
             CHANGED_RESULT_PREFIX +
-            f': target={args.target},'
+            f': target={args.device_type},'
             f'config={args.config},name={args.name},'
             f'cycles={cycles},total_memory={memory},'
             f'max_tile_memory={max_tile_mem}'
