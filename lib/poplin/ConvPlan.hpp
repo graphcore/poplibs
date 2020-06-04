@@ -2,10 +2,12 @@
 
 #ifndef poplin_internal_ConvPlan_hpp
 #define poplin_internal_ConvPlan_hpp
-#include <boost/variant.hpp>
-#include <iosfwd>
 #include <poplar/Graph.hpp>
 #include <poplin/Convolution.hpp>
+
+#include <boost/variant.hpp>
+
+#include <iosfwd>
 #include <string>
 
 namespace poplin {
@@ -66,6 +68,7 @@ struct Partition {
   unsigned totalSerialSplit() const {
     return outChanSplit.serial * inChanSplit.serial;
   }
+  unsigned totalElements() const { return totalParallelSplit(); }
 };
 
 std::ostream &operator<<(std::ostream &os, const Partition &p);
@@ -217,6 +220,12 @@ struct Plan {
                              return total * p.totalSerialSplit();
                            });
   }
+  unsigned totalTiles() const {
+    return std::accumulate(std::begin(partitions), std::end(partitions),
+                           unsigned(1), [](unsigned total, const auto &p) {
+                             return total * p.totalElements();
+                           });
+  }
 };
 
 std::ostream &operator<<(std::ostream &os, const Plan::Method &m);
@@ -226,11 +235,9 @@ std::ostream &operator<<(std::ostream &os, Plan::LinearizeTileDirection d);
 
 std::ostream &operator<<(std::ostream &os, const Plan &p);
 
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target);
-
 class CanonicalConvParams;
 
-// plan for a convolution with the specified parameters. \a target's
+// Plan for a convolution with the specified parameters. The target's
 // virtual-graph dependent fields are not used.
 Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
              const ConvOptions &options, PlanningCache *cache);

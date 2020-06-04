@@ -1,5 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "ConvUtilInternal.hpp"
+
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
@@ -8,11 +9,11 @@
 #include "popops/Rearrange.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
+
 #include <boost/icl/interval_map.hpp>
-#include <boost/optional.hpp>
+
 #include <cassert>
 #include <cmath>
-#include <poplar/Tensor.hpp>
 #include <unordered_map>
 
 using namespace poplar;
@@ -821,10 +822,11 @@ std::vector<unsigned> splitTilesByComp(const std::vector<std::uint64_t> &flops,
 }
 
 std::vector<unsigned>
-splitTilesByComp(const std::vector<ConvParams> &convParams, unsigned numTiles) {
+splitTilesByComp(const std::vector<CanonicalConvParams> &convParams,
+                 unsigned numTiles) {
   std::vector<std::uint64_t> flops;
   for (const auto &cp : convParams) {
-    flops.push_back(getFwdFlops(cp));
+    flops.push_back(getFwdFlops(cp.getParams()));
   }
   return splitTilesByComp(flops, numTiles);
 }

@@ -26,12 +26,9 @@ std::ostream &operator<<(std::ostream &, Pass p);
 
 /** Options to control the implementation of a convolution */
 class ConvOptions {
-  // These are only stored to allow ConvOptions to be used as the key for the
-  // convolution cache. These values should be read from poplar::Target instead.
+public:
   unsigned numIPUs;
   unsigned tilesPerIPU;
-
-public:
   // proportion of tile memory available for this convolution.
   double availableMemoryProportion = .6;
   /// The pass this layer corresponds to.
@@ -86,13 +83,16 @@ public:
     return helper.eq(*this, other);
   }
 
-  ConvOptions(const poplar::Target &target)
-      : numIPUs(target.getNumIPUs()), tilesPerIPU(target.getTilesPerIPU()) {}
-
-  ConvOptions(const poplar::Target &target, const poplar::OptionFlags &options)
-      : numIPUs(target.getNumIPUs()), tilesPerIPU(target.getTilesPerIPU()) {
+  ConvOptions(unsigned numIPUs, unsigned tilesPerIPU,
+              const poplar::OptionFlags &options)
+      : numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {
     parseConvOptions(options);
   }
+
+  ConvOptions(const poplar::Target &target, const poplar::OptionFlags &options)
+      : ConvOptions(target.getNumIPUs(), target.getTilesPerIPU(), options) {}
+
+  ConvOptions(const poplar::Target &target) : ConvOptions(target, {}) {}
 
   friend std::ostream &operator<<(std::ostream &os, const ConvOptions &opts);
 };

@@ -7,9 +7,17 @@
 
 namespace poplibs {
 
-std::vector<unsigned>
-getTileHierarchy(const poplar::Target &target,
-                 std::vector<double> &perLevelExchangeBytesPerCycle);
+// TODO: Consider merging following two functions
+// TODO: Consider allowing these functions to take a target instead of
+// separate configured numIPUs and tilesPerIPU
+
+std::vector<unsigned> getTileHierarchy(unsigned numIPUs, unsigned tilesPerIPU);
+
+unsigned numIPUs(const std::vector<unsigned> &hierarchy);
+
+std::vector<double>
+getPerLevelExchangeBytesPerCycle(const poplar::Target &target,
+                                 unsigned numIPUs);
 
 } // end namespace poplibs
 

@@ -178,7 +178,9 @@ function(add_unit_test name)
       if (${TEST_CONFIG} STREQUAL "cpp")
         list(APPEND test_env "POPLIBS_CODELET_SUFFIX=_c")
       endif()
-
+      if (${name} STREQUAL "MultiConvolutionPlanTest")
+        list(APPEND test_env "ENABLE_PARALLEL_MULTIPLAN=TRUE")
+      endif()
       set_tests_properties(${test_name} PROPERTIES
                            ENVIRONMENT "${test_env}")
 
@@ -376,6 +378,7 @@ set(TimesOutOnSimCpp "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 # Unit tests
 add_unit_test(AlgorithmTest AlgorithmTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(MultiConvolutionTest MultiConvolutionTest.cpp)
+add_unit_test(MultiConvolutionPlanTest MultiConvolutionPlanTest.cpp)
 add_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS ${IPUMODEL_VARIANTS})

@@ -6,15 +6,29 @@
 
 namespace poplibs {
 
-std::vector<unsigned>
-getTileHierarchy(const poplar::Target &target,
-                 std::vector<double> &perLevelExchangeBytesPerCycle) {
+std::vector<unsigned> getTileHierarchy(unsigned numIPUs, unsigned tilesPerIPU) {
   std::vector<unsigned> hierarchy;
-  perLevelExchangeBytesPerCycle.clear();
-  const auto clockFrequency = target.getTileClockFrequency();
-  unsigned numIPUs = target.getNumIPUs();
   if (numIPUs > 1) {
     hierarchy.push_back(numIPUs);
+  }
+  hierarchy.push_back(tilesPerIPU);
+  return hierarchy;
+}
+
+unsigned numIPUs(const std::vector<unsigned> &hierarchy) {
+  if (hierarchy.size() == 1) { // single IPU case
+    return 1;
+  } else {
+    return hierarchy[0];
+  }
+}
+
+std::vector<double>
+getPerLevelExchangeBytesPerCycle(const poplar::Target &target,
+                                 unsigned numIPUs) {
+  std::vector<double> perLevelExchangeBytesPerCycle;
+  const auto clockFrequency = target.getTileClockFrequency();
+  if (numIPUs > 1) {
     auto ipuExchangeBytesPerCycle =
         static_cast<double>(std::numeric_limits<double>::infinity());
     // Compute the maximum number of bytes per cycle for a traffic pattern
@@ -45,8 +59,7 @@ getTileHierarchy(const poplar::Target &target,
     perLevelExchangeBytesPerCycle.push_back(ipuExchangeBytesPerCycle);
   }
   perLevelExchangeBytesPerCycle.push_back(target.getExchangeBytesPerCycle());
-  hierarchy.push_back(target.getTilesPerIPU());
-  return hierarchy;
+  return perLevelExchangeBytesPerCycle;
 }
 
 } // namespace poplibs

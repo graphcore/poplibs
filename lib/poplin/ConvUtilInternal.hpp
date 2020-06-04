@@ -5,14 +5,18 @@
 
 /// A collection of utility functions that are internal to poplin.
 
+#include "CanonicalConvParams.hpp"
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
 #include "MultiConvolutionInternal.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/MultiConvolution.hpp"
 #include "poputil/VarStructure.hpp"
+
 #include <boost/optional.hpp>
+
 #include <poplar/Tensor.hpp>
+
 #include <vector>
 
 namespace poplin {
@@ -251,7 +255,8 @@ splitTilesByComp(const std::vector<uint64_t> &flops, unsigned numTiles);
 /// return a distribution of tiles according to the expected FLOPs for each
 /// convolution
 std::vector<unsigned>
-splitTilesByComp(const std::vector<ConvParams> &convParams, unsigned numTiles);
+splitTilesByComp(const std::vector<CanonicalConvParams> &convParams,
+                 unsigned numTiles);
 
 // Given a vector of group sizes and an element index,
 // returns the index of the group that contains that element

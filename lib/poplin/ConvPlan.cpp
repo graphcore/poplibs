@@ -16,17 +16,20 @@
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
+#include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
+
 #include "tbb/concurrent_unordered_map.h"
 #include "tbb/parallel_for.h"
+
 #include <boost/functional/hash.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/range/adaptor/filtered.hpp>
+
 #include <cassert>
 #include <cmath>
 #include <limits>
 #include <map>
-#include <popsolver/Model.hpp>
 #include <set>
 #include <string>
 #include <tuple>
@@ -484,7 +487,8 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
      << "        method                  " << p.method << "\n"
      << "        isJointPlan             " << p.isJointPlan << "\n"
      << "        startTile               " << p.startTile << "\n"
-     << "        linearizeTileDirection  " << p.linearizeTileDirection << "\n";
+     << "        linearizeTileDirection  " << p.linearizeTileDirection << "\n"
+     << "        totalTiles              " << p.totalTiles() << "\n";
   return os;
 }
 
@@ -714,14 +718,39 @@ static std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
 class PlanningCacheImpl {
 public:
   struct Key {
-    CanonicalConvParams convParams;
-    ConvOptions options;
-    Key(CanonicalConvParams params, ConvOptions options)
-        : convParams(std::move(params)), options(std::move(options)) {}
-    bool operator<(const Key &other) const {
-      return std::tie(convParams, options) <
-             std::tie(other.convParams, other.options);
+    struct ConvDescription {
+      // TODO pass only ConvDescriptions into the planner as the only source of
+      // information to use, this will make sure the cache and planner are in
+      // lockstep and we don't introduce more information accidently outside the
+      // cache, e.g. target
+      // TODO: derive information from target and include in the key.
+      // Currently it's assumed to always have the same target universally.
+      CanonicalConvParams params;
+      ConvOptions options;
+
+      bool operator<(const ConvDescription &other) const {
+        return std::tie(params, options) <
+               std::tie(other.params, other.options);
+      }
+    };
+    std::vector<ConvDescription> convs;
+
+    Key(std::vector<ConvDescription> descriptions) {
+      // It's probably never going to happen, but currently
+      // we want the behaviour to be independent of the order
+      // you specify the convolutions in a multi plan.
+      // However it's not currently the case. as it plans first to last against
+      // the previous reference
+
+      // TODO: Make multiplan order independent
+      // std::sort(descriptions.begin(), descriptions.end());
+      convs = descriptions;
     }
+
+    Key(CanonicalConvParams params, ConvOptions options)
+        : convs({{params, options}}) {}
+
+    bool operator<(const Key &other) const { return convs < other.convs; }
   };
   class CycleEstimationImpl {
   public:
@@ -762,8 +791,28 @@ public:
 
   // The plan's cycleEstimation can be used and updated in parallel.
   CycleEstimationImpl cycleEstimation;
+
+private:
   // Updates to plans must be single-threaded.
-  std::map<Key, std::unique_ptr<Plan>> plans;
+  std::map<Key, std::vector<Plan>> planCache;
+
+public:
+  boost::optional<std::vector<Plan>> getPlan(const Key &key) {
+    const auto plan = planCache.find(key);
+    if (plan == planCache.end()) {
+      return boost::none;
+    } else {
+      return (*plan).second;
+    }
+  }
+
+  void addMultiPlansToCache(const Key &key, const std::vector<Plan> &value) {
+    planCache.emplace(key, value);
+  }
+
+  void addPlanToCache(const Key &key, const Plan &value) {
+    addMultiPlansToCache(key, {value});
+  }
 };
 
 PlanningCache::PlanningCache() {
@@ -799,6 +848,21 @@ template <typename T> struct Estimates {
   T tileLevelTransformTempBytes;
   T convTempBytes;
   T reduceTempBytes;
+
+  static constexpr std::vector<std::pair<poplar::StringRef, T Estimates::*>>
+  getCycleCountContributingMembers() {
+    return {
+        {"rearrangeBeforeSliceCycles", &Estimates::rearrangeBeforeSliceCycles},
+        {"memsetZeroBeforeAddInPlace", &Estimates::memsetZeroBeforeAddInPlace},
+        {"dynamicSliceCycles", &Estimates::dynamicSliceCycles},
+        {"transformCycles", &Estimates::transformCycles},
+        {"exchangeCycles", &Estimates::exchangeCycles},
+        {"tileLevelTransformCycles", &Estimates::tileLevelTransformCycles},
+        {"partialCalcCycles", &Estimates::partialCalcCycles},
+        {"reduceCycles", &Estimates::reduceCycles},
+        {"dynamicUpdateCycles", &Estimates::dynamicUpdateCycles},
+        {"addInPlaceCycles", &Estimates::addInPlaceCycles}};
+  }
 };
 
 using Cost = Estimates<unsigned>;
@@ -879,10 +943,20 @@ static Cost highestCost(std::numeric_limits<unsigned>::max(),
 // or descending tile order. We make an effort (using the Pass) to give the
 // forward, backward and weight update passes the same start tile and direction.
 static std::pair<unsigned, Plan::LinearizeTileDirection>
-getStartTile(const poplar::Target &target, const ConvParams &params,
+getStartTile(const poplar::Target &target,
+             unsigned startTileIdxForVirtualHierarchy, const ConvParams &params,
              const ConvOptions &options) {
   if (!options.enableConvDithering) {
-    return std::make_pair(0u, Plan::LinearizeTileDirection::ASCENDING);
+    return std::make_pair(startTileIdxForVirtualHierarchy,
+                          Plan::LinearizeTileDirection::ASCENDING);
+  } else {
+    if (startTileIdxForVirtualHierarchy != 0) {
+      // This is a quick get out for multiplans for now while it's unsupported
+      // (where startTileIdxForVirtualHierarchy is not 0 as the IPU is split up
+      // for each plan)
+      throw poputil::poplibs_error(
+          "Unsupported conv dithering with multi plans");
+    }
   }
 
   const auto seed = [&] {
@@ -955,8 +1029,8 @@ getStartTile(const poplar::Target &target, const ConvParams &params,
   // need to stay on the same IPU.
   const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
 
-  const auto numSuperTiles =
-      ceildiv(target.getTilesPerIPU(), tilesPerSuperTile);
+  const auto numSuperTiles = ceildiv(options.tilesPerIPU, tilesPerSuperTile);
+
   unsigned startTile = (seed % numSuperTiles) * tilesPerSuperTile;
 
   const auto numDirections = 2;
@@ -1856,6 +1930,17 @@ addTileLevelTransformEstimates(
   throw poputil::poplibs_error("Unrecognised convolution method");
 }
 
+void addReductionDepthConstraint(popsolver::Model &m, unsigned level,
+                                 const popsolver::Variable &reductionDepth,
+                                 const Plan &referencePlan) {
+  auto referenceReduceDimSizes = referencePlan.partitions[level].kernelSplit;
+  referenceReduceDimSizes.push_back(
+      referencePlan.partitions[level].inChanSplit.parallel);
+  const auto referenceReductionDepth = m.addConstant(
+      product(referenceReduceDimSizes), "reference.reductionDepth");
+  m.equal(reductionDepth, referenceReductionDepth);
+}
+
 static popsolver::Variable addExchangeCycleEstimate(
     popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
@@ -1863,7 +1948,8 @@ static popsolver::Variable addExchangeCycleEstimate(
     const ExchangeEstimator &exchangeEstimator, const ConvParams &params,
     const ConvOptions &options, const std::vector<ConvTypes> &types,
     std::vector<popsolver::Variable> &inputsPerLevel,
-    std::vector<popsolver::Variable> &weightsPerLevel) {
+    std::vector<popsolver::Variable> &weightsPerLevel,
+    const boost::optional<Plan> &referencePlan) {
   const auto numFieldDims = params.getNumFieldDims();
   const auto numLevelsOfHierarchy = convSizes.size();
 
@@ -2000,7 +2086,11 @@ static popsolver::Variable addExchangeCycleEstimate(
 
     auto reduceDimSizes = partitionsNextLevel.kernelSplit;
     reduceDimSizes.push_back(partitionsNextLevel.inChanSplit.parallel);
-    const auto reductionDepth = m.product(reduceDimSizes);
+    const auto reductionDepth =
+        m.product(reduceDimSizes); // TODO: duplicate popsolver variable
+    if (referencePlan) {
+      addReductionDepthConstraint(m, level, reductionDepth, *referencePlan);
+    }
     const auto resultType = types[level + 1].resultType;
     const auto partialSumCyclesRemainingStages = m.call(
         {numberOfPartialSums, reductionDepth},
@@ -2052,6 +2142,7 @@ addReduceCycleEstimate(popsolver::Model &m,
                        const poplar::Target &target,
                        const std::vector<ConvTypes> &types,
                        std::vector<popsolver::Variable> &outputsPerLevel,
+                       const boost::optional<Plan> &referencePlan,
                        const ConvOptions &options,
                        PlanningCacheImpl::CycleEstimationImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
@@ -2061,7 +2152,11 @@ addReduceCycleEstimate(popsolver::Model &m,
   for (int level = numLevelsOfHierarchy - 1; level >= 0; --level) {
     auto reduceDimSizes = partitionVars[level].kernelSplit;
     reduceDimSizes.push_back(partitionVars[level].inChanSplit.parallel);
-    const auto reductionDepth = m.product(reduceDimSizes);
+    const auto reductionDepth =
+        m.product(reduceDimSizes); // TODO: duplicate popsolver variable
+    if (referencePlan) {
+      addReductionDepthConstraint(m, level, reductionDepth, *referencePlan);
+    }
     outputsPerLevel.push_back(m.ceildiv(partialsPerTile, reductionDepth));
     bool floatPartials = types[level + 1].resultType == poplar::FLOAT;
     bool floatOutput = types[level].resultType == poplar::FLOAT;
@@ -2631,7 +2726,8 @@ static Estimates<popsolver::Variable> addEstimates(
     const std::vector<ConvTransform> &transforms, Plan::Method method,
     const unsigned slicWindowWidth, const unsigned numConvUnitsRequired,
     const Plan::LinearizeTileOrder linearizeTileOrder,
-    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
+    const boost::optional<Plan> &referencePlan, const ConvOptions &options,
+    PlanningCacheImpl::CycleEstimationImpl *cache) {
   const auto numLevelsOfHierarchy = convSize.size();
   ExchangeEstimator exchangeEstimator(m, target, perLevelExchangeBytesPerCycle,
                                       numLevelsOfHierarchy, partitionVars,
@@ -2661,9 +2757,11 @@ static Estimates<popsolver::Variable> addEstimates(
   Estimates<popsolver::Variable> e;
 
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
+
   e.exchangeCycles = addExchangeCycleEstimate(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
-      transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel);
+      transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel,
+      referencePlan);
 
   std::tie(e.transformCycles, e.transformTempBytes) = addTransformCycleEstimate(
       m, untransformedParams, transformedOnceParams,
@@ -2732,7 +2830,7 @@ static Estimates<popsolver::Variable> addEstimates(
   std::vector<popsolver::Variable> outputsPerLevel;
   std::tie(e.reduceCycles, e.reduceTempBytes) =
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
-                             outputsPerLevel, options, cache);
+                             outputsPerLevel, referencePlan, options, cache);
 
   // if this convolution has been split serially and we aren't sure the weights
   // are laid out well for a dynamic slice, we must also add a one-off cost
@@ -2808,7 +2906,8 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
     const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
-    const unsigned partialChansPerGroup, const ConvOptions &options,
+    const unsigned partialChansPerGroup,
+    const boost::optional<Plan> &referencePlan, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   // for the backwards pass the output shape will be Ci x Co (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
@@ -2868,7 +2967,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
       bwdTransformedOnceUnpaddedParams, isJointPlan, convGroupsPerGroup,
       bwdInChansPerGroup, partialChansPerGroup, types, transforms, bwdMethod,
       slicWindowWidth, numConvUnitsRequired,
-      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, options, cache);
+      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referencePlan, options, cache);
 }
 
 static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
@@ -2910,7 +3009,8 @@ static Estimates<popsolver::Variable> addWuEstimates(
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
     const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
-    const unsigned partialChansPerGroup, const ConvOptions &options,
+    const unsigned partialChansPerGroup,
+    const boost::optional<Plan> &referencePlan, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
@@ -2986,14 +3086,14 @@ static Estimates<popsolver::Variable> addWuEstimates(
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
-  return addEstimates(m, wuPartitionVars, wuConvSize, wuTransformedConvSize,
-                      usedTiles, transformedDims, target,
-                      perLevelExchangeBytesPerCycle, wuUntransformedParams,
-                      wuTransformedOnceParams, wuTransformedOnceUnpaddedParams,
-                      isJointPlan, convGroupsPerGroup, wuInChansPerGroup,
-                      wuPartialChansPerGroup, types, transforms, wuMethod,
-                      slicWindowWidth, numConvUnitsRequired,
-                      Plan::LinearizeTileOrder::FC_WU, options, cache);
+  return addEstimates(
+      m, wuPartitionVars, wuConvSize, wuTransformedConvSize, usedTiles,
+      transformedDims, target, perLevelExchangeBytesPerCycle,
+      wuUntransformedParams, wuTransformedOnceParams,
+      wuTransformedOnceUnpaddedParams, isJointPlan, convGroupsPerGroup,
+      wuInChansPerGroup, wuPartialChansPerGroup, types, transforms, wuMethod,
+      slicWindowWidth, numConvUnitsRequired, Plan::LinearizeTileOrder::FC_WU,
+      referencePlan, options, cache);
 }
 
 static Partition makePartition(const popsolver::Solution &s,
@@ -3521,6 +3621,8 @@ static Estimates<popsolver::Variable> constructModel(
     const std::vector<unsigned> &fieldGrainSize,
     const ConvVertexType &convVertexType, const ConvParams &untransformedParams,
     bool isJointPlan, Cost bestCost, const PlanningObjective &objective,
+    const boost::optional<Plan> &referencePlan,
+    const boost::optional<Cost> &referenceCost,
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options,
     popsolver::Model &m, std::vector<PartitionVariables> &partitionVars) {
   using namespace popsolver;
@@ -3871,6 +3973,20 @@ static Estimates<popsolver::Variable> constructModel(
           m.addConstant(1, arrIndStr(level) + ".partition.outChanSplit.serial");
     }
 
+    if (referencePlan) {
+      // Ensure we match serial splits with the reference plan
+      // This potentially causes factorisation problems which can make the plan
+      // impossible immediately.
+      const auto inReference = m.addConstant(
+          referencePlan->partitions[level].inChanSplit.serial,
+          "reference." + arrIndStr(level) + ".partition.inChanSplit.serial");
+      const auto outReference = m.addConstant(
+          referencePlan->partitions[level].outChanSplit.serial,
+          "reference." + arrIndStr(level) + ".partition.outChanSplit.serial");
+      m.equal(p.inChanSplit.serial, inReference);
+      m.equal(p.outChanSplit.serial, outReference);
+    }
+
     auto totalOutChanSplit =
         m.product({p.outChanSplit.parallel, p.outChanSplit.serial});
     m.lessOrEqual(totalOutChanSplit, prevConvSize.numOutChanGrains);
@@ -3927,7 +4043,7 @@ static Estimates<popsolver::Variable> constructModel(
       untransformedParams, transformedOnceParams, transformedOnceUnpaddedParams,
       isJointPlan, convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
       types, transforms, method, slicWindowWidth, numConvUnitsRequired,
-      Plan::LinearizeTileOrder::STANDARD, options, cache);
+      Plan::LinearizeTileOrder::STANDARD, referencePlan, options, cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
@@ -3937,8 +4053,8 @@ static Estimates<popsolver::Variable> constructModel(
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, method, slicWindowWidth, numConvUnitsRequired,
         usedTiles, target, perLevelExchangeBytesPerCycle, types, isJointPlan,
-        convGroupsPerGroup, inChansPerGroup, partialChansPerGroup, options,
-        cache);
+        convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
+        referencePlan, options, cache);
 
     const auto wu = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
@@ -3946,7 +4062,7 @@ static Estimates<popsolver::Variable> constructModel(
         convSize, transforms, method, slicWindowWidth, numConvUnitsRequired,
         usedTiles, target, numFieldDims, perLevelExchangeBytesPerCycle, types,
         isJointPlan, convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
-        options, cache);
+        referencePlan, options, cache);
 
     if (objective.getTileTempMemoryBound() > 0) {
       auto bound = objective.getTileTempMemoryBound();
@@ -3963,6 +4079,25 @@ static Estimates<popsolver::Variable> constructModel(
     e.totalTempBytes =
         m.max({e.totalTempBytes, bwd.totalTempBytes, wu.totalTempBytes},
               "maxTempBytesPerTile");
+  }
+
+  if (referenceCost) {
+    const auto estimateVariables = e.getCycleCountContributingMembers();
+    const auto referenceValues =
+        referenceCost->getCycleCountContributingMembers();
+    assert(estimateVariables.size() == referenceValues.size());
+    for (unsigned i = 0; i < estimateVariables.size(); ++i) {
+      const auto &estimateMember = estimateVariables[i];
+      const auto &referenceValue = referenceValues[i];
+
+      const auto reference = (*referenceCost).*referenceValue.second;
+      const auto x =
+          m.addConstant(reference, "reference." + referenceValue.first);
+
+      auto &estimate = e.*estimateMember.second;
+      estimate = m.max({estimate, x},
+                       "maxCyclesAgainstReference." + referenceValue.first);
+    }
   }
 
   // if an explicit cycle or memory bound has been added to the objective then
@@ -3993,13 +4128,16 @@ static std::pair<Plan, Cost> choosePlan(
     const std::vector<unsigned> &fieldGrainSize,
     const ConvVertexType &convVertexType, const ConvParams &params,
     bool isJointPlan, Cost bestCost, const PlanningObjective &objective,
+    unsigned startTileIdxForVirtualHierarchy,
+    const boost::optional<Plan> &referencePlan,
+    const boost::optional<Cost> &referenceCost,
     PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options) {
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   Estimates<popsolver::Variable> e = constructModel(
       target, transforms, types, hierarchy, perLevelExchangeBytesPerCycle,
       fieldGrainSize, convVertexType, params, isJointPlan, bestCost, objective,
-      cache, options, m, partitionVars);
+      referencePlan, referenceCost, cache, options, m, partitionVars);
   popsolver::Solution s;
 
   switch (objective.getType()) {
@@ -4017,7 +4155,8 @@ static std::pair<Plan, Cost> choosePlan(
   for (const auto &p : partitionVars) {
     partitions.push_back(makePartition(s, p));
   }
-  auto startTile = getStartTile(target, params, options);
+  auto startTile =
+      getStartTile(target, startTileIdxForVirtualHierarchy, params, options);
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.convGroupsPerGroup, convVertexType.inChansPerGroup,
             convVertexType.partialChansPerGroup, convVertexType.slicWindowWidth,
@@ -4659,11 +4798,6 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
   return validValues;
 }
 
-std::vector<unsigned> getTileHierarchy(const poplar::Target &target) {
-  std::vector<double> dummy;
-  return poplibs::getTileHierarchy(target, dummy);
-}
-
 static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
                                            unsigned numLevels,
                                            poplar::Type resultType,
@@ -4890,9 +5024,16 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                cost.totalTempBytes);
 }
 
+static std::vector<unsigned> getHierarchy(const ConvOptions &options) {
+  return poplibs::getTileHierarchy(options.numIPUs, options.tilesPerIPU);
+}
+
 static std::pair<Plan, Cost>
 createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
            const PlanningObjective &objective, const poplar::Target &target,
+           unsigned startTileIdxForVirtualHierarchy,
+           const boost::optional<Plan> &referencePlan,
+           const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
   validateLayerParams(params, options, target);
 
@@ -4908,9 +5049,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
 
   // perLevelExchangeBytesPerCycle is indexed by hierarchy (not including the
   // tile level), lower indices to higher hierarchies.
-  std::vector<double> perLevelExchangeBytesPerCycle;
-  const auto hierarchy =
-      poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
+  const auto perLevelExchangeBytesPerCycle =
+      poplibs::getPerLevelExchangeBytesPerCycle(target, options.numIPUs);
+  const auto hierarchy = getHierarchy(options);
   const auto numLevels = hierarchy.size() + 1;
 
   validatePlanConstraints(params, options.planConstraints, numLevels);
@@ -4997,10 +5138,12 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             // maintain the accuracy implied by the requested partials type.
             auto newConvTypes = convTypes;
             newConvTypes.back().partialType = convVertexType.partialType;
-            std::tie(candidate, candidateCost) = choosePlan(
-                target, transforms, newConvTypes, hierarchy,
-                perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType,
-                params, isJointPlan, bestCost, objective, cache, options);
+            std::tie(candidate, candidateCost) =
+                choosePlan(target, transforms, newConvTypes, hierarchy,
+                           perLevelExchangeBytesPerCycle, fieldGrainSize,
+                           convVertexType, params, isJointPlan, bestCost,
+                           objective, startTileIdxForVirtualHierarchy,
+                           referencePlan, referenceCost, cache, options);
             if (candidateCost == highestCost) {
               continue;
             }
@@ -5138,12 +5281,17 @@ static ConvOptions getFullyConnectedPassOptions(const ConvOptions &options,
 static std::pair<Plan, Cost>
 createPlan(const ConvParams &params, const ConvOptions &options,
            const PlanningObjective &objective, const poplar::Target &target,
+           unsigned startTileIdxForVirtualHierarchy,
+           const boost::optional<Plan> &referencePlan,
+           const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            std::vector<std::pair<PlanningCacheImpl::Key, Plan>>
                *additionalPlansToCache) {
   if (options.pass != Pass::FC_TRAINING_FWD) {
     logging::debug("Creating plan for a non-joint plan...");
-    return createPlan(params, options, false, objective, target, cache);
+    return createPlan(params, options, false, objective, target,
+                      startTileIdxForVirtualHierarchy, referencePlan,
+                      referenceCost, cache);
   }
   // It doesn't make sense to compare joint and separate planning when the
   // number of cycles is bounded since we can't easily derive bounds for each
@@ -5153,30 +5301,34 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   Cost jointCost;
 
   logging::debug("Creating plan for a joint plan...");
-  std::tie(jointPlan, jointCost) =
-      createPlan(params, options, true, objective, target, cache);
+  std::tie(jointPlan, jointCost) = createPlan(
+      params, options, true, objective, target, startTileIdxForVirtualHierarchy,
+      referencePlan, referenceCost, cache);
 
   Plan fwdPlan, bwdPlan, wuPlan;
   Cost fwdCost, bwdCost, wuCost;
 
   logging::debug("Creating plan for a separate joint plan (fwd pass)...");
-  std::tie(fwdPlan, fwdCost) =
-      createPlan(params, options, false, objective, target, cache);
+  std::tie(fwdPlan, fwdCost) = createPlan(
+      params, options, false, objective, target,
+      startTileIdxForVirtualHierarchy, referencePlan, referenceCost, cache);
   auto bwdParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_BWD);
   auto bwdOptions =
       getFullyConnectedPassOptions(options, Pass::FC_TRAINING_BWD);
 
   logging::debug("Creating plan for a separate joint plan (bwd pass)...");
-  std::tie(bwdPlan, bwdCost) = createPlan(bwdParams.getParams(), bwdOptions,
-                                          false, objective, target, cache);
+  std::tie(bwdPlan, bwdCost) = createPlan(
+      bwdParams.getParams(), bwdOptions, false, objective, target,
+      startTileIdxForVirtualHierarchy, referencePlan, referenceCost, cache);
   auto wuParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_WU);
   auto wuOptions = getFullyConnectedPassOptions(options, Pass::FC_TRAINING_WU);
 
   logging::debug("Creating plan for a separate joint plan (wu pass)...");
-  std::tie(wuPlan, wuCost) = createPlan(wuParams.getParams(), wuOptions, false,
-                                        objective, target, cache);
+  std::tie(wuPlan, wuCost) = createPlan(
+      wuParams.getParams(), wuOptions, false, objective, target,
+      startTileIdxForVirtualHierarchy, referencePlan, referenceCost, cache);
 
   auto separateCost = fwdCost;
   for (const auto &cost : {bwdCost, wuCost}) {
@@ -5288,6 +5440,9 @@ std::string getPlanConstraintsOutputFile(const ConvOptions &options) {
 static std::pair<Plan, Cost>
 runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
            const poplar::Target &target,
+           const boost::optional<Plan> &referencePlan,
+           const boost::optional<Cost> &referenceCost,
+           unsigned startTileIndicesForVirtualHierarchy,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            std::vector<std::pair<PlanningCacheImpl::Key, Plan>>
                *additionalPlansToCache) {
@@ -5313,8 +5468,9 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
     auto objective = PlanningObjective::minimizeCycles();
     objective.setTileTempMemoryBound(availableTileMem);
 
-    std::tie(plan, cost) =
-        createPlan(params, options, objective, target, cache, nullptr);
+    std::tie(plan, cost) = createPlan(
+        params, options, objective, target, startTileIndicesForVirtualHierarchy,
+        referencePlan, referenceCost, cache, nullptr);
   }
 
   // if we can't find a plan within this limit this probably isn't going to
@@ -5329,8 +5485,9 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
     }
 
     auto objective = PlanningObjective::minimizeTileTempMemory();
-    std::tie(plan, cost) =
-        createPlan(params, options, objective, target, cache, nullptr);
+    std::tie(plan, cost) = createPlan(
+        params, options, objective, target, startTileIndicesForVirtualHierarchy,
+        referencePlan, referenceCost, cache, nullptr);
 
     // if we still could not find a plan there's nothing else we can do.
     if (cost.totalCycles == ~0u) {
@@ -5452,8 +5609,9 @@ void preplanConvolutionsImpl(const poplar::Target &target,
     const auto &options = jobs[i].input->second;
     Plan plan;
     Cost cost;
-    std::tie(plan, cost) = runPlanner(
-        params, options, target, &cache.impl->cycleEstimation, &jobs[i].output);
+    std::tie(plan, cost) =
+        runPlanner(params, options, target, boost::none, boost::none, 0,
+                   &cache.impl->cycleEstimation, &jobs[i].output);
     auto key =
         PlanningCacheImpl::Key(jobs[i].input->first, jobs[i].input->second);
     jobs[i].output.emplace_back(key, std::move(plan));
@@ -5461,8 +5619,8 @@ void preplanConvolutionsImpl(const poplar::Target &target,
   // sequential insert into the cache
   for (unsigned i = 0u; i != jobs.size(); ++i) {
     for (auto &entry : jobs[i].output) {
-      auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(entry.second)));
-      cache.impl->plans.emplace(std::move(entry.first), std::move(pPlan));
+      cache.impl->addPlanToCache({std::move(entry.first)},
+                                 {std::move(entry.second)});
     }
   }
 }
@@ -5484,49 +5642,170 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
       return getFullyConnectedBwdPlan(fwdPlan);
     }
   }
-  Plan plan;
-  Cost cost;
-  auto cacheImpl = cache ? cache->impl.get() : nullptr;
-  std::unique_ptr<PlanningCacheImpl> tempCache;
-  if (!cacheImpl) {
-    tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
-    cacheImpl = tempCache.get();
-  }
+
+  auto temp = std::make_unique<PlanningCacheImpl>();
+  auto &cacheImpl = cache ? cache->impl : temp;
   PlanningCacheImpl::Key key(params, options);
-  if (!tempCache.get()) {
-    auto &plans = cacheImpl->plans;
-    auto match = plans.find(key);
-    if (match != plans.end()) {
-      return *match->second;
-    }
+  const auto cachedPlan = cacheImpl->getPlan(key);
+  if (cachedPlan) {
+    return (*cachedPlan)[0];
   }
 
   std::vector<std::pair<PlanningCacheImpl::Key, Plan>> plansToCache;
-  std::tie(plan, cost) = runPlanner(params, options, target,
-                                    &cacheImpl->cycleEstimation, &plansToCache);
-  if (!tempCache.get()) {
-    plansToCache.emplace_back(key, plan);
-    auto &plans = cacheImpl->plans;
-    for (const auto &entry : plansToCache) {
-      auto pPlan = std::unique_ptr<Plan>(new Plan(std::move(entry.second)));
-      plans.emplace(entry.first, std::move(pPlan));
-    }
+  Plan plan;
+  Cost cost;
+  std::tie(plan, cost) =
+      runPlanner(params, options, target, boost::none, boost::none, 0,
+                 &cacheImpl->cycleEstimation, &plansToCache);
+  plansToCache.emplace_back(key, plan);
+  for (const auto &entry : plansToCache) {
+    cacheImpl->addPlanToCache({entry.first}, {entry.second});
   }
   return plan;
+}
+
+static ParallelPlan
+getParallelMultiPlan(const poplar::Target &target,
+                     const std::vector<CanonicalConvParams> &params,
+                     const std::vector<ConvOptions> &options,
+                     PlanningCache *cache) {
+  for (const auto &convOptions : options) {
+    if (convOptions.numIPUs != 1) {
+      throw poputil::poplibs_error(
+          "Multi plan is unsupported for more than 1 IPU");
+    }
+  }
+  const auto totalPlans = params.size();
+
+  auto temp = std::make_unique<PlanningCacheImpl>();
+  auto &cacheImpl = cache ? cache->impl : temp;
+
+  // Since it's combinatorial with the different plans and we are planning each
+  // one in sequence, we will only cache the final plan
+  // (which is valid if we are at this point)
+  const auto key = [&]() -> PlanningCacheImpl::Key {
+    std::vector<PlanningCacheImpl::Key::ConvDescription> convs;
+    for (size_t i = 0; i < totalPlans; i++) {
+      convs.push_back({params[i], options[i]});
+    }
+    return convs;
+  }();
+  const auto cachedPlan = cacheImpl->getPlan(key);
+  if (cachedPlan != boost::none) {
+    return {*cachedPlan};
+  }
+
+  std::vector<Plan> plans;
+  const auto largestPlanIdx = std::distance(
+      options.begin(), std::max_element(options.cbegin(), options.cend(),
+                                        [](const auto &lhs, const auto &rhs) {
+                                          return lhs.tilesPerIPU * lhs.numIPUs <
+                                                 rhs.tilesPerIPU * rhs.numIPUs;
+                                        }));
+
+  // Ensure the same steps for the plans, currently this is only serial split
+  // and multistage reduction. Both of which are currently not proven to work.
+  Plan referencePlan;
+
+  // This can increase currently if a subsequent plan can't
+  // find a solution with fewer cycles, which is why we are planning serially
+  // and not in parallel
+  Cost referenceCost;
+
+  // The starting tile for the hierarchy is the same currently across every IPU
+  unsigned startTileIdxForVirtualHierarchy = 0;
+  const auto incrementStartTileIdx =
+      [](unsigned currentIdx, const std::vector<unsigned> &hierarchy) {
+        assert(poplibs::numIPUs(hierarchy) == 1); // Otherwise unsupported
+        return currentIdx += hierarchy[0];
+      };
+
+  {
+    const auto planAndCost =
+        runPlanner(params[largestPlanIdx], options[largestPlanIdx], target,
+                   boost::none, boost::none, startTileIdxForVirtualHierarchy,
+                   &cacheImpl->cycleEstimation, nullptr);
+    plans.push_back(planAndCost.first);
+    referencePlan = planAndCost.first;
+    referenceCost = planAndCost.second;
+  }
+
+  startTileIdxForVirtualHierarchy = incrementStartTileIdx(
+      startTileIdxForVirtualHierarchy, getHierarchy(options[largestPlanIdx]));
+
+  for (unsigned i = 0; i < totalPlans; i++) {
+    if (i != largestPlanIdx) {
+      const auto planAndCost =
+          runPlanner(params[i], options[i], target, referencePlan,
+                     referenceCost, startTileIdxForVirtualHierarchy,
+                     &cacheImpl->cycleEstimation, nullptr);
+      plans.push_back(planAndCost.first);
+      referenceCost = planAndCost.second;
+
+      startTileIdxForVirtualHierarchy = incrementStartTileIdx(
+          startTileIdxForVirtualHierarchy, getHierarchy(options[i]));
+    }
+  }
+
+  cacheImpl->addMultiPlansToCache(key, plans);
+
+  return {plans};
+}
+
+static SerialPlan
+getSerialMultiPlan(const poplar::Target &target,
+                   const std::vector<CanonicalConvParams> &params,
+                   const std::vector<ConvOptions> &options,
+                   PlanningCache *cache) {
+  const auto totalPlans = params.size();
+
+  std::vector<Plan> plans;
+  for (unsigned i = 0; i < totalPlans; i++) {
+    plans.push_back(getPlan(target, params[i], options[i], cache));
+  }
+  return {std::move(plans)};
+}
+
+// Redistributes options.tilesPerIPU with respect to FLOPs of each convolution
+// specified with params and the target's tilesPerIPU.
+static std::vector<ConvOptions>
+allocateTilesAccordingToFLOPs(const poplar::Target &target,
+                              const std::vector<CanonicalConvParams> &params,
+                              const std::vector<ConvOptions> &options) {
+  if (target.getNumIPUs() != 1) {
+    throw poputil::poplibs_error(
+        "allocateTilesAccordingToFLOPs is unsupported for more than 1 IPU");
+  }
+  // Divide up the tiles appropriately according to FLOPs
+  const auto tileSplit = splitTilesByComp(params, target.getNumTiles());
+  std::vector<ConvOptions> tileSplitOptions;
+  for (unsigned i = 0; i < options.size(); i++) {
+    auto o = options[i];
+    o.tilesPerIPU = tileSplit[i];
+    tileSplitOptions.push_back(o);
+  }
+  return tileSplitOptions;
 }
 
 MultiPlan getMultiPlan(const poplar::Target &target,
                        const std::vector<CanonicalConvParams> &params,
                        const std::vector<ConvOptions> &options,
                        PlanningCache *cache) {
-  std::vector<Plan> plans;
-
   assert(params.size() == options.size());
-  for (unsigned i = 0; i < params.size(); ++i) {
-    plans.push_back(getPlan(target, params[i], options[i], cache));
+  try {
+    if (std::getenv("ENABLE_PARALLEL_MULTIPLAN")) {
+      const auto virtualisedTargetOptions =
+          allocateTilesAccordingToFLOPs(target, params, options);
+      return getParallelMultiPlan(target, params, virtualisedTargetOptions,
+                                  cache);
+    } else {
+      throw poputil::poplibs_error("parallel multiplans are not enabled");
+    }
+  } catch (poputil::poplibs_error) {
+    logging::warn(
+        "Failed to find a parallel multiplan, falling back to serial planning");
+    return getSerialMultiPlan(target, params, options, cache);
   }
-
-  return SerialPlan{std::move(plans)};
 }
 
 static void constrainVariable(popsolver::Model &m, popsolver::Variable v,
@@ -5565,9 +5844,10 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
     tempCache = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl);
     cacheImpl = tempCache.get();
   }
-  std::vector<double> perLevelExchangeBytesPerCycle;
+  const auto perLevelExchangeBytesPerCycle =
+      poplibs::getPerLevelExchangeBytesPerCycle(target, options.numIPUs);
   const auto hierarchy =
-      poplibs::getTileHierarchy(target, perLevelExchangeBytesPerCycle);
+      poplibs::getTileHierarchy(options.numIPUs, options.tilesPerIPU);
   assert(perLevelExchangeBytesPerCycle.size() == plan.partitions.size());
   auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(
@@ -5587,8 +5867,8 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   const auto e = constructModel(
       target, plan.transforms, plan.types, hierarchy,
       perLevelExchangeBytesPerCycle, fieldGrainSize, convVertexType, params,
-      plan.isJointPlan, highestCost, objective, &cacheImpl->cycleEstimation,
-      options, m, partitionVars);
+      plan.isJointPlan, highestCost, objective, boost::none, boost::none,
+      &cacheImpl->cycleEstimation, options, m, partitionVars);
   const auto numLevelsOfHierarchy = plan.partitions.size();
   assert(partitionVars.size() == numLevelsOfHierarchy);
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {

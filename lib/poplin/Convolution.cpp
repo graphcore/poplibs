@@ -13,6 +13,7 @@
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -321,10 +322,11 @@ static unsigned linearizeConvIndices(const std::vector<unsigned> &outIndices,
 }
 
 static unsigned
-linearizeTileIndices(const Target &target,
+linearizeTileIndices(const Target &target, const ConvOptions &opts,
                      const std::vector<Split<ConvIndices>> &indices,
                      const Plan &plan) {
-  const auto hierarchy = getTileHierarchy(target);
+  const auto hierarchy =
+      poplibs::getTileHierarchy(opts.numIPUs, opts.tilesPerIPU);
   const auto numLevels = hierarchy.size();
   assert(indices.size() == numLevels);
   assert(plan.partitions.size() == numLevels);
@@ -2008,7 +2010,7 @@ static TensorUseTracker iterateUsageByPartition(
 
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, indices, plan);
+    const auto tile = linearizeTileIndices(target, options, indices, plan);
     assert(bool(acts) != bool(weights));
     tracker.add(graph, tile, acts ? *acts : *weights);
   } else {
@@ -4386,7 +4388,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   const auto resultType = plan.types[level].resultType;
   if (level == plan.partitions.size()) {
     const auto &target = graph.getTarget();
-    const auto tile = linearizeTileIndices(target, indices, plan);
+    const auto tile = linearizeTileIndices(target, options, indices, plan);
     calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
                           cpt.transformPre.back(), cpt.copyWritten,
                           cpt.convolveCSGroup, inSlice, weightsSlice, partials,
