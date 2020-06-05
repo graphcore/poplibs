@@ -214,6 +214,15 @@ struct Plan {
                              return total * p.totalParallelSplit();
                            });
   }
+
+  std::vector<unsigned> serialSplitsPerLevel() const {
+    std::vector<unsigned> serialSplits;
+    for (const auto &partition : partitions) {
+      serialSplits.push_back(partition.totalSerialSplit());
+    }
+
+    return serialSplits;
+  }
   unsigned totalSerialSplit() const {
     return std::accumulate(std::begin(partitions), std::end(partitions),
                            unsigned(1), [](unsigned total, const auto &p) {

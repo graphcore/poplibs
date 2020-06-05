@@ -4599,7 +4599,7 @@ static std::string getShapeAsString(const std::vector<T> &shape) {
                                          });
 }
 
-static std::string convSuffix(const CanonicalConvParams &params) {
+std::string convSuffix(const CanonicalConvParams &params) {
   std::string s = "_";
   s += getShapeAsString(params->kernelShape);
   if (std::any_of(params->outputTransform.stride.begin(),
@@ -4773,33 +4773,15 @@ Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::Tensor &weights, const Plan &plan,
                    const CanonicalConvParams &params,
-                   bool transposeAndFlipWeights, Sequence &prog,
+                   bool transposeAndFlipWeights, ConvProgramTree &cpt,
                    const std::string &debugPrefix, const ConvOptions &options) {
   logging::info("convolution");
   logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
   log(2, *params);
 
-  const auto numLevels = plan.partitions.size() + 1;
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
-
-  const auto serialSplitsPerLevel = [&] {
-    std::vector<unsigned> serialSplits;
-    for (const auto &partition : plan.partitions) {
-      serialSplits.push_back(partition.totalSerialSplit());
-    }
-
-    return serialSplits;
-  }();
-
-  ConvProgramTree cpt(numLevels, serialSplitsPerLevel,
-                      graph.addVariable(params->inputType, {0}),
-                      graph.addComputeSet(layerName + "/Convolve"));
-
   auto output =
       convolutionInternal(graph, in, weights, plan, params,
-                          transposeAndFlipWeights, cpt, layerName, options);
-
-  cpt.lower(prog);
+                          transposeAndFlipWeights, cpt, debugPrefix, options);
 
   return output;
 }
@@ -4812,9 +4794,19 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   const CanonicalConvParams params(params_);
   const ConvOptions options(graph.getTarget(), options_);
 
+  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  return convolution(graph, in, weights, plan, params, transposeAndFlipWeights,
-                     prog, debugPrefix, options);
+
+  const auto numLevels = plan.partitions.size() + 1;
+  ConvProgramTree cpt(numLevels, plan.serialSplitsPerLevel(),
+                      graph.addVariable(params->inputType, {0}),
+                      graph.addComputeSet(layerName + "/Convolve"));
+
+  auto out = convolution(graph, in, weights, plan, params,
+                         transposeAndFlipWeights, cpt, layerName, options);
+
+  cpt.lower(prog);
+  return out;
 }
 
 static uint64_t getFlops(const ConvParams &params) {
@@ -5014,7 +5006,8 @@ ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {
 Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const Tensor &activations_, const Plan &wuPlan,
                              const CanonicalConvParams &wuParams,
-                             Sequence &prog, const std::string &debugPrefix,
+                             ConvProgramTree &cpt,
+                             const std::string &debugPrefix,
                              const ConvOptions &wuOptions) {
   const auto fwdNumConvGroups = wuParams->numConvGroups;
   const auto fwdOutChans = wuParams->outputChannelsPerConvGroup;
@@ -5045,7 +5038,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   // [N][G * C]...
   auto weightDeltas = convolution(
       graph, actsToExternalShape(activationsRearranged), deltasRearranged,
-      wuPlan, wuParams, false, prog, debugPrefix, wuOptions);
+      wuPlan, wuParams, false, cpt, debugPrefix, wuOptions);
 
   // [G][C]...[N]
   weightDeltas =
@@ -5065,23 +5058,33 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   const auto wuOptions =
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
-  return calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan, wuParams,
-                               prog, debugPrefix, wuOptions);
+
+  const auto layerName = debugPrefix + "/Conv" + convSuffix(wuParams);
+  const auto numLevels = wuPlan.partitions.size() + 1;
+  ConvProgramTree cpt(numLevels, wuPlan.serialSplitsPerLevel(),
+                      graph.addVariable(wuParams->inputType, {0}),
+                      graph.addComputeSet(layerName + "/Convolve"));
+
+  auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
+                                   wuParams, cpt, debugPrefix, wuOptions);
+
+  cpt.lower(prog);
+  return out;
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
                              const Plan &wuPlan, CanonicalConvParams wuParams,
-                             const Tensor &scale, Sequence &prog,
+                             const Tensor &scale, ConvProgramTree &cpt,
                              const std::string &debugPrefix,
                              const ConvOptions &wuOptions) {
   auto weightDeltas =
-      calculateWeightDeltas(graph, zDeltas, activations, wuPlan, wuParams, prog,
+      calculateWeightDeltas(graph, zDeltas, activations, wuPlan, wuParams, cpt,
                             debugPrefix, wuOptions);
 
   // update weights
   assert(weightDeltas.shape() == weights.shape());
-  scaledAddTo(graph, weights, weightDeltas, scale, prog,
+  scaledAddTo(graph, weights, weightDeltas, scale, cpt.finalizeProg,
               debugPrefix + "/UpdateWeights");
 }
 
@@ -5099,29 +5102,37 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   const auto wuOptions =
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
+
+  const auto numLevels = wuPlan.partitions.size() + 1;
+  ConvProgramTree cpt(numLevels, wuPlan.serialSplitsPerLevel(),
+                      graph.addVariable(wuParams->inputType, {0}),
+                      graph.addComputeSet(debugPrefix + "/Convolve"));
+
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
-                          std::move(wuParams), scale, prog, debugPrefix,
+                          std::move(wuParams), scale, cpt, debugPrefix,
                           wuOptions);
+  cpt.lower(prog);
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
                              const Plan &wuPlan, CanonicalConvParams wuParams,
-                             float scale, Sequence &prog,
+                             float scale, ConvProgramTree &cpt,
                              const std::string &debugPrefix,
                              const ConvOptions &wuOptions) {
   auto weightDeltas =
-      calculateWeightDeltas(graph, zDeltas, activations, wuPlan, wuParams, prog,
+      calculateWeightDeltas(graph, zDeltas, activations, wuPlan, wuParams, cpt,
                             debugPrefix, wuOptions);
 
   // Add the weight deltas to the weights.
   assert(weightDeltas.shape() == weights.shape());
   const auto maybeRegroupedWeightDeltas =
-      popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights, prog,
+      popops::rearrange::regroupIfBeneficial(graph, weightDeltas, weights,
+                                             cpt.finalizeProg,
                                              debugPrefix + "regroupGradds");
 
-  scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale, prog,
-              debugPrefix + "/UpdateWeights");
+  scaledAddTo(graph, weights, maybeRegroupedWeightDeltas, scale,
+              cpt.finalizeProg, debugPrefix + "/UpdateWeights");
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -5138,9 +5149,16 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   const auto wuOptions =
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
+
+  const auto numLevels = wuPlan.partitions.size() + 1;
+  ConvProgramTree cpt(numLevels, wuPlan.serialSplitsPerLevel(),
+                      graph.addVariable(wuParams->inputType, {0}),
+                      graph.addComputeSet(debugPrefix + "/Convolve"));
+
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
-                          std::move(wuParams), scale, prog, debugPrefix,
+                          std::move(wuParams), scale, cpt, debugPrefix,
                           wuOptions);
+  cpt.lower(prog);
 }
 
 // Add a program to update the biases tensor with the gradients derived

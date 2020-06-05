@@ -271,6 +271,8 @@ void log(unsigned indent, const ConvParams &params);
 /// applicable for the weight update pass.
 ConvOptions getWeightUpdateOptions(ConvOptions fwdOptions);
 
+std::string convSuffix(const CanonicalConvParams &params);
+
 } // End namespace poplin
 
 #endif // poplin_ConvUtilInternal_hpp

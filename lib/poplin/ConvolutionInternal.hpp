@@ -8,6 +8,8 @@
 
 namespace poplin {
 
+struct ConvProgramTree;
+
 poplar::Tensor createInput(poplar::Graph &graph, const Plan &plan,
                            const CanonicalConvParams &params,
                            const std::string &name, const ConvOptions &options);
@@ -20,30 +22,32 @@ poplar::Tensor createWeights(poplar::Graph &graph, const Plan &plan,
 poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const poplar::Tensor &weights, const Plan &plan,
                            const CanonicalConvParams &params,
-                           bool transposeAndFlipWeights,
-                           poplar::program::Sequence &prog,
+                           bool transposeAndFlipWeights, ConvProgramTree &cpt,
                            const std::string &debugPrefix,
                            const ConvOptions &options);
 
-poplar::Tensor calculateWeightDeltas(
-    poplar::Graph &graph, const poplar::Tensor &zDeltas_,
-    const poplar::Tensor &activations_, const Plan &wuPlan,
-    const CanonicalConvParams &wuParams, poplar::program::Sequence &prog,
-    const std::string &debugPrefix, const ConvOptions &wuOptions);
-
-void convolutionWeightUpdate(
-    poplar::Graph &graph, const poplar::Tensor &zDeltas,
-    const poplar::Tensor &weights, const poplar::Tensor &activations,
-    const Plan &plan, CanonicalConvParams params, const poplar::Tensor &scale,
-    poplar::program::Sequence &prog, const std::string &debugPrefix,
-    const ConvOptions &options);
+poplar::Tensor
+calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas_,
+                      const poplar::Tensor &activations_, const Plan &wuPlan,
+                      const CanonicalConvParams &wuParams, ConvProgramTree &cpt,
+                      const std::string &debugPrefix,
+                      const ConvOptions &wuOptions);
 
 void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::Tensor &zDeltas,
                              const poplar::Tensor &weights,
                              const poplar::Tensor &activations,
                              const Plan &plan, CanonicalConvParams params,
-                             float scale, poplar::program::Sequence &prog,
+                             const poplar::Tensor &scale, ConvProgramTree &cpt,
+                             const std::string &debugPrefix,
+                             const ConvOptions &options);
+
+void convolutionWeightUpdate(poplar::Graph &graph,
+                             const poplar::Tensor &zDeltas,
+                             const poplar::Tensor &weights,
+                             const poplar::Tensor &activations,
+                             const Plan &plan, CanonicalConvParams params,
+                             float scale, ConvProgramTree &cpt,
                              const std::string &debugPrefix,
                              const ConvOptions &options);
 

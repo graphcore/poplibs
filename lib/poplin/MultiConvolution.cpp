@@ -2,6 +2,7 @@
 #include "poplin/MultiConvolution.hpp"
 
 #include "ConvPlan.hpp"
+#include "ConvProgramTree.hpp"
 #include "ConvUtilInternal.hpp"
 #include "ConvolutionInternal.hpp"
 #include "MultiConvolutionInternal.hpp"
@@ -9,6 +10,8 @@
 #include "poplibs_support/logging.hpp"
 #include "poplin/Convolution.hpp"
 #include "poputil/exceptions.hpp"
+#include <boost/algorithm/string/join.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 
 namespace poplin {
 namespace multiconv {
@@ -78,6 +81,48 @@ static MultiPlan getMultiPlan(const poplar::Target &target,
   return getMultiPlan(target, params, options, cache);
 }
 
+template <typename T>
+static std::string getLayerName(const std::string &debugPrefix,
+                                const std::vector<T> &args) {
+  const auto suffixes = boost::adaptors::transform(
+      args, [](const auto &arg) { return convSuffix(arg.params); });
+
+  return debugPrefix + "/MultiConv" + boost::algorithm::join(suffixes, ",");
+}
+
+// serial plans are implemented by just performing each convolution in it's
+// own control program, one after the other.
+template <typename T, typename F>
+static void forEachSerialPlan(poplar::Graph &graph, const SerialPlan &serial,
+                              const std::vector<T> &args,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix, const F &fn) {
+  assert(serial.plans.size() == args.size());
+  for (unsigned i = 0; i < args.size(); ++i) {
+    const auto &arg = args[i];
+    const auto &plan = serial.plans[i];
+
+    const auto name = debugPrefix + "/" + std::to_string(i);
+    const auto numLevels = plan.partitions.size() + 1;
+    ConvProgramTree cpt(numLevels, plan.serialSplitsPerLevel(),
+                        graph.addVariable(arg.params->inputType, {0}),
+                        graph.addComputeSet(name + "/Convolve"));
+
+    fn(plan, arg, cpt, name);
+    cpt.lower(prog);
+  }
+}
+
+// overload that doens't require a control program
+template <typename T, typename F>
+static void forEachSerialPlan(const SerialPlan &serial,
+                              const std::vector<T> &args, const F &fn) {
+  assert(serial.plans.size() == args.size());
+  for (unsigned i = 0; i < args.size(); ++i) {
+    fn(serial.plans[i], args[i]);
+  }
+}
+
 std::vector<poplar::Tensor>
 createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
               PlanningCache *cache) {
@@ -90,13 +135,10 @@ createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
         ResultType weights;
         weights.reserve(args.size());
 
-        assert(args.size() == serial.plans.size());
-        for (unsigned i = 0; i < args.size(); ++i) {
-          const auto &arg = args[i];
-
-          weights.push_back(poplin::createWeights(
-              graph, serial.plans[i], arg.params, arg.name, arg.options));
-        }
+        forEachSerialPlan(serial, args, [&](const Plan &plan, const auto &arg) {
+          weights.push_back(poplin::createWeights(graph, plan, arg.params,
+                                                  arg.name, arg.options));
+        });
 
         return weights;
       },
@@ -123,13 +165,10 @@ createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
         ResultType inputs;
         inputs.reserve(args.size());
 
-        assert(args.size() == serial.plans.size());
-        for (unsigned i = 0; i < args.size(); ++i) {
-          const auto &arg = args[i];
-
-          inputs.push_back(poplin::createInput(
-              graph, serial.plans[i], arg.params, arg.name, arg.options));
-        }
+        forEachSerialPlan(serial, args, [&](const Plan &plan, const auto &arg) {
+          inputs.push_back(poplin::createInput(graph, plan, arg.params,
+                                               arg.name, arg.options));
+        });
 
         return inputs;
       },
@@ -153,21 +192,23 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
   const auto argsWithConvOptions = convertToConvOptions(graph, args_);
   const auto args = preProcess(argsWithConvOptions);
 
+  const auto layerName = getLayerName(debugPrefix, args);
+
   using ResultType = std::vector<poplar::Tensor>;
   const auto visitor = poplibs_support::make_visitor<ResultType>(
       [&](const SerialPlan &serial) {
         ResultType outs;
         outs.reserve(args.size());
 
-        assert(serial.plans.size() == args.size());
-        for (unsigned i = 0; i < args.size(); ++i) {
-          const auto &arg = args[i];
-          const auto name = debugPrefix + "/conv" + std::to_string(i);
+        forEachSerialPlan(
+            graph, serial, args, prog, layerName,
+            [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
+                const std::string &debugPrefix) {
+              outs.push_back(poplin::convolution(
+                  graph, arg.inputs, arg.weights, plan, arg.params,
+                  transposeAndFlipWeights, cpt, debugPrefix, arg.options));
+            });
 
-          outs.push_back(poplin::convolution(
-              graph, arg.inputs, arg.weights, serial.plans[i], arg.params,
-              transposeAndFlipWeights, prog, name, arg.options));
-        }
         return outs;
       },
       [](const ParallelPlan &) -> ResultType {
@@ -200,20 +241,22 @@ calculateWeightDeltas(poplar::Graph &graph,
   auto args = preProcess(argsWithConvOptions);
   args = getWeightUpdateArgs(std::move(args));
 
+  const auto layerName = getLayerName(debugPrefix, args);
+
   using ResultType = std::vector<poplar::Tensor>;
   const auto visitor = poplibs_support::make_visitor<ResultType>(
       [&](const SerialPlan &serial) {
         ResultType weightDeltas;
         weightDeltas.reserve(args.size());
 
-        assert(serial.plans.size() == args.size());
-        for (unsigned i = 0; i < args.size(); ++i) {
-          const auto &arg = args[i];
-
-          weightDeltas.push_back(poplin::calculateWeightDeltas(
-              graph, arg.zDeltas, arg.activations, serial.plans[i], arg.params,
-              prog, debugPrefix, arg.options));
-        }
+        forEachSerialPlan(
+            graph, serial, args, prog, layerName,
+            [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
+                const std::string &debugPrefix) {
+              weightDeltas.push_back(poplin::calculateWeightDeltas(
+                  graph, arg.zDeltas, arg.activations, plan, arg.params, cpt,
+                  debugPrefix, arg.options));
+            });
 
         return weightDeltas;
       },
@@ -238,24 +281,26 @@ void convolutionWeightUpdateImpl(poplar::Graph &graph,
   auto args = preProcess(argsWithConvOptions);
   args = getWeightUpdateArgs(std::move(args));
 
+  const auto layerName = getLayerName(debugPrefix, args);
+
   const auto visitor = poplibs_support::make_visitor<void>(
       [&](const SerialPlan &serial) {
-        assert(serial.plans.size() == args.size());
-        for (unsigned i = 0; i < args.size(); ++i) {
-          const auto &arg = args[i];
+        forEachSerialPlan(
+            graph, serial, args, prog, layerName,
+            [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
+                const std::string &debugPrefix) {
+              // TODO: convolutionWeightUpdate expects inputType == outputType,
+              // handle when that is not the case.
+              if (arg.params->inputType != arg.params->outputType) {
+                throw poputil::poplibs_error(
+                    "multiconv::convolutionWeightUpdate does not support "
+                    "having a different input and output type.");
+              }
 
-          // TODO: convolutionWeightUpdate expects inputType == outputType,
-          // handle when that is not the case.
-          if (arg.params->inputType != arg.params->outputType) {
-            throw poputil::poplibs_error(
-                "multiconv::convolutionWeightUpdate does not support having a "
-                "different input and output type.");
-          }
-
-          poplin::convolutionWeightUpdate(
-              graph, arg.zDeltas, arg.weights, arg.activations, serial.plans[i],
-              arg.params, arg.scale, prog, debugPrefix, arg.options);
-        }
+              poplin::convolutionWeightUpdate(
+                  graph, arg.zDeltas, arg.weights, arg.activations, plan,
+                  arg.params, arg.scale, cpt, debugPrefix, arg.options);
+            });
       },
       [](const ParallelPlan &) {
         throw poputil::poplibs_error("Parallel multi-plans not yet supported");

@@ -2,6 +2,7 @@
 #ifndef poplin_ConvProgramTree_H
 #define poplin_ConvProgramTree_H
 
+#include <boost/optional.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 
