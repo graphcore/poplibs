@@ -13,17 +13,33 @@ enable_testing()
 find_package(poplar REQUIRED)
 
 # build for all architectures that the Poplar we are using supports.
-message("Enabled architectures: ${POPLAR_ENABLED_IPU_ARCH_NAMES}")
+set(POPLIBS_ENABLED_IPU_ARCH_NAMES "${POPLAR_ENABLED_IPU_ARCH_NAMES}" CACHE STRING
+    "The architectures to build the poplibs library objects for")
+message("Enabled architectures: ${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
+
+# allow users to specify a subset of test variants to test on.
+set(POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS "${POPLIBS_ENABLED_IPU_ARCH_NAMES}" CACHE STRING
+    "The architectures to run tests for, defaults to all enabled architectures")
+message("Enabled test architectures: ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
+
+# allow users easily to opt out from testing :cpp variants, this is off by
+# default because this code is not packaged.
+set(POPLIBS_ENABLE_CPP_TEST_VARIANTS OFF CACHE STRING
+    "Whether to include cpp tests for codelets that otherwise have an assembly implentation")
+message("cpp tests enabled: ${POPLIBS_ENABLE_CPP_TEST_VARIANTS}")
 
 # ipu1 is our default arch, so convert ipu1->ipu
 # Note: This may be simplified using 'list(TRANSFORM' if we upgrade to CMake 3.12.
-string(REPLACE "ipu1" "ipu" ABBREV_TARGETS "${POPLAR_ENABLED_IPU_ARCH_NAMES}")
+string(REPLACE "ipu1" "ipu" ABBREV_TARGETS "${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
 string(REPLACE "ipu" "Sim" SIM_VARIANTS "${ABBREV_TARGETS}")
-string(REPLACE ";" ":cpp;" SIMCPP_VARIANTS "${SIM_VARIANTS}")
-string(APPEND SIMCPP_VARIANTS ":cpp")
+set(SIMCPP_VARIANTS "")
+if (POPLIBS_ENABLE_CPP_TEST_VARIANTS)
+  string(REPLACE ";" ":cpp;" SIMCPP_VARIANTS "${SIM_VARIANTS}")
+  string(APPEND SIMCPP_VARIANTS ":cpp")
+endif()
 string(REPLACE "ipu" "IpuModel" IPUMODEL_VARIANTS "${ABBREV_TARGETS}")
 
-set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw" CACHE STRING
+set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
@@ -33,6 +49,9 @@ else()
 set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
 endif()
+
+message("Default test variants: ${DEFAULT_TEST_VARIANTS}")
+message("Enabled test variants: ${ENABLED_TEST_VARIANTS}")
 
 # Enable colour output if the CLICOLOR_FORCE environment variable is set.
 if($ENV{CLICOLOR_FORCE})
@@ -111,8 +130,6 @@ else()
          " -Wl,--version-script,"
          "${CMAKE_CURRENT_SOURCE_DIR}/exported_symbols_linux.lds")
 endif()
-
-set(ENABLED_IPU_ARCH_NAMES "${POPLAR_ENABLED_IPU_ARCH_NAMES}")
 
 # Set up popc flags.
 set(POPC_FLAGS -I ${CMAKE_SOURCE_DIR}/include)

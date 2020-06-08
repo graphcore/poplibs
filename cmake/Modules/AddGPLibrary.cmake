@@ -5,15 +5,15 @@
 #
 # this function requires the following global variables to exist (all of which
 # are defined in the top level CMakeLists.txt):
+#   - POPLIBS_ENABLED_IPU_ARCH_NAMES
 #   - DEFAULT_TEST_VARIANTS
-#   - ENABLED_IPU_ARCH_NAMES
 #   - POPC_EXECUTABLE
 #   - POPC_FLAGS
 
 function(add_gp_library)
   cmake_parse_arguments(CODELET "" "NAME" "ASM_SOURCES;CPP_SOURCES;HEADERS" ${ARGN})
-  set(IPU_TARGETS ${ENABLED_IPU_ARCH_NAMES})
-  string(REPLACE ";" "," IPU_TARGETS_COMMA_SEPARATED "${ENABLED_IPU_ARCH_NAMES}")
+  set(IPU_TARGETS ${POPLIBS_ENABLED_IPU_ARCH_NAMES})
+  string(REPLACE ";" "," IPU_TARGETS_COMMA_SEPARATED "${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
 
   # we don't build the _c.gp files if we are not planning to run any of the
   # {Sim,Hw,*}:cpp tests. for the time being poplibs does not have any tests that
