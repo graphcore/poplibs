@@ -45,11 +45,26 @@ struct CreateTensorArgs {
  * \param graph   The graph that the tensors will be added to.
  * \param args    The same set of parameters as used by convolution().
  * \param cache   Optional pointer to a planning cache to use.
- * \return        The set of weights tensor suitable for use with convolution().
+ * \return        The set of weights tensors suitable for use with
+ * convolution().
  */
 std::vector<poplar::Tensor>
 createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args,
               poplin::PlanningCache *cache = nullptr);
+
+/** Create a specific weights tensor for the multiconvolution.
+ *
+ * \param graph        The graph that the tensors will be added to.
+ * \param args         The same set of parameters as used by convolution().
+ * \param weightsIndex Index into args describing the convolution which to
+ *                     create the weights for.
+ * \param cache        Optional pointer to a planning cache to use.
+ * \return             A weights tensor suitable for use with convolution().
+ */
+poplar::Tensor createWeights(poplar::Graph &graph,
+                             const std::vector<CreateTensorArgs> &args,
+                             unsigned weightsIndex,
+                             poplin::PlanningCache *cache = nullptr);
 
 /** Create the set of input tensors.
  *
@@ -61,6 +76,20 @@ createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args,
 std::vector<poplar::Tensor>
 createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args,
             poplin::PlanningCache *cache = nullptr);
+
+/** Create a specific input tensor for the multiconvolution.
+ *
+ * \param graph      The graph that the tensors will be added to.
+ * \param args       The same set of parameters as used by convolution().
+ * \param inputIndex Index into args describing the convolution which to
+ *                   create the input for.
+ * \param cache      Optional pointer to a planning cache to use.
+ * \return           A input tensor suitable for use with convolution().
+ */
+poplar::Tensor createInput(poplar::Graph &graph,
+                           const std::vector<CreateTensorArgs> &args,
+                           unsigned inputIndex,
+                           poplin::PlanningCache *cache = nullptr);
 
 /**
  * \param in                      Input tensor.

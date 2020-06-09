@@ -28,45 +28,6 @@ static void log(const char *name, const std::vector<ConvolutionArgs> &args) {
   }
 }
 
-// optimisation pipeline
-template <typename T> T preProcess(const T &args) {
-  // Optimisation: try combining similar-size convolutions
-  const auto groups = groupCombinables(args);
-  const auto combined = combine(groups);
-
-  return combined;
-}
-
-// apply any post-processing required to the output tensors as a result of the
-// optimisations applied before the operation.
-template <typename T>
-std::vector<poplar::Tensor>
-postProcessOutput(const T &args, const std::vector<poplar::Tensor> &out) {
-  // split the output apart from previously combined convolutions.
-  const auto groups = groupCombinables(args);
-  return split(groups, out, splitOutput);
-}
-
-// apply any post-processing required to the input tensors as a result of the
-// optimisations applied before the operation.
-static std::vector<poplar::Tensor>
-postProcessInput(const std::vector<multiconv::internal::CreateTensorArgs> &args,
-                 const std::vector<poplar::Tensor> &in) {
-  // split the input apart from previously combined convolutions.
-  const auto groups = groupCombinables(args);
-  return split(groups, in, splitInput);
-}
-
-// apply any post-processing required to the weights tensors as a result of the
-// optimisations applied before the operation.
-static std::vector<poplar::Tensor> postProcessWeights(
-    const std::vector<multiconv::internal::CreateTensorArgs> &args,
-    const std::vector<poplar::Tensor> &weights) {
-  // split the weights apart from previously combined convolutions.
-  const auto groups = groupCombinables(args);
-  return split(groups, weights, splitWeights);
-}
-
 template <typename T>
 static MultiPlan getMultiPlan(const poplar::Target &target,
                               const std::vector<T> &args,
@@ -126,8 +87,7 @@ static void forEachSerialPlan(const SerialPlan &serial,
 std::vector<poplar::Tensor>
 createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
               PlanningCache *cache) {
-  const auto argsWithConvOptions = convertToConvOptions(graph, args_);
-  const auto args = preProcess(argsWithConvOptions);
+  const auto args = convertToConvOptions(graph, args_);
 
   using ResultType = std::vector<poplar::Tensor>;
   const auto visitor = poplibs_support::make_visitor<ResultType>(
@@ -148,16 +108,35 @@ createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
 
   const auto &target = graph.getTarget();
   const auto multiPlan = getMultiPlan(target, args, cache);
-  const auto weights = boost::apply_visitor(visitor, multiPlan);
+  return boost::apply_visitor(visitor, multiPlan);
+}
 
-  return postProcessWeights(argsWithConvOptions, weights);
+poplar::Tensor createWeights(poplar::Graph &graph,
+                             const std::vector<CreateTensorArgs> &args_,
+                             unsigned weightsIndex,
+                             poplin::PlanningCache *cache) {
+  const auto args = convertToConvOptions(graph, args_);
+
+  using ResultType = poplar::Tensor;
+  const auto visitor = poplibs_support::make_visitor<ResultType>(
+      [&](const SerialPlan &serial) {
+        return poplin::createWeights(
+            graph, serial.plans[weightsIndex], args[weightsIndex].params,
+            args[weightsIndex].name, args[weightsIndex].options);
+      },
+      [](const ParallelPlan &) -> ResultType {
+        throw poputil::poplibs_error("Parallel multi-plans not yet supported");
+      });
+
+  const auto &target = graph.getTarget();
+  const auto multiPlan = getMultiPlan(target, args, cache);
+  return boost::apply_visitor(visitor, multiPlan);
 }
 
 std::vector<poplar::Tensor>
 createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
             PlanningCache *cache) {
-  const auto argsWithConvOptions = convertToConvOptions(graph, args_);
-  const auto args = preProcess(argsWithConvOptions);
+  const auto args = convertToConvOptions(graph, args_);
 
   using ResultType = std::vector<poplar::Tensor>;
   const auto visitor = poplibs_support::make_visitor<ResultType>(
@@ -178,9 +157,28 @@ createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
 
   const auto &target = graph.getTarget();
   const auto multiPlan = getMultiPlan(target, args, cache);
-  const auto inputs = boost::apply_visitor(visitor, multiPlan);
+  return boost::apply_visitor(visitor, multiPlan);
+}
 
-  return postProcessInput(argsWithConvOptions, inputs);
+poplar::Tensor createInput(poplar::Graph &graph,
+                           const std::vector<CreateTensorArgs> &args_,
+                           unsigned inputIndex, poplin::PlanningCache *cache) {
+  const auto args = convertToConvOptions(graph, args_);
+
+  using ResultType = poplar::Tensor;
+  const auto visitor = poplibs_support::make_visitor<ResultType>(
+      [&](const SerialPlan &serial) {
+        return poplin::createInput(
+            graph, serial.plans[inputIndex], args[inputIndex].params,
+            args[inputIndex].name, args[inputIndex].options);
+      },
+      [](const ParallelPlan &) -> ResultType {
+        throw poputil::poplibs_error("Parallel multi-plans not yet supported");
+      });
+
+  const auto &target = graph.getTarget();
+  const auto multiPlan = getMultiPlan(target, args, cache);
+  return boost::apply_visitor(visitor, multiPlan);
 }
 
 std::vector<poplar::Tensor>
@@ -189,8 +187,7 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
             const std::string &debugPrefix, PlanningCache *cache) {
   log("multiconv::convolution", args_);
 
-  const auto argsWithConvOptions = convertToConvOptions(graph, args_);
-  const auto args = preProcess(argsWithConvOptions);
+  const auto args = convertToConvOptions(graph, args_);
 
   const auto layerName = getLayerName(debugPrefix, args);
 
@@ -217,9 +214,7 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
 
   const auto &target = graph.getTarget();
   const auto multiPlan = getMultiPlan(target, args, cache);
-  const auto outs = boost::apply_visitor(visitor, multiPlan);
-
-  return postProcessOutput(argsWithConvOptions, outs);
+  return boost::apply_visitor(visitor, multiPlan);
 }
 
 template <typename T>
@@ -237,9 +232,7 @@ calculateWeightDeltas(poplar::Graph &graph,
                       const std::vector<CalculateWeightDeltasArgs> &args_,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix, PlanningCache *cache) {
-  const auto argsWithConvOptions = convertToConvOptions(graph, args_);
-  auto args = preProcess(argsWithConvOptions);
-  args = getWeightUpdateArgs(std::move(args));
+  const auto args = getWeightUpdateArgs(convertToConvOptions(graph, args_));
 
   const auto layerName = getLayerName(debugPrefix, args);
 
@@ -266,9 +259,7 @@ calculateWeightDeltas(poplar::Graph &graph,
 
   const auto &target = graph.getTarget();
   const auto multiPlan = getMultiPlan(target, args, cache);
-  const auto weightDeltas = boost::apply_visitor(visitor, multiPlan);
-
-  return postProcessOutput(argsWithConvOptions, weightDeltas);
+  return boost::apply_visitor(visitor, multiPlan);
 }
 
 template <typename ArgType>
@@ -277,9 +268,7 @@ void convolutionWeightUpdateImpl(poplar::Graph &graph,
                                  poplar::program::Sequence &prog,
                                  const std::string &debugPrefix,
                                  PlanningCache *cache) {
-  const auto argsWithConvOptions = convertToConvOptions(graph, args_);
-  auto args = preProcess(argsWithConvOptions);
-  args = getWeightUpdateArgs(std::move(args));
+  const auto args = getWeightUpdateArgs(convertToConvOptions(graph, args_));
 
   const auto layerName = getLayerName(debugPrefix, args);
 

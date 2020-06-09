@@ -19,6 +19,52 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 
+BOOST_AUTO_TEST_CASE(CreatingTensorsByIndexIsEquivalent) {
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  poplar::Graph graph(device.getTarget());
+
+  poplin::PlanningCache cache;
+
+  const auto dataType = poplar::FLOAT;
+  const auto batchSize = 1;
+  const std::vector<std::size_t> inputFieldShape{32, 32};
+  const std::vector<std::size_t> kernelShape{3, 3};
+  const auto inputChannels = 1;
+  const auto outputChannels = 1;
+  const auto numConvGroups = 1;
+
+  const auto fwdParams = poplin::ConvParams{
+      dataType,      batchSize,      inputFieldShape, kernelShape,
+      inputChannels, outputChannels, numConvGroups};
+
+  OptionFlags fwdOptions;
+  fwdOptions.set("pass", "TRAINING_FWD");
+
+  // Given
+  const std::vector<poplin::multiconv::CreateTensorArgs> inputArgs = {
+      {fwdParams, fwdOptions, "input0"}, {fwdParams, fwdOptions, "input1"}};
+  auto inputs = poplin::multiconv::createInput(graph, inputArgs, &cache);
+  for (size_t i = 0; i < inputs.size(); i++) {
+    // When
+    const auto input =
+        poplin::multiconv::createInput(graph, inputArgs, i, &cache);
+    // Then
+    BOOST_CHECK(input.shape() == inputs[i].shape());
+  }
+
+  // Given
+  const std::vector<poplin::multiconv::CreateTensorArgs> weightsArgs = {
+      {fwdParams, fwdOptions, "weights0"}, {fwdParams, fwdOptions, "weights1"}};
+  auto weights = poplin::multiconv::createWeights(graph, weightsArgs, &cache);
+  for (size_t i = 0; i < inputs.size(); i++) {
+    // When
+    const auto weight =
+        poplin::multiconv::createWeights(graph, inputArgs, i, &cache);
+    // Then
+    BOOST_CHECK(weight.shape() == weights[i].shape());
+  }
+}
+
 void fwd_convolution(poplin::ConvParams fwdParams,
                      boost::const_multi_array_ref<double, 3> in,
                      boost::const_multi_array_ref<double, 4> kernel,
