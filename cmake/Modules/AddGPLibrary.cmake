@@ -12,8 +12,8 @@
 
 function(add_gp_library)
   cmake_parse_arguments(CODELET "" "NAME" "ASM_SOURCES;CPP_SOURCES;HEADERS" ${ARGN})
-  set(IPU_TARGETS ${POPLIBS_ENABLED_IPU_ARCH_NAMES})
-  string(REPLACE ";" "," IPU_TARGETS_COMMA_SEPARATED "${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
+  set(TARGETS ${POPLIBS_ENABLED_IPU_ARCH_NAMES})
+  string(REPLACE ";" "," TARGETS_COMMA_SEPARATED "${TARGETS}")
 
   # we don't build the _c.gp files if we are not planning to run any of the
   # {Sim,Hw,*}:cpp tests. for the time being poplibs does not have any tests that
@@ -49,7 +49,7 @@ function(add_gp_library)
     get_filename_component(FILE ${CPP_SOURCE} NAME_WE)
 
     # build each target in parallel and link together at the end.
-    foreach(TARGET cpu ${IPU_TARGETS})
+    foreach(TARGET ${TARGETS})
       set(PARTIAL_GP_NAME "${CODELET_NAME}_${FILE}_${TARGET}.gp")
       add_custom_command(
         OUTPUT
@@ -95,7 +95,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${ASM_GP_NAME}
-      --target ${IPU_TARGETS_COMMA_SEPARATED}
+      --target ${TARGETS_COMMA_SEPARATED}
       ${CODELET_ASM_SOURCES}
     DEPENDS
       ${CODELET_ASM_SOURCES}
@@ -114,7 +114,7 @@ function(add_gp_library)
     COMMAND
       ${COMMAND}
       -o ${NAME}
-      --target cpu,${IPU_TARGETS_COMMA_SEPARATED}
+      --target ${TARGETS_COMMA_SEPARATED}
       ${PARTIAL_OUTPUTS}
     DEPENDS
       ${PARTIAL_OUTPUTS}
@@ -129,7 +129,7 @@ function(add_gp_library)
       COMMAND
         ${COMMAND}
         -o ${CPP_NAME}
-        --target cpu,${IPU_TARGETS_COMMA_SEPARATED}
+        --target ${TARGETS_COMMA_SEPARATED}
         ${CPP_PARTIAL_OUTPUTS}
       DEPENDS
         ${CPP_PARTIAL_OUTPUTS}

@@ -12,9 +12,17 @@ enable_testing()
 
 find_package(poplar REQUIRED)
 
-# build for all architectures that the Poplar we are using supports.
-set(POPLIBS_ENABLED_IPU_ARCH_NAMES "${POPLAR_ENABLED_IPU_ARCH_NAMES}" CACHE STRING
-    "The architectures to build the poplibs library objects for")
+if(NOT DEFINED POPLIBS_ENABLED_IPU_ARCH_NAMES)
+  # by default build for all architectures that the Poplar we are using supports.
+  get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
+
+  execute_process(COMMAND ${POPC_EXECUTABLE} --list-targets
+                  OUTPUT_VARIABLE POPC_LIST_TARGETS_OUTPUT
+                  OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(REPLACE "," ";" TMP "${POPC_LIST_TARGETS_OUTPUT}")
+  set(POPLIBS_ENABLED_IPU_ARCH_NAMES "${TMP}" CACHE STRING
+      "The architectures to build the poplibs library objects for")
+endif()
 message("Enabled architectures: ${POPLIBS_ENABLED_IPU_ARCH_NAMES}")
 
 # allow users to specify a subset of test variants to test on.
@@ -29,24 +37,37 @@ set(POPLIBS_ENABLE_CPP_TEST_VARIANTS OFF CACHE STRING
 message("cpp tests enabled: ${POPLIBS_ENABLE_CPP_TEST_VARIANTS}")
 
 # ipu1 is our default arch, so convert ipu1->ipu
-# Note: This may be simplified using 'list(TRANSFORM' if we upgrade to CMake 3.12.
 string(REPLACE "ipu1" "ipu" ABBREV_TARGETS "${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
-string(REPLACE "ipu" "Sim" SIM_VARIANTS "${ABBREV_TARGETS}")
+
+set(CPU_VARIANTS "")
+set(IPUMODEL_VARIANTS "")
+set(SIM_VARIANTS "")
 set(SIMCPP_VARIANTS "")
-if (POPLIBS_ENABLE_CPP_TEST_VARIANTS)
-  string(REPLACE ";" ":cpp;" SIMCPP_VARIANTS "${SIM_VARIANTS}")
-  string(APPEND SIMCPP_VARIANTS ":cpp")
-endif()
-string(REPLACE "ipu" "IpuModel" IPUMODEL_VARIANTS "${ABBREV_TARGETS}")
+foreach(IPU_ARCH_TEST_VARIANT ${ABBREV_TARGETS})
+  if (IPU_ARCH_TEST_VARIANT STREQUAL "cpu")
+    list(APPEND CPU_VARIANTS "Cpu")
+  elseif(IPU_ARCH_TEST_VARIANT MATCHES "^ipu")
+    string(REPLACE "ipu" "IpuModel" IPUMODEL_VARIANT "${IPU_ARCH_TEST_VARIANT}")
+    list(APPEND IPUMODEL_VARIANTS "${IPUMODEL_VARIANT}")
+
+    string(REPLACE "ipu" "Sim" SIM_VARIANT "${IPU_ARCH_TEST_VARIANT}")
+    list(APPEND SIM_VARIANTS "${SIM_VARIANT}")
+    if (POPLIBS_ENABLE_CPP_TEST_VARIANTS)
+      list(APPEND SIMCPP_VARIANTS "${SIM_VARIANT}:cpp")
+    endif()
+  else()
+    message(FATAL_ERROR "Unrecognised architecture: ${IPU_ARCH_TEST_VARIANT}")
+  endif()
+endforeach()
 
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
-set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS}" CACHE STRING
+set(ENABLED_TEST_VARIANTS "NoTarget;${CPU_VARIANTS};${IPUMODEL_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
 else()
-set(ENABLED_TEST_VARIANTS "NoTarget;Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS}" CACHE STRING
+set(ENABLED_TEST_VARIANTS "NoTarget;${CPU_VARIANTS};${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
 endif()
 
