@@ -15,42 +15,42 @@
 namespace popsparse {
 namespace experimental {
 
-// This is to define the sparsity mask inside a block
-//
-// NONE                 all elements are not zeroed out
-//
-// ZeroUpperTriangle:   Elements in upper triangle, above the diagonal are
-//                      zeroed out.
-//                      The diagonal is defined across the whole non-sparse
-//                      matrix dimensions, where row index is equal to column
-//                      index. Same for ZeroLowerTriangle case.
-//
-// ZeroLowerTriangle:   Elements in lower triangle, below the diagonal are
-//                      zeroed out.
-enum class SubBlockMask { None, ZeroUpperTriangle, ZeroLowerTriangle };
+/// Define the sparsity mask inside a block.
+///
+/// The diagonal is defined across sll the non-sparse
+/// matrix dimensions, where the row index is equal to the column
+/// index.
+enum class SubBlockMask {
+  /// No elements are zeroed out.
+  None,
+  /// Elements in the upper triangle, above the diagonal, are zeroed out.
+  ZeroUpperTriangle,
+  /// Elements in the lower triangle, below the diagonal, are zeroed out.
+  ZeroLowerTriangle
+};
 
-/* This function computes softmax on a sparse tensor.
+/** This function computes softmax on a sparse tensor.
  *
- * \param graph         The Poplar graph
+ * \param graph         The Poplar graph.
  *
- * \param sparseTensor  The input sparse 2D tensor. It must be in a blocksparse
+ * \param sparseTensor  The input sparse 2D tensor. It must be in a block-sparse
  *                      format.
  *
- * \param dim           dim[0] : number of rows of the original dense tensor.
- *                      dim[1] : number of columns of the original dense tensor.
+ * \param dim[0]  Number of rows of the original dense tensor.
+ * \param dim[1]  Number of columns of the original dense tensor.
  *
- * \param blockSize     blockSize[0] :block size of the row.
- *                      blockSize[1] :block size of the column.
+ * \param blockSize[0] Block size of the rows.
+ * \param blockSize[1] Block size of the columns.
  *
- * \param sparsity      The 2D sparsity mask for the block sparse
+ * \param sparsity      The 2D sparsity mask for the block-sparse
  *                      tensor, in which '1' is a non zero block and '0'
  *                      is a zero block.
  *
- * \param subBlockMaskType  Subblock mask type. Elements in upper(low) triangle
- *                          are filled by zeros in the result
+ * \param subBlockMaskType  Sub-block mask type. Elements in upper (or lower)
+ *                          triangle are filled by zeroes in the result.
  *
- * \param prog          A reference to a program sequence which will
- *                      be appended with the code to perform the softmax.
+ * \param prog          A reference to the program sequence to which
+ *                      the code to perform the softmax will be appended.
  */
 poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
                          const std::array<int, 2> &dim,
@@ -60,25 +60,25 @@ poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
                          poplar::program::Sequence &prog,
                          const std::string &debugStr = "");
 
-/* This function computes softmax on a sparse tensor in place.
+/** This function computes softmax on a sparse tensor, in place.
  *
- * \param graph         The Poplar graph
+ * \param graph         The Poplar graph.
  *
- * \param sparseTensor  The input sparse 2D tensor. It must be in a blocksparse
+ * \param sparseTensor  The input sparse 2D tensor. It must be in a block-sparse
  *                      format.
  *
- * \param dim           dim[0] : number of rows of the original dense tensor.
- *                      dim[1] : number of columns of the original dense tensor.
+ * \param dim[0]  Number of rows of the original dense tensor.
+ * \param dim[1]  Number of columns of the original dense tensor.
  *
- * \param blockSize     blockSize[0] :block size of the row.
- *                      blockSize[1] :block size of the column.
+ * \param blockSize[0]  Block size of the rows.
+ * \param blockSize[1]  Block size of the columns.
  *
- * \param sparsity      The 2D sparsity mask for the block sparse
+ * \param sparsity      The 2D sparsity mask for the block-sparse
  *                      tensor, in which '1' is a non zero block and '0'
  *                      is a zero block.
  *
- * \param subBlockMaskType  Subblock mask type. Elements in upper(low) triangle
- *                          are filled by zeros in the result
+ * \param subBlockMaskType  Sub-block mask type. Elements in upper (or lower)
+ *                          triangle are filled by zeroes in the result.
  *
  * \param prog          A reference to a program sequence which will
  *                      be appended with the code to perform the softmax.
@@ -91,23 +91,23 @@ void bsSoftmaxInPlace(poplar::Graph &graph, poplar::Tensor sparseTensor,
                       poplar::program::Sequence &prog,
                       const std::string &debugStr = "");
 
-/* This function computes softmax gradient on a sparse tensor.
+/** This function computes softmax gradient on a sparse tensor.
  *
  * \param graph         The Poplar graph
  *
- * \param sparseOut     The outer (activation) sparse 2D tensor. It must be in a
- *                      blocksparse format.
+ * \param sparseOut     The outer (activation) sparse 2D tensor. It must be in
+ *                      block-sparse format.
  *
  * \param sparseOutGrad The outer gradient sparse 2D tensor. It must be in a
- *                      blocksparse format.
+ *                      block-sparse format.
  *
- * \param dim           dim[0] : number of rows of the original dense tensor.
- *                      dim[1] : number of columns of the original dense tensor.
+ * \param dim[0]        Number of rows of the original dense tensor.
+ * \param dim[1]        Number of columns of the original dense tensor.
  *
- * \param blockSize     blockSize[0] :block size of the row.
- *                      blockSize[1] :block size of the column.
+ * \param blockSize[0]  Block size of the rows.
+ * \param blockSize[1]  Block size of the columns.
  *
- * \param sparsity      The 2D sparsity mask for the block sparse
+ * \param sparsity      The 2D sparsity mask for the block-sparse
  *                      tensor, in which '1' is a non zero block and '0'
  *                      is a zero block.
  *
