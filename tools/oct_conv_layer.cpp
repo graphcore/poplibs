@@ -116,6 +116,28 @@ struct OutputFreqParameters {
   std::shared_ptr<OctConvData> data;
 };
 
+static std::vector<poplar::Tensor>
+createAllWeights(poplar::Graph &graph,
+                 const std::vector<poplin::multiconv::CreateTensorArgs> &args,
+                 poplin::PlanningCache *cache) {
+  std::vector<Tensor> weights;
+  for (size_t i = 0; i < args.size(); i++) {
+    weights.push_back(poplin::multiconv::createWeights(graph, args, i, cache));
+  }
+  return weights;
+}
+
+static std::vector<poplar::Tensor>
+createAllInputs(poplar::Graph &graph,
+                const std::vector<poplin::multiconv::CreateTensorArgs> &args,
+                poplin::PlanningCache *cache) {
+  std::vector<Tensor> inputs;
+  for (size_t i = 0; i < args.size(); i++) {
+    inputs.push_back(poplin::multiconv::createInput(graph, args, i, cache));
+  }
+  return inputs;
+}
+
 // Upsample or downsample a tensor shape of arbitrary number of dimensions
 // by an integer factor
 static std::vector<std::size_t>
@@ -380,7 +402,7 @@ createOctConvTensors(poplar::Graph &graph, poplin::PlanningCache &cache,
   }
 
   // Create input tensors and model multiarray
-  auto prevAct = poplin::multiconv::createInput(graph, prevActArgs, &cache);
+  auto prevAct = createAllInputs(graph, prevActArgs, &cache);
   for (unsigned i = 0; i < octData.size(); ++i) {
     octData[i]->tensor = prevAct[i];
   }
@@ -407,10 +429,10 @@ createConvInputTensors(poplar::Graph &graph, poplin::PlanningCache &cache,
     zDeltasArgs[i].params = params[i].bwdParams;
     zDeltasArgs[i].options = bwdOptions;
   }
-  auto weights = poplin::multiconv::createWeights(graph, weightsArgs, &cache);
+  auto weights = createAllWeights(graph, weightsArgs, &cache);
   std::vector<Tensor> zDeltas;
   if (createZDeltas) {
-    zDeltas = poplin::multiconv::createInput(graph, zDeltasArgs, &cache);
+    zDeltas = createAllInputs(graph, zDeltasArgs, &cache);
   }
   return {weights, zDeltas};
 }

@@ -84,33 +84,6 @@ static void forEachSerialPlan(const SerialPlan &serial,
   }
 }
 
-std::vector<poplar::Tensor>
-createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
-              PlanningCache *cache) {
-  const auto args = convertToConvOptions(graph, args_);
-
-  using ResultType = std::vector<poplar::Tensor>;
-  const auto visitor = poplibs_support::make_visitor<ResultType>(
-      [&](const SerialPlan &serial) {
-        ResultType weights;
-        weights.reserve(args.size());
-
-        forEachSerialPlan(serial, args, [&](const Plan &plan, const auto &arg) {
-          weights.push_back(poplin::createWeights(graph, plan, arg.params,
-                                                  arg.name, arg.options));
-        });
-
-        return weights;
-      },
-      [](const ParallelPlan &) -> ResultType {
-        throw poputil::poplibs_error("Parallel multi-plans not yet supported");
-      });
-
-  const auto &target = graph.getTarget();
-  const auto multiPlan = getMultiPlan(target, args, cache);
-  return boost::apply_visitor(visitor, multiPlan);
-}
-
 poplar::Tensor createWeights(poplar::Graph &graph,
                              const std::vector<CreateTensorArgs> &args_,
                              unsigned weightsIndex,
@@ -123,33 +96,6 @@ poplar::Tensor createWeights(poplar::Graph &graph,
         return poplin::createWeights(
             graph, serial.plans[weightsIndex], args[weightsIndex].params,
             args[weightsIndex].name, args[weightsIndex].options);
-      },
-      [](const ParallelPlan &) -> ResultType {
-        throw poputil::poplibs_error("Parallel multi-plans not yet supported");
-      });
-
-  const auto &target = graph.getTarget();
-  const auto multiPlan = getMultiPlan(target, args, cache);
-  return boost::apply_visitor(visitor, multiPlan);
-}
-
-std::vector<poplar::Tensor>
-createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args_,
-            PlanningCache *cache) {
-  const auto args = convertToConvOptions(graph, args_);
-
-  using ResultType = std::vector<poplar::Tensor>;
-  const auto visitor = poplibs_support::make_visitor<ResultType>(
-      [&](const SerialPlan &serial) {
-        ResultType inputs;
-        inputs.reserve(args.size());
-
-        forEachSerialPlan(serial, args, [&](const Plan &plan, const auto &arg) {
-          inputs.push_back(poplin::createInput(graph, plan, arg.params,
-                                               arg.name, arg.options));
-        });
-
-        return inputs;
       },
       [](const ParallelPlan &) -> ResultType {
         throw poputil::poplibs_error("Parallel multi-plans not yet supported");

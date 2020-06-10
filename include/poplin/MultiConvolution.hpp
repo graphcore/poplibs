@@ -40,18 +40,6 @@ struct CreateTensorArgs {
   std::string name;
 };
 
-/** Create the set of weights tensors.
- *
- * \param graph   The graph that the tensors will be added to.
- * \param args    The same set of parameters as used by convolution().
- * \param cache   Optional pointer to a planning cache to use.
- * \return        The set of weights tensors suitable for use with
- * convolution().
- */
-std::vector<poplar::Tensor>
-createWeights(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args,
-              poplin::PlanningCache *cache = nullptr);
-
 /** Create a specific weights tensor for the multiconvolution.
  *
  * \param graph        The graph that the tensors will be added to.
@@ -65,17 +53,6 @@ poplar::Tensor createWeights(poplar::Graph &graph,
                              const std::vector<CreateTensorArgs> &args,
                              unsigned weightsIndex,
                              poplin::PlanningCache *cache = nullptr);
-
-/** Create the set of input tensors.
- *
- * \param graph   The graph that the tensors will be added to.
- * \param args    The same set of parameters as used by convolution().
- * \param cache   Optional pointer to a planning cache to use.
- * \return        The set of input tensors suitable for use with convolution().
- */
-std::vector<poplar::Tensor>
-createInput(poplar::Graph &graph, const std::vector<CreateTensorArgs> &args,
-            poplin::PlanningCache *cache = nullptr);
 
 /** Create a specific input tensor for the multiconvolution.
  *
