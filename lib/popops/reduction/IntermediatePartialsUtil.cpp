@@ -3,7 +3,6 @@
 
 #include <poputil/exceptions.hpp>
 
-#include "ReductionDebug.hpp"
 #include "RegionWrapping.hpp"
 
 namespace popops {
@@ -54,19 +53,9 @@ bool mappingHasMultipleValuesFromOneColumnOnTheSameTile(
   return false;
 }
 
-IntermediatePartials
-tensorToIntermediatePartials(const poplar::Tensor &A,
-                             const poplar::Graph::TileToTensorMapping &mapping,
-                             ReductionDebug *debug) {
-
-  // Debug information.
-  ReductionDebug::ReductionStage *stageDebug = nullptr;
-  if (debug != nullptr) {
-    debug->stages.emplace_back();
-    stageDebug = &debug->stages.back();
-    stageDebug->label = "Input to Intermediate (Zero Cost)";
-  }
-
+IntermediatePartials tensorToIntermediatePartials(
+    const poplar::Tensor &A,
+    const poplar::Graph::TileToTensorMapping &mapping) {
   if (A.rank() != 2)
     throw poputil::poplibs_error("tensorToIntermediatePartials called with "
                                  "tensor of rank " +
@@ -79,15 +68,6 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
   for (unsigned tile = 0; tile < mapping.size(); ++tile) {
     if (mapping[tile].empty())
       continue;
-
-    // The "reduction" on this tile. Pretend it is a nop reduction
-    // so we can see how the concat'd tensor is constructed.
-    ReductionDebug::TileReduction *tileDebug = nullptr;
-    if (stageDebug != nullptr) {
-      stageDebug->tiles.emplace_back();
-      tileDebug = &stageDebug->tiles.back();
-      tileDebug->tileIndex = tile;
-    }
 
     // Map from output index to the row and end of a region in the
     // input tensor.
@@ -139,24 +119,6 @@ tensorToIntermediatePartials(const poplar::Tensor &A,
 
       outputIndices.add(
           boost::icl::interval<size_t>::right_open(re.begin, re.end));
-
-      if (tileDebug != nullptr) {
-        // Add debug information to show the flow of data, even though this
-        // doesn't actually involve any computation.
-        ReductionDebug::RegionReduction regionDebug;
-        regionDebug.vertex = 0;
-        regionDebug.output.outputRegion = {re.begin, re.end};
-        regionDebug.output.dataRegion = {
-            outputIndices.size(), outputIndices.size() + re.end - re.begin};
-
-        ReductionDebug::Partial partialDebug;
-        partialDebug.sourceTile = tile;
-        partialDebug.sourceCols = {re.begin, re.end};
-        partialDebug.sourceRows = {re.row, re.row + 1};
-        regionDebug.partials.push_back(partialDebug);
-
-        tileDebug->firstStage.firstStageRegions.push_back(regionDebug);
-      }
     }
 
     auto var = poplar::concat(toConcat);

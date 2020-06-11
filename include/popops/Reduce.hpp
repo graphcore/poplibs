@@ -41,9 +41,6 @@ struct ReduceParams {
   poplar::Tensor scale;
 };
 
-// Debug information about the reduction. This is internal currently.
-struct ReductionDebug;
-
 /// Apply a reduction operation to a tensor.
 /// scale and update are currently only valid with the `ADD` or `SQUARE_ADD`
 /// operations.
@@ -79,24 +76,20 @@ struct ReductionDebug;
 /// \param dims The dimensions to reduce in
 /// \param prog The program sequence to add the operation to
 /// \param debugPrefix Identifying prefix for debugging information
-/// \param debug An object to be filled with debug information
-///              to help visualise and debug the reduction
 ///
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      ReductionDebug *debug = nullptr);
+                      const poplar::OptionFlags &options = {});
 
 // An alias for reduce(graph, in, in.elementType(), ...)
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      ReductionDebug *debug = nullptr);
+                      const poplar::OptionFlags &options = {});
 
 /// This is similar to reduce() but allows you to specify the output.
 /// If the tile mapping of `out` is not complete it will be set. Otherwise it
@@ -106,8 +99,7 @@ void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      ReductionDebug *debug = nullptr);
+                      const poplar::OptionFlags &options = {});
 
 /// These are alternate forms that add their vertices to a vector
 /// of compute sets instead of a Sequence. The caller is expected to add
@@ -129,23 +121,76 @@ poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      ReductionDebug *debug = nullptr);
+                      const poplar::OptionFlags &options = {});
 
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      ReductionDebug *debug = nullptr);
+                      const poplar::OptionFlags &options = {});
 
 void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Tensor &out,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
-                      const poplar::OptionFlags &options = {},
-                      ReductionDebug *debug = nullptr);
+                      const poplar::OptionFlags &options = {});
+
+/// DEPRECATED
+struct ReductionDebug;
+
+/// DEPRECATED - Use overloaded function without ReductionDebug parameter
+/// instead.
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
+                      const poplar::Type &outType,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options,
+                      ReductionDebug *debug);
+/// DEPRECATED - Use overloaded function without ReductionDebug parameter
+/// instead.
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options,
+                      ReductionDebug *debug);
+/// DEPRECATED - Use overloaded function without ReductionDebug parameter
+/// instead.
+void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
+                      const poplar::Tensor &out,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
+                      poplar::program::Sequence &prog,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options,
+                      ReductionDebug *debug);
+/// DEPRECATED - Use overloaded function without ReductionDebug parameter
+/// instead.
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
+                      const poplar::Type &outType,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
+                      std::vector<poplar::ComputeSet> &css,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options,
+                      ReductionDebug *debug);
+/// DEPRECATED - Use overloaded function without ReductionDebug parameter
+/// instead.
+poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
+                      std::vector<poplar::ComputeSet> &css,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options,
+                      ReductionDebug *debug);
+/// DEPRECATED - Use overloaded function without ReductionDebug parameter
+/// instead.
+void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
+                      const poplar::Tensor &out,
+                      const std::vector<std::size_t> &dims, ReduceParams params,
+                      std::vector<poplar::ComputeSet> &css,
+                      const std::string &debugPrefix,
+                      const poplar::OptionFlags &options,
+                      ReductionDebug *debug);
 
 } // namespace popops
 

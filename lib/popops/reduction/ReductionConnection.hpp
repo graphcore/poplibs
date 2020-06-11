@@ -2,18 +2,19 @@
 #ifndef ReductionConnection_hpp
 #define ReductionConnection_hpp
 
-#include <vector>
+#include "ComputeSetList.hpp"
+#include "Reduction.hpp"
+#include "ReductionVertexDefs.hpp"
+
+#include "popops/Reduce.hpp"
 
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
 
-#include "ComputeSetList.hpp"
-#include "Reduction.hpp"
-#include "ReductionDebug.hpp"
-#include "ReductionVertexDefs.hpp"
-
 #include <boost/range.hpp>
 #include <boost/variant.hpp>
+
+#include <vector>
 
 namespace popops {
 
@@ -54,10 +55,6 @@ struct RegionReduction {
   // implement this.
   unsigned innerFactor = 1;
   unsigned outerFactor = 1;
-
-  // Debug information about the partials and output.
-  ReductionDebug::Output outputDebugInfo;
-  std::vector<ReductionDebug::Partial> partialsDebugInfo;
 
   // Functions to access the partials variants.
   bool regularPartials() const {
@@ -170,15 +167,13 @@ struct RegionReduction {
 /// \param tile          The tile to map the vertices to.
 /// \param reductions    The set of reductions to distribute between vertices.
 /// \param debugPrefix   Prefix for the compute sets that are added.
-/// \param tileDebug     Will be filled with debug information.
 ///
 void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                        ReduceParams params, poplar::Type inputType,
                        poplar::Type partialType, poplar::Type outputType,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
-                       bool reductionUsesInput, const std::string &debugPrefix,
-                       ReductionDebug::TileReduction *tileDebug);
+                       bool reductionUsesInput, const std::string &debugPrefix);
 
 /// Find the appropriate vertex specialisation to use
 /// \param graph   The compute graph

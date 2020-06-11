@@ -2,17 +2,18 @@
 #ifndef ReductionStages_hpp
 #define ReductionStages_hpp
 
-#include <string>
+#include "ComputeSetList.hpp"
+#include "IntermediatePartials.hpp"
+
+#include "popops/Reduce.hpp"
 
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 
-#include "ComputeSetList.hpp"
-#include "IntermediatePartials.hpp"
-#include "ReductionDebug.hpp"
-
 #include <boost/optional.hpp>
+
+#include <string>
 
 namespace popops {
 // Storage of reduction result tensors, containing partials and output.  It is
@@ -50,7 +51,6 @@ struct ResultTensors {
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
-/// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
 void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
                              const poplar::Graph::TileToTensorMapping &mapping,
@@ -59,8 +59,7 @@ void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
                              poplar::Type inVertexType, poplar::Type outputType,
                              ReduceParams params, ComputeSetList &css,
                              ResultTensors &reductionResultTensors,
-                             const std::string &debugPrefix,
-                             ReductionDebug *debug);
+                             const std::string &debugPrefix);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
 /// doing any exchange.
@@ -77,15 +76,15 @@ void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
-/// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
 /// \returns A structure containing the intermediate partials.
-IntermediatePartials inputToIntermediateNoExchange(
-    poplar::Graph &graph, const poplar::Tensor &in,
-    const poplar::Graph::TileToTensorMapping &mapping, Operation op,
-    const poplar::Type &inVertexType, const poplar::Type &outType,
-    ComputeSetList &css, ResultTensors &reductionResultTensors,
-    const std::string &debugPrefix, ReductionDebug *debug);
+IntermediatePartials
+inputToIntermediateNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
+                              const poplar::Graph::TileToTensorMapping &mapping,
+                              Operation op, const poplar::Type &inVertexType,
+                              const poplar::Type &outType, ComputeSetList &css,
+                              ResultTensors &reductionResultTensors,
+                              const std::string &debugPrefix);
 
 /// Reduce an intermediate result to another intermediate result by the given
 /// ratio. This is the most difficult of the stages.
@@ -101,14 +100,14 @@ IntermediatePartials inputToIntermediateNoExchange(
 /// \param startTile The tile to begin linearly laying out the intermediate
 ///                  reduction stages.
 /// \param debugPrefix
-/// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
 /// \returns The intermediate partials produced by this reduction stage.
-IntermediatePartials intermediateToIntermediate(
-    poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
-    const poplar::Type &outType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, unsigned startTile,
-    const std::string &debugPrefix, ReductionDebug *debug);
+IntermediatePartials
+intermediateToIntermediate(poplar::Graph &graph,
+                           const IntermediatePartials &ipIn, Operation op,
+                           const poplar::Type &outType, ComputeSetList &css,
+                           ResultTensors &reductionResultTensors,
+                           unsigned startTile, const std::string &debugPrefix);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
 /// may or may not be done at the location of the output tensor. If the output
@@ -129,15 +128,16 @@ IntermediatePartials intermediateToIntermediate(
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
 /// \param debugPrefix
-/// \param debug    Optional pointer (can be null) to be filled with debug info.
 ///
-void intermediateToOutput(
-    poplar::Graph &graph, const IntermediatePartials &ipIn,
-    boost::optional<poplar::Tensor> &output,
-    const std::vector<std::size_t> outputShape, poplar::Type outputType,
-    ReduceParams params, poplar::Type inVertexType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const poplar::Tensor &in,
-    const std::string &debugPrefix, ReductionDebug *debug);
+void intermediateToOutput(poplar::Graph &graph,
+                          const IntermediatePartials &ipIn,
+                          boost::optional<poplar::Tensor> &output,
+                          const std::vector<std::size_t> outputShape,
+                          poplar::Type outputType, ReduceParams params,
+                          poplar::Type inVertexType, ComputeSetList &css,
+                          ResultTensors &reductionResultTensors,
+                          const poplar::Tensor &in,
+                          const std::string &debugPrefix);
 
 // Initially each reduction is referenced as a series of patterns which
 // describe the part of a contiguous region/regions of data that are

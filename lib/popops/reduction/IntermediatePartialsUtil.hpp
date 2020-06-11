@@ -12,16 +12,13 @@ namespace popops {
 bool mappingHasMultipleValuesFromOneColumnOnTheSameTile(
     const poplar::Graph::TileToTensorMapping &mapping, std::size_t wrapSize);
 
-struct ReductionDebug;
-
 /// Given a 2D tensor where only one value from each column is present on a
 /// single tile, this converts it into the IntermediatePartials format.
 ///
 /// If those conditions are not true an exception is thrown.
 IntermediatePartials
 tensorToIntermediatePartials(const poplar::Tensor &A,
-                             const poplar::Graph::TileToTensorMapping &mapping,
-                             ReductionDebug *debug);
+                             const poplar::Graph::TileToTensorMapping &mapping);
 
 } // namespace popops
 

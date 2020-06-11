@@ -323,18 +323,6 @@ gatherReductionPatterns(const std::vector<std::vector<Interval>> &regions,
   return partialsDescription;
 }
 
-void addPartialDebug(const PartialsDescription &partialsDescription,
-                     RegionReduction &reduction, unsigned tile, unsigned start,
-                     unsigned end, unsigned columns) {
-  ReductionDebug::Partial di;
-  di.sourceCols = {partialsDescription.columns[0],
-                   partialsDescription.columns[0] +
-                       partialsDescription.columns.size()};
-  di.sourceRows = {start / columns, end / columns};
-  di.sourceTile = tile;
-  reduction.partialsDebugInfo.push_back(di);
-}
-
 // A function which accepts a vector of patterns which each describe
 // a reduction of one or more columns. Each pattern references a region /
 // regions and describes a number of tensor elements (partials) found within
@@ -383,8 +371,6 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
                              pat.stride * (pat.outerFactor - 1) +
                              partialsDescription[i].columns.size();
             iPartials.data.push_back(in.slice(pat.regionOffset, end));
-            addPartialDebug(partialsDescription[i], reductions[i], tile,
-                            pat.regionOffset, end, columns);
           } else {
             // If the patterns repeats and has "gaps"
             // (i.e. stride != no of columns) we need multiple slices to create
@@ -395,8 +381,6 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
                   pat.regionOffset + k * pat.stride +
                   pat.innerFactor * partialsDescription[i].columns.size();
               iPartials.data.push_back(in.slice(start, end));
-              addPartialDebug(partialsDescription[i], reductions[i], tile,
-                              start, end, columns);
             }
           }
         } else {
@@ -406,8 +390,6 @@ std::vector<RegionReduction> listPartialsUsingPatterns(
               pat.regionOffset +
               pat.innerFactor * partialsDescription[i].columns.size();
           iPartials.data.push_back(in.slice(pat.regionOffset, end));
-          addPartialDebug(partialsDescription[i], reductions[i], tile,
-                          pat.regionOffset, end, columns);
         }
       }
       reductions[i].partials = iPartials;
@@ -665,8 +647,7 @@ void createInputReductions(
     boost::variant<Tensor &, IntermediatePartials &> out, bool createOutput,
     const Graph::TileToTensorMapping mapping, ReduceParams params,
     Type inputType, Type inVertexType, Type outputType, ComputeSetList &css,
-    ResultTensors &reductionResultTensors, const std::string &debugPrefix,
-    ReductionDebug::ReductionStage *stageDebug) {
+    ResultTensors &reductionResultTensors, const std::string &debugPrefix) {
 
   logging::debug("DebugStr: {}", debugPrefix);
   const bool isInputToOutput = out.type() == typeid(Tensor);
@@ -837,22 +818,12 @@ void createInputReductions(
         reductions[i].output =
             concat(ir.data(tile).slices(outputRegionsSplit2D[i]));
       }
-      // Debugging info about the output..
-      reductions[i].outputDebugInfo.outputRegion = outputRegionsSplit[i];
-      reductions[i].outputDebugInfo.dataRegion = outputRegionsSplit[i];
-    }
-
-    ReductionDebug::TileReduction *tileDebug = nullptr;
-    if (stageDebug != nullptr) {
-      stageDebug->tiles.emplace_back();
-      tileDebug = &stageDebug->tiles.back();
     }
 
     // Start from our current position in the compute set list.
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inputType, inVertexType,
-                      outputType, tile, reductions, true, debugPrefix,
-                      tileDebug);
+                      outputType, tile, reductions, true, debugPrefix);
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos) {
       csPos = cssFork.pos();
@@ -872,8 +843,7 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
                              Type inVertexType, Type outputType,
                              ReduceParams params, ComputeSetList &css,
                              ResultTensors &reductionResultTensors,
-                             const std::string &debugPrefix,
-                             ReductionDebug *debug) {
+                             const std::string &debugPrefix) {
   // If we have an output, create the output Tensor for the
   // createInputReductions function. If we don't have an output,
   // createInputReductions will create its own output
@@ -894,17 +864,10 @@ void inputToOutputNoExchange(Graph &graph, const Tensor &in,
   }
   assert(in.rank() == 2);
 
-  // Debug information.
-  ReductionDebug::ReductionStage *stageDebug = nullptr;
-  if (debug != nullptr) {
-    debug->stages.emplace_back();
-    stageDebug = &debug->stages.back();
-    stageDebug->label = "Input to Output (No Exchange)";
-  }
   createInputReductions(graph, in, out, !static_cast<bool>(finalOutput),
                         mapping, params, in.elementType(), inVertexType,
                         outputType, css, reductionResultTensors,
-                        debugPrefix + "/InToOutNoExchange", stageDebug);
+                        debugPrefix + "/InToOutNoExchange");
   if (!finalOutput) {
     finalOutput = out;
   }
@@ -915,7 +878,7 @@ IntermediatePartials inputToIntermediateNoExchange(
     Graph &graph, const Tensor &in, const Graph::TileToTensorMapping &mapping,
     Operation op, const Type &inVertexType, const Type &outputType,
     ComputeSetList &css, ResultTensors &reductionResultTensors,
-    const std::string &debugPrefix, ReductionDebug *debug) {
+    const std::string &debugPrefix) {
 
   // Number of output values of the reduction.
   auto outputSize = in.dim(1);
@@ -928,17 +891,9 @@ IntermediatePartials inputToIntermediateNoExchange(
   ir.setDataType(inVertexType);
   ir.setOutputSize(outputSize);
 
-  // Debug information.
-  ReductionDebug::ReductionStage *stageDebug = nullptr;
-  if (debug != nullptr) {
-    debug->stages.emplace_back();
-    stageDebug = &debug->stages.back();
-    stageDebug->label = "Input to Intermediate (No Exchange)";
-  }
   createInputReductions(graph, in, ir, false, mapping, op, in.elementType(),
                         inVertexType, inVertexType, css, reductionResultTensors,
-                        debugPrefix + "/InToIntermediateNoExchange",
-                        stageDebug);
+                        debugPrefix + "/InToIntermediateNoExchange");
   return ir;
 }
 
@@ -967,16 +922,9 @@ IntermediatePartials intermediateToIntermediate(
     Graph &graph, const IntermediatePartials &ipIn, Operation op,
     const Type &outType, ComputeSetList &css,
     ResultTensors &reductionResultTensors, const unsigned startTile,
-    const std::string &debugPrefix, ReductionDebug *debug) {
+    const std::string &debugPrefix) {
 
   logging::debug("DebugStr: {}", debugPrefix);
-  // Debug information.
-  ReductionDebug::ReductionStage *stageDebug = nullptr;
-  if (debug != nullptr) {
-    debug->stages.emplace_back();
-    stageDebug = &debug->stages.back();
-    stageDebug->label = "Intermediate to Intermediate";
-  }
 
   // TODO: temporarily only for ADD, SQUARE ADD as if applied to other types
   //       we produce a mix of partials types.  This can be dealt with when
@@ -1182,11 +1130,6 @@ IntermediatePartials intermediateToIntermediate(
               ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
         }
         rt.partials = iPartials;
-        // Debugging info about the partial.
-        ReductionDebug::Partial di;
-        di.sourceCols = {sourceDataIdx, sourceDataIdx + len};
-        di.sourceTile = partialTile;
-        rt.partialsDebugInfo.push_back(di);
       }
       logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
                      it.second.size(), rt.getPartials().back().numElements(),
@@ -1199,17 +1142,7 @@ IntermediatePartials intermediateToIntermediate(
       // Connect the output region.
       rt.output = ir.data(tile).slice(outputDataIdx, outputDataIdx + len);
 
-      // Debugging info about the output...
-      rt.outputDebugInfo.outputRegion = {re.lower(), re.upper()};
-      rt.outputDebugInfo.dataRegion = {outputDataIdx, outputDataIdx + len};
-
       reductions.push_back(rt);
-    }
-
-    ReductionDebug::TileReduction *tileDebug = nullptr;
-    if (stageDebug != nullptr) {
-      stageDebug->tiles.emplace_back();
-      tileDebug = &stageDebug->tiles.back();
     }
 
     // Start from our current position in the compute set list.
@@ -1217,7 +1150,7 @@ IntermediatePartials intermediateToIntermediate(
 
     connectReductions(graph, cssFork, op, inType, inType, resultType, tile,
                       reductions, false,
-                      debugPrefix + "/IntermediateToIntermediate", tileDebug);
+                      debugPrefix + "/IntermediateToIntermediate");
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
@@ -1238,8 +1171,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           Type outputType, ReduceParams params,
                           Type inVertexType, ComputeSetList &css,
                           ResultTensors &reductionResultTensors,
-                          const Tensor &in, const std::string &debugPrefix,
-                          ReductionDebug *debug) {
+                          const Tensor &in, const std::string &debugPrefix) {
   logging::debug("DebugStr: {}", debugPrefix);
 
   const auto numOutElements = in.dim(1);
@@ -1290,13 +1222,6 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   assert(out.rank() == 1);
 
   const auto inType = castComputeSet ? poplar::FLOAT : ipIn.dataType();
-  // Debug information.
-  ReductionDebug::ReductionStage *stageDebug = nullptr;
-  if (debug != nullptr) {
-    debug->stages.emplace_back();
-    stageDebug = &debug->stages.back();
-    stageDebug->label = "Intermediate To Output";
-  }
 
   // If the output isn't already mapped, map it linearly and do the reduction
   // there, otherwise decide whether it is better to do the reduction at the
@@ -1478,11 +1403,6 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
           rtPartials.back().emplace_back(
               ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
         }
-        // Debugging info about the partial.
-        ReductionDebug::Partial di;
-        di.sourceCols = {sourceDataIdx, sourceDataIdx + len};
-        di.sourceTile = partialTile;
-        rt.partialsDebugInfo.push_back(di);
       }
       // As the partials are all the same size we can do this to create a
       // valid outerFactor.
@@ -1497,18 +1417,9 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                              std::max(debugPartialsWidths.max,
                                       rtPartials.back().back().numElements())};
 
-      // Debugging info about the output...
-      rt.outputDebugInfo.outputRegion = re;
-      rt.outputDebugInfo.dataRegion = re;
-
       reductions.push_back(rt);
     }
 
-    ReductionDebug::TileReduction *tileDebug = nullptr;
-    if (stageDebug != nullptr) {
-      stageDebug->tiles.emplace_back();
-      tileDebug = &stageDebug->tiles.back();
-    }
     // Only now we have gathered all the reductions for this tile, and all the
     // partials, we can build an allPartials tensor and add striding information
     // which should allow for better work splitting using strided reduce with
@@ -1573,7 +1484,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     ComputeSetList cssFork = css;
     connectReductions(graph, cssFork, params, inType, inVertexType, outputType,
                       tile, reductions, false,
-                      debugPrefix + "/IntermediateToOutput", tileDebug);
+                      debugPrefix + "/IntermediateToOutput");
     // Record the maximum number of compute sets we've used.
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();

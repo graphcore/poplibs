@@ -2,14 +2,11 @@
 #ifndef Reduction_hpp
 #define Reduction_hpp
 
-#include <cstddef>
-#include <vector>
-
-#include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 
-#include "ReductionDebug.hpp"
-#include "popops/Reduce.hpp"
+#include <cstddef>
+#include <set>
+#include <vector>
 
 // List of suboptimal things / potential optimisations:
 
