@@ -37,6 +37,18 @@ public:
   Input<InputType> input;
 
   CheckAccuracyWhenCast();
+
+  // Do the actual casting and accuracy check. This must be done in a separate
+  // function while T12725 is not solved to prevent LLVM schedulers from
+  // reordering the corresponding instructions before the UPUT.
+  static bool __attribute__((noinline))
+  castAndCheck(InputType input, float tolerance) {
+    const auto castInput = static_cast<OutputType>(input);
+    const auto relativeError = static_cast<InputType>(
+        (static_cast<float>(std::fabs(input)) * tolerance));
+    return relativeError > std::abs(static_cast<InputType>(castInput) - input);
+  }
+
   static bool computeImpl(InputType input, float tolerance) {
 #ifdef __IPU__
     // Disable exceptions as the following can create numbers that are out of
@@ -46,10 +58,7 @@ public:
     __builtin_ipu_uput(0x00000000,
                        CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
 #endif
-    const auto castInput = static_cast<OutputType>(input);
-    const auto relativeError = static_cast<InputType>(
-        (static_cast<float>(std::fabs(input)) * tolerance));
-    return relativeError > std::abs(static_cast<InputType>(castInput) - input);
+    return castAndCheck(input, tolerance);
   }
 
   bool compute() { return computeImpl(*input, tolerance); }
@@ -61,14 +70,13 @@ public:
   Input<float> input;
 
   CheckAccuracyWhenCast();
-  static bool computeImpl(float input, float tolerance) {
+
+  // Do the actual casting and accuracy check. This must be done in a separate
+  // function while T12725 is not solved to prevent LLVM schedulers from
+  // reordering the corresponding instructions before the UPUT.
+  static bool __attribute__((noinline))
+  castAndCheck(float input, float tolerance) {
 #ifdef __IPU__
-    // Disable exceptions as the following can create numbers that are out of
-    // range in half precision.  We need to store / restore the FP_CTL as
-    // the worker will continue to run the actual scaledAdd code - done outside
-    // this function
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
     // Cast to half and back to float, decision is based on relative error
     const auto castInput = static_cast<half>(input);
     return (ipu::fabs(input) * tolerance) >
@@ -82,8 +90,19 @@ public:
                ? false
                : (std::fabs(input) * tolerance) >
                      std::fabs(static_cast<float>(castInput) - input);
-
 #endif
+  }
+
+  static bool computeImpl(float input, float tolerance) {
+#ifdef __IPU__
+    // Disable exceptions as the following can create numbers that are out of
+    // range in half precision.  We need to store / restore the FP_CTL as
+    // the worker will continue to run the actual scaledAdd code - done outside
+    // this function
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+#endif
+    return castAndCheck(input, tolerance);
   }
   bool compute() { return computeImpl(*input, tolerance); }
 };
