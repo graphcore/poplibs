@@ -1467,14 +1467,17 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   case Plan::Method::AMP: {
     assert(target.getWeightsPerConvUnit(floatActivations) % inChansPerGroup ==
            0);
-    auto numConvUnitsOnIpu =
-        getNumConvUnits(floatActivations, floatPartials, target);
+
     auto weightsPerConvUnit = target.getWeightsPerConvUnit(floatActivations);
 
     assert(numConvUnitsRequired != 0);
-    assert(numConvUnitsOnIpu % numConvUnitsRequired == 0);
-    weightsPerConvUnit /= numConvUnitsOnIpu / numConvUnitsRequired;
-
+    if (inChansPerGroup != weightsPerConvUnit) {
+      auto numConvUnitsOnIpu =
+          getNumConvUnits(floatActivations, floatPartials, target);
+      assert(numConvUnitsOnIpu % numConvUnitsRequired == 0);
+      weightsPerConvUnit /= numConvUnitsOnIpu / numConvUnitsRequired;
+      assert(weightsPerConvUnit % inChansPerGroup == 0);
+    }
     const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
 
     return m.call(
@@ -1999,17 +2002,16 @@ addTileLevelTransformEstimates(
     // in `Convolution.cpp:createConvPartialAmpVertices`
     auto weightsPerConvUnit =
         target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
-    assert(weightsPerConvUnit % inChansPerGroup == 0);
 
-    const auto numConvUnitsonIpu =
-        getNumConvUnits(params.inputType == poplar::FLOAT,
-                        partialType == poplar::FLOAT, target);
-
-    assert(numConvUnitsRequired != 0);
-    assert(numConvUnitsonIpu % numConvUnitsRequired == 0);
-
-    weightsPerConvUnit /= numConvUnitsonIpu / numConvUnitsRequired;
-
+    if (inChansPerGroup != weightsPerConvUnit) {
+      const auto numConvUnitsonIpu =
+          getNumConvUnits(params.inputType == poplar::FLOAT,
+                          partialType == poplar::FLOAT, target);
+      assert(numConvUnitsRequired != 0);
+      assert(numConvUnitsonIpu % numConvUnitsRequired == 0);
+      weightsPerConvUnit /= numConvUnitsonIpu / numConvUnitsRequired;
+      assert(weightsPerConvUnit % inChansPerGroup == 0);
+    }
     const auto convUnitWeightHeight = weightsPerConvUnit / inChansPerGroup;
 
     // when we don't have 16 input chans per group then AMP pads the kernel
@@ -4572,8 +4574,7 @@ static void getConvVertexAMPCandidates(
                             target.getFp16InFp16OutConvUnitsPerTile() == 8 &&
                             !floatActivations;
 
-    // On IPU2 in case of half partials we need to enable 8 engines config as
-    // well
+    // On IPU2 we need to enable 8 engines config as well
     const bool canUseAmp8 = numConvUnitsOnIpu == 16;
 
     if (canUseAmp4 || canUseAmp8) {
@@ -4604,8 +4605,7 @@ static void getConvVertexAMPCandidates(
 
           unsigned usedWeightsPerConvUnit =
               weightsPerConvUnit * convUnits / numConvUnitsOnIpu;
-          if (!floatActivations &&
-              (partials != convUnits && partials != usedWeightsPerConvUnit)) {
+          if (partials != convUnits && partials != usedWeightsPerConvUnit) {
             continue;
           }
 

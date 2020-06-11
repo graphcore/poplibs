@@ -6142,7 +6142,6 @@ foreach(PARTIALS_TYPE half float)
                  LABELS lstm)
 endforeach()
 
-# TODO: enable for all TimesOutOnSim variants once T21750 is fixed
 add_multitarget_test(
          NAME basic_lstm_40x4x38_seq_2_float_data
          COMMAND lstm_layer
@@ -6153,7 +6152,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --phase all
                  --data-type=float
-                 VARIANTS IpuModel
+                 VARIANTS ${TimesOutOnSim}
                  LABELS lstm)
 
 add_multitarget_test(
@@ -6214,7 +6213,6 @@ add_multitarget_test(
                  --sequence-size 2
                  VARIANTS ${TimesOutOnSim})
 
-# TODO: enable for all TimesOutOnSim variants once T21750 is fixed
 add_multitarget_test(
          NAME basic_gru_40x4x38_seq_2_float_data
          COMMAND gru_layer
@@ -6225,7 +6223,7 @@ add_multitarget_test(
                  --tiles-per-ipu=16
                  --phase all
                  --data-type=float
-                 VARIANTS IpuModel)
+                 VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME basic_gru_40x4x38_seq_2_float_data_fwd_only

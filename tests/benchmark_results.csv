@@ -255,13 +255,13 @@ IpuModel2,default,embedding_vlarge_large_indices,1147830,166333398,160968
 IpuModel2,default,fc_layer_1440x100x200,20541,14439925,214616
 IpuModel2,default,fc_layer_1440x200x400,36884,43523004,217304
 IpuModel2,default,fc_layer_16x1324x100,11800,2616524,213432
-IpuModel2,default,fc_layer_1_1000_1000_float,22828,13550249,215832
+IpuModel2,default,fc_layer_1_1000_1000_float,19360,11628862,216088
 IpuModel2,default,fc_layer_1_1000_1000_half,20656,10482870,215800
-IpuModel2,default,fc_layer_1_1000_5_float,7771,805468,213080
+IpuModel2,default,fc_layer_1_1000_5_float,7707,546044,213048
 IpuModel2,default,fc_layer_1_1000_5_half,12202,561712,213048
-IpuModel2,default,fc_layer_4_1000_1000_float,21725,13924134,215832
+IpuModel2,default,fc_layer_4_1000_1000_float,17372,11649365,216088
 IpuModel2,default,fc_layer_4_1000_1000_half,28642,16119507,215800
-IpuModel2,default,fc_layer_4_1000_5_float,9384,984601,213112
+IpuModel2,default,fc_layer_4_1000_5_float,9318,797573,213080
 IpuModel2,default,fc_layer_4_1000_5_half,11906,685055,213048
 IpuModel2,default,fc_layer_80_1324_100,14846,7155642,214200
 IpuModel2,default,gemm_1000x256x10000,92930,302795344,240472
