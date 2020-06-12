@@ -729,6 +729,9 @@ add_unit_test(ChannelMul
 add_unit_test(ChannelMul2D
               ChannelMul2D.cpp
               LABELS codelet)
+add_unit_test(ConvPartial1x1Out
+              ConvPartial1x1Out.cpp
+              LABELS codelet)
 add_unit_test(OuterProductTest
               OuterProductTest.cpp
               LABELS codelet)

@@ -95,9 +95,9 @@ ld32          $inchan_ptr, $mvertex_base, WKR_INCHAN_PTR/4
 // Do x8 and add at the same time, n.b. we aren't actually loading here
 ld64step      $azeros, $mzero, $inchan_ptr+=, $in_off
 
-ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
-
 convPartialFlattenedFieldStateRetainedInChanPtr_f32sisoamp:
+
+ld32          $stride1, $mvertex_base, WKR_IN_OUT_STRIDES/4
 
 ld32          $outchan_ptr, $mvertex_base, WKR_OUTCHAN_PTR/4
 // Do x8 and add at the same time, n.b. we aren't actually loading here
@@ -363,8 +363,12 @@ brz           $cmp_res, LStrideCheckElemsEq2
 add           $cmp_res, $num_elems, 2
 brneg         $cmp_res, L_end_fn
 // Number of elems = 1
-// Stride1 = [0][out index][in index]
+// Stride1 = [0][0][in index]
 // Stride2 = Stride3 = [0][0][0]
+// Need to zero the [out index] bitfield (bits 10-20) inside $stride1, passed
+// by supervisor, to avoid accessing elements outside the 'out/partial' vector.
+and           $stride1, $stride1, 0x3FF
+
 mov           $stride2, $mzero
 mov           $stride3, $mzero
 bri           AfterStrideSet

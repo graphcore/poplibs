@@ -22,7 +22,7 @@ inline static std::uint64_t convNx1Overhead() { return 101; }
 inline static std::pair<std::uint64_t, std::uint64_t>
 conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials) {
   if (floatActivations == false && floatPartials == true) {
-    return std::make_pair(11, 3);
+    return std::make_pair(10, 2);
   } else {
     return std::make_pair(0, 0);
   }
@@ -224,7 +224,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         break;
       case 1:
         if (floatActivations)
-          thisWorkerCycles += 46 + (2 + zeroCyclesPerGroup) * outputZeroing;
+          thisWorkerCycles += 47 + (2 + zeroCyclesPerGroup) * outputZeroing;
         else {
           if (floatPartials) {
             thisWorkerCycles += (outputZeroing ? 35 : 39);
