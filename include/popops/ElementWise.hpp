@@ -196,44 +196,310 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
              {a, b, c}, prog, debugPrefix, options);
 }
 
-#define POPLIBS_DEFINE_UNARY_OPERATOR_FN(fn, op)                               \
-  inline poplar::Tensor fn(poplar::Graph &graph, const poplar::Tensor &A,      \
-                           poplar::program::Sequence &prog,                    \
-                           const std::string &debugPrefix = "",                \
-                           const poplar::OptionFlags &options = {}) {          \
-    return map(graph, expr::UnaryOpType::op, A, prog, debugPrefix, options);   \
-  }                                                                            \
-  inline void fn##InPlace(poplar::Graph &graph, const poplar::Tensor &A,       \
-                          poplar::program::Sequence &prog,                     \
-                          const std::string &debugPrefix = "",                 \
-                          const poplar::OptionFlags &options = {}) {           \
-    mapInPlace(graph, expr::UnaryOpType::op, A, prog, debugPrefix, options);   \
-  }
+// Unary operations
 
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(abs, ABSOLUTE)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(asin, ASIN)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(bitwiseNot, BITWISE_NOT)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(ceil, CEIL)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(countLeadingZeros, COUNT_LEADING_ZEROS)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(cos, COS)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(exp, EXPONENT)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(expm1, EXPONENT_MINUS_ONE)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(floor, FLOOR)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(inv, INVERSE)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(log, LOGARITHM)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(log1p, LOGARITHM_ONE_PLUS)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(logicalNot, LOGICAL_NOT)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(neg, NEGATE)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(popcount, POPCOUNT)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(signum, SIGNUM)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(sin, SIN)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(tan, TAN)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(tanh, TANH)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(round, ROUND)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(sqrt, SQRT)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(square, SQUARE)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(sigmoid, SIGMOID)
-POPLIBS_DEFINE_UNARY_OPERATOR_FN(rsqrt, RSQRT)
+inline poplar::Tensor abs(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::ABSOLUTE, A, prog, debugPrefix, options);
+}
+inline void absInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::ABSOLUTE, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor asin(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::ASIN, A, prog, debugPrefix, options);
+}
+inline void asinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::ASIN, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor bitwiseNot(poplar::Graph &graph, const poplar::Tensor &A,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::BITWISE_NOT, A, prog, debugPrefix,
+             options);
+}
+inline void bitwiseNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::BITWISE_NOT, A, prog, debugPrefix,
+             options);
+}
+inline poplar::Tensor ceil(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::CEIL, A, prog, debugPrefix, options);
+}
+inline void ceilInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::CEIL, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor
+countLeadingZeros(poplar::Graph &graph, const poplar::Tensor &A,
+                  poplar::program::Sequence &prog,
+                  const std::string &debugPrefix = "",
+                  const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
+             debugPrefix, options);
+}
+inline void countLeadingZerosInPlace(poplar::Graph &graph,
+                                     const poplar::Tensor &A,
+                                     poplar::program::Sequence &prog,
+                                     const std::string &debugPrefix = "",
+                                     const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
+             debugPrefix, options);
+}
+inline poplar::Tensor cos(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::COS, A, prog, debugPrefix, options);
+}
+inline void cosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::COS, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor exp(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::EXPONENT, A, prog, debugPrefix, options);
+}
+inline void expInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor expm1(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog, debugPrefix,
+             options);
+}
+inline void expm1InPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog, debugPrefix,
+             options);
+}
+inline poplar::Tensor floor(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::FLOOR, A, prog, debugPrefix, options);
+}
+inline void floorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::FLOOR, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor inv(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::INVERSE, A, prog, debugPrefix, options);
+}
+inline void invInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::INVERSE, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor log(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::LOGARITHM, A, prog, debugPrefix,
+             options);
+}
+inline void logInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::LOGARITHM, A, prog, debugPrefix,
+             options);
+}
+inline poplar::Tensor log1p(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog, debugPrefix,
+             options);
+}
+inline void log1pInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog, debugPrefix,
+             options);
+}
+inline poplar::Tensor logicalNot(poplar::Graph &graph, const poplar::Tensor &A,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog, debugPrefix,
+             options);
+}
+inline void logicalNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog, debugPrefix,
+             options);
+}
+inline poplar::Tensor neg(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::NEGATE, A, prog, debugPrefix, options);
+}
+inline void negInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::NEGATE, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor popcount(poplar::Graph &graph, const poplar::Tensor &A,
+                               poplar::program::Sequence &prog,
+                               const std::string &debugPrefix = "",
+                               const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::POPCOUNT, A, prog, debugPrefix, options);
+}
+inline void popcountInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::POPCOUNT, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor signum(poplar::Graph &graph, const poplar::Tensor &A,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::SIGNUM, A, prog, debugPrefix, options);
+}
+inline void signumInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::SIGNUM, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor sin(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::SIN, A, prog, debugPrefix, options);
+}
+inline void sinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::SIN, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor tan(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::TAN, A, prog, debugPrefix, options);
+}
+inline void tanInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::TAN, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor tanh(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::TANH, A, prog, debugPrefix, options);
+}
+inline void tanhInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::TANH, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor round(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::ROUND, A, prog, debugPrefix, options);
+}
+inline void roundInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::ROUND, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor sqrt(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::SQRT, A, prog, debugPrefix, options);
+}
+inline void sqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::SQRT, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor square(poplar::Graph &graph, const poplar::Tensor &A,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::SQUARE, A, prog, debugPrefix, options);
+}
+inline void squareInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::SQUARE, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor sigmoid(poplar::Graph &graph, const poplar::Tensor &A,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::SIGMOID, A, prog, debugPrefix, options);
+}
+inline void sigmoidInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::SIGMOID, A, prog, debugPrefix, options);
+}
+inline poplar::Tensor rsqrt(poplar::Graph &graph, const poplar::Tensor &A,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::UnaryOpType::RSQRT, A, prog, debugPrefix, options);
+}
+inline void rsqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::UnaryOpType::RSQRT, A, prog, debugPrefix, options);
+}
 
 inline poplar::Tensor isFinite(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
@@ -267,102 +533,1342 @@ inline void checkTypes<double>(poplar::Type elementType, double constant) {
   return;
 }
 
-#define POPLIBS_DEFINE_BINARY_OPERATOR_FN(fn, op)                              \
-  inline poplar::Tensor fn(                                                    \
-      poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,  \
-      poplar::program::Sequence &prog, const std::string &debugPrefix = "",    \
-      const poplar::OptionFlags &options = {}) {                               \
-    return map(graph, expr::BinaryOpType::op, A, B, prog, debugPrefix,         \
-               options);                                                       \
-  }                                                                            \
-  template <typename constType>                                                \
-  inline poplar::Tensor fn(poplar::Graph &graph, const poplar::Tensor &A,      \
-                           const constType B, poplar::program::Sequence &prog, \
-                           const std::string &debugPrefix = "",                \
-                           const poplar::OptionFlags &options = {}) {          \
-    checkTypes(A.elementType(), B);                                            \
-    const auto BTensor = graph.addConstant(A.elementType(), {}, B);            \
-    graph.setTileMapping(BTensor, 0);                                          \
-    return map(graph, expr::BinaryOpType::op, A, BTensor, prog, debugPrefix,   \
-               options);                                                       \
-  }                                                                            \
-  template <typename constType>                                                \
-  inline poplar::Tensor fn(                                                    \
-      poplar::Graph &graph, const constType A, const poplar::Tensor &B,        \
-      poplar::program::Sequence &prog, const std::string &debugPrefix = "",    \
-      const poplar::OptionFlags &options = {}) {                               \
-    checkTypes(B.elementType(), A);                                            \
-    const auto ATensor = graph.addConstant(B.elementType(), {}, A);            \
-    graph.setTileMapping(ATensor, 0);                                          \
-    return map(graph, expr::BinaryOpType::op, ATensor, B, prog, debugPrefix,   \
-               options);                                                       \
-  }                                                                            \
-  inline void fn##InPlace(                                                     \
-      poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,  \
-      poplar::program::Sequence &prog, const std::string &debugPrefix = "",    \
-      const poplar::OptionFlags &options = {}) {                               \
-    mapInPlace(graph, expr::BinaryOpType::op, A, B, prog, debugPrefix,         \
-               options);                                                       \
-  }                                                                            \
-  template <typename constType>                                                \
-  inline void fn##InPlace(poplar::Graph &graph, const poplar::Tensor &A,       \
-                          const constType B, poplar::program::Sequence &prog,  \
-                          const std::string &debugPrefix = "",                 \
-                          const poplar::OptionFlags &options = {}) {           \
-    checkTypes(A.elementType(), B);                                            \
-    const auto BTensor = graph.addConstant(A.elementType(), {}, B);            \
-    graph.setTileMapping(BTensor, 0);                                          \
-    mapInPlace(graph, expr::BinaryOpType::op, A, BTensor, prog, debugPrefix,   \
-               options);                                                       \
-  }
+// Binary operations
 
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(add, ADD)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(atan2, ATAN2)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(bitwiseAnd, BITWISE_AND)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(bitwiseOr, BITWISE_OR)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(bitwiseXor, BITWISE_XOR)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(bitwiseXnor, BITWISE_XNOR)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(div, DIVIDE)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(eq, EQUAL)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(gteq, GREATER_THAN_EQUAL)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(gt, GREATER_THAN)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(invStdDevToVariance, INV_STD_DEV_TO_VARIANCE)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(lteq, LESS_THAN_EQUAL)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(logicalAnd, LOGICAL_AND)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(logicalOr, LOGICAL_OR)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(lt, LESS_THAN)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(max, MAXIMUM)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(min, MINIMUM)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(mul, MULTIPLY)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(neq, NOT_EQUAL)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(pow, POWER)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(rem, REMAINDER)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(shiftLeft, SHIFT_LEFT)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(shiftRight, SHIFT_RIGHT)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(shiftRightSignExtend, SHIFT_RIGHT_SIGN_EXTEND)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(sub, SUBTRACT)
-POPLIBS_DEFINE_BINARY_OPERATOR_FN(varianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
+inline poplar::Tensor add(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::ADD, A, B, prog, debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor add(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::ADD, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+add(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::ADD, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::ADD, A, B, prog, debugPrefix, options);
+}
+template <typename constType>
+inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::ADD, A, BTensor, prog, debugPrefix,
+             options);
+}
 
-#define POPLIBS_DEFINE_TERNARY_OPERATOR_FN(fn, op)                             \
-  inline poplar::Tensor fn(poplar::Graph &graph, const poplar::Tensor &A,      \
-                           const poplar::Tensor &B, const poplar::Tensor &C,   \
-                           poplar::program::Sequence &prog,                    \
-                           const std::string &debugPrefix = "",                \
-                           const poplar::OptionFlags &options = {}) {          \
-    return map(graph, expr::TernaryOpType::op, A, B, C, prog, debugPrefix,     \
-               options);                                                       \
-  }                                                                            \
-  inline void fn##InPlace(poplar::Graph &graph, const poplar::Tensor &A,       \
-                          const poplar::Tensor &B, const poplar::Tensor &C,    \
-                          poplar::program::Sequence &prog,                     \
-                          const std::string &debugPrefix = "",                 \
-                          const poplar::OptionFlags &options = {}) {           \
-    mapInPlace(graph, expr::TernaryOpType::op, A, B, C, prog, debugPrefix,     \
-               options);                                                       \
-  }
+inline poplar::Tensor atan2(poplar::Graph &graph, const poplar::Tensor &A,
+                            const poplar::Tensor &B,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::ATAN2, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor atan2(poplar::Graph &graph, const poplar::Tensor &A,
+                            const constType B, poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+atan2(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+      poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+      const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::ATAN2, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         const constType B, poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog, debugPrefix,
+             options);
+}
 
-POPLIBS_DEFINE_TERNARY_OPERATOR_FN(select, SELECT)
-POPLIBS_DEFINE_TERNARY_OPERATOR_FN(clamp, CLAMP)
+inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+bitwiseAnd(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_AND, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const poplar::Tensor &B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const constType B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "",
+                                const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+bitwiseOr(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_OR, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                             const poplar::Tensor &B,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                             const constType B, poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+bitwiseXor(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_XOR, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const poplar::Tensor &B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const constType B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const poplar::Tensor &A,
+                                  const poplar::Tensor &B,
+                                  poplar::program::Sequence &prog,
+                                  const std::string &debugPrefix = "",
+                                  const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const poplar::Tensor &A,
+                                  const constType B,
+                                  poplar::program::Sequence &prog,
+                                  const std::string &debugPrefix = "",
+                                  const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const constType A,
+                                  const poplar::Tensor &B,
+                                  poplar::program::Sequence &prog,
+                                  const std::string &debugPrefix = "",
+                                  const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::BITWISE_XNOR, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                               const poplar::Tensor &B,
+                               poplar::program::Sequence &prog,
+                               const std::string &debugPrefix = "",
+                               const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                               const constType B,
+                               poplar::program::Sequence &prog,
+                               const std::string &debugPrefix = "",
+                               const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor div(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::DIVIDE, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor div(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+div(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::DIVIDE, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor eq(poplar::Graph &graph, const poplar::Tensor &A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::EQUAL, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor eq(poplar::Graph &graph, const poplar::Tensor &A,
+                         const constType B, poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+eq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+   poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+   const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::EQUAL, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                      const poplar::Tensor &B, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                      const constType B, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor gteq(poplar::Graph &graph, const poplar::Tensor &A,
+                           const poplar::Tensor &B,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor gteq(poplar::Graph &graph, const poplar::Tensor &A,
+                           const constType B, poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+gteq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+     const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        const poplar::Tensor &B,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        const constType B, poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor gt(poplar::Graph &graph, const poplar::Tensor &A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor gt(poplar::Graph &graph, const poplar::Tensor &A,
+                         const constType B, poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+gt(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+   poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+   const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::GREATER_THAN, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                      const poplar::Tensor &B, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                      const constType B, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor
+invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
+                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
+                    const constType B, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
+             prog, debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+invStdDevToVariance(poplar::Graph &graph, const constType A,
+                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, ATensor, B,
+             prog, debugPrefix, options);
+}
+inline void invStdDevToVarianceInPlace(
+    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline void
+invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                           const constType B, poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
+             prog, debugPrefix, options);
+}
+
+inline poplar::Tensor lteq(poplar::Graph &graph, const poplar::Tensor &A,
+                           const poplar::Tensor &B,
+                           poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor lteq(poplar::Graph &graph, const poplar::Tensor &A,
+                           const constType B, poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+lteq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+     const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        const poplar::Tensor &B,
+                        poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                        const constType B, poplar::program::Sequence &prog,
+                        const std::string &debugPrefix = "",
+                        const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor logicalAnd(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+logicalAnd(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+logicalAnd(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::LOGICAL_AND, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const poplar::Tensor &B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const constType B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor logicalOr(poplar::Graph &graph, const poplar::Tensor &A,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "",
+                                const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+logicalOr(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+logicalOr(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::LOGICAL_OR, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                             const poplar::Tensor &B,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                             const constType B, poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor lt(poplar::Graph &graph, const poplar::Tensor &A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::LESS_THAN, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor lt(poplar::Graph &graph, const poplar::Tensor &A,
+                         const constType B, poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+lt(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+   poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+   const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::LESS_THAN, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                      const poplar::Tensor &B, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                      const constType B, poplar::program::Sequence &prog,
+                      const std::string &debugPrefix = "",
+                      const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor max(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::MAXIMUM, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor max(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+max(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::MAXIMUM, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor min(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::MINIMUM, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor min(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+min(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::MINIMUM, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor mul(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::MULTIPLY, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor mul(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+mul(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::MULTIPLY, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor neq(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor neq(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+neq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::NOT_EQUAL, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor pow(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::POWER, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor pow(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::POWER, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+pow(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::POWER, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::POWER, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::POWER, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor rem(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::REMAINDER, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor rem(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+rem(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::REMAINDER, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor shiftLeft(poplar::Graph &graph, const poplar::Tensor &A,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const std::string &debugPrefix = "",
+                                const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+shiftLeft(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+shiftLeft(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+          const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::SHIFT_LEFT, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                             const poplar::Tensor &B,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                             const constType B, poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor shiftRight(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+shiftRight(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+shiftRight(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+           const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, ATensor, B, prog,
+             debugPrefix, options);
+}
+inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const poplar::Tensor &B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                              const constType B,
+                              poplar::program::Sequence &prog,
+                              const std::string &debugPrefix = "",
+                              const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
+             debugPrefix, options);
+}
+
+inline poplar::Tensor
+shiftRightSignExtend(poplar::Graph &graph, const poplar::Tensor &A,
+                     const poplar::Tensor &B, poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "",
+                     const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+shiftRightSignExtend(poplar::Graph &graph, const poplar::Tensor &A,
+                     const constType B, poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "",
+                     const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, BTensor,
+             prog, debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+shiftRightSignExtend(poplar::Graph &graph, const constType A,
+                     const poplar::Tensor &B, poplar::program::Sequence &prog,
+                     const std::string &debugPrefix = "",
+                     const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, ATensor, B,
+             prog, debugPrefix, options);
+}
+inline void shiftRightSignExtendInPlace(
+    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline void
+shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                            const constType B, poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, BTensor,
+             prog, debugPrefix, options);
+}
+
+inline poplar::Tensor sub(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::SUBTRACT, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor sub(poplar::Graph &graph, const poplar::Tensor &A,
+                          const constType B, poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline poplar::Tensor
+sub(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::SUBTRACT, ATensor, B, prog, debugPrefix,
+             options);
+}
+inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const poplar::Tensor &B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, B, prog, debugPrefix,
+             options);
+}
+template <typename constType>
+inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                       const constType B, poplar::program::Sequence &prog,
+                       const std::string &debugPrefix = "",
+                       const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog, debugPrefix,
+             options);
+}
+
+inline poplar::Tensor
+varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
+                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
+                    const constType B, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
+             prog, debugPrefix, options);
+}
+template <typename constType>
+inline poplar::Tensor
+varianceToInvStdDev(poplar::Graph &graph, const constType A,
+                    const poplar::Tensor &B, poplar::program::Sequence &prog,
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
+  checkTypes(B.elementType(), A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  graph.setTileMapping(ATensor, 0);
+  return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, ATensor, B,
+             prog, debugPrefix, options);
+}
+
+inline void varianceToInvStdDevInPlace(
+    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
+    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
+             debugPrefix, options);
+}
+template <typename constType>
+inline void
+varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                           const constType B, poplar::program::Sequence &prog,
+                           const std::string &debugPrefix = "",
+                           const poplar::OptionFlags &options = {}) {
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  graph.setTileMapping(BTensor, 0);
+  mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
+             prog, debugPrefix, options);
+}
+
+// Ternary operations
+
+inline poplar::Tensor select(poplar::Graph &graph, const poplar::Tensor &A,
+                             const poplar::Tensor &B, const poplar::Tensor &C,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::TernaryOpType::SELECT, A, B, C, prog, debugPrefix,
+             options);
+}
+inline void selectInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                          const poplar::Tensor &B, const poplar::Tensor &C,
+                          poplar::program::Sequence &prog,
+                          const std::string &debugPrefix = "",
+                          const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, C, prog, debugPrefix,
+             options);
+}
+inline poplar::Tensor clamp(poplar::Graph &graph, const poplar::Tensor &A,
+                            const poplar::Tensor &B, const poplar::Tensor &C,
+                            poplar::program::Sequence &prog,
+                            const std::string &debugPrefix = "",
+                            const poplar::OptionFlags &options = {}) {
+  return map(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, debugPrefix,
+             options);
+}
+inline void clampInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         const poplar::Tensor &B, const poplar::Tensor &C,
+                         poplar::program::Sequence &prog,
+                         const std::string &debugPrefix = "",
+                         const poplar::OptionFlags &options = {}) {
+  mapInPlace(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, debugPrefix,
+             options);
+}
 
 } // end namespace popops
 
