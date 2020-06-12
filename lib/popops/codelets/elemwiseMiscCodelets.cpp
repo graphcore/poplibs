@@ -6,6 +6,9 @@
 #include <cmath>
 #include <math.h>
 
+#ifdef __IPU__
+#include "colossus/tilearch.h"
+#endif
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
@@ -43,8 +46,7 @@ public:
     // range in half precision.  We need to store / restore the FP_CTL as
     // the worker will continue to run the actual scaledAdd code - done
     // outside this function
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+    __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX);
 #endif
     const auto castInput = static_cast<OutputType>(input);
     const auto relativeError = static_cast<InputType>(
@@ -67,8 +69,7 @@ public:
     // range in half precision.  We need to store / restore the FP_CTL as
     // the worker will continue to run the actual scaledAdd code - done outside
     // this function
-    __builtin_ipu_uput(0x00000000,
-                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+    __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX);
     // Cast to half and back to float, decision is based on relative error
     const auto castInput = static_cast<half>(input);
     return (ipu::fabs(input) * tolerance) >
@@ -87,6 +88,30 @@ public:
   }
   bool compute() { return computeImpl(*input, tolerance); }
 };
+
+// Check if two values x0, x1 are "accurate enough" when cast to HALF.
+// For each value 'x' we compute a maximum acceptable error which is
+// x*tolerance and then we check if (x-half(x)) is (strictly) smaller than
+// that error.
+// Return 'true' if both values pass the check.
+bool checkAccuracyWhenCastFloatV2ToHalf(float x0, float x1, float tolerance) {
+  if (std::fabs(x0) > 65504 || std::fabs(x1) > 65504)
+    return false;
+#ifdef __IPU__
+  unsigned save_fp_ctl = __builtin_ipu_uget(CSR_W_FP_CTL__INDEX);
+  __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX);
+#endif
+  float maxErr0 = std::fabs(tolerance * x0);
+  float maxErr1 = std::fabs(tolerance * x1);
+  half x0half = static_cast<half>(x0);
+  half x1half = static_cast<half>(x1);
+  float diff0 = static_cast<float>(x0half) - x0;
+  float diff1 = static_cast<float>(x1half) - x1;
+#ifdef __IPU__
+  __builtin_ipu_uput(save_fp_ctl, CSR_W_FP_CTL__INDEX);
+#endif
+  return std::fabs(diff0) < maxErr0 && std::fabs(diff1) < maxErr1;
+}
 
 template <typename AType>
 using InputScaleType = Input<Vector<AType, PTR_ALIGN64, 8>>;
@@ -493,18 +518,19 @@ template class ScaledSubtract2D<half, false>;
 template class ScaledSubtract2D<int, false>;
 template class ScaledSubtract2D<unsigned, false>;
 
-template <typename InType, bool isConstant, bool memConstraints>
+template <typename DataType, typename ScaleType, bool isConstant,
+          bool memConstraints>
 class [[poplar::constraint("elem(*A) != elem(*B)")]] aXPlusbYSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   aXPlusbYSupervisor();
   IS_EXTERNAL_CODELET(true);
 
-  InOut<Vector<InType, PTR_ALIGN64, 8>> A;
+  InOut<Vector<DataType, PTR_ALIGN64, 8>> A;
   unsigned short size;
-  Input<Vector<InType, PTR_ALIGN64, 8>> B;
-  const InType scaleA;
-  const InType scaleB;
+  Input<Vector<DataType, PTR_ALIGN64, 8>> B;
+  const ScaleType scaleA;
+  const ScaleType scaleB;
 
   bool compute() {
     unsigned limI = size;
@@ -515,20 +541,21 @@ public:
   }
 };
 
-#define DEF_AXPLUSBY_SUPER_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS, IS_CONSTANT,   \
+#define DEF_AXPLUSBY_SUPER_VERTEX(SCALE_DEF, PTR, CONSTRAINTS, IS_CONSTANT,    \
                                   IS_CONSTRAINED)                              \
-  template <typename InType>                                                   \
-  class CONSTRAINTS aXPlusbYSupervisor<InType, IS_CONSTANT, IS_CONSTRAINED>    \
+  template <typename DataType>                                                 \
+  class CONSTRAINTS                                                            \
+      aXPlusbYSupervisor<DataType, DataType, IS_CONSTANT, IS_CONSTRAINED>      \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
   public:                                                                      \
     aXPlusbYSupervisor();                                                      \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOut<Vector<InType, PTR_ALIGN64, 8>> A;                                   \
+    InOut<Vector<DataType, PTR_ALIGN64, 8>> A;                                 \
     unsigned short size;                                                       \
-    Input<Vector<InType, PTR_ALIGN64, 8>> B;                                   \
-    SCALE_TYPE scaleA;                                                         \
-    SCALE_TYPE scaleB;                                                         \
+    Input<Vector<DataType, PTR_ALIGN64, 8>> B;                                 \
+    SCALE_DEF scaleA;                                                          \
+    SCALE_DEF scaleB;                                                          \
                                                                                \
     bool compute() {                                                           \
       unsigned limI = size;                                                    \
@@ -539,31 +566,78 @@ public:
     }                                                                          \
   };
 
-DEF_AXPLUSBY_SUPER_VERTEX(const InType, ,
+DEF_AXPLUSBY_SUPER_VERTEX(const DataType, ,
                           [[poplar::constraint("elem(*A) != elem(*B)")]], true,
                           true)
-DEF_AXPLUSBY_SUPER_VERTEX(InputScaleType<InType>, [0],
+DEF_AXPLUSBY_SUPER_VERTEX(InputScaleType<DataType>, [0],
                           [[poplar::constraint("elem(*A) != elem(*B)")]], false,
                           true)
-DEF_AXPLUSBY_SUPER_VERTEX(const InType, , , true, false)
-DEF_AXPLUSBY_SUPER_VERTEX(InputScaleType<InType>, [0], , false, false)
+DEF_AXPLUSBY_SUPER_VERTEX(const DataType, , , true, false)
+DEF_AXPLUSBY_SUPER_VERTEX(InputScaleType<DataType>, [0], , false, false)
 
-template class aXPlusbYSupervisor<half, true, true>;
-template class aXPlusbYSupervisor<half, false, true>;
-template class aXPlusbYSupervisor<half, true, false>;
-template class aXPlusbYSupervisor<half, false, false>;
+template class aXPlusbYSupervisor<half, half, true, true>;
+template class aXPlusbYSupervisor<half, half, false, true>;
+template class aXPlusbYSupervisor<half, half, true, false>;
+template class aXPlusbYSupervisor<half, half, false, false>;
 
-template <typename InType, bool isConstant, bool memConstraints>
+// This is for the vertex having data=HALF; scale values=FLOAT. This vertex
+// has an extra 'tolerance' field, and extra code to check the accuracy of
+// the scale values
+#define DEF_AXPLUSBY_MIXED_SUPER(SCALE_DEF, PTR, CONSTRAINTS, IS_CONSTANT,     \
+                                 IS_CONSTRAINED)                               \
+  template <>                                                                  \
+  class CONSTRAINTS                                                            \
+      aXPlusbYSupervisor<half, float, IS_CONSTANT, IS_CONSTRAINED>             \
+      : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
+  public:                                                                      \
+    aXPlusbYSupervisor();                                                      \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOut<Vector<half, PTR_ALIGN64, 8>> A;                                     \
+    unsigned short size;                                                       \
+    Input<Vector<half, PTR_ALIGN64, 8>> B;                                     \
+    SCALE_DEF scaleA;                                                          \
+    SCALE_DEF scaleB;                                                          \
+    float tolerance;                                                           \
+                                                                               \
+    bool compute() {                                                           \
+      bool castScalesToHalf =                                                  \
+          !IS_CONSTANT && !checkAccuracyWhenCastFloatV2ToHalf(                 \
+                              scaleA PTR, scaleB PTR, tolerance);              \
+      unsigned limI = size;                                                    \
+      if (castScalesToHalf) {                                                  \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] = static_cast<half>(scaleA PTR) * A[i] +                        \
+                 static_cast<half>(scaleB PTR) * B[i];                         \
+        }                                                                      \
+      } else {                                                                 \
+        for (unsigned i = 0; i < limI; ++i) {                                  \
+          A[i] = scaleA PTR * static_cast<float>(A[i]) +                       \
+                 scaleB PTR * static_cast<float>(B[i]);                        \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_AXPLUSBY_MIXED_SUPER(const float, , , true, false)
+DEF_AXPLUSBY_MIXED_SUPER(InputScaleType<float>, [0],
+                         [[poplar::constraint("elem(*A) != elem(*B)")]], false,
+                         true)
+DEF_AXPLUSBY_MIXED_SUPER(InputScaleType<float>, [0], , false, false)
+
+template <typename DataType, typename ScaleType, bool isConstant,
+          bool memConstraints>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] aXPlusbY2D
     : public Vertex {
 public:
   aXPlusbY2D();
   IS_EXTERNAL_CODELET(true);
 
-  InOutAType2D<InType> A;
-  InputBType2D<InType> B;
-  const InType scaleA;
-  const InType scaleB;
+  InOutAType2D<DataType> A;
+  InputBType2D<DataType> B;
+  const ScaleType scaleA;
+  const ScaleType scaleB;
 
   bool compute() {
     unsigned limI = A.size();
@@ -578,19 +652,20 @@ public:
     return true;
   }
 };
-#define DEF_AXPLUSBY_2D_VERTEX(SCALE_TYPE, PTR, CONSTRAINTS, IS_CONSTANT,      \
+#define DEF_AXPLUSBY_2D_VERTEX(SCALE_DEF, PTR, CONSTRAINTS, IS_CONSTANT,       \
                                IS_CONSTRAINED)                                 \
-  template <typename InType>                                                   \
-  class CONSTRAINTS aXPlusbY2D<InType, IS_CONSTANT, IS_CONSTRAINED>            \
+  template <typename DataType>                                                 \
+  class CONSTRAINTS                                                            \
+      aXPlusbY2D<DataType, DataType, IS_CONSTANT, IS_CONSTRAINED>              \
       : public Vertex {                                                        \
   public:                                                                      \
     aXPlusbY2D();                                                              \
     IS_EXTERNAL_CODELET(true);                                                 \
                                                                                \
-    InOutAType2D<InType> A;                                                    \
-    InputBType2D<InType> B;                                                    \
-    SCALE_TYPE scaleA;                                                         \
-    SCALE_TYPE scaleB;                                                         \
+    InOutAType2D<DataType> A;                                                  \
+    InputBType2D<DataType> B;                                                  \
+    SCALE_DEF scaleA;                                                          \
+    SCALE_DEF scaleB;                                                          \
                                                                                \
     bool compute() {                                                           \
       unsigned limI = A.size();                                                \
@@ -606,19 +681,68 @@ public:
     }                                                                          \
   };
 
-DEF_AXPLUSBY_2D_VERTEX(const InType, ,
+DEF_AXPLUSBY_2D_VERTEX(const DataType, ,
                        [[poplar::constraint("elem(**A) != elem(**B)")]], true,
                        true)
-DEF_AXPLUSBY_2D_VERTEX(Input<InType>, *,
+DEF_AXPLUSBY_2D_VERTEX(Input<DataType>, *,
                        [[poplar::constraint("elem(**A) != elem(**B)")]], false,
                        true)
-DEF_AXPLUSBY_2D_VERTEX(const InType, , , true, false)
-DEF_AXPLUSBY_2D_VERTEX(Input<InType>, *, , false, false)
+DEF_AXPLUSBY_2D_VERTEX(const DataType, , , true, false)
+DEF_AXPLUSBY_2D_VERTEX(Input<DataType>, *, , false, false)
 
-template class aXPlusbY2D<half, true, true>;
-template class aXPlusbY2D<half, false, true>;
-template class aXPlusbY2D<half, true, false>;
-template class aXPlusbY2D<half, false, false>;
+template class aXPlusbY2D<half, half, true, true>;
+template class aXPlusbY2D<half, half, false, true>;
+template class aXPlusbY2D<half, half, true, false>;
+template class aXPlusbY2D<half, half, false, false>;
+
+// This is for the vertex having data=HALF; scale values=FLOAT. This vertex
+// has an extra 'tolerance' field, and extra code to check the accuracy of
+// the scale values
+#define DEF_AXPLUSBY_2D_MIXED(SCALE_DEF, PTR, CONSTRAINTS, IS_CONSTANT,        \
+                              IS_CONSTRAINED)                                  \
+  template <>                                                                  \
+  class CONSTRAINTS aXPlusbY2D<half, float, IS_CONSTANT, IS_CONSTRAINED>       \
+      : public Vertex {                                                        \
+  public:                                                                      \
+    aXPlusbY2D();                                                              \
+    IS_EXTERNAL_CODELET(true);                                                 \
+                                                                               \
+    InOutAType2D<half> A;                                                      \
+    InputBType2D<half> B;                                                      \
+    SCALE_DEF scaleA;                                                          \
+    SCALE_DEF scaleB;                                                          \
+    float tolerance;                                                           \
+                                                                               \
+    bool compute() {                                                           \
+      bool castScalesToHalf =                                                  \
+          !IS_CONSTANT && !checkAccuracyWhenCastFloatV2ToHalf(                 \
+                              PTR scaleA, PTR scaleB, tolerance);              \
+      unsigned limI = A.size();                                                \
+      for (unsigned i = 0; i < limI; ++i) {                                    \
+        unsigned limJ = A[i].size();                                           \
+        auto const &refIn = B[i];                                              \
+        auto &refOut = A[i];                                                   \
+        if (castScalesToHalf) {                                                \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] = static_cast<half>(PTR scaleA) * refOut[j] +            \
+                        static_cast<half>(PTR scaleB) * refIn[j];              \
+          }                                                                    \
+        } else {                                                               \
+          for (unsigned j = 0; j < limJ; ++j) {                                \
+            refOut[j] = PTR scaleA * static_cast<float>(refOut[j]) +           \
+                        PTR scaleB * static_cast<float>(refIn[j]);             \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+DEF_AXPLUSBY_2D_MIXED(const float, , , true, false)
+DEF_AXPLUSBY_2D_MIXED(Input<float>, *,
+                      [[poplar::constraint("elem(**A) != elem(**B)")]], false,
+                      true)
+DEF_AXPLUSBY_2D_MIXED(Input<float>, *, , false, false)
 
 template <typename FPType>
 class [[poplar::constraint("elem(**A) != elem(**B)")]] HadamardProd

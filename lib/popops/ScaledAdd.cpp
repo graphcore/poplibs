@@ -71,9 +71,7 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
                                const ScaledAddSpecialisation speciality,
                                Sequence &prog, bool attemptRegroup,
                                const std::string &debugPrefix,
-                               const poplar::OptionFlags &options) {
-  auto opts = parseOptionFlags(options);
-
+                               const ScaledAddOptions &opts) {
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
       opts.optimizeForSpeed;
@@ -101,10 +99,15 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
     codeletNameSupervisor = templateVertex("popops::XMinusaXPlusbYSupervisor",
                                            dataType, true, addConstraints);
   } else if (scaleA != 1.0f) {
-    codeletName2D =
-        templateVertex("popops::aXPlusbY2D", dataType, true, addConstraints);
-    codeletNameSupervisor = templateVertex("popops::aXPlusbYSupervisor",
-                                           dataType, true, addConstraints);
+    // If we end up using the 'mixed' vertex (with 'half' tensors and
+    // 'float' scales), force the constraints flag to be false (is not used)
+    auto const constraints =
+        ((dataType == HALF) && (scaleType == FLOAT)) ? false : addConstraints;
+
+    codeletName2D = templateVertex("popops::aXPlusbY2D", dataType, scaleType,
+                                   true, constraints);
+    codeletNameSupervisor = templateVertex(
+        "popops::aXPlusbYSupervisor", dataType, scaleType, true, constraints);
   } else {
     codeletName2D = templateVertex("popops::ScaledAdd2D", dataType, deltaType,
                                    scaleType, true, addConstraints);
@@ -183,13 +186,12 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
 }
 
 void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
-                                Tensor scaleB, boost::optional<float> tolerance,
-                                const bool doSubtract, const bool doaXPlusbY,
+                                Tensor scaleB, const bool doSubtract,
+                                const bool doaXPlusbY,
                                 const ScaledAddSpecialisation speciality,
                                 Sequence &prog, bool attemptRegroup,
                                 const std::string &debugPrefix,
-                                const poplar::OptionFlags &options) {
-  auto opts = parseOptionFlags(options);
+                                const ScaledAddOptions &opts) {
   const auto addConstraints =
       (A.elementType() == HALF || A.elementType() == FLOAT) &&
       !(A.elementType() == FLOAT && B.elementType() == HALF) &&
@@ -221,6 +223,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   const auto vectorWidth = target.getVectorWidth(dataType);
   const auto numWorkers = target.getNumWorkerContexts();
 
+  bool vertexHasTolerance = false;
   std::string codeletName2D;
   std::string codeletNameSupervisor;
   if (doSubtract && doaXPlusbY) {
@@ -240,12 +243,20 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       codeletNameSupervisor = templateVertex("popops::XMinusaXPlusbYSupervisor",
                                              dataType, false, addConstraints);
     } else {
-      codeletName2D =
-          templateVertex("popops::aXPlusbY2D", dataType, false, addConstraints);
-      codeletNameSupervisor = templateVertex("popops::aXPlusbYSupervisor",
-                                             dataType, false, addConstraints);
+      auto scaleType = scaleA.elementType();
+      // The 'mixed' vertex (with 'half' data and 'float' scales) has a
+      // 'tolerance' field ...
+      vertexHasTolerance = (dataType == HALF) && (scaleType == FLOAT);
+
+      codeletName2D = templateVertex("popops::aXPlusbY2D", dataType, scaleType,
+                                     false, addConstraints);
+      codeletNameSupervisor =
+          templateVertex("popops::aXPlusbYSupervisor", dataType, scaleType,
+                         false, addConstraints);
     }
   } else if (!doSubtract && !doaXPlusbY) {
+    vertexHasTolerance =
+        (dataType == HALF) && (deltaType == HALF) && (scaleType == FLOAT);
     codeletName2D = templateVertex("popops::ScaledAdd2D", dataType, deltaType,
                                    scaleType, false, addConstraints);
     codeletNameSupervisor =
@@ -293,7 +304,6 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
         validateRegionSizeForSupervisorVertex(tileContiguousRegions,
                                               maxSupervisorElements)) {
       const auto &region = tileContiguousRegions[0][0];
-
       VertexRef v = graph.addVertex(cs, codeletNameSupervisor,
                                     {{"A", aFlat.slice(region)},
                                      {"B", bFlat.slice(region)},
@@ -303,8 +313,8 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
       }
 
       graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
-      if (tolerance) {
-        graph.setInitialValue(v["tolerance"], tolerance.get());
+      if (vertexHasTolerance) {
+        graph.setInitialValue(v["tolerance"], opts.floatToHalfTolerance);
       }
       graph.setTileMapping(v, tile);
     } else {
@@ -312,7 +322,6 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
           target, tileContiguousRegions, grainSize, 2 * grainSize, UINT32_MAX,
           max2DInnerElements);
       for (const auto &regions : vertexRegions) {
-
         VertexRef v = graph.addVertex(cs, codeletName2D,
                                       {{"A", aFlat.slices(regions)},
                                        {"B", bFlat.slices(regions)},
@@ -322,8 +331,8 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
           graph.connect(v["scaleA"], scaleA);
         }
 
-        if (tolerance) {
-          graph.setInitialValue(v["tolerance"], tolerance.get());
+        if (vertexHasTolerance) {
+          graph.setInitialValue(v["tolerance"], opts.floatToHalfTolerance);
         }
         graph.setTileMapping(v, tile);
       }
@@ -337,13 +346,20 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
                           const ScaledAddSpecialisation speciality,
                           const std::string &debugPrefix,
                           const poplar::OptionFlags &options) {
-  const auto targetType = A.elementType();
+  const auto opts = parseOptionFlags(options);
+  const auto dataType = A.elementType();
+  const auto scaleAType = scaleA.elementType();
+  const auto scaleBType = scaleB.elementType();
   const std::string debugPrefixSubAdd =
       subtract ? "/scaledSubtract" : "/scaledAdd";
   const auto fnPrefix = debugPrefix + debugPrefixSubAdd;
   bool axpby = true;
-  if (scaleA.elementType() != targetType) {
-    scaleA = cast(graph, scaleA, targetType, prog, fnPrefix + "/scaleA");
+
+  auto scaleType =
+      (scaleAType == FLOAT || scaleBType == FLOAT) ? FLOAT : dataType;
+
+  if (scaleAType != scaleType) {
+    scaleA = cast(graph, scaleA, scaleType, prog, fnPrefix + "/scaleA");
   }
   // We don't support float axpby vertex. Synthesize using mul and scaledAdd
   if (A.elementType() == FLOAT) {
@@ -352,22 +368,22 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   }
 
   bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
+      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), dataType);
   if (regroupBeforeCast) {
     B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
                                                fnPrefix + "/regroupB");
   }
   const auto cs = graph.addComputeSet(fnPrefix + "/cast");
-  if (targetType != B.elementType()) {
-    B = cast(graph, B, targetType, cs, fnPrefix + "/B");
+  if (dataType != B.elementType()) {
+    B = cast(graph, B, dataType, cs, fnPrefix + "/B");
   }
-  if (scaleB.elementType() != targetType) {
-    scaleB = cast(graph, scaleB, targetType, cs, fnPrefix + "/scaleB");
+  if (scaleBType != scaleType) {
+    scaleB = cast(graph, scaleB, scaleType, cs, fnPrefix + "/scaleB");
   }
   prog.add(Execute(cs));
-  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, boost::none, subtract,
-                             axpby, speciality, prog, !regroupBeforeCast,
-                             debugPrefix, options);
+  scaledArithmeticTensorImpl(graph, A, scaleA, B, scaleB, subtract, axpby,
+                             speciality, prog, !regroupBeforeCast, debugPrefix,
+                             opts);
 }
 
 void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
@@ -375,6 +391,8 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
                          const ScaledAddSpecialisation speciality,
                          const std::string &debugPrefix,
                          const poplar::OptionFlags &options) {
+  const auto opts = parseOptionFlags(options);
+  const auto target = graph.getTarget();
   const auto targetType = A.elementType();
   const std::string debugPrefixSubAdd =
       subtract ? "/scaledSubtract" : "/scaledAdd";
@@ -387,7 +405,7 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   }
 
   bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
+      shouldRegroupBeforeCast(target, B.elementType(), targetType);
   if (regroupBeforeCast) {
     B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
                                                fnPrefix + "/regroupB");
@@ -399,8 +417,20 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   if (subtract) {
     scaleB = -scaleB;
   }
-  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, targetType, speciality,
-                            prog, !regroupBeforeCast, debugPrefix, options);
+  auto scaleType = targetType;
+  // If the data is HALF type, when we cast the scale values to HALF will
+  // they be accurate enough? If they lose accuracy, we keep them as FLOAT
+  if (speciality == ScaledAddSpecialisation::DEFAULT && targetType == HALF) {
+    auto tolerance = opts.floatToHalfTolerance;
+    if (!poputil::checkAccuracyWhenCast(target, scaleA, FLOAT, HALF,
+                                        tolerance) ||
+        !poputil::checkAccuracyWhenCast(target, scaleB, FLOAT, HALF,
+                                        tolerance)) {
+      scaleType = FLOAT;
+    }
+  }
+  scaledArithmeticConstImpl(graph, A, scaleA, B, scaleB, scaleType, speciality,
+                            prog, !regroupBeforeCast, debugPrefix, opts);
 }
 
 bool specialisedVertexExists(const Tensor &A, const Tensor &B,
@@ -416,15 +446,14 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledAdd";
 
+  const auto opts = parseOptionFlags(options);
   if (A.elementType() == HALF && B.elementType() == HALF &&
       scaleB.elementType() == FLOAT) {
-    const auto opts = parseOptionFlags(options);
     // The vertex will select float or half scale based on the accuracy of the
     // scale, using the tolerance option
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB,
-                               opts.floatToHalfTolerance, false, false,
+    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
                                ScaledAddSpecialisation::DEFAULT, prog,
-                               /* attemptRegroup */ true, debugPrefix, options);
+                               /* attemptRegroup */ true, debugPrefix, opts);
   } else {
     bool regroupBeforeCast = false;
     if (!specialisedVertexExists(A, B, scaleB)) {
@@ -443,9 +472,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
       }
       prog.add(Execute(cs));
     }
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none, false,
-                               false, ScaledAddSpecialisation::DEFAULT, prog,
-                               !regroupBeforeCast, debugPrefix, options);
+    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+                               ScaledAddSpecialisation::DEFAULT, prog,
+                               !regroupBeforeCast, debugPrefix, opts);
   }
 }
 
@@ -477,12 +506,13 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
   scaledArithmeticConstImpl(graph, A, 1.0, B, scaleB,
                             useFloatScale ? FLOAT : scaleType,
                             ScaledAddSpecialisation::DEFAULT, prog,
-                            !regroupBeforeCast, debugPrefix, options);
+                            !regroupBeforeCast, debugPrefix, opts);
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                         Sequence &prog, const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
+  const auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledSub";
 
@@ -501,14 +531,15 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
   }
   prog.add(Execute(cs));
 
-  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, boost::none, true,
-                             false, ScaledAddSpecialisation::DEFAULT, prog,
-                             !regroupBeforeCast, debugPrefix, options);
+  scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, true, false,
+                             ScaledAddSpecialisation::DEFAULT, prog,
+                             !regroupBeforeCast, debugPrefix, opts);
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
                         Sequence &prog, const std::string &debugPrefix,
                         const poplar::OptionFlags &options) {
+  const auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
   bool regroupBeforeCast =
       shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
@@ -521,7 +552,7 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
   }
   scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, targetType,
                             ScaledAddSpecialisation::DEFAULT, prog,
-                            !regroupBeforeCast, debugPrefix, options);
+                            !regroupBeforeCast, debugPrefix, opts);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,

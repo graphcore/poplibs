@@ -104,7 +104,9 @@ void testScaledAdd2D(const char *vertex, const Type &dataType,
     }
   }
   const bool vertexHasTolerance =
-      dataType == HALF && deltaType == HALF && scaleType == FLOAT;
+      ((std::string(vertex).rfind("popops::ScaledAdd2D", 0) == 0 ||
+        std::string(vertex).rfind("popops::aXPlusbY2D", 0) == 0) &&
+       dataType == HALF && deltaType == HALF && scaleType == FLOAT);
 
   // Generate the expected result
   std::vector<std::vector<float>> expected(scaledData.size());
@@ -342,10 +344,10 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(aXPlusbYHalfConst)
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfConst) {
-  testScaledAdd2D("popops::aXPlusbY2D<half,true,true>", HALF, HALF, HALF, true,
-                  1.0 * k, -k);
-  testScaledAdd2D("popops::aXPlusbY2D<half,true,false>", HALF, HALF, HALF, true,
-                  1.0 * k, -k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,half,true,true>", HALF, HALF, HALF,
+                  true, 1.0 * k, -k);
+  testScaledAdd2D("popops::aXPlusbY2D<half,half,true,false>", HALF, HALF, HALF,
+                  true, 1.0 * k, -k);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -353,10 +355,36 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(aXPlusbYHalfTensor)
 
 BOOST_AUTO_TEST_CASE(aXPlusbYHalfTensor) {
-  testScaledAdd2D("popops::aXPlusbY2D<half,false,true>", HALF, HALF, HALF,
+  testScaledAdd2D("popops::aXPlusbY2D<half,half,false,true>", HALF, HALF, HALF,
                   false, -1.0 * k, k);
-  testScaledAdd2D("popops::aXPlusbY2D<half,false,false>", HALF, HALF, HALF,
+  testScaledAdd2D("popops::aXPlusbY2D<half,half,false,false>", HALF, HALF, HALF,
                   false, -1.0 * k, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYMixedConst)
+
+BOOST_AUTO_TEST_CASE(aXPlusbYMixedConst) {
+  testScaledAdd2D("popops::aXPlusbY2D<half,float,true,false>", HALF, HALF,
+                  FLOAT, true, 1.0 * k, -k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYMixedTensor)
+
+BOOST_AUTO_TEST_CASE(aXPlusbYMixedTensorSlow) {
+  // Run with a small tolerance (0.0001%) so that at runtime we chose the
+  // slower mixed (data=HALF, scale values=FLOAT) path
+  testScaledAdd2D("popops::aXPlusbY2D<half,float,false,false>", HALF, HALF,
+                  FLOAT, false, -1.0 * k, k, 1.0, 1.0, 1.0, false, 1e-6);
+}
+BOOST_AUTO_TEST_CASE(aXPlusbYMixedTensorFast) {
+  // Run with a big tolerance (1%) so that at runtime we chose the fast
+  // path with data=HALF, scale values=HALF
+  testScaledAdd2D("popops::aXPlusbY2D<half,float,false,false>", HALF, HALF,
+                  FLOAT, false, -1.0 * k, k, 1.0, 1.0, 1.0, false, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

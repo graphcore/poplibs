@@ -4,6 +4,7 @@
 #include "TestDevice.hpp"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ElementWise.hpp"
+#include <boost/multi_array.hpp>
 #include <boost/test/unit_test.hpp>
 #include <cmath>
 #include <cstring>
@@ -26,8 +27,8 @@ namespace fpc = boost::test_tools::fpc;
 
 #define DIM_SIZE 10
 
-static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
-                                                     const Type &type) {
+__attribute((unused)) static std::tuple<Tensor, Tensor>
+mapBinaryOpTensors(Graph &graph, const Type &type) {
   auto in1 = graph.addVariable(type, {DIM_SIZE, DIM_SIZE}, "in1");
   mapTensorLinearly(graph, in1);
 
@@ -37,8 +38,9 @@ static std::tuple<Tensor, Tensor> mapBinaryOpTensors(Graph &graph,
   return std::make_pair(in1.dimShuffle({1, 0}), in2.dimShuffle({1, 0}));
 }
 
-static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
-                              float hIn2[DIM_SIZE][DIM_SIZE]) {
+__attribute((unused)) static void
+setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
+                  float hIn2[DIM_SIZE][DIM_SIZE]) {
   float val1 = -100;
   float val2 = 50;
   for (auto r = 0U; r != DIM_SIZE; ++r) {
@@ -51,8 +53,8 @@ static void setBinaryOpInputs(float hIn1[DIM_SIZE][DIM_SIZE],
   }
 }
 
-static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
-                              int hIn2[DIM_SIZE][DIM_SIZE]) {
+__attribute((unused)) static void
+setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE], int hIn2[DIM_SIZE][DIM_SIZE]) {
   int val1 = -100;
   int val2 = 50;
   for (auto r = 0; r != DIM_SIZE; ++r) {
@@ -64,7 +66,8 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
     }
   }
 }
-static void setBroadcastOpInputs(float hIn1[DIM_SIZE][DIM_SIZE]) {
+__attribute((unused)) static void
+setBroadcastOpInputs(float hIn1[DIM_SIZE][DIM_SIZE]) {
   float val1 = -100;
   for (auto r = 0; r != DIM_SIZE; ++r) {
     for (auto c = 0; c != DIM_SIZE; ++c) {
@@ -695,6 +698,10 @@ BOOST_AUTO_TEST_CASE(
   }
 }
 
+// Test for "aX + bY", via 'scaledAddTo()'. A few different sub-tests are run.
+//    X   can be    HALF or FLOAT
+//    Y   is always HALF
+//   a,b  can be    HALF or FLOAT tensors, or constants
 BOOST_AUTO_TEST_CASE(
     StdaXPlusbY_halfin_tensor_and_const,
     *utf::tolerance<float>(fpc::percent_tolerance<float>(1)) *
@@ -704,103 +711,172 @@ BOOST_AUTO_TEST_CASE(
   Graph graph(target);
   popops::addCodelets(graph);
 
-  float hInOut[DIM_SIZE][DIM_SIZE];
-  float hIn[DIM_SIZE][DIM_SIZE];
-  float hInOutFloat[DIM_SIZE][DIM_SIZE];
-  setBinaryOpInputs(hIn, hInOut);
-  std::memcpy(hInOutFloat, hInOut, sizeof(hInOutFloat));
+  // We do a bunch of sub test cases (test variants) that do mostly the same
+  // stuff; we put in this class the common parts.
+  struct Variant {
+    std::string name; // name of the test
+    Type dataXType;   // Device type of the X data
+    float a, b;       // Scale values
+    poplar::OptionFlags opts;
 
-  auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
-  std::vector<char> rawIn(rawBufSize);
-  poplar::copyFloatToDeviceHalf(target, &hIn[0][0], rawIn.data(),
-                                DIM_SIZE * DIM_SIZE);
-  std::vector<char> rawInOut(rawBufSize);
-  poplar::copyFloatToDeviceHalf(target, &hInOut[0][0], rawInOut.data(),
-                                DIM_SIZE * DIM_SIZE);
+    Variant(std::string name, Type dataXType, float a, float b,
+            OptionFlags opts)
+        : name(name), dataXType(dataXType), a(a), b(b), opts(opts) {}
+    virtual ~Variant() {}
 
-  float k = 2, k2 = 3;
-  auto A = graph.addVariable(HALF, {});
-  graph.setInitialValue(A, k);
-  auto B = graph.addVariable(HALF, {});
-  graph.setInitialValue(B, k2);
-  auto inOut = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "inOut");
-  auto inOutFloat =
-      graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOutFloat");
-  auto inOutConstTest =
-      graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "inOutConstTest");
-  auto inOutFloatConstTest =
-      graph.addVariable(FLOAT, {DIM_SIZE, DIM_SIZE}, "inOutFloatConstTest");
-  auto in = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, "in");
-  mapTensorLinearly(graph, A);
-  mapTensorLinearly(graph, B);
-  mapTensorLinearly(graph, inOut);
-  mapTensorLinearly(graph, inOutFloat);
-  mapTensorLinearly(graph, inOutConstTest);
-  mapTensorLinearly(graph, inOutFloatConstTest);
-  mapTensorLinearly(graph, in);
+    // data tensors and associated buffers
+    Tensor X, Y;
+    std::vector<char> rawX;
+    boost::multi_array<float, 2> hX{boost::extents[DIM_SIZE][DIM_SIZE]};
+    std::vector<char> rawY;
+    boost::multi_array<float, 2> hY{boost::extents[DIM_SIZE][DIM_SIZE]};
 
-  std::vector<char> rawOut(rawBufSize);
-  std::vector<char> rawOutConstTest(rawBufSize);
-  graph.createHostWrite("in", in);
-  graph.createHostWrite("inOut", inOut);
-  graph.createHostWrite("inOutFloat", inOutFloat);
-  graph.createHostRead("out", inOut);
-  graph.createHostRead("outFloat", inOutFloat);
-  graph.createHostRead("outConstTest", inOutConstTest);
-  graph.createHostRead("outFloatConstTest", inOutFloatConstTest);
+    // Setup everything before bind/load/run
+    void setup(Graph &graph, Target &target, Sequence &prog) {
+      X = graph.addVariable(dataXType, {DIM_SIZE, DIM_SIZE}, name + "X");
+      Y = graph.addVariable(HALF, {DIM_SIZE, DIM_SIZE}, name + "Y");
+      mapTensorLinearly(graph, X);
+      mapTensorLinearly(graph, Y);
+      graph.createHostWrite(name + "X", X);
+      graph.createHostRead(name + "Xout", X);
+      graph.createHostWrite(name + "Y", Y);
+      callScaledAdd(graph, prog);
+    };
 
+    // This will call the 'scaledAddTo()'. Different for Tensors and Const
+    virtual void callScaledAdd(Graph &graph, Sequence &prog) = 0;
+
+    // Setup the host buffers and write the data Tensors to the device
+    void write(Target &target, Engine &eng, float Xvalues[DIM_SIZE][DIM_SIZE],
+               float Yvalues[DIM_SIZE][DIM_SIZE]) {
+      auto floatBufSize = sizeof(float) * DIM_SIZE * DIM_SIZE;
+      auto rawBufSize = target.getTypeSize(HALF) * DIM_SIZE * DIM_SIZE;
+
+      std::memcpy(&hX[0][0], Xvalues, floatBufSize);
+      if (dataXType == HALF) {
+        rawX.resize(rawBufSize);
+        poplar::copyFloatToDeviceHalf(target, &hX[0][0], rawX.data(),
+                                      DIM_SIZE * DIM_SIZE);
+        eng.writeTensor(name + "X", rawX.data(), rawX.data() + rawX.size());
+      } else {
+        float *data = &hX[0][0];
+        eng.writeTensor(name + "X", data, data + floatBufSize);
+      }
+
+      std::memcpy(&hY[0][0], Yvalues, floatBufSize);
+      rawY.resize(rawBufSize);
+      poplar::copyFloatToDeviceHalf(target, &hY[0][0], rawY.data(),
+                                    DIM_SIZE * DIM_SIZE);
+      eng.writeTensor(name + "Y", rawY.data(), rawY.data() + rawY.size());
+    };
+
+    // Read the result Tensor from the device and check results
+    void readAndVerify(Target &target, Engine &eng) {
+      boost::multi_array<float, 2> hXout{boost::extents[DIM_SIZE][DIM_SIZE]};
+      if (dataXType == HALF) {
+        eng.readTensor(name + "Xout", rawX.data(), rawX.data() + rawX.size());
+        poplar::copyDeviceHalfToFloat(target, rawX.data(), &hXout[0][0],
+                                      DIM_SIZE * DIM_SIZE);
+      } else {
+        float *data = &hXout[0][0];
+        auto floatBufSize = sizeof(float) * DIM_SIZE * DIM_SIZE;
+        eng.readTensor(name + "Xout", data, data + floatBufSize);
+      }
+
+      // Is the result from the device within expected accuracy?
+      for (auto i = 0U; i < DIM_SIZE; ++i) {
+        for (auto j = 0U; j < DIM_SIZE; ++j) {
+          auto expected = a * hX[i][j] + b * hY[i][j];
+          auto computed = hXout[i][j];
+          BOOST_TEST(expected == computed, name << ": [" << i << "][" << j
+                                                << "] - expected:" << expected
+                                                << ", computed:" << computed);
+        }
+      }
+    }
+  };
+
+  // Some test variants have the scale values as constants. We just call
+  // scaledAddTo with the parameters.
+  struct VariantConst : Variant {
+    VariantConst(std::string name, Type dataXType, float a, float b,
+                 OptionFlags opts)
+        : Variant(name + "Const", dataXType, a, b, opts) {}
+    void callScaledAdd(Graph &graph, Sequence &prog) {
+      scaledAddTo(graph, X, a, Y, b, prog, name, opts);
+    }
+  };
+
+  // Some test variants have the scale values 'a', 'b' as tensors, so we create
+  // 'A' and 'B' tensors for them.
+  struct VariantTens : Variant {
+    Type scaleType;
+    VariantTens(std::string name, Type dataXType, Type scaleType, float a,
+                float b, OptionFlags opts)
+        : Variant(name + "Tensor", dataXType, a, b, opts),
+          scaleType(scaleType) {}
+    void callScaledAdd(Graph &graph, Sequence &prog) {
+      auto A = graph.addVariable(scaleType, {});
+      mapTensorLinearly(graph, A);
+      graph.setInitialValue(A, a);
+      auto B = graph.addVariable(scaleType, {});
+      mapTensorLinearly(graph, B);
+      graph.setInitialValue(B, b);
+      scaledAddTo(graph, X, A, Y, B, prog, name, opts);
+    }
+  };
+
+  // Input data values (as single) is the same for all variants
+  float Xdata[DIM_SIZE][DIM_SIZE]; // a.k.a "A" data tensor
+  float Ydata[DIM_SIZE][DIM_SIZE]; // a.k.a "B" data tensor
+  setBinaryOpInputs(Ydata, Xdata);
+
+  // ============ All the variants ===============
+
+  // Value for 'bSmall' is chosen so that it doesn't have enough accuracy to fit
+  // in a HALF float (with default 'ScaledAddOptions::floatToHalfTolerance').
+  // When the 'half, float, Tensor' vertex is created, this will make sure the
+  // real 'mixed' path is chosen at runtime.
+  float a = 2, b = 3, bSmall = 0.0007;
+
+  std::vector<Variant *> variants = {
+      // clang-format off
+    new VariantTens{"half half", HALF, HALF, a, bSmall,
+                    {{"optimizeForSpeed", "true"}}},
+    new VariantConst{"half half", HALF, -a, -b,
+                     {{"optimizeForSpeed", "true"}}},
+    new VariantTens{"float half", FLOAT, HALF, a, b,
+                    {{"optimizeForSpeed", "true"}}},
+    new VariantConst{"float half", FLOAT, -a, -b,
+                     {{"optimizeForSpeed", "true"}}},
+
+    // Test the "mixed" tensor vertex (data = HALF, scales = FLOAT) with a
+    // "normal" and a "small" 'b', so that we verify that both paths are taken
+    // at runtime.
+    new VariantTens{"half float", HALF, FLOAT, a, b,
+                    {{"optimizeForSpeed", "true"}}},
+    new VariantTens{"half float bSmall", HALF, FLOAT, a, bSmall,
+                    {{"optimizeForSpeed", "true"}}},
+    // With a "small" 'b', the "mixed" tensor vertex (data = HALF,
+    // scales = FLOAT) will be chosen directly by 'scaledAddTo'
+    new VariantConst{"half float", HALF, a, bSmall,
+                    {{"optimizeForSpeed", "true"}}},
+      // clang-format on
+  };
+
+  // ------ Run all the variants contained in Variants[] ------
   auto prog = Sequence();
-
-  prog.add(Copy(inOut, inOutConstTest));
-  prog.add(Copy(inOutFloat, inOutFloatConstTest));
-  scaledAddTo(graph, inOut, A, in, B, prog, "Debug - optimized",
-              {{"optimizeForSpeed", "true"}});
-  scaledAddTo(graph, inOutConstTest, -k, in, -k2, prog, "Debug - optimized",
-              {{"optimizeForSpeed", "true"}});
-  scaledAddTo(graph, inOutFloat, A, in, B, prog, "Float out Debug - optimized",
-              {{"optimizeForSpeed", "true"}});
-  scaledAddTo(graph, inOutFloatConstTest, -k, in, -k2, prog,
-              "Float out Debug - optimized", {{"optimizeForSpeed", "true"}});
-
+  for (auto test : variants)
+    test->setup(graph, target, prog);
   Engine eng(graph, prog);
-
-  float hOutFloat[DIM_SIZE][DIM_SIZE];
-  float hOutFloatConst[DIM_SIZE][DIM_SIZE];
-
   device.bind([&](const Device &d) {
     eng.load(d);
-
-    eng.writeTensor("in", rawIn.data(), rawIn.data() + rawIn.size());
-    eng.writeTensor("inOut", rawInOut.data(),
-                    rawInOut.data() + rawInOut.size());
-    eng.writeTensor("inOutFloat", hInOutFloat, &hInOutFloat[DIM_SIZE]);
+    for (auto test : variants)
+      test->write(target, eng, Xdata, Ydata);
     eng.run();
-    eng.readTensor("out", rawOut.data(), rawOut.data() + rawOut.size());
-    eng.readTensor("outConstTest", rawOutConstTest.data(),
-                   rawOutConstTest.data() + rawOutConstTest.size());
-    eng.readTensor("outFloat", hOutFloat, &hOutFloat[DIM_SIZE]);
-    eng.readTensor("outFloatConstTest", hOutFloatConst,
-                   &hOutFloatConst[DIM_SIZE]);
+    for (auto test : variants)
+      test->readAndVerify(target, eng);
   });
-
-  float hOut[DIM_SIZE][DIM_SIZE];
-  poplar::copyDeviceHalfToFloat(target, rawOut.data(), &hOut[0][0],
-                                DIM_SIZE * DIM_SIZE);
-  float hOutConstTest[DIM_SIZE][DIM_SIZE];
-  poplar::copyDeviceHalfToFloat(target, rawOutConstTest.data(),
-                                &hOutConstTest[0][0], DIM_SIZE * DIM_SIZE);
-
-  /* Check result */
-  for (auto i = 0U; i < DIM_SIZE; ++i) {
-    for (auto j = 0U; j < DIM_SIZE; ++j) {
-      double res = k * hInOut[i][j] + k2 * hIn[i][j];
-      double resFloat = k * hInOutFloat[i][j] + k2 * hIn[i][j];
-      BOOST_TEST(hOut[i][j] == res, "Tensor scale test");
-      BOOST_TEST(hOutConstTest[i][j] == -res, "Constant scale test");
-      BOOST_TEST(hOutFloat[i][j] == resFloat, "Tensor scale float out test");
-      BOOST_TEST(hOutFloatConst[i][j] == -res, "Constant float out scale test");
-    }
-  }
 }
 
 BOOST_AUTO_TEST_CASE(

@@ -66,6 +66,8 @@ void testScaledAddSupervisor(
     scaledDeltas[i] = factorDelta * deltas[i];
   }
   const bool vertexHasTolerance =
+      (std::string(vertex).rfind("popops::ScaledAddSupervisor", 0) == 0 ||
+       std::string(vertex).rfind("popops::aXPlusbYSupervisor", 0) == 0) &&
       dataType == HALF && deltaType == HALF && scaleType == FLOAT;
   Sequence prog;
   // create a ComputeSet for each test case of size = 1...N
@@ -339,10 +341,10 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(aXPlusbYSupervisorHalfConst)
 
 BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfConst) {
-  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,true,true>", HALF,
-                          HALF, HALF, true, 0.5 * k, -k);
-  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,true,false>", HALF,
-                          HALF, HALF, true, 0.5 * k, -k);
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,half,true,true>",
+                          HALF, HALF, HALF, true, 0.5 * k, -k);
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,half,true,false>",
+                          HALF, HALF, HALF, true, 0.5 * k, -k);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -350,10 +352,38 @@ BOOST_AUTO_TEST_SUITE_END()
 BOOST_AUTO_TEST_SUITE(aXPlusbYSupervisorHalfTensor)
 
 BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorHalfTensor) {
-  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,false,true>", HALF,
-                          HALF, HALF, false, -0.5 * k, k);
-  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,false,false>", HALF,
-                          HALF, HALF, false, -0.5 * k, k);
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,half,false,true>",
+                          HALF, HALF, HALF, false, -0.5 * k, k);
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,half,false,false>",
+                          HALF, HALF, HALF, false, -0.5 * k, k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYSupervisorMixedConst)
+
+BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorMixedConst) {
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,float,true,false>",
+                          HALF, HALF, FLOAT, true, 0.5 * k, -k);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(aXPlusbYSupervisorMixedTensor)
+
+BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorMixedTensorSlow) {
+  // Run with a small tolerance (0.0001%) so that at runtime we chose the
+  // slower mixed (data=HALF, scale values=FLOAT) path
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,float,false,false>",
+                          HALF, HALF, FLOAT, false, -0.5 * k, k, 1.0, 1.0, 1.0,
+                          false, 1e-6);
+}
+BOOST_AUTO_TEST_CASE(aXPlusbYSupervisorMixedTensorFast) {
+  // Run with a big tolerance (1%) so that at runtime we chose the fast
+  // path with data=HALF, scale values=HALF
+  testScaledAddSupervisor("popops::aXPlusbYSupervisor<half,float,false,false>",
+                          HALF, HALF, FLOAT, false, -0.5 * k, k, 1.0, 1.0, 1.0,
+                          false, 1e-2);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

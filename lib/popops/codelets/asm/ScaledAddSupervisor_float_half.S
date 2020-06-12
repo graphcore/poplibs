@@ -60,9 +60,10 @@
 #define SV_STATE_FINAL_OFFSET 12
 #define SV_STATE_SCALES_OFFSET 16
 #define SV_STATE_DATA_B_OFFSET 20
-#define SV_STATE_MEM_CONSTRAINTS 24  //Constraints unused here, but space allowed anyhow in shared code
+#define SV_STATE_MEM_CONSTRAINTS 24 // Constraints unused here, but space allowed anyhow in shared code
+#define SV_STATE_SCALEB_OFFSET   28 // Unused here, space needed in shared code
 
-#define SV_STATE_SIZE 28
+#define SV_STATE_SIZE 32
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE)

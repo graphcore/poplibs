@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "colossus/tilearch.h"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
@@ -271,9 +272,9 @@ scaled_add_data_half_factor_float_scalar:
   // a7 is a callee save register so is safe to store the FP_CTL register
   // which will be modified inside the called function
   {ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET/4
-  uget  $a7, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK}
+  uget  $a7, $FP_CTL }
   call $lr, CHECK_ACCURACY_WHEN_CAST
-  uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7
+  uput $FP_CTL, $a7
 .endm
 
 DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW
@@ -423,8 +424,9 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 #define SV_STATE_SCALES_OFFSET 16
 #define SV_STATE_DATA_B_OFFSET 20
 #define SV_STATE_MEM_CONSTRAINTS 24
+#define SV_STATE_SCALEB_OFFSET   28 // Not used in this file
 
-#define SV_STATE_SIZE 28
+#define SV_STATE_SIZE 32
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE)
@@ -461,7 +463,7 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 // Flag for memConstraints
 #define MEM_CONSTRAINTS_MASK 0x1
 
-#define LC_SEL 2
+#define LC_SET 2
 #define LC_MASK 1
 #define SSR_REGISTER 1
 #define CR_REGISTER 2
@@ -488,20 +490,19 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   setzi $tmp_remM1, TMEM_REGION0_BASE_ADDR
   setzi $tmp_log2AtomSize, VERTEX_SV_SCALE_FLOAT_CHECK
   sub $tmp_remM1,$m0, $tmp_remM1
-  // Store/restore the SSR register in case other vertices in this compute set
+  // Save SSR register for later in case other vertices in this compute set
   // check/rely on it
   get $tmp_atomSizeMask, SSR_REGISTER // Pipe flush which would happen before run instruction anyhow
 
   // Call the worker which will check the accuracy of the scale
   run $tmp_log2AtomSize, $tmp_remM1, 0
-  // Do work while the worker is working, we don't care much about pipe hits as we
-  // should beat it.  We are also setting up the initial value in the SSR_REGISTER
-  // (which is then used as the return result) while the worker runs.  The worker will
-  // potentially change it on exit.
+  // Do work while the worker is working, we don't care much about pipe hits as
+  // we should beat it. The 1-bit exit status of the FLOAT_CHECK worker thread
+  // will be AND-ed to the LC bit in $SSR register, so we need to set the LC bit
+  // to 1 (through CR register) to find the exit status.
   add $sp, $sp, -STACK_SIZE
-  // Use $CR register to set the LC bit in the $SSR register - exit status from
-  // local worker threads
-  setzi $tmp_countD2, LC_SEL
+  // Set the LC bit in SSR to 1 (through CR register)
+  setzi $tmp_countD2, LC_SET
   put CR_REGISTER, $tmp_countD2
 
 #ifdef VECTOR_AVAIL_SCALED_PTR64
@@ -528,7 +529,7 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
   // Fetch and isolate the return value "isHalfAccurate"
   get $tmp_remM1, SSR_REGISTER // This get flushes the pipline
   and $tmp_remM1, $tmp_remM1, LC_MASK
-  put SSR_REGISTER, $tmp_atomSizeMask // This put flushes the pipeline
+  put SSR_REGISTER, $tmp_atomSizeMask // Restore SSR. This flushes the pipeline
 
   brnz $tmp_remM1, VERTEX(supervisor)  // 6 Cycles if branch taken, 1 otherwise
 

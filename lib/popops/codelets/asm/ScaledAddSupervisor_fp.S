@@ -59,17 +59,20 @@
   #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 16
 #endif
 
-// create a new vertex state on the supervisor stack that has the input values
-// preprocessed for all of the workers to use.
+// The VERTEX(supervisor) code will create a new vertex state on the supervisor
+// stack that has the input values preprocessed for all of the workers to use.
 #define SV_STATE_DATA_OFFSET 0
 #define SV_STATE_COUNT_OFFSET 4
 #define SV_STATE_REMM1_OFFSET 8
 #define SV_STATE_FINAL_OFFSET 12
+// Contains scaleA offset only (half or float), or both scaleA & scaleB for the
+// aX+bY vertex, when the scale values are halves
 #define SV_STATE_SCALES_OFFSET 16
 #define SV_STATE_DATA_B_OFFSET 20
 #define SV_STATE_MEM_CONSTRAINTS 24
+#define SV_STATE_SCALEB_OFFSET   28 // Unused here, space needed in shared code
 
-#define SV_STATE_SIZE 28
+#define SV_STATE_SIZE 32
 
 // total space required on the stack
 #define STACK_SIZE (SV_STATE_SIZE)
@@ -87,23 +90,26 @@
 
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
+
+// These 6 registers cannot be changed willy-nilly, as they are the input
+// parameters of VERTEX(supervisor), which is called from other files beside
+// as this one.
+#define countD2 m1
+#define log2AtomSize m7
+#define atomSizeMask m8
+#define mworkerFunction m6
+#define memConstraints m2
+#define mscratch m4
+
+
 // supervisor variables
 #define vertexPtr m0
-#define countD2 m1
 #define final m2
-#define memConstraints m2
 // Flag for memConstraints
 #define MEM_CONSTRAINTS_MASK 0x1
 
 #define remM1 m3
-
-#define mscratch m4
 #define mscratch2 m5
-
-#define mworkerFunction m6
-
-#define log2AtomSize m7
-#define atomSizeMask m8
 #define mscratch3 m6
 
 
@@ -315,20 +321,20 @@ SUBTRACT_VERTEX(half_half_true):
   bri   VERTEX(supervisor) // 6 cycles
 .size SUBTRACT_VERTEX(half_half), .-SUBTRACT_VERTEX(half_half_false)
 
-
-.globl AXPLUSBY_VERTEX(half_true_false)
-.type AXPLUSBY_VERTEX(half_true_false), @function
-.globl AXPLUSBY_VERTEX(half_true_true)
-.type AXPLUSBY_VERTEX(half_true_true), @function
+// ----- Entry points for constant scale values -----
+.globl AXPLUSBY_VERTEX(half_half_true_false)
+.type AXPLUSBY_VERTEX(half_half_true_false), @function
+.globl AXPLUSBY_VERTEX(half_half_true_true)
+.type AXPLUSBY_VERTEX(half_half_true_true), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_true)
 .section .text.AXPLUSBY_VERTEX(half_true)
 .align 4
 .supervisor
-AXPLUSBY_VERTEX(half_true_false):
+AXPLUSBY_VERTEX(half_half_true_false):
   setzi $memConstraints, 0
   bri   1f
-AXPLUSBY_VERTEX(half_true_true):
+AXPLUSBY_VERTEX(half_half_true_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // 2x16 bit factors
@@ -346,22 +352,23 @@ AXPLUSBY_VERTEX(half_true_true):
   nop
   sort4x16lo $mscratch, $mscratch, $mscratch2
   bri   VERTEX(supervisor) // 6 cycles
-.size AXPLUSBY_VERTEX(half_true), .-AXPLUSBY_VERTEX(half_true_false)
+.size AXPLUSBY_VERTEX(half_half_true), .-AXPLUSBY_VERTEX(half_half_true_false)
 
 
-.globl AXPLUSBY_VERTEX(half_false_false)
-.type AXPLUSBY_VERTEX(half_false_false), @function
-.globl AXPLUSBY_VERTEX(half_false_true)
-.type AXPLUSBY_VERTEX(half_false_true), @function
+// ----- Entry points for tensor scale values -----
+.globl AXPLUSBY_VERTEX(half_half_false_false)
+.type AXPLUSBY_VERTEX(half_half_false_false), @function
+.globl AXPLUSBY_VERTEX(half_half_false_true)
+.type AXPLUSBY_VERTEX(half_half_false_true), @function
 
 DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_false)
 .section .text.AXPLUSBY_VERTEX(half_false)
 .align 4
 .supervisor
-AXPLUSBY_VERTEX(half_false_false):
+AXPLUSBY_VERTEX(half_half_false_false):
   setzi $memConstraints, 0
   bri   1f
-AXPLUSBY_VERTEX(half_false_true):
+AXPLUSBY_VERTEX(half_half_false_true):
   setzi $memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -529,7 +536,8 @@ AX_MINUS_PLUS_BY_COMMON:
   br $remM1
 .size AX_MINUS_PLUS_BY_COMMON, .-AX_MINUS_PLUS_BY_COMMON
 //******************************************************************************
-// Mixed precision variant entry points
+// Mixed precision, i.e. dataA (X) = half, dataB (Y) = float, scaleB = half
+// and variant entry points
 //******************************************************************************
 .globl VERTEX(half_float_half_false_false)
 .type VERTEX(half_float_half_false_false), @function
@@ -630,9 +638,50 @@ SUBTRACT_VERTEX(half_float_true):
 
 .size SUBTRACT_VERTEX(half_float), .-SUBTRACT_VERTEX(half_float_false)
 
-//******************************************************************************
-// common supervisor code for mixed precision, half and float vertices.
-//******************************************************************************
+//*****************************************************************************
+// Common code for mixed precision, half and float supervisor vertices
+// (ScaledAdd, ScaledSubtract, aXplusbY, aXMinusby, etc.
+// Note that this code is called from other files as well so its specific
+// register usage cannot be modified indiscriminately.
+//
+// Divides the supervisor work among all workers and runs them.
+//
+// Each worker will be assigned to do a number 'N' of elements (with N a
+// multiple of the 'atom' size, 2 or 4). The workers with ID = [0..remM1]
+// will process an additional 'atom' of elements, and the worker ID = remM1
+// will also do an extra 'final' number of elements (either 0,1 if atom=2, or
+// 0,1,2,3 if atom=4).
+// The partitioning parameters are stored on the supervisor stack in a state
+// record which is common for all workers. Each worker will read the record,
+// adjust its parameter base on its worker ID and process the element with a
+// stride of 6.
+//
+// This code expects the following registers to have been set on entry:
+//
+//  $m1 ($countD2)         Total count (number of elements to process, among
+//                         all workers). Note: on entry is NOT count/2 as the
+//                         name might suggest.
+//
+//  $m7 ($log2AtomSize)    These two defines if we are processing 2 or 4
+//  $m8 ($atomSizeMask)    elements at a time in the main worker loop:
+//                         If atom=2 elements:
+//                             $log2AtomSize = 1,  $atomSizeMask= 0x1
+//                         If atom=4 elements:
+//                             $log2AtomSize = 2,  $atomSizeMask= 0x3
+//
+//  $m6 ($mworkerFunction) Pointer to the worker function to run.
+//
+//  $m2 ($memConstraints)  1 or 0 to indicate if the A and B data is guranteed
+//                         to be in different memory regions or not. It's not
+//                         used here, just passed through to the workers.
+//
+//  $m4 ($mscratch)        The scale value scaleA (half or float) for the
+//                         scaledAdd/Subtract vertices or both the scaleA and
+//                         scaleB for the aXplusbY/aXminusbY/XminuxaXplusbY
+//                         variants. It's not used here, just passed through
+//                         to the workers.
+//
+//*****************************************************************************
 .globl VERTEX(supervisor)
 .type VERTEX(supervisor), @function
 
@@ -650,13 +699,14 @@ VERTEX(supervisor):
 #endif
 
   st32 $memConstraints, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
+  st32 $mscratch, $sp, $mzero, SV_STATE_SCALES_OFFSET/4
+
   // transform the total count into remM1, final and count/6:
   //  where remM1 is the amount of workers (minus 1) that are required to
   //  process an extra atom size of elements, final is the non atom size
   //  remainder the final worker must process (when N is not divisible by the
   //  atoms size) and count is how many elements every worker processes
 
-  st32  $mscratch, $sp, $mzero, SV_STATE_SCALES_OFFSET/4
   // for the rest calculate n / 6 and n % 6 by reciprocal multiplcation
   //   n/6 = (n * 0xAAAB) >> 18
   //   n%6 = n - (n/6)*6
@@ -708,7 +758,6 @@ VERTEX(supervisor):
   add $remM1, $remM1, -1 // 6 cycles
 1:
 
-  // allocate space on the stack for our new state and store it.
   st32 $remM1, $sp, $mzero, SV_STATE_REMM1_OFFSET/4 // 6 cycles if final != 0
   st32 $final, $sp, $mzero, SV_STATE_FINAL_OFFSET/4
   st32 $countD2, $sp, $mzero, SV_STATE_COUNT_OFFSET/4
@@ -950,6 +999,7 @@ VERTEX(half).kernel:
     sort4x16lo $k, $ascratch, $k
   }
 
+.globl VERTEX(axplusby_half).kernel
 VERTEX(axplusby_half).kernel:
   ld32 $k, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
 not_axplusby_continue:

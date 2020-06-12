@@ -5,15 +5,15 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 
-#define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_true_true
-#define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_false_true
+#define VERTEX_AXPBY_CONST_FAST __runCodelet_popops__aXPlusbY2D___half_half_true_true
+#define VERTEX_AXPBY_TENSOR_FAST __runCodelet_popops__aXPlusbY2D___half_half_false_true
 #define VERTEX_AX_MINUS_BY_TENSOR_FAST __runCodelet_popops__aXMinusbY2D___half_false_true
 #define VERTEX_ADD_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_true_true
 #define VERTEX_ADD_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_half_false_true
 #define VERTEX_SUBTRACT_FAST __runCodelet_popops__ScaledSubtract2D___half_true
 
-#define VERTEX_AXPBY_CONST_SLOW __runCodelet_popops__aXPlusbY2D___half_true_false
-#define VERTEX_AXPBY_TENSOR_SLOW __runCodelet_popops__aXPlusbY2D___half_false_false
+#define VERTEX_AXPBY_CONST_SLOW __runCodelet_popops__aXPlusbY2D___half_half_true_false
+#define VERTEX_AXPBY_TENSOR_SLOW __runCodelet_popops__aXPlusbY2D___half_half_false_false
 #define VERTEX_AX_MINUS_BY_TENSOR_SLOW __runCodelet_popops__aXMinusbY2D___half_false_false
 #define VERTEX_ADD_CONST_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_true_false
 #define VERTEX_ADD_TENSOR_SLOW __runCodelet_popops__ScaledAdd2D___half_half_half_false_false
@@ -253,7 +253,8 @@ axplusby_true_continue:
     // setup $TAS for the f16v4mix instructions below.
     uput $TAS, $ascratch
   }
-
+.globl axplusby_half_half_common
+axplusby_half_half_common:  // This is called from ScaledAddaXPlusbY_mixed.S
   // minus 1 for the brnzdec
   add $outDataSize, $outDataSize, -1
 .Louter_loop:
