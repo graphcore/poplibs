@@ -624,16 +624,18 @@ static std::uint64_t estimateCastCycles(unsigned outputSize,
 }
 
 static std::uint64_t estimateConvReduceCycles(
-    unsigned outputSize, unsigned reductionDepth, bool floatOutput,
-    bool floatPartials, unsigned numWorkers, unsigned dataPathWidth,
-    unsigned partialsVectorWidth, unsigned outputVectorWidth,
-    unsigned bytesPerTile, unsigned bytesPerPartialsElement,
-    bool enableMultiStageReduce, bool enableFastReduce,
-    bool enableSingleInputReduce) {
+    unsigned outputSize, unsigned reductionDepth, bool inChanSerialSplit,
+    bool floatOutput, bool floatPartials, unsigned numWorkers,
+    unsigned dataPathWidth, unsigned partialsVectorWidth,
+    unsigned outputVectorWidth, unsigned bytesPerTile,
+    unsigned bytesPerPartialsElement, bool enableMultiStageReduce,
+    bool enableFastReduce, bool enableSingleInputReduce) {
   if (reductionDepth == 0)
     return 0;
   if (reductionDepth == 1) {
-    if (floatOutput == floatPartials) {
+    // if input-channel serial splitting is involved, casting is deferred until
+    // all the serial splits have been processed.
+    if ((floatOutput == floatPartials) || (inChanSerialSplit == 1)) {
       return 0;
     } else {
       return estimateCastCycles(outputSize, partialsVectorWidth,
@@ -841,6 +843,7 @@ template <typename T> struct Estimates {
   T reduceCycles;
   T dynamicUpdateCycles;
   T addInPlaceCycles;
+  T castCycles;
 
   T rearrangeBeforeSliceTempBytes;
   T rearrangeBeforeSliceTempDuringRearrangeBytes;
@@ -848,6 +851,7 @@ template <typename T> struct Estimates {
   T tileLevelTransformTempBytes;
   T convTempBytes;
   T reduceTempBytes;
+  T addInPlaceTempBytes;
 
   static constexpr std::vector<std::pair<poplar::StringRef, T Estimates::*>>
   getCycleCountContributingMembers() {
@@ -861,7 +865,8 @@ template <typename T> struct Estimates {
         {"partialCalcCycles", &Estimates::partialCalcCycles},
         {"reduceCycles", &Estimates::reduceCycles},
         {"dynamicUpdateCycles", &Estimates::dynamicUpdateCycles},
-        {"addInPlaceCycles", &Estimates::addInPlaceCycles}};
+        {"addInPlaceCycles", &Estimates::addInPlaceCycles},
+        {"castCycles", &Estimates::castCycles}};
   }
 };
 
@@ -2170,15 +2175,16 @@ addReduceCycleEstimate(popsolver::Model &m,
     const auto bytesPerPartialsElement =
         target.getTypeSize(floatPartials ? poplar::FLOAT : poplar::HALF);
     const auto cycleEstimate =
-        m.call({outputsPerLevel.back(), reductionDepth},
+        m.call({outputsPerLevel.back(), reductionDepth,
+                partitionVars[level].inChanSplit.serial},
                [floatOutput, floatPartials, numWorkers, dataPathWidth,
                 partialsVectorWidth, outputVectorWidth, bytesPerTile,
                 bytesPerPartialsElement, &options,
                 cache](const std::vector<unsigned> &vars) -> unsigned {
                  return cache->mEstimateConvReduceCycles(
-                     vars[0], vars[1], floatOutput, floatPartials, numWorkers,
-                     dataPathWidth, partialsVectorWidth, outputVectorWidth,
-                     bytesPerTile, bytesPerPartialsElement,
+                     vars[0], vars[1], vars[2], floatOutput, floatPartials,
+                     numWorkers, dataPathWidth, partialsVectorWidth,
+                     outputVectorWidth, bytesPerTile, bytesPerPartialsElement,
                      options.enableMultiStageReduce, options.enableFastReduce,
                      options.enableSingleInputReduce);
                });
@@ -2615,9 +2621,37 @@ static popsolver::Variable outputOperationInPlaceEstimate(
   });
 }
 
+popsolver::Variable addCastEstimate(popsolver::Model &m,
+                                    const poplar::Target &target,
+                                    const popsolver::Variable outputsPerTile,
+                                    const PartitionVariables &tileSplits,
+                                    const std::vector<ConvTypes> &types) {
+  assert(types.size() > 0);
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto partialsType = types.back().resultType;
+  const auto resultType = types[0].resultType;
+  const auto partialsVectorWidth = target.getVectorWidth(partialsType);
+  const auto resultVectorWidth = target.getVectorWidth(resultType);
+  const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
+  return m.call(
+      {outputsPerTile, inChanSerialSplit},
+      [numWorkers, partialsVectorWidth,
+       resultVectorWidth](const auto &vars) -> unsigned {
+        const auto &outputsPerTile = vars[0];
+        const auto &inChanSerialSplit = vars[1];
+        assert(inChanSerialSplit >= 1);
+        if (inChanSerialSplit == 1) {
+          return 0;
+        }
+        return estimateCastCycles(outputsPerTile, partialsVectorWidth,
+                                  resultVectorWidth, numWorkers);
+      },
+      "castCycles");
+}
+
 // estimation function for addInPlace accumulation of input-channel-serially
 // split convolution partials
-static popsolver::Variable
+std::pair<popsolver::Variable, popsolver::Variable>
 addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
                    const popsolver::Variable &outputsPerTile,
                    const PartitionVariables &tileSplits,
@@ -2627,13 +2661,24 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
   assert(types.size() > 0);
   const auto numWorkers = target.getNumWorkerContexts();
   const unsigned intraTileLevel = types.size() - 1;
-  const auto outputsType = types[intraTileLevel].resultType;
-  const auto vectorWidth = target.getVectorWidth(outputsType);
+  const auto partialType = types[intraTileLevel].resultType;
+  const auto vectorWidth = target.getVectorWidth(partialType);
   const unsigned cyclesPerVector = 3;
   const unsigned cyclesLoopOverhead = 20;
-  return outputOperationInPlaceEstimate(m, cyclesPerVector, cyclesLoopOverhead,
-                                        numWorkers, vectorWidth, outputsPerTile,
-                                        tileSplits);
+  auto cycles = outputOperationInPlaceEstimate(
+      m, cyclesPerVector, cyclesLoopOverhead, numWorkers, vectorWidth,
+      outputsPerTile, tileSplits);
+
+  const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
+  const auto one = m.addConstant(1);
+  const auto two = m.addConstant(2);
+  auto isInChanSeriallySplit =
+      m.min({m.floordiv(inChanSerialSplit, two), one}, "isInChanSeriallySplit");
+  auto partialStorage = m.product(
+      {outputsPerTile, m.addConstant(target.getTypeSize(partialType))},
+      "addInPlaceTempBytes");
+  auto tempBytes = m.product({isInChanSeriallySplit, partialStorage});
+  return std::make_pair(cycles, tempBytes);
 }
 
 // estimation function for zero memory setting of output before addInPlace
@@ -2648,8 +2693,8 @@ memsetZeroEstimate(popsolver::Model &m, const poplar::Target &target,
   assert(types.size() > 0);
   const auto numWorkers = target.getNumWorkerContexts();
   const unsigned intraTileLevel = types.size() - 1;
-  const auto outputsType = types[intraTileLevel].resultType;
-  const auto vectorWidth = target.getVectorWidth(outputsType);
+  const auto partialType = types[intraTileLevel].resultType;
+  const auto vectorWidth = target.getVectorWidth(partialType);
   const unsigned cyclesPerVector = 1;
   const unsigned cyclesLoopOverhead = 0;
   return outputOperationInPlaceEstimate(m, cyclesPerVector, cyclesLoopOverhead,
@@ -2864,8 +2909,13 @@ static Estimates<popsolver::Variable> addEstimates(
                                                    intraTileSplits, types);
   e.memsetZeroBeforeAddInPlace =
       memsetZeroEstimate(m, target, outputsPerTile, intraTileSplits, types);
-  e.addInPlaceCycles =
+  std::tie(e.addInPlaceCycles, e.addInPlaceTempBytes) =
       addInPlaceEstimate(m, target, outputsPerTile, intraTileSplits, types);
+
+  // If input channel serial splits are used, casting is deferred until after
+  // all serial splits have been processed.
+  e.castCycles =
+      addCastEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
   e.totalCycles =
       m.sum({e.dynamicSliceCycles, e.transformCycles, e.exchangeCycles,
@@ -2873,7 +2923,7 @@ static Estimates<popsolver::Variable> addEstimates(
              e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
   e.totalCycles = m.sum({e.memsetZeroBeforeAddInPlace, e.totalCycles,
-                         e.rearrangeBeforeSliceCycles});
+                         e.rearrangeBeforeSliceCycles, e.castCycles});
 
   // take the total amount of temp bytes alive at the same time.
   e.totalTempBytes =
@@ -2881,7 +2931,8 @@ static Estimates<popsolver::Variable> addEstimates(
              m.max({e.transformTempBytes,
                     m.sum({e.tileLevelTransformTempBytes, e.convTempBytes}),
                     e.reduceTempBytes,
-                    e.rearrangeBeforeSliceTempDuringRearrangeBytes})});
+                    e.rearrangeBeforeSliceTempDuringRearrangeBytes}),
+             e.addInPlaceTempBytes});
 
   return e;
 }
@@ -4179,6 +4230,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.reduceCycles = s[e.reduceCycles];
   cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
   cost.addInPlaceCycles = s[e.addInPlaceCycles];
+  cost.castCycles = s[e.castCycles];
 
   cost.rearrangeBeforeSliceTempBytes = s[e.rearrangeBeforeSliceTempBytes];
   cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
@@ -4187,6 +4239,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.tileLevelTransformTempBytes = s[e.tileLevelTransformTempBytes];
   cost.convTempBytes = s[e.convTempBytes];
   cost.reduceTempBytes = s[e.reduceTempBytes];
+  cost.addInPlaceTempBytes = s[e.addInPlaceTempBytes];
 
   return {plan, cost};
 }
@@ -5018,8 +5071,11 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                cost.reduceTempBytes);
   logging::log(l, "   - dynamic update: {} cycles, unknown bytes",
                cost.dynamicUpdateCycles);
-  logging::log(l, "   - add in-place: {} cycles, unknown bytes",
-               cost.addInPlaceCycles);
+  logging::log(l, "   - add in-place: {} cycles, {} bytes",
+               cost.addInPlaceCycles, cost.addInPlaceTempBytes);
+  // The tensor generated on the final cast is not considered as part of the
+  // temporary memory for the purposes of the Conv Planner.
+  logging::log(l, "   - cast: {} cycles, 0 bytes", cost.castCycles, 0);
   logging::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
                cost.totalTempBytes);
 }
