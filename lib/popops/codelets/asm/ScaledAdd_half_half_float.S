@@ -4,7 +4,6 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
-#include "colossus/tilearch.h"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
@@ -272,9 +271,9 @@ scaled_add_data_half_factor_float_scalar:
   // a7 is a callee save register so is safe to store the FP_CTL register
   // which will be modified inside the called function
   {ld32  $C_CALL_PARAM_TOLERANCE, $mvertex_base, $mzero, VERTEX_TOLERANCE_OFFSET/4
-  uget  $a7, $FP_CTL }
+  uget  $a7, CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK }
   call $lr, CHECK_ACCURACY_WHEN_CAST
-  uput $FP_CTL, $a7
+  uput CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK, $a7
 .endm
 
 DEF_STACK_SIZE_OWN 0 .text.VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_SLOW

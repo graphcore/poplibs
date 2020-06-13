@@ -6,9 +6,6 @@
 #include <cmath>
 #include <math.h>
 
-#ifdef __IPU__
-#include "colossus/tilearch.h"
-#endif
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
@@ -46,7 +43,8 @@ public:
     // range in half precision.  We need to store / restore the FP_CTL as
     // the worker will continue to run the actual scaledAdd code - done
     // outside this function
-    __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX);
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
 #endif
     const auto castInput = static_cast<OutputType>(input);
     const auto relativeError = static_cast<InputType>(
@@ -69,7 +67,8 @@ public:
     // range in half precision.  We need to store / restore the FP_CTL as
     // the worker will continue to run the actual scaledAdd code - done outside
     // this function
-    __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX);
+    __builtin_ipu_uput(0x00000000,
+                       CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
     // Cast to half and back to float, decision is based on relative error
     const auto castInput = static_cast<half>(input);
     return (ipu::fabs(input) * tolerance) >
@@ -98,8 +97,10 @@ bool checkAccuracyWhenCastFloatV2ToHalf(float x0, float x1, float tolerance) {
   if (std::fabs(x0) > 65504 || std::fabs(x1) > 65504)
     return false;
 #ifdef __IPU__
-  unsigned save_fp_ctl = __builtin_ipu_uget(CSR_W_FP_CTL__INDEX);
-  __builtin_ipu_uput(0x00000000, CSR_W_FP_CTL__INDEX);
+  unsigned save_fp_ctl =
+      __builtin_ipu_uget(CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
+  __builtin_ipu_uput(0x00000000,
+                     CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
 #endif
   float maxErr0 = std::fabs(tolerance * x0);
   float maxErr1 = std::fabs(tolerance * x1);
@@ -108,7 +109,8 @@ bool checkAccuracyWhenCastFloatV2ToHalf(float x0, float x1, float tolerance) {
   float diff0 = static_cast<float>(x0half) - x0;
   float diff1 = static_cast<float>(x1half) - x1;
 #ifdef __IPU__
-  __builtin_ipu_uput(save_fp_ctl, CSR_W_FP_CTL__INDEX);
+  __builtin_ipu_uput(save_fp_ctl,
+                     CSR_W_FP_CTL__INDEX & CSR_W_WSR__CTXTID_M1__MASK);
 #endif
   return std::fabs(diff0) < maxErr0 && std::fabs(diff1) < maxErr1;
 }
