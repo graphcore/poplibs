@@ -823,6 +823,12 @@ PlanningCache::PlanningCache() {
 
 PlanningCache::~PlanningCache() = default;
 
+template <typename T> struct ExchangeEstimates {
+  T inputExchangeCycles;
+  T weightExchangeCycles;
+  T reduceFirstStageExchangeCycles;
+  T reduceRemainingStagesExchangeCycles;
+};
 template <typename T> struct Estimates {
   Estimates() = default;
   Estimates(const T totalCycles, const T totalTempBytes)
@@ -837,7 +843,10 @@ template <typename T> struct Estimates {
   T memsetZeroBeforeAddInPlace;
   T dynamicSliceCycles;
   T transformCycles;
-  T exchangeCycles;
+
+  T totalExchangeCycles;
+  ExchangeEstimates<T> itemisedExchangeCycles;
+
   T tileLevelTransformCycles;
   T partialCalcCycles;
   T reduceCycles;
@@ -860,7 +869,7 @@ template <typename T> struct Estimates {
         {"memsetZeroBeforeAddInPlace", &Estimates::memsetZeroBeforeAddInPlace},
         {"dynamicSliceCycles", &Estimates::dynamicSliceCycles},
         {"transformCycles", &Estimates::transformCycles},
-        {"exchangeCycles", &Estimates::exchangeCycles},
+        {"exchangeCycles", &Estimates::totalExchangeCycles},
         {"tileLevelTransformCycles", &Estimates::tileLevelTransformCycles},
         {"partialCalcCycles", &Estimates::partialCalcCycles},
         {"reduceCycles", &Estimates::reduceCycles},
@@ -1946,7 +1955,7 @@ void addReductionDepthConstraint(popsolver::Model &m, unsigned level,
   m.equal(reductionDepth, referenceReductionDepth);
 }
 
-static popsolver::Variable addExchangeCycleEstimate(
+ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
     const std::vector<std::unordered_set<unsigned>> &transformedDims,
@@ -1962,14 +1971,17 @@ static popsolver::Variable addExchangeCycleEstimate(
   assert(partitionVars.size() == numLevelsOfHierarchy - 1);
   assert(transformedDims.size() == numLevelsOfHierarchy);
 
-  // the number of cycles for exchange is the sum of the cycles for the input,
-  // weights and partials for each level in the hierarchy (not including the
-  // tile level). these are stored in this vector.
-  std::vector<popsolver::Variable> cycleSumOperands;
-
   inputsPerLevel.clear();
   weightsPerLevel.clear();
 
+  // The number of cycles for exchange is the sum of the cycles for the input,
+  // weights and partials for each level in the hierarchy (not including the
+  // tile level). These are stored in each vector.  The sum of each vector is
+  // returned to give itemised results and help with analysis.
+  std::vector<popsolver::Variable> inputExchangeCycles;
+  std::vector<popsolver::Variable> weightExchangeCycles;
+  std::vector<popsolver::Variable> reduceFirstStageExchangeCycles;
+  std::vector<popsolver::Variable> reduceRemainingStagesExchangeCycles;
   // this loop calculates the exchange cycles for each transition between a
   // hierarchy level, ie inter-IPU split to IPU level and then IPU level to tile
   // split (assuming there is more than one IPU).
@@ -2070,13 +2082,11 @@ static popsolver::Variable addExchangeCycleEstimate(
     // a reduction of these partials across the device.
     const auto numberOfPartialSums = numberOfOutputElements;
 
-    const auto inputElementCycles = exchangeEstimator.getInputElementCycles(
-        numberOfInputElements, params.inputType, level);
-    cycleSumOperands.push_back(inputElementCycles);
+    inputExchangeCycles.push_back(exchangeEstimator.getInputElementCycles(
+        numberOfInputElements, params.inputType, level));
 
-    const auto weightCycles =
-        exchangeEstimator.getCycles(numberOfWeights, params.inputType, level);
-    cycleSumOperands.push_back(weightCycles);
+    weightExchangeCycles.push_back(
+        exchangeEstimator.getCycles(numberOfWeights, params.inputType, level));
 
     // We do the first stage of any reduction separately so that we
     // can prune the search space based on this from previous best
@@ -2085,9 +2095,8 @@ static popsolver::Variable addExchangeCycleEstimate(
     //
     // Any further stages are dependent on the reduction plan and their
     // cycle cost is added through a call.
-    const auto partialSumCyclesFirstStage = exchangeEstimator.getCycles(
-        numberOfPartialSums, types[level + 1].resultType, level);
-    cycleSumOperands.push_back(partialSumCyclesFirstStage);
+    reduceFirstStageExchangeCycles.push_back(exchangeEstimator.getCycles(
+        numberOfPartialSums, types[level + 1].resultType, level));
 
     auto reduceDimSizes = partitionsNextLevel.kernelSplit;
     reduceDimSizes.push_back(partitionsNextLevel.inChanSplit.parallel);
@@ -2097,7 +2106,8 @@ static popsolver::Variable addExchangeCycleEstimate(
       addReductionDepthConstraint(m, level, reductionDepth, *referencePlan);
     }
     const auto resultType = types[level + 1].resultType;
-    const auto partialSumCyclesRemainingStages = m.call(
+
+    auto remainingExchangeCycles = m.call(
         {numberOfPartialSums, reductionDepth},
         [exchangeEstimator, resultType, level,
          &options](const std::vector<unsigned> &vars) -> unsigned {
@@ -2133,10 +2143,16 @@ static popsolver::Variable addExchangeCycleEstimate(
           return cycles;
         },
         "partialSumExchangeCycleEstimate");
-    cycleSumOperands.push_back(partialSumCyclesRemainingStages);
+    reduceRemainingStagesExchangeCycles.push_back(remainingExchangeCycles);
   }
+  ExchangeEstimates<popsolver::Variable> result;
+  result.inputExchangeCycles = m.sum(inputExchangeCycles);
+  result.weightExchangeCycles = m.sum(weightExchangeCycles);
+  result.reduceFirstStageExchangeCycles = m.sum(reduceFirstStageExchangeCycles);
+  result.reduceRemainingStagesExchangeCycles =
+      m.sum(reduceRemainingStagesExchangeCycles);
 
-  return m.sum(cycleSumOperands, "exchangeCycleEstimate");
+  return result;
 }
 
 // Pair of cycles and temporary bytes for reductions
@@ -2803,7 +2819,7 @@ static Estimates<popsolver::Variable> addEstimates(
 
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
 
-  e.exchangeCycles = addExchangeCycleEstimate(
+  e.itemisedExchangeCycles = addExchangeCycleEstimates(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
       transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel,
       referencePlan);
@@ -2917,8 +2933,14 @@ static Estimates<popsolver::Variable> addEstimates(
   e.castCycles =
       addCastEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
+  e.totalExchangeCycles =
+      m.sum({e.itemisedExchangeCycles.inputExchangeCycles,
+             e.itemisedExchangeCycles.weightExchangeCycles,
+             e.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
+             e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles});
+
   e.totalCycles =
-      m.sum({e.dynamicSliceCycles, e.transformCycles, e.exchangeCycles,
+      m.sum({e.dynamicSliceCycles, e.transformCycles, e.totalExchangeCycles,
              e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
              e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
@@ -4224,7 +4246,17 @@ static std::pair<Plan, Cost> choosePlan(
   cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
   cost.transformCycles = s[e.transformCycles];
-  cost.exchangeCycles = s[e.exchangeCycles];
+
+  cost.totalExchangeCycles = s[e.totalExchangeCycles];
+  cost.itemisedExchangeCycles.inputExchangeCycles =
+      s[e.itemisedExchangeCycles.inputExchangeCycles];
+  cost.itemisedExchangeCycles.weightExchangeCycles =
+      s[e.itemisedExchangeCycles.weightExchangeCycles];
+  cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles =
+      s[e.itemisedExchangeCycles.reduceFirstStageExchangeCycles];
+  cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles =
+      s[e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles];
+
   cost.tileLevelTransformCycles = s[e.tileLevelTransformCycles];
   cost.partialCalcCycles = s[e.partialCalcCycles];
   cost.reduceCycles = s[e.reduceCycles];
@@ -5062,7 +5094,15 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                cost.dynamicSliceCycles);
   logging::log(l, "   - transform: {} cycles, {} bytes", cost.transformCycles,
                cost.transformTempBytes);
-  logging::log(l, "   - exchange: {} cycles, n/a bytes", cost.exchangeCycles);
+  logging::log(l,
+               "   - exchange: {} cycles, n/a bytes. (Input {},"
+               " Weight {}, Reduce {} + {})",
+               cost.totalExchangeCycles,
+               cost.itemisedExchangeCycles.inputExchangeCycles,
+               cost.itemisedExchangeCycles.weightExchangeCycles,
+               cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
+               cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles);
+
   logging::log(l, "   - tile level transform: {} cycles, {} bytes",
                cost.tileLevelTransformCycles, cost.tileLevelTransformTempBytes);
   logging::log(l, "   - compute: {} cycles, {} bytes", cost.partialCalcCycles,
