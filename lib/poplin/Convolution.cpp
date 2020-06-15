@@ -4523,20 +4523,16 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   if (level < plan.partitions.size()) {
     if (partition.inChanSplit.serial > 1) {
       auto &thisLoop = cpt.loopPost[level].back();
-      auto zero = graph.addConstant(out.elementType(), out.shape(), 0,
-                                    debugPrefix + "/zero");
-      auto serialOut = graph.clone(out, debugPrefix + "/serialOut");
-      auto mapping = graph.getTileMapping(out);
-      graph.setTileMapping(zero, mapping);
+      auto serialOut = graph.clone(out, debugPrefix + "/serialOut_clone");
 
-      // Zero-Initialise destination tensor
-      auto &parentLoop =
-          (level == 0) ? cpt.initProg : cpt.loopPre[level - 1].back();
-      parentLoop.add(Copy(zero, serialOut));
-
-      // Accumulate the results into the destination tensor serialOut
-      addInPlace(graph, serialOut, out, thisLoop,
+      Sequence loopCounterGtZero;
+      addInPlace(graph, serialOut, out, loopCounterGtZero,
                  debugPrefix + "/serialOut" + levelSuffix);
+
+      // Just save output on first iteration so it can be used to accumulate
+      // following results without explicitly zeroing acc storage
+      thisLoop.add(Switch(loopCounter.reshape({}), {{0, Copy(out, serialOut)}},
+                          loopCounterGtZero));
       out = serialOut;
 
       // Increment counter

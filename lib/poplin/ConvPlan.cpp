@@ -840,7 +840,6 @@ template <typename T> struct Estimates {
 
   // extra information that can be used for logging.
   T rearrangeBeforeSliceCycles;
-  T memsetZeroBeforeAddInPlace;
   T dynamicSliceCycles;
   T transformCycles;
 
@@ -851,6 +850,7 @@ template <typename T> struct Estimates {
   T partialCalcCycles;
   T reduceCycles;
   T dynamicUpdateCycles;
+  T copyCycles;
   T addInPlaceCycles;
   T castCycles;
 
@@ -866,7 +866,6 @@ template <typename T> struct Estimates {
   getCycleCountContributingMembers() {
     return {
         {"rearrangeBeforeSliceCycles", &Estimates::rearrangeBeforeSliceCycles},
-        {"memsetZeroBeforeAddInPlace", &Estimates::memsetZeroBeforeAddInPlace},
         {"dynamicSliceCycles", &Estimates::dynamicSliceCycles},
         {"transformCycles", &Estimates::transformCycles},
         {"exchangeCycles", &Estimates::totalExchangeCycles},
@@ -874,6 +873,7 @@ template <typename T> struct Estimates {
         {"partialCalcCycles", &Estimates::partialCalcCycles},
         {"reduceCycles", &Estimates::reduceCycles},
         {"dynamicUpdateCycles", &Estimates::dynamicUpdateCycles},
+        {"copyCycles", &Estimates::copyCycles},
         {"addInPlaceCycles", &Estimates::addInPlaceCycles},
         {"castCycles", &Estimates::castCycles}};
   }
@@ -2697,13 +2697,14 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
   return std::make_pair(cycles, tempBytes);
 }
 
-// estimation function for zero memory setting of output before addInPlace
-// operations for every input channel serial split convolution
+// estimation function for copy (store) output from first split before
+// addInPlace operations for any following input channel serial split
+// convolution
 static popsolver::Variable
-memsetZeroEstimate(popsolver::Model &m, const poplar::Target &target,
-                   const popsolver::Variable &outputsPerTile,
-                   const PartitionVariables &tileSplits,
-                   const std::vector<ConvTypes> &types) {
+copyEstimate(popsolver::Model &m, const poplar::Target &target,
+             const popsolver::Variable &outputsPerTile,
+             const PartitionVariables &tileSplits,
+             const std::vector<ConvTypes> &types) {
   // currently the input channels are serially split only in the
   // intra-IPU level. TODO: T12878 Assert that this is the case.
   assert(types.size() > 0);
@@ -2712,7 +2713,7 @@ memsetZeroEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto partialType = types[intraTileLevel].resultType;
   const auto vectorWidth = target.getVectorWidth(partialType);
   const unsigned cyclesPerVector = 1;
-  const unsigned cyclesLoopOverhead = 0;
+  const unsigned cyclesLoopOverhead = 15;
   return outputOperationInPlaceEstimate(m, cyclesPerVector, cyclesLoopOverhead,
                                         numWorkers, vectorWidth, outputsPerTile,
                                         tileSplits);
@@ -2923,8 +2924,8 @@ static Estimates<popsolver::Variable> addEstimates(
   const auto &outputsPerTile = outputsPerLevel.back();
   e.dynamicUpdateCycles = addDynamicUpdateEstimate(m, target, outputsPerTile,
                                                    intraTileSplits, types);
-  e.memsetZeroBeforeAddInPlace =
-      memsetZeroEstimate(m, target, outputsPerTile, intraTileSplits, types);
+  e.copyCycles =
+      copyEstimate(m, target, outputsPerTile, intraTileSplits, types);
   std::tie(e.addInPlaceCycles, e.addInPlaceTempBytes) =
       addInPlaceEstimate(m, target, outputsPerTile, intraTileSplits, types);
 
@@ -2939,13 +2940,22 @@ static Estimates<popsolver::Variable> addEstimates(
              e.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
              e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles});
 
+  // Cycles to run convolution for input channels serial splits from 2 to N
   e.totalCycles =
       m.sum({e.dynamicSliceCycles, e.transformCycles, e.totalExchangeCycles,
              e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
              e.dynamicUpdateCycles, e.addInPlaceCycles});
-  e.totalCycles = m.product({e.totalCycles, serialSplits});
-  e.totalCycles = m.sum({e.memsetZeroBeforeAddInPlace, e.totalCycles,
-                         e.rearrangeBeforeSliceCycles, e.castCycles});
+
+  auto serialSplitsM1 = m.sub(serialSplits, m.addConstant(1));
+  e.totalCycles = m.product({e.totalCycles, serialSplitsM1});
+
+  // Cycles to run convolution for a first input channels serial split
+  e.totalCycles = m.sum({e.totalCycles, e.dynamicSliceCycles, e.transformCycles,
+                         e.totalExchangeCycles, e.tileLevelTransformCycles,
+                         e.partialCalcCycles, e.reduceCycles,
+                         e.dynamicUpdateCycles, e.copyCycles});
+  e.totalCycles =
+      m.sum({e.totalCycles, e.rearrangeBeforeSliceCycles, e.castCycles});
 
   // take the total amount of temp bytes alive at the same time.
   e.totalTempBytes =
@@ -4243,7 +4253,6 @@ static std::pair<Plan, Cost> choosePlan(
   cost.totalTempBytes = s[e.totalTempBytes];
 
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
-  cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
   cost.transformCycles = s[e.transformCycles];
 
@@ -4261,6 +4270,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.partialCalcCycles = s[e.partialCalcCycles];
   cost.reduceCycles = s[e.reduceCycles];
   cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
+  cost.copyCycles = s[e.copyCycles];
   cost.addInPlaceCycles = s[e.addInPlaceCycles];
   cost.castCycles = s[e.castCycles];
 
@@ -5088,8 +5098,8 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                    cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
                cost.rearrangeBeforeSliceTempBytes,
                cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
-  logging::log(l, "   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
-               cost.memsetZeroBeforeAddInPlace);
+  logging::log(l, "   - copy before add in-place: {} cycles, unknown bytes",
+               cost.copyCycles);
   logging::log(l, "   - dynamic slice: {} cycles, unknown bytes",
                cost.dynamicSliceCycles);
   logging::log(l, "   - transform: {} cycles, {} bytes", cost.transformCycles,
