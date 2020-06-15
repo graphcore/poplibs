@@ -1100,33 +1100,44 @@ static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
           [&](std::size_t t, const std::size_t dim) {
             return t * params.getTruncatedKernelSize(dim);
           });
-      auto inChanGrainSize = convPlan.partitions[level].inChanGrainSize;
+      const auto inChanGrainSize = convPlan.partitions[level].inChanGrainSize;
       for (unsigned i = 0; i != expandDimsSpatial.size(); ++i) {
-        unsigned roundedElems = lcm(expandedDimElems, grainSize);
-        unsigned factor = roundedElems / expandedDimElems;
-        auto dim = expandDimsSpatial[i];
-        auto truncatedKernelSize = params.getTruncatedKernelSize(dim);
+        const unsigned roundedElems = lcm(expandedDimElems, grainSize);
+        const unsigned factor = roundedElems / expandedDimElems;
+        const auto dim = expandDimsSpatial[i];
+        const auto truncatedKernelSize = params.getTruncatedKernelSize(dim);
         // We're all padding anyway
         if (truncatedKernelSize == 0)
           break;
-        auto kernelPadded =
+        remainingExpansion /= truncatedKernelSize;
+
+        const auto kernelPadded =
             ((truncatedKernelSize + factor - 1) / factor) * factor;
-        auto kernelPadding = kernelPadded - truncatedKernelSize;
-        auto inChanPaddingAfterFullExpansion =
-            kernelPadding * remainingExpansion;
+        const auto numInChansWithPaddingAfterFullExpansion =
+            kernelPadded * remainingExpansion * params.getNumInputChans();
+        const auto numInChansWithoutPaddingAfterFullExpansion =
+            truncatedKernelSize * remainingExpansion *
+            params.getNumInputChans();
+
+        const auto paddingHasNotIncreasedOverallSize =
+            roundUp(numInChansWithPaddingAfterFullExpansion, inChanGrainSize) ==
+            roundUp(numInChansWithoutPaddingAfterFullExpansion,
+                    inChanGrainSize);
+
         // We can partially expand at this point either if:
-        // * the kernel is evenly divisible by the desired factor (no padding
-        // required)
-        if ((truncatedKernelSize % factor) == 0 ||
+        if (
+            // * the kernel is evenly divisible by the desired factor (no
+            //   padding required)
+            (truncatedKernelSize % factor) == 0 ||
             // * the padding after fully expanding is no more than would be
-            //   added as a result of the input channel grain size.
-            (truncatedKernelSize > 1 &&
-             inChanPaddingAfterFullExpansion < inChanGrainSize) ||
+            //   added as a result of rounding up to the input channel grain
+            //   size.
+            (truncatedKernelSize > 1 && paddingHasNotIncreasedOverallSize) ||
             // * this is the last dimension to be expanded (padding can be
-            // safely
-            //   added as it will end up in the last input channels and can be
-            //   easily stripped.
+            //   safely added as it will end up in the last input channels and
+            //   can be easily stripped.
             (truncatedKernelSize > 1 && i == expandDimsSpatial.size() - 1)) {
+
           plan.partialExpansion.first = dim;
           plan.partialExpansion.second = factor;
           maxGroupSize = gcd(roundedElems, destGrouping[0].second);
@@ -1135,7 +1146,6 @@ static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
           break;
         }
         expandedDimElems *= truncatedKernelSize;
-        remainingExpansion /= truncatedKernelSize;
       }
     }
 
@@ -3480,6 +3490,9 @@ void createConvPartialSlicVertex(
     ConvParams params, Sequence &transformPre, Tensor &copyWritten,
     ComputeSet fwdCS, Sequence &postConvProg, Tensor in, Tensor weights,
     Tensor out, const std::string &debugPrefix) {
+  // We don't handle multiple input channel/output channel groups.
+  assert(params.getNumInputChansPerConvGroup() == chansPerGroup &&
+         params.getNumOutputChansPerConvGroup() == chansPerGroup);
   const auto outputStride = params.outputTransform.stride.back();
 
   const auto &target = graph.getTarget();
@@ -3504,6 +3517,8 @@ void createConvPartialSlicVertex(
   assert(isAll(false, params.inputTransform.flip));
 
   // We do not handle any kernel transforms at time of writing.
+  assert(isAll(0u, params.kernelTransform.truncationLower));
+  assert(isAll(0u, params.kernelTransform.truncationUpper));
   assert(isAll(1u, params.kernelTransform.dilation));
   assert(isAll(0u, params.kernelTransform.paddingLower));
   assert(isAll(0u, params.kernelTransform.paddingUpper));
