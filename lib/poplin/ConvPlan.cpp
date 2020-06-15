@@ -624,7 +624,7 @@ static std::uint64_t estimateCastCycles(unsigned outputSize,
 }
 
 static std::uint64_t estimateConvReduceCycles(
-    unsigned outputSize, unsigned reductionDepth, bool inChanSerialSplit,
+    unsigned outputSize, unsigned reductionDepth, unsigned inChanSerialSplit,
     bool floatOutput, bool floatPartials, unsigned numWorkers,
     unsigned dataPathWidth, unsigned partialsVectorWidth,
     unsigned outputVectorWidth, unsigned bytesPerTile,
@@ -635,7 +635,7 @@ static std::uint64_t estimateConvReduceCycles(
   if (reductionDepth == 1) {
     // if input-channel serial splitting is involved, casting is deferred until
     // all the serial splits have been processed.
-    if ((floatOutput == floatPartials) || (inChanSerialSplit == 1)) {
+    if ((floatOutput == floatPartials) || (inChanSerialSplit > 1)) {
       return 0;
     } else {
       return estimateCastCycles(outputSize, partialsVectorWidth,
