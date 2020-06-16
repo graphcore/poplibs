@@ -1,5 +1,7 @@
 # Building Poplibs Externally (e.g. from Github Repo)
 
+Note that only Ubuntu 18.04 is supported for building PopLibs externally.
+
 ## Build Requirements
 
 ### Poplar SDK
@@ -42,23 +44,18 @@ Clone the Poplibs Github repository
 
     git clone https://github.com/graphcore/poplibs.git
 
-Create a build directory:
+Create 'build' and 'install' directories:
 
     cd poplibs
-    mkdir build
+    mkdir build install
     cd build
 
-Run cmake:
+Run cmake then build with Ninja:
 
-    cmake ../ -DCMAKE_BUILD_TYPE=Release -GNinja
-
-Build with ninja:
-
+    cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -GNinja
     ninja
 
-## Linking to a custom-built Poplibs
+Install with Ninja then source the enable script:
 
-If you have customised Poplibs and built it by linking to the Poplar SDK, you
-may want to build another project that links to your custom Poplibs build. To
-do this you must first install your customised Poplibs (by using `ninja install`
-for example) then source the `enable.sh` script inside the install directory.
+    ninja install
+    . ../install/enable.sh

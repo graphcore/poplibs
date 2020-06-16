@@ -37,24 +37,6 @@ if(${zoltan_FOUND})
   add_subdirectory(popsparse)
 endif()
 
-# If we are linking to Poplar in an SDK, rename all Poplibs libraries to
-# ensure we use the local Poplibs libraries - not the ones from the SDK.
-if (DEFINED ENV{POPLAR_SDK_ENABLED})
-  set_target_properties(popsolver PROPERTIES OUTPUT_NAME popsolver_local)
-  set_target_properties(poplibs_support PROPERTIES OUTPUT_NAME poplibs_support_local)
-  set_target_properties(poputil PROPERTIES OUTPUT_NAME poputil_local)
-  set_target_properties(popops PROPERTIES OUTPUT_NAME popops_local)
-  set_target_properties(poprand PROPERTIES OUTPUT_NAME poprand_local)
-  set_target_properties(poplin PROPERTIES OUTPUT_NAME poplin_local)
-  set_target_properties(popnn PROPERTIES OUTPUT_NAME popnn_local)
-  set_target_properties(poplibs_test PROPERTIES OUTPUT_NAME poplibs_test_local)
-  set_target_properties(popfloat PROPERTIES OUTPUT_NAME popfloat_local)
-
-  if(TARGET popsparse)
-    set_target_properties(popsparse PROPERTIES OUTPUT_NAME popsparse_local)
-  endif()
-endif()
-
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/poplibs-config.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poplibs
         COMPONENT poplibs)

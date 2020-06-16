@@ -186,8 +186,6 @@ if (DEFINED ENV{POPLAR_SDK_ENABLED})
 /bin/cat <<MessageEnd
 ERROR: This Poplibs build must be installed (e.g. ninja install) before it can
 be enabled. Once installed, source enable.sh from the install folder.
-NOTE: You only need to enable if you are building another project that links
-to this build.
 MessageEnd
 ]=])
   install(FILES ${CMAKE_SOURCE_DIR}/packaging_files/enable.sh.in

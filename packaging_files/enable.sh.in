@@ -4,6 +4,12 @@ if [ -z ${POPLAR_SDK_ENABLED+x} ]
 then
   echo 'ERROR: You must enable a Poplar SDK before you can enable Poplibs.'
 else
+  [[ "$OSTYPE" == "linux-gnu" ]] || echo "WARNING: Only Linux is supported. Continue at own risk."
   DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
-  export CMAKE_PREFIX_PATH="$DIR:$CMAKE_PREFIX_PATH"
+  export CPATH="$DIR/include:$CPATH"
+  export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
+  export LIBRARY_PATH="$DIR/lib:$LIBRARY_PATH"
+
+  # For backward compatibility, create symbolic link <LIB>_local.so to each <LIB>.so file:
+  /usr/bin/find "$DIR/lib" -name '*.so' -type f -exec /bin/sh -c 'LIB="{}"; /bin/ln -s "${LIB}" "${LIB%.so}_local.so"' \;
 fi
