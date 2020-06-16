@@ -165,7 +165,7 @@ static Tensor partialGroupedReduce(
 
     graph.setTileMapping(out[i], outSubMapping);
     logging::debug("    Reduction section with Depth {}, Height {}.",
-                   out[i].numElements(), end - begin);
+                   end - begin, out[i].numElements());
     reduce(graph, tileToRow, enableFastReduce, enableSingleInputReduce,
            end - begin, partials.slice(begin, end), out[i], outSubMapping, cs);
   }
