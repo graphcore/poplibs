@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 //
 #include <popsolver/Model.hpp>
 #define BOOST_TEST_MODULE Mod

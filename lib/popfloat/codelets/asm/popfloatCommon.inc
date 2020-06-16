@@ -1,3 +1,4 @@
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 #ifndef POPFLOAT_COMMON_H
 #define POPFLOAT_COMMON_H

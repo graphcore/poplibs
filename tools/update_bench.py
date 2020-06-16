@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020 Graphcore Ltd, All rights reserved.
+# Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 """
 A tool to run all poplibs benchmarks and update expected results.
