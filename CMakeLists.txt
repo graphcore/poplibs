@@ -121,7 +121,7 @@ else()
   set(Boost_USE_STATIC_LIBS ON)
 endif()
 
-find_package(Boost 1.65.1 REQUIRED regex)
+find_package(Boost 1.70.0 REQUIRED regex)
 find_package(TBB REQUIRED)
 find_package(zoltan QUIET)
 
