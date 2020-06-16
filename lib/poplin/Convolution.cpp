@@ -4161,69 +4161,53 @@ preprocessForSerialSlice(Tensor *input, Tensor *weights,
   return std::make_tuple(parallelParams, indices);
 }
 
-ConvProgramTree::ConvProgramTree(
-    unsigned numLevels, const std::vector<unsigned> &serialSplitsPerLevel,
-    Tensor copyWritten, ComputeSet convolveCS)
-    : numLevels(numLevels), transformPre(numLevels), transformPost(numLevels),
-      loopPre(numLevels), loopPost(numLevels), transformPostSerial(numLevels),
-      loopCounts(numLevels), reduceComputeSets(numLevels),
-      convolveCSGroup(convolveCS), copyWritten(std::move(copyWritten)) {
-  // For the time being we only support output channel serial splitting and
-  // as such there is at most one loop per level in the hierarchy. When
-  // a decision has been made about how to implement multiple dimensions of
-  // serial slices, this can be nailed down better.
-  for (unsigned level = 0; level < numLevels; ++level) {
-    loopPre[level].emplace_back();
-    loopPost[level].emplace_back();
-    transformPostSerial[level].emplace_back();
-    if (level == numLevels - 1) {
-      loopCounts[level].emplace_back(1);
-    } else {
-      loopCounts[level].emplace_back(serialSplitsPerLevel[level]);
-    }
-  }
-}
+ConvProgramTree::ConvProgramTree(unsigned numLevels, unsigned numSerialSplits,
+                                 Tensor copyWritten, ComputeSet convolveCS)
+    : transformPre(numLevels), transformPost(numLevels),
+      loopCount(numSerialSplits), convolveCSGroup(convolveCS),
+      reduceComputeSets(numLevels - 1), copyWritten(std::move(copyWritten)) {}
 
 void ConvProgramTree::lower(Sequence &prog) {
   prog.add(WriteUndef(copyWritten));
   prog.add(initProg);
-  std::vector<Sequence> loopBodies;
-  for (unsigned level = 0; level != numLevels; ++level) {
-    assert(std::accumulate(loopCounts[level].begin(), loopCounts[level].end(),
-                           unsigned(1), std::multiplies<unsigned>()) != 0);
-    assert(loopCounts[level].size() == loopPre[level].size() &&
-           loopPre[level].size() == loopPost[level].size());
-    for (std::size_t i = 0; i != loopCounts[level].size(); ++i) {
-      loopBodies.emplace_back();
-      auto &seq = loopBodies.back();
-      seq.add(loopPre[level][i]);
-    }
-    auto &seq = loopBodies.back();
-    seq.add(transformPre[level]);
-  }
-  loopBodies.back().add(convolveCSGroup.createProgram());
 
-  for (int level = numLevels - 1; level >= 0; --level) {
-    auto &seq = loopBodies.back();
-    for (const auto &reduceCS : reduceComputeSets[level]) {
-      seq.add(Execute(reduceCS));
-    }
-    seq.add(transformPost[level]);
-    for (int i = loopCounts[level].size() - 1; i >= 0; --i) {
-      auto &seq = loopBodies.back();
-      seq.add(loopPost[level][i]);
-      auto &parentSequence =
-          (loopBodies.size() == 1) ? prog : *(loopBodies.end() - 2);
-      if (loopCounts[level][i] > 1) {
-        parentSequence.add(Repeat(loopCounts[level][i], seq));
-      } else {
-        parentSequence.add(seq);
-      }
-      parentSequence.add(transformPostSerial[level][i]);
-      loopBodies.pop_back();
-    }
+  assert(transformPre.size() == transformPost.size());
+  const unsigned numLevels = transformPre.size();
+  assert(numLevels > 1);
+
+  Sequence body;
+
+  // lower the transforms in ascending order as we climb the hierarchy.
+  for (unsigned level = 0; level < numLevels; ++level) {
+    body.add(transformPre[level]);
   }
-  assert(loopBodies.empty());
+
+  body.add(convolveCSGroup.createProgram());
+
+  // lower the remaining reductions and inverse transforms in reverse order
+  // as we descend the hierarchy.
+  body.add(transformPost.back());
+  for (int level = numLevels - 2; level >= 0; --level) {
+    // there is a reduction for each level in the partition hierarchy, which is
+    // one less than the transforms. therefore there is no reduction in the
+    // outermost level which is why we start at numLevels - 2 and add the
+    // innermost transform outside of this loop.
+    assert(numLevels - 1 == reduceComputeSets.size());
+    for (const auto &reduceCS : reduceComputeSets[level]) {
+      body.add(Execute(reduceCS));
+    }
+
+    body.add(transformPost[level]);
+  }
+
+  prog.add(transformPreSerial);
+  if (loopCount == 1) {
+    prog.add(body);
+  } else {
+    assert(loopCount != 0);
+    prog.add(Repeat(loopCount, Sequence(slice, body, update, loopPost)));
+  }
+  prog.add(transformPostSerial);
 
   prog.add(finalizeProg);
 }
@@ -4246,67 +4230,81 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       convolutionPreprocess(graph, serialParams.releaseParams(), options, plan,
                             level, indices, inSlice, weightsSlice, true);
 
+  const auto ipuLevel = plan.transforms.size() - 2;
+
   auto levelIndices = indices;
   levelIndices.emplace_back();
   auto parallelParams = serialParams;
   const std::string levelSuffix = "[" + std::to_string(level) + "]";
-  if (level < plan.partitions.size()) {
+  // we only support serial splits on the ipu level.
+  if (level == ipuLevel) {
     const auto &partition = plan.partitions[level];
+
     if (partition.totalSerialSplit() > 1) {
       std::tie(parallelParams, levelIndices.back().serial) =
           preprocessForSerialSlice(&inSlice, &weightsSlice, serialParams,
                                    partition);
       // We check if the given tensor is such that a slice will cause exchange
       // and if so, rearrange before the loop rather than after as this will be
-      // very expensive.
-      auto &parentLoop =
-          (level == 0) ? cpt.initProg : cpt.loopPre[level - 1].back();
+      // very expensive. this happens as a pre transform of the previous level
+      // in the hierarchy.
       auto rearrangeIfSplitOverTiles = [&](Tensor &slice, bool isActs) {
         auto sliceKind = isActs ? "input" : "weights";
         logging::debug("'{}': forcing rearrangement of {} before slice "
                        "because sliced dimension is split over tiles",
                        debugPrefix, sliceKind);
+
         auto createSliceMethod = isActs ? createInputImpl : createWeightsImpl;
         auto sliceRearranged = createSliceMethod(
             graph, serialParams, level, true, indices,
             debugPrefix + "/" + sliceKind + "Rearranged", plan, options);
+
         auto inSliceRearranged = isActs ? &sliceRearranged : nullptr;
         auto weightsSliceRearranged = isActs ? nullptr : &sliceRearranged;
         preprocessForSerialSlice(inSliceRearranged, weightsSliceRearranged,
                                  serialParams, partition);
+
         slice = popops::rearrange::regroupIfBeneficial(
-            graph, slice, sliceRearranged, parentLoop,
+            graph, slice, sliceRearranged, cpt.transformPreSerial,
             debugPrefix + "/" + sliceKind + "RegroupBeforeSlice");
-        parentLoop.add(Copy(slice, sliceRearranged));
+        cpt.transformPreSerial.add(Copy(slice, sliceRearranged));
+
         return sliceRearranged;
       };
+
       if ((partition.inChanSplit.serial > 1) &&
           dimIsSplitOverTiles(graph, inSlice, 0)) {
         inSlice = rearrangeIfSplitOverTiles(inSlice, true);
       }
+
       if (((partition.inChanSplit.serial > 1) ||
            (partition.outChanSplit.serial > 1)) &&
           dimIsSplitOverTiles(graph, weightsSlice, 0)) {
         weightsSlice = rearrangeIfSplitOverTiles(weightsSlice, false);
       }
+
+      // create and zero initialise loop counter.
       loopCounter = graph.addVariable(
           UNSIGNED_INT, {1}, debugPrefix + "/loopCounter" + levelSuffix);
       graph.setTileMapping(loopCounter, 0);
-      popops::zero(graph, loopCounter, parentLoop,
-                   debugPrefix + "/initLoopCounter" + levelSuffix);
-      auto &thisLoop = cpt.loopPre[level].back();
+      const auto zeroConstant = graph.addConstant(
+          UNSIGNED_INT, {1}, 0, debugPrefix + "/zero" + levelSuffix);
+      graph.setTileMapping(zeroConstant, 0);
+      cpt.transformPreSerial.add(Copy(zeroConstant, loopCounter));
+
+      // per iteration slices of input.
       if (partition.inChanSplit.serial > 1) {
-        inSlice = dynamicSlice(graph, inSlice, loopCounter, {0}, {1}, thisLoop,
+        inSlice = dynamicSlice(graph, inSlice, loopCounter, {0}, {1}, cpt.slice,
                                debugPrefix + "/inputSerialSlice" + levelSuffix)
                       .squeeze({0});
         weightsSlice =
-            dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, thisLoop,
+            dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, cpt.slice,
                          debugPrefix + "/weightsSerialSlice" + levelSuffix)
                 .squeeze({0});
       }
       if (partition.outChanSplit.serial > 1) {
         weightsSlice =
-            dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, thisLoop,
+            dynamicSlice(graph, weightsSlice, loopCounter, {0}, {1}, cpt.slice,
                          debugPrefix + "/weightsSerialSlice" + levelSuffix)
                 .squeeze({0});
       }
@@ -4316,7 +4314,6 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   const auto preTransformParams = parallelParams;
 
   // Transform.
-  const auto ipuLevel = plan.transforms.size() - 2;
   bool rearrangeActs = false;
   bool rearrangeWeights = false;
   if (level == ipuLevel) {
@@ -4375,8 +4372,6 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       inSlice, weightsSlice, false, &cpt.transformPre[level], &cpt.copyWritten,
       rearrangeActs, rearrangeWeights, debugPrefix);
 
-  // Convolve.
-
   // We create partials at as high a level in the hierarchy as possible so
   // as to reduce the complexity of the tensor expression that represents
   // the partials at the higher levels (a concatenation of multiple
@@ -4399,13 +4394,17 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     partials = graph.addVariable(plan.types.back().partialType, partialsShape,
                                  debugPrefix + "/partials");
   }
+
+  // Convolve.
   Tensor out;
   const auto resultType = plan.types[level].resultType;
-  if (level == plan.partitions.size()) {
+  const auto tileLevel = plan.transforms.size() - 1;
+  if (level == tileLevel) {
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, options, indices, plan);
+    assert(cpt.transformPre.size() - 1 == level);
     calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
-                          cpt.transformPre.back(), cpt.copyWritten,
+                          cpt.transformPre[level], cpt.copyWritten,
                           cpt.convolveCSGroup, inSlice, weightsSlice, partials,
                           options.use128BitConvUnitLoad, debugPrefix);
     out = partials;
@@ -4535,30 +4534,26 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                                cpt.transformPost[level], debugPrefix);
 
   // Update.
-  if (level < plan.partitions.size()) {
-    if (partition.inChanSplit.serial > 1) {
-      auto &thisLoop = cpt.loopPost[level].back();
+  if (level == ipuLevel) {
+    const bool inChansAreSeriallySplit = partition.inChanSplit.serial > 1;
+    const bool outChansAreSeriallySplit = partition.outChanSplit.serial > 1;
+
+    if (inChansAreSeriallySplit) {
       auto serialOut = graph.clone(out, debugPrefix + "/serialOut_clone");
 
       Sequence loopCounterGtZero;
+      // Accumulate the results into the destination tensor serialOut
       addInPlace(graph, serialOut, out, loopCounterGtZero,
                  debugPrefix + "/serialOut" + levelSuffix);
 
       // Just save output on first iteration so it can be used to accumulate
       // following results without explicitly zeroing acc storage
-      thisLoop.add(Switch(loopCounter.reshape({}), {{0, Copy(out, serialOut)}},
-                          loopCounterGtZero));
+      cpt.update.add(Switch(loopCounter.reshape({}),
+                            {{0, Copy(out, serialOut)}}, loopCounterGtZero));
       out = serialOut;
-
-      // Increment counter
-      auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1);
-      graph.setTileMapping(loopIncrement, 0);
-      addInPlace(graph, loopCounter, loopIncrement, thisLoop,
-                 debugPrefix + "/loopIncrement" + levelSuffix);
     }
-    if (partition.outChanSplit.serial > 1) {
-      auto &thisLoop = cpt.loopPost[level].back();
 
+    if (outChansAreSeriallySplit) {
       // Make this tensor view suitable as a slice of the full output.
       out = out.expand({0});
 
@@ -4569,34 +4564,35 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
       // WriteUndef the output as it is Read/Write in each iteration but in the
       // course of the entire loop is completely written.
-      auto &parentLoop =
-          (level == 0) ? cpt.initProg : cpt.loopPre[level - 1].back();
-      parentLoop.add(WriteUndef(serialOut));
-      dynamicUpdate(graph, serialOut, out, loopCounter, {0}, {1}, thisLoop,
+      cpt.transformPreSerial.add(WriteUndef(serialOut));
+      dynamicUpdate(graph, serialOut, out, loopCounter, {0}, {1}, cpt.update,
                     debugPrefix + "/serialUpdate" + levelSuffix);
 
-      // Increment counter
-      auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1);
-      graph.setTileMapping(loopIncrement, 0);
-      addInPlace(graph, loopCounter, loopIncrement, thisLoop,
-                 debugPrefix + "/loopIncrement" + levelSuffix);
       // Flatten serial output channel split back into output channels
       out = serialOut.dimRoll(0, serialOut.rank() - 2)
                 .flatten(serialOut.rank() - 2, serialOut.rank());
+    }
+
+    // common code for either serial splits.
+    if (inChansAreSeriallySplit || outChansAreSeriallySplit) {
+      // Increment counter
+      auto loopIncrement = graph.addConstant(UNSIGNED_INT, {}, 1);
+      graph.setTileMapping(loopIncrement, 0);
+      addInPlace(graph, loopCounter, loopIncrement, cpt.loopPost,
+                 debugPrefix + "/loopIncrement" + levelSuffix);
     }
   }
 
   // Casting to the final result type (i.e., the result type of the outermost
   // level) should be deferred until all the serial splits have executed.
   if ((out.elementType() != resultType) && (partition.inChanSplit.serial > 1)) {
-    out = cast(graph, out, resultType, cpt.transformPostSerial[level].back(),
-               debugPrefix);
+    out = cast(graph, out, resultType, cpt.transformPostSerial, debugPrefix);
   }
 
   // Inverse transform.
-  out = convolutionPostprocess(
-      graph, originalParams, originalTransform, out, true /* serial */,
-      cpt.transformPostSerial[level].back(), debugPrefix);
+  out = convolutionPostprocess(graph, originalParams, originalTransform, out,
+                               true /* serial */, cpt.transformPostSerial,
+                               debugPrefix);
   return out;
 }
 
@@ -4809,7 +4805,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
 
   const auto numLevels = plan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, plan.serialSplitsPerLevel(),
+  ConvProgramTree cpt(numLevels, plan.totalSerialSplit(),
                       graph.addVariable(params->inputType, {0}),
                       graph.addComputeSet(layerName + "/Convolve"));
 
@@ -5072,7 +5068,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
 
   const auto layerName = debugPrefix + "/Conv" + convSuffix(wuParams);
   const auto numLevels = wuPlan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, wuPlan.serialSplitsPerLevel(),
+  ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
                       graph.addVariable(wuParams->inputType, {0}),
                       graph.addComputeSet(layerName + "/Convolve"));
 
@@ -5115,7 +5111,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   const auto numLevels = wuPlan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, wuPlan.serialSplitsPerLevel(),
+  ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
                       graph.addVariable(wuParams->inputType, {0}),
                       graph.addComputeSet(debugPrefix + "/Convolve"));
 
@@ -5162,7 +5158,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   const auto numLevels = wuPlan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, wuPlan.serialSplitsPerLevel(),
+  ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
                       graph.addVariable(wuParams->inputType, {0}),
                       graph.addComputeSet(debugPrefix + "/Convolve"));
 

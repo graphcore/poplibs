@@ -65,7 +65,7 @@ static void forEachSerialPlan(poplar::Graph &graph, const SerialPlan &serial,
 
     const auto name = debugPrefix + "/" + std::to_string(i);
     const auto numLevels = plan.partitions.size() + 1;
-    ConvProgramTree cpt(numLevels, plan.serialSplitsPerLevel(),
+    ConvProgramTree cpt(numLevels, plan.totalSerialSplit(),
                         graph.addVariable(arg.params->inputType, {0}),
                         graph.addComputeSet(name + "/Convolve"));
 
