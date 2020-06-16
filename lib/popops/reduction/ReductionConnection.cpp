@@ -1,8 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "ReductionConnection.hpp"
 
-#include <boost/optional.hpp>
-#include <boost/range/algorithm/transform.hpp>
+#include "CycleEstimationFunctions.hpp"
+#include "ReductionVertex.hpp"
 
 #include "poplibs_support/logging.hpp"
 #include <poplibs_support/Compiler.hpp>
@@ -11,8 +11,9 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
-#include "CycleEstimationFunctions.hpp"
-#include "ReductionVertex.hpp"
+#include <boost/optional.hpp>
+#include <boost/range/algorithm/transform.hpp>
+
 #include <algorithm>
 #include <cassert>
 
@@ -1447,6 +1448,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     if (splits[i] == 1) {
       singleStageReductions.push_back(reductions[i]);
       singleStageAssignments.push_back(singleStageAssignments.size());
+      logging::trace("Single stage reduction[{}] {}", i, reductions[i]);
     }
   }
 
@@ -1474,6 +1476,8 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     // e.g. if there are 6 reductions with reduction factors
     //   x1000, x5, x5, x5, x5, x5.
 
+    logging::trace("Two stage reduction[{}] = {}", i, reductions[i]);
+
     auto outputSize = reductions[i].output.numElements();
 
     auto totalRows = reductionFactor(reductions[i]);
@@ -1499,12 +1503,12 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     graph.setTileMapping(secondStagePartials[i], tile);
 
     // Now create the new RegionReductions.
-    for (unsigned s = 0; s < rowsPerWorker.size(); ++s) {
+    for (unsigned s = 0; s < partialsPerWorker.size(); ++s) {
       RegionReduction firstStage;
       firstStage.output =
           secondStagePartials[i].slice(s * outputSize, (s + 1) * outputSize);
       firstStage.partials = partialsPerWorker[s].partials;
-      firstStage.outerFactor = rowsPerWorker[s];
+      firstStage.outerFactor = partialsPerWorker[s].outerFactor;
 
       // Don't do scale or update in the first stage.
       ReduceParams firstStageParams(params.op);
@@ -1813,6 +1817,23 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                    remainingReductions.size() == workersUsed
                        ? " "
                        : "(Plus reductions to combine those split by row)");
+
+    for (size_t i = 0; i < remainingReductions.size(); i++) {
+
+      // Address splits which can't be represented as regular partials
+      if (splits[i] != 1 && remainingReductions[i].regularPartials() &&
+          remainingReductions[i].innerFactor != 1 &&
+          remainingReductions[i].outerFactor != 1) {
+
+        const auto convertToIrregularPartials =
+            [](popops::RegionReduction &region) {
+              const std::vector<RegionReduction> regions = {region};
+              const auto partials = extractPartials(regions);
+              region.partials = IrregularPartials{partials};
+            };
+        convertToIrregularPartials(remainingReductions[i]);
+      }
+    }
     connectTwoStageReductions(graph, css, reductionComputeSets, params,
                               inputType, partialType, outputType, tile,
                               remainingReductions, splits, reductionUsesInput,

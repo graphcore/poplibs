@@ -14,6 +14,7 @@
 #include <boost/range.hpp>
 #include <boost/variant.hpp>
 
+#include <iosfwd>
 #include <vector>
 
 namespace popops {
@@ -131,6 +132,23 @@ struct RegionReduction {
     }
   }
 };
+
+inline std::ostream &operator<<(std::ostream &os, const RegionReduction &r) {
+  if (r.regularPartials()) {
+    const auto &partials = boost::get<RegularPartials>(r.partials);
+    os << "{ inner = " << r.innerFactor << ", outer = " << r.outerFactor
+       << ", numPartials = " << r.getNumPartials()
+       << ", numPartialsElements = " << r.getNumPartialsElements()
+       << "; regular partials: offset = " << partials.offset
+       << ", stride = " << partials.stride << " }";
+  } else {
+    os << "{ inner = " << r.innerFactor
+       << ", numPartials = " << r.getNumPartials()
+       << ", numPartialsElements = " << r.getNumPartialsElements()
+       << "; irregular partials }";
+  }
+  return os;
+}
 
 /// Add vertices to the graph to perform the given reductions on the specified
 /// tile and connect the vertex inputs and outputs.
