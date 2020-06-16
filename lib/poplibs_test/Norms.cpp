@@ -86,7 +86,8 @@ void static groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
                                double eps, bool unbiasedVarEstimate,
                                bool stableAlgo,
                                boost::multi_array_ref<double, 1> mean,
-                               boost::multi_array_ref<double, 1> iStdDev) {
+                               boost::multi_array_ref<double, 1> iStdDev,
+                               bool useStridedChannelGrouping) {
   const unsigned batchSize = actsIn.shape()[0];
   const unsigned numChannels = actsIn.shape()[1];
   const auto numGroups = getNumGroups(batchSize, numChannels, mean.shape()[0]);
@@ -102,7 +103,8 @@ void static groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
       double sum = 0;
       double sumSquares = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const auto c = cpg * numGroups + g;
+        const auto c = useStridedChannelGrouping ? (cpg * numGroups + g)
+                                                 : (g * chansPerGroup + cpg);
         for (unsigned f = 0; f != numFieldElems; ++f) {
           sum += actsIn[b][c][f];
           sumSquares += actsIn[b][c][f] * actsIn[b][c][f];
@@ -115,7 +117,8 @@ void static groupNormEstimates(const boost::multi_array_ref<double, 3> actsIn,
         sumSquares = 0;
         double mean = sum / numElems;
         for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-          const auto c = cpg * numGroups + g;
+          const auto c = useStridedChannelGrouping ? (cpg * numGroups + g)
+                                                   : (g * chansPerGroup + cpg);
           for (unsigned f = 0; f != numFieldElems; ++f) {
             auto zeroMeanActs = actsIn[b][c][f] - mean;
             sumSquares += zeroMeanActs * zeroMeanActs;
@@ -177,7 +180,8 @@ static void groupNormalise(const boost::multi_array_ref<double, 3> acts,
                            const boost::multi_array_ref<double, 1> mean,
                            const boost::multi_array_ref<double, 1> iStdDev,
                            boost::multi_array_ref<double, 3> actsOut,
-                           boost::multi_array_ref<double, 3> actsWhitened) {
+                           boost::multi_array_ref<double, 3> actsWhitened,
+                           bool useStridedChannelGrouping) {
 
   const auto batchSize = acts.shape()[0];
   const auto numChannels = acts.shape()[1];
@@ -201,7 +205,8 @@ static void groupNormalise(const boost::multi_array_ref<double, 3> acts,
     for (unsigned g = 0; g != numGroups; ++g) {
       const auto statIndex = b * numGroups + g;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const auto c = cpg * numGroups + g;
+        const auto c = useStridedChannelGrouping ? (cpg * numGroups + g)
+                                                 : (g * chansPerGroup + cpg);
         for (unsigned f = 0; f != numFieldElems; ++f) {
           actsWhitened[b][c][f] =
               (acts[b][c][f] - mean[statIndex]) * iStdDev[statIndex];
@@ -269,7 +274,8 @@ groupNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
                    const boost::multi_array_ref<double, 3> gradsIn,
                    const boost::multi_array_ref<double, 1> iStdDev,
                    const boost::multi_array_ref<double, 1> gamma,
-                   boost::multi_array_ref<double, 3> gradsOut) {
+                   boost::multi_array_ref<double, 3> gradsOut,
+                   bool useStridedChannelGrouping) {
   const auto batchSize = actsWhitened.shape()[0];
   const auto numChannels = actsWhitened.shape()[1];
   const auto numFieldElems = actsWhitened.shape()[2];
@@ -305,7 +311,8 @@ groupNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
       double varGradAcc = 0;
       double meanGradAcc = 0;
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = cpg * numGroups + g;
+        const auto c = useStridedChannelGrouping ? (cpg * numGroups + g)
+                                                 : (g * chansPerGroup + cpg);
         for (unsigned f = 0; f != numFieldElems; ++f) {
           varGradAcc += actsWhitened[b][c][f] * gradsNorm[b][c][f];
           meanGradAcc += gradsNorm[b][c][f];
@@ -321,7 +328,8 @@ groupNormGradients(const boost::multi_array_ref<double, 3> actsWhitened,
   for (unsigned b = 0; b != batchSize; ++b) {
     for (unsigned g = 0; g != numGroups; ++g) {
       for (unsigned cpg = 0; cpg != chansPerGroup; ++cpg) {
-        const unsigned c = cpg * numGroups + g;
+        const auto c = useStridedChannelGrouping ? (cpg * numGroups + g)
+                                                 : (g * chansPerGroup + cpg);
         const unsigned statIndex = b * numGroups + g;
         for (unsigned f = 0; f != numFieldElems; ++f) {
           gradsOut[b][c][f] =
@@ -370,13 +378,14 @@ void poplibs_test::norm::normStatistics(
     const boost::multi_array_ref<double, 3> actsIn, double eps,
     bool unbiasedVarEstimate, bool stableAlgo,
     boost::multi_array_ref<double, 1> mean,
-    boost::multi_array_ref<double, 1> iStdDev, NormType normType) {
+    boost::multi_array_ref<double, 1> iStdDev, NormType normType,
+    bool groupNormStridedChannelGrouping) {
   if (normType == NormType::BatchNorm) {
     batchNormEstimates(actsIn, eps, unbiasedVarEstimate, stableAlgo, mean,
                        iStdDev);
   } else if (isOfGroupNormType(normType)) {
     groupNormEstimates(actsIn, eps, unbiasedVarEstimate, stableAlgo, mean,
-                       iStdDev);
+                       iStdDev, groupNormStridedChannelGrouping);
   } else {
     throw poplibs_test::poplibs_test_error("Normalisation type not supported");
   }
@@ -389,11 +398,13 @@ void poplibs_test::norm::normalise(
     const boost::multi_array_ref<double, 1> mean,
     const boost::multi_array_ref<double, 1> iStdDev,
     boost::multi_array_ref<double, 3> actsOut,
-    boost::multi_array_ref<double, 3> actsWhitened, NormType normType) {
+    boost::multi_array_ref<double, 3> actsWhitened, NormType normType,
+    bool groupNormStridedChannelGrouping) {
   if (normType == NormType::BatchNorm) {
     batchNormalise(actsIn, gamma, beta, mean, iStdDev, actsOut, actsWhitened);
   } else if (isOfGroupNormType(normType)) {
-    groupNormalise(actsIn, gamma, beta, mean, iStdDev, actsOut, actsWhitened);
+    groupNormalise(actsIn, gamma, beta, mean, iStdDev, actsOut, actsWhitened,
+                   groupNormStridedChannelGrouping);
   } else {
     throw poplibs_test::poplibs_test_error("Normalisation type not supported");
   }
@@ -404,11 +415,13 @@ void poplibs_test::norm::normGradients(
     const boost::multi_array_ref<double, 3> gradsIn,
     const boost::multi_array_ref<double, 1> iStdDev,
     const boost::multi_array_ref<double, 1> gamma,
-    boost::multi_array_ref<double, 3> gradsOut, NormType normType) {
+    boost::multi_array_ref<double, 3> gradsOut, NormType normType,
+    bool groupNormStridedChannelGrouping) {
   if (normType == NormType::BatchNorm) {
     batchNormGradients(actsWhitened, gradsIn, iStdDev, gamma, gradsOut);
   } else if (isOfGroupNormType(normType)) {
-    groupNormGradients(actsWhitened, gradsIn, iStdDev, gamma, gradsOut);
+    groupNormGradients(actsWhitened, gradsIn, iStdDev, gamma, gradsOut,
+                       groupNormStridedChannelGrouping);
   } else {
     throw poplibs_test::poplibs_test_error("Normalisation type not supported");
   }

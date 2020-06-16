@@ -25,7 +25,7 @@ void normStatistics(const boost::multi_array_ref<double, 3> actsIn, double eps,
                     bool unbiasedVarEstimate, bool stableAlgo,
                     boost::multi_array_ref<double, 1> mean,
                     boost::multi_array_ref<double, 1> invStdDev,
-                    NormType normType);
+                    NormType normType, bool groupNormStridedChannelGrouping);
 
 // Normalise activations togiven whitening statistics and parameters
 // gamma and beta and estimates mean and inverse standard deviation
@@ -36,7 +36,7 @@ void normalise(const boost::multi_array_ref<double, 3> actsIn,
                const boost::multi_array_ref<double, 1> invStdDev,
                boost::multi_array_ref<double, 3> actsOut,
                boost::multi_array_ref<double, 3> actsWhitened,
-               NormType normType);
+               NormType normType, bool groupNormStridedChannelGrouping);
 
 // Compute gradients for normalisation given whitened activations,
 // input gradients, inverse of standard deviation and gamma
@@ -45,7 +45,7 @@ void normGradients(const boost::multi_array_ref<double, 3> actsWhitened,
                    const boost::multi_array_ref<double, 1> invStdDev,
                    const boost::multi_array_ref<double, 1> gamma,
                    boost::multi_array_ref<double, 3> gradsOut,
-                   NormType normType);
+                   NormType normType, bool groupNormStridedChannelGrouping);
 
 // Update parameters gamma and beta given whitened activations
 void normParamUpdate(const boost::multi_array_ref<double, 3> actsWhitened,

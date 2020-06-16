@@ -810,31 +810,35 @@ add_multitarget_test(NAME BatchNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
     --stable-algo-for-stats=true
     --norm-type=BN)
 
-add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps
-  COMMAND norm_layer
-    --eps=0.00001
-    --learning-rate=0.01
-    --data-type=half
-    --unbiased-var-est=1
-    --partials-type=float
-    --tiles-per-ipu=16
-    --dims={2,32,28,28}
-    --num-groups=2
-    --stable-algo-for-stats=false
-    --norm-type=GN)
+foreach (STRIDED_GROUPING true false)
+  add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps_${STRIDED_GROUPING}
+    COMMAND norm_layer
+      --eps=0.00001
+      --learning-rate=0.01
+      --data-type=half
+      --unbiased-var-est=1
+      --partials-type=float
+      --tiles-per-ipu=16
+      --dims={2,32,28,28}
+      --num-groups=2
+      --stable-algo-for-stats=false
+      --norm-type=GN
+      --strided-channel-grouping=${STRIDED_GROUPING})
 
-add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable
-  COMMAND norm_layer
-    --eps=0.00001
-    --learning-rate=0.01
-    --data-type=half
-    --unbiased-var-est=1
-    --partials-type=float
-    --tiles-per-ipu=16
-    --dims={2,32,28,28}
-    --num-groups=2
-    --stable-algo-for-stats=true
-    --norm-type=GN)
+  add_multitarget_test(NAME GroupNormConv_Batch2_Dim28x28_Ch32_SmallEps_stable_${STRIDED_GROUPING}
+    COMMAND norm_layer
+      --eps=0.00001
+      --learning-rate=0.01
+      --data-type=half
+      --unbiased-var-est=1
+      --partials-type=float
+      --tiles-per-ipu=16
+      --dims={2,32,28,28}
+      --num-groups=2
+      --stable-algo-for-stats=true
+      --norm-type=GN
+      --strided-channel-grouping=${STRIDED_GROUPING})
+endforeach()
 
 add_multitarget_test(NAME GroupNormConv_Batch3_Dim4x4_Ch6_SmallEps
   COMMAND norm_layer

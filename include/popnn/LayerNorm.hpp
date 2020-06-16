@@ -6,6 +6,12 @@
 
 // Layer norm uses group norm with number of groups = 1
 
+/* **Layer normalisation options**
+ *
+ * As layer norm uses group norm, options are passed through - see the group
+ * norm header documentation for the option list.
+ */
+
 namespace popnn {
 namespace ln {
 
@@ -15,10 +21,11 @@ layerNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     poplar::program::Sequence &prog, bool unbiasedVarEstimate,
                     bool stableAlgo = false,
                     const poplar::Type &partialsType = poplar::FLOAT,
-                    const std::string &debugPrefix = "") {
+                    const std::string &debugPrefix = "",
+                    const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormStatistics(graph, acts, eps, prog, 1,
                                         unbiasedVarEstimate, stableAlgo,
-                                        partialsType, debugPrefix);
+                                        partialsType, debugPrefix, options);
 }
 
 /// Whiten activations given mean and standard deviation.
@@ -27,9 +34,10 @@ inline poplar::Tensor layerNormWhiten(poplar::Graph &graph,
                                       const poplar::Tensor &mean,
                                       const poplar::Tensor &invStdDev,
                                       poplar::program::Sequence &prog,
-                                      const std::string &debugPrefix = "") {
+                                      const std::string &debugPrefix = "",
+                                      const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormWhiten(graph, acts, mean, invStdDev, prog,
-                                    debugPrefix);
+                                    debugPrefix, options);
 }
 
 /// Layer normalise activations given mean, standard deviation and norm
@@ -43,9 +51,10 @@ layerNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                const poplar::Tensor &gamma, const poplar::Tensor &beta,
                const poplar::Tensor &mean, const poplar::Tensor &invStdDev,
                poplar::program::Sequence &prog,
-               const std::string &debugPrefix = "") {
+               const std::string &debugPrefix = "",
+               const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev,
-                                   prog, debugPrefix);
+                                   prog, debugPrefix, options);
 }
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -54,9 +63,11 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
     const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
     const poplar::Tensor &iStdDev, poplar::program::Sequence &prog,
     const poplar::Type &partialsType = poplar::FLOAT,
-    const std::string &debugPrefix = "") {
+    const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormParamGradients(graph, acts, gradsIn, mean, iStdDev,
-                                            prog, partialsType, debugPrefix);
+                                            prog, partialsType, debugPrefix,
+                                            options);
 }
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -64,9 +75,10 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
     const poplar::Type &partialsType = poplar::FLOAT,
-    const std::string &debugPrefix = "") {
+    const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormParamGradients(graph, actsWhitened, gradsIn, prog,
-                                            partialsType, debugPrefix);
+                                            partialsType, debugPrefix, options);
 }
 
 /// Compute gradients w.r.t input activations for the layer norm layer.
@@ -78,9 +90,11 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::Tensor &invStdDev, const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
                    const poplar::Type &partialsType = poplar::FLOAT,
-                   const std::string &debugPrefix = "") {
+                   const std::string &debugPrefix = "",
+                   const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormGradients(graph, acts, gradsIn, mean, invStdDev,
-                                       gamma, prog, partialsType, debugPrefix);
+                                       gamma, prog, partialsType, debugPrefix,
+                                       options);
 }
 
 /// Compute gradients w.r.t input activations for the layer norm layer.
@@ -92,9 +106,11 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &invStdDev, const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
                    const poplar::Type &partialsType = poplar::FLOAT,
-                   const std::string &debugPrefix = "") {
+                   const std::string &debugPrefix = "",
+                   const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev,
-                                       gamma, prog, partialsType, debugPrefix);
+                                       gamma, prog, partialsType, debugPrefix,
+                                       options);
 }
 
 /// Update layer norm parameters given the gradients w.r.t. parameters.
@@ -103,9 +119,11 @@ inline void layerNormParamUpdate(poplar::Graph &graph,
                                  const poplar::Tensor &betaDelta, float scale,
                                  poplar::Tensor &gamma, poplar::Tensor &beta,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "") {
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
-                                         gamma, beta, prog, debugPrefix);
+                                         gamma, beta, prog, debugPrefix,
+                                         options);
 }
 
 inline void layerNormParamUpdate(poplar::Graph &graph,
@@ -114,9 +132,11 @@ inline void layerNormParamUpdate(poplar::Graph &graph,
                                  const poplar::Tensor &scale,
                                  poplar::Tensor &gamma, poplar::Tensor &beta,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "") {
+                                 const std::string &debugPrefix = "",
+                                 const poplar::OptionFlags &options = {}) {
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
-                                         gamma, beta, prog, debugPrefix);
+                                         gamma, beta, prog, debugPrefix,
+                                         options);
 }
 } // namespace ln
 } // namespace popnn
