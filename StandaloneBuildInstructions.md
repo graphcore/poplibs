@@ -1,4 +1,6 @@
-# Building Poplibs Externally (e.g. from Github Repo)
+# Building PopLibs Externally (e.g. from Github Repo)
+
+Note that only Ubuntu 18.04 is supported for building PopLibs externally.
 
 Note that only Ubuntu 18.04 is supported for building PopLibs externally.
 
@@ -6,7 +8,7 @@ Note that only Ubuntu 18.04 is supported for building PopLibs externally.
 
 ### Poplar SDK
 
-In order to build Poplibs standalone, the latest version of the Poplar SDK must be downloaded and installed. Please see https://support.graphcore.ai/hc/en-us/articles/360001118534-Poplar-SDK-TensorFlow-Installation-Instructions
+In order to build PopLibs, the Poplar SDK must be downloaded and installed. Please see https://www.graphcore.ai/developer for details.
 
 ### CMake Version 3.10.2 or greater
 
@@ -14,17 +16,17 @@ On Ubuntu 18.04:
 
     apt install cmake
 
-### Boost Version 1.65.1 (or compatible with)
+### Boost Version 1.70.0 (or compatible with)
 
-On Ubuntu 18.04:
+Download Boost 1.70 source from here: https://www.boost.org/users/history/version_1_70_0.html
 
-    apt install libboost-all-dev
+For build and installation instructions, see: https://www.boost.org/doc/libs/1_70_0/more/getting_started/unix-variants.html
 
 ### Spdlog Version 0.16.3 (or compatible with)
 
 On Ubuntu 18.04:
 
-    apt install libspdlog-dev
+    $ apt install libspdlog-dev
 
 ### Python 3 (optional)
 
@@ -33,29 +35,32 @@ tests will become available.
 
 Ubuntu 18.04 ships with Python 3 already installed.
 
-## Building Poplibs
+### Ninja Version 1.8.2 (optional)
+
+These instructions use Ninja to build PopLibs. However, you may choose to use an alternative build system.
+
+On Ubuntu 18.04:
+
+    $ apt install ninja-build
+
+## Building PopLibs
 
 Source the Poplar and Driver enable scripts:
 
-    . <poplar_sdk_directory>/gc_drivers-<platform><version>/enable.sh
-    . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
+    $ . <poplar_sdk_directory>/gc_drivers-<platform><version>/enable.sh
+    $ . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
 
-Clone the Poplibs Github repository
+Create 'build' and 'install' directories within your PopLibs source directory:
 
-    git clone https://github.com/graphcore/poplibs.git
-
-Create 'build' and 'install' directories:
-
-    cd poplibs
-    mkdir build install
-    cd build
+    $ mkdir build install
+    $ cd build
 
 Run cmake then build with Ninja:
 
-    cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -GNinja
-    ninja
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -GNinja
+    $ ninja
 
 Install with Ninja then source the enable script:
 
-    ninja install
-    . ../install/enable.sh
+    $ ninja install
+    $ . ../install/enable.sh
