@@ -375,8 +375,7 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
   return std::make_pair(std::get<0>(result), std::get<1>(result));
 }
 
-Tensor regroupTensor(Graph &graph, const Tensor &t,
-                     poplar::program::Sequence &copies,
+Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_, const std::string &debugPrefix) {
   logging::debug("Regroup: debugstr={}", debugPrefix);
@@ -527,7 +526,7 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
     }
   }
 
-  copies.add(program::Copy(grouped, preRegroup));
+  copies.emplace_back(grouped, preRegroup);
 
   // Finally, transpose
   auto partiallyTransposed = popops::rearrange::partialTranspose(
@@ -536,8 +535,25 @@ Tensor regroupTensor(Graph &graph, const Tensor &t,
   return ungroupTensor(partiallyTransposed, from, to);
 }
 
+Tensor regroupTensor(Graph &graph, const Tensor &t_,
+                     poplar::program::Sequence &prog,
+                     const ComputeSet &transposeCS, const GroupingInfo &from_,
+                     const GroupingInfo &to_, const std::string &debugPrefix) {
+  std::vector<Copy> copies;
+  auto t =
+      regroupTensor(graph, t_, copies, transposeCS, from_, to_, debugPrefix);
+
+  for (const auto &copy : copies) {
+    prog.add(copy);
+  }
+
+  return t;
+}
+
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
-                           Sequence &prog, const std::string &debugPrefix) {
+                           std::vector<Copy> &preTranspose,
+                           ComputeSet transposeCS,
+                           const std::string &debugPrefix) {
   logging::debug("Regroup if beneficial: debugstr={}", debugPrefix);
   logging::debug("  input      shape={}", in_.shape());
   logging::debug("  reference  shape={}", ref.shape());
@@ -571,13 +587,25 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
       (inGrouping[0].second % grainSize) == 0 &&
       (refGrouping[0].second % grainSize) == 0) {
     logging::debug("  regrouped");
-    Sequence expandingCopies;
-    ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
-    in = regroupTensor(graph, in, expandingCopies, transposeCS, inGrouping[0],
+    in = regroupTensor(graph, in, preTranspose, transposeCS, inGrouping[0],
                        refGrouping[0], debugPrefix);
-    prog.add(expandingCopies);
-    prog.add(Execute(transposeCS));
   }
+  return in;
+}
+
+Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
+                           Sequence &prog, const std::string &debugPrefix) {
+  std::vector<Copy> preTranspose;
+  ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+
+  auto in = regroupIfBeneficial(graph, in_, ref, preTranspose, transposeCS,
+                                debugPrefix);
+
+  for (const auto &copy : preTranspose) {
+    prog.add(copy);
+  }
+  prog.add(Execute(transposeCS));
+
   return in;
 }
 

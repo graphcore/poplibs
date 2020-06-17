@@ -287,10 +287,14 @@ int main(int argc, char **argv) try {
   auto fwdCS = graph.addComputeSet("fwdCS");
   Sequence postFwdProg;
 
+  std::vector<Copy> transformPre;
   createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
-                              chansPerGroup, convUnitsRequired, 0, params, prog,
-                              copyWritten, fwdCS, postFwdProg, inGrouped,
-                              weightsGrouped, outGrouped, "vertex");
+                              chansPerGroup, convUnitsRequired, 0, params,
+                              transformPre, copyWritten, fwdCS, postFwdProg,
+                              inGrouped, weightsGrouped, outGrouped, "vertex");
+  for (const auto &copy : transformPre) {
+    prog.add(copy);
+  }
   prog.add(Execute(fwdCS));
   prog.add(postFwdProg);
 

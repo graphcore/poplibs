@@ -78,21 +78,6 @@ struct ConvSlice {
   }
 };
 
-class LazyComputeSet {
-  // A compute set that is only instantiated if required
-  Graph &graph;
-  std::string name;
-  boost::optional<ComputeSet> cs;
-
-public:
-  LazyComputeSet(Graph &graph, std::string name) : graph(graph), name(name){};
-  bool hasCS() const { return bool(cs); };
-  operator ComputeSet() {
-    if (!cs)
-      cs = graph.addComputeSet(name);
-    return *cs;
-  };
-};
 } // End anonymous namespace
 
 static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
@@ -1167,14 +1152,12 @@ static ExpandDimsPlan mergeExpandDimsPlans(ExpandDimsPlan planActs,
   return planActs;
 }
 
-static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
-                              unsigned level, boost::optional<Tensor> &acts,
-                              boost::optional<Tensor> &weights,
-                              const ExpandDimsPlan &expandDimsPlan,
-                              Sequence &expandingCopies,
-                              LazyComputeSet &transposeCS, bool rearrangeActs,
-                              bool rearrangeWeights,
-                              const std::string &debugPrefix) {
+static void expandSpatialDims(
+    Graph &graph, ConvParams &params, Plan &plan, unsigned level,
+    boost::optional<Tensor> &acts, boost::optional<Tensor> &weights,
+    const ExpandDimsPlan &expandDimsPlan,
+    ConvProgramTree::TransformPreProgram *rearrangeProg, bool rearrangeActs,
+    bool rearrangeWeights, const std::string &debugPrefix) {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
 
   const auto &partialExpansion = expandDimsPlan.partialExpansion;
@@ -1221,9 +1204,10 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
       if ((acts && isActs && rearrangeActs) ||
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
-        t = popops::rearrange::regroupTensor(graph, t, expandingCopies,
-                                             transposeCS, regroup.first,
-                                             regroup.second, debugPrefix);
+        assert(rearrangeProg);
+        t = popops::rearrange::regroupTensor(
+            graph, t, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
+            regroup.first, regroup.second, debugPrefix);
       }
     }
   }
@@ -1260,22 +1244,22 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
       if ((acts && isActs && rearrangeActs) ||
           (weights && !isActs && rearrangeWeights)) {
         auto &t = isActs ? *acts : *weights;
-        t = popops::rearrange::regroupTensor(graph, t, expandingCopies,
-                                             transposeCS, regroup.first,
-                                             regroup.second, debugPrefix);
+        assert(rearrangeProg);
+        t = popops::rearrange::regroupTensor(
+            graph, t, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
+            regroup.first, regroup.second, debugPrefix);
       }
     }
   }
 }
 
-static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
-                              unsigned level, boost::optional<Tensor> &acts,
-                              boost::optional<Tensor> &weights,
-                              Sequence &expandingCopies,
-                              LazyComputeSet &transposeCS,
-                              bool rearrangeActs = false,
-                              bool rearrangeWeights = false,
-                              const std::string &debugPrefix = "") {
+static void
+expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan, unsigned level,
+                  boost::optional<Tensor> &acts,
+                  boost::optional<Tensor> &weights,
+                  ConvProgramTree::TransformPreProgram *rearrangeProg,
+                  bool rearrangeActs = false, bool rearrangeWeights = false,
+                  const std::string &debugPrefix = "") {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
   if (expandDimsSpatial.empty()) {
     return;
@@ -1298,15 +1282,15 @@ static void expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan,
 
   // Now do a series of transforms as appropriate.
   expandSpatialDims(graph, params, plan, level, acts, weights,
-                    mergedTransformPlan, expandingCopies, transposeCS,
-                    rearrangeActs, rearrangeWeights, debugPrefix);
+                    mergedTransformPlan, rearrangeProg, rearrangeActs,
+                    rearrangeWeights, debugPrefix);
 }
 
-static void regroupIfBeneficialForPlan(Graph &graph, const ConvParams &params,
-                                       const Plan &plan, unsigned level,
-                                       Tensor &in, Sequence &expandingCopies,
-                                       LazyComputeSet &transposeCS,
-                                       const std::string &debugPrefix = "") {
+static void
+regroupIfBeneficialForPlan(Graph &graph, const ConvParams &params,
+                           const Plan &plan, unsigned level, Tensor &in,
+                           ConvProgramTree::TransformPreProgram *rearrangeProg,
+                           const std::string &debugPrefix = "") {
   auto grouping = detectDimGroupings(graph, in);
   auto destGrouping =
       determinePreprocessedGroupingFromPlan(params, plan, level);
@@ -1316,9 +1300,10 @@ static void regroupIfBeneficialForPlan(Graph &graph, const ConvParams &params,
       grouping[0].first != destGrouping[0].first &&
       (grouping[0].second % grainSize) == 0 &&
       (destGrouping[0].second % grainSize) == 0) {
-    in = popops::rearrange::regroupTensor(graph, in, expandingCopies,
-                                          transposeCS, grouping[0],
-                                          destGrouping[0], debugPrefix);
+    assert(rearrangeProg);
+    in = popops::rearrange::regroupTensor(
+        graph, in, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
+        grouping[0], destGrouping[0], debugPrefix);
   }
 }
 
@@ -1396,7 +1381,7 @@ static CanonicalConvParams convolutionPreprocess(
     Graph &graph, ConvParams params, const ConvOptions &options, Plan &plan,
     unsigned level, const std::vector<Split<ConvIndices>> &indices,
     boost::optional<Tensor> &acts, boost::optional<Tensor> &weights,
-    bool serial, Sequence *rearrangeProg = nullptr,
+    bool serial, ConvProgramTree::TransformPreProgram *rearrangeProg = nullptr,
     Tensor *rearrangeWritten = nullptr, bool rearrangeActs = false,
     bool rearrangeWeights = false, const std::string &debugPrefix = "") {
   if (rearrangeActs) {
@@ -1417,8 +1402,6 @@ static CanonicalConvParams convolutionPreprocess(
   const auto outChanGrainSize = level < plan.partitions.size()
                                     ? plan.partitions[level].outChanGrainSize
                                     : plan.partialChansPerGroup;
-  LazyComputeSet transposeCS(graph, debugPrefix + "/Transpose");
-  Sequence expandingCopies;
 
   // transformations that are applied before serially splitting (which is only
   // the top level view transforms).
@@ -1462,9 +1445,8 @@ static CanonicalConvParams convolutionPreprocess(
     }
   } else {
     // implement the expandDims transformation.
-    expandSpatialDims(graph, params, plan, level, acts, weights,
-                      expandingCopies, transposeCS, rearrangeActs,
-                      rearrangeWeights, debugPrefix);
+    expandSpatialDims(graph, params, plan, level, acts, weights, rearrangeProg,
+                      rearrangeActs, rearrangeWeights, debugPrefix);
     transform.expandDims.clear();
 
     // implement the outChanFlattenDims transformation.
@@ -1671,34 +1653,30 @@ static CanonicalConvParams convolutionPreprocess(
     params.outputChannelsPerConvGroup = paddedOutChans;
   }
 
-  Sequence rearrangingCopies;
   if (acts && rearrangeActs) {
-    regroupIfBeneficialForPlan(graph, params, plan, level, *acts,
-                               expandingCopies, transposeCS, debugPrefix);
+    regroupIfBeneficialForPlan(graph, params, plan, level, *acts, rearrangeProg,
+                               debugPrefix);
     auto actsRearranged =
         createInputImpl(graph, params, level, serial, indices,
                         debugPrefix + "/actsRearranged", plan, options);
-    rearrangingCopies.add(Copy(*acts, actsRearranged));
+
+    assert(rearrangeProg);
+    rearrangeProg->postTranspose.emplace_back(*acts, actsRearranged);
     *rearrangeWritten = concat(*rearrangeWritten, actsRearranged.flatten());
     *acts = actsRearranged;
   }
 
   if (weights && rearrangeWeights) {
     regroupIfBeneficialForPlan(graph, params, plan, level, *weights,
-                               expandingCopies, transposeCS, debugPrefix);
+                               rearrangeProg, debugPrefix);
     auto weightsRearranged =
         createWeightsImpl(graph, params, level, serial, indices,
                           debugPrefix + "/weightsRearranged", plan, options);
-    rearrangingCopies.add(Copy(*weights, weightsRearranged));
+
+    assert(rearrangeProg);
+    rearrangeProg->postTranspose.emplace_back(*weights, weightsRearranged);
     *rearrangeWritten = concat(*rearrangeWritten, weightsRearranged.flatten());
     *weights = weightsRearranged;
-  }
-
-  if (rearrangeProg) {
-    rearrangeProg->add(expandingCopies);
-    if (transposeCS.hasCS())
-      rearrangeProg->add(Execute(transposeCS));
-    rearrangeProg->add(rearrangingCopies);
   }
 
   return params;
@@ -1708,9 +1686,9 @@ static CanonicalConvParams convolutionPreprocess(
     Graph &graph, const ConvParams &params, const ConvOptions &options,
     Plan &plan, unsigned level, const std::vector<Split<ConvIndices>> &indices,
     Tensor &acts, Tensor &weights, bool serial,
-    Sequence *rearrangeProg = nullptr, Tensor *rearrangeWritten = nullptr,
-    bool rearrangeActs = false, bool rearrangeWeights = false,
-    const std::string &debugPrefix = "") {
+    ConvProgramTree::TransformPreProgram *rearrangeProg = nullptr,
+    Tensor *rearrangeWritten = nullptr, bool rearrangeActs = false,
+    bool rearrangeWeights = false, const std::string &debugPrefix = "") {
   auto actsOptional = boost::make_optional(acts);
   auto weightsOptional = boost::make_optional(weights);
   const auto newParams = convolutionPreprocess(
@@ -1797,7 +1775,7 @@ static Tensor convolutionPostprocess(Graph &graph,
                                      const CanonicalConvParams &params,
                                      const ConvTransform &transform,
                                      Tensor activations, bool serial,
-                                     Sequence &transformPost,
+                                     std::vector<Copy> &transformPost,
                                      const std::string &debugPrefix) {
   if (serial) {
     auto postAddExtraDimsParams = params.getParams();
@@ -1860,7 +1838,7 @@ static Tensor convolutionPostprocess(Graph &graph,
                                       activationsView.shape(),
                                       debugPrefix + "/activationsPostDilate");
       graph.setTileMapping(activations, graph.getTileMapping(mappingView));
-      transformPost.add(Copy(activationsView, activations));
+      transformPost.emplace_back(activationsView, activations);
       activations = unsplitActivationFromGroups(activations);
     }
     // Remove extra dimensions.
@@ -3042,7 +3020,7 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
 // amount of padding required so we can avoid aliasing of elements.
 // TODO: fixing T5913 means we should be able to remove this.
 struct Padder {
-  Padder(Graph &graph, const unsigned tile, Sequence &transformPre,
+  Padder(Graph &graph, const unsigned tile, std::vector<Copy> &transformPre,
          Tensor &copyWritten, const Type &type, const std::string &debugPrefix)
       : graph(graph), tile(tile), transformPre(transformPre),
         copyWritten(copyWritten), debugPrefix(debugPrefix) {
@@ -3058,7 +3036,7 @@ struct Padder {
                             0, debugPrefix + "/paddingTensor");
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
-      transformPre.add(Copy(c, paddingTensor));
+      transformPre.emplace_back(c, paddingTensor);
       copyWritten = concat(copyWritten, paddingTensor.flatten());
     }
   }
@@ -3073,7 +3051,7 @@ struct Padder {
 private:
   Graph &graph;
   unsigned tile;
-  Sequence &transformPre;
+  std::vector<Copy> &transformPre;
   Tensor &copyWritten;
   const std::string &debugPrefix;
 
@@ -3154,7 +3132,7 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
 
 static void createConvPartialAmpVertices(Graph &graph, const Plan &plan,
                                          unsigned tile, ConvParams params,
-                                         Sequence &transformPre,
+                                         std::vector<Copy> &transformPre,
                                          Tensor &copyWritten, ComputeSet fwdCS,
                                          Tensor in, Tensor weights, Tensor out,
                                          bool use128BitConvUnitLoad,
@@ -3487,7 +3465,7 @@ static void createConvPartialHorizontalMacVertex(
 void createConvPartialSlicVertex(
     Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
     unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
-    ConvParams params, Sequence &transformPre, Tensor &copyWritten,
+    ConvParams params, std::vector<Copy> &transformPre, Tensor &copyWritten,
     ComputeSet fwdCS, Sequence &postConvProg, Tensor in, Tensor weights,
     Tensor out, const std::string &debugPrefix) {
   // We don't handle multiple input channel/output channel groups.
@@ -3738,66 +3716,15 @@ void createConvPartialSlicVertex(
   graph.setInitialValue(v["numConvGroupGroupsM1"], numConvGroupGroups - 1);
 }
 
-Sequence ConvProgramTree::ComputeSetsGroup::createProgram() const {
-  Sequence seq;
+void ConvProgramTree::ComputeSetsGroup::lower(Sequence &prog) {
   if (pre) {
-    seq.add(Execute(pre.get()));
+    prog.add(Execute(pre.get()));
   }
-  seq.add(Execute(convolveCS));
-  seq.add(postProg);
+  prog.add(Execute(convolveCS));
+  prog.add(postProg);
   if (post) {
-    seq.add(Execute(post.get()));
+    prog.add(Execute(post.get()));
   }
-  return seq;
-}
-
-ConvProgramTree merge(const std::vector<ConvProgramTree> &cpts) {
-  assert(!cpts.empty());
-  ConvProgramTree result = cpts.front();
-
-  std::vector<Tensor> copyWritten{result.copyWritten};
-  for (unsigned i = 1; i < cpts.size(); ++i) {
-    const auto &cpt = cpts[i];
-
-    result.initProg.add(cpt.initProg);
-
-    assert(result.transformPre.size() == result.transformPost.size());
-    assert(result.transformPre.size() == cpt.transformPre.size());
-    assert(result.transformPost.size() == cpt.transformPost.size());
-    for (unsigned level = 0; level < result.transformPre.size(); ++level) {
-      result.transformPre[level].add(cpt.transformPre[level]);
-      result.transformPost[level].add(cpt.transformPost[level]);
-    }
-
-    result.transformPreSerial.add(cpt.transformPreSerial);
-    result.transformPostSerial.add(cpt.transformPostSerial);
-
-    assert(result.loopCount == cpt.loopCount);
-    result.loopPost.add(cpt.loopPost);
-
-    result.slice.add(cpt.slice);
-    result.update.add(cpt.update);
-
-    assert(cpt.convolveCSGroup.size() == 1);
-    result.convolveCSGroup.push_back(cpt.convolveCSGroup.front());
-
-    for (unsigned level = 0; level < result.reduceComputeSets.size(); ++level) {
-      assert(result.reduceComputeSets.size() == cpt.reduceComputeSets.size());
-
-      auto &reduce = result.reduceComputeSets[level];
-      reduce.insert(std::end(reduce), std::begin(cpt.reduceComputeSets[level]),
-                    std::end(cpt.reduceComputeSets[level]));
-    }
-
-    result.finalizeProg.add(cpt.finalizeProg);
-
-    // TODO: different input types.
-    assert(result.copyWritten.elementType() == cpt.copyWritten.elementType());
-    copyWritten.push_back(cpt.copyWritten);
-  }
-
-  result.copyWritten = concat(copyWritten);
-  return result;
 }
 
 static void createOuterProductVertex(Graph &graph, unsigned tile,
@@ -3901,13 +3828,11 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
   }
 }
 
-static void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
-                                  ConvParams params, Sequence &transformPre,
-                                  Tensor &copyWritten,
-                                  ConvProgramTree::ComputeSetsGroup &convolveCS,
-                                  Tensor in, Tensor weights, Tensor out,
-                                  bool use128BitConvUnitLoad,
-                                  const std::string &debugPrefix) {
+static void calcPartialConvOutput(
+    Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
+    std::vector<Copy> &transformPre, Tensor &copyWritten,
+    ConvProgramTree::ComputeSetsGroup &convolveCS, Tensor in, Tensor weights,
+    Tensor out, bool use128BitConvUnitLoad, const std::string &debugPrefix) {
   assert(params.getNumConvGroups() % plan.convGroupsPerGroup == 0);
   assert(params.getNumOutputChansPerConvGroup() % plan.partialChansPerGroup ==
          0);
@@ -4210,11 +4135,52 @@ preprocessForSerialSlice(Tensor *input, Tensor *weights,
   return std::make_tuple(parallelParams, indices);
 }
 
-ConvProgramTree::ConvProgramTree(unsigned numLevels, unsigned numSerialSplits,
-                                 Tensor copyWritten, ComputeSet convolveCS)
-    : transformPre(numLevels), transformPost(numLevels),
-      loopCount(numSerialSplits), convolveCSGroup{convolveCS},
-      reduceComputeSets(numLevels - 1), copyWritten(std::move(copyWritten)) {}
+static void add(Sequence &prog, const std::vector<Copy> &copies) {
+  for (const auto &copy : copies) {
+    prog.add(copy);
+  }
+}
+
+ConvProgramTree::TransformPreProgram::TransformPreProgram(
+    Graph &graph, const std::string &debugPrefix)
+    : transposeCS(graph.addComputeSet(debugPrefix + "/Transpose")) {}
+
+void ConvProgramTree::TransformPreProgram::lower(
+    poplar::program::Sequence &prog) {
+  // TODO: make a map of type and concat same types together.
+  for (const auto &t : writeUndef) {
+    prog.add(WriteUndef(t));
+  }
+
+  add(prog, preTranspose);
+  prog.add(Execute(transposeCS));
+  add(prog, postTranspose);
+}
+
+ConvProgramTree::TransformPostSerialProgram::TransformPostSerialProgram(
+    Graph &graph, const std::string &debugPrefix)
+    : castCS(graph.addComputeSet(debugPrefix + "/CastSerialOut")) {}
+
+void ConvProgramTree::TransformPostSerialProgram::lower(
+    poplar::program::Sequence &prog) {
+  prog.add(Execute(castCS));
+  add(prog, copies);
+}
+
+ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
+                                 const poplar::Type &type,
+                                 const std::string &debugPrefix)
+    : transformPre(), transformPost(plan.numLevels()),
+      transformPreSerial(graph, debugPrefix),
+      transformPostSerial(graph, debugPrefix),
+      loopCount(plan.totalSerialSplit()),
+      convolveCSGroup(graph.addComputeSet(debugPrefix + "/Convolve")),
+      reduceComputeSets(plan.numLevels() - 1),
+      copyWritten(graph.addVariable(type, {0})) {
+  for (unsigned i = 0; i < plan.numLevels(); ++i) {
+    transformPre.emplace_back(graph, debugPrefix);
+  }
+}
 
 void ConvProgramTree::lower(Sequence &prog) {
   prog.add(WriteUndef(copyWritten));
@@ -4229,16 +4195,13 @@ void ConvProgramTree::lower(Sequence &prog) {
 
   // lower the transforms in ascending order as we climb the hierarchy.
   for (unsigned level = 0; level < numLevels; ++level) {
-    body.add(transformPre[level]);
+    transformPre[level].lower(body);
   }
 
-  for (const auto &cs : convolveCSGroup) {
-    body.add(cs.createProgram());
-  }
-
+  convolveCSGroup.lower(body);
   // lower the remaining reductions and inverse transforms in reverse order
   // as we descend the hierarchy.
-  body.add(transformPost.back());
+  add(body, transformPost.back());
   for (int level = numLevels - 2; level >= 0; --level) {
     // there is a reduction for each level in the partition hierarchy, which is
     // one less than the transforms. therefore there is no reduction in the
@@ -4248,17 +4211,17 @@ void ConvProgramTree::lower(Sequence &prog) {
       body.add(Execute(reduceCS));
     }
 
-    body.add(transformPost[level]);
+    add(body, transformPost[level]);
   }
 
-  prog.add(transformPreSerial);
+  transformPreSerial.lower(prog);
   if (loopCount == 1) {
     prog.add(body);
   } else {
     assert(loopCount != 0);
     prog.add(Repeat(loopCount, Sequence(slice, body, update, loopPost)));
   }
-  prog.add(transformPostSerial);
+  transformPostSerial.lower(prog);
 
   prog.add(finalizeProg);
 }
@@ -4316,9 +4279,11 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                                  serialParams, partition);
 
         slice = popops::rearrange::regroupIfBeneficial(
-            graph, slice, sliceRearranged, cpt.transformPreSerial,
+            graph, slice, sliceRearranged, cpt.transformPreSerial.preTranspose,
+            cpt.transformPreSerial.transposeCS,
             debugPrefix + "/" + sliceKind + "RegroupBeforeSlice");
-        cpt.transformPreSerial.add(Copy(slice, sliceRearranged));
+        cpt.transformPreSerial.postTranspose.emplace_back(slice,
+                                                          sliceRearranged);
 
         return sliceRearranged;
       };
@@ -4341,7 +4306,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       const auto zeroConstant = graph.addConstant(
           UNSIGNED_INT, {1}, 0, debugPrefix + "/zero" + levelSuffix);
       graph.setTileMapping(zeroConstant, 0);
-      cpt.transformPreSerial.add(Copy(zeroConstant, loopCounter));
+      cpt.transformPreSerial.postTranspose.emplace_back(zeroConstant,
+                                                        loopCounter);
 
       // per iteration slices of input.
       if (partition.inChanSplit.serial > 1) {
@@ -4454,11 +4420,11 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, options, indices, plan);
     assert(cpt.transformPre.size() - 1 == level);
-    assert(cpt.convolveCSGroup.size() == 1);
     calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
-                          cpt.transformPre[level], cpt.copyWritten,
-                          cpt.convolveCSGroup.front(), inSlice, weightsSlice,
-                          partials, options.use128BitConvUnitLoad, debugPrefix);
+                          cpt.transformPre[level].postTranspose,
+                          cpt.copyWritten, cpt.convolveCSGroup, inSlice,
+                          weightsSlice, partials, options.use128BitConvUnitLoad,
+                          debugPrefix);
     out = partials;
 
     if (level == createPartialsLevel) {
@@ -4616,7 +4582,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
       // WriteUndef the output as it is Read/Write in each iteration but in the
       // course of the entire loop is completely written.
-      cpt.transformPreSerial.add(WriteUndef(serialOut));
+      cpt.transformPreSerial.writeUndef.emplace_back(serialOut);
       dynamicUpdate(graph, serialOut, out, loopCounter, {0}, {1}, cpt.update,
                     debugPrefix + "/serialUpdate" + levelSuffix);
 
@@ -4638,13 +4604,14 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
   // Casting to the final result type (i.e., the result type of the outermost
   // level) should be deferred until all the serial splits have executed.
   if ((out.elementType() != resultType) && (partition.inChanSplit.serial > 1)) {
-    out = cast(graph, out, resultType, cpt.transformPostSerial, debugPrefix);
+    out = cast(graph, out, resultType, cpt.transformPostSerial.castCS,
+               debugPrefix);
   }
 
   // Inverse transform.
   out = convolutionPostprocess(graph, originalParams, originalTransform, out,
-                               true /* serial */, cpt.transformPostSerial,
-                               debugPrefix);
+                               true /* serial */,
+                               cpt.transformPostSerial.copies, debugPrefix);
   return out;
 }
 
@@ -4854,11 +4821,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
 
   const auto layerName = debugPrefix + "/Conv_" + convSuffix(params);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-
-  const auto numLevels = plan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, plan.totalSerialSplit(),
-                      graph.addVariable(params->inputType, {0}),
-                      graph.addComputeSet(layerName + "/Convolve"));
+  ConvProgramTree cpt(graph, plan, params->inputType, layerName);
 
   auto out = convolution(graph, in, weights, plan, params,
                          transposeAndFlipWeights, cpt, layerName, options);
@@ -5118,10 +5081,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   const auto layerName = debugPrefix + "/Conv_" + convSuffix(wuParams);
-  const auto numLevels = wuPlan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
-                      graph.addVariable(wuParams->inputType, {0}),
-                      graph.addComputeSet(layerName + "/Convolve"));
+  ConvProgramTree cpt(graph, wuPlan, wuParams->inputType, layerName);
 
   auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
                                    wuParams, cpt, debugPrefix, wuOptions);
@@ -5161,10 +5121,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-  const auto numLevels = wuPlan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
-                      graph.addVariable(wuParams->inputType, {0}),
-                      graph.addComputeSet(debugPrefix + "/Convolve"));
+  ConvProgramTree cpt(graph, wuPlan, wuParams->inputType, debugPrefix);
 
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,
@@ -5208,10 +5165,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-  const auto numLevels = wuPlan.partitions.size() + 1;
-  ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
-                      graph.addVariable(wuParams->inputType, {0}),
-                      graph.addComputeSet(debugPrefix + "/Convolve"));
+  ConvProgramTree cpt(graph, wuPlan, wuParams->inputType, debugPrefix);
 
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,

@@ -11,7 +11,7 @@ namespace poplin {
 void createConvPartialSlicVertex(
     poplar::Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
     unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
-    ConvParams params, poplar::program::Sequence &transformPre,
+    ConvParams params, std::vector<poplar::program::Copy> &transformPre,
     poplar::Tensor &copyWritten, poplar::ComputeSet fwdCS,
     poplar::program::Sequence &postConvProg, poplar::Tensor in,
     poplar::Tensor weights, poplar::Tensor out, const std::string &debugPrefix);

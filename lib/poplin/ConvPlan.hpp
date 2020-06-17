@@ -208,6 +208,11 @@ struct Plan {
         linearizeTileDirection(linearizeTileDirection_),
         isJointPlan(isJointPlan) {}
 
+  unsigned numLevels() const {
+    assert(transforms.size() == types.size());
+    assert(transforms.size() == partitions.size() + 1);
+    return transforms.size();
+  }
   unsigned totalParallelSplit() const {
     return std::accumulate(std::begin(partitions), std::end(partitions),
                            unsigned(1), [](unsigned total, const auto &p) {

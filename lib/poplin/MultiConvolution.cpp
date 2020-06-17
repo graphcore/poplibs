@@ -60,50 +60,46 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix, const F &fn) {
   assert(serial.plans.size() == args.size());
+  logging::info("Implementing multi-convs using a serial plan: {}",
+                debugPrefix);
+
   for (unsigned i = 0; i < args.size(); ++i) {
     const auto &arg = args[i];
     const auto &plan = serial.plans[i];
 
     const auto name = debugPrefix + "/" + std::to_string(i);
-    const auto numLevels = plan.partitions.size() + 1;
-    ConvProgramTree cpt(numLevels, plan.totalSerialSplit(),
-                        graph.addVariable(arg.params->inputType, {0}),
-                        graph.addComputeSet(name + "/Convolve"));
+    ConvProgramTree cpt(graph, plan, arg.params->inputType, name);
 
     fn(plan, arg, cpt, name);
     cpt.lower(prog);
   }
 }
 
-// parallel plans are implemented by merging each ConvProgramTree into a single
-// tree and lowering only that. therefore each conv share programs. each plan
-// will be allocated to a different tile range to guarantee that these convs
-// won't overlap.
+// parallel plans are implemented by re-using the same  ConvProgramTree for each
+// convolution. each plan will be allocated to a different tile range to
+// guarantee that these convs don't overlap.
 template <typename T, typename F>
 static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
                            const std::vector<T> &args,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix, const F &fn) {
   assert(para.plans.size() == args.size());
-  std::vector<ConvProgramTree> cpts;
-  cpts.reserve(args.size());
+  logging::info("Implementing multi-convs using a parallel plan: {}",
+                debugPrefix);
+
+  // TODO: assert(numLevels && serialSplits);
+  // TODO: inputType
+  ConvProgramTree cpt(graph, para.plans.front(), args.front().params->inputType,
+                      debugPrefix);
 
   for (unsigned i = 0; i < args.size(); ++i) {
     const auto &arg = args[i];
     const auto &plan = para.plans[i];
 
     const auto name = debugPrefix + "/" + std::to_string(i);
-    const auto numLevels = plan.partitions.size() + 1;
-    // TODO: assert(numLevels && serialSplits);
-    // TODO: inputType
-    cpts.emplace_back(numLevels, plan.totalSerialSplit(),
-                      graph.addVariable(arg.params->inputType, {0}),
-                      graph.addComputeSet(name + "/Convolve"));
-
-    fn(plan, arg, cpts.back(), name);
+    fn(plan, arg, cpt, name);
   }
 
-  auto cpt = merge(cpts);
   cpt.lower(prog);
 }
 

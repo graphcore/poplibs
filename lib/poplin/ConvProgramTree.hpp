@@ -12,10 +12,33 @@ namespace poplin {
 // This object reflects the control program that is constructed to create a
 // convolution.
 struct ConvProgramTree {
+  struct TransformPreProgram {
+    explicit TransformPreProgram(poplar::Graph &graph,
+                                 const std::string &debugPrefix);
+
+    void lower(poplar::program::Sequence &prog);
+
+    std::vector<poplar::Tensor> writeUndef;
+
+    std::vector<poplar::program::Copy> preTranspose;
+    poplar::ComputeSet transposeCS;
+    std::vector<poplar::program::Copy> postTranspose;
+  };
+
+  struct TransformPostSerialProgram {
+    explicit TransformPostSerialProgram(poplar::Graph &graph,
+                                        const std::string &debugPrefix);
+
+    void lower(poplar::program::Sequence &prog);
+
+    poplar::ComputeSet castCS;
+    std::vector<poplar::program::Copy> copies;
+  };
+
   struct ComputeSetsGroup {
     ComputeSetsGroup(poplar::ComputeSet convolveCS) : convolveCS(convolveCS) {}
 
-    poplar::program::Sequence createProgram() const;
+    void lower(poplar::program::Sequence &prog);
 
     // The pre and post will be added by the function creating the vertices
     // if the input requires a cast then a pre compute set is needed
@@ -26,8 +49,8 @@ struct ConvProgramTree {
     boost::optional<poplar::ComputeSet> post;
   };
 
-  ConvProgramTree(unsigned numLevels, unsigned numSerialSplits,
-                  poplar::Tensor copyWritten, poplar::ComputeSet convolveCS);
+  ConvProgramTree(poplar::Graph &graph, const Plan &plan,
+                  const poplar::Type &type, const std::string &debugPrefix);
 
   // lower the program tree as has been built up into the sequence passed in.
   void lower(poplar::program::Sequence &prog);
@@ -62,10 +85,12 @@ struct ConvProgramTree {
   // Program run before all others at any level of the hierarchy.
   poplar::program::Sequence initProg;
   // Transformations applied before and after the convolution at each level.
-  // indexed by level in hierarchy.
-  std::vector<poplar::program::Sequence> transformPre, transformPost;
+  // outer vector is indexed by level in hierarchy.
+  std::vector<TransformPreProgram> transformPre;
+  std::vector<std::vector<poplar::program::Copy>> transformPost;
   // Transformations applied before and after the loop.
-  poplar::program::Sequence transformPreSerial, transformPostSerial;
+  TransformPreProgram transformPreSerial;
+  TransformPostSerialProgram transformPostSerial;
   // program used to increment loop counter
   poplar::program::Sequence loopPost;
   // the number of loop iterations (or: number of serial splits).
@@ -74,7 +99,7 @@ struct ConvProgramTree {
   // the beginning and end of each loop iteration.
   poplar::program::Sequence slice, update;
   // the core convolution op.
-  std::vector<ComputeSetsGroup> convolveCSGroup;
+  ComputeSetsGroup convolveCSGroup;
   // any post-conv reductions that might be required. first vector indexed by
   // level in the hierarchy, second vector is indexed by the reduction depth.
   std::vector<std::vector<poplar::ComputeSet>> reduceComputeSets;
@@ -85,10 +110,6 @@ struct ConvProgramTree {
   // once T5913 is resolved this can be removed.
   poplar::Tensor copyWritten;
 };
-
-// merge multiple ConvProgramTrees into one, they must have the same number
-// of levels.
-ConvProgramTree merge(const std::vector<ConvProgramTree> &cpts);
 
 } // namespace poplin
 
