@@ -1,7 +1,10 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#include <iomanip>
 #include <popops/Expr.hpp>
 #include <poputil/exceptions.hpp>
 #include <regex>
+#include <sstream>
+#include <string>
 
 namespace popops {
 namespace expr {
@@ -58,14 +61,24 @@ std::string Const::printValue() const {
     return std::to_string(*reinterpret_cast<signed long long *>(rawData));
   }
   if (this->getType() == poplar::FLOAT) {
-    return std::to_string(*reinterpret_cast<float *>(rawData)) + "f";
+    std::stringstream ss;
+    ss << std::defaultfloat << std::setprecision(9)
+       << *reinterpret_cast<float *>(rawData);
+    if (ss.str().find(".") == std::string::npos) {
+      ss << ".f";
+    } else {
+      ss << "f";
+    }
+    return ss.str();
   }
   if (this->getType() == poplar::HALF) {
     // The actual type behind the half should be a float.
     assert(this->getTypeTraits().isFloat == true &&
            this->getTypeTraits().size == sizeof(float));
-
-    return std::to_string(*reinterpret_cast<float *>(rawData));
+    std::stringstream ss;
+    ss << std::defaultfloat << std::setprecision(9)
+       << *reinterpret_cast<float *>(rawData);
+    return ss.str();
   }
   throw poputil::poplibs_error("Constant type is not supported: " +
                                this->getType().toString());

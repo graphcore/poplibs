@@ -4,6 +4,7 @@
 #include <../lib/popops/ExpressionGenerator.hpp>
 #include <TestDevice.hpp>
 #include <boost/test/unit_test.hpp>
+#include <limits>
 #include <poplar/TypeTraits.hpp>
 #include <popops/Expr.hpp>
 
@@ -31,7 +32,8 @@ static void checkNames(const Expr &A, const Expr &B, const bool match = false,
       GenerateCodeletFromMapExpr::createVertexName(B, inputs, inPlace, false);
 
   BOOST_CHECK((aName == bName) == match);
-  std::cerr << "A " << aName << " ------ B " << bName << std::endl;
+  std::cerr << "A " << aName << " ------ B " << bName
+            << " (should match: " << (match ? "yes" : "no") << ")" << std::endl;
 }
 
 const int One = 1;
@@ -51,4 +53,19 @@ BOOST_AUTO_TEST_CASE(CheckNames) {
   checkNames(Const(4.0f), ConstHalf(4.0f));
   checkNames(Const(One), Const(OtherOne), true);
   checkNames(Add(_1, Cast(_4, HALF)), Add(_2, Cast(_5, HALF)));
+}
+
+BOOST_AUTO_TEST_CASE(ConstFloatRoundTrip) {
+
+  BOOST_CHECK(std::stof(Const(1.0f).printValue()) == 1.0f);
+  BOOST_CHECK(std::stof(Const(1e-8f).printValue()) == 1e-8f);
+  BOOST_CHECK(
+      std::stof(Const(std::numeric_limits<float>::lowest()).printValue()) ==
+      std::numeric_limits<float>::lowest());
+  BOOST_CHECK(
+      std::stof(Const(std::numeric_limits<float>::min()).printValue()) ==
+      std::numeric_limits<float>::min());
+  BOOST_CHECK(
+      std::stof(Const(std::numeric_limits<float>::max()).printValue()) ==
+      std::numeric_limits<float>::max());
 }
