@@ -3751,6 +3751,55 @@ Sequence ConvProgramTree::ComputeSetsGroup::createProgram() const {
   return seq;
 }
 
+ConvProgramTree merge(const std::vector<ConvProgramTree> &cpts) {
+  assert(!cpts.empty());
+  ConvProgramTree result = cpts.front();
+
+  std::vector<Tensor> copyWritten{result.copyWritten};
+  for (unsigned i = 1; i < cpts.size(); ++i) {
+    const auto &cpt = cpts[i];
+
+    result.initProg.add(cpt.initProg);
+
+    assert(result.transformPre.size() == result.transformPost.size());
+    assert(result.transformPre.size() == cpt.transformPre.size());
+    assert(result.transformPost.size() == cpt.transformPost.size());
+    for (unsigned level = 0; level < result.transformPre.size(); ++level) {
+      result.transformPre[level].add(cpt.transformPre[level]);
+      result.transformPost[level].add(cpt.transformPost[level]);
+    }
+
+    result.transformPreSerial.add(cpt.transformPreSerial);
+    result.transformPostSerial.add(cpt.transformPostSerial);
+
+    assert(result.loopCount == cpt.loopCount);
+    result.loopPost.add(cpt.loopPost);
+
+    result.slice.add(cpt.slice);
+    result.update.add(cpt.update);
+
+    assert(cpt.convolveCSGroup.size() == 1);
+    result.convolveCSGroup.push_back(cpt.convolveCSGroup.front());
+
+    for (unsigned level = 0; level < result.reduceComputeSets.size(); ++level) {
+      assert(result.reduceComputeSets.size() == cpt.reduceComputeSets.size());
+
+      auto &reduce = result.reduceComputeSets[level];
+      reduce.insert(std::end(reduce), std::begin(cpt.reduceComputeSets[level]),
+                    std::end(cpt.reduceComputeSets[level]));
+    }
+
+    result.finalizeProg.add(cpt.finalizeProg);
+
+    // TODO: different input types.
+    assert(result.copyWritten.elementType() == cpt.copyWritten.elementType());
+    copyWritten.push_back(cpt.copyWritten);
+  }
+
+  result.copyWritten = concat(copyWritten);
+  return result;
+}
+
 static void createOuterProductVertex(Graph &graph, unsigned tile,
                                      unsigned xBegin, unsigned xEnd,
                                      const ConvParams &params,
@@ -4164,7 +4213,7 @@ preprocessForSerialSlice(Tensor *input, Tensor *weights,
 ConvProgramTree::ConvProgramTree(unsigned numLevels, unsigned numSerialSplits,
                                  Tensor copyWritten, ComputeSet convolveCS)
     : transformPre(numLevels), transformPost(numLevels),
-      loopCount(numSerialSplits), convolveCSGroup(convolveCS),
+      loopCount(numSerialSplits), convolveCSGroup{convolveCS},
       reduceComputeSets(numLevels - 1), copyWritten(std::move(copyWritten)) {}
 
 void ConvProgramTree::lower(Sequence &prog) {
@@ -4174,6 +4223,7 @@ void ConvProgramTree::lower(Sequence &prog) {
   assert(transformPre.size() == transformPost.size());
   const unsigned numLevels = transformPre.size();
   assert(numLevels > 1);
+  assert(numLevels - 1 == reduceComputeSets.size());
 
   Sequence body;
 
@@ -4182,7 +4232,9 @@ void ConvProgramTree::lower(Sequence &prog) {
     body.add(transformPre[level]);
   }
 
-  body.add(convolveCSGroup.createProgram());
+  for (const auto &cs : convolveCSGroup) {
+    body.add(cs.createProgram());
+  }
 
   // lower the remaining reductions and inverse transforms in reverse order
   // as we descend the hierarchy.
@@ -4192,7 +4244,6 @@ void ConvProgramTree::lower(Sequence &prog) {
     // one less than the transforms. therefore there is no reduction in the
     // outermost level which is why we start at numLevels - 2 and add the
     // innermost transform outside of this loop.
-    assert(numLevels - 1 == reduceComputeSets.size());
     for (const auto &reduceCS : reduceComputeSets[level]) {
       body.add(Execute(reduceCS));
     }
@@ -4403,10 +4454,11 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     const auto &target = graph.getTarget();
     const auto tile = linearizeTileIndices(target, options, indices, plan);
     assert(cpt.transformPre.size() - 1 == level);
+    assert(cpt.convolveCSGroup.size() == 1);
     calcPartialConvOutput(graph, plan, tile, parallelParams.getParams(),
                           cpt.transformPre[level], cpt.copyWritten,
-                          cpt.convolveCSGroup, inSlice, weightsSlice, partials,
-                          options.use128BitConvUnitLoad, debugPrefix);
+                          cpt.convolveCSGroup.front(), inSlice, weightsSlice,
+                          partials, options.use128BitConvUnitLoad, debugPrefix);
     out = partials;
 
     if (level == createPartialsLevel) {
@@ -4607,8 +4659,7 @@ static std::string getShapeAsString(const std::vector<T> &shape) {
 }
 
 std::string convSuffix(const CanonicalConvParams &params) {
-  std::string s = "_";
-  s += getShapeAsString(params->kernelShape);
+  std::string s = getShapeAsString(params->kernelShape);
   if (std::any_of(params->outputTransform.stride.begin(),
                   params->outputTransform.stride.end(),
                   [](unsigned x) { return x != 1; })) {
@@ -4801,7 +4852,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   const CanonicalConvParams params(params_);
   const ConvOptions options(graph.getTarget(), options_);
 
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(params);
+  const auto layerName = debugPrefix + "/Conv_" + convSuffix(params);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
 
   const auto numLevels = plan.partitions.size() + 1;
@@ -5066,7 +5117,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-  const auto layerName = debugPrefix + "/Conv" + convSuffix(wuParams);
+  const auto layerName = debugPrefix + "/Conv_" + convSuffix(wuParams);
   const auto numLevels = wuPlan.partitions.size() + 1;
   ConvProgramTree cpt(numLevels, wuPlan.totalSerialSplit(),
                       graph.addVariable(wuParams->inputType, {0}),

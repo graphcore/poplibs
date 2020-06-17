@@ -210,9 +210,6 @@ function(add_unit_test name)
       if (${TEST_CONFIG} STREQUAL "cpp")
         list(APPEND test_env "POPLIBS_CODELET_SUFFIX=_c")
       endif()
-      if (${name} STREQUAL "MultiConvolutionPlanTest")
-        list(APPEND test_env "ENABLE_PARALLEL_MULTIPLAN=TRUE")
-      endif()
       set_tests_properties(${test_name} PROPERTIES
                            ENVIRONMENT "${test_env}")
 
@@ -6838,77 +6835,82 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
-add_multitarget_test(NAME octconv_basic
-         COMMAND oct_conv_layer
-                 --input-channels=2
-                 --output-channels=4
-                 --field={26,78}
-                 --kernel-size={2,3}
-                 --conv-groups=2
-                 --batch-size=3
-                 --padding-lower={1,2}
-                 --data-type=half
-                 --tiles-per-ipu=8
-                 --alpha=0.5
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+foreach(PLAN_TYPE parallel serial)
+  add_multitarget_test(NAME octconv_basic_${PLAN_TYPE}
+           COMMAND oct_conv_layer
+                   --input-channels=2
+                   --output-channels=4
+                   --field={26,78}
+                   --kernel-size={2,3}
+                   --conv-groups=2
+                   --batch-size=3
+                   --padding-lower={1,2}
+                   --data-type=half
+                   --tiles-per-ipu=8
+                   --alpha=0.5
+                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+  
+  add_multitarget_test(NAME octconvLL_${PLAN_TYPE}
+           COMMAND oct_conv_layer
+                   --input-channels=2
+                   --output-channels=2
+                   --field={40,100}
+                   --kernel-size={2,3}
+                   --conv-groups=2
+                   --batch-size=3
+                   --padding-lower={1,2}
+                   --data-type=half
+                   --tiles-per-ipu=8
+                   --alpha=1.0
+                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+  add_multitarget_test(NAME octconvLH_${PLAN_TYPE}
+           COMMAND oct_conv_layer
+                   --input-channels=2
+                   --output-channels=2
+                   --field={40,100}
+                   --kernel-size={2,3}
+                   --conv-groups=2
+                   --batch-size=3
+                   --padding-lower={1,2}
+                   --data-type=half
+                   --tiles-per-ipu=8
+                   --alpha-in=1.0
+                   --alpha-out=0.0
+                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+  add_multitarget_test(NAME octconvHL_${PLAN_TYPE}
+           COMMAND oct_conv_layer
+                   --input-channels=2
+                   --output-channels=2
+                   --field={40,100}
+                   --kernel-size={2,3}
+                   --conv-groups=2
+                   --batch-size=3
+                   --padding-lower={1,2}
+                   --data-type=half
+                   --tiles-per-ipu=8
+                   --alpha-in=0.0
+                   --alpha-out=1.0
+                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+  add_multitarget_test(NAME octconvHH_${PLAN_TYPE}
+           COMMAND oct_conv_layer
+                   --input-channels=2
+                   --output-channels=2
+                   --field={40,100}
+                   --kernel-size={2,3}
+                   --conv-groups=2
+                   --batch-size=3
+                   --padding-lower={1,2}
+                   --data-type=half
+                   --tiles-per-ipu=8
+                   --alpha=0.0
+                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+endforeach()
 
-add_multitarget_test(NAME octconvLL
-         COMMAND oct_conv_layer
-                 --input-channels=2
-                 --output-channels=2
-                 --field={40,100}
-                 --kernel-size={2,3}
-                 --conv-groups=2
-                 --batch-size=3
-                 --padding-lower={1,2}
-                 --data-type=half
-                 --tiles-per-ipu=8
-                 --alpha=1.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-
-add_multitarget_test(NAME octconvLH
-         COMMAND oct_conv_layer
-                 --input-channels=2
-                 --output-channels=2
-                 --field={40,100}
-                 --kernel-size={2,3}
-                 --conv-groups=2
-                 --batch-size=3
-                 --padding-lower={1,2}
-                 --data-type=half
-                 --tiles-per-ipu=8
-                 --alpha-in=1.0
-                 --alpha-out=0.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-
-add_multitarget_test(NAME octconvHL
-         COMMAND oct_conv_layer
-                 --input-channels=2
-                 --output-channels=2
-                 --field={40,100}
-                 --kernel-size={2,3}
-                 --conv-groups=2
-                 --batch-size=3
-                 --padding-lower={1,2}
-                 --data-type=half
-                 --tiles-per-ipu=8
-                 --alpha-in=0.0
-                 --alpha-out=1.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-
-add_multitarget_test(NAME octconvHH
-         COMMAND oct_conv_layer
-                 --input-channels=2
-                 --output-channels=2
-                 --field={40,100}
-                 --kernel-size={2,3}
-                 --conv-groups=2
-                 --batch-size=3
-                 --padding-lower={1,2}
-                 --data-type=half
-                 --tiles-per-ipu=8
-                 --alpha=0.0
-                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ

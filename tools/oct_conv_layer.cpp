@@ -119,10 +119,12 @@ struct OutputFreqParameters {
 static std::vector<poplar::Tensor>
 createAllWeights(poplar::Graph &graph,
                  const std::vector<poplin::multiconv::CreateTensorArgs> &args,
+                 const poplar::OptionFlags &multiConvOptions,
                  poplin::PlanningCache *cache) {
   std::vector<Tensor> weights;
   for (size_t i = 0; i < args.size(); i++) {
-    weights.push_back(poplin::multiconv::createWeights(graph, args, i, cache));
+    weights.push_back(poplin::multiconv::createWeights(
+        graph, args, i, multiConvOptions, cache));
   }
   return weights;
 }
@@ -130,10 +132,12 @@ createAllWeights(poplar::Graph &graph,
 static std::vector<poplar::Tensor>
 createAllInputs(poplar::Graph &graph,
                 const std::vector<poplin::multiconv::CreateTensorArgs> &args,
+                const poplar::OptionFlags &multiConvOptions,
                 poplin::PlanningCache *cache) {
   std::vector<Tensor> inputs;
   for (size_t i = 0; i < args.size(); i++) {
-    inputs.push_back(poplin::multiconv::createInput(graph, args, i, cache));
+    inputs.push_back(poplin::multiconv::createInput(graph, args, i,
+                                                    multiConvOptions, cache));
   }
   return inputs;
 }
@@ -377,7 +381,8 @@ createOctConvTensors(poplar::Graph &graph, poplin::PlanningCache &cache,
                      const poplin::ConvParams::OutputTransform &outputTransform,
                      const OptionFlags &fwdOptions,
                      const OptionFlags &bwdOptions,
-                     std::vector<std::shared_ptr<OctConvData>> &octData) {
+                     std::vector<std::shared_ptr<OctConvData>> &octData,
+                     const poplar::OptionFlags &multiConvOptions) {
   auto numConvGroups = userParam.numConvGroups;
   auto batchSize = userParam.batchSize;
 
@@ -402,7 +407,7 @@ createOctConvTensors(poplar::Graph &graph, poplin::PlanningCache &cache,
   }
 
   // Create input tensors and model multiarray
-  auto prevAct = createAllInputs(graph, prevActArgs, &cache);
+  auto prevAct = createAllInputs(graph, prevActArgs, multiConvOptions, &cache);
   for (unsigned i = 0; i < octData.size(); ++i) {
     octData[i]->tensor = prevAct[i];
   }
@@ -414,8 +419,8 @@ static std::tuple<std::vector<Tensor>, std::vector<Tensor>>
 createConvInputTensors(poplar::Graph &graph, poplin::PlanningCache &cache,
                        const std::vector<ConvParameters> &params,
                        const OptionFlags &fwdOptions,
-                       const OptionFlags &bwdOptions,
-                       const bool createZDeltas) {
+                       const OptionFlags &bwdOptions, const bool createZDeltas,
+                       const poplar::OptionFlags &multiConvOptions) {
   // Create the required number of convolution inputs
   auto numConvolutions = params.size();
   using CreateTensorArgs = poplin::multiconv::CreateTensorArgs;
@@ -429,10 +434,10 @@ createConvInputTensors(poplar::Graph &graph, poplin::PlanningCache &cache,
     zDeltasArgs[i].params = params[i].bwdParams;
     zDeltasArgs[i].options = bwdOptions;
   }
-  auto weights = createAllWeights(graph, weightsArgs, &cache);
+  auto weights = createAllWeights(graph, weightsArgs, multiConvOptions, &cache);
   std::vector<Tensor> zDeltas;
   if (createZDeltas) {
-    zDeltas = createAllInputs(graph, zDeltasArgs, &cache);
+    zDeltas = createAllInputs(graph, zDeltasArgs, multiConvOptions, &cache);
   }
   return {weights, zDeltas};
 }
@@ -758,6 +763,7 @@ int main(int argc, char **argv) try {
   bool reportPlan;
   bool reportVarStorage;
   bool remapOutputTensor;
+  std::string multiConvOptionsString;
 
   Pass pass = Pass::ALL;
   poplin::PlanningCache cache;
@@ -927,7 +933,11 @@ int main(int argc, char **argv) try {
     ("remap-output-tensor",
      po::value<bool>(&remapOutputTensor)->default_value(false),
      "Remap output tensor if layout is detected to be poor")
-  ;
+    ("options", po::value<std::string>(&multiConvOptionsString),
+    "Options to use for the multi-convolution, specified as a JSON string, "
+    "e.g. {\"key\":\"value\"}")
+    ;
+
   // clang-format on
   po::variables_map vm;
   try {
@@ -1056,6 +1066,11 @@ int main(int argc, char **argv) try {
     }
   }
 
+  OptionFlags multiConvOptions;
+  if (!multiConvOptionsString.empty()) {
+    poplar::readJSON(multiConvOptionsString, multiConvOptions);
+  }
+
   auto dev = [&]() -> TestDevice {
     if (isIpuModel(deviceType)) {
       // When running on the IPU model we apply global exchange constraints,
@@ -1180,7 +1195,7 @@ int main(int argc, char **argv) try {
   // Create OctConv inputs and outputs for target as well as model
   createOctConvTensors(graph, cache, userParams, inputTransform,
                        kernelTransform, outputTransform, fwdOptions, bwdOptions,
-                       octInData);
+                       octInData, multiConvOptions);
   std::vector<Tensor> octConvInput;
   for (auto octConvIn : octInData) {
     octConvInput.push_back(octConvIn->tensor);
@@ -1188,17 +1203,17 @@ int main(int argc, char **argv) try {
 
   // Create and individual convolution inputs
   std::vector<Tensor> weights, zDeltas;
-  std::tie(weights, zDeltas) =
-      createConvInputTensors(graph, cache, octConvParams, fwdOptions,
-                             bwdOptions, (doBwdPass || doWuPass));
+  std::tie(weights, zDeltas) = createConvInputTensors(
+      graph, cache, octConvParams, fwdOptions, bwdOptions,
+      (doBwdPass || doWuPass), multiConvOptions);
   auto fwdProg = Sequence();
 
   // Convert OctConv inputs to individual convolution prevAct tensors.
   auto prevAct = preProcess(graph, octConvParams, fwdProg);
   auto fwdArgs = getConvolutionArguments(prevAct, weights, false, octConvParams,
                                          fwdOptions);
-  auto nextAct = poplin::multiconv::convolution(graph, fwdArgs, false, fwdProg,
-                                                "fwd", &cache);
+  auto nextAct = poplin::multiconv::convolution(
+      graph, fwdArgs, false, fwdProg, "fwd", multiConvOptions, &cache);
   std::vector<Tensor> octConvOutput;
   auto revProg = Sequence();
   if (doFwdPass) {
@@ -1217,8 +1232,8 @@ int main(int argc, char **argv) try {
   if (doBwdPass) {
     auto bwdArgs = getConvolutionArguments(zDeltas, weights, true,
                                            octConvParams, bwdOptions);
-    prevDeltas = poplin::multiconv::convolution(graph, bwdArgs, true, revProg,
-                                                "bwd", &cache);
+    prevDeltas = poplin::multiconv::convolution(
+        graph, bwdArgs, true, revProg, "bwd", multiConvOptions, &cache);
   }
   if (doWuPass) {
     auto scale = graph.addConstant(weights[0].elementType(), {}, -learningRate);
@@ -1226,7 +1241,7 @@ int main(int argc, char **argv) try {
     auto wuArgs = getConvolutionWeightUpdateArguments(
         prevAct, zDeltas, weights, scale, octConvParams, wuOptions);
     poplin::multiconv::convolutionWeightUpdate(graph, wuArgs, revProg, "wu",
-                                               &cache);
+                                               multiConvOptions, &cache);
   }
   if (doPrintTensors) {
     if (doFwdPass || doWuPass) {

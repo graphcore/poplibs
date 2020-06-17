@@ -5893,24 +5893,55 @@ allocateTilesAccordingToFLOPs(const poplar::Target &target,
   return tileSplitOptions;
 }
 
+namespace {
+
+enum class MultiPlanType { PARALLEL, SERIAL };
+
+struct MultiPlanOptions {
+  MultiPlanOptions(const poplar::OptionFlags &options) {
+    using poplibs::OptionHandler;
+    using poplibs::OptionSpec;
+    using poplibs_support::makePlanConstraintsOptionHandler;
+
+    static const std::map<std::string, MultiPlanType> planTypeMap{
+        {"parallel", MultiPlanType::PARALLEL},
+        {"serial", MultiPlanType::SERIAL}};
+
+    const OptionSpec spec{
+        {"planType", OptionHandler::createWithEnum(planType, planTypeMap)}};
+
+    for (const auto &entry : options) {
+      spec.parse(entry.first, entry.second);
+    }
+  }
+
+  MultiPlanType planType = MultiPlanType::SERIAL;
+};
+
+} // unnamed namespace
+
 MultiPlan getMultiPlan(const poplar::Target &target,
                        const std::vector<CanonicalConvParams> &params,
-                       const std::vector<ConvOptions> &options,
-                       PlanningCache *cache) {
-  assert(params.size() == options.size());
-  try {
-    if (std::getenv("ENABLE_PARALLEL_MULTIPLAN")) {
+                       const std::vector<ConvOptions> &convOptions,
+                       PlanningCache *cache,
+                       const poplar::OptionFlags &options_) {
+  assert(params.size() == convOptions.size());
+  MultiPlanOptions options(options_);
+
+  if (options.planType == MultiPlanType::PARALLEL) {
+    try {
       const auto virtualisedTargetOptions =
-          allocateTilesAccordingToFLOPs(target, params, options);
+          allocateTilesAccordingToFLOPs(target, params, convOptions);
       return getParallelMultiPlan(target, params, virtualisedTargetOptions,
                                   cache);
-    } else {
-      throw poputil::poplibs_error("parallel multiplans are not enabled");
+    } catch (poputil::poplibs_error) {
+      logging::warn("Failed to find a parallel multiplan, falling back to "
+                    "serial planning");
+      return getSerialMultiPlan(target, params, convOptions, cache);
     }
-  } catch (poputil::poplibs_error) {
-    logging::warn(
-        "Failed to find a parallel multiplan, falling back to serial planning");
-    return getSerialMultiPlan(target, params, options, cache);
+  } else {
+    assert(options.planType == MultiPlanType::SERIAL);
+    return getSerialMultiPlan(target, params, convOptions, cache);
   }
 }
 

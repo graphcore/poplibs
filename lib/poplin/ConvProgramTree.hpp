@@ -5,6 +5,7 @@
 #include <boost/optional.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
+#include <vector>
 
 namespace poplin {
 
@@ -73,7 +74,7 @@ struct ConvProgramTree {
   // the beginning and end of each loop iteration.
   poplar::program::Sequence slice, update;
   // the core convolution op.
-  ComputeSetsGroup convolveCSGroup;
+  std::vector<ComputeSetsGroup> convolveCSGroup;
   // any post-conv reductions that might be required. first vector indexed by
   // level in the hierarchy, second vector is indexed by the reduction depth.
   std::vector<std::vector<poplar::ComputeSet>> reduceComputeSets;
@@ -84,6 +85,10 @@ struct ConvProgramTree {
   // once T5913 is resolved this can be removed.
   poplar::Tensor copyWritten;
 };
+
+// merge multiple ConvProgramTrees into one, they must have the same number
+// of levels.
+ConvProgramTree merge(const std::vector<ConvProgramTree> &cpts);
 
 } // namespace poplin
 

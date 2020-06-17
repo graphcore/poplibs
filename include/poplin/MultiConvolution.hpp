@@ -15,7 +15,7 @@ namespace poplin {
 
 namespace multiconv {
 
-/** Multiconvolutions allow for a set of convolutions to be executed in
+/** Multi-convolutions allow for a set of convolutions to be executed in
  * parallel. The benefit of executing convolutions in parallel is an increase in
  * data throughput. Specifically, executing N independent convolutions in
  * parallel will be faster than sequentially executing them because less time is
@@ -46,12 +46,14 @@ struct CreateTensorArgs {
  * \param args         The same set of parameters as used by convolution().
  * \param weightsIndex Index into args describing the convolution which to
  *                     create the weights for.
+ * \param options      Options controlling the implementation.
  * \param cache        Optional pointer to a planning cache to use.
  * \return             A weights tensor suitable for use with convolution().
  */
 poplar::Tensor createWeights(poplar::Graph &graph,
                              const std::vector<CreateTensorArgs> &args,
                              unsigned weightsIndex,
+                             const poplar::OptionFlags &options = {},
                              poplin::PlanningCache *cache = nullptr);
 
 /** Create a specific input tensor for the multiconvolution.
@@ -60,12 +62,14 @@ poplar::Tensor createWeights(poplar::Graph &graph,
  * \param args       The same set of parameters as used by convolution().
  * \param inputIndex Index into args describing the convolution which to
  *                   create the input for.
+ * \param options    Options controlling the implementation.
  * \param cache      Optional pointer to a planning cache to use.
  * \return           A input tensor suitable for use with convolution().
  */
 poplar::Tensor createInput(poplar::Graph &graph,
                            const std::vector<CreateTensorArgs> &args,
                            unsigned inputIndex,
+                           const poplar::OptionFlags &options = {},
                            poplin::PlanningCache *cache = nullptr);
 
 /**
@@ -91,6 +95,7 @@ struct ConvolutionArgs {
  * \param transposeAndFlipWeights Prepare the weights for the backwards pass.
  * \param prog        Poplar program sequence to append the operations onto.
  * \param debugPrefix Name of the operation, for debugging.
+ * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  * \return            Set of convolved output tensors.
  */
@@ -98,6 +103,7 @@ std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
             bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const std::string &debugPrefix = "",
+            const poplar::OptionFlags &options = {},
             poplin::PlanningCache *cache = nullptr);
 
 /**
@@ -125,12 +131,14 @@ struct CalculateWeightDeltasArgs {
  *                    multiconvolution.
  * \param prog        Poplar program sequence to append the operations onto.
  * \param debugPrefix Name of the operation, for debugging.
+ * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  * \return            Set of weight deltas.
  */
 std::vector<poplar::Tensor> calculateWeightDeltas(
     poplar::Graph &graph, const std::vector<CalculateWeightDeltasArgs> &args,
     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {},
     poplin::PlanningCache *cache = nullptr);
 
 /**
@@ -161,12 +169,14 @@ struct ConvWeightUpdateArgs {
  *                    parameters for the weight updates in the multiconvolution.
  * \param prog        Poplar program sequence to append the operations onto.
  * \param debugPrefix Name of the operation, for debugging.
+ * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  */
 void convolutionWeightUpdate(poplar::Graph &graph,
                              const std::vector<ConvWeightUpdateArgs> &args,
                              poplar::program::Sequence &prog,
                              const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {},
                              poplin::PlanningCache *cache = nullptr);
 
 /**
@@ -197,11 +207,13 @@ struct ConvWeightUpdateArgsScalar {
  *                    parameters for the weight updates in the multiconvolution.
  * \param prog        Poplar program sequence to append the operations onto.
  * \param debugPrefix Name of the operation, for debugging.
+ * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  */
 void convolutionWeightUpdate(
     poplar::Graph &graph, const std::vector<ConvWeightUpdateArgsScalar> &args,
     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    const poplar::OptionFlags &options = {},
     poplin::PlanningCache *cache = nullptr);
 
 } // namespace multiconv

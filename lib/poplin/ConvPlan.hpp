@@ -260,8 +260,9 @@ using MultiPlan = boost::variant<SerialPlan, ParallelPlan>;
 // If unsuccessful in planning in parallel, will fallback to a serial plan.
 MultiPlan getMultiPlan(const poplar::Target &target,
                        const std::vector<CanonicalConvParams> &params,
-                       const std::vector<ConvOptions> &options,
-                       PlanningCache *cache);
+                       const std::vector<ConvOptions> &convOptions,
+                       PlanningCache *cache,
+                       const poplar::OptionFlags &options = {});
 
 /// Insert the specified number of dimensions of size 1 at the front.
 void addExtraDims(ConvParams &params, unsigned extraDims);

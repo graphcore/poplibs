@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <functional>
 
+const poplar::OptionFlags multiConvOptions{{"planType", "parallel"}};
+
 std::vector<poplin::CanonicalConvParams> getGenericOctConvParams() {
   const auto dataType = poplar::FLOAT;
   const auto batchSize = 1;
@@ -59,8 +61,9 @@ BOOST_AUTO_TEST_CASE(MinimumTilesTwoTilesEach) {
 
   // When
   const auto concurrentPlans =
-      boost::get<poplin::ParallelPlan>(
-          getMultiPlan(device.getTarget(), params, options, &cache))
+      boost::get<poplin::ParallelPlan>(getMultiPlan(device.getTarget(), params,
+                                                    options, &cache,
+                                                    multiConvOptions))
           .plans;
 
   // Then
@@ -80,8 +83,9 @@ BOOST_AUTO_TEST_CASE(DividesTilesUnevenlyOnFLOPs) {
 
   // When
   const auto concurrentPlans =
-      boost::get<poplin::ParallelPlan>(
-          getMultiPlan(device.getTarget(), params, options, &cache))
+      boost::get<poplin::ParallelPlan>(getMultiPlan(device.getTarget(), params,
+                                                    options, &cache,
+                                                    multiConvOptions))
           .plans;
 
   // Then
@@ -121,8 +125,9 @@ BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
 
   // When
   const auto concurrentPlans =
-      boost::get<poplin::ParallelPlan>(
-          getMultiPlan(device.getTarget(), params, options, &cache))
+      boost::get<poplin::ParallelPlan>(getMultiPlan(device.getTarget(), params,
+                                                    options, &cache,
+                                                    multiConvOptions))
           .plans;
 
   // Then
@@ -165,7 +170,7 @@ BOOST_AUTO_TEST_CASE(ConsistentNumberOfSerialSplitsAcrossPlans) {
   // When
   const auto concurrentPlans =
       boost::get<poplin::ParallelPlan>(
-          getMultiPlan(device.getTarget(), params, options, &cache))
+          getMultiPlan(device.getTarget(), params, options, &cache, multiConvOptions))
           .plans;
 
   // Then
@@ -204,7 +209,8 @@ BOOST_AUTO_TEST_CASE(FallsBackToSerialPlanningIfCannotFit) {
   poplin::PlanningCache cache;
 
   // When
-  const auto plans = getMultiPlan(device.getTarget(), params, options, &cache);
+  const auto plans = getMultiPlan(device.getTarget(), params, options, &cache,
+                                  multiConvOptions);
 
   // Then
   BOOST_CHECK(plans.type() == typeid(poplin::SerialPlan));
@@ -234,25 +240,33 @@ BOOST_AUTO_TEST_CASE(ChoosesBetterPlanWhenGivenReference) {
   // inspection)
 
   // Plan serially
-  getMultiPlan(device.getTarget(), {params[0]}, {options[0]}, &cache);
-  getMultiPlan(device.getTarget(), {params[1]}, {options[1]}, &cache);
-  getMultiPlan(device.getTarget(), {params[2]}, {options[2]}, &cache);
-  getMultiPlan(device.getTarget(), {params[3]}, {options[3]}, &cache);
+  getMultiPlan(device.getTarget(), {params[0]}, {options[0]}, &cache,
+               multiConvOptions);
+  getMultiPlan(device.getTarget(), {params[1]}, {options[1]}, &cache,
+               multiConvOptions);
+  getMultiPlan(device.getTarget(), {params[2]}, {options[2]}, &cache,
+               multiConvOptions);
+  getMultiPlan(device.getTarget(), {params[3]}, {options[3]}, &cache,
+               multiConvOptions);
 
   // Plan concurrently
-  getMultiPlan(device.getTarget(), params, options, &cache);
+  getMultiPlan(device.getTarget(), params, options, &cache, multiConvOptions);
 #else
   // Given the reference is planned serially with no reference
   const auto individuallyPlanned = {
-      getMultiPlan(device.getTarget(), {params[0]}, {options[0]}, &cache)[0],
-      getMultiPlan(device.getTarget(), {params[1]}, {options[1]}, &cache)[0],
-      getMultiPlan(device.getTarget(), {params[2]}, {options[2]}, &cache)[0],
-      getMultiPlan(device.getTarget(), {params[3]}, {options[3]}, &cache)[0],
+      getMultiPlan(device.getTarget(), {params[0]}, {options[0]}, &cache,
+                   multiConvOptions)[0],
+      getMultiPlan(device.getTarget(), {params[1]}, {options[1]}, &cache,
+                   multiConvOptions)[0],
+      getMultiPlan(device.getTarget(), {params[2]}, {options[2]}, &cache,
+                   multiConvOptions)[0],
+      getMultiPlan(device.getTarget(), {params[3]}, {options[3]}, &cache,
+                   multiConvOptions)[0],
   };
 
   // When we plan together
-  const auto concurrentlyPlanned =
-      getMultiPlan(device.getTarget(), params, options, &cache);
+  const auto concurrentlyPlanned = getMultiPlan(
+      device.getTarget(), params, options, &cache, multiConvOptions);
   // Then
   const auto getCost = [](const auto &multiplan) {
     std::vector<unsigned> cost;
@@ -285,8 +299,8 @@ BOOST_AUTO_TEST_CASE(FindsMultiPlanInCache) {
   poplin::PlanningCache cache;
 
   // When
-  getMultiPlan(device.getTarget(), params, options, &cache);
-  getMultiPlan(device.getTarget(), params, options, &cache);
+  getMultiPlan(device.getTarget(), params, options, &cache, multiConvOptions);
+  getMultiPlan(device.getTarget(), params, options, &cache, multiConvOptions);
 
   // Then planner doesn't run twice in the logs
 }
