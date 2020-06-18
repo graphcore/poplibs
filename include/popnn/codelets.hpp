@@ -4,6 +4,7 @@
 #define popnn_codelets_hpp
 #include <poplar/Graph.hpp>
 
+/// Functions used in neural networks.
 namespace popnn {
 void addCodelets(poplar::Graph &graph);
 }

@@ -4,6 +4,7 @@
 #define poplin_codelets_hpp
 #include <poplar/Graph.hpp>
 
+/// Linear algebra functions.
 namespace poplin {
 void addCodelets(poplar::Graph &graph);
 }

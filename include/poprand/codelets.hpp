@@ -4,6 +4,7 @@
 #define poprand_codelets_hpp
 #include <poplar/Graph.hpp>
 
+/// Pseudo-random number generator (PRNG) functions.
 namespace poprand {
 void addCodelets(poplar::Graph &graph);
 }
