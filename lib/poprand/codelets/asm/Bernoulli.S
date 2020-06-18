@@ -78,6 +78,7 @@ poprandBernoulliF16:
   exitz       $mzero
 .size poprandBernoulliSvF16, .-poprandBernoulliSvF16
 
+DEF_STACK_USAGE 0 poprandBernoulliSvInt
 .section .text.poprandBernoulliSvInt
 .align 4
 .supervisor
