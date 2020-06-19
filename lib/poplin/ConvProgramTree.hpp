@@ -36,6 +36,9 @@ struct ConvProgramTree {
     std::vector<poplar::program::Copy> copies;
   };
 
+  using PostProg =
+      std::map<poplar::Type, std::pair<std::vector<poplar::Tensor>,
+                                       std::vector<poplar::Tensor>>>;
   struct ComputeSetsGroup {
     ComputeSetsGroup(poplar::ComputeSet convolveCS) : convolveCS(convolveCS) {}
 
@@ -45,7 +48,8 @@ struct ConvProgramTree {
     // if the input requires a cast then a pre compute set is needed
     boost::optional<poplar::ComputeSet> pre;
     poplar::ComputeSet convolveCS;
-    poplar::program::Sequence postProg;
+    PostProg postProg;
+
     // if the output requires a cast then a post compute set is needed
     boost::optional<poplar::ComputeSet> post;
   };
