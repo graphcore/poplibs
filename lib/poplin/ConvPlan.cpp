@@ -831,12 +831,15 @@ template <typename T> struct ExchangeEstimates {
 };
 template <typename T> struct Estimates {
   Estimates() = default;
-  Estimates(const T totalCycles, const T totalTempBytes)
-      : totalCycles(totalCycles), totalTempBytes(totalTempBytes) {}
+  Estimates(const T totalCycles, const T totalTempBytes,
+            const T totalPerStepCycleDiff)
+      : totalCycles(totalCycles), totalTempBytes(totalTempBytes),
+        totalPerStepCycleDiff(totalPerStepCycleDiff) {}
 
-  // the two values we support minimizing on.
+  // the three values we support minimizing on.
   T totalCycles;
   T totalTempBytes;
+  T totalPerStepCycleDiff;
 
   // extra information that can be used for logging.
   T rearrangeBeforeSliceCycles;
@@ -861,41 +864,30 @@ template <typename T> struct Estimates {
   T convTempBytes;
   T reduceTempBytes;
   T addInPlaceTempBytes;
-
-  static constexpr std::vector<std::pair<poplar::StringRef, T Estimates::*>>
-  getCycleCountContributingMembers() {
-    return {
-        {"rearrangeBeforeSliceCycles", &Estimates::rearrangeBeforeSliceCycles},
-        {"dynamicSliceCycles", &Estimates::dynamicSliceCycles},
-        {"transformCycles", &Estimates::transformCycles},
-        {"exchangeCycles", &Estimates::totalExchangeCycles},
-        {"tileLevelTransformCycles", &Estimates::tileLevelTransformCycles},
-        {"partialCalcCycles", &Estimates::partialCalcCycles},
-        {"reduceCycles", &Estimates::reduceCycles},
-        {"dynamicUpdateCycles", &Estimates::dynamicUpdateCycles},
-        {"copyCycles", &Estimates::copyCycles},
-        {"addInPlaceCycles", &Estimates::addInPlaceCycles},
-        {"castCycles", &Estimates::castCycles}};
-  }
 };
 
 using Cost = Estimates<unsigned>;
 
 inline bool operator==(Cost a, Cost b) {
-  return a.totalCycles == b.totalCycles && a.totalTempBytes == b.totalTempBytes;
+  return a.totalCycles == b.totalCycles &&
+         a.totalTempBytes == b.totalTempBytes &&
+         a.totalPerStepCycleDiff == b.totalPerStepCycleDiff;
 }
 
 inline bool operator!=(Cost a, Cost b) { return !(a == b); }
 
 std::ostream &operator<<(std::ostream &os, const Cost &c) {
-  os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes
-     << "}";
+  os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes;
+  if (c.totalPerStepCycleDiff != std::numeric_limits<unsigned>::max()) {
+    os << ", diff=" << c.totalPerStepCycleDiff;
+  }
+  os << "}";
   return os;
 }
 
 class PlanningObjective {
 public:
-  enum Type { MINIMIZE_CYCLES, MINIMIZE_TILE_TEMP_MEMORY };
+  enum Type { MINIMIZE_CYCLES, MINIMIZE_COST_DIFF, MINIMIZE_TILE_TEMP_MEMORY };
 
 private:
   Type type;
@@ -907,6 +899,9 @@ public:
   PlanningObjective() {}
   static PlanningObjective minimizeCycles() {
     return PlanningObjective(MINIMIZE_CYCLES);
+  }
+  static PlanningObjective minimizeCostDiff() {
+    return PlanningObjective(MINIMIZE_COST_DIFF);
   }
   static PlanningObjective minimizeTileTempMemory() {
     return PlanningObjective(MINIMIZE_TILE_TEMP_MEMORY);
@@ -926,28 +921,31 @@ public:
   unsigned getCyclesBound() const { return cyclesBound; }
   unsigned getTileTempMemoryBound() const { return tileTempMemoryBound; }
   Type getType() const { return type; }
+
   bool lowerCost(Cost a, Cost b) const {
-    bool aCyclesOutOfBounds = a.totalCycles >= cyclesBound;
-    bool bCyclesOutOfBounds = b.totalCycles >= cyclesBound;
-    bool aMemoryOutOfBounds = a.totalTempBytes >= tileTempMemoryBound;
-    bool bMemoryOutOfBounds = b.totalTempBytes >= tileTempMemoryBound;
+    // the planner should make sure these bounds don't get exceeded.
+    assert(a.totalCycles < cyclesBound);
+    assert(b.totalCycles < cyclesBound);
+    assert(b.totalTempBytes < tileTempMemoryBound);
+    assert(b.totalTempBytes < tileTempMemoryBound);
+
     switch (type) {
     case MINIMIZE_CYCLES:
-      return std::tie(aCyclesOutOfBounds, aMemoryOutOfBounds, a.totalCycles,
-                      a.totalTempBytes) <
-             std::tie(bCyclesOutOfBounds, bMemoryOutOfBounds, b.totalCycles,
-                      b.totalTempBytes);
+      return std::tie(a.totalCycles, a.totalTempBytes) <
+             std::tie(b.totalCycles, b.totalTempBytes);
+    case MINIMIZE_COST_DIFF:
+      return std::tie(a.totalPerStepCycleDiff, a.totalTempBytes) <
+             std::tie(b.totalPerStepCycleDiff, b.totalTempBytes);
     case MINIMIZE_TILE_TEMP_MEMORY:
-      return std::tie(aMemoryOutOfBounds, aCyclesOutOfBounds, a.totalTempBytes,
-                      a.totalCycles) <
-             std::tie(bMemoryOutOfBounds, bCyclesOutOfBounds, b.totalTempBytes,
-                      b.totalCycles);
+      return std::tie(a.totalTempBytes, a.totalCycles) <
+             std::tie(b.totalTempBytes, b.totalCycles);
     }
     POPLIB_UNREACHABLE();
   }
 };
 
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
+                        std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max());
 
 // Pick a tile to start laying out the convolution on. We pick a "random" tile
@@ -1944,17 +1942,6 @@ addTileLevelTransformEstimates(
   throw poputil::poplibs_error("Unrecognised convolution method");
 }
 
-void addReductionDepthConstraint(popsolver::Model &m, unsigned level,
-                                 const popsolver::Variable &reductionDepth,
-                                 const Plan &referencePlan) {
-  auto referenceReduceDimSizes = referencePlan.partitions[level].kernelSplit;
-  referenceReduceDimSizes.push_back(
-      referencePlan.partitions[level].inChanSplit.parallel);
-  const auto referenceReductionDepth = m.addConstant(
-      product(referenceReduceDimSizes), "reference.reductionDepth");
-  m.equal(reductionDepth, referenceReductionDepth);
-}
-
 ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSizes,
@@ -1962,8 +1949,7 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     const ExchangeEstimator &exchangeEstimator, const ConvParams &params,
     const ConvOptions &options, const std::vector<ConvTypes> &types,
     std::vector<popsolver::Variable> &inputsPerLevel,
-    std::vector<popsolver::Variable> &weightsPerLevel,
-    const boost::optional<Plan> &referencePlan) {
+    std::vector<popsolver::Variable> &weightsPerLevel) {
   const auto numFieldDims = params.getNumFieldDims();
   const auto numLevelsOfHierarchy = convSizes.size();
 
@@ -2102,9 +2088,6 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     reduceDimSizes.push_back(partitionsNextLevel.inChanSplit.parallel);
     const auto reductionDepth =
         m.product(reduceDimSizes); // TODO: duplicate popsolver variable
-    if (referencePlan) {
-      addReductionDepthConstraint(m, level, reductionDepth, *referencePlan);
-    }
     const auto resultType = types[level + 1].resultType;
 
     auto remainingExchangeCycles = m.call(
@@ -2163,7 +2146,6 @@ addReduceCycleEstimate(popsolver::Model &m,
                        const poplar::Target &target,
                        const std::vector<ConvTypes> &types,
                        std::vector<popsolver::Variable> &outputsPerLevel,
-                       const boost::optional<Plan> &referencePlan,
                        const ConvOptions &options,
                        PlanningCacheImpl::CycleEstimationImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
@@ -2175,9 +2157,6 @@ addReduceCycleEstimate(popsolver::Model &m,
     reduceDimSizes.push_back(partitionVars[level].inChanSplit.parallel);
     const auto reductionDepth =
         m.product(reduceDimSizes); // TODO: duplicate popsolver variable
-    if (referencePlan) {
-      addReductionDepthConstraint(m, level, reductionDepth, *referencePlan);
-    }
     outputsPerLevel.push_back(m.ceildiv(partialsPerTile, reductionDepth));
     bool floatPartials = types[level + 1].resultType == poplar::FLOAT;
     bool floatOutput = types[level].resultType == poplar::FLOAT;
@@ -2788,7 +2767,7 @@ static Estimates<popsolver::Variable> addEstimates(
     const std::vector<ConvTransform> &transforms, Plan::Method method,
     const unsigned slicWindowWidth, const unsigned numConvUnitsRequired,
     const Plan::LinearizeTileOrder linearizeTileOrder,
-    const boost::optional<Plan> &referencePlan, const ConvOptions &options,
+    const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   const auto numLevelsOfHierarchy = convSize.size();
   ExchangeEstimator exchangeEstimator(m, target, perLevelExchangeBytesPerCycle,
@@ -2822,8 +2801,7 @@ static Estimates<popsolver::Variable> addEstimates(
 
   e.itemisedExchangeCycles = addExchangeCycleEstimates(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
-      transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel,
-      referencePlan);
+      transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel);
 
   std::tie(e.transformCycles, e.transformTempBytes) = addTransformCycleEstimate(
       m, untransformedParams, transformedOnceParams,
@@ -2892,7 +2870,7 @@ static Estimates<popsolver::Variable> addEstimates(
   std::vector<popsolver::Variable> outputsPerLevel;
   std::tie(e.reduceCycles, e.reduceTempBytes) =
       addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
-                             outputsPerLevel, referencePlan, options, cache);
+                             outputsPerLevel, options, cache);
 
   // if this convolution has been split serially and we aren't sure the weights
   // are laid out well for a dynamic slice, we must also add a one-off cost
@@ -2966,6 +2944,37 @@ static Estimates<popsolver::Variable> addEstimates(
                     e.rearrangeBeforeSliceTempDuringRearrangeBytes}),
              e.addInPlaceTempBytes});
 
+  // calculate the positive cycle difference for each step in the cost model.
+  if (referenceCost) {
+    const auto posDiff = [&m](popsolver::Variable lhs, int rhs) {
+      // can't use Model::sub here because that will invalidate the plan if the
+      // answer is negative.
+      return m.call({lhs}, [rhs](const std::vector<unsigned> &vs) -> unsigned {
+        return std::max(0, int(vs[0]) - rhs);
+      });
+    };
+
+    const auto &c = *referenceCost;
+    e.totalPerStepCycleDiff = m.sum(
+        {posDiff(e.rearrangeBeforeSliceCycles, c.rearrangeBeforeSliceCycles),
+         posDiff(e.dynamicSliceCycles, c.dynamicSliceCycles),
+         posDiff(e.transformCycles, c.transformCycles),
+
+         // TODO: should this be using the itemised exchange estimates?
+         posDiff(e.totalExchangeCycles, c.totalExchangeCycles),
+
+         posDiff(e.tileLevelTransformCycles, c.tileLevelTransformCycles),
+         posDiff(e.partialCalcCycles, c.partialCalcCycles),
+         posDiff(e.reduceCycles, c.reduceCycles),
+         posDiff(e.dynamicUpdateCycles, c.dynamicUpdateCycles),
+         posDiff(e.copyCycles, c.copyCycles),
+         posDiff(e.addInPlaceCycles, c.addInPlaceCycles),
+         posDiff(e.castCycles, c.castCycles)});
+  } else {
+    e.totalPerStepCycleDiff =
+        m.addConstant(std::numeric_limits<unsigned>::max());
+  }
+
   return e;
 }
 
@@ -2990,7 +2999,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     const std::vector<ConvTypes> &types, const bool isJointPlan,
     const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
     const unsigned partialChansPerGroup,
-    const boost::optional<Plan> &referencePlan, const ConvOptions &options,
+    const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   // for the backwards pass the output shape will be Ci x Co (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
@@ -3001,7 +3010,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
   if (bwdTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       bwdTransformedOnceParams.outputChannelsPerConvGroup == 0) {
     const auto zero = m.addConstant(0);
-    return {zero, zero};
+    return {zero, zero, zero};
   }
 
   assert(!bwdTransformedOnceParams.inputFieldShape.empty());
@@ -3050,7 +3059,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
       bwdTransformedOnceUnpaddedParams, isJointPlan, convGroupsPerGroup,
       bwdInChansPerGroup, partialChansPerGroup, types, transforms, bwdMethod,
       slicWindowWidth, numConvUnitsRequired,
-      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referencePlan, options, cache);
+      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referenceCost, options, cache);
 }
 
 static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
@@ -3093,7 +3102,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
     const std::vector<ConvTypes> &types, const bool isJointPlan,
     const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
     const unsigned partialChansPerGroup,
-    const boost::optional<Plan> &referencePlan, const ConvOptions &options,
+    const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
@@ -3105,7 +3114,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
   if (wuTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       wuTransformedOnceParams.inputFieldShape.back() == 0) {
     const auto zero = m.addConstant(0);
-    return {zero, zero};
+    return {zero, zero, zero};
   }
 
   auto wuUntransformedParams = untransformedParams;
@@ -3176,7 +3185,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
       wuTransformedOnceUnpaddedParams, isJointPlan, convGroupsPerGroup,
       wuInChansPerGroup, wuPartialChansPerGroup, types, transforms, wuMethod,
       slicWindowWidth, numConvUnitsRequired, Plan::LinearizeTileOrder::FC_WU,
-      referencePlan, options, cache);
+      referenceCost, options, cache);
 }
 
 static Partition makePartition(const popsolver::Solution &s,
@@ -4057,6 +4066,10 @@ static Estimates<popsolver::Variable> constructModel(
     }
 
     if (referencePlan) {
+      // TODO: this only needs to be "m.equal(total serial splits)", we don't
+      // need to differentiate betweem input and output as they both get lowered
+      // to a Repeat program that can be shared across convolutions.
+      //
       // Ensure we match serial splits with the reference plan
       // This potentially causes factorisation problems which can make the plan
       // impossible immediately.
@@ -4126,7 +4139,7 @@ static Estimates<popsolver::Variable> constructModel(
       untransformedParams, transformedOnceParams, transformedOnceUnpaddedParams,
       isJointPlan, convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
       types, transforms, method, slicWindowWidth, numConvUnitsRequired,
-      Plan::LinearizeTileOrder::STANDARD, referencePlan, options, cache);
+      Plan::LinearizeTileOrder::STANDARD, referenceCost, options, cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
@@ -4137,7 +4150,7 @@ static Estimates<popsolver::Variable> constructModel(
         convSize, transforms, method, slicWindowWidth, numConvUnitsRequired,
         usedTiles, target, perLevelExchangeBytesPerCycle, types, isJointPlan,
         convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
-        referencePlan, options, cache);
+        referenceCost, options, cache);
 
     const auto wu = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
@@ -4145,7 +4158,7 @@ static Estimates<popsolver::Variable> constructModel(
         convSize, transforms, method, slicWindowWidth, numConvUnitsRequired,
         usedTiles, target, numFieldDims, perLevelExchangeBytesPerCycle, types,
         isJointPlan, convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
-        referencePlan, options, cache);
+        referenceCost, options, cache);
 
     if (objective.getTileTempMemoryBound() > 0) {
       auto bound = objective.getTileTempMemoryBound();
@@ -4162,24 +4175,13 @@ static Estimates<popsolver::Variable> constructModel(
     e.totalTempBytes =
         m.max({e.totalTempBytes, bwd.totalTempBytes, wu.totalTempBytes},
               "maxTempBytesPerTile");
-  }
 
-  if (referenceCost) {
-    const auto estimateVariables = e.getCycleCountContributingMembers();
-    const auto referenceValues =
-        referenceCost->getCycleCountContributingMembers();
-    assert(estimateVariables.size() == referenceValues.size());
-    for (unsigned i = 0; i < estimateVariables.size(); ++i) {
-      const auto &estimateMember = estimateVariables[i];
-      const auto &referenceValue = referenceValues[i];
-
-      const auto reference = (*referenceCost).*referenceValue.second;
-      const auto x =
-          m.addConstant(reference, "reference." + referenceValue.first);
-
-      auto &estimate = e.*estimateMember.second;
-      estimate = m.max({estimate, x},
-                       "maxCyclesAgainstReference." + referenceValue.first);
+    // report the total diff of all three phases.
+    if (referenceCost) {
+      e.totalPerStepCycleDiff =
+          m.sum({e.totalPerStepCycleDiff, bwd.totalPerStepCycleDiff,
+                 wu.totalPerStepCycleDiff},
+                "totalPerStepCycleDiff");
     }
   }
 
@@ -4188,10 +4190,14 @@ static Estimates<popsolver::Variable> constructModel(
   // relevant variable based upon the best plan found so far.
   auto cyclesBound = objective.getCyclesBound();
   auto memoryBound = objective.getTileTempMemoryBound();
+  auto perStepBound = std::numeric_limits<unsigned>::max();
 
   switch (objective.getType()) {
   case PlanningObjective::MINIMIZE_CYCLES:
     cyclesBound = std::min(cyclesBound, bestCost.totalCycles);
+    break;
+  case PlanningObjective::MINIMIZE_COST_DIFF:
+    perStepBound = std::min(perStepBound, bestCost.totalPerStepCycleDiff);
     break;
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
     memoryBound = std::min(memoryBound, bestCost.totalTempBytes);
@@ -4200,6 +4206,10 @@ static Estimates<popsolver::Variable> constructModel(
 
   m.lessOrEqual(e.totalCycles, cyclesBound);
   m.lessOrEqual(e.totalTempBytes, memoryBound);
+
+  if (referenceCost) {
+    m.lessOrEqual(e.totalPerStepCycleDiff, perStepBound);
+  }
 
   return e;
 }
@@ -4227,6 +4237,9 @@ static std::pair<Plan, Cost> choosePlan(
   case PlanningObjective::MINIMIZE_CYCLES:
     s = m.minimize({e.totalCycles, e.totalTempBytes});
     break;
+  case PlanningObjective::MINIMIZE_COST_DIFF:
+    s = m.minimize({e.totalPerStepCycleDiff, e.totalTempBytes});
+    break;
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
     s = m.minimize({e.totalTempBytes, e.totalCycles});
     break;
@@ -4251,6 +4264,7 @@ static std::pair<Plan, Cost> choosePlan(
   Cost cost;
   cost.totalCycles = s[e.totalCycles];
   cost.totalTempBytes = s[e.totalTempBytes];
+  cost.totalPerStepCycleDiff = s[e.totalPerStepCycleDiff];
 
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
@@ -5086,7 +5100,8 @@ void validatePlanConstraints(
 }
 
 static void logPlanBreakdown(logging::Level l, const Plan &plan,
-                             const Cost &cost) {
+                             const Cost &cost,
+                             const boost::optional<Cost> &referenceCost) {
   logging::log(l, "  breakdown of memory and cycle estimates:");
   logging::log(l, "   - total parallel split: {}", plan.totalParallelSplit());
   logging::log(l, "   - total serial split: {}", plan.totalSerialSplit());
@@ -5128,6 +5143,11 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
   logging::log(l, "   - cast: {} cycles, 0 bytes", cost.castCycles, 0);
   logging::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
                cost.totalTempBytes);
+  if (referenceCost) {
+    logging::log(l,
+                 "   - cycle difference compared to reference ({} cycles): {}",
+                 referenceCost->totalCycles, cost.totalPerStepCycleDiff);
+  }
 }
 
 static std::vector<unsigned> getHierarchy(const ConvOptions &options) {
@@ -5260,7 +5280,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
 
               logging::debug("Found new best candidate plan using {}: {}",
                              candidate.method, candidateCost);
-              logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost);
+              logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost,
+                               referenceCost);
             }
           }
         }
@@ -5399,6 +5420,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
                       startTileIdxForVirtualHierarchy, referencePlan,
                       referenceCost, cache);
   }
+
   // It doesn't make sense to compare joint and separate planning when the
   // number of cycles is bounded since we can't easily derive bounds for each
   // individual pass from a bound on the total number of cycles.
@@ -5445,6 +5467,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     separateCost.totalCycles += cost.totalCycles;
     separateCost.totalTempBytes =
         std::max(separateCost.totalTempBytes, cost.totalTempBytes);
+    separateCost.totalPerStepCycleDiff += cost.totalPerStepCycleDiff;
   }
   if (objective.lowerCost(separateCost, jointCost)) {
     if (additionalPlansToCache) {
@@ -5568,10 +5591,14 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
 
   if (availableTileMem != 0) {
     logging::debug("Planning convolution with a per-tile memory limit of {} "
-                   "bytes.",
-                   availableTileMem);
+                   "bytes across {} tiles.",
+                   availableTileMem, options.tilesPerIPU);
+    if (referenceCost) {
+      logging::debug("  applying a reference cost: {}", *referenceCost);
+    }
 
-    auto objective = PlanningObjective::minimizeCycles();
+    auto objective = referenceCost ? PlanningObjective::minimizeCostDiff()
+                                   : PlanningObjective::minimizeCycles();
     objective.setTileTempMemoryBound(availableTileMem);
 
     std::tie(plan, cost) = createPlan(
@@ -5609,7 +5636,7 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
       params.getOutputFieldShape(), params.getBatchSize(),
       params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),
       options.pass);
-  logPlanBreakdown(logging::Level::Debug, plan, cost);
+  logPlanBreakdown(logging::Level::Debug, plan, cost, referenceCost);
 
   logging::debug("{}", plan);
   logging::trace("for params: {}", params);
@@ -5802,21 +5829,14 @@ getParallelMultiPlan(const poplar::Target &target,
   }
 
   std::vector<Plan> plans;
+  plans.resize(totalPlans);
+
   const auto largestPlanIdx = std::distance(
       options.begin(), std::max_element(options.cbegin(), options.cend(),
                                         [](const auto &lhs, const auto &rhs) {
                                           return lhs.tilesPerIPU * lhs.numIPUs <
                                                  rhs.tilesPerIPU * rhs.numIPUs;
                                         }));
-
-  // Ensure the same steps for the plans, currently this is only serial split
-  // and multistage reduction. Both of which are currently not proven to work.
-  Plan referencePlan;
-
-  // This can increase currently if a subsequent plan can't
-  // find a solution with fewer cycles, which is why we are planning serially
-  // and not in parallel
-  Cost referenceCost;
 
   // The starting tile for the hierarchy is the same currently across every IPU
   unsigned startTileIdxForVirtualHierarchy = 0;
@@ -5826,15 +5846,15 @@ getParallelMultiPlan(const poplar::Target &target,
         return currentIdx += hierarchy[0];
       };
 
-  {
-    const auto planAndCost =
-        runPlanner(params[largestPlanIdx], options[largestPlanIdx], target,
-                   boost::none, boost::none, startTileIdxForVirtualHierarchy,
-                   &cacheImpl->cycleEstimation, nullptr);
-    plans.push_back(planAndCost.first);
-    referencePlan = planAndCost.first;
-    referenceCost = planAndCost.second;
-  }
+  const auto planAndCost =
+      runPlanner(params[largestPlanIdx], options[largestPlanIdx], target,
+                 boost::none, boost::none, startTileIdxForVirtualHierarchy,
+                 &cacheImpl->cycleEstimation, nullptr);
+  plans[largestPlanIdx] = planAndCost.first;
+
+  // Ensure the same steps for the plans, currently this is only serial splits.
+  const auto &referencePlan = planAndCost.first;
+  const auto &referenceCost = planAndCost.second;
 
   startTileIdxForVirtualHierarchy = incrementStartTileIdx(
       startTileIdxForVirtualHierarchy, getHierarchy(options[largestPlanIdx]));
@@ -5845,8 +5865,7 @@ getParallelMultiPlan(const poplar::Target &target,
           runPlanner(params[i], options[i], target, referencePlan,
                      referenceCost, startTileIdxForVirtualHierarchy,
                      &cacheImpl->cycleEstimation, nullptr);
-      plans.push_back(planAndCost.first);
-      referenceCost = planAndCost.second;
+      plans[i] = planAndCost.first;
 
       startTileIdxForVirtualHierarchy = incrementStartTileIdx(
           startTileIdxForVirtualHierarchy, getHierarchy(options[i]));

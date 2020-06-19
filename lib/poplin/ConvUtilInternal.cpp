@@ -824,10 +824,23 @@ std::vector<unsigned> splitTilesByComp(const std::vector<std::uint64_t> &flops,
 std::vector<unsigned>
 splitTilesByComp(const std::vector<CanonicalConvParams> &convParams,
                  unsigned numTiles) {
+  std::uint64_t maxFlops = 0;
   std::vector<std::uint64_t> flops;
   for (const auto &cp : convParams) {
-    flops.push_back(getFwdFlops(cp.getParams()));
+    auto fwdFlops = getFwdFlops(cp.getParams());
+    maxFlops = std::max(maxFlops, fwdFlops);
+    flops.push_back(fwdFlops);
   }
+
+  // we normalise the FLOPs against the max one and then take the logarithm
+  // because we don't want to under represent smaller convolutions. empirically
+  // it is seen that the performance per tile drops as the number of tiles
+  // increases, therefore if we don't allocate enough there can be a sharp
+  // drop-off in performance.
+  for (unsigned i = 0; i < flops.size(); ++i) {
+    flops[i] = std::log10((flops[i] * 75) / maxFlops) * 1'000'000;
+  }
+
   return splitTilesByComp(flops, numTiles);
 }
 

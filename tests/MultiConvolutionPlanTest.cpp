@@ -20,14 +20,14 @@ std::vector<poplin::CanonicalConvParams> getGenericOctConvParams() {
   const std::vector<std::size_t> kernelShape{3, 3};
   const auto numConvGroups = 1;
 
-  const std::vector<std::size_t> highFreqInputField{56, 56};
-  const std::vector<std::size_t> lowFreqInputField{28, 28};
+  const std::vector<std::size_t> highFreqInputField{8, 8};
+  const std::vector<std::size_t> lowFreqInputField{4, 4};
 
-  const auto highFreqInputChans = 56;
-  const auto lowFreqInputChans = 8;
+  const auto highFreqInputChans = 8;
+  const auto lowFreqInputChans = 3;
 
-  const auto highFreqOutputChans = 224;
-  const auto lowFreqOutputChans = 32;
+  const auto highFreqOutputChans = 10;
+  const auto lowFreqOutputChans = 15;
 
   const auto HH = poplin::ConvParams{
       dataType,           batchSize,           highFreqInputField, kernelShape,
@@ -121,7 +121,7 @@ BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
   // it's hardcoded because currently the splitting of tiles is internal to
   // ConvPlan, if this breaks then it's because the allocation method of tiles
   // has changed (or FLOP estimation has?!).
-  const std::vector<unsigned> expectedStartTiles{0, 92, 94, 98};
+  const std::vector<unsigned> expectedStartTiles{0, 46, 74, 86};
 
   // When
   const auto concurrentPlans =
@@ -145,7 +145,7 @@ std::vector<poplin::CanonicalConvParams> getLargeOctConvParams() {
                  std::back_inserter(largeParams),
                  [](const poplin::CanonicalConvParams &p) {
                    auto largerParam = p.getParams();
-                   largerParam.numConvGroups = 10;
+                   largerParam.numConvGroups = 500;
                    return largerParam;
                  });
   return largeParams;
@@ -200,7 +200,7 @@ BOOST_AUTO_TEST_CASE(ConsistentNumberOfSerialSplitsAcrossPlans) {
 
 BOOST_AUTO_TEST_CASE(FallsBackToSerialPlanningIfCannotFit) {
   // Given
-  const auto totalTilesOnIPU = 100;
+  const auto totalTilesOnIPU = 10;
   const auto device = createTestDevice(TEST_TARGET, 1, totalTilesOnIPU);
   // Warning: Brittle choice of plan to fit serial and not parallel.
   const auto params = getLargeOctConvParams();
