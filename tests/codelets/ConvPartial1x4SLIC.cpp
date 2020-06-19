@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <iostream>
 #include <random>
+#include <utility>
 #include <vector>
 
 // Default tolerances used in tests
@@ -286,18 +287,23 @@ int main(int argc, char **argv) try {
 
   // create the vertex
   auto fwdCS = graph.addComputeSet("fwdCS");
-  Sequence postFwdProg;
 
   std::vector<Copy> transformPre;
+  std::map<poplar::Type,
+           std::pair<std::vector<poplar::Tensor>, std::vector<poplar::Tensor>>>
+      postProg;
   createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
                               chansPerGroup, convUnitsRequired, 0, params,
-                              transformPre, copyWritten, fwdCS, postFwdProg,
+                              transformPre, copyWritten, fwdCS, postProg,
                               inGrouped, weightsGrouped, outGrouped, "vertex");
   for (const auto &copy : transformPre) {
     prog.add(copy);
   }
   prog.add(Execute(fwdCS));
-  prog.add(postFwdProg);
+
+  for (auto &p : postProg) {
+    prog.add(Copy(concat(p.second.first), concat(p.second.second)));
+  }
 
   // Get ordinary view of input/weights/output without grouping for reference
   // etc.

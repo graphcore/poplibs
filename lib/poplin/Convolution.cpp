@@ -3475,8 +3475,8 @@ void createConvPartialSlicVertex(
     unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
     ConvParams params, std::vector<Copy> &transformPre,
     std::map<Type, Tensor> &copyWritten, ComputeSet fwdCS,
-    Sequence &postConvProg, Tensor in, Tensor weights, Tensor out,
-    const std::string &debugPrefix) {
+    ConvProgramTree::PostProg &postConvProg, Tensor in, Tensor weights,
+    Tensor out, const std::string &debugPrefix) {
   const auto outputStride = params.outputTransform.stride.back();
 
   const auto &target = graph.getTarget();
@@ -3661,7 +3661,11 @@ void createConvPartialSlicVertex(
     const auto zeros =
         graph.addConstant(partialsType, outputPadding.shape(), 0);
     graph.setTileMapping(zeros, 0);
-    postConvProg.add(Copy(zeros, outputPadding));
+
+    // Collect copies to do a single one at the end.
+    auto &copyPair = postConvProg[partialsType];
+    copyPair.first.push_back(zeros.flatten());
+    copyPair.second.push_back(outputPadding.flatten());
   }
 
   // We also need an extra buffer for our vertex, 16-byte aligned, with size
@@ -3725,7 +3729,13 @@ void ConvProgramTree::ComputeSetsGroup::lower(Sequence &prog) {
     prog.add(Execute(pre.get()));
   }
   prog.add(Execute(convolveCS));
-  prog.add(postProg);
+
+  for (auto &p : postProg) {
+    logging::debug("#convolution post program bunch copies of type {} = {}",
+                   p.first.toString(), p.second.first.size());
+    assert(p.second.first.size());
+    prog.add(Copy(concat(p.second.first), concat(p.second.second)));
+  }
   if (post) {
     prog.add(Execute(post.get()));
   }
@@ -4660,12 +4670,7 @@ static unsigned getCreatePartialsLevel(const Plan &plan) {
   const auto numLevels = plan.partitions.size();
   unsigned level = numLevels;
   const auto &partialType = plan.types.back().partialType;
-  // TODO: T12873 Currently, if we create the partials as a large variable
-  // with a channel grouping of one, it can cause a problem when detecting
-  // channel grouping in addToBias. When addToBias is replaced with correct
-  // introspection we can remove this check.
-  if (plan.partialChansPerGroup == 1)
-    return level;
+
   while (level > 0) {
     const auto &transform = plan.transforms[level];
     // If this level transforms the input in anyway then stop since
