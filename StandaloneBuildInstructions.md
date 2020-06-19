@@ -57,7 +57,7 @@ Create 'build' and 'install' directories within your PopLibs source directory:
 
 Run cmake then build with Ninja:
 
-    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -GNinja
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBUILD_SHARED_LIBS=1 -GNinja
     $ ninja
 
 Install with Ninja then source the enable script:
