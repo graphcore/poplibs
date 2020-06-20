@@ -20,6 +20,11 @@ template <typename T> struct Split {
   T parallel;
 };
 
+template <typename T>
+inline bool operator<(const Split<T> &a, const Split<T> &b) {
+  return std::tie(a.serial, a.parallel) < std::tie(b.serial, b.parallel);
+}
+
 struct Partition {
   // For each spatial dimension the number of parts the input is split into.
   std::vector<unsigned> fieldSplit;
@@ -71,6 +76,8 @@ struct Partition {
   unsigned totalElements() const { return totalParallelSplit(); }
 };
 
+bool operator<(const Partition &a, const Partition &b);
+
 std::ostream &operator<<(std::ostream &os, const Partition &p);
 
 struct ConvTransform {
@@ -108,6 +115,8 @@ struct ConvTransform {
   unsigned combineConvGroupsFactor = 1;
 };
 
+bool operator<(const ConvTransform &a, const ConvTransform &b);
+
 std::ostream &operator<<(std::ostream &os, const ConvTransform &t);
 
 // There are several types that exist during a convolution:
@@ -140,6 +149,8 @@ struct ConvTypes {
   ConvTypes(poplar::Type partialType, poplar::Type resultType)
       : partialType(partialType), resultType(resultType) {}
 };
+
+bool operator<(const ConvTypes &a, const ConvTypes &b);
 
 std::ostream &operator<<(std::ostream &os, const ConvTypes &t);
 
@@ -233,6 +244,8 @@ struct Plan {
                            });
   }
 };
+
+bool operator<(const Plan &a, const Plan &b);
 
 std::ostream &operator<<(std::ostream &os, const Plan::Method &m);
 std::istream &operator>>(std::istream &is, Plan::Method &m);

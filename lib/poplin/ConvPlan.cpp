@@ -379,6 +379,17 @@ static const char *asString(Plan::Method m) {
   POPLIB_UNREACHABLE();
 }
 
+bool operator<(const Partition &a, const Partition &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &Partition::fieldSplit, &Partition::batchSplit, &Partition::outChanSplit,
+      &Partition::kernelSplit, &Partition::inChanSplit,
+      &Partition::convGroupSplit, &Partition::fieldAxisGrainSize,
+      &Partition::convGroupGrainSize, &Partition::inChanGrainSize,
+      &Partition::outChanGrainSize);
+
+  return helper.lt(a, b);
+}
+
 std::ostream &operator<<(std::ostream &os, const Partition &p) {
   // T10408: Splitting the batch and in channel dimensions serially has not been
   // implemented yet so we don't bother printing them out for now.
@@ -400,6 +411,16 @@ std::ostream &operator<<(std::ostream &os, const Partition &p) {
      << "             inChanGrainSize       " << p.inChanGrainSize << "\n"
      << "             outChanGrainSize      " << p.outChanGrainSize << "\n";
   return os;
+}
+
+bool operator<(const ConvTransform &a, const ConvTransform &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &ConvTransform::extraFieldDims, &ConvTransform::dilatePostConv,
+      &ConvTransform::swapOperands, &ConvTransform::expandDims,
+      &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims,
+      &ConvTransform::combineConvGroupsFactor);
+
+  return helper.lt(a, b);
 }
 
 std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
@@ -424,6 +445,13 @@ std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
      << "        combineConvGroupsFactor       " << t.combineConvGroupsFactor
      << "\n";
   return os;
+}
+
+bool operator<(const ConvTypes &a, const ConvTypes &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &ConvTypes::partialType, &ConvTypes::resultType);
+
+  return helper.lt(a, b);
 }
 
 std::ostream &operator<<(std::ostream &os, const ConvTypes &t) {
@@ -466,6 +494,17 @@ std::ostream &operator<<(std::ostream &os, Plan::LinearizeTileDirection d) {
   auto id = static_cast<std::underlying_type_t<decltype(d)>>(d);
   throw poputil::poplibs_error("Unrecognised tile direction <" +
                                std::to_string(id) + ">");
+}
+
+bool operator<(const Plan &a, const Plan &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &Plan::transforms, &Plan::partitions, &Plan::types,
+      &Plan::convGroupsPerGroup, &Plan::inChansPerGroup,
+      &Plan::partialChansPerGroup, &Plan::slicWindowWidth,
+      &Plan::numConvUnitsRequired, &Plan::method, &Plan::linearizeTileOrder,
+      &Plan::startTile, &Plan::linearizeTileDirection, &Plan::isJointPlan);
+
+  return helper.lt(a, b);
 }
 
 std::ostream &operator<<(std::ostream &os, const Plan &p) {
@@ -717,43 +756,138 @@ static std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
     bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
     unsigned outChansPerGroup, unsigned dataPathWidth);
 
+template <typename T> struct ExchangeEstimates {
+  T inputExchangeCycles;
+  T weightExchangeCycles;
+  T reduceFirstStageExchangeCycles;
+  T reduceRemainingStagesExchangeCycles;
+};
+
+template <typename T>
+inline bool operator<(const ExchangeEstimates<T> &a,
+                      const ExchangeEstimates<T> &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &ExchangeEstimates<T>::inputExchangeCycles,
+      &ExchangeEstimates<T>::weightExchangeCycles,
+      &ExchangeEstimates<T>::reduceFirstStageExchangeCycles,
+      &ExchangeEstimates<T>::reduceRemainingStagesExchangeCycles);
+
+  return helper.lt(a, b);
+}
+
+template <typename T> struct Estimates {
+  Estimates() = default;
+  Estimates(const T totalCycles, const T totalTempBytes,
+            const T totalPerStepCycleDiff)
+      : totalCycles(totalCycles), totalTempBytes(totalTempBytes),
+        totalPerStepCycleDiff(totalPerStepCycleDiff) {}
+
+  // the three values we support minimizing on.
+  T totalCycles;
+  T totalTempBytes;
+  T totalPerStepCycleDiff;
+
+  // extra information that can be used for logging.
+  T rearrangeBeforeSliceCycles;
+  T dynamicSliceCycles;
+  T transformCycles;
+
+  T totalExchangeCycles;
+  ExchangeEstimates<T> itemisedExchangeCycles;
+
+  T tileLevelTransformCycles;
+  T partialCalcCycles;
+  T reduceCycles;
+  T dynamicUpdateCycles;
+  T copyCycles;
+  T addInPlaceCycles;
+  T castCycles;
+
+  T rearrangeBeforeSliceTempBytes;
+  T rearrangeBeforeSliceTempDuringRearrangeBytes;
+  T transformTempBytes;
+  T tileLevelTransformTempBytes;
+  T convTempBytes;
+  T reduceTempBytes;
+  T addInPlaceTempBytes;
+};
+
+using Cost = Estimates<unsigned>;
+
+inline bool operator==(const Cost &a, const Cost &b) {
+  return a.totalCycles == b.totalCycles &&
+         a.totalTempBytes == b.totalTempBytes &&
+         a.totalPerStepCycleDiff == b.totalPerStepCycleDiff;
+}
+
+inline bool operator!=(const Cost &a, const Cost &b) { return !(a == b); }
+
+inline bool operator<(const Cost &a, const Cost &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &Cost::totalCycles, &Cost::totalTempBytes, &Cost::totalPerStepCycleDiff,
+
+      &Cost::rearrangeBeforeSliceCycles, &Cost::dynamicSliceCycles,
+      &Cost::transformCycles,
+
+      &Cost::totalExchangeCycles, &Cost::itemisedExchangeCycles,
+
+      &Cost::tileLevelTransformCycles, &Cost::partialCalcCycles,
+      &Cost::reduceCycles, &Cost::dynamicUpdateCycles, &Cost::copyCycles,
+      &Cost::addInPlaceCycles, &Cost::castCycles,
+
+      &Cost::rearrangeBeforeSliceTempBytes,
+      &Cost::rearrangeBeforeSliceTempDuringRearrangeBytes,
+      &Cost::transformTempBytes, &Cost::tileLevelTransformTempBytes,
+      &Cost::convTempBytes, &Cost::reduceTempBytes, &Cost::addInPlaceTempBytes);
+
+  return helper.lt(a, b);
+}
+
+std::ostream &operator<<(std::ostream &os, const Cost &c) {
+  os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes;
+  if (c.totalPerStepCycleDiff != std::numeric_limits<unsigned>::max()) {
+    os << ", diff=" << c.totalPerStepCycleDiff;
+  }
+  os << "}";
+  return os;
+}
+
+struct ConvDescription {
+  // TODO pass only ConvDescriptions into the planner as the only source of
+  // information to use, this will make sure the cache and planner are in
+  // lockstep and we don't introduce more information accidently outside the
+  // cache, e.g. target
+  // TODO: derive information from target and include in the key.
+  // Currently it's assumed to always have the same target universally.
+  CanonicalConvParams params;
+  ConvOptions options;
+  boost::optional<Plan> referencePlan;
+  boost::optional<Cost> referenceCost;
+  unsigned startTileIdxForVirtualHierarchy;
+
+  ConvDescription(CanonicalConvParams params, ConvOptions options,
+                  boost::optional<Plan> referencePlan,
+                  boost::optional<Cost> referenceCost,
+                  unsigned startTileIdxForVirtualHierarchy)
+      : params{std::move(params)},
+        options({std::move(options)}), referencePlan{std::move(referencePlan)},
+        referenceCost{std::move(referenceCost)},
+        startTileIdxForVirtualHierarchy{startTileIdxForVirtualHierarchy} {}
+
+  bool operator<(const ConvDescription &other) const {
+    constexpr static auto helper = poplibs_support::makeStructHelper(
+        &ConvDescription::params, &ConvDescription::options,
+        &ConvDescription::referenceCost, &ConvDescription::referencePlan,
+        &ConvDescription::startTileIdxForVirtualHierarchy);
+
+    return helper.lt(*this, other);
+  }
+};
+
 class PlanningCacheImpl {
 public:
-  struct Key {
-    struct ConvDescription {
-      // TODO pass only ConvDescriptions into the planner as the only source of
-      // information to use, this will make sure the cache and planner are in
-      // lockstep and we don't introduce more information accidently outside the
-      // cache, e.g. target
-      // TODO: derive information from target and include in the key.
-      // Currently it's assumed to always have the same target universally.
-      CanonicalConvParams params;
-      ConvOptions options;
+  using Key = ConvDescription;
 
-      bool operator<(const ConvDescription &other) const {
-        return std::tie(params, options) <
-               std::tie(other.params, other.options);
-      }
-    };
-    std::vector<ConvDescription> convs;
-
-    Key(std::vector<ConvDescription> descriptions) {
-      // It's probably never going to happen, but currently
-      // we want the behaviour to be independent of the order
-      // you specify the convolutions in a multi plan.
-      // However it's not currently the case. as it plans first to last against
-      // the previous reference
-
-      // TODO: Make multiplan order independent
-      // std::sort(descriptions.begin(), descriptions.end());
-      convs = descriptions;
-    }
-
-    Key(CanonicalConvParams params, ConvOptions options)
-        : convs({{params, options}}) {}
-
-    bool operator<(const Key &other) const { return convs < other.convs; }
-  };
   class CycleEstimationImpl {
   public:
     decltype(memoize(getConvPartial1x1InnerLoopCycleEstimateWithZeroing))
@@ -796,10 +930,10 @@ public:
 
 private:
   // Updates to plans must be single-threaded.
-  std::map<Key, std::vector<Plan>> planCache;
+  std::map<Key, std::pair<Plan, Cost>> planCache;
 
 public:
-  boost::optional<std::vector<Plan>> getPlan(const Key &key) {
+  boost::optional<std::pair<Plan, Cost>> getPlan(const Key &key) {
     const auto plan = planCache.find(key);
     if (plan == planCache.end()) {
       return boost::none;
@@ -808,12 +942,8 @@ public:
     }
   }
 
-  void addMultiPlansToCache(const Key &key, const std::vector<Plan> &value) {
-    planCache.emplace(key, value);
-  }
-
-  void addPlanToCache(const Key &key, const Plan &value) {
-    addMultiPlansToCache(key, {value});
+  void addPlanToCache(Key key, std::pair<Plan, Cost> value) {
+    planCache.emplace(std::move(key), std::move(value));
   }
 };
 
@@ -822,68 +952,6 @@ PlanningCache::PlanningCache() {
 }
 
 PlanningCache::~PlanningCache() = default;
-
-template <typename T> struct ExchangeEstimates {
-  T inputExchangeCycles;
-  T weightExchangeCycles;
-  T reduceFirstStageExchangeCycles;
-  T reduceRemainingStagesExchangeCycles;
-};
-template <typename T> struct Estimates {
-  Estimates() = default;
-  Estimates(const T totalCycles, const T totalTempBytes,
-            const T totalPerStepCycleDiff)
-      : totalCycles(totalCycles), totalTempBytes(totalTempBytes),
-        totalPerStepCycleDiff(totalPerStepCycleDiff) {}
-
-  // the three values we support minimizing on.
-  T totalCycles;
-  T totalTempBytes;
-  T totalPerStepCycleDiff;
-
-  // extra information that can be used for logging.
-  T rearrangeBeforeSliceCycles;
-  T dynamicSliceCycles;
-  T transformCycles;
-
-  T totalExchangeCycles;
-  ExchangeEstimates<T> itemisedExchangeCycles;
-
-  T tileLevelTransformCycles;
-  T partialCalcCycles;
-  T reduceCycles;
-  T dynamicUpdateCycles;
-  T copyCycles;
-  T addInPlaceCycles;
-  T castCycles;
-
-  T rearrangeBeforeSliceTempBytes;
-  T rearrangeBeforeSliceTempDuringRearrangeBytes;
-  T transformTempBytes;
-  T tileLevelTransformTempBytes;
-  T convTempBytes;
-  T reduceTempBytes;
-  T addInPlaceTempBytes;
-};
-
-using Cost = Estimates<unsigned>;
-
-inline bool operator==(Cost a, Cost b) {
-  return a.totalCycles == b.totalCycles &&
-         a.totalTempBytes == b.totalTempBytes &&
-         a.totalPerStepCycleDiff == b.totalPerStepCycleDiff;
-}
-
-inline bool operator!=(Cost a, Cost b) { return !(a == b); }
-
-std::ostream &operator<<(std::ostream &os, const Cost &c) {
-  os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes;
-  if (c.totalPerStepCycleDiff != std::numeric_limits<unsigned>::max()) {
-    os << ", diff=" << c.totalPerStepCycleDiff;
-  }
-  os << "}";
-  return os;
-}
 
 class PlanningObjective {
 public:
@@ -923,12 +991,6 @@ public:
   Type getType() const { return type; }
 
   bool lowerCost(Cost a, Cost b) const {
-    // the planner should make sure these bounds don't get exceeded.
-    assert(a.totalCycles < cyclesBound);
-    assert(b.totalCycles < cyclesBound);
-    assert(b.totalTempBytes < tileTempMemoryBound);
-    assert(b.totalTempBytes < tileTempMemoryBound);
-
     switch (type) {
     case MINIMIZE_CYCLES:
       return std::tie(a.totalCycles, a.totalTempBytes) <
@@ -5412,9 +5474,10 @@ createPlan(const ConvParams &params, const ConvOptions &options,
            const boost::optional<Plan> &referencePlan,
            const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache,
-           std::vector<std::pair<PlanningCacheImpl::Key, Plan>>
+           std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
                *additionalPlansToCache) {
-  if (options.pass != Pass::FC_TRAINING_FWD) {
+  // we only support joint plans for fully connected layers for now.
+  if (options.pass != Pass::FC_TRAINING_FWD || referencePlan || referenceCost) {
     logging::debug("Creating plan for a non-joint plan...");
     return createPlan(params, options, false, objective, target,
                       startTileIdxForVirtualHierarchy, referencePlan,
@@ -5425,6 +5488,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   // number of cycles is bounded since we can't easily derive bounds for each
   // individual pass from a bound on the total number of cycles.
   assert(objective.getCyclesBound() == std::numeric_limits<unsigned>::max());
+  assert(objective.getType() != PlanningObjective::MINIMIZE_COST_DIFF);
   Plan jointPlan;
   Cost jointCost;
 
@@ -5471,11 +5535,17 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   }
   if (objective.lowerCost(separateCost, jointCost)) {
     if (additionalPlansToCache) {
-      using Key = PlanningCacheImpl::Key;
+      PlanningCacheImpl::Key bwdKey{std::move(bwdParams), std::move(bwdOptions),
+                                    boost::none, boost::none, 0};
       additionalPlansToCache->emplace_back(
-          Key(std::move(bwdParams), std::move(bwdOptions)), std::move(bwdPlan));
+          std::move(bwdKey),
+          std::make_pair(std::move(bwdPlan), std::move(bwdCost)));
+
+      PlanningCacheImpl::Key wuKey{std::move(wuParams), std::move(wuOptions),
+                                   boost::none, boost::none, 0};
       additionalPlansToCache->emplace_back(
-          Key(std::move(wuParams), std::move(wuOptions)), std::move(wuPlan));
+          std::move(wuKey),
+          std::make_pair(std::move(wuPlan), std::move(wuCost)));
     }
     return {fwdPlan, fwdCost};
   }
@@ -5564,7 +5634,7 @@ std::string getPlanConstraintsOutputFile(const ConvOptions &options) {
 // optimised for memory, constrained to have cycles cost no worse than some
 // multiple of the minimum possible cycle cost.
 // Planning a particular training pass (forward / backward / weight update) may
-// create plans for the other training passes as a side effect. There plans
+// create plans for the other training passes as a side effect. These plans
 // are appended to the end of additionalPlansToCache if it is not null.
 static std::pair<Plan, Cost>
 runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
@@ -5573,7 +5643,7 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
            const boost::optional<Cost> &referenceCost,
            unsigned startTileIndicesForVirtualHierarchy,
            PlanningCacheImpl::CycleEstimationImpl *cache,
-           std::vector<std::pair<PlanningCacheImpl::Key, Plan>>
+           std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
                *additionalPlansToCache) {
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
@@ -5727,7 +5797,8 @@ void preplanConvolutionsImpl(const poplar::Target &target,
   // convert to a vector for efficient tbb looping
   struct Job {
     const ConvPlanKey *input;
-    std::vector<std::pair<PlanningCacheImpl::Key, Plan>> output;
+    std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
+        output;
   };
   std::vector<Job> jobs(paramSet.size());
 
@@ -5746,14 +5817,16 @@ void preplanConvolutionsImpl(const poplar::Target &target,
         runPlanner(params, options, target, boost::none, boost::none, 0,
                    &cache.impl->cycleEstimation, &jobs[i].output);
     auto key =
-        PlanningCacheImpl::Key(jobs[i].input->first, jobs[i].input->second);
-    jobs[i].output.emplace_back(key, std::move(plan));
+        PlanningCacheImpl::Key(jobs[i].input->first, jobs[i].input->second,
+                               boost::none, boost::none, 0);
+    jobs[i].output.emplace_back(
+        key, std::make_pair(std::move(plan), std::move(cost)));
   });
   // sequential insert into the cache
   for (unsigned i = 0u; i != jobs.size(); ++i) {
     for (auto &entry : jobs[i].output) {
-      cache.impl->addPlanToCache({std::move(entry.first)},
-                                 {std::move(entry.second)});
+      cache.impl->addPlanToCache(std::move(entry.first),
+                                 std::move(entry.second));
     }
   }
 }
@@ -5778,19 +5851,20 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
 
   auto temp = std::make_unique<PlanningCacheImpl>();
   auto &cacheImpl = cache ? cache->impl : temp;
-  PlanningCacheImpl::Key key(params, options);
+  PlanningCacheImpl::Key key(params, options, boost::none, boost::none, 0);
   const auto cachedPlan = cacheImpl->getPlan(key);
   if (cachedPlan) {
-    return (*cachedPlan)[0];
+    return cachedPlan->first;
   }
 
-  std::vector<std::pair<PlanningCacheImpl::Key, Plan>> plansToCache;
+  std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
+      plansToCache;
   Plan plan;
   Cost cost;
   std::tie(plan, cost) =
       runPlanner(params, options, target, boost::none, boost::none, 0,
                  &cacheImpl->cycleEstimation, &plansToCache);
-  plansToCache.emplace_back(key, plan);
+  plansToCache.emplace_back(key, std::make_pair(plan, cost));
   for (const auto &entry : plansToCache) {
     cacheImpl->addPlanToCache({entry.first}, {entry.second});
   }
@@ -5813,20 +5887,25 @@ getParallelMultiPlan(const poplar::Target &target,
   auto temp = std::make_unique<PlanningCacheImpl>();
   auto &cacheImpl = cache ? cache->impl : temp;
 
-  // Since it's combinatorial with the different plans and we are planning each
-  // one in sequence, we will only cache the final plan
-  // (which is valid if we are at this point)
-  const auto key = [&]() -> PlanningCacheImpl::Key {
-    std::vector<PlanningCacheImpl::Key::ConvDescription> convs;
-    for (size_t i = 0; i < totalPlans; i++) {
-      convs.push_back({params[i], options[i]});
-    }
-    return convs;
-  }();
-  const auto cachedPlan = cacheImpl->getPlan(key);
-  if (cachedPlan != boost::none) {
-    return {*cachedPlan};
-  }
+  const auto cachedRunPlanner =
+      [&cacheImpl, &target](CanonicalConvParams params, ConvOptions options,
+                            boost::optional<Plan> referencePlan,
+                            boost::optional<Cost> referenceCost,
+                            unsigned startTileIdxForVirtualHierarchy) {
+        PlanningCacheImpl::Key key{
+            std::move(params), std::move(options), std::move(referencePlan),
+            std::move(referenceCost), startTileIdxForVirtualHierarchy};
+        if (auto cachedPlan = cacheImpl->getPlan(key)) {
+          return *std::move(cachedPlan);
+        } else {
+          auto planAndCost =
+              runPlanner(key.params, key.options, target, key.referencePlan,
+                         key.referenceCost, key.startTileIdxForVirtualHierarchy,
+                         &cacheImpl->cycleEstimation, nullptr);
+          cacheImpl->addPlanToCache(std::move(key), planAndCost);
+          return planAndCost;
+        }
+      };
 
   std::vector<Plan> plans;
   plans.resize(totalPlans);
@@ -5846,10 +5925,10 @@ getParallelMultiPlan(const poplar::Target &target,
         return currentIdx += hierarchy[0];
       };
 
-  const auto planAndCost =
-      runPlanner(params[largestPlanIdx], options[largestPlanIdx], target,
-                 boost::none, boost::none, startTileIdxForVirtualHierarchy,
-                 &cacheImpl->cycleEstimation, nullptr);
+  // plan largest first to get a reference plan and cost.
+  const auto planAndCost = cachedRunPlanner(
+      params[largestPlanIdx], options[largestPlanIdx], boost::none, boost::none,
+      startTileIdxForVirtualHierarchy);
   plans[largestPlanIdx] = planAndCost.first;
 
   // Ensure the same steps for the plans, currently this is only serial splits.
@@ -5862,9 +5941,8 @@ getParallelMultiPlan(const poplar::Target &target,
   for (unsigned i = 0; i < totalPlans; i++) {
     if (i != largestPlanIdx) {
       const auto planAndCost =
-          runPlanner(params[i], options[i], target, referencePlan,
-                     referenceCost, startTileIdxForVirtualHierarchy,
-                     &cacheImpl->cycleEstimation, nullptr);
+          cachedRunPlanner(params[i], options[i], referencePlan, referenceCost,
+                           startTileIdxForVirtualHierarchy);
       plans[i] = planAndCost.first;
 
       startTileIdxForVirtualHierarchy = incrementStartTileIdx(
@@ -5872,9 +5950,7 @@ getParallelMultiPlan(const poplar::Target &target,
     }
   }
 
-  cacheImpl->addMultiPlansToCache(key, plans);
-
-  return {plans};
+  return {std::move(plans)};
 }
 
 static SerialPlan
