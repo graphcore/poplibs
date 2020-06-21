@@ -777,17 +777,19 @@ inline bool operator<(const ExchangeEstimates<T> &a,
 
 template <typename T> struct Estimates {
   Estimates() = default;
-  Estimates(const T totalCycles, const T totalTempBytes,
+  Estimates(const T totalTiles, const T totalCycles, const T totalTempBytes,
             const T totalPerStepCycleDiff)
-      : totalCycles(totalCycles), totalTempBytes(totalTempBytes),
+      : totalTiles(totalTiles), totalCycles(totalCycles),
+        totalTempBytes(totalTempBytes),
         totalPerStepCycleDiff(totalPerStepCycleDiff) {}
 
-  // the three values we support minimizing on.
+  // the four values we support minimizing on.
+  T totalTiles;
   T totalCycles;
   T totalTempBytes;
   T totalPerStepCycleDiff;
 
-  // extra information that can be used for logging.
+  // break-down of the above totals
   T rearrangeBeforeSliceCycles;
   T dynamicSliceCycles;
   T transformCycles;
@@ -815,7 +817,7 @@ template <typename T> struct Estimates {
 using Cost = Estimates<unsigned>;
 
 inline bool operator==(const Cost &a, const Cost &b) {
-  return a.totalCycles == b.totalCycles &&
+  return a.totalTiles == b.totalTiles && a.totalCycles == b.totalCycles &&
          a.totalTempBytes == b.totalTempBytes &&
          a.totalPerStepCycleDiff == b.totalPerStepCycleDiff;
 }
@@ -824,7 +826,8 @@ inline bool operator!=(const Cost &a, const Cost &b) { return !(a == b); }
 
 inline bool operator<(const Cost &a, const Cost &b) {
   constexpr static auto helper = poplibs_support::makeStructHelper(
-      &Cost::totalCycles, &Cost::totalTempBytes, &Cost::totalPerStepCycleDiff,
+      &Cost::totalTiles, &Cost::totalCycles, &Cost::totalTempBytes,
+      &Cost::totalPerStepCycleDiff,
 
       &Cost::rearrangeBeforeSliceCycles, &Cost::dynamicSliceCycles,
       &Cost::transformCycles,
@@ -843,12 +846,37 @@ inline bool operator<(const Cost &a, const Cost &b) {
   return helper.lt(a, b);
 }
 
+// performs a max on the itemised cycle counts only.
+Cost maxPerStepCycles(Cost a, const Cost &b) {
+  a.rearrangeBeforeSliceCycles =
+      std::max(a.rearrangeBeforeSliceCycles, b.rearrangeBeforeSliceCycles);
+  a.dynamicSliceCycles = std::max(a.dynamicSliceCycles, b.dynamicSliceCycles);
+  a.transformCycles = std::max(a.transformCycles, b.transformCycles);
+
+  // the MINIMIZE_COST_DIFF method currently using the totalExchangeCycles, if
+  // that changes we would need to update this too.
+  a.totalExchangeCycles =
+      std::max(a.totalExchangeCycles, b.totalExchangeCycles);
+
+  a.tileLevelTransformCycles =
+      std::max(a.tileLevelTransformCycles, b.tileLevelTransformCycles);
+  a.partialCalcCycles = std::max(a.partialCalcCycles, b.partialCalcCycles);
+  a.reduceCycles = std::max(a.reduceCycles, b.reduceCycles);
+  a.dynamicUpdateCycles =
+      std::max(a.dynamicUpdateCycles, b.dynamicUpdateCycles);
+  a.copyCycles = std::max(a.copyCycles, b.copyCycles);
+  a.addInPlaceCycles = std::max(a.addInPlaceCycles, b.addInPlaceCycles);
+  a.castCycles = std::max(a.castCycles, b.castCycles);
+
+  return a;
+}
+
 std::ostream &operator<<(std::ostream &os, const Cost &c) {
   os << "Cost{cycles=" << c.totalCycles << ", memory=" << c.totalTempBytes;
   if (c.totalPerStepCycleDiff != std::numeric_limits<unsigned>::max()) {
     os << ", diff=" << c.totalPerStepCycleDiff;
   }
-  os << "}";
+  os << ", tiles=" << c.totalTiles << "}";
   return os;
 }
 
@@ -863,21 +891,26 @@ struct ConvDescription {
   ConvOptions options;
   boost::optional<Plan> referencePlan;
   boost::optional<Cost> referenceCost;
+  bool minimizeForTiles;
+  boost::optional<unsigned> cycleLimit;
   unsigned startTileIdxForVirtualHierarchy;
 
   ConvDescription(CanonicalConvParams params, ConvOptions options,
                   boost::optional<Plan> referencePlan,
-                  boost::optional<Cost> referenceCost,
+                  boost::optional<Cost> referenceCost, bool minimizeForTiles,
+                  boost::optional<unsigned> cycleLimit,
                   unsigned startTileIdxForVirtualHierarchy)
       : params{std::move(params)},
         options({std::move(options)}), referencePlan{std::move(referencePlan)},
         referenceCost{std::move(referenceCost)},
+        minimizeForTiles{minimizeForTiles}, cycleLimit{cycleLimit},
         startTileIdxForVirtualHierarchy{startTileIdxForVirtualHierarchy} {}
 
   bool operator<(const ConvDescription &other) const {
     constexpr static auto helper = poplibs_support::makeStructHelper(
         &ConvDescription::params, &ConvDescription::options,
         &ConvDescription::referenceCost, &ConvDescription::referencePlan,
+        &ConvDescription::minimizeForTiles, &ConvDescription::cycleLimit,
         &ConvDescription::startTileIdxForVirtualHierarchy);
 
     return helper.lt(*this, other);
@@ -955,25 +988,40 @@ PlanningCache::~PlanningCache() = default;
 
 class PlanningObjective {
 public:
-  enum Type { MINIMIZE_CYCLES, MINIMIZE_COST_DIFF, MINIMIZE_TILE_TEMP_MEMORY };
+  enum Type {
+    MINIMIZE_CYCLES,
+    MINIMIZE_COST_DIFF,
+    MINIMIZE_TILE_TEMP_MEMORY,
+    MINIMIZE_TILES
+  };
 
 private:
   Type type;
   unsigned cyclesBound = std::numeric_limits<unsigned>::max();
   unsigned tileTempMemoryBound = std::numeric_limits<unsigned>::max();
-  PlanningObjective(Type type) : type(type) {}
+
+  // when minimising for cost difference you have the option to either minimise
+  // for temp memory or tiles once a plan that fits has been found.
+  bool minimizeForTiles;
+
+  PlanningObjective(Type type, bool minimizeForTiles)
+      : type(type), minimizeForTiles(minimizeForTiles) {}
 
 public:
   PlanningObjective() {}
   static PlanningObjective minimizeCycles() {
-    return PlanningObjective(MINIMIZE_CYCLES);
+    return PlanningObjective(MINIMIZE_CYCLES, false);
   }
-  static PlanningObjective minimizeCostDiff() {
-    return PlanningObjective(MINIMIZE_COST_DIFF);
+  static PlanningObjective minimizeCostDiff(const bool minimizeForTiles) {
+    return PlanningObjective(MINIMIZE_COST_DIFF, minimizeForTiles);
   }
   static PlanningObjective minimizeTileTempMemory() {
-    return PlanningObjective(MINIMIZE_TILE_TEMP_MEMORY);
+    return PlanningObjective(MINIMIZE_TILE_TEMP_MEMORY, false);
   }
+  static PlanningObjective minimizeTiles() {
+    return PlanningObjective(MINIMIZE_TILES, false);
+  }
+
   PlanningObjective &setCyclesBound(unsigned bound) {
     assert(type != MINIMIZE_CYCLES);
     assert(bound > 0);
@@ -986,27 +1034,40 @@ public:
     tileTempMemoryBound = bound;
     return *this;
   }
+
   unsigned getCyclesBound() const { return cyclesBound; }
   unsigned getTileTempMemoryBound() const { return tileTempMemoryBound; }
+  unsigned getMinimizeForTiles() const { return minimizeForTiles; }
+
   Type getType() const { return type; }
 
+  // this function should mirror the variables we pass into `s.minimize`.
   bool lowerCost(Cost a, Cost b) const {
     switch (type) {
     case MINIMIZE_CYCLES:
       return std::tie(a.totalCycles, a.totalTempBytes) <
              std::tie(b.totalCycles, b.totalTempBytes);
-    case MINIMIZE_COST_DIFF:
-      return std::tie(a.totalPerStepCycleDiff, a.totalTempBytes) <
-             std::tie(b.totalPerStepCycleDiff, b.totalTempBytes);
+    case MINIMIZE_COST_DIFF: {
+      const auto aSecondary =
+          minimizeForTiles ? a.totalTiles : a.totalTempBytes;
+      const auto bSecondary =
+          minimizeForTiles ? b.totalTiles : b.totalTempBytes;
+      return std::tie(a.totalPerStepCycleDiff, aSecondary) <
+             std::tie(b.totalPerStepCycleDiff, bSecondary);
+    }
     case MINIMIZE_TILE_TEMP_MEMORY:
       return std::tie(a.totalTempBytes, a.totalCycles) <
              std::tie(b.totalTempBytes, b.totalCycles);
+    case MINIMIZE_TILES:
+      return std::tie(a.totalTiles, a.totalCycles) <
+             std::tie(b.totalTiles, b.totalCycles);
     }
     POPLIB_UNREACHABLE();
   }
 };
 
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
+                        std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max());
 
@@ -3037,6 +3098,8 @@ static Estimates<popsolver::Variable> addEstimates(
         m.addConstant(std::numeric_limits<unsigned>::max());
   }
 
+  e.totalTiles = usedTiles;
+
   return e;
 }
 
@@ -3072,7 +3135,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
   if (bwdTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       bwdTransformedOnceParams.outputChannelsPerConvGroup == 0) {
     const auto zero = m.addConstant(0);
-    return {zero, zero, zero};
+    return {zero, zero, zero, zero};
   }
 
   assert(!bwdTransformedOnceParams.inputFieldShape.empty());
@@ -3176,7 +3239,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
   if (wuTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
       wuTransformedOnceParams.inputFieldShape.back() == 0) {
     const auto zero = m.addConstant(0);
-    return {zero, zero, zero};
+    return {zero, zero, zero, zero};
   }
 
   auto wuUntransformedParams = untransformedParams;
@@ -4245,6 +4308,9 @@ static Estimates<popsolver::Variable> constructModel(
                  wu.totalPerStepCycleDiff},
                 "totalPerStepCycleDiff");
     }
+
+    // report the max amount of tiles used in all three phases.
+    e.totalTiles = m.max({e.totalTiles, bwd.totalTiles, wu.totalTiles});
   }
 
   // if an explicit cycle or memory bound has been added to the objective then
@@ -4253,6 +4319,7 @@ static Estimates<popsolver::Variable> constructModel(
   auto cyclesBound = objective.getCyclesBound();
   auto memoryBound = objective.getTileTempMemoryBound();
   auto perStepBound = std::numeric_limits<unsigned>::max();
+  auto tilesBound = std::numeric_limits<unsigned>::max();
 
   switch (objective.getType()) {
   case PlanningObjective::MINIMIZE_CYCLES:
@@ -4260,18 +4327,27 @@ static Estimates<popsolver::Variable> constructModel(
     break;
   case PlanningObjective::MINIMIZE_COST_DIFF:
     perStepBound = std::min(perStepBound, bestCost.totalPerStepCycleDiff);
+
+    if (bestCost.totalPerStepCycleDiff == 0) {
+      if (objective.getMinimizeForTiles()) {
+        tilesBound = std::min(tilesBound, bestCost.totalTiles);
+      } else {
+        memoryBound = std::min(memoryBound, bestCost.totalTempBytes);
+      }
+    }
     break;
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
     memoryBound = std::min(memoryBound, bestCost.totalTempBytes);
+    break;
+  case PlanningObjective::MINIMIZE_TILES:
+    tilesBound = std::min(tilesBound, bestCost.totalTiles);
     break;
   }
 
   m.lessOrEqual(e.totalCycles, cyclesBound);
   m.lessOrEqual(e.totalTempBytes, memoryBound);
-
-  if (referenceCost) {
-    m.lessOrEqual(e.totalPerStepCycleDiff, perStepBound);
-  }
+  m.lessOrEqual(e.totalPerStepCycleDiff, perStepBound);
+  m.lessOrEqual(e.totalTiles, tilesBound);
 
   return e;
 }
@@ -4299,16 +4375,24 @@ static std::pair<Plan, Cost> choosePlan(
   case PlanningObjective::MINIMIZE_CYCLES:
     s = m.minimize({e.totalCycles, e.totalTempBytes});
     break;
-  case PlanningObjective::MINIMIZE_COST_DIFF:
-    s = m.minimize({e.totalPerStepCycleDiff, e.totalTempBytes});
+  case PlanningObjective::MINIMIZE_COST_DIFF: {
+    const auto secondaryObjective =
+        objective.getMinimizeForTiles() ? e.totalTiles : e.totalTempBytes;
+    s = m.minimize({e.totalPerStepCycleDiff, secondaryObjective});
     break;
+  }
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
     s = m.minimize({e.totalTempBytes, e.totalCycles});
     break;
+  case PlanningObjective::MINIMIZE_TILES:
+    s = m.minimize({e.totalTiles, e.totalCycles});
+    break;
   }
+
   if (!s.validSolution()) {
     return {Plan(), highestCost};
   }
+
   std::vector<Partition> partitions;
   for (const auto &p : partitionVars) {
     partitions.push_back(makePartition(s, p));
@@ -4327,6 +4411,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.totalCycles = s[e.totalCycles];
   cost.totalTempBytes = s[e.totalTempBytes];
   cost.totalPerStepCycleDiff = s[e.totalPerStepCycleDiff];
+  cost.totalTiles = s[e.totalTiles];
 
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
@@ -5535,14 +5620,24 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   }
   if (objective.lowerCost(separateCost, jointCost)) {
     if (additionalPlansToCache) {
-      PlanningCacheImpl::Key bwdKey{std::move(bwdParams), std::move(bwdOptions),
-                                    boost::none, boost::none, 0};
+      PlanningCacheImpl::Key bwdKey{std::move(bwdParams),
+                                    std::move(bwdOptions),
+                                    boost::none,
+                                    boost::none,
+                                    false,
+                                    boost::none,
+                                    0};
       additionalPlansToCache->emplace_back(
           std::move(bwdKey),
           std::make_pair(std::move(bwdPlan), std::move(bwdCost)));
 
-      PlanningCacheImpl::Key wuKey{std::move(wuParams), std::move(wuOptions),
-                                   boost::none, boost::none, 0};
+      PlanningCacheImpl::Key wuKey{std::move(wuParams),
+                                   std::move(wuOptions),
+                                   boost::none,
+                                   boost::none,
+                                   false,
+                                   boost::none,
+                                   0};
       additionalPlansToCache->emplace_back(
           std::move(wuKey),
           std::make_pair(std::move(wuPlan), std::move(wuCost)));
@@ -5636,15 +5731,15 @@ std::string getPlanConstraintsOutputFile(const ConvOptions &options) {
 // Planning a particular training pass (forward / backward / weight update) may
 // create plans for the other training passes as a side effect. These plans
 // are appended to the end of additionalPlansToCache if it is not null.
-static std::pair<Plan, Cost>
-runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
-           const poplar::Target &target,
-           const boost::optional<Plan> &referencePlan,
-           const boost::optional<Cost> &referenceCost,
-           unsigned startTileIndicesForVirtualHierarchy,
-           PlanningCacheImpl::CycleEstimationImpl *cache,
-           std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
-               *additionalPlansToCache) {
+static std::pair<Plan, Cost> runPlanner(
+    const CanonicalConvParams &ccParams, const ConvOptions &options,
+    const poplar::Target &target, const boost::optional<Plan> &referencePlan,
+    const boost::optional<Cost> &referenceCost, const bool minimizeForTiles,
+    const boost::optional<unsigned> &cycleLimit,
+    unsigned startTileIndicesForVirtualHierarchy,
+    PlanningCacheImpl::CycleEstimationImpl *cache,
+    std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
+        *additionalPlansToCache) {
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
   // memory we will apply an architecturally relevent memory limit to this first
@@ -5667,8 +5762,23 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
       logging::debug("  applying a reference cost: {}", *referenceCost);
     }
 
-    auto objective = referenceCost ? PlanningObjective::minimizeCostDiff()
-                                   : PlanningObjective::minimizeCycles();
+    auto objective = [&] {
+      if (referenceCost) {
+        if (cycleLimit) {
+          logging::warn("Planner was given both a reference cost and a cycle "
+                        "limit. Ignoring the cycle limit.");
+        }
+        return PlanningObjective::minimizeCostDiff(minimizeForTiles);
+      } else if (cycleLimit) {
+        logging::debug("  applying a cycle limit: {}", *cycleLimit);
+
+        auto objective = PlanningObjective::minimizeTiles();
+        objective.setCyclesBound(*cycleLimit);
+        return objective;
+      } else {
+        return PlanningObjective::minimizeCycles();
+      }
+    }();
     objective.setTileTempMemoryBound(availableTileMem);
 
     std::tie(plan, cost) = createPlan(
@@ -5690,7 +5800,7 @@ runPlanner(const CanonicalConvParams &ccParams, const ConvOptions &options,
     auto objective = PlanningObjective::minimizeTileTempMemory();
     std::tie(plan, cost) = createPlan(
         params, options, objective, target, startTileIndicesForVirtualHierarchy,
-        referencePlan, referenceCost, cache, nullptr);
+        referencePlan, boost::none, cache, nullptr);
 
     // if we still could not find a plan there's nothing else we can do.
     if (cost.totalCycles == ~0u) {
@@ -5813,12 +5923,12 @@ void preplanConvolutionsImpl(const poplar::Target &target,
     const auto &options = jobs[i].input->second;
     Plan plan;
     Cost cost;
-    std::tie(plan, cost) =
-        runPlanner(params, options, target, boost::none, boost::none, 0,
-                   &cache.impl->cycleEstimation, &jobs[i].output);
+    std::tie(plan, cost) = runPlanner(
+        params, options, target, boost::none, boost::none, false, boost::none,
+        0, &cache.impl->cycleEstimation, &jobs[i].output);
     auto key =
         PlanningCacheImpl::Key(jobs[i].input->first, jobs[i].input->second,
-                               boost::none, boost::none, 0);
+                               boost::none, boost::none, false, boost::none, 0);
     jobs[i].output.emplace_back(
         key, std::make_pair(std::move(plan), std::move(cost)));
   });
@@ -5851,7 +5961,8 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
 
   auto temp = std::make_unique<PlanningCacheImpl>();
   auto &cacheImpl = cache ? cache->impl : temp;
-  PlanningCacheImpl::Key key(params, options, boost::none, boost::none, 0);
+  PlanningCacheImpl::Key key(params, options, boost::none, boost::none, false,
+                             boost::none, 0);
   const auto cachedPlan = cacheImpl->getPlan(key);
   if (cachedPlan) {
     return cachedPlan->first;
@@ -5862,8 +5973,8 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
   Plan plan;
   Cost cost;
   std::tie(plan, cost) =
-      runPlanner(params, options, target, boost::none, boost::none, 0,
-                 &cacheImpl->cycleEstimation, &plansToCache);
+      runPlanner(params, options, target, boost::none, boost::none, false,
+                 boost::none, 0, &cacheImpl->cycleEstimation, &plansToCache);
   plansToCache.emplace_back(key, std::make_pair(plan, cost));
   for (const auto &entry : plansToCache) {
     cacheImpl->addPlanToCache({entry.first}, {entry.second});
@@ -5871,83 +5982,208 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
   return plan;
 }
 
+namespace {
+
+enum class MultiPlanType { PARALLEL, SERIAL };
+
+struct MultiPlanOptions {
+  MultiPlanOptions(const poplar::OptionFlags &options) {
+    using poplibs::OptionHandler;
+    using poplibs::OptionSpec;
+
+    static const std::map<std::string, MultiPlanType> planTypeMap{
+        {"parallel", MultiPlanType::PARALLEL},
+        {"serial", MultiPlanType::SERIAL}};
+
+    const OptionSpec spec{
+        {"planType", OptionHandler::createWithEnum(planType, planTypeMap)},
+        {"perConvReservedTiles",
+         OptionHandler::createWithInteger(perConvReservedTiles)},
+        {"cycleBackOff", OptionHandler::createWithDouble(cycleBackOff)},
+    };
+
+    for (const auto &entry : options) {
+      spec.parse(entry.first, entry.second);
+    }
+  }
+
+  MultiPlanType planType = MultiPlanType::PARALLEL;
+  unsigned perConvReservedTiles = 50;
+  double cycleBackOff = 0.1;
+};
+
+} // unnamed namespace
+
 static ParallelPlan
 getParallelMultiPlan(const poplar::Target &target,
                      const std::vector<CanonicalConvParams> &params,
-                     const std::vector<ConvOptions> &options,
-                     PlanningCache *cache) {
-  for (const auto &convOptions : options) {
-    if (convOptions.numIPUs != 1) {
+                     std::vector<ConvOptions> convOptions, PlanningCache *cache,
+                     const MultiPlanOptions &options) {
+  for (const auto &convOption : convOptions) {
+    if (convOption.numIPUs != 1) {
       throw poputil::poplibs_error(
           "Multi plan is unsupported for more than 1 IPU");
     }
   }
-  const auto totalPlans = params.size();
-
   auto temp = std::make_unique<PlanningCacheImpl>();
   auto &cacheImpl = cache ? cache->impl : temp;
 
   const auto cachedRunPlanner =
-      [&cacheImpl, &target](CanonicalConvParams params, ConvOptions options,
+      [&cacheImpl, &target](CanonicalConvParams params, ConvOptions convOptions,
                             boost::optional<Plan> referencePlan,
                             boost::optional<Cost> referenceCost,
+                            bool minimizeForTiles,
+                            boost::optional<unsigned> cycleLimit,
                             unsigned startTileIdxForVirtualHierarchy) {
-        PlanningCacheImpl::Key key{
-            std::move(params), std::move(options), std::move(referencePlan),
-            std::move(referenceCost), startTileIdxForVirtualHierarchy};
+        PlanningCacheImpl::Key key{std::move(params),
+                                   std::move(convOptions),
+                                   std::move(referencePlan),
+                                   std::move(referenceCost),
+                                   minimizeForTiles,
+                                   cycleLimit,
+                                   startTileIdxForVirtualHierarchy};
         if (auto cachedPlan = cacheImpl->getPlan(key)) {
           return *std::move(cachedPlan);
         } else {
           auto planAndCost =
               runPlanner(key.params, key.options, target, key.referencePlan,
-                         key.referenceCost, key.startTileIdxForVirtualHierarchy,
+                         key.referenceCost, key.minimizeForTiles,
+                         key.cycleLimit, key.startTileIdxForVirtualHierarchy,
                          &cacheImpl->cycleEstimation, nullptr);
           cacheImpl->addPlanToCache(std::move(key), planAndCost);
           return planAndCost;
         }
       };
 
+  // current multi-conv planning algorithm:
+  //  1. plan largest first across all tiles, optimising for speed.
+  //  2. re-plan with a % cycle backoff from fastest, optimising for tiles used.
+  //  3. for the remaining convs from smallest to but not including 2nd largest:
+  //      a. remove used tiles from the array
+  //      b. plan, optimising for fitting in reference cost and then tiles used.
+  //  4. for final conv plan, optimising to fit in reference but not limit tiles
   std::vector<Plan> plans;
-  plans.resize(totalPlans);
+  plans.resize(params.size());
 
-  const auto largestPlanIdx = std::distance(
-      options.begin(), std::max_element(options.cbegin(), options.cend(),
-                                        [](const auto &lhs, const auto &rhs) {
-                                          return lhs.tilesPerIPU * lhs.numIPUs <
-                                                 rhs.tilesPerIPU * rhs.numIPUs;
-                                        }));
+  // indices into params, sorted in size order, smallest conv (by FLOPs)
+  // to largest.
+  auto idx = [&] {
+    std::vector<std::size_t> idx(params.size());
+    std::iota(std::begin(idx), std::end(idx), 0);
+
+    std::vector<std::uint64_t> flops(idx.size());
+    std::transform(std::begin(idx), std::end(idx), std::begin(flops),
+                   [&](const auto i) { return getFwdFlops(*params[i]); });
+
+    std::sort(std::begin(idx), std::end(idx),
+              [&flops](const auto &lhs, const auto &rhs) {
+                return flops[lhs] < flops[rhs];
+              });
+    return idx;
+  }();
+
+  logging::debug("multi-conv convolutions, smallest to largest: {}", idx);
 
   // The starting tile for the hierarchy is the same currently across every IPU
   unsigned startTileIdxForVirtualHierarchy = 0;
-  const auto incrementStartTileIdx =
-      [](unsigned currentIdx, const std::vector<unsigned> &hierarchy) {
-        assert(poplibs::numIPUs(hierarchy) == 1); // Otherwise unsupported
-        return currentIdx += hierarchy[0];
-      };
 
-  // plan largest first to get a reference plan and cost.
-  const auto planAndCost = cachedRunPlanner(
-      params[largestPlanIdx], options[largestPlanIdx], boost::none, boost::none,
-      startTileIdxForVirtualHierarchy);
-  plans[largestPlanIdx] = planAndCost.first;
+  // make sure each remaining conv gets at least N tiles.
+  unsigned perConvReservedTiles = options.perConvReservedTiles;
+  if (target.getNumTiles() < idx.size() * perConvReservedTiles) {
+    logging::warn("Not enough tiles to reserve any for the multi-convolution.");
+    perConvReservedTiles = 1;
+  }
 
-  // Ensure the same steps for the plans, currently this is only serial splits.
-  const auto &referencePlan = planAndCost.first;
-  const auto &referenceCost = planAndCost.second;
+  // don't include first conv.
+  unsigned reservedTiles = (idx.size() - 1) * perConvReservedTiles;
 
-  startTileIdxForVirtualHierarchy = incrementStartTileIdx(
-      startTileIdxForVirtualHierarchy, getHierarchy(options[largestPlanIdx]));
+  // scale the cycle back off from the main conv based on how many other convs
+  // need to share the remaining tiles.
+  double cycleBackOff = 1 + (idx.size() - 1) * options.cycleBackOff;
 
-  for (unsigned i = 0; i < totalPlans; i++) {
-    if (i != largestPlanIdx) {
-      const auto planAndCost =
-          cachedRunPlanner(params[i], options[i], referencePlan, referenceCost,
-                           startTileIdxForVirtualHierarchy);
-      plans[i] = planAndCost.first;
+  auto reference = [&] {
+    const auto largestPlanIdx = idx.back();
 
-      startTileIdxForVirtualHierarchy = incrementStartTileIdx(
-          startTileIdxForVirtualHierarchy, getHierarchy(options[i]));
+    // step 1
+    assert(convOptions[largestPlanIdx].tilesPerIPU > reservedTiles);
+    convOptions[largestPlanIdx].tilesPerIPU -= reservedTiles;
+
+    logging::debug("Planning largest convolution, optimising for speed");
+    auto planAndCost = cachedRunPlanner(
+        params[largestPlanIdx], convOptions[largestPlanIdx], boost::none,
+        boost::none, false, boost::none, startTileIdxForVirtualHierarchy);
+
+    // step 2
+    logging::debug("Re-planning largest convolution, optimising for tiles");
+    planAndCost = cachedRunPlanner(
+        params[largestPlanIdx], convOptions[largestPlanIdx], boost::none,
+        boost::none, true, planAndCost.second.totalCycles * cycleBackOff,
+        startTileIdxForVirtualHierarchy);
+    plans[largestPlanIdx] = planAndCost.first;
+
+    startTileIdxForVirtualHierarchy += roundUp(
+        planAndCost.second.totalTiles, target.getTilesPerSharedExchangeBus());
+    reservedTiles -= perConvReservedTiles;
+
+    return planAndCost;
+  }();
+
+  if (idx.size() > 1) {
+    // step 3
+    for (unsigned i = 0; i < idx.size() - 2; ++i) {
+      const auto thisIdx = idx[i];
+
+      // 3a.
+      assert(target.getTilesPerIPU() >= reservedTiles);
+      assert(target.getTilesPerIPU() - reservedTiles >=
+             startTileIdxForVirtualHierarchy);
+      convOptions[thisIdx].tilesPerIPU = target.getTilesPerIPU() -
+                                         startTileIdxForVirtualHierarchy -
+                                         reservedTiles;
+
+      logging::debug("Planning convolution {} across {} tiles, optimising for "
+                     "per-step cycle difference and then tiles used",
+                     thisIdx, convOptions[thisIdx].tilesPerIPU);
+      if (convOptions[thisIdx].tilesPerIPU == 0) {
+        throw poputil::poplibs_error("Not enough tiles for multi-conv");
+      }
+
+      // 3b.
+      auto planAndCost = cachedRunPlanner(
+          params[thisIdx], convOptions[thisIdx], reference.first,
+          reference.second, true, boost::none, startTileIdxForVirtualHierarchy);
+      plans[thisIdx] = planAndCost.first;
+
+      assert(reservedTiles >= perConvReservedTiles);
+      reservedTiles -= perConvReservedTiles;
+      startTileIdxForVirtualHierarchy += roundUp(
+          planAndCost.second.totalTiles, target.getTilesPerSharedExchangeBus());
+
+      // if we weren't able to stay within the reference update it to record
+      // where this conv has extended the limits.
+      reference.second = maxPerStepCycles(reference.second, planAndCost.second);
     }
+
+    // step 4
+    unsigned penultimateIdx = idx[idx.size() - 2];
+
+    assert(reservedTiles == 0);
+    assert(target.getTilesPerIPU() >= startTileIdxForVirtualHierarchy);
+    convOptions[penultimateIdx].tilesPerIPU =
+        target.getTilesPerIPU() - startTileIdxForVirtualHierarchy;
+
+    logging::debug(
+        "Planning final convolution on the remaining {} tiles, optimising for "
+        "per-step cycle difference and then temporary memory used",
+        convOptions[penultimateIdx].tilesPerIPU);
+    if (convOptions[penultimateIdx].tilesPerIPU == 0) {
+      throw poputil::poplibs_error("Not enough tiles for multi-conv");
+    }
+
+    auto planAndCost = cachedRunPlanner(
+        params[penultimateIdx], convOptions[penultimateIdx], reference.first,
+        reference.second, false, boost::none, startTileIdxForVirtualHierarchy);
+    plans[penultimateIdx] = planAndCost.first;
   }
 
   return {std::move(plans)};
@@ -5967,54 +6203,6 @@ getSerialMultiPlan(const poplar::Target &target,
   return {std::move(plans)};
 }
 
-// Redistributes options.tilesPerIPU with respect to FLOPs of each convolution
-// specified with params and the target's tilesPerIPU.
-static std::vector<ConvOptions>
-allocateTilesAccordingToFLOPs(const poplar::Target &target,
-                              const std::vector<CanonicalConvParams> &params,
-                              const std::vector<ConvOptions> &options) {
-  if (target.getNumIPUs() != 1) {
-    throw poputil::poplibs_error(
-        "allocateTilesAccordingToFLOPs is unsupported for more than 1 IPU");
-  }
-  // Divide up the tiles appropriately according to FLOPs
-  const auto tileSplit = splitTilesByComp(params, target.getNumTiles());
-  std::vector<ConvOptions> tileSplitOptions;
-  for (unsigned i = 0; i < options.size(); i++) {
-    auto o = options[i];
-    o.tilesPerIPU = tileSplit[i];
-    tileSplitOptions.push_back(o);
-  }
-  return tileSplitOptions;
-}
-
-namespace {
-
-enum class MultiPlanType { PARALLEL, SERIAL };
-
-struct MultiPlanOptions {
-  MultiPlanOptions(const poplar::OptionFlags &options) {
-    using poplibs::OptionHandler;
-    using poplibs::OptionSpec;
-    using poplibs_support::makePlanConstraintsOptionHandler;
-
-    static const std::map<std::string, MultiPlanType> planTypeMap{
-        {"parallel", MultiPlanType::PARALLEL},
-        {"serial", MultiPlanType::SERIAL}};
-
-    const OptionSpec spec{
-        {"planType", OptionHandler::createWithEnum(planType, planTypeMap)}};
-
-    for (const auto &entry : options) {
-      spec.parse(entry.first, entry.second);
-    }
-  }
-
-  MultiPlanType planType = MultiPlanType::SERIAL;
-};
-
-} // unnamed namespace
-
 MultiPlan getMultiPlan(const poplar::Target &target,
                        const std::vector<CanonicalConvParams> &params,
                        const std::vector<ConvOptions> &convOptions,
@@ -6025,10 +6213,7 @@ MultiPlan getMultiPlan(const poplar::Target &target,
 
   if (options.planType == MultiPlanType::PARALLEL) {
     try {
-      const auto virtualisedTargetOptions =
-          allocateTilesAccordingToFLOPs(target, params, convOptions);
-      return getParallelMultiPlan(target, params, virtualisedTargetOptions,
-                                  cache);
+      return getParallelMultiPlan(target, params, convOptions, cache, options);
     } catch (poputil::poplibs_error) {
       logging::warn("Failed to find a parallel multiplan, falling back to "
                     "serial planning");

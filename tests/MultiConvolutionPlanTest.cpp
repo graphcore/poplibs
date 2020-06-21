@@ -52,27 +52,6 @@ getGenericOctConvOptions(const poplar::Target &target) {
   return {options, options, options, options};
 }
 
-BOOST_AUTO_TEST_CASE(MinimumTilesTwoTilesEach) {
-  // Given
-  const auto device = createTestDevice(TEST_TARGET, 1, 8);
-  const auto params = getGenericOctConvParams();
-  const auto options = getGenericOctConvOptions(device.getTarget());
-  poplin::PlanningCache cache;
-
-  // When
-  const auto concurrentPlans =
-      boost::get<poplin::ParallelPlan>(getMultiPlan(device.getTarget(), params,
-                                                    options, &cache,
-                                                    multiConvOptions))
-          .plans;
-
-  // Then
-  for (const auto &plan : concurrentPlans) {
-    // Noting that Atom size is 2.
-    BOOST_CHECK(plan.totalTiles() == 2);
-  }
-}
-
 BOOST_AUTO_TEST_CASE(DividesTilesUnevenlyOnFLOPs) {
   // Given
   const auto tilesOnIPU = 100;
@@ -111,7 +90,7 @@ BOOST_AUTO_TEST_CASE(DividesTilesUnevenlyOnFLOPs) {
 
 BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
   // Given
-  const auto device = createTestDevice(TEST_TARGET, 1, 100);
+  const auto device = createTestDevice(DeviceType::IpuModel, 1, 100);
   const auto params = getGenericOctConvParams();
   const auto options = getGenericOctConvOptions(device.getTarget());
   poplin::PlanningCache cache;
@@ -121,7 +100,7 @@ BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
   // it's hardcoded because currently the splitting of tiles is internal to
   // ConvPlan, if this breaks then it's because the allocation method of tiles
   // has changed (or FLOP estimation has?!).
-  const std::vector<unsigned> expectedStartTiles{0, 46, 74, 86};
+  const std::vector<unsigned> expectedStartTiles{0, 66, 46, 54};
 
   // When
   const auto concurrentPlans =
@@ -129,6 +108,8 @@ BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
                                                     options, &cache,
                                                     multiConvOptions))
           .plans;
+
+  BOOST_TEST(expectedStartTiles.size() == concurrentPlans.size());
 
   // Then
   for (size_t i = 0; i < concurrentPlans.size(); i++) {

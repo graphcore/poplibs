@@ -27,6 +27,26 @@ namespace multiconv {
  *
  * See Convolution.hpp for information about convolutions and each individual
  * operation.
+ *
+ * **Multi-Convolution options**
+ *
+ *    * `planType` (serial, parallel) [=parallel]
+ *
+ *      Which multi-conv implementation to use. Serial is the same as using the
+ *      normal API for each convolution.
+ *
+ *    * `perConvReservedTiles` Integer [=50]
+ *
+ *      The amount of tiles to reserve for each convolution when planning.
+ *
+ *    * `cycleBackOff` Double [=0.1]
+ *
+ *      A percentage, represented as a proportion between 0 and 1 of how much
+ *      off the fastest plan when attempting to plan the largest convolution
+ *      using the least amount of tiles.
+ *
+ *      This number is scaled up according to how many convolutions are being
+ *      run in parallel.
  */
 
 /**

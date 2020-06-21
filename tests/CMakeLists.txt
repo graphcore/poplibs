@@ -6846,7 +6846,22 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=8
+                   --tiles-per-ipu=16
+                   --alpha=0.5
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
+                   VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+    add_multitarget_test(NAME octconv_basic_${PLAN_TYPE}_no_reserved_tiles
+           COMMAND oct_conv_layer
+                   --input-channels=2
+                   --output-channels=4
+                   --field={26,78}
+                   --kernel-size={2,3}
+                   --conv-groups=2
+                   --batch-size=3
+                   --padding-lower={1,2}
+                   --data-type=half
+                   --tiles-per-ipu=16
                    --alpha=0.5
                    --options={\"planType\":\"${PLAN_TYPE}\"}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
@@ -6861,9 +6876,9 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=8
+                   --tiles-per-ipu=16
                    --alpha=1.0
-                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
   add_multitarget_test(NAME octconvLH_${PLAN_TYPE}
            COMMAND oct_conv_layer
@@ -6875,10 +6890,10 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=8
+                   --tiles-per-ipu=16
                    --alpha-in=1.0
                    --alpha-out=0.0
-                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
   add_multitarget_test(NAME octconvHL_${PLAN_TYPE}
            COMMAND oct_conv_layer
@@ -6890,10 +6905,10 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=8
+                   --tiles-per-ipu=16
                    --alpha-in=0.0
                    --alpha-out=1.0
-                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
   add_multitarget_test(NAME octconvHH_${PLAN_TYPE}
            COMMAND oct_conv_layer
@@ -6905,9 +6920,9 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=8
+                   --tiles-per-ipu=16
                    --alpha=0.0
-                   --options={\"planType\":\"${PLAN_TYPE}\"}
+                   --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 endforeach()
 
