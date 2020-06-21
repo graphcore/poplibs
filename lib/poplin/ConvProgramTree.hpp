@@ -3,6 +3,7 @@
 #define poplin_ConvProgramTree_H
 
 #include <boost/optional.hpp>
+#include <map>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 #include <vector>
@@ -50,7 +51,7 @@ struct ConvProgramTree {
   };
 
   ConvProgramTree(poplar::Graph &graph, const Plan &plan,
-                  const poplar::Type &type, const std::string &debugPrefix);
+                  const std::string &debugPrefix);
 
   // lower the program tree as has been built up into the sequence passed in.
   void lower(poplar::program::Sequence &prog);
@@ -108,7 +109,9 @@ struct ConvProgramTree {
 
   // this variable is required for the Padder workaround in Convolution.cpp,
   // once T5913 is resolved this can be removed.
-  poplar::Tensor copyWritten;
+  // TODO: T12874 Specialise std::hash for poplar::Type and use an unordered
+  // container here.
+  std::map<poplar::Type, poplar::Tensor> copyWritten;
 };
 
 } // namespace poplin

@@ -1372,8 +1372,9 @@ static CanonicalConvParams convolutionPreprocess(
     unsigned level, const std::vector<Split<ConvIndices>> &indices,
     boost::optional<Tensor> &acts, boost::optional<Tensor> &weights,
     bool serial, ConvProgramTree::TransformPreProgram *rearrangeProg = nullptr,
-    Tensor *rearrangeWritten = nullptr, bool rearrangeActs = false,
-    bool rearrangeWeights = false, const std::string &debugPrefix = "") {
+    std::map<Type, Tensor> *rearrangeWritten = nullptr,
+    bool rearrangeActs = false, bool rearrangeWeights = false,
+    const std::string &debugPrefix = "") {
   if (rearrangeActs) {
     logging::debug("'{}': forcing rearrangement of activations", debugPrefix);
   }
@@ -1652,7 +1653,13 @@ static CanonicalConvParams convolutionPreprocess(
 
     assert(rearrangeProg);
     rearrangeProg->postTranspose.emplace_back(*acts, actsRearranged);
-    *rearrangeWritten = concat(*rearrangeWritten, actsRearranged.flatten());
+    auto actsType = actsRearranged.elementType();
+    if (rearrangeWritten->count(actsType) == 0) {
+      rearrangeWritten->insert(
+          std::make_pair(actsType, graph.addVariable(actsType, {0})));
+    }
+    (*rearrangeWritten)[actsType] =
+        concat((*rearrangeWritten)[actsType], actsRearranged.flatten());
     *acts = actsRearranged;
   }
 
@@ -1665,7 +1672,13 @@ static CanonicalConvParams convolutionPreprocess(
 
     assert(rearrangeProg);
     rearrangeProg->postTranspose.emplace_back(*weights, weightsRearranged);
-    *rearrangeWritten = concat(*rearrangeWritten, weightsRearranged.flatten());
+    auto weightsType = weightsRearranged.elementType();
+    if (rearrangeWritten->count(weightsType) == 0) {
+      rearrangeWritten->insert(
+          std::make_pair(weightsType, graph.addVariable(weightsType, {0})));
+    }
+    (*rearrangeWritten)[weightsType] =
+        concat((*rearrangeWritten)[weightsType], weightsRearranged.flatten());
     *weights = weightsRearranged;
   }
 
@@ -1677,8 +1690,9 @@ static CanonicalConvParams convolutionPreprocess(
     Plan &plan, unsigned level, const std::vector<Split<ConvIndices>> &indices,
     Tensor &acts, Tensor &weights, bool serial,
     ConvProgramTree::TransformPreProgram *rearrangeProg = nullptr,
-    Tensor *rearrangeWritten = nullptr, bool rearrangeActs = false,
-    bool rearrangeWeights = false, const std::string &debugPrefix = "") {
+    std::map<Type, Tensor> *rearrangeWritten = nullptr,
+    bool rearrangeActs = false, bool rearrangeWeights = false,
+    const std::string &debugPrefix = "") {
   auto actsOptional = boost::make_optional(acts);
   auto weightsOptional = boost::make_optional(weights);
   const auto newParams = convolutionPreprocess(
@@ -3011,8 +3025,9 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
 // TODO: fixing T5913 means we should be able to remove this.
 struct Padder {
   Padder(Graph &graph, const unsigned tile, std::vector<Copy> &transformPre,
-         Tensor &copyWritten, const Type &type, const std::string &debugPrefix)
-      : graph(graph), tile(tile), transformPre(transformPre),
+         std::map<Type, Tensor> &copyWritten, const Type &type,
+         const std::string &debugPrefix)
+      : graph(graph), tile(tile), transformPre(transformPre), type(type),
         copyWritten(copyWritten), debugPrefix(debugPrefix) {
     paddingTensor =
         graph.addConstant(type, {0}, 0, debugPrefix + "/paddingTensor");
@@ -3027,7 +3042,11 @@ struct Padder {
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
       transformPre.emplace_back(c, paddingTensor);
-      copyWritten = concat(copyWritten, paddingTensor.flatten());
+
+      if (copyWritten.count(type) == 0) {
+        copyWritten.insert(std::make_pair(type, graph.addVariable(type, {0})));
+      }
+      copyWritten[type] = concat(copyWritten[type], paddingTensor.flatten());
     }
   }
 
@@ -3042,7 +3061,8 @@ private:
   Graph &graph;
   unsigned tile;
   std::vector<Copy> &transformPre;
-  Tensor &copyWritten;
+  Type type;
+  std::map<Type, Tensor> &copyWritten;
   const std::string &debugPrefix;
 
   Tensor paddingTensor;
@@ -3120,13 +3140,11 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
   return in;
 }
 
-static void createConvPartialAmpVertices(Graph &graph, const Plan &plan,
-                                         unsigned tile, ConvParams params,
-                                         std::vector<Copy> &transformPre,
-                                         Tensor &copyWritten, ComputeSet fwdCS,
-                                         Tensor in, Tensor weights, Tensor out,
-                                         bool use128BitConvUnitLoad,
-                                         const std::string &debugPrefix) {
+static void createConvPartialAmpVertices(
+    Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
+    std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
+    ComputeSet fwdCS, Tensor in, Tensor weights, Tensor out,
+    bool use128BitConvUnitLoad, const std::string &debugPrefix) {
   assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
@@ -3455,9 +3473,10 @@ static void createConvPartialHorizontalMacVertex(
 void createConvPartialSlicVertex(
     Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
     unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
-    ConvParams params, std::vector<Copy> &transformPre, Tensor &copyWritten,
-    ComputeSet fwdCS, Sequence &postConvProg, Tensor in, Tensor weights,
-    Tensor out, const std::string &debugPrefix) {
+    ConvParams params, std::vector<Copy> &transformPre,
+    std::map<Type, Tensor> &copyWritten, ComputeSet fwdCS,
+    Sequence &postConvProg, Tensor in, Tensor weights, Tensor out,
+    const std::string &debugPrefix) {
   const auto outputStride = params.outputTransform.stride.back();
 
   const auto &target = graph.getTarget();
@@ -3815,7 +3834,7 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
 
 static void calcPartialConvOutput(
     Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
-    std::vector<Copy> &transformPre, Tensor &copyWritten,
+    std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
     ConvProgramTree::ComputeSetsGroup &convolveCS, Tensor in, Tensor weights,
     Tensor out, bool use128BitConvUnitLoad, const std::string &debugPrefix) {
   assert(params.getNumConvGroups() % plan.convGroupsPerGroup == 0);
@@ -4153,22 +4172,23 @@ void ConvProgramTree::TransformPostSerialProgram::lower(
 }
 
 ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
-                                 const poplar::Type &type,
                                  const std::string &debugPrefix)
     : transformPre(), transformPost(plan.numLevels()),
       transformPreSerial(graph, debugPrefix),
       transformPostSerial(graph, debugPrefix),
       loopCount(plan.totalSerialSplit()),
       convolveCSGroup(graph.addComputeSet(debugPrefix + "/Convolve")),
-      reduceComputeSets(plan.numLevels() - 1),
-      copyWritten(graph.addVariable(type, {0})) {
+      reduceComputeSets(plan.numLevels() - 1) {
   for (unsigned i = 0; i < plan.numLevels(); ++i) {
     transformPre.emplace_back(graph, debugPrefix);
   }
 }
 
 void ConvProgramTree::lower(Sequence &prog) {
-  prog.add(WriteUndef(copyWritten));
+  for (const auto &c : copyWritten) {
+    prog.add(WriteUndef(c.second));
+  }
+
   prog.add(initProg);
 
   assert(transformPre.size() == transformPost.size());
@@ -4806,7 +4826,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
 
   const auto layerName = debugPrefix + "/Conv_" + convSuffix(params);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
-  ConvProgramTree cpt(graph, plan, params->inputType, layerName);
+  ConvProgramTree cpt(graph, plan, layerName);
 
   auto out = convolution(graph, in, weights, plan, params,
                          transposeAndFlipWeights, cpt, layerName, options);
@@ -5066,7 +5086,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   const auto layerName = debugPrefix + "/Conv_" + convSuffix(wuParams);
-  ConvProgramTree cpt(graph, wuPlan, wuParams->inputType, layerName);
+  ConvProgramTree cpt(graph, wuPlan, layerName);
 
   auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
                                    wuParams, cpt, debugPrefix, wuOptions);
@@ -5106,7 +5126,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-  ConvProgramTree cpt(graph, wuPlan, wuParams->inputType, debugPrefix);
+  ConvProgramTree cpt(graph, wuPlan, debugPrefix);
 
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,
@@ -5150,7 +5170,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
       getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
-  ConvProgramTree cpt(graph, wuPlan, wuParams->inputType, debugPrefix);
+  ConvProgramTree cpt(graph, wuPlan, debugPrefix);
 
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,

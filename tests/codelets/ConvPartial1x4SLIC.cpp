@@ -270,7 +270,8 @@ int main(int argc, char **argv) try {
                               "enableAllFpExceptions");
   }
 
-  Tensor copyWritten = graph.addVariable(inputType, {0});
+  std::map<Type, Tensor> copyWritten{
+      {inputType, graph.addVariable(inputType, {0})}};
 
   // fill the output and input overread detection space with (signalling) NaNs
   auto fillWithNaNs = [&](const Tensor &t) {

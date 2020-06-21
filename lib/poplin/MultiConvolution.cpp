@@ -68,7 +68,7 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
     const auto &plan = serial.plans[i];
 
     const auto name = debugPrefix + "/" + std::to_string(i);
-    ConvProgramTree cpt(graph, plan, arg.params->inputType, name);
+    ConvProgramTree cpt(graph, plan, name);
 
     fn(plan, arg, cpt, name);
     cpt.lower(prog);
@@ -87,10 +87,13 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
   logging::info("Implementing multi-convs using a parallel plan: {}",
                 debugPrefix);
 
-  // TODO: assert(numLevels && serialSplits);
-  // TODO: inputType
-  ConvProgramTree cpt(graph, para.plans.front(), args.front().params->inputType,
-                      debugPrefix);
+  for (unsigned i = 1; i < para.plans.size(); ++i) {
+    assert(para.plans[0].numLevels() == para.plans[i].numLevels());
+    assert(para.plans[0].totalSerialSplit() ==
+           para.plans[i].totalSerialSplit());
+  }
+
+  ConvProgramTree cpt(graph, para.plans.front(), debugPrefix);
 
   for (unsigned i = 0; i < args.size(); ++i) {
     const auto &arg = args[i];

@@ -408,6 +408,7 @@ set(TimesOutOnSimCpp "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 
 # Unit tests
 add_unit_test(AlgorithmTest AlgorithmTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
+add_unit_test(MultiConvolutionTest MultiConvolutionTest.cpp)
 add_unit_test(MultiConvolutionPlanTest MultiConvolutionPlanTest.cpp)
 add_unit_test(ConvUtilTest ConvUtilTest.cpp)
 add_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS ${IPUMODEL_VARIANTS})
