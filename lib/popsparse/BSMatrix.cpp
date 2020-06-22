@@ -2,6 +2,7 @@
 
 #include "BSMatrix.hpp"
 #include "popops/Zero.hpp"
+#include <poputil/exceptions.hpp>
 
 namespace popsparse {
 namespace experimental {
@@ -101,8 +102,16 @@ std::vector<std::vector<int>> BlockSparseMatrix::getBlockIdMatrix() const {
 }
 
 void BlockSparseMatrix::setBlockTensor(const poplar::Tensor &matrixData) {
+  assert(matrixData.rank() == 2);
   const int nBlocks = getNonZeroBlockCount();
-  assert(nBlocks == static_cast<int>(matrixData.dim(0)));
+  const int blockArea = blockRow * blockCol;
+  if (nBlocks != static_cast<int>(matrixData.dim(0)) ||
+      blockArea != static_cast<int>(matrixData.dim(1))) {
+    throw poputil::poplibs_error("Sparse tensor must "
+                                 "have shape [" +
+                                 std::to_string(nBlocks) + " x " +
+                                 std::to_string(blockArea) + "]");
+  }
   blockData.resize(nBlocks);
   for (int i = 0; i < nBlocks; i++) {
     blockData[i] = matrixData[i];
@@ -125,26 +134,40 @@ poplar::Tensor BlockSparseMatrix::createTensor(poplar::Graph &graph,
   return concat(blocks);
 }
 
+std::array<int, 2> BlockSparseMatrix::getDimensions() const {
+  std::array<int, 2> dims;
+  dims[0] = getNonZeroBlockCount();
+  dims[1] = blockRow * blockCol;
+  return dims;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Dense Block Matrix
 ///////////////////////////////////////////////////////////////////////////////
 void BlockDenseMatrix::setBlockTensor(const poplar::Tensor &matrixData) {
+  assert(matrixData.rank() == 2);
+  if (row != static_cast<int>(matrixData.dim(0)) ||
+      col != static_cast<int>(matrixData.dim(1))) {
+    throw poputil::poplibs_error("Dense tensor must "
+                                 "have shape [" +
+                                 std::to_string(row) + " x " +
+                                 std::to_string(col) + "]");
+  }
+
   denseMatrix = matrixData;
 
-  const int blockRows = row / blockRow;
-  const int blockCols = col / blockCol;
-
-  blockData.resize(blockRows * blockCols);
-  for (int br = 0, blockCount = 0; br < blockRows; br++) {
-    for (int bc = 0; bc < blockCols; bc++) {
-      std::size_t blockRowStart = br * blockRow;
-      std::size_t blockColStart = bc * blockCol;
-      std::size_t blockRowEnd = blockRowStart + blockRow;
-      std::size_t blockColEnd = blockColStart + blockCol;
-      blockData[blockCount++] =
-          matrixData
-              .slice({blockRowStart, blockColStart}, {blockRowEnd, blockColEnd})
-              .flatten();
+  blockData.resize(row * col / blockRow / blockCol);
+  poplar::Tensor t = matrixData
+                         .reshape({static_cast<std::size_t>(row / blockRow),
+                                   static_cast<std::size_t>(blockRow),
+                                   static_cast<std::size_t>(col / blockCol),
+                                   static_cast<std::size_t>(blockCol)})
+                         .dimShuffle({0, 2, 1, 3});
+  int blockCount = 0;
+  for (int i = 0; i < row / blockRow; i++) {
+    for (int j = 0; j < col / blockCol; j++) {
+      blockData[blockCount] = t[i][j].flatten();
+      blockCount++;
     }
   }
 }
@@ -152,11 +175,17 @@ void BlockDenseMatrix::setBlockTensor(const poplar::Tensor &matrixData) {
 poplar::Tensor BlockDenseMatrix::createTensor(poplar::Graph &graph,
                                               const poplar::Type &dataType,
                                               const std::string &name) const {
-  poplar::Tensor t;
-  t = graph.addVariable(
-      dataType,
-      {static_cast<unsigned long>(row), static_cast<unsigned long>(col)}, name);
-  return t;
+  // Create variable with the memory layout we want
+  auto t = graph.addVariable(dataType,
+                             {static_cast<std::size_t>(row / blockRow),
+                              static_cast<std::size_t>(col / blockCol),
+                              static_cast<std::size_t>(blockRow),
+                              static_cast<std::size_t>(blockCol)},
+                             name);
+  // Dimshuffle / reshape to 2D tensor with the correct dimensions for the
+  // matrix.
+  return t.dimShuffle({0, 2, 1, 3})
+      .reshape({static_cast<std::size_t>(row), static_cast<std::size_t>(col)});
 }
 
 std::vector<std::vector<int>> BlockDenseMatrix::getBlockIdMatrix() const {
@@ -182,6 +211,13 @@ std::vector<std::vector<int>> BlockDenseMatrix::getBlockIdMatrix() const {
   }
 
   return blockIdMatrix;
+}
+
+std::array<int, 2> BlockDenseMatrix::getDimensions() const {
+  std::array<int, 2> dims;
+  dims[0] = row;
+  dims[1] = col;
+  return dims;
 }
 
 } // namespace experimental

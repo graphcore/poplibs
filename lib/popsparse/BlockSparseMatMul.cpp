@@ -2,11 +2,15 @@
 
 #include "popsparse/experimental/BlockSparseMatMul.hpp"
 #include "BSMatrix.hpp"
-#include "HyperGraph.hpp"
+#include "BSOps.hpp"
+#include "HyperGraphBlockZoltan.hpp"
 #include <iostream>
 #include <memory>
+#include <poplibs_support/logging.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/exceptions.hpp>
+
+namespace logging = poplibs_support::logging;
 
 namespace popsparse {
 namespace experimental {
@@ -19,14 +23,12 @@ public:
   BSMatMulImpl(const std::array<int, 3> &dim,
                const std::array<int, 3> &blockSize,
                const std::vector<unsigned char> &rhsSparsity,
-               bool rhsNeedTranspose, poplar::Type inDataTypeIn,
-               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
-               float memoryCycleRatioIn)
+               bool rhsNeedTransposeIn, poplar::Type inDataTypeIn,
+               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn)
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
-        partialDataType(partialDataTypeIn),
-        memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
+        partialDataType(partialDataTypeIn), isLhsSparse(false),
         isRhsSparse(true), isResSparse(false),
-        subBlockMask(SubBlockMask::None) {
+        rhsNeedTranspose(rhsNeedTransposeIn), subBlockMask(SubBlockMask::None) {
 
     for (int iDim = 0; iDim < 3; ++iDim) {
       if (dim[iDim] % blockSize[iDim] != 0) {
@@ -63,26 +65,25 @@ public:
                bool lhsNeedTranspose,
                const std::vector<unsigned char> &rhsSparsity,
                bool rhsNeedTranspose, poplar::Type inDataTypeIn,
-               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
-               float memoryCycleRatioIn)
+               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn)
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
-        partialDataType(partialDataTypeIn),
-        memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(true),
-        isRhsSparse(true), isResSparse(false),
+        partialDataType(partialDataTypeIn), isLhsSparse(true),
+        isRhsSparse(true), isResSparse(false), rhsNeedTranspose(false),
         subBlockMask(SubBlockMask::None) {
-    assert(0);
+    throw poputil::poplibs_error("Sparse x sparse case is not supported.");
   }
 
   BSMatMulImpl(const std::array<int, 3> &dim,
                const std::array<int, 3> &blockSize,
                const std::vector<unsigned char> &resSparsityIn,
                poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
-               poplar::Type partialDataTypeIn, float memoryCycleRatioIn,
-               SubBlockMask subBlockMaskIn = SubBlockMask::None)
-      : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
-        partialDataType(partialDataTypeIn),
-        memoryCycleRatio(memoryCycleRatioIn), isLhsSparse(false),
-        isRhsSparse(false), isResSparse(true), subBlockMask(subBlockMaskIn) {
+               poplar::Type partialDataTypeIn,
+               SubBlockMask subBlockMaskIn = SubBlockMask::None,
+               unsigned numGroupsIn = 1)
+      : resSparsity(resSparsityIn), inDataType(inDataTypeIn),
+        outDataType(outDataTypeIn), partialDataType(partialDataTypeIn),
+        isLhsSparse(false), isRhsSparse(false), isResSparse(true),
+        rhsNeedTranspose(false), subBlockMask(subBlockMaskIn) {
     for (int iDim = 0; iDim < 3; ++iDim) {
       if (dim[iDim] % blockSize[iDim] != 0) {
         throw poputil::poplibs_error(
@@ -109,14 +110,14 @@ public:
   std::unique_ptr<BlockMatrix> lhsMatrix;
   std::unique_ptr<BlockMatrix> rhsMatrix;
   std::vector<unsigned char> resSparsity;
-  poplar::Type inDataType;
-  poplar::Type outDataType;
-  poplar::Type partialDataType;
-  float memoryCycleRatio;
-  bool isLhsSparse;
-  bool isRhsSparse;
-  bool isResSparse;
-  SubBlockMask subBlockMask;
+  const poplar::Type inDataType;
+  const poplar::Type outDataType;
+  const poplar::Type partialDataType;
+  const bool isLhsSparse;
+  const bool isRhsSparse;
+  const bool isResSparse;
+  const bool rhsNeedTranspose;
+  const SubBlockMask subBlockMask;
 };
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
@@ -126,7 +127,7 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                poplar::Type outDataType,
                                poplar::Type partialDataType)
     : impl(new BSMatMulImpl(dim, blockSize, rhsSparsity, rhsNeedTranspose,
-                            inDataType, outDataType, partialDataType, 0.0)) {}
+                            inDataType, outDataType, partialDataType)) {}
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                const std::array<int, 3> &blockSize,
@@ -138,7 +139,7 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                poplar::Type partialDataType)
     : impl(new BSMatMulImpl(dim, blockSize, lhsSparsity, lhsNeedTranspose,
                             rhsSparsity, rhsNeedTranspose, inDataType,
-                            outDataType, partialDataType, 0.0)) {}
+                            outDataType, partialDataType)) {}
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                const std::array<int, 3> &blockSize,
@@ -148,7 +149,7 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                poplar::Type partialDataType,
                                SubBlockMask subBlockMask)
     : impl(new BSMatMulImpl(dim, blockSize, resSparsity, inDataType,
-                            outDataType, partialDataType, 0.0, subBlockMask)) {}
+                            outDataType, partialDataType, subBlockMask)) {}
 
 BSMatMulParams::BSMatMulParams(BSMatMulParams &&other) = default;
 
@@ -164,21 +165,6 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
   return lhsMatrix->createTensor(graph, impl->inDataType, name);
 }
 
-/**
- * Create a tensor that is used as the right operand of block sparse matrix
- * multiplication.
- *
- * \param bsMatMul        The object for block sparse information, includes the
- *                        sparsity mask, the matrix size, the block size,
- *                        and the data type
- *
- * \param graph           The Poplar graph.
- *
- * \param name            The debug name of the required matrix.
- *
- * \returns               The return tensor is an array of non zero
- *                        blocks for block sparse matrix
- */
 poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
                                       const std::string &name) {
@@ -207,41 +193,35 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         const poplar::Tensor &rhsMatrix,
                         const poplar::OptionFlags &optionFlags,
                         const std::string &debugPrefix) {
-  double memoryCycleRatio;
+  BSMatMulImpl &bsMatMulImpl = *(bsMatMul.impl.get());
+
+  double memoryCycleRatio =
+      0.2; // Default value which works well. Found by in tests.
   parseOptions(optionFlags, memoryCycleRatio);
 
-  BSMatMulImpl *impl = (BSMatMulImpl *)(bsMatMul.impl.get());
-  impl->memoryCycleRatio = (float)memoryCycleRatio;
+  auto &lhs = *bsMatMulImpl.lhsMatrix;
+  auto &rhs = *bsMatMulImpl.rhsMatrix;
 
-  impl->lhsMatrix->setBlockTensor(lhsMatrix);
-  impl->rhsMatrix->setBlockTensor(rhsMatrix);
+  lhs.setBlockTensor(lhsMatrix);
+  rhs.setBlockTensor(rhsMatrix);
 
-  HyperGraph hg(*impl->lhsMatrix, *impl->rhsMatrix, impl->inDataType,
-                impl->outDataType, impl->partialDataType,
-                graph.getTarget().getTilesPerIPU());
+  std::unique_ptr<HyperGraph> hg;
+  unsigned numTiles = graph.getTarget().getTilesPerIPU();
+  hg = std::make_unique<HyperGraphBlockZoltan>(
+      lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
+      bsMatMulImpl.partialDataType, numTiles,
+      static_cast<float>(memoryCycleRatio));
 
-  if (!impl->isResSparse) {
-    hg.createGraphMatMul(impl->memoryCycleRatio, graph, debugPrefix);
+  if (!bsMatMulImpl.isResSparse) {
+    hg->createGraphMatMul(graph, debugPrefix);
   } else {
-    hg.createGraphMatMulSparsifyResult(
-        impl->resSparsity.data(), impl->memoryCycleRatio, graph, debugPrefix);
+    hg->createGraphMatMulSparsifyResult(graph, bsMatMulImpl.resSparsity.data(),
+                                        debugPrefix);
   }
 
-  std::vector<int> tileAssignment;
-  hg.partitionGraph(tileAssignment);
-  hg.createProgramMatMul(tileAssignment, impl->subBlockMask, graph, prog,
-                         debugPrefix);
+  hg->createProgramMatMul(graph, bsMatMulImpl.subBlockMask, prog, debugPrefix);
 
-  if (hg.matC->isDense()) {
-    return ((BlockDenseMatrix *)hg.matC.get())->denseMatrix;
-  } else {
-    std::vector<poplar::Tensor> blocks;
-    for (auto &b : hg.matC->getBlockTensor()) {
-      blocks.push_back(b.expand({0}));
-    }
-
-    return concat(blocks);
-  }
+  return hg->getResultTensor();
 }
 
 } // namespace experimental

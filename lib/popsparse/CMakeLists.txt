@@ -6,6 +6,9 @@ add_library(popsparse SHARED
   BlockSparseMatMul.cpp
   BSMatrix.cpp
   HyperGraph.cpp
+  HyperGraphBlock.cpp
+  HyperGraphBlockZoltan.cpp
+  ZoltanPartitioner.cpp
   BSOps.cpp
   BSUtils.cpp
   BSNonLinearity.cpp

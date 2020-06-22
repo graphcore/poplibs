@@ -6,11 +6,13 @@
 #include <cstdlib>
 #include <poplar/IPUModel.hpp>
 #include <poplibs_test/Util.hpp>
+#include <poplin/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <random>
 #include <vector>
 
 #include "popsparse/BSMatrix.hpp"
-#include "popsparse/HyperGraph.hpp"
+#include "popsparse/HyperGraphBlock.hpp"
 #include "popsparse/experimental/BlockSparseMatMul.hpp"
 
 using namespace poplar;
@@ -78,7 +80,7 @@ void populateMatrixData1(boost::multi_array<float, 2> &host, int rows, int cols,
                          int rowInBlockNz = 0, int colInBlockNz = 0,
                          int blockRowNz = -1, int blockColNz = -1
 #else
-                         int, int, int, int
+                         int = 0, int = 0, int = 0, int = 0
 #endif
 ) {
 
@@ -97,7 +99,6 @@ void populateMatrixData1(boost::multi_array<float, 2> &host, int rows, int cols,
           static_cast<float>(randomEngine()) / static_cast<float>(INT_MAX);
 #else
       int rb = r % rowsInBlock;
-      int br = r / rowsInBlock;
       int cb = c % colsInBlock;
       int bc = c / colsInBlock;
       if (rb == rowInBlockNz && cb == colInBlockNz &&
@@ -108,6 +109,30 @@ void populateMatrixData1(boost::multi_array<float, 2> &host, int rows, int cols,
         host[r][c] = 0.0f;
       }
 #endif
+    }
+  }
+}
+
+void populateMatrixDataWSparsity(boost::multi_array<float, 2> &host, int rows,
+                                 int cols, int rowsInBlock, int colsInBlock,
+                                 const unsigned char *sparsity) {
+
+  std::mt19937 randomEngine;
+  randomEngine.seed(102302);
+  host.resize(boost::extents[rows][cols]);
+
+  int blockCols = cols / colsInBlock;
+  for (int r = 0; r < rows; ++r) {
+    int br = r / rowsInBlock;
+    for (int c = 0; c < cols; ++c) {
+      int bc = c / colsInBlock;
+      int idxSparsity = br * blockCols + bc;
+      if (sparsity[idxSparsity]) {
+        host[r][c] =
+            static_cast<float>(randomEngine()) / static_cast<float>(INT_MAX);
+      } else {
+        host[r][c] = 0.0f;
+      }
     }
   }
 }
@@ -135,6 +160,25 @@ void populateMatricesData1(boost::multi_array<float, 2> &hostA,
 
   populateMatrixData1(hostB, rowsB, colsB, rowsInBlockB, colsInBlockB,
                       rowInBlockNzB, colInBlockNzB, blockRowNzB, blockColNzB);
+}
+
+void populateMatricesDataWSparsity(boost::multi_array<float, 2> &hostA,
+                                   boost::multi_array<float, 2> &hostB,
+                                   int rowsA, int colsA, int colsB,
+                                   int rowsInBlockA, int colsInBlockA,
+                                   int colsInBlockB,
+                                   const unsigned char *sparsity) {
+
+  const int rowsB = colsA;
+  const int rowsInBlockB = colsInBlockA;
+
+  hostA.resize(boost::extents[rowsA][colsA]);
+  hostB.resize(boost::extents[rowsB][colsB]);
+
+  populateMatrixData1(hostA, rowsA, colsA, rowsInBlockA, colsInBlockA);
+
+  populateMatrixDataWSparsity(hostB, rowsB, colsB, rowsInBlockB, colsInBlockB,
+                              sparsity);
 }
 
 void populateMatricesData1(const std::array<int, 3> &dim,
@@ -193,6 +237,21 @@ void checkDenseResult(
   }
 }
 
+void checkDenseResult(const poplar::Type &dataType, int rowsC, int colsC,
+                      const std::vector<std::vector<float>> &hostC,
+                      const boost::multi_array<float, 2> &blocksHostC) {
+  const float epsilon = (dataType == FLOAT ? 0.001f : 0.1f);
+  for (int r = 0; r < rowsC; ++r) {
+    for (int c = 0; c < colsC; ++c) {
+      float val = blocksHostC[r][c];
+      float err = fabs(val - hostC[r][c]);
+      if (err > epsilon) {
+        BOOST_TEST(err <= epsilon);
+      }
+    }
+  }
+}
+
 void checkSparseResult(
     const poplar::Type &dataType, int blockRowsC, int blockColsC,
     int rowsInBlockC, int colsInBlockC,
@@ -214,6 +273,36 @@ void checkSparseResult(
           if (err > epsilon)
             BOOST_TEST(err <= epsilon);
         }
+      }
+    }
+  }
+}
+
+void checkSparseResult(const poplar::Type &dataType, int blockRowsC,
+                       int blockColsC, int rowsInBlockC, int colsInBlockC,
+                       const std::vector<std::vector<float>> &hostC,
+                       const boost::multi_array<float, 2> &blocksHostC,
+                       const std::vector<unsigned char> &sparsityC) {
+  const float epsilon = (dataType == FLOAT ? 0.001f : 0.05f);
+  int idxDense = 0;
+  int idxSparse = 0;
+  for (int br = 0; br < blockRowsC; ++br) {
+    for (int bc = 0; bc < blockColsC; ++bc, ++idxDense) {
+      if (sparsityC[idxDense]) {
+        int idxInBlock = 0;
+        for (int rb = 0; rb < rowsInBlockC; ++rb) {
+          int r = br * rowsInBlockC + rb;
+          for (int cb = 0; cb < colsInBlockC; ++cb, ++idxInBlock) {
+            int c = bc * colsInBlockC + cb;
+            float val = blocksHostC[idxSparse][idxInBlock];
+            float valTruth = hostC[r][c];
+            float err = fabs(val - valTruth);
+            if (err > epsilon) {
+              BOOST_TEST(err <= epsilon);
+            }
+          }
+        }
+        ++idxSparse;
       }
     }
   }
@@ -249,6 +338,34 @@ BOOST_AUTO_TEST_CASE(BlockSparseMatrix_test) {
 
   BOOST_TEST(blockIdMatrix == blockIdMatrix_expected);
 }
+
+namespace popsparse {
+namespace experimental {
+
+class HyperGraphBlockTest : public HyperGraphBlock {
+
+public:
+  HyperGraphBlockTest(const BlockMatrix &A, const BlockMatrix &B,
+                      poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
+                      poplar::Type partialDataTypeIn, int nTileIn,
+                      int nMulNodesSplitFactorIn = MUL_ON_NODE_V)
+      : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,
+                        nTileIn, MEMORY_CYCLE_RATIO, nMulNodesSplitFactorIn) {}
+
+  virtual ~HyperGraphBlockTest() = default;
+
+protected:
+  void partitionGraph() override {}
+
+private:
+  void
+  logTileAssignment(const poplar::Graph &graph,
+                    const std::vector<int> &tileAssignment,
+                    const std::vector<unsigned int> &nodeCTileId) override {}
+};
+
+} // namespace experimental
+} // namespace popsparse
 
 /*
 Testing Hypergraph for MatMul nodes and edges - no reduction case
@@ -287,9 +404,9 @@ BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulNoReduction) {
                       sparsityB.data());
 
   // No reduction - 1 tile
-  HyperGraph hg(A, B, FLOAT, FLOAT, FLOAT, 1, 1);
+  HyperGraphBlockTest hg(A, B, FLOAT, FLOAT, FLOAT, 1, 1);
 
-  hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
+  hg.createGraphMatMul(graph, "C");
 
   auto &nodeA = hg.getNodeA();
   auto &nodeB = hg.getNodeB();
@@ -429,9 +546,9 @@ BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulWReduction) {
                       sparsityB.data());
 
   // Reduction - all tiles
-  HyperGraph hg(A, B, FLOAT, FLOAT, FLOAT, target.getNumTiles());
+  HyperGraphBlockTest hg(A, B, FLOAT, FLOAT, FLOAT, target.getNumTiles());
 
-  hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
+  hg.createGraphMatMul(graph, "C");
 
   auto &nodeA = hg.getNodeA();
   auto &nodeB = hg.getNodeB();
@@ -566,7 +683,7 @@ id  idxA_ idxB_
 14  [2,3] [1,3]
 
 */
-BOOST_AUTO_TEST_CASE(nColC) {
+BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulOuterNoReduction) {
   IPUModel ipuModel;
   auto device =
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
@@ -588,10 +705,9 @@ BOOST_AUTO_TEST_CASE(nColC) {
   sparsityC[2 + 0] = 0;
 
   // No reduction - 1 tile
-  HyperGraph hg(A, B, FLOAT, FLOAT, FLOAT, 1, 1);
+  HyperGraphBlockTest hg(A, B, FLOAT, FLOAT, FLOAT, 1, 1);
 
-  hg.createGraphMatMulSparsifyResult(sparsityC.data(), MEMORY_CYCLE_RATIO,
-                                     graph, "C");
+  hg.createGraphMatMulSparsifyResult(graph, sparsityC.data(), "C");
 
   auto &nodeA = hg.getNodeA();
   auto &nodeB = hg.getNodeB();
@@ -732,7 +848,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
-  HyperGraph::addCodelets(graph);
+  HyperGraphBlock::addCodelets(graph);
 
   const int rowsInBlockA = batchBlockSize;
   const int colsInBlockA = blockSize;
@@ -796,8 +912,8 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // No reduction
-  HyperGraph hg(A, B, dataType, dataType, dataType, 1, 1);
-  hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
+  HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
+  hg.createGraphMatMul(graph, "C");
 
   // Put everything on tile 0
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
@@ -805,8 +921,9 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   std::map<unsigned int, poplar::Tensor> tensorCParts;
   std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
-  hg.createComputeSetMatMul(tileAssignment, tensorCParts, nodeCTileId, graph,
-                            "test", matMulProg);
+  hg.setTileAssignment(tileAssignment);
+  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
+                            "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -867,7 +984,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
-  HyperGraph::addCodelets(graph);
+  HyperGraphBlock::addCodelets(graph);
 
   const int blockRowsA = 1;
   const int blockColsA = 2;
@@ -930,8 +1047,9 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // Reduction
-  HyperGraph hg(A, B, dataType, dataType, dataType, ipuModel.tilesPerIPU);
-  hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
+  HyperGraphBlockTest hg(A, B, dataType, dataType, dataType,
+                         ipuModel.tilesPerIPU);
+  hg.createGraphMatMul(graph, "C");
 
   // Put everything on tile 0
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
@@ -939,14 +1057,15 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   std::map<unsigned int, poplar::Tensor> tensorCParts;
   std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
-  hg.createComputeSetMatMul(tileAssignment, tensorCParts, nodeCTileId, graph,
-                            "test", matMulProg);
+  hg.setTileAssignment(tileAssignment);
+  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
+                            "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == hg.getNodeV().size());
 
   poplar::program::Sequence reduceProg;
-  hg.createComputeSetReduce(tensorCParts, nodeCTileId, graph, "test",
-                            reduceProg);
+  hg.createComputeSetReduce(graph, tensorCParts, nodeCTileId, reduceProg,
+                            "test");
 
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
 
@@ -1004,7 +1123,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
-  HyperGraph::addCodelets(graph);
+  HyperGraphBlock::addCodelets(graph);
 
   const int blockSize = 8;
   const int batchSize = 6;
@@ -1075,9 +1194,8 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   }
 
   // No reduction
-  HyperGraph hg(A, B, dataType, dataType, dataType, 1, 1);
-  hg.createGraphMatMulSparsifyResult(sparsityC.data(), MEMORY_CYCLE_RATIO,
-                                     graph, "C");
+  HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
+  hg.createGraphMatMulSparsifyResult(graph, sparsityC.data(), "C");
 
   // Put everything on tile 0
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
@@ -1085,8 +1203,9 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   std::map<unsigned int, poplar::Tensor> tensorCParts;
   std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
-  hg.createComputeSetMatMul(tileAssignment, tensorCParts, nodeCTileId, graph,
-                            "test", matMulProg);
+  hg.setTileAssignment(tileAssignment);
+  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
+                            "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1169,7 +1288,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
-  HyperGraph::addCodelets(graph);
+  HyperGraphBlock::addCodelets(graph);
 
   const int batchSize = 6;
 
@@ -1264,16 +1383,17 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // No reduction
-  HyperGraph hg(A, B, dataType, dataType, dataType, 1, 1);
-  hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
+  HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
+  hg.createGraphMatMul(graph, "C");
 
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
   std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
-  hg.createComputeSetMatMul(tileAssignment, tensorCParts, nodeCTileId, graph,
-                            "test", matMulProg);
+  hg.setTileAssignment(tileAssignment);
+  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
+                            "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1317,16 +1437,17 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
 #endif
 
   // No reduction
-  HyperGraph hg1(A1, Bt, dataType, dataType, dataType, 1, 1);
-  hg1.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C1");
+  HyperGraphBlockTest hg1(A1, Bt, dataType, dataType, dataType, 1, 1);
+  hg1.createGraphMatMul(graph, "C1");
 
   std::vector<int> tileAssignment1(hg1.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts1;
   std::vector<unsigned int> nodeCTileId1;
   poplar::program::Sequence matMulProg1;
-  hg1.createComputeSetMatMul(tileAssignment1, tensorCParts1, nodeCTileId1,
-                             graph, "matMul1", matMulProg1);
+  hg1.setTileAssignment(tileAssignment1);
+  hg1.createComputeSetMatMul(graph, tensorCParts1, nodeCTileId1, matMulProg1,
+                             "matMul1");
   std::size_t tensorCPartsLen1 = tensorCParts1.size();
   BOOST_TEST(tensorCPartsLen1 == outBlocks1);
 
@@ -1419,7 +1540,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
   const auto &target = device.getTarget();
   Graph graph(target);
-  HyperGraph::addCodelets(graph);
+  HyperGraphBlock::addCodelets(graph);
 
   const int batchSize = 8;
 
@@ -1517,16 +1638,17 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
 
   // No reduction
-  HyperGraph hg(A, B, dataType, dataType, dataType, 1, 1);
-  hg.createGraphMatMul(MEMORY_CYCLE_RATIO, graph, "C");
+  HyperGraphBlockTest hg(A, B, dataType, dataType, dataType, 1, 1);
+  hg.createGraphMatMul(graph, "C");
 
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
   std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
-  hg.createComputeSetMatMul(tileAssignment, tensorCParts, nodeCTileId, graph,
-                            "test", matMulProg);
+  hg.setTileAssignment(tileAssignment);
+  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
+                            "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1565,17 +1687,17 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 #endif
 
   // No reduction
-  HyperGraph hg1(At, B1, dataType, dataType, dataType, 1, 1);
-  hg1.createGraphMatMulSparsifyResult(sparsityC1.data(), MEMORY_CYCLE_RATIO,
-                                      graph, "C1");
+  HyperGraphBlockTest hg1(At, B1, dataType, dataType, dataType, 1, 1);
+  hg1.createGraphMatMulSparsifyResult(graph, sparsityC1.data(), "C1");
 
   std::vector<int> tileAssignment1(hg1.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts1;
   std::vector<unsigned int> nodeCTileId1;
   poplar::program::Sequence matMulProg1;
-  hg1.createComputeSetMatMul(tileAssignment1, tensorCParts1, nodeCTileId1,
-                             graph, "matMul1", matMulProg1);
+  hg1.setTileAssignment(tileAssignment1);
+  hg1.createComputeSetMatMul(graph, tensorCParts1, nodeCTileId1, matMulProg1,
+                             "matMul1");
   std::size_t tensorCPartsLen1 = tensorCParts1.size();
   BOOST_TEST(tensorCPartsLen1 == outBlocks1);
 
@@ -1640,3 +1762,200 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   checkSparseResult(dataType, blockRowsC1, blockColsC1, rowsInBlockC,
                     colsInBlockC, hostC1, blocksHostC1Parts, sparsityC1);
 }
+
+/*
+Testing block-sparse API
+dense x sparse = dense case
+*/
+void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
+  IPUModel ipuModel;
+  auto device = createTestDevice(TEST_TARGET, 1, 16);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+  poplin::addCodelets(graph);
+
+  const int blockRowsA = 2;
+  const int blockColsA = 3;
+  const int blockColsB = 2;
+
+  const int rowsInBlockA = batchSize;
+  const int colsInBlockA = blockSize;
+  const int rowsInBlockB = colsInBlockA;
+  const int colsInBlockB = blockSize;
+
+  const int blockRowsB = blockColsA;
+
+  const int rowsA = rowsInBlockA * blockRowsA;
+  const int colsA = colsInBlockA * blockColsA;
+  const int rowsB = rowsInBlockB * blockRowsB;
+  const int colsB = colsInBlockB * blockColsB;
+  const int rowsC = rowsA;
+  const int colsC = colsB;
+
+  boost::multi_array<float, 2> hostA;
+  boost::multi_array<float, 2> hostB;
+
+  std::vector<unsigned char> sparsityB(blockRowsB * blockColsB, 1);
+  // Put couple of zero blocks
+  sparsityB[2] = 0;
+  sparsityB[4] = 0;
+
+  populateMatricesDataWSparsity(hostA, hostB, rowsA, colsA, colsB, rowsInBlockA,
+                                colsInBlockA, colsInBlockB, sparsityB.data());
+
+  boost::multi_array<float, 2> blocksHostB;
+  getSparseMatrixBlocks(rowsB, colsB, rowsInBlockB, colsInBlockB, sparsityB,
+                        hostB, blocksHostB);
+
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char *>> streamMaps;
+
+  BSMatMulParams bsParams({rowsA, colsA, colsB},
+                          {rowsInBlockA, colsInBlockA, colsInBlockB}, sparsityB,
+                          false, dataType, dataType, dataType);
+
+  // LHS dense matrix
+  poplar::Tensor tensorA = createBSMatMulInputLHS(graph, bsParams, "A");
+  // RHS sparse matrix
+  poplar::Tensor tensorB = createBSMatMulInputRHS(graph, bsParams, "B");
+
+  std::unique_ptr<char[]> rawHostA =
+      poplibs_test::util::allocateHostMemoryForTensor(
+          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+
+  std::unique_ptr<char[]> blocksRawHostB =
+      poplibs_test::util::allocateHostMemoryForTensor(
+          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
+  poplibs_test::util::copy(target, blocksHostB, dataType, blocksRawHostB.get());
+
+  poplar::program::Sequence matMulProg;
+
+  poplar::Tensor tensorC =
+      bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB);
+
+  std::unique_ptr<char[]> rawHostC =
+      poplibs_test::util::allocateHostMemoryForTensor(
+          tensorC, "C", graph, uploadProg, downloadProg, streamMaps);
+
+  Sequence allSequence;
+  allSequence.add(uploadProg);
+  allSequence.add(matMulProg);
+  allSequence.add(downloadProg);
+
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
+
+  Engine engine(graph, allSequence, engineOptions);
+  poplibs_test::util::attachStreams(engine, streamMaps);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+  });
+
+  std::vector<std::vector<float>> hostC = matMul(hostA, hostB);
+
+  boost::multi_array<float, 2> blocksHostC(boost::extents[rowsC][colsC]);
+  poplibs_test::util::copy(target, dataType, rawHostC.get(), blocksHostC);
+
+  checkDenseResult(dataType, rowsC, colsC, hostC, blocksHostC);
+}
+
+/*
+Testing block-sparse API
+dense x dense = sparse case
+*/
+void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
+  IPUModel ipuModel;
+  auto device = createTestDevice(TEST_TARGET, 1, 16);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+  poplin::addCodelets(graph);
+
+  const int blockRowsA = 2;
+  const int blockColsA = 3;
+  const int blockColsB = 4;
+
+  const int rowsInBlockA = batchSize;
+  const int colsInBlockA = blockSize;
+  const int colsInBlockB = blockSize;
+
+  const int rowsA = rowsInBlockA * blockRowsA;
+  const int colsA = colsInBlockA * blockColsA;
+  const int colsB = colsInBlockB * blockColsB;
+
+  const int blockRowsC = blockRowsA;
+  const int blockColsC = blockColsB;
+  const int rowsInBlockC = rowsInBlockA;
+  const int colsInBlockC = colsInBlockB;
+
+  boost::multi_array<float, 2> hostA;
+  boost::multi_array<float, 2> hostB;
+
+  std::vector<unsigned char> sparsityC(blockRowsC * blockColsC, 1);
+  // Put couple of zero blocks
+  sparsityC[0] = 0;
+  sparsityC[3] = 0;
+
+  populateMatricesData1(hostA, hostB, rowsA, colsA, colsB, rowsInBlockA,
+                        colsInBlockA, colsInBlockB);
+
+  Sequence uploadProg, downloadProg;
+  std::vector<std::pair<std::string, char *>> streamMaps;
+
+  BSMatMulParams bsParams({rowsA, colsA, colsB},
+                          {rowsInBlockA, colsInBlockA, colsInBlockB}, sparsityC,
+                          dataType, dataType, dataType);
+
+  // LHS dense matrix
+  poplar::Tensor tensorA = createBSMatMulInputLHS(graph, bsParams, "A");
+  // RHS dense matrix
+  poplar::Tensor tensorB = createBSMatMulInputRHS(graph, bsParams, "B");
+
+  std::unique_ptr<char[]> rawHostA =
+      poplibs_test::util::allocateHostMemoryForTensor(
+          tensorA, "A", graph, uploadProg, downloadProg, streamMaps);
+  poplibs_test::util::copy(target, hostA, dataType, rawHostA.get());
+
+  std::unique_ptr<char[]> rawHostB =
+      poplibs_test::util::allocateHostMemoryForTensor(
+          tensorB, "B", graph, uploadProg, downloadProg, streamMaps);
+  poplibs_test::util::copy(target, hostB, dataType, rawHostB.get());
+
+  poplar::program::Sequence matMulProg;
+
+  poplar::Tensor tensorC =
+      bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB);
+
+  std::unique_ptr<char[]> rawHostC =
+      poplibs_test::util::allocateHostMemoryForTensor(
+          tensorC, "C", graph, uploadProg, downloadProg, streamMaps);
+
+  Sequence allSequence;
+  allSequence.add(uploadProg);
+  allSequence.add(matMulProg);
+  allSequence.add(downloadProg);
+
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
+
+  Engine engine(graph, allSequence, engineOptions);
+  poplibs_test::util::attachStreams(engine, streamMaps);
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(0);
+  });
+
+  std::vector<std::vector<float>> hostC = matMul(hostA, hostB);
+
+  boost::multi_array<float, 2> blocksHostC(
+      boost::extents[tensorC.dim(0)][tensorC.dim(1)]);
+  poplibs_test::util::copy(target, dataType, rawHostC.get(), blocksHostC);
+
+  checkSparseResult(dataType, blockRowsC, blockColsC, rowsInBlockC,
+                    colsInBlockC, hostC, blocksHostC, sparsityC);
+}
+
+BOOST_AUTO_TEST_CASE(DenseSparseDenseAPI_testF32) { TestDSDAPI(FLOAT, 8, 8); }
+
+BOOST_AUTO_TEST_CASE(DenseDenseSparseAPI_testF32) { TestDDSAPI(FLOAT, 8, 8); }
