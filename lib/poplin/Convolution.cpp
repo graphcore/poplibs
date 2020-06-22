@@ -772,24 +772,26 @@ static Tensor dilateWithNearestNeighbour(const Tensor &t,
  * Expand a spatial dimension of activations/weights to increase
  * the number of input channels, potentially in multiple stages.
  *
- * \param graph Graph in which tensors etc. are contained.
- * \param params Convolutional parameters, these will be modified
- *               to represent a convolution with the dimension
- *               expanded (by the given factor).
- * \param acts   Optional tensor which will be manipulated to
- *               perform the expansion.
- * \param weights Optional tensor which will be manipulated to
- *                perform the expansion.
+ * \param params  Convolutional parameters, these will be modified
+ *                to represent a convolution with the dimension
+ *                expanded (by the given factor).
  * \param dim     The spatial dimension to expand.
  * \param kernelFactor  The factor by which to expand the kernel.
  *                      This need not evenly divide the kernel
  *                      dimension, but if it does not padding will
  *                      be added.
+ * \param graph   Graph in which tensors etc. are contained.
+ * \param acts    Optional tensor which will be manipulated to
+ *                perform the expansion.
+ * \param weights Optional tensor which will be manipulated to
+ *                perform the expansion.
  */
-static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
-                                       Tensor *acts, Tensor *weights,
-                                       unsigned dim, unsigned kernelFactor,
-                                       const std::string &debugPrefix) {
+static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
+                                           unsigned kernelFactor,
+                                           boost::optional<Graph &> &graph,
+                                           boost::optional<Tensor> &acts,
+                                           boost::optional<Tensor> &weights,
+                                           const std::string &debugPrefix) {
   unsigned actsDimIndex = dim + 2;
   unsigned weightsDimIndex = dim + 1;
   auto &actsSize = params.inputFieldShape[dim];
@@ -813,12 +815,13 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
   auto &outputPaddingUpper = params.outputTransform.paddingUpper[dim];
   if (acts) {
     // Explicitly truncate.
-    *acts = pad(graph, *acts, -static_cast<int>(actsTruncationLower),
+    *acts = pad(*graph, *acts, -static_cast<int>(actsTruncationLower),
                 -static_cast<int>(actsTruncationUpper), actsDimIndex);
     // Explicitly dilate.
-    *acts = dilate(graph, *acts, actsDilation, actsDimIndex, debugPrefix);
+    *acts = dilate(*graph, *acts, actsDilation, actsDimIndex, debugPrefix);
     // Explicitly pad.
-    *acts = pad(graph, *acts, actsPaddingLower, actsPaddingUpper, actsDimIndex);
+    *acts =
+        pad(*graph, *acts, actsPaddingLower, actsPaddingUpper, actsDimIndex);
     // Explicitly flip.
     if (actsFlip) {
       *acts = acts->reverse(actsDimIndex);
@@ -835,7 +838,7 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
   actsFlip = false;
   if (weights) {
     // Explicitly truncate.
-    *weights = pad(graph, *weights, -static_cast<int>(weightsTruncationLower),
+    *weights = pad(*graph, *weights, -static_cast<int>(weightsTruncationLower),
                    -static_cast<int>(weightsTruncationUpper), weightsDimIndex);
   }
   weightsSize = params.getTruncatedKernelSize(dim);
@@ -868,11 +871,11 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
     // If the kernel will be flipped, then pad the input such that padding
     // is at the lower end of the spatial dimension to match where the
     // kernel padding ends up.
-    *acts = pad(graph, *acts, actsPadding * weightsFlip,
+    *acts = pad(*graph, *acts, actsPadding * weightsFlip,
                 actsPadding * !weightsFlip, actsDimIndex);
   }
   if (weights) {
-    *weights = pad(graph, *weights, 0, kernelPadding, weightsDimIndex);
+    *weights = pad(*graph, *weights, 0, kernelPadding, weightsDimIndex);
   }
   actsSize = actsPaddedSize;
   weightsSize = paddedKernelSize;
@@ -902,8 +905,9 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
       auto newActsShape = acts->shape();
       newActsShape[actsDimIndex] = actsFactoredSize;
       newActsShape.back() = 0;
-      *acts = graph.addConstant(dType, newActsShape, 0, debugPrefix + "/acts");
-      graph.setTileMapping(*acts, 0);
+      *acts =
+          (*graph).addConstant(dType, newActsShape, 0, debugPrefix + "/acts");
+      (*graph).setTileMapping(*acts, 0);
     } else {
       std::vector<Tensor> slices;
       auto subsampledKernelElements =
@@ -923,7 +927,7 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
           const auto slicePaddingLower = weightOutRange.first;
           const auto slicePaddingUpper =
               params.getOutputSize(dim) - weightOutRange.second;
-          slice = pad(graph, slice, slicePaddingLower, slicePaddingUpper,
+          slice = pad(*graph, slice, slicePaddingLower, slicePaddingUpper,
                       actsDimIndex);
         }
         assert(slice.dim(actsDimIndex) == actsFactoredSize);
@@ -960,12 +964,41 @@ static void expandSpatialDimMultiStage(Graph &graph, ConvParams &params,
   }
 }
 
-static void expandSpatialDim(Graph &graph, ConvParams &params, Tensor *acts,
-                             Tensor *weights, unsigned dim,
+// Modify acts and weights from graph
+static void expandSpatialDimMultiStage(ConvParams &params, unsigned dim,
+                                       unsigned kernelFactor, Graph &graph,
+                                       boost::optional<Tensor> &acts,
+                                       boost::optional<Tensor> &weights,
+                                       const std::string &debugPrefix) {
+  boost::optional<Graph &> g = graph;
+  expandSpatialDimMultiStageImpl(params, dim, kernelFactor, g, acts, weights,
+                                 debugPrefix);
+}
+
+// Planning only, no modification to acts or weights
+static void expandSpatialDimMultiStage(ConvParams &params, unsigned dim,
+                                       unsigned kernelFactor) {
+  boost::optional<Graph &> graph;
+  boost::optional<Tensor> acts;
+  boost::optional<Tensor> weights;
+  expandSpatialDimMultiStageImpl(params, dim, kernelFactor, graph, acts,
+                                 weights, "");
+}
+
+// Modify acts and weights from graph
+static void expandSpatialDim(ConvParams &params, unsigned dim, Graph &graph,
+                             boost::optional<Tensor> &acts,
+                             boost::optional<Tensor> &weights,
                              const std::string &debugPrefix) {
-  auto factor = params.getTruncatedKernelSize(dim);
-  expandSpatialDimMultiStage(graph, params, acts, weights, dim, factor,
+  const auto factor = params.getTruncatedKernelSize(dim);
+  expandSpatialDimMultiStage(params, dim, factor, graph, acts, weights,
                              debugPrefix);
+}
+
+// Planning only, no modification to acts or weights
+static void expandSpatialDim(ConvParams &params, unsigned dim) {
+  const auto factor = params.getTruncatedKernelSize(dim);
+  expandSpatialDimMultiStage(params, dim, factor);
 }
 
 static void swapOperands(ConvParams &params, boost::optional<Tensor> &acts,
@@ -1036,9 +1069,20 @@ determinePreprocessedGroupingFromPlan(const ConvParams &params,
   return grouping;
 }
 
+// Required for expand dims planning, we don't intend to use graph as mutable,
+// but it is deemed safe because it only adds extra compute sets. (we don't
+// provide rearrange prog to add them to). We also are careful to pass a copy of
+// the plan to this function.
+// TODO: make version of this without requiring a mutable graph/plan
+static CanonicalConvParams
+convolutionPreprocess(Graph &graph, const ConvParams &params,
+                      const ConvOptions &options, Plan &plan, unsigned level,
+                      const std::vector<Split<ConvIndices>> &indices,
+                      bool serial);
+
 // Get a description for how to perform a transform for efficiency in memory
 // and cycles.
-static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
+static ExpandDimsPlan getExpandDimsPlan(/*TODO: const*/ Graph &graph,
                                         const ConvParams &params,
                                         const Plan &convPlan, unsigned level,
                                         const Tensor &in, bool isActs) {
@@ -1080,37 +1124,61 @@ static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
     if (isActs && nextGrouping.first == in.rank() - 1 &&
         (maxGroupSize % grainSize) != 0) {
       unsigned expandedDimElems = dimElems;
-      unsigned remainingExpansion = std::accumulate(
-          expandDimsSpatial.begin(), expandDimsSpatial.end(), std::size_t(1),
-          [&](std::size_t t, const std::size_t dim) {
-            return t * params.getTruncatedKernelSize(dim);
-          });
-      auto inChanGrainSize = convPlan.partitions[level].inChanGrainSize;
       for (unsigned i = 0; i != expandDimsSpatial.size(); ++i) {
-        unsigned roundedElems = lcm(expandedDimElems, grainSize);
-        unsigned factor = roundedElems / expandedDimElems;
-        auto dim = expandDimsSpatial[i];
-        auto truncatedKernelSize = params.getTruncatedKernelSize(dim);
+        const unsigned roundedElems = lcm(expandedDimElems, grainSize);
+        const unsigned factor = roundedElems / expandedDimElems;
+        const auto dim = expandDimsSpatial[i];
+        const auto truncatedKernelSize = params.getTruncatedKernelSize(dim);
         // We're all padding anyway
         if (truncatedKernelSize == 0)
           break;
-        auto kernelPadded =
-            ((truncatedKernelSize + factor - 1) / factor) * factor;
-        auto kernelPadding = kernelPadded - truncatedKernelSize;
-        auto inChanPaddingAfterFullExpansion =
-            kernelPadding * remainingExpansion;
+
+        poplin::ConvParams noPaddingParams;
+        poplin::ConvParams paddingParams;
+        { // Without padding
+          ConvOptions options{graph.getTarget()};
+          std::vector<Split<ConvIndices>> indices;
+          auto noPaddingPlan = convPlan;
+          noPaddingParams =
+              convolutionPreprocess(graph, params, options, noPaddingPlan,
+                                    level, indices, false)
+                  .getParams();
+        }
+        { // With padding
+          ConvOptions options{graph.getTarget()};
+          std::vector<Split<ConvIndices>> indices;
+          auto paddingPlan = convPlan;
+          auto tmp = params;
+          // Fully expand up to the dimension to partially expand.
+          size_t nextToExpand = 0;
+          for (; nextToExpand != expandDimsSpatial.size(); ++nextToExpand) {
+            if (expandDimsSpatial[nextToExpand] == dim) {
+              break;
+            }
+            expandSpatialDim(tmp, expandDimsSpatial[nextToExpand]);
+          }
+          // Partially expand
+          expandSpatialDimMultiStage(tmp, dim, factor);
+          paddingParams =
+              convolutionPreprocess(graph, tmp, options, paddingPlan, level,
+                                    indices, false)
+                  .getParams();
+        }
+        const auto partiallyExpandingModifiedParams =
+            noPaddingParams != paddingParams;
+
         // We can partially expand at this point either if:
-        // * the kernel is evenly divisible by the desired factor (no padding
-        // required)
-        if ((truncatedKernelSize % factor) == 0 ||
+        if (
+            // * the kernel is evenly divisible by the desired factor (no
+            //   padding required)
+            (truncatedKernelSize % factor) == 0 ||
             // * the padding after fully expanding is no more than would be
-            //   added as a result of the input channel grain size.
-            (truncatedKernelSize > 1 &&
-             inChanPaddingAfterFullExpansion < inChanGrainSize) ||
+            //   added as a result of rounding up to the input channel grain
+            //   size and other convolution preprocessing operations.
+            (truncatedKernelSize > 1 && !partiallyExpandingModifiedParams) ||
             // * this is the last dimension to be expanded (padding can be
-            // safely
-            //   added as it will end up in the last input channels and can be
-            //   easily stripped.
+            //   safely added as it will end up in the last input channels and
+            //   can be easily stripped.
             (truncatedKernelSize > 1 && i == expandDimsSpatial.size() - 1)) {
           plan.partialExpansion.first = dim;
           plan.partialExpansion.second = factor;
@@ -1120,7 +1188,6 @@ static ExpandDimsPlan getExpandDimsPlan(const Graph &graph,
           break;
         }
         expandedDimElems *= truncatedKernelSize;
-        remainingExpansion /= truncatedKernelSize;
       }
     }
 
@@ -1143,7 +1210,7 @@ static ExpandDimsPlan mergeExpandDimsPlans(ExpandDimsPlan planActs,
 }
 
 static void expandSpatialDims(
-    Graph &graph, ConvParams &params, Plan &plan, unsigned level,
+    ConvParams &params, Plan &plan, unsigned level, Graph &graph,
     boost::optional<Tensor> &acts, boost::optional<Tensor> &weights,
     const ExpandDimsPlan &expandDimsPlan,
     ConvProgramTree::TransformPreProgram *rearrangeProg, bool rearrangeActs,
@@ -1161,16 +1228,16 @@ static void expandSpatialDims(
       if (expandDimsSpatial[nextToExpand] == partialExpansion.first) {
         break;
       }
-      expandSpatialDim(graph, params, acts.get_ptr(), weights.get_ptr(),
-                       expandDimsSpatial[nextToExpand], debugPrefix);
+      expandSpatialDim(params, expandDimsSpatial[nextToExpand], graph, acts,
+                       weights, debugPrefix);
     }
     unsigned kernelSizeBefore =
         params.getTruncatedKernelSize(partialExpansion.first);
     unsigned inputChansBefore = params.inputChannelsPerConvGroup;
 
     // Partially expand
-    expandSpatialDimMultiStage(graph, params, acts.get_ptr(), weights.get_ptr(),
-                               partialExpansion.first, partialExpansion.second,
+    expandSpatialDimMultiStage(params, partialExpansion.first,
+                               partialExpansion.second, graph, acts, weights,
                                debugPrefix);
 
     // Check for any padding added for the partial expansion
@@ -1206,9 +1273,8 @@ static void expandSpatialDims(
   for (; nextToExpand != expandDimsSpatial.size(); ++nextToExpand) {
     const auto factor =
         params.getTruncatedKernelSize(expandDimsSpatial[nextToExpand]);
-    expandSpatialDimMultiStage(graph, params, acts.get_ptr(), weights.get_ptr(),
-                               expandDimsSpatial[nextToExpand], factor,
-                               debugPrefix);
+    expandSpatialDimMultiStage(params, expandDimsSpatial[nextToExpand], factor,
+                               graph, acts, weights, debugPrefix);
     // Trim any padding added by a potential earlier partial expansion
     if ((inputChanPaddingLower || inputChanPaddingUpper) && stripPadding) {
       if (acts) {
@@ -1244,7 +1310,7 @@ static void expandSpatialDims(
 }
 
 static void
-expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan, unsigned level,
+expandSpatialDims(ConvParams &params, Plan &plan, unsigned level, Graph &graph,
                   boost::optional<Tensor> &acts,
                   boost::optional<Tensor> &weights,
                   ConvProgramTree::TransformPreProgram *rearrangeProg,
@@ -1271,7 +1337,7 @@ expandSpatialDims(Graph &graph, ConvParams &params, Plan &plan, unsigned level,
       mergeExpandDimsPlans(actsTransformPlan, weightsTransformPlan);
 
   // Now do a series of transforms as appropriate.
-  expandSpatialDims(graph, params, plan, level, acts, weights,
+  expandSpatialDims(params, plan, level, graph, acts, weights,
                     mergedTransformPlan, rearrangeProg, rearrangeActs,
                     rearrangeWeights, debugPrefix);
 }
@@ -1427,8 +1493,7 @@ static CanonicalConvParams convolutionPreprocess(
     for (auto it = transform.expandDims.begin();
          it != transform.expandDims.end();) {
       if (expandDimTransformIsViewOnly(params, *it)) {
-        expandSpatialDim(graph, params, acts.get_ptr(), weights.get_ptr(), *it,
-                         debugPrefix);
+        expandSpatialDim(params, *it, graph, acts, weights, debugPrefix);
         it = transform.expandDims.erase(it);
       } else {
         ++it;
@@ -1436,7 +1501,7 @@ static CanonicalConvParams convolutionPreprocess(
     }
   } else {
     // implement the expandDims transformation.
-    expandSpatialDims(graph, params, plan, level, acts, weights, rearrangeProg,
+    expandSpatialDims(params, plan, level, graph, acts, weights, rearrangeProg,
                       rearrangeActs, rearrangeWeights, debugPrefix);
     transform.expandDims.clear();
 
@@ -1453,8 +1518,8 @@ static CanonicalConvParams convolutionPreprocess(
 
       swapOperands(params, maybeActs, maybeWeights);
       for (auto dim : transform.outChanFlattenDims) {
-        expandSpatialDim(graph, params, maybeActs.get_ptr(),
-                         maybeWeights.get_ptr(), dim, debugPrefix);
+        expandSpatialDim(params, dim, graph, maybeActs, maybeWeights,
+                         debugPrefix);
         if (maybeActs) {
           *maybeActs = flattenDims(*maybeActs, dim + 2, 1);
         }
@@ -1854,15 +1919,13 @@ static Tensor convolutionPostprocess(Graph &graph,
   } else {
     auto postExpandParams = params.getParams();
     for (auto dim : transform.expandDims) {
-      expandSpatialDim(graph, postExpandParams, nullptr, nullptr, dim,
-                       debugPrefix);
+      expandSpatialDim(postExpandParams, dim);
     }
     auto postOutChanFlattenParams = postExpandParams;
     if (!transform.outChanFlattenDims.empty()) {
       swapOperands(postOutChanFlattenParams);
       for (auto dim : transform.outChanFlattenDims) {
-        expandSpatialDim(graph, postOutChanFlattenParams, nullptr, nullptr, dim,
-                         debugPrefix);
+        expandSpatialDim(postOutChanFlattenParams, dim);
         // Flatten into the batch axis (this will become the output channel
         // axis when we swap back).
         postOutChanFlattenParams.batchSize *=
@@ -3477,6 +3540,9 @@ void createConvPartialSlicVertex(
     std::map<Type, Tensor> &copyWritten, ComputeSet fwdCS,
     ConvProgramTree::PostProg &postConvProg, Tensor in, Tensor weights,
     Tensor out, const std::string &debugPrefix) {
+  // We don't handle multiple input channel/output channel groups.
+  assert(params.getNumInputChansPerConvGroup() == chansPerGroup &&
+         params.getNumOutputChansPerConvGroup() == chansPerGroup);
   const auto outputStride = params.outputTransform.stride.back();
 
   const auto &target = graph.getTarget();
@@ -3501,6 +3567,8 @@ void createConvPartialSlicVertex(
   assert(isAll(false, params.inputTransform.flip));
 
   // We do not handle any kernel transforms at time of writing.
+  assert(isAll(0u, params.kernelTransform.truncationLower));
+  assert(isAll(0u, params.kernelTransform.truncationUpper));
   assert(isAll(1u, params.kernelTransform.dilation));
   assert(isAll(0u, params.kernelTransform.paddingLower));
   assert(isAll(0u, params.kernelTransform.paddingUpper));
