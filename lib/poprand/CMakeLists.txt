@@ -13,7 +13,7 @@ target_link_libraries(poprand
   PUBLIC
     poplar poputil ${CMAKE_DL_LIBS}
   PRIVATE
-    poplibs_support
+    poplibs_support popops
     Boost::boost
 )
 
