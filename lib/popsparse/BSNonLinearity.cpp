@@ -53,6 +53,9 @@ static Tensor sliceAndPad(Graph &graph, poplar::Tensor sparseTensor,
       }
     }
   }
+
+  logging::debug("Maximum slice length = {}", maxSliceLen);
+
   // TODO: To effectively handle sparsity masks
   // with large number of non-zeros in some rows -
   // implement reduce in steps

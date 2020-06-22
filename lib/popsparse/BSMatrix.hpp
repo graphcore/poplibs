@@ -78,6 +78,13 @@ public:
     }
   }
 
+  int getBlockRowCount() const { return getRowCount() / getBlockRow(); }
+
+  int getBlockColCount() const { return getColCount() / getBlockCol(); }
+
+  // Gets dimension of the underlying tensor
+  virtual std::array<int, 2> getDimensions() const = 0;
+
   bool getNeedTranspose() const { return needTranspose; }
 
   // This function is a utility function to get the regular matrix from block
@@ -94,6 +101,8 @@ protected:
   // order is hard coded to ROW_MAJOR for now.
   Order order;
   bool needTranspose;
+  // TODO: Do we want to store blockData on a single concatenated tensor?
+  // That would enforce equal dimensions for all blocks.
   std::vector<poplar::Tensor> blockData;
 };
 
@@ -114,6 +123,8 @@ public:
   virtual int getNonZeroBlockCount() const override {
     return static_cast<int>(indices.size());
   }
+
+  virtual std::array<int, 2> getDimensions() const override;
 
   virtual std::vector<std::vector<int>> getBlockIdMatrix() const override;
 
@@ -139,6 +150,8 @@ public:
   virtual int getNonZeroBlockCount() const override {
     return row * col / blockRow / blockCol;
   }
+
+  virtual std::array<int, 2> getDimensions() const override;
 
   virtual std::vector<std::vector<int>> getBlockIdMatrix() const override;
 

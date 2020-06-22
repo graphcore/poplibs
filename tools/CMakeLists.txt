@@ -40,6 +40,7 @@ target_link_libraries(gru_layer
 if(TARGET popsparse)
   add_tool(bs_matmul_test bs_matmul_test.cpp)
   target_link_libraries(bs_matmul_test
+    poplibs_support
     poplibs_test
     Boost::program_options)
 endif()
