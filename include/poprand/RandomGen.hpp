@@ -46,6 +46,45 @@ poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
                        double scale, poplar::program::Sequence &prog,
                        const std::string &debugPrefix = "");
 
+/** Apply shaped dropout to a tensor.
+ *
+ *  The elements of tensor \p input are multiplied by a mask consisting of a
+ *  sequence of randomly generated 1 or 0. The keep probability of the dropout
+ *  P(1) = \p keepProbability.
+ *
+ *  Shaped dropout allows row, column and dimension wise dropout, versus
+ *  element-wise standard dropout. The shape of the dropout must be compatible
+ *  (broadcastable) to \p input.
+ *
+ * The contents of the mask depend on the keep probability, seed, seed modifier
+ * and layout of the reference tensor.
+ *
+ *  \param graph            The graph to add this operation to.
+ *  \param seed             If not null, this is a pair of 32-bit integers used
+ *                          to seed the random number generator that generates
+ *                          the dropout mask.
+ *  \param seedModifier     Provides a further modification of the seed value.
+ *                          Ignored if \p seed is null.
+ *  \param input            The input tensor to be masked.
+ *  \param reference        A tensor that specifies the shape and layout of the
+ *                          dropout. Must be broadcastable to the input.
+ *  \param keepProbability  The probability of keeping an input value.
+ *  \param scale            Scales the output tensor. This is typically the
+ *                          inverse of the dropout probability, (1 / P(1)).
+ *  \param prog             The program to add this operation to.
+ *  \param debugPrefix      A prefix string for debugging.
+ *
+ *  \returns A tensor with elements randomly set to either zero or the scaled
+ *           input value.
+ */
+poplar::Tensor shapedDropout(poplar::Graph &graph, const poplar::Tensor *seed,
+                             const uint32_t seedModifier,
+                             const poplar::Tensor &input,
+                             const poplar::Tensor &reference,
+                             double keepProbability, double scale,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugPrefix = "");
+
 /** Uniform distribution in a given interval with \p maxVal > \p minVal.
  *
  *  Generates random data with uniform distribution in the interval [\p minVal,
@@ -74,6 +113,7 @@ poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \returns A tensor with elements having a uniform distribution of random
  *           values.
  */
+
 poplar::Tensor uniform(poplar::Graph &graph, const poplar::Tensor *seed,
                        uint32_t seedModifier, const poplar::Tensor &reference,
                        const poplar::Type &outType, double minVal,

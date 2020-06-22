@@ -6,6 +6,7 @@
 #include "poplar/Tensor.hpp"
 #include "poplar/exceptions.hpp"
 #include "poplibs_support/logging.hpp"
+#include "popops/ElementWise.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -342,12 +343,13 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
 
   // The probability used by f16v4rmask/f32v2rmask
   unsigned probHw = static_cast<unsigned>(keepProbability * maxProbInHw);
-  auto out = graph.clone(in.elementType(), reference, fnPrefix + "/out");
-  // The maximum probability in hw doesn't implies no dropout
+
+  // Maximum probability in hw implies no dropout
   if (probHw == maxProbInHw) {
-    prog.add(Copy(in, out));
-    return out;
+    return poputil::duplicate(graph, in, prog);
   }
+
+  auto out = graph.clone(in.elementType(), reference, fnPrefix + "/out");
 
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
                                              prog, fnPrefix);
@@ -387,6 +389,40 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
   }
   prog.add(Execute(cs));
   maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
+  return out;
+}
+
+Tensor shapedDropout(Graph &graph, const Tensor *masterSeed,
+                     const uint32_t seedModifier, const Tensor &in,
+                     const Tensor &reference, double keepProbability,
+                     double scale, Sequence &prog,
+                     const std::string &debugPrefix) {
+  seedTensorChecks(masterSeed);
+  static const unsigned maxProbInHw = 65536;
+  auto fnPrefix = debugPrefix + "/shaped_dropout";
+
+  if (keepProbability > 1 || keepProbability < 0) {
+    throw poputil::poplibs_error("keep probability must be in the range [0,1]");
+  }
+
+  // The probability used by f16v4rmask/f32v2rmask
+  unsigned probHw = static_cast<unsigned>(keepProbability * maxProbInHw);
+
+  // Maximum probability in hw implies no dropout
+  if (probHw == maxProbInHw) {
+    return poputil::duplicate(graph, in, prog, fnPrefix);
+  }
+
+  auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,
+                                             prog, fnPrefix);
+
+  auto mask = bernoulli(graph, masterSeed, seedModifier, reference,
+                        in.elementType(), keepProbability, prog, fnPrefix);
+  popops::mulInPlace(graph, mask, scale, prog, fnPrefix);
+  auto out = popops::mul(graph, in, mask, prog, fnPrefix);
+
+  maybeRestoreHwSeeds(graph, hwSeeds, prog, fnPrefix);
+
   return out;
 }
 
