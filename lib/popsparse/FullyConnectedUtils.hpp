@@ -61,16 +61,21 @@ weightsInternalSliceBuckets(const popsparse::dynamic::SparseTensor &t,
 popsparse::dynamic::SparseTensor
 packWeights(const popsparse::dynamic::SparseTensor &buckets,
             std::size_t metaInfoElemsPerBucket, std::size_t nzValuesPerBucket,
-            const poplar::Tensor &overflowInfo, std::size_t numPasses);
+            const poplar::Tensor &overflowInfo);
 
 std::tuple<poplar::Tensor, poplar::Tensor>
-unpackWeights(const poplar::Tensor &metaInfo,
-              std::size_t metaInfoElemsPerBucket, std::size_t numPasses);
+unpackWeights(const poplar::Tensor &metaInfo, std::size_t overflowInfoElems,
+              std::size_t metaInfoElemsPerBucket);
 
 std::tuple<popsparse::dynamic::SparseTensor, poplar::Tensor>
 unpackWeights(const popsparse::dynamic::SparseTensor &weights,
-              std::size_t metaInfoElemsPerBucket, std::size_t nzValuesPerBucket,
-              std::size_t numPasses);
+              std::size_t overflowInfoElems, std::size_t metaInfoElemsPerBucket,
+              std::size_t nzValuesPerBucket);
+
+// Get the number of meta-info elements
+std::size_t getNumOverflowInfoElems(std::size_t metaInfoTypeBits,
+                                    std::size_t xSplits, std::size_t ySplits,
+                                    std::size_t zSplits);
 
 // Splits the work for the output tile given by size 'numRows' x 'numColumns'.
 // The work is split at most across a given number of workers. 'rowWeights' is

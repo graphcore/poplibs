@@ -203,10 +203,45 @@ getPropagationIteratedDimsAndStartingIndices(const SinglePassPlan &plan) {
   return std::make_tuple(std::move(dimsToIterate), std::move(indices));
 }
 
-namespace {
-
 constexpr static std::size_t numDirections = 3;
 constexpr static std::size_t numBuffers = 2;
+
+static Tensor getPassEndIndices(const Tensor &t, const SinglePassPlan &plan) {
+  // First numDirections elements give end indices in terms of forward pass so
+  // cut these out and shuffle them for this pass.
+  std::vector<unsigned> shuffleIndices(numDirections);
+  for (std::size_t dimIdx = 0; dimIdx < plan.dimShuffleToFwd.size(); ++dimIdx) {
+    // Check groups are not shuffled between passes and ignore them
+    assert(dimIdx > 0 || plan.dimShuffleToFwd.at(dimIdx) == 0);
+    if (dimIdx > 0) {
+      shuffleIndices[dimIdx - 1] = plan.dimShuffleToFwd[dimIdx] - 1;
+    }
+  }
+
+  std::vector<Tensor> toConcat;
+  for (const auto &idx : shuffleIndices) {
+    toConcat.emplace_back(t.slice(idx, idx + 1));
+  }
+
+  return concat(toConcat);
+}
+
+static std::size_t getOuterLoopDim(const SinglePassPlan &plan) {
+  // Outer loop is always the X dimension from the forward pass.
+  // Find this from the plan in terms of the current pass.
+  auto it =
+      std::find(plan.dimShuffleToFwd.begin(), plan.dimShuffleToFwd.end(), 1);
+  const std::size_t dim = std::distance(plan.dimShuffleToFwd.begin(), it);
+  // We never expect this to be dim 0 (groups)
+  assert(dim > 0);
+  return dim - 1;
+}
+
+static Tensor getOuterLoopIterationsToSkip(const Tensor &t) {
+  return t.slice(numDirections, t.numElements());
+}
+
+namespace {
 
 // Handles building of the program to execute the fully connected layer
 // implementation.
@@ -232,7 +267,7 @@ public:
 
   void addToSequence(Graph &graph, Sequence &seq,
                      const SinglePassPlan &plan = {},
-                     const boost::optional<Tensor> &controlInfo = boost::none,
+                     const boost::optional<Tensor> &overflowInfo = boost::none,
                      const std::string &debugPrefix = "") {
     for (unsigned level = 0; level < pre.size(); ++level) {
       seq.add(pre[level]);
@@ -242,14 +277,17 @@ public:
     seq.add(Execute(distributionCS));
     const bool needDynamic =
         plan.partition.x * plan.partition.y * plan.partition.z > 1;
-    if (needDynamic && controlInfo) {
+    if (needDynamic && overflowInfo) {
       std::vector<Sequence> progs;
       progs.emplace_back();
 
-      const auto partitionVec = plan.partition.asStdVector();
-      const auto endIndices =
-          popops::cast(graph, controlInfo.get(), UNSIGNED_INT, progs.back(),
-                       debugPrefix + "/endIndices");
+      // Shuffle controlInfo to match this pass.
+      auto endIndices = getPassEndIndices(overflowInfo.get(), plan);
+      endIndices = popops::cast(graph, endIndices, UNSIGNED_INT, progs.back(),
+                                debugPrefix + "/endIndices");
+      const auto outerLoopDim = getOuterLoopDim(plan);
+      const auto outerLoopIterationsToSkip =
+          getOuterLoopIterationsToSkip(overflowInfo.get());
 
       progs.back().add(firstPropagationExchange);
 
@@ -299,6 +337,31 @@ public:
       progs.back().add(propagationCompute);
       for (auto dimIt = dimsToIterate.rbegin(); dimIt != dimsToIterate.rend();
            ++dimIt) {
+        // If this is the outer-most loop, we have extra information that
+        // allows us to potentially skip the body for this iteration.
+        if (*dimIt == outerLoopDim) {
+          auto prog = std::move(progs.back());
+          progs.pop_back();
+          progs.emplace_back();
+
+          const auto doIteration = graph.addVariable(
+              UNSIGNED_INT, {},
+              debugPrefix + "/do" + dimNames[*dimIt] + "Iteration");
+          graph.setTileMapping(doIteration, 0);
+          const auto cs = graph.addComputeSet(debugPrefix + "/shouldDo" +
+                                              dimNames[*dimIt] + "Iteration");
+          const auto v =
+              graph.addVertex(cs,
+                              templateVertex("popsparse::BitIsSet",
+                                             UNSIGNED_SHORT, UNSIGNED_INT),
+                              {{"bits", outerLoopIterationsToSkip},
+                               {"index", indices[*dimIt]},
+                               {"out", doIteration}});
+          graph.setTileMapping(v, 0);
+          progs.back().add(Execute(cs));
+          progs.back().add(
+              Switch(doIteration, {{0, Sequence()}}, std::move(prog)));
+        }
         progs.back().add(propagationExchanges.at(*dimIt));
         popops::addInPlace(graph, indices[*dimIt], one, progs.back(),
                            debugPrefix + "/increment" + dimNames[*dimIt] +
@@ -1509,10 +1572,6 @@ static Tensor fullyConnectedSparseGradWImpl(
   return output.flatten(0, 5);
 }
 
-static std::size_t getNumPasses(const Options &options) {
-  return 1 + options.doGradAPass + options.doGradWPass;
-}
-
 static void iterateInputTensorUsage(
     Graph &graph, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
@@ -1604,12 +1663,14 @@ SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
                        ? fwdMetaInfoBuckets
                        : concat(fwdMetaInfoBuckets, gradAMetaInfoBuckets, 1),
                    nzValueBuckets);
-  const auto numPasses = getNumPasses(options);
-  const auto overflowInfo = graph.addVariable(UNSIGNED_SHORT, {numPasses, 3},
-                                              debugName + "/overflowInfo");
+  const auto overflowInfoElems = getNumOverflowInfoElems(
+      target.getTypeSize(UNSIGNED_SHORT), plan.partition.x, plan.partition.y,
+      plan.partition.z);
+  const auto overflowInfo = graph.addVariable(
+      UNSIGNED_SHORT, {overflowInfoElems}, debugName + "/overflowInfo");
   graph.setTileMapping(overflowInfo, 0);
   return packWeights(weightBuckets, getTotalMetaInfoElemsPerBuckets(plan),
-                     plan.nzElemsPerBucket, overflowInfo, numPasses);
+                     plan.nzElemsPerBucket, overflowInfo);
 }
 
 Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
@@ -1670,13 +1731,14 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
       static_cast<unsigned>(params.getBatchSize())};
   const auto input = inputExternalToInternalShape(activations, shape.groups);
 
+  const auto overflowInfoElems = getNumOverflowInfoElems(
+      target.getTypeSize(UNSIGNED_SHORT), plan.partition.x, plan.partition.y,
+      plan.partition.z);
   SparseTensor weightBuckets;
   Tensor overflowInfo;
-  std::tie(weightBuckets, overflowInfo) =
-      unpackWeights(weights, getTotalMetaInfoElemsPerBuckets(plan),
-                    plan.nzElemsPerBucket, getNumPasses(options));
-  // Get fwd pass overflow info
-  overflowInfo = overflowInfo[0];
+  std::tie(weightBuckets, overflowInfo) = unpackWeights(
+      weights, overflowInfoElems, getTotalMetaInfoElemsPerBuckets(plan),
+      plan.nzElemsPerBucket);
 
   // Get meta-info required for forward pass.
   weightBuckets = weightsInternalSliceBuckets(weightBuckets, 0u,
@@ -1720,13 +1782,14 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
 
   const auto input = inputExternalToInternalShape(activations, shape.groups);
 
+  const auto overflowInfoElems = getNumOverflowInfoElems(
+      target.getTypeSize(UNSIGNED_SHORT), plan.partition.x, plan.partition.y,
+      plan.partition.z);
   SparseTensor weightBuckets;
   Tensor overflowInfo;
-  std::tie(weightBuckets, overflowInfo) =
-      unpackWeights(weights, getTotalMetaInfoElemsPerBuckets(plan),
-                    plan.nzElemsPerBucket, getNumPasses(options));
-  // Get grad-a pass overflow info
-  overflowInfo = overflowInfo[1];
+  std::tie(weightBuckets, overflowInfo) = unpackWeights(
+      weights, overflowInfoElems, getTotalMetaInfoElemsPerBuckets(plan),
+      plan.nzElemsPerBucket);
 
   // Get meta-info required for backward pass.
   weightBuckets = weightsInternalSliceBuckets(
@@ -1795,13 +1858,14 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
       inputExternalToInternalShape(activations, shape.groups).dimRoll(1, 2);
   const auto outputGrad = inputExternalToInternalShape(gradA, shape.groups);
 
+  const auto overflowInfoElems = getNumOverflowInfoElems(
+      target.getTypeSize(UNSIGNED_SHORT), plan.partition.x, plan.partition.y,
+      plan.partition.z);
   Tensor metaInfoBuckets;
   Tensor overflowInfo;
   std::tie(metaInfoBuckets, overflowInfo) =
-      unpackWeights(sparsityMetaInfo, getTotalMetaInfoElemsPerBuckets(plan),
-                    getNumPasses(options));
-  // Get grad-w pass overflow info
-  overflowInfo = overflowInfo[1 + options.doGradAPass];
+      unpackWeights(sparsityMetaInfo, overflowInfoElems,
+                    getTotalMetaInfoElemsPerBuckets(plan));
 
   // Get meta-info required for grad-w pass.
   metaInfoBuckets = weightsInternalSliceBuckets(metaInfoBuckets, 0,

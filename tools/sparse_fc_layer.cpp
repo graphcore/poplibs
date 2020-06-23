@@ -715,22 +715,9 @@ int main(int argc, char **argv) try {
 
   const auto &metaInfoFlat = buckets.metaInfo;
   const auto &nzValuesFlat = buckets.nzValues;
-  std::cerr << "overflowInfoFwd = {" << metaInfoFlat.at(0) << ","
+  // Overflow info is the same for all passes at time of writing.
+  std::cerr << "overflowInfo = {" << metaInfoFlat.at(0) << ","
             << metaInfoFlat.at(1) << "," << metaInfoFlat.at(2) << "}\n";
-  unsigned index = 3;
-
-  if (doBwdPass) {
-    std::cerr << "overflowInfoGradA = {" << metaInfoFlat.at(index) << ","
-              << metaInfoFlat.at(index + 1) << "," << metaInfoFlat.at(index + 2)
-              << "}\n";
-    index += 3;
-  }
-
-  if (doWuPass) {
-    std::cerr << "overflowInfoGradW = {" << metaInfoFlat.at(index) << ","
-              << metaInfoFlat.at(index + 1) << "," << metaInfoFlat.at(index + 2)
-              << "}\n";
-  }
 
   copy(target, hostInput, dataType, rawInput.get());
   copy(target, metaInfoFlat, UNSIGNED_SHORT, rawMetaInfo.get());
