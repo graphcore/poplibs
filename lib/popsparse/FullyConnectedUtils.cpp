@@ -168,7 +168,7 @@ SparseTensor weightsInternalSliceBuckets(const SparseTensor &t,
 SparseTensor packWeights(const SparseTensor &buckets,
                          std::size_t metaInfoElemsPerBucket,
                          std::size_t nzValuesPerBucket,
-                         const Tensor &overflowInfo, std::size_t numPasses) {
+                         const Tensor &overflowInfo) {
   const auto metaInfo =
       concat(overflowInfo.flatten(),
              weightsInternalToExternalShape(buckets.getMetaInfoTensor(),
@@ -179,28 +179,36 @@ SparseTensor packWeights(const SparseTensor &buckets,
 }
 
 std::tuple<Tensor, Tensor> unpackWeights(const Tensor &metaInfo,
-                                         std::size_t metaInfoElemsPerBucket,
-                                         std::size_t numPasses) {
-  const auto overflowInfo = metaInfo.slice(0, numPasses * 3);
+                                         std::size_t overflowInfoElems,
+                                         std::size_t metaInfoElemsPerBucket) {
+  const auto overflowInfo = metaInfo.slice(0, overflowInfoElems);
   return std::make_tuple(
       weightsExternalToInternalShape(
-          metaInfo.slice(numPasses * 3, metaInfo.numElements()),
+          metaInfo.slice(overflowInfoElems, metaInfo.numElements()),
           metaInfoElemsPerBucket),
-      overflowInfo.reshape({numPasses, 3}));
+      overflowInfo);
 }
 
 std::tuple<SparseTensor, Tensor>
-unpackWeights(const SparseTensor &weights, std::size_t metaInfoElemsPerBucket,
-              std::size_t nzValuesPerBucket, std::size_t numPasses) {
+unpackWeights(const SparseTensor &weights, std::size_t overflowInfoElems,
+              std::size_t metaInfoElemsPerBucket,
+              std::size_t nzValuesPerBucket) {
   const auto &metaInfo = weights.getMetaInfoTensor();
   const auto &nzValues = weights.getNzValuesTensor();
-  const auto overflowInfo = metaInfo.slice(0, numPasses * 3);
+  const auto overflowInfo = metaInfo.slice(0, overflowInfoElems);
   return std::make_tuple(
-      SparseTensor(weightsExternalToInternalShape(
-                       metaInfo.slice(numPasses * 3, metaInfo.numElements()),
-                       metaInfoElemsPerBucket),
-                   weightsExternalToInternalShape(nzValues, nzValuesPerBucket)),
-      overflowInfo.reshape({numPasses, 3}));
+      SparseTensor(
+          weightsExternalToInternalShape(
+              metaInfo.slice(overflowInfoElems, metaInfo.numElements()),
+              metaInfoElemsPerBucket),
+          weightsExternalToInternalShape(nzValues, nzValuesPerBucket)),
+      overflowInfo);
+}
+
+std::size_t getNumOverflowInfoElems(std::size_t metaInfoTypeBits,
+                                    std::size_t xSplits, std::size_t ySplits,
+                                    std::size_t zSplits) {
+  return 3 + poplibs_support::ceildiv(xSplits, metaInfoTypeBits);
 }
 
 std::vector<Tile>

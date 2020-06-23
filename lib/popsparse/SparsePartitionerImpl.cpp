@@ -966,6 +966,11 @@ findOverflowDistance(const std::vector<PNBucket<T>> &pnBuckets,
                      std::size_t bucketsPerZ) {
   assert(!genForGradA || !genForGradW);
 
+  if (genForGradA || genForGradW) {
+    // No specific overflow info for GradA/GradW at time of writing.
+    return {};
+  }
+
   const auto numBuckets = pnBuckets.size();
   const auto numRowGroups = numSplits[0];
   const auto numSubRowGroups = numSplits[1];
@@ -1011,6 +1016,13 @@ findOverflowDistance(const std::vector<PNBucket<T>> &pnBuckets,
 
   logging::debug(" ORG connectivity {}", orgConnectivity);
   logging::debug(" SORG connectivity {}", sorgConnectivity);
+  const auto connectivityElems =
+      ceildiv(orgConnectivity.size(), sizeof(MetaInfoType));
+  std::vector<std::size_t> orgConnectivityBitset(connectivityElems);
+  for (std::size_t org = 0; org < orgConnectivity.size(); ++org) {
+    orgConnectivityBitset[org / sizeof(MetaInfoType)] |=
+        unsigned(orgConnectivity[org]) << (org % sizeof(MetaInfoType));
+  }
 
   const auto maxIt = std::max_element(distances.begin(), distances.end());
   logging::trace("  Distance metric for PN : {}", distances);
@@ -1024,12 +1036,10 @@ findOverflowDistance(const std::vector<PNBucket<T>> &pnBuckets,
   const auto z = x == 1 && y == 1 ? maxZ : numZ;
   logging::trace("  - selected distance triplet: {} {} {}", x, y, z);
 
-  if (genForGradA) {
-    return {y, x, z};
-  } else if (genForGradW) {
-    return {x, z, y};
-  }
-  return {x, y, z};
+  std::vector<std::size_t> result = {x, y, z};
+  std::move(orgConnectivityBitset.begin(), orgConnectivityBitset.end(),
+            std::back_inserter(result));
+  return result;
 }
 
 template <typename T>
@@ -1426,17 +1436,8 @@ std::pair<std::vector<std::size_t>, std::vector<T>>
 PartitionerImpl<T>::bucketImplAllPasses(
     const std::vector<PNBucket<T>> &pnBuckets,
     const std::string &debugStr) const {
+  // We use the same overflow info for all passes
   auto metaInfoBucket = overflowInfoForFwd(pnBuckets);
-  if (gradAEnabled) {
-    auto gradAOverflowDist = overflowInfoForGradA(pnBuckets);
-    metaInfoBucket.insert(metaInfoBucket.end(), gradAOverflowDist.begin(),
-                          gradAOverflowDist.end());
-  }
-  if (gradWEnabled) {
-    auto gradWOverflowDist = overflowInfoForGradW(pnBuckets);
-    metaInfoBucket.insert(metaInfoBucket.end(), gradWOverflowDist.begin(),
-                          gradWOverflowDist.end());
-  }
 
   std::vector<T> nzBucket;
   for (std::size_t b = 0; b != pnBuckets.size(); ++b) {
@@ -1483,14 +1484,9 @@ PartitionerImpl<T>::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
   const std::size_t numBuckets =
       xSplits.size() * ySplits.size() * zSplits.size() * bucketsPerZ;
 
-  // exclude overflow distance which is part of meta info
-  std::size_t miIndex = 3;
-  if (gradAEnabled) {
-    miIndex += 3;
-  }
-  if (gradWEnabled) {
-    miIndex += 3;
-  }
+  // exclude overflow info which is part of meta info
+  std::size_t miIndex = getNumOverflowInfoElems(
+      sizeof(MetaInfoType), xSplits.size(), ySplits.size(), zSplits.size());
 
   if (metaInfo.size() != miIndex + numBuckets * miBucketElemsPerPN) {
     throw poputil::poplibs_error("Metainfo flattened buckets size does not "
