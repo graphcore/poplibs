@@ -5561,12 +5561,74 @@ createPlan(const ConvParams &params, const ConvOptions &options,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
                *additionalPlansToCache) {
+  const unsigned memBound = objective.getTileTempMemoryBound();
+  const bool hasMemBound = memBound != std::numeric_limits<unsigned>::max();
   // we only support joint plans for fully connected layers for now.
-  if (options.pass != Pass::FC_TRAINING_FWD || referencePlan || referenceCost) {
-    logging::debug("Creating plan for a non-joint plan...");
-    return createPlan(params, options, false, objective, target,
+  const bool isJointPlan =
+      options.pass == Pass::FC_TRAINING_FWD && !referencePlan && !referenceCost;
+
+  auto isSet = [](const Cost &cost) { return cost != highestCost; };
+
+  auto print = [&](const Pass &pass, bool isSeparate) {
+    const auto planDesc =
+        !isJointPlan ? "non-joint" : isSeparate ? "separate joint" : "joint";
+    logging::debug("Creating {} plan ({} pass)...", planDesc, pass);
+  };
+
+  auto createMyPlan = [&](const ConvParams &params, const ConvOptions &options,
+                          bool isJointPlan, const PlanningObjective &objective,
+                          const boost::optional<Cost> &referenceCost) {
+    return createPlan(params, options, isJointPlan, objective, target,
                       startTileIdxForVirtualHierarchy, referencePlan,
                       referenceCost, cache);
+  };
+
+  auto minimizeCycles = [&](const ConvParams &params,
+                            const ConvOptions &options, bool isJointPlan) {
+    print(options.pass, !isJointPlan);
+    assert(objective.getType() !=
+           PlanningObjective::Type::MINIMIZE_TILE_TEMP_MEMORY);
+    auto planAndCost =
+        createMyPlan(params, options, isJointPlan, objective, referenceCost);
+    if (!isSet(planAndCost.second)) {
+      logging::warn("Warning: convolution planner unable to meet memory "
+                    "target. Optimizing for minimum memory...");
+    }
+    return planAndCost;
+  };
+
+  auto minimizeMemory = [&](const ConvParams &params,
+                            const ConvOptions &options, bool isJointPlan) {
+    print(options.pass, !isJointPlan);
+    if (hasMemBound) {
+      // If we failed at minimising cycles, let's retry doubling temp memory a
+      // few times before aiming at minimum cycles without memory bound (at this
+      // point it is not expected to fit anyway)
+      auto stepObjective = objective;
+      auto stepMemBound = memBound;
+      do {
+        stepMemBound *= 2;
+        stepObjective.setTileTempMemoryBound(stepMemBound);
+        auto planAndCost = createMyPlan(params, options, isJointPlan,
+                                        stepObjective, referenceCost);
+        if (isSet(planAndCost.second)) {
+          return planAndCost;
+        }
+      } while (stepMemBound < target.getBytesPerTile() * 2);
+    }
+    // Minimise cycles without memory bound
+    return createMyPlan(params, options, isJointPlan,
+                        PlanningObjective::minimizeCycles(), boost::none);
+  };
+
+  if (!isJointPlan) {
+    if (hasMemBound) {
+      auto planAndCost = minimizeCycles(params, options, false);
+      if (isSet(planAndCost.second)) {
+        return planAndCost;
+      }
+    }
+    return minimizeMemory(params, options, false);
   }
 
   // It doesn't make sense to compare joint and separate planning when the
@@ -5574,42 +5636,52 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   // individual pass from a bound on the total number of cycles.
   assert(objective.getCyclesBound() == std::numeric_limits<unsigned>::max());
   assert(objective.getType() != PlanningObjective::MINIMIZE_COST_DIFF);
-  Plan jointPlan;
-  Cost jointCost;
 
-  logging::debug("Creating plan for a joint plan...");
-  std::tie(jointPlan, jointCost) = createPlan(
-      params, options, true, objective, target, startTileIdxForVirtualHierarchy,
-      referencePlan, referenceCost, cache);
-
-  Plan fwdPlan, bwdPlan, wuPlan;
-  Cost fwdCost, bwdCost, wuCost;
-
-  logging::debug("Creating plan for a separate joint plan (fwd pass)...");
-  std::tie(fwdPlan, fwdCost) = createPlan(
-      params, options, false, objective, target,
-      startTileIdxForVirtualHierarchy, referencePlan, referenceCost, cache);
+  // Plan joint and separate joint convolutions
   auto bwdParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_BWD);
   auto bwdOptions =
       getFullyConnectedPassOptions(options, Pass::FC_TRAINING_BWD);
-
-  logging::debug("Creating plan for a separate joint plan (bwd pass)...");
-  std::tie(bwdPlan, bwdCost) = createPlan(
-      bwdParams.getParams(), bwdOptions, false, objective, target,
-      startTileIdxForVirtualHierarchy, referencePlan, referenceCost, cache);
   auto wuParams =
       getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_WU);
   auto wuOptions = getFullyConnectedPassOptions(options, Pass::FC_TRAINING_WU);
-
-  logging::debug("Creating plan for a separate joint plan (wu pass)...");
-  std::tie(wuPlan, wuCost) = createPlan(
-      wuParams.getParams(), wuOptions, false, objective, target,
-      startTileIdxForVirtualHierarchy, referencePlan, referenceCost, cache);
+  Plan jointPlan, fwdPlan, bwdPlan, wuPlan;
+  Cost jointCost, fwdCost, bwdCost, wuCost;
+  if (hasMemBound) {
+    std::tie(jointPlan, jointCost) = minimizeCycles(params, options, true);
+    std::tie(fwdPlan, fwdCost) = minimizeCycles(params, options, false);
+    std::tie(bwdPlan, bwdCost) =
+        minimizeCycles(bwdParams.getParams(), bwdOptions, false);
+    std::tie(wuPlan, wuCost) =
+        minimizeCycles(wuParams.getParams(), wuOptions, false);
+  }
+  // Go for minimum memory if there was a bound and neither joint nor separate
+  // plans couldn't fit. Decoupling cycle minimisation from memory minimisation
+  // avoids doing the latter if it is not needed. For example, if only the joint
+  // plan succeeded at minimising cycles, minimising memory for the separated
+  // joint plan is pointless as it won't be picked.
+  if (!hasMemBound || (!isSet(jointCost) &&
+                       !(isSet(fwdCost) && isSet(bwdCost) && isSet(wuCost)))) {
+    if (!isSet(jointCost)) {
+      std::tie(jointPlan, jointCost) = minimizeMemory(params, options, true);
+    }
+    // Replan only those phases that couldn't fit
+    if (!isSet(fwdCost)) {
+      std::tie(fwdPlan, fwdCost) = minimizeMemory(params, options, false);
+    }
+    if (!isSet(bwdCost)) {
+      std::tie(bwdPlan, bwdCost) =
+          minimizeMemory(bwdParams.getParams(), bwdOptions, false);
+    }
+    if (!isSet(wuCost)) {
+      std::tie(wuPlan, wuCost) =
+          minimizeMemory(wuParams.getParams(), wuOptions, false);
+    }
+  }
 
   auto separateCost = fwdCost;
   for (const auto &cost : {bwdCost, wuCost}) {
-    if (separateCost == highestCost || cost == highestCost) {
+    if (!isSet(separateCost) || !isSet(cost)) {
       separateCost = highestCost;
       break;
     }
@@ -5618,7 +5690,14 @@ createPlan(const ConvParams &params, const ConvOptions &options,
         std::max(separateCost.totalTempBytes, cost.totalTempBytes);
     separateCost.totalPerStepCycleDiff += cost.totalPerStepCycleDiff;
   }
-  if (objective.lowerCost(separateCost, jointCost)) {
+
+  const bool separatePlanHasLowerCost =
+      separateCost.totalTempBytes <= memBound
+          ? (jointCost.totalTempBytes > memBound ||
+             separateCost.totalCycles < jointCost.totalCycles)
+          : (jointCost.totalTempBytes > memBound &&
+             separateCost.totalTempBytes < jointCost.totalTempBytes);
+  if (separatePlanHasLowerCost) {
     if (additionalPlansToCache) {
       PlanningCacheImpl::Key bwdKey{std::move(bwdParams),
                                     std::move(bwdOptions),
@@ -5747,65 +5826,48 @@ static std::pair<Plan, Cost> runPlanner(
   // `availableMemoryProportion` to state the proportion of memory which is
   // approximately available for this convolution. if the
   // `availableMemoryProportion` is 0 then we just optimise for memory.
-  Plan plan;
-  Cost cost = highestCost;
-  const auto &params = ccParams.getParams();
 
   const unsigned availableTileMem =
       target.getBytesPerTile() * options.availableMemoryProportion;
 
-  if (availableTileMem != 0) {
-    logging::debug("Planning convolution with a per-tile memory limit of {} "
-                   "bytes across {} tiles.",
-                   availableTileMem, options.tilesPerIPU);
-    if (referenceCost) {
-      logging::debug("  applying a reference cost: {}", *referenceCost);
-    }
-
-    auto objective = [&] {
+  auto objective = [&] {
+    if (!availableTileMem) {
+      logging::debug("Planning convolution that uses the least amount of "
+                     "temporary memory.");
+      return PlanningObjective::minimizeTileTempMemory();
+    } else {
+      logging::debug("Planning convolution with a per-tile memory limit of {} "
+                     "bytes across {} tiles.",
+                     availableTileMem, options.tilesPerIPU);
+      PlanningObjective objective;
       if (referenceCost) {
+        logging::debug("  applying a reference cost: {}", *referenceCost);
         if (cycleLimit) {
           logging::warn("Planner was given both a reference cost and a cycle "
                         "limit. Ignoring the cycle limit.");
         }
-        return PlanningObjective::minimizeCostDiff(minimizeForTiles);
+        objective = PlanningObjective::minimizeCostDiff(minimizeForTiles);
       } else if (cycleLimit) {
         logging::debug("  applying a cycle limit: {}", *cycleLimit);
-
-        auto objective = PlanningObjective::minimizeTiles();
+        objective = PlanningObjective::minimizeTiles();
         objective.setCyclesBound(*cycleLimit);
-        return objective;
       } else {
-        return PlanningObjective::minimizeCycles();
+        objective = PlanningObjective::minimizeCycles();
       }
-    }();
-    objective.setTileTempMemoryBound(availableTileMem);
+      objective.setTileTempMemoryBound(availableTileMem);
+      return objective;
+    }
+  }();
 
-    std::tie(plan, cost) = createPlan(
-        params, options, objective, target, startTileIndicesForVirtualHierarchy,
-        referencePlan, referenceCost, cache, nullptr);
-  }
+  Plan plan;
+  Cost cost = highestCost;
+  const auto &params = ccParams.getParams();
+  std::tie(plan, cost) = createPlan(
+      params, options, objective, target, startTileIndicesForVirtualHierarchy,
+      referencePlan, referenceCost, cache, nullptr);
 
-  // if we can't find a plan within this limit this probably isn't going to
-  // fit, therefore just try and find the smallest one.
   if (cost.totalCycles == ~0u) {
-    if (availableTileMem != 0) {
-      logging::warn("Warning: convolution planner unable to meet memory target;"
-                    " retrying while targeting minimum memory.");
-    } else {
-      logging::debug("Planning convolution that uses the least amount of "
-                     "temporary memory.");
-    }
-
-    auto objective = PlanningObjective::minimizeTileTempMemory();
-    std::tie(plan, cost) = createPlan(
-        params, options, objective, target, startTileIndicesForVirtualHierarchy,
-        referencePlan, boost::none, cache, nullptr);
-
-    // if we still could not find a plan there's nothing else we can do.
-    if (cost.totalCycles == ~0u) {
-      throw poputil::poplibs_error("No base plan found for unbounded plan");
-    }
+    throw poputil::poplibs_error("No base plan found for unbounded plan");
   }
 
   logging::debug("Found best plan using {}: {}.", plan.method, cost);
