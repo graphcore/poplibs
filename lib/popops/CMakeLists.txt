@@ -21,6 +21,7 @@ add_library(popops SHARED
   ExpressionGenerator.hpp
   ExprOpUtil.cpp
   ExprOpUtil.hpp
+  Fill.cpp
   Gather.cpp
   GatherInternal.cpp
   HostSliceTensor.cpp
@@ -57,6 +58,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Fill.hpp
 
   reduction/ComputeSetList.cpp
   reduction/ComputeSetList.hpp
