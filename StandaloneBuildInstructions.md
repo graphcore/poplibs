@@ -20,7 +20,15 @@ On Ubuntu 18.04:
 
 Download Boost 1.70 source from here: https://www.boost.org/users/history/version_1_70_0.html
 
-For build and installation instructions, see: https://www.boost.org/doc/libs/1_70_0/more/getting_started/unix-variants.html
+Within a suitable directory, extract the archive and run:
+
+    $ mkdir install # Make a note of this path for later.
+    $ ./bootstrap.sh --prefix=install
+    $ ./b2 link=static runtime-link=static --abbreviate-paths variant=release toolset=gcc "cxxflags= -fno-semantic-interposition -fPIC" cxxstd=14 --with-all install
+
+Note: Consider using '-j8' (or similar) with './b2' to reduce build time by increasing concurrency.
+
+For more information, see: https://www.boost.org/doc/libs/1_70_0/more/getting_started/unix-variants.html
 
 ### Spdlog Version 0.16.3 (or compatible with)
 
@@ -57,7 +65,7 @@ Create 'build' and 'install' directories within your PopLibs source directory:
 
 Run cmake then build with Ninja:
 
-    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBUILD_SHARED_LIBS=1 -GNinja
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<Path to Boost 'install' folder noted earlier> -GNinja
     $ ninja
 
 Install with Ninja then source the enable script:
