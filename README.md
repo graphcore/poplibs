@@ -2,8 +2,6 @@
 
 Note that only Ubuntu 18.04 is supported for building PopLibs externally.
 
-Note that only Ubuntu 18.04 is supported for building PopLibs externally.
-
 ## Build Requirements
 
 ### Poplar SDK
@@ -38,8 +36,7 @@ On Ubuntu 18.04:
 
 ### Python 3 (optional)
 
-Python 3 is an optional dependency. If installed, additional convolution unit
-tests will become available.
+Python 3 is an optional dependency. If installed, additional convolution unit tests will become available.
 
 Ubuntu 18.04 ships with Python 3 already installed.
 
