@@ -835,12 +835,14 @@ template class Zero2d<half>;
   template class CastVertexName<srcType, half>;                                \
   template class CastVertexName<srcType, int>;                                 \
   template class CastVertexName<srcType, unsigned>;                            \
+  template class CastVertexName<srcType, unsigned short>;                      \
   template class CastVertexName<srcType, bool>;
 #define INSTANTIATE_CAST(CastVertexName)                                       \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, float)                          \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, half)                           \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, int)                            \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned)                       \
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned short)                 \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, bool)
 
 template <typename SrcType, typename DstType>
@@ -934,24 +936,35 @@ public:
 //       replaced with Copy() in popops::cast()
 template class CastWorker<float, int>;
 template class CastWorker<float, unsigned>;
+template class CastWorker<float, unsigned short>;
 template class CastWorker<float, bool>;
 
 template class CastWorker<half, int>;
 template class CastWorker<half, unsigned>;
+template class CastWorker<half, unsigned short>;
 template class CastWorker<half, bool>;
 
 template class CastWorker<int, float>;
 template class CastWorker<int, half>;
 template class CastWorker<int, bool>;
+template class CastWorker<int, unsigned short>;
 
 template class CastWorker<unsigned int, float>;
 template class CastWorker<unsigned int, half>;
 template class CastWorker<unsigned int, bool>;
+template class CastWorker<unsigned int, unsigned short>;
+
+template class CastWorker<unsigned short, float>;
+template class CastWorker<unsigned short, half>;
+template class CastWorker<unsigned short, int>;
+template class CastWorker<unsigned short, unsigned int>;
+template class CastWorker<unsigned short, bool>;
 
 template class CastWorker<bool, float>;
 template class CastWorker<bool, half>;
 template class CastWorker<bool, int>;
 template class CastWorker<bool, unsigned int>;
+template class CastWorker<bool, unsigned short>;
 
 #endif
 

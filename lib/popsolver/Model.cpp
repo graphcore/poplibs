@@ -76,6 +76,10 @@ Variable Model::addConstant(unsigned value, const std::string &debugName) {
                      debugName.empty() ? std::to_string(value) : debugName);
 }
 
+Variable Model::zero() { return addConstant(0u); }
+
+Variable Model::one() { return addConstant(1u); }
+
 Variable Model::product(const Variable *begin, const Variable *end,
                         const std::string &debugName) {
   const auto numVariables = end - begin;
@@ -213,6 +217,11 @@ void Model::equal(Variable left, unsigned right) {
 }
 
 void Model::factorOf(unsigned left, Variable right) {
+  const auto result = addVariable();
+  equal(left, product({result, right}));
+}
+
+void Model::factorOf(Variable left, Variable right) {
   const auto result = addVariable();
   equal(left, product({result, right}));
 }

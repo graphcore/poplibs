@@ -653,23 +653,34 @@ __runCodelet_popops__CastSupervisor___\INTYPE\()_\OUTTYPE:
 INSTANTIATE_SUPERVISOR float int
 INSTANTIATE_SUPERVISOR float unsigned_int
 INSTANTIATE_SUPERVISOR float bool
+INSTANTIATE_SUPERVISOR float unsigned_short
 
 INSTANTIATE_SUPERVISOR half int
 INSTANTIATE_SUPERVISOR half unsigned_int
+INSTANTIATE_SUPERVISOR half unsigned_short
 INSTANTIATE_SUPERVISOR half bool
 
 INSTANTIATE_SUPERVISOR int float
 INSTANTIATE_SUPERVISOR int half
 INSTANTIATE_SUPERVISOR int bool
+INSTANTIATE_SUPERVISOR int unsigned_short
 
 INSTANTIATE_SUPERVISOR unsigned_int float
 INSTANTIATE_SUPERVISOR unsigned_int half
 INSTANTIATE_SUPERVISOR unsigned_int bool
+INSTANTIATE_SUPERVISOR unsigned_int unsigned_short
+
+INSTANTIATE_SUPERVISOR unsigned_short float
+INSTANTIATE_SUPERVISOR unsigned_short half
+INSTANTIATE_SUPERVISOR unsigned_short int
+INSTANTIATE_SUPERVISOR unsigned_short bool
+INSTANTIATE_SUPERVISOR unsigned_short unsigned_int
 
 INSTANTIATE_SUPERVISOR bool float
 INSTANTIATE_SUPERVISOR bool half
 INSTANTIATE_SUPERVISOR bool int
 INSTANTIATE_SUPERVISOR bool unsigned_int
+INSTANTIATE_SUPERVISOR bool unsigned_short
 
 #endif
 /* -------------------------------------------------------------------------- */
