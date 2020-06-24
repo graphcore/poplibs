@@ -4572,17 +4572,18 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
     const bool outChansAreSeriallySplit = partition.outChanSplit.serial > 1;
 
     if (inChansAreSeriallySplit) {
-      auto serialOut = graph.clone(out, debugPrefix + "/serialOut_clone");
+      auto zero = graph.addConstant(out.elementType(), out.shape(), 0,
+                                    debugPrefix + "/zero");
+      auto serialOut = graph.clone(out, debugPrefix + "/serialOut");
+      auto mapping = graph.getTileMapping(out);
+      graph.setTileMapping(zero, mapping);
 
-      Sequence loopCounterGtZero;
+      // Zero-Initialise destination tensor
+      cpt.transformPreSerial.postTranspose.emplace_back(zero, serialOut);
+
       // Accumulate the results into the destination tensor serialOut
-      addInPlace(graph, serialOut, out, loopCounterGtZero,
+      addInPlace(graph, serialOut, out, cpt.update,
                  debugPrefix + "/serialOut" + levelSuffix);
-
-      // Just save output on first iteration so it can be used to accumulate
-      // following results without explicitly zeroing acc storage
-      cpt.update.add(Switch(loopCounter.reshape({}),
-                            {{0, Copy(out, serialOut)}}, loopCounterGtZero));
       out = serialOut;
     }
 
