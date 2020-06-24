@@ -58,7 +58,7 @@ Variable Model::addVariable(unsigned min, unsigned max,
       return result.first->second;
   }
   initialDomains.push_back({min, max});
-  isCallOperand.push_back(false);
+  priority.push_back(0);
   if (debugName.empty()) {
     debugNames.emplace_back("var#" + std::to_string(v.id));
   } else {
@@ -223,7 +223,10 @@ Variable Model::call(std::vector<Variable> vars,
                          f,
                      const std::string &debugName) {
   for (auto var : vars) {
-    isCallOperand[var.id] = true;
+    // Call constraints cannot be used to cut down the search space until all of
+    // their operands are set. Prefer to set variables that are operands of
+    // calls first.
+    priority[var.id] = 1;
   }
   auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
@@ -249,18 +252,19 @@ bool Model::minimize(Scheduler &scheduler,
                      bool &foundSolution, Solution &solution) {
   // Find an unassigned variable.
   const auto &domains = scheduler.getDomains();
-  // Call constraints cannot be used to cut down the search space until all of
-  // their operands are set. Prefer to set variables that are operands of calls
-  // first. Use the size of the domain to break ties.
-  auto varLess = [&](Variable i, Variable j) {
-    if (isCallOperand[i.id] != isCallOperand[j.id])
-      return static_cast<bool>(isCallOperand[i.id]);
+
+  const auto lhsIsHigherPriority = [&](Variable i, Variable j) {
+    if (priority[i.id] != priority[j.id]) {
+      return priority[i.id] > priority[j.id];
+    }
+    // Use the size of the domain to break ties.
     return domains[i].size() < domains[j].size();
   };
   boost::optional<Variable> v;
   const auto numVars = domains.size();
   for (unsigned i = 0; i != numVars; ++i) {
-    if (domains[Variable(i)].size() > 1 && (!v || varLess(Variable(i), *v))) {
+    if (domains[Variable(i)].size() > 1 &&
+        (!v || lhsIsHigherPriority(Variable(i), *v))) {
       v = Variable(i);
     }
   }

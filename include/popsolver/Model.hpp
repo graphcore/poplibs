@@ -80,7 +80,7 @@ public:
   ~Model();
   std::vector<std::string> debugNames;
   std::unordered_map<unsigned, Variable> constants;
-  std::vector<bool> isCallOperand;
+  std::vector<unsigned> priority;
   std::vector<std::unique_ptr<Constraint>> constraints;
   Domains initialDomains;
 
