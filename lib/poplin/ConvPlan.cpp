@@ -812,7 +812,6 @@ template <typename T> struct Estimates {
   T convTempBytes;
   T reduceTempBytes;
   T addInPlaceTempBytes;
-
 };
 
 using Cost = Estimates<unsigned>;
@@ -836,8 +835,8 @@ inline bool operator<(const Cost &a, const Cost &b) {
       &Cost::totalExchangeCycles, &Cost::itemisedExchangeCycles,
 
       &Cost::tileLevelTransformCycles, &Cost::partialCalcCycles,
-      &Cost::reduceCycles, &Cost::dynamicUpdateCycles,
-      &Cost::addInPlaceCycles, &Cost::castCycles,
+      &Cost::reduceCycles, &Cost::dynamicUpdateCycles, &Cost::addInPlaceCycles,
+      &Cost::castCycles,
 
       &Cost::rearrangeBeforeSliceTempBytes,
       &Cost::rearrangeBeforeSliceTempDuringRearrangeBytes,
@@ -851,7 +850,8 @@ inline bool operator<(const Cost &a, const Cost &b) {
 Cost maxPerStepCycles(Cost a, const Cost &b) {
   a.rearrangeBeforeSliceCycles =
       std::max(a.rearrangeBeforeSliceCycles, b.rearrangeBeforeSliceCycles);
-  a.memsetZeroBeforeAddInPlace = std::max(a.memsetZeroBeforeAddInPlace, b.memsetZeroBeforeAddInPlace);
+  a.memsetZeroBeforeAddInPlace =
+      std::max(a.memsetZeroBeforeAddInPlace, b.memsetZeroBeforeAddInPlace);
   a.dynamicSliceCycles = std::max(a.dynamicSliceCycles, b.dynamicSliceCycles);
   a.transformCycles = std::max(a.transformCycles, b.transformCycles);
 
