@@ -2460,12 +2460,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, HALF),                     \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, INT),                      \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, UNSIGNED_INT),             \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, UNSIGNED_SHORT),           \
       CYCLE_ESTIMATOR_ENTRY(popops, name, SRC_TYPE, BOOL)
 #define CAST_CYCLE_ESTIM_ENTRIES(name)                                         \
   CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, FLOAT),                           \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, HALF),                        \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, INT),                         \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_INT),                \
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_SHORT),              \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, BOOL)
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {

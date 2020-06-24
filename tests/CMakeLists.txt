@@ -467,6 +467,9 @@ add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim;IpuModel)
 if(TARGET popsparse)
+  add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
+  # TODO: T22622: Re-enable/refine these tests. Disabled due to planner timeout but not essential.
+  #add_unit_test(PopsparseFullyConnectedPlan PopsparseFullyConnectedPlan.cpp VARIANTS ${IPUMODEL_VARIANTS})
   add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
   add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 endif()
@@ -7819,3 +7822,110 @@ add_unit_test(WrongSyncZone
               HangTest.cpp
               VARIANTS Hw
               LABELS multicard;CE_reproducers)
+
+if(TARGET popsparse)
+  foreach(DATA_TYPE half float)
+    foreach(SHARED_BUCKETS true false)
+      foreach(PASS_TYPE fwd bwd wu all)
+
+        if (${SHARED_BUCKETS} STREQUAL "true" AND (${PASS_TYPE} STREQUAL "fwd" OR ${PASS_TYPE} STREQUAL "wu"))
+          continue()
+        endif()
+
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_4b_0.1sl_sb_${SHARED_BUCKETS}
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --input-size=1024
+            --output-size=1024
+            --batch-size=4
+            --sparsity-factor=0.1
+            --tiles-per-ipu=24
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
+            --single-phase=${PASS_TYPE})
+
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_8b_0.1sl_sb_${SHARED_BUCKETS}
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --input-size=1024
+            --output-size=1024
+            --batch-size=8
+            --sparsity-factor=0.1
+            --tiles-per-ipu=24
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
+            --single-phase=${PASS_TYPE}
+          VARIANTS ${TimesOutOnSim})
+
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_256in_256out_64b_0.1sl_sb_${SHARED_BUCKETS}
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --input-size=256
+            --output-size=256
+            --batch-size=64
+            --sparsity-factor=0.01
+            --tiles-per-ipu=24
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}      
+            --single-phase=${PASS_TYPE})
+
+        if (${SHARED_BUCKETS} STREQUAL "true")
+          add_multitarget_test(
+            NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_8b_0.1sl_imbalanced_sb_${SHARED_BUCKETS}
+            COMMAND sparse_fc_layer
+              --data-type=${DATA_TYPE}
+              --input-size=1024
+              --output-size=1024
+              --batch-size=8
+              --sparsity-factor=0.1
+              --weighted-area-begin={384,128}
+              --weighted-area-end={400,786}
+              --weighted-area-weight=8
+              --tiles-per-ipu=24
+              --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"}       
+              --single-phase=${PASS_TYPE}
+            VARIANTS ${TimesOutOnSim})
+        endif()
+      endforeach()
+    endforeach()
+  endforeach()
+
+  # Test when all dimensions overflow
+  add_multitarget_test(
+    NAME sparse_fc_layer_all_half_1024in_1024out_4b_0.1sl_sb_true_exc_0.005
+          COMMAND sparse_fc_layer
+            --data-type=half
+            --input-size=1024
+            --output-size=1080
+            --batch-size=4
+            --sparsity-factor=0.1
+            --tiles-per-ipu=24
+            --matmul-options={\"sharedBuckets\":\"true\",\"metaInfoBucketOversizeProportion\":\".005\"}      
+            --single-phase=all)
+
+  add_test_executable(SparsePartitionerTest SparsePartitionerTests.cpp)
+  foreach(ROWS 100 1200 2400)
+    foreach(COLS 100 1200 2400)
+      foreach(BATCH 4 12 64)
+        foreach(XSPLIT 2 4 7)
+          foreach(YSPLIT 2 4 7)
+            foreach(ZSPLIT 1 2 4)
+              foreach(SPARSITY 0.1 .05)
+                foreach(EXCESS .1 .01 .001)
+                  add_test(
+                     NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}
+                     COMMAND SparsePartitionerTest
+                       --matmul-shape={${ROWS},${COLS},${BATCH}}
+                       --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
+                       --sparsity-level=${SPARSITY}
+                       --excess=${EXCESS}        
+                   )
+                endforeach()
+              endforeach()
+            endforeach()
+          endforeach()
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endif()

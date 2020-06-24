@@ -232,22 +232,6 @@ int main(int argc, char **argv) try {
   graph.setTileMapping(weightsGrouped, 0);
   graph.setTileMapping(outGrouped, 0);
 
-  std::cout << "inGrouped.shape()=";
-  printContainer(inShape, std::cout);
-  std::cout << "\n";
-  std::cout << "weightsGrouped.shape()=";
-  printContainer(weightsShape, std::cout);
-  std::cout << "\n";
-  std::cout << "outputPaddingLower=";
-  printContainer(outputPaddingLower, std::cout);
-  std::cout << "\n";
-  std::cout << "outputPaddingUpper=";
-  printContainer(outputPaddingUpper, std::cout);
-  std::cout << "\n";
-  std::cout << "outputGrouped.shape()=";
-  printContainer(outputShape, std::cout);
-  std::cout << "\n";
-
   unsigned windowWidth = 4;
   poplin::ConvParams params{inputType, batchSize, inputFieldSize, kernelSize,
                             inChans,   outChans,  convGroups};
@@ -256,7 +240,6 @@ int main(int argc, char **argv) try {
   params.outputTransform.truncationLower = outputTruncationLower;
   params.outputTransform.truncationUpper = outputTruncationUpper;
   params.outputTransform.stride = outputStride;
-  std::cout << "params=" << params << std::endl;
 
   Sequence prog;
   if (!ignoreData) {
@@ -324,16 +307,6 @@ int main(int argc, char **argv) try {
                        .flatten(1, 3)  // Flatten output channels groups
                        .dimRoll(2, 0); // Batch size to the front
 
-  std::cout << "in.shape()=";
-  printContainer(in.shape(), std::cout);
-  std::cout << "\n";
-  std::cout << "weights.shape()=";
-  printContainer(weights.shape(), std::cout);
-  std::cout << "\n";
-  std::cout << "output.shape()=";
-  printContainer(out.shape(), std::cout);
-  std::cout << "\n";
-
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   std::unique_ptr<char[]> rawHostIn, rawHostOut, rawHostWeights;
@@ -346,14 +319,7 @@ int main(int argc, char **argv) try {
                                              downloadProg, tmap);
   }
 
-  Sequence debugSeqIn, debugSeqOut;
-  if (isIpuModel(deviceType)) {
-    debugSeqIn.add(PrintTensor(in));
-    debugSeqIn.add(PrintTensor(weights));
-    debugSeqOut.add(PrintTensor(out));
-  }
-  Engine engine(
-      graph, Sequence(uploadProg, debugSeqIn, prog, debugSeqOut, downloadProg));
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
 
   attachStreams(engine, tmap);
 
@@ -370,29 +336,10 @@ int main(int argc, char **argv) try {
   boost::multi_array<double, 1> hostBiases(
       boost::extents[convGroups * outChans]);
 
-  auto printMultiArrayContents = [](std::ostream &o, const auto &arr) {
-    o << "{";
-    bool first = true;
-    for (std::size_t i = 0; i < arr.num_elements(); ++i) {
-      if (!first) {
-        o << ",";
-      }
-      o << arr.data()[i];
-      first = false;
-    }
-    o << "}";
-  };
-
   if (!ignoreData) {
     std::mt19937 randomEngine;
     writeRandomValues(target, inputType, hostIn, -1.0, +5.0, randomEngine);
     writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
-
-    std::cout << "Input: ";
-    printMultiArrayContents(std::cout, hostIn);
-    std::cout << "\nWeights: ";
-    printMultiArrayContents(std::cout, hostWeights);
-    std::cout << "\n";
 
     copy(target, hostIn, inputType, rawHostIn.get());
     copy(target, hostWeights, inputType, rawHostWeights.get());
@@ -437,14 +384,6 @@ int main(int argc, char **argv) try {
         hostIn, hostWeights, hostBiases, modelOut);
 
     copy(target, partialsType, rawHostOut.get(), hostOut);
-
-    std::cout << "\nOutputs[" << hostOut.num_elements() << "]: ";
-    printMultiArrayContents(std::cout, hostOut);
-    std::cout << "\n";
-
-    std::cout << "\nModel[" << modelOut.num_elements() << "]: ";
-    printMultiArrayContents(std::cout, modelOut);
-    std::cout << "\n";
     bool matchesModel =
         checkIsClose("fwd", hostOut, modelOut, HALF_REL_TOL, HALF_ABS_TOL);
     if (!matchesModel) {

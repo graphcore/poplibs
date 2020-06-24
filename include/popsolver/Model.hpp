@@ -91,6 +91,10 @@ public:
                        const std::string &debugName = "");
   /// Add a constant with the specified value.
   Variable addConstant(unsigned value, const std::string &debugName = "");
+  /// Add a constant with value 0 (for convenience).
+  Variable zero();
+  /// Add a constant with value 1 (for convenience).
+  Variable one();
   /// Add a new variable that is the product of the specified variables.
   Variable product(const std::vector<Variable> &vars,
                    const std::string &debugName = "");
@@ -142,6 +146,8 @@ public:
   void equal(unsigned left, Variable right);
   /// Constrain the right variable to be a factor of the left constant.
   void factorOf(unsigned left, Variable right);
+  /// Constrain the right variable to be a factor of the left variable.
+  void factorOf(Variable left, Variable right);
   /// Add a new variable that is the result of applying the specified function
   /// to the specified variables.
   Variable call(std::vector<Variable> vars,

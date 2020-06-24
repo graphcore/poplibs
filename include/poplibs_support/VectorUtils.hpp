@@ -10,6 +10,9 @@
 template <class T> T product(const std::vector<T> &v) {
   return std::accumulate(v.begin(), v.end(), T(1), std::multiplies<T>());
 }
+template <class T> T sum(const std::vector<T> &v) {
+  return std::accumulate(v.begin(), v.end(), T(0), std::plus<T>());
+}
 
 template <class To, class From>
 std::vector<To> vectorConvert(const std::vector<From> &in) {

@@ -100,3 +100,10 @@ add_tool(norm_layer norm_layer.cpp)
 target_link_libraries(norm_layer
                       poplibs_test
                       Boost::program_options)
+
+
+add_tool(sparse_fc_layer sparse_fc_layer.cpp)
+target_link_libraries(sparse_fc_layer
+                      poplibs_support
+                      poplibs_test
+                      Boost::program_options)

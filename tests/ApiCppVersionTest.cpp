@@ -46,6 +46,13 @@
 #include <popops/codelets.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
+#include <popsparse/FullyConnected.hpp>
+#include <popsparse/FullyConnectedParams.hpp>
+#include <popsparse/SparsePartitioner.hpp>
+#include <popsparse/SparseStorageFormats.hpp>
+#include <popsparse/SparseTensor.hpp>
+#include <popsparse/SparsityParams.hpp>
+#include <popsparse/codelets.hpp>
 #include <poputil/Broadcast.hpp>
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
