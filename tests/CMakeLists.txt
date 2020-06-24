@@ -6849,7 +6849,7 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=16
+                   --tiles-per-ipu=32
                    --alpha=0.5
                    --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
