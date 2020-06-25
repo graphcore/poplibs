@@ -173,6 +173,24 @@ poplar::Tensor fullyConnectedSparseGradW(
     const std::string &debugPrefix = "",
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
+/** Report the serial splitting of a dense gradW output given the memory
+ *  proportion limit given in options. A dense gradW output is of shape
+ *  [numGroups][inputSize][outputSize]
+ *
+ *  \param graph           The Poplar graph.
+ *  \param inputType       The type of input.
+ *  \param params          Fully connected params.
+ *  \param options         The structure describing options on how the
+ *                         operation should be implemented.
+ *  \param cache           Optional pointer to planning cache to use.
+ *  \returns               Serial splits for each of the output dimensions
+ *                         [numGroups][inputSize][outputSize].
+ */
+std::tuple<unsigned, unsigned, unsigned> fullyConnectedDenseGradWSerialSplits(
+    const poplar::Graph &graph, const poplar::Type &inputType,
+    const FullyConnectedParams &fcParams,
+    const poplar::OptionFlags &options_ = {}, PlanningCache *cache = nullptr);
+
 class PlanningCacheImpl;
 class PlanningCache {
 public:

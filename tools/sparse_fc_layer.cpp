@@ -330,6 +330,7 @@ int main(int argc, char **argv) try {
   ShapeOption<std::size_t> weightedAreaEnd;
   weightedAreaBegin.val = weightedAreaEnd.val = {0, 0};
   double weightedAreaWeighting = 1.0;
+  bool denseGradWSerialSplits = false;
 
   po::options_description desc("Options");
   // clang-format off
@@ -386,6 +387,10 @@ int main(int argc, char **argv) try {
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
      "Options to use for the matrix multiplication, specified as a JSON "
      "string, e.g. {\"key\":\"value\"}")
+    ("report-dense-gradw-serial-splits", 
+      po::value<bool>(&denseGradWSerialSplits)->
+        default_value(denseGradWSerialSplits),
+     "Report dense GradW splits when GradW pass is enabled")     
   ;
   // clang-format on
   po::variables_map vm;
@@ -818,6 +823,16 @@ int main(int argc, char **argv) try {
       matchesModel &= columnsMatch;
     }
   }
+
+  if (denseGradWSerialSplits && doWuPass) {
+    auto serialSplits =
+        fullyConnectedDenseGradWSerialSplits(graph, dataType, params, options);
+    std::cerr << "Dense GradW serial splits : "
+              << "   groups " << std::get<0>(serialSplits)
+              << "   input channel " << std::get<1>(serialSplits)
+              << "   output channel " << std::get<2>(serialSplits) << "\n";
+  }
+
   std::cerr << "Done\n";
 
   if (profile) {
