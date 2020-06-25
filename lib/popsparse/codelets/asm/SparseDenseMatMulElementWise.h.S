@@ -1,11 +1,11 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 //
-// Header for Sparse-Dense matrix multiplication for GradA asm codelets
+// Header for Sparse-Dense matrix multiplication for Fwd asm codelets
 
-#ifndef _SparseDenseMatMulGradAElementWise_h_
-#define _SparseDenseMatMulGradAElementWise_h_
+#ifndef _SparseDenseMatMulElementWise_h_
+#define _SparseDenseMatMulElementWise_h_
 
-#include "SparseDenseMatMulStructs.h"
+#include "SparseDenseMatMulStructs.h.S"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
@@ -14,9 +14,7 @@
 // Short span
 #define SHORT_SPAN_ADDRESS_BITS      20
 
-
 // =============================================================================
-
 
 //// Supervisor vertex state
 #define SUP_VBASE_R_BASE_LIST        0    // one pointer
@@ -32,16 +30,14 @@
 //// on supervisor stack and along with stack space used by supervisor must be
 //// a multiple of 8 bytes)
 ////
-
 #define W_S_BASE                        0
 #define W_Q_BASE                        4
 #define W_R_BASE                        8
 #define W_METAINFO                      12
 #define STACK_SIZE                      (W_METAINFO + 4)
 
-// =============================================================================
 
-.macro SPARSE_MATMUL_ELEM_SUPERVISOR CNAME, TYPE, WKR_VNAME
+.macro ELEM_SPARSE_MATMUL CNAME, TYPE
 
 // Registers allocation
 #define s_vertexBase                 m0
@@ -103,7 +99,7 @@ shl                    $s_metaInfoList, $s_metaInfoList, (32 - SHORT_SPAN_ADDRES
 add                    $s_numBuckets, $s_numBuckets, -1
 runall                 $s_zeroWkrFunction, $s_vertexBase, 0
 
-setzi                  $s_wkrFunction, \WKR_VNAME\()
+setzi                  $s_wkrFunction, elemwiseSparseDenseMultiply
 shr                    $s_metaInfoList, $s_metaInfoList, (32 - SHORT_SPAN_ADDRESS_BITS)
 
 LmetaInfoListLoop_\TYPE\():  
@@ -131,7 +127,7 @@ LsubgroupLoop_\TYPE\():
   cmpeq                  $s_match, $s_subgroupId, $s_pnSubgroupId
   brz                    $s_match, LnextSubgroup_\TYPE\()
   add                    $s_wTemp, $s_metaInfo, sizeof_MetaInfoSubGroupEntry - sizeof_metaInfoEntry
-
+  
   // pointer to worker meta info
   st32                   $s_wTemp, $sp, W_METAINFO/4
   runall                 $s_wkrFunction, $sp, 0
@@ -159,5 +155,5 @@ br                     $lr
 .endm
 
 // =============================================================================
-#endif // #define _SparseDenseMatMulGradAElementWise_h_
+#endif // #define _SparseDenseMatMulElementWise_h_
 // =============================================================================

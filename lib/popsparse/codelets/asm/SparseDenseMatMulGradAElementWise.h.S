@@ -1,11 +1,11 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 //
-// Header for Sparse-Dense Tanspose matrix multiplication for Fwd asm codelets
+// Header for Sparse-Dense matrix multiplication for GradA asm codelets
 
-#ifndef _SparseDenseMatMulTranspElementWise_h_
-#define _SparseDenseMatMulTranspElementWise_h_
+#ifndef _SparseDenseMatMulGradAElementWise_h_
+#define _SparseDenseMatMulGradAElementWise_h_
 
-#include "SparseDenseMatMulStructs.h"
+#include "SparseDenseMatMulStructs.h.S"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
@@ -13,6 +13,7 @@
 #define LOG2_SIZEOF_OUT_ATOM 2
 // Short span
 #define SHORT_SPAN_ADDRESS_BITS      20
+
 
 // =============================================================================
 
@@ -25,26 +26,23 @@
 #define SUP_VBASE_PN_SUBGROUP_ID     16   // ushort
 #define SUP_VBASE_ZERO_INFO          18   // ushort
 
-
 // =============================================================================
 
 //// Vertex state shared between workers (Worker vertex state is allocated
 //// on supervisor stack and along with stack space used by supervisor must be
 //// a multiple of 8 bytes)
 ////
+
 #define W_S_BASE                        0
 #define W_Q_BASE                        4
 #define W_R_BASE                        8
 #define W_METAINFO                      12
-#define W_NUM_XM1                       16
-#define W_NUM_Z                         20
-#define W_FLAG                          24
-#define STACK_SIZE                      (W_FLAG + 8)
+#define STACK_SIZE                      (W_METAINFO + 4)
 
 // =============================================================================
 
-.macro ELEM_SPARSE_MATMUL_TRANSP CNAME, TYPE, WKR_VNAME
-  
+.macro SPARSE_MATMUL_ELEM_SUPERVISOR CNAME, TYPE, WKR_VNAME
+
 // Registers allocation
 #define s_vertexBase                 m0
 #define s_sBase                      m1
@@ -60,10 +58,8 @@
 #define s_subgroupSparseElems        m9
 #define s_match                      m7
 #define s_zeroWkrFunction            m7
+#define s_wTemp                      m7
 #define s_wkrFunction                m10
-#define s_numZ                       m7
-#define s_numXm1                     m7
-#define s_offsetToFirstOutputEntry   m7
 
 // supervisor base is $m0 - passed to this function
 DEF_STACK_USAGE  (STACK_SIZE + 8) \CNAME\()
@@ -92,7 +88,7 @@ ldz16                  $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_PN_SUBGROUP_ID/
 ld32                   $s_qBase, $s_vertexBase, SUP_VBASE_Q_BASE/4
 shr                    $s_numBuckets, $s_metaInfoList, SHORT_SPAN_ADDRESS_BITS
 
-setzi                  $s_zeroWkrFunction, zeroDenseOutFloatT
+setzi                  $s_zeroWkrFunction, zeroDenseOutFloat
 st32                   $m9, $sp, STACK_SIZE/4
 st32                   $m10, $sp, STACK_SIZE/4 + 1
 
@@ -131,27 +127,15 @@ LsubgroupLoop_\TYPE\():
   // If subgroup is 0 there is nothing to do
   brz                    $s_subgroupId, LendMetaInfoList_\TYPE\()
 
-  // TODO: optimise this to remove stalls
   // Check if any work to be done by the PN
   cmpeq                  $s_match, $s_subgroupId, $s_pnSubgroupId
   brz                    $s_match, LnextSubgroup_\TYPE\()
-  ldz16                  $s_numZ, $s_metaInfo, MetaInfoSubGroupEntry_numZ/2
-  st32                   $s_numZ, $sp, W_NUM_Z/4 
-  ldz16                  $s_numXm1, $s_metaInfo, MetaInfoSubGroupEntry_numXm1/2
-  st32                   $s_numXm1, $sp, W_NUM_XM1/4   
-  ldz16                  $s_offsetToFirstOutputEntry, $s_metaInfo, MetaInfoSubGroupEntry_offsetToFirstOutputEntry/2
-  shl                    $s_offsetToFirstOutputEntry, $s_offsetToFirstOutputEntry, 1
-  add                    $s_offsetToFirstOutputEntry, $s_metaInfo, $s_offsetToFirstOutputEntry
+  add                    $s_wTemp, $s_metaInfo, sizeof_MetaInfoSubGroupEntry - sizeof_metaInfoEntry
 
-  // We need to sync here because workers have to be synchronized when they start work
-  sync                   TEXCH_SYNCZONE_LOCAL
   // pointer to worker meta info
-  st32                   $s_offsetToFirstOutputEntry, $sp, W_METAINFO/4
-  // We just need a non-zero value and metaInfo has been incremented and can never be zero
-  st32                   $s_offsetToFirstOutputEntry, $sp, W_FLAG/4
-
+  st32                   $s_wTemp, $sp, W_METAINFO/4
   runall                 $s_wkrFunction, $sp, 0
-
+  
 LnextSubgroup_\TYPE\():
   // dummy load to move pointer to next subgroup
 .ifc \TYPE, float
@@ -172,10 +156,8 @@ sync                   TEXCH_SYNCZONE_LOCAL
 br                     $lr
 
 .size \CNAME\(), . - \CNAME\()
-
 .endm
 
-
 // =============================================================================
-#endif // #define _SparseDenseMatMulTranspElementWise_h_
+#endif // #define _SparseDenseMatMulGradAElementWise_h_
 // =============================================================================

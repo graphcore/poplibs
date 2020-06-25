@@ -2,10 +2,6 @@
   "linters": {
     "clang-format": {
       "type": "clang-format",
-      "exclude": [
-        "(^lib/popfloat/codelets/asm/(Cast.+.h)$)",
-        "(^lib/popsparse/codelets/asm/(SparseDenseMatMul.+.h)$)"
-      ],
       "include": "(\\.(c|cpp|cpp.in|C|cc|c\\+\\+|cxx|h|hpp)$)",
       "bin": "gc-clang-format"
     },

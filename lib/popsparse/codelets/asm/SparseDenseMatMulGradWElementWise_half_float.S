@@ -7,8 +7,8 @@
 // sparse gradients with respect to weights.
 
 #ifdef __IPU__
-#include "SparseDenseMatMulGradWElementWise.h"
-#include "SparseDenseMatMulStructs.h"
+#include "SparseDenseMatMulGradWElementWise.h.S"
+#include "SparseDenseMatMulStructs.h.S"
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
