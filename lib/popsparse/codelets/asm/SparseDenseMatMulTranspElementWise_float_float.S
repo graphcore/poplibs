@@ -9,7 +9,7 @@
 // without the need for separate information
 
 #ifdef __IPU__
-#include "SparseDenseMatMulTranspElementWise.h"
+#include "SparseDenseMatMulTranspElementWise.h.S"
 #include "poplar/AvailableVTypes.h"
 
 // =============================================================================

@@ -5,7 +5,7 @@
 //
 
 #ifdef __IPU__
-#include "SparseDenseMatMulElementWise.h"
+#include "SparseDenseMatMulElementWise.h.S"
 #include "poplar/AvailableVTypes.h"
 
 // =============================================================================

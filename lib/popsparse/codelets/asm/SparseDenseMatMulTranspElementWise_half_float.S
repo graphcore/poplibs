@@ -9,8 +9,8 @@
 // without the need for separate information
 
 #ifdef __IPU__
-#include "SparseDenseMatMulStructs.h"
-#include "SparseDenseMatMulTranspElementWise.h"
+#include "SparseDenseMatMulStructs.h.S"
+#include "SparseDenseMatMulTranspElementWise.h.S"
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"

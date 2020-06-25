@@ -11,7 +11,7 @@
 // computation of the sparse-dense matrix multiplication.
 
 #ifdef __IPU__
-#include "SparseDenseMatMulGradAElementWise.h"
+#include "SparseDenseMatMulGradAElementWise.h.S"
 #include "poplar/AvailableVTypes.h"
 
 // =============================================================================

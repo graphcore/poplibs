@@ -88,11 +88,11 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulTranspElementWise_float_float.S
 
   HEADERS
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradAElementWise.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulTranspElementWise.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradWElementWise.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulStructs.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradAElementWise.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulTranspElementWise.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradWElementWise.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulStructs.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/SparseMetaInfo.hpp
 )
 
