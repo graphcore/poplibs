@@ -1,4 +1,3 @@
-find_package(Boost 1.65.1 REQUIRED unit_test_framework timer system program_options)
 
 function(add_popsolver_unit_test name)
   set(test_name "popsolver_${name}")

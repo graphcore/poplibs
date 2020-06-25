@@ -1,7 +1,5 @@
 include(GNUInstallDirs)
 
-find_package(Boost 1.65.1 REQUIRED)
-
 add_library(popsolver STATIC
   Constraint.cpp
   Constraint.hpp

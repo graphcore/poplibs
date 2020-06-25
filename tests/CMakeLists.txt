@@ -1,7 +1,4 @@
-find_package(Boost 1.65.1 REQUIRED unit_test_framework timer system program_options)
 find_package(PythonInterp 3)
-
-find_package(Threads REQUIRED)
 
 #Controls verbose debug output on creating test cases
 set(DEBUG_TEST_GENERATION FALSE)
@@ -6868,7 +6865,7 @@ foreach(PLAN_TYPE parallel serial)
                    --alpha=0.5
                    --options={\"planType\":\"${PLAN_TYPE}\"}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-  
+
   add_multitarget_test(NAME octconvLL_${PLAN_TYPE}
            COMMAND oct_conv_layer
                    --input-channels=2
