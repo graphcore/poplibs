@@ -18,6 +18,40 @@ void Model::addConstraint(std::unique_ptr<Constraint> c) {
   constraints.push_back(std::move(c));
 }
 
+std::string Model::makeBinaryOpDebugName(const Variable *begin,
+                                         const Variable *end,
+                                         const std::string &opStr) const {
+  assert(begin != end);
+  auto name = getDebugName(*begin);
+  for (auto it = std::next(begin); it != end; ++it) {
+    name += opStr + getDebugName(*it);
+  }
+  return name;
+}
+
+std::string Model::makeBinaryOpDebugName(const std::vector<Variable> &v,
+                                         const std::string &opStr) const {
+  return makeBinaryOpDebugName(&v[0], &v[v.size()], opStr);
+}
+
+std::string
+Model::makeParameterisedOpDebugName(const Variable *begin, const Variable *end,
+                                    const std::string &opStr) const {
+  assert(begin != end);
+  auto name = opStr + "(" + getDebugName(*begin);
+  for (auto it = std::next(begin); it != end; ++it) {
+    name += "," + getDebugName(*it);
+  }
+  name += ")";
+  return name;
+}
+
+std::string
+Model::makeParameterisedOpDebugName(const std::vector<Variable> &v,
+                                    const std::string &opStr) const {
+  return makeParameterisedOpDebugName(&v[0], &v[v.size()], opStr);
+}
+
 std::string Model::makeProductDebugName(const Variable *begin,
                                         const Variable *end) const {
   auto name = getDebugName(*begin);
@@ -81,15 +115,16 @@ Variable Model::zero() { return addConstant(0u); }
 Variable Model::one() { return addConstant(1u); }
 
 Variable Model::product(const Variable *begin, const Variable *end,
-                        const std::string &debugName) {
+                        const std::string &debugName = "") {
   const auto numVariables = end - begin;
   assert(numVariables > 0);
   if (numVariables == 1)
     return *begin;
   const auto mid = begin + numVariables / 2;
-  const auto left = product(begin, mid, makeProductDebugName(begin, mid));
-  const auto right = product(mid, end, makeProductDebugName(mid, end));
-  auto result = addVariable(debugName);
+  const auto left = product(begin, mid);
+  const auto right = product(mid, end);
+  auto result = addVariable(
+      debugName.empty() ? makeBinaryOpDebugName(begin, end, "*") : debugName);
   auto p = std::unique_ptr<Constraint>(new Product(result, left, right));
   addConstraint(std::move(p));
   return result;
@@ -98,26 +133,43 @@ Variable Model::product(const Variable *begin, const Variable *end,
 Variable Model::product(const std::vector<Variable> &vars,
                         const std::string &debugName) {
   if (vars.empty())
-    return addConstant(1, debugName);
+    return addConstant(1);
   return product(vars.data(), vars.data() + vars.size(), debugName);
 }
 
 Variable Model::sum(std::vector<Variable> vars, const std::string &debugName) {
-  auto result = addVariable(debugName);
+  if (vars.empty()) {
+    return addConstant(0);
+  }
+  if (vars.size() == 1) {
+    return vars[0];
+  }
+  auto result = addVariable(debugName.empty() ? makeBinaryOpDebugName(vars, "+")
+                                              : debugName);
   auto p = std::unique_ptr<Constraint>(new Sum(result, std::move(vars)));
   addConstraint(std::move(p));
   return result;
 }
 
 Variable Model::max(std::vector<Variable> vars, const std::string &debugName) {
-  auto result = addVariable(debugName);
+  if (vars.size() == 1) {
+    return vars[0];
+  }
+  auto result =
+      addVariable(debugName.empty() ? makeParameterisedOpDebugName(vars, "max")
+                                    : debugName);
   auto p = std::unique_ptr<Constraint>(new Max(result, std::move(vars)));
   addConstraint(std::move(p));
   return result;
 }
 
 Variable Model::min(std::vector<Variable> vars, const std::string &debugName) {
-  auto result = addVariable(debugName);
+  if (vars.size() == 1) {
+    return vars[0];
+  }
+  auto result =
+      addVariable(debugName.empty() ? makeParameterisedOpDebugName(vars, "min")
+                                    : debugName);
   auto p = std::unique_ptr<Constraint>(new Min(result, std::move(vars)));
   addConstraint(std::move(p));
   return result;
@@ -125,7 +177,9 @@ Variable Model::min(std::vector<Variable> vars, const std::string &debugName) {
 
 Variable Model::sub(Variable left, Variable right,
                     const std::string &debugName) {
-  auto result = addVariable(debugName);
+  auto result =
+      addVariable(debugName.empty() ? makeBinaryOpDebugName({left, right}, "-")
+                                    : debugName);
   auto p = std::unique_ptr<Constraint>(new Sum(left, {result, right}));
   addConstraint(std::move(p));
   return result;
@@ -133,26 +187,28 @@ Variable Model::sub(Variable left, Variable right,
 
 Variable Model::floordiv(Variable left, Variable right,
                          const std::string &debugName) {
-  auto result = addVariable(debugName);
-  auto resultTimesRight =
-      product({result, right}, makeProductDebugName({result, right}));
+  auto result =
+      addVariable(debugName.empty()
+                      ? makeParameterisedOpDebugName({left, right}, "floordiv")
+                      : debugName);
+  auto resultTimesRight = product({result, right});
   // result * right <= left
   lessOrEqual(resultTimesRight, left);
   // result * right + right > left
-  less(left, sum({resultTimesRight, right},
-                 makeSumDebugName({resultTimesRight, right})));
+  less(left, sum({resultTimesRight, right}));
   return result;
 }
 
 Variable Model::ceildiv(Variable left, Variable right,
                         const std::string &debugName) {
-  auto result = addVariable(debugName);
-  auto resultTimesRight =
-      product({result, right}, makeProductDebugName({result, right}));
+  auto result = addVariable(
+      debugName.empty() ? makeParameterisedOpDebugName({left, right}, "ceildiv")
+                        : debugName);
+  auto resultTimesRight = product({result, right});
   // result * right >= left
   lessOrEqual(left, resultTimesRight);
   // result * right < left + right
-  less(resultTimesRight, sum({left, right}, makeSumDebugName({left, right})));
+  less(resultTimesRight, sum({left, right}));
   return result;
 }
 
@@ -162,8 +218,7 @@ Variable Model::ceildivConstrainDivisor(const Variable left,
   const auto result = ceildiv(left, right, debugName);
   // The "remainder" from the division is < right for the minimal divisor
   // result * right < left + result
-  less(product({result, right}, makeProductDebugName({result, right})),
-       sum({left, result}, makeSumDebugName({left, result})));
+  less(product({result, right}), sum({left, result}));
   return result;
 }
 
@@ -216,13 +271,16 @@ void Model::equal(Variable left, unsigned right) {
   equal(left, addConstant(right));
 }
 
-void Model::factorOf(unsigned left, Variable right) {
-  const auto result = addVariable();
+void Model::factorOf(unsigned left_, Variable right) {
+  const auto left = addConstant(left_);
+  const auto result =
+      addVariable(makeParameterisedOpDebugName({left, right}, "factorOf"));
   equal(left, product({result, right}));
 }
 
 void Model::factorOf(Variable left, Variable right) {
-  const auto result = addVariable();
+  const auto result =
+      addVariable(makeParameterisedOpDebugName({left, right}, "factorOf"));
   equal(left, product({result, right}));
 }
 

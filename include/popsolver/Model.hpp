@@ -67,6 +67,15 @@ class Model {
                 bool &foundSolution, Solution &solution);
   Variable product(const Variable *begin, const Variable *end,
                    const std::string &debugName);
+  std::string makeBinaryOpDebugName(const Variable *begin, const Variable *end,
+                                    const std::string &opStr) const;
+  std::string makeBinaryOpDebugName(const std::vector<Variable> &vars,
+                                    const std::string &opStr) const;
+  std::string makeParameterisedOpDebugName(const Variable *begin,
+                                           const Variable *end,
+                                           const std::string &opStr) const;
+  std::string makeParameterisedOpDebugName(const std::vector<Variable> &vars,
+                                           const std::string &opStr) const;
   std::string makeProductDebugName(const Variable *begin,
                                    const Variable *end) const;
   std::string makeProductDebugName(const std::vector<Variable> &v) const;
