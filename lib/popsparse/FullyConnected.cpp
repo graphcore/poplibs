@@ -9,12 +9,14 @@
 // FIXME: poplin internal includes
 #include "ConvOptions.hpp"
 #include "ConvReduce.hpp"
+#include "MatMulInternal.hpp"
 
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Pad.hpp>
 #include <popops/Reduce.hpp>
 
+#include <poplin/MatMul.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -1623,6 +1625,29 @@ static void mapInput(Graph &graph, const std::vector<unsigned> &hierarchy,
 }
 
 namespace dynamic {
+
+// There may be limitations to this interface because the conv planner doesn't
+// really know what the inner loop does. The planner assumes that dynamic
+// slice is used but has no information on what layout the operation which
+// runs on each split is neither its layout requirements.
+std::tuple<unsigned, unsigned, unsigned>
+fullyConnectedDenseGradWSerialSplits(const Graph &graph, const Type &inputType,
+                                     const FullyConnectedParams &fcParams,
+                                     const poplar::OptionFlags &options_,
+                                     PlanningCache *cache) {
+  auto options = fullyconnected::parseOptionFlags(options_);
+  OptionFlags matMulOptions;
+  matMulOptions.set("fullyConnectedPass", "NONE");
+  matMulOptions.set("availableMemoryProportion",
+                    std::to_string(options.availableMemoryProportion));
+  return poplin::groupedMatMulOutputSerialSplits(
+      graph, inputType, options.partialsType,
+      {fcParams.getNumGroups(), fcParams.getInputChannelsPerGroup(),
+       fcParams.getBatchSize()},
+      {fcParams.getNumGroups(), fcParams.getBatchSize(),
+       fcParams.getOutputChannelsPerGroup()},
+      matMulOptions);
+}
 
 SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
                                          const FullyConnectedParams &params,

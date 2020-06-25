@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplin/MatMul.hpp"
 #include "ConvOptions.hpp"
+#include "MatMulInternal.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/logging.hpp"
@@ -857,6 +858,36 @@ poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
 
   matMulGroupedDimChecks(A.shape(), B.shape());
   return matMulImpl(graph, A, B, prog, debugPrefix, options, cache, outputType);
+}
+
+// Gives the serialisation of the the output matrix as a result of doing
+// a grouped matmul.
+std::tuple<unsigned, unsigned, unsigned> groupedMatMulOutputSerialSplits(
+    const poplar::Graph &graph, const Type &inputType, const Type &outputType,
+    const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, const poplar::OptionFlags &options_,
+    matmul::PlanningCache *cache) {
+  const auto options = parseMatMulOptions(options_);
+  auto convOptions = getConvOptionFlags(options);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
+  poplin::PlanningCache *linCache = getLinCache(cache);
+  return poplin::getMatMulSerialSplits(graph, convParams, convOptions,
+                                       linCache);
+}
+
+std::pair<unsigned, unsigned> matMulOutputSerialSplits(
+    const poplar::Graph &graph, const Type &inputType, const Type &outputType,
+    const std::vector<std::size_t> &aShape_,
+    const std::vector<std::size_t> &bShape_,
+    const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  auto aShape = aShape_;
+  aShape.insert(aShape.begin(), 1);
+  auto bShape = bShape_;
+  bShape.insert(bShape.begin(), 1);
+  auto serialSplits = groupedMatMulOutputSerialSplits(
+      graph, inputType, outputType, aShape, bShape, options_, cache);
+  return std::make_pair(std::get<1>(serialSplits), std::get<2>(serialSplits));
 }
 
 void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,

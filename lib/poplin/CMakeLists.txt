@@ -25,6 +25,7 @@ add_library(poplin SHARED
   MatMul.cpp
   MultiConvolution.cpp
   FullyConnected.cpp
+  MatMulInternal.hpp
   MeshGrid.cpp
   Norms.cpp
   PerformanceEstimation.hpp

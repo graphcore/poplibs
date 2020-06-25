@@ -5497,6 +5497,27 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
                                        debugPrefix, options, cache);
 }
 
+std::tuple<unsigned, unsigned, unsigned>
+getMatMulSerialSplits(const poplar::Graph &graph, const ConvParams &params,
+                      const poplar::OptionFlags &options_,
+                      PlanningCache *cache) {
+  const ConvOptions options(graph.getTarget(), options_);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
+  auto partitionIt = plan.partitions.begin();
+  auto transformIt = std::begin(plan.transforms);
+  unsigned leftSplit = 1U, rightSplit = 1U, groupSplit = 1U;
+
+  for (; partitionIt != plan.partitions.end(); ++partitionIt, ++transformIt) {
+    if (transformIt->swapOperands) {
+      rightSplit *= partitionIt->outChanSplit.serial;
+    } else {
+      leftSplit *= partitionIt->outChanSplit.serial;
+    }
+  }
+
+  return std::make_tuple(groupSplit, leftSplit, rightSplit);
+}
+
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options_, PlanningCache *cache) {
