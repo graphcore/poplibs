@@ -17,6 +17,8 @@ set_property(TARGET popsolver PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(popsolver
   PRIVATE
     poplar
+    poplibs_support
+    poputil # Required because of T22741
     Boost::boost
 )
 

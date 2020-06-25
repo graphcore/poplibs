@@ -3,19 +3,56 @@
 #ifndef popsolver_Model_hpp
 #define popsolver_Model_hpp
 
+#include <popsolver/Variable.hpp>
+
 #include <boost/optional.hpp>
+
 #include <cassert>
 #include <functional>
+#include <iosfwd>
 #include <memory>
-#include <popsolver/Variable.hpp>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace popsolver {
 
 class Constraint;
 class Scheduler;
+
+struct ConstraintEvaluationSummary {
+  using CountType = unsigned long long;
+  CountType call = 0;
+  CountType product = 0;
+  CountType sum = 0;
+  CountType max = 0;
+  CountType min = 0;
+  CountType less = 0;
+  CountType lessOrEqual = 0;
+
+  CountType unknown = 0;
+
+  CountType total() const {
+    return call + product + sum + max + min + less + lessOrEqual + unknown;
+  }
+
+  void operator+=(const ConstraintEvaluationSummary &other) {
+    call += other.call;
+    product += other.product;
+    sum += other.sum;
+    max += other.max;
+    min += other.min;
+    less += other.less;
+    lessOrEqual += other.lessOrEqual;
+    unknown += other.unknown;
+  }
+};
+
+// Extra breakdown information is collected when POPLIBS_LOG_LEVEL is set to
+// TRACE or higher
+std::ostream &operator<<(std::ostream &os,
+                         const ConstraintEvaluationSummary &s);
 
 class Domain {
 public:
@@ -50,8 +87,11 @@ public:
   }
 };
 
+class Model;
+
 class Solution {
   std::vector<unsigned> values;
+  ConstraintEvaluationSummary constraintEvalSummary;
 
 public:
   Solution() = default;
@@ -59,12 +99,18 @@ public:
   unsigned &operator[](Variable v) { return values[v.id]; }
   unsigned operator[](Variable v) const { return values[v.id]; }
   bool validSolution() const { return values.size() > 0; }
+  ConstraintEvaluationSummary constraintsEvaluated() {
+    return constraintEvalSummary;
+  }
+
+  friend class Model;
 };
 
 class Model {
   void addConstraint(std::unique_ptr<Constraint> c);
-  bool minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
-                bool &foundSolution, Solution &solution);
+  std::pair<bool, ConstraintEvaluationSummary>
+  minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
+           bool &foundSolution, Solution &solution);
   Variable product(const Variable *begin, const Variable *end,
                    const std::string &debugName);
   std::string makeBinaryOpDebugName(const Variable *begin, const Variable *end,

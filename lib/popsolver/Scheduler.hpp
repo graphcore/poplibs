@@ -2,8 +2,9 @@
 #ifndef _popsolver_Scheduler_hpp_
 #define _popsolver_Scheduler_hpp_
 
-#include <cassert>
 #include <popsolver/Model.hpp>
+
+#include <cassert>
 #include <queue>
 #include <vector>
 
@@ -54,8 +55,8 @@ public:
     domains[v].max_ = value;
     queueConstraints(v);
   }
-  bool propagate();
-  bool initialPropagate();
+  std::pair<bool, ConstraintEvaluationSummary> propagate();
+  std::pair<bool, ConstraintEvaluationSummary> initialPropagate();
 };
 
 } // End namespace popsolver.

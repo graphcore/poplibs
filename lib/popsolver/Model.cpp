@@ -3,12 +3,32 @@
 
 #include "Constraint.hpp"
 #include "Scheduler.hpp"
-#include <algorithm>
+
+#include <poplibs_support/logging.hpp>
+
 #include <boost/optional.hpp>
+
+#include <algorithm>
 #include <cassert>
 #include <limits>
+#include <ostream>
 
 using namespace popsolver;
+
+std::ostream &popsolver::operator<<(std::ostream &os,
+                                    const ConstraintEvaluationSummary &s) {
+  if (poplibs_support::logging::shouldLog(
+          poplibs_support::logging::Level::Trace)) {
+    os << s.total() << " { call " << s.call << ", product " << s.product
+       << ", sum " << s.sum << ", max " << s.max << ", min " << s.min
+       << ", less " << s.less << ", lessOrEqual " << s.lessOrEqual
+       << ", unknown " << s.unknown << " }";
+  } else {
+    os << s.total();
+  }
+
+  return os;
+}
 
 Model::Model() = default;
 
@@ -314,9 +334,10 @@ static bool foundLowerCostSolution(const Domains domains,
   return false;
 }
 
-bool Model::minimize(Scheduler &scheduler,
-                     const std::vector<Variable> &objectives,
-                     bool &foundSolution, Solution &solution) {
+std::pair<bool, ConstraintEvaluationSummary>
+Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
+                bool &foundSolution, Solution &solution) {
+  ConstraintEvaluationSummary summary{};
   // Find an unassigned variable.
   const auto &domains = scheduler.getDomains();
 
@@ -345,15 +366,15 @@ bool Model::minimize(Scheduler &scheduler,
       }
       solution = Solution(std::move(values));
       foundSolution = true;
-      return true;
+      return {true, summary};
     }
     if (foundLowerCostSolution(domains, objectives, solution)) {
       for (std::size_t i = 0; i != domains.size(); ++i) {
         solution[Variable(i)] = domains[Variable(i)].val();
       }
-      return true;
+      return {true, summary};
     }
-    return false;
+    return {false, summary};
   }
   // Evaluate the cost for every possible value of this variable.
   bool improvedSolution = false;
@@ -361,21 +382,30 @@ bool Model::minimize(Scheduler &scheduler,
        value <= scheduler.getDomains()[*v].max(); ++value) {
     auto savedDomains = scheduler.getDomains();
     scheduler.set(*v, value);
-    bool valueImprovedSolution = false;
-    if (scheduler.propagate() &&
-        minimize(scheduler, objectives, foundSolution, solution)) {
-      valueImprovedSolution = true;
-    }
+
+    const auto valueImprovedSolution = [&]() {
+      const auto x = scheduler.propagate();
+      summary += x.second;
+      if (x.first) {
+        const auto y = minimize(scheduler, objectives, foundSolution, solution);
+        summary += y.second;
+        if (y.first) {
+          return true;
+        }
+      }
+      return false;
+    }();
+
     scheduler.setDomains(std::move(savedDomains));
     if (valueImprovedSolution) {
       improvedSolution = true;
       scheduler.setMax(objectives.front(), solution[objectives.front()]);
-      bool succeeded = scheduler.propagate();
-      assert(succeeded);
-      (void)succeeded;
+      const auto succeeded = scheduler.propagate();
+      assert(succeeded.first);
+      summary += succeeded.second;
     }
   }
-  return improvedSolution;
+  return {improvedSolution, summary};
 }
 
 Solution Model::minimize(const std::vector<Variable> &v) {
@@ -387,10 +417,27 @@ Solution Model::minimize(const std::vector<Variable> &v) {
   for (const auto &c : constraints) {
     constraintPtrs.push_back(c.get());
   }
+  ConstraintEvaluationSummary summary{};
   // Perform initial constraint propagation.
   Scheduler scheduler(initialDomains, std::move(constraintPtrs));
-  if (scheduler.initialPropagate() &&
-      minimize(scheduler, v, foundSolution, solution))
+  const auto success = [&]() {
+    const auto x = scheduler.initialPropagate();
+    summary += x.second;
+    if (x.first) {
+      const auto y = minimize(scheduler, v, foundSolution, solution);
+      summary += y.second;
+      if (y.first) {
+        return true;
+      }
+    }
+    return false;
+  }();
+  if (success) {
+    solution.constraintEvalSummary = summary;
     return solution;
-  return Solution();
+  } else {
+    Solution invalidSolution{};
+    invalidSolution.constraintEvalSummary = summary;
+    return invalidSolution;
+  }
 }

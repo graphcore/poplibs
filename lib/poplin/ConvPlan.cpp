@@ -4345,17 +4345,20 @@ static Estimates<popsolver::Variable> constructModel(
   return e;
 }
 
-static std::pair<Plan, Cost> choosePlan(
-    const poplar::Target &target, const std::vector<ConvTransform> &transforms,
-    const std::vector<ConvTypes> &types, const std::vector<unsigned> &hierarchy,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
-    const std::vector<unsigned> &fieldGrainSize,
-    const ConvVertexType &convVertexType, const ConvParams &params,
-    bool isJointPlan, Cost bestCost, const PlanningObjective &objective,
-    unsigned startTileIdxForVirtualHierarchy,
-    const boost::optional<Plan> &referencePlan,
-    const boost::optional<Cost> &referenceCost,
-    PlanningCacheImpl::CycleEstimationImpl *cache, const ConvOptions &options) {
+static std::tuple<Plan, Cost, popsolver::ConstraintEvaluationSummary>
+choosePlan(const poplar::Target &target,
+           const std::vector<ConvTransform> &transforms,
+           const std::vector<ConvTypes> &types,
+           const std::vector<unsigned> &hierarchy,
+           const std::vector<double> &perLevelExchangeBytesPerCycle,
+           const std::vector<unsigned> &fieldGrainSize,
+           const ConvVertexType &convVertexType, const ConvParams &params,
+           bool isJointPlan, Cost bestCost, const PlanningObjective &objective,
+           unsigned startTileIdxForVirtualHierarchy,
+           const boost::optional<Plan> &referencePlan,
+           const boost::optional<Cost> &referenceCost,
+           PlanningCacheImpl::CycleEstimationImpl *cache,
+           const ConvOptions &options) {
   popsolver::Model m;
   std::vector<PartitionVariables> partitionVars;
   Estimates<popsolver::Variable> e = constructModel(
@@ -4383,7 +4386,7 @@ static std::pair<Plan, Cost> choosePlan(
   }
 
   if (!s.validSolution()) {
-    return {Plan(), highestCost};
+    return {Plan(), highestCost, s.constraintsEvaluated()};
   }
 
   std::vector<Partition> partitions;
@@ -4437,7 +4440,7 @@ static std::pair<Plan, Cost> choosePlan(
   cost.reduceTempBytes = s[e.reduceTempBytes];
   cost.addInPlaceTempBytes = s[e.addInPlaceTempBytes];
 
-  return {plan, cost};
+  return {plan, cost, s.constraintsEvaluated()};
 }
 
 static void getConvVertexMACCandidates(
@@ -5301,6 +5304,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
   validateLayerParams(params, options, target);
 
+  // A coarse metric to measure the efficiency of the constraint solver
+  popsolver::ConstraintEvaluationSummary totalConstraintsEvaluated{};
+
   // T8972: It is currently assumed that the parameters for all the training
   // passes can be derived from one pass, but this is no longer the case since a
   // different outputType can be specified for each pass. To avoid a costly
@@ -5402,12 +5408,15 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             // maintain the accuracy implied by the requested partials type.
             auto newConvTypes = convTypes;
             newConvTypes.back().partialType = convVertexType.partialType;
-            std::tie(candidate, candidateCost) =
+            popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
+            std::tie(candidate, candidateCost, constraintsEvaluated) =
                 choosePlan(target, transforms, newConvTypes, hierarchy,
                            perLevelExchangeBytesPerCycle, fieldGrainSize,
                            convVertexType, params, isJointPlan, bestCost,
                            objective, startTileIdxForVirtualHierarchy,
                            referencePlan, referenceCost, cache, options);
+            logging::trace("Evaluated {} constraints", constraintsEvaluated);
+            totalConstraintsEvaluated += constraintsEvaluated;
             if (candidateCost == highestCost) {
               continue;
             }
@@ -5444,6 +5453,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
     }
   }
 
+  logging::debug("Evaluated a total of {} constraints to find the best plan",
+                 totalConstraintsEvaluated);
   return {bestPlan, bestCost};
 }
 static CanonicalConvParams
