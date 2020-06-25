@@ -34,6 +34,23 @@ On Ubuntu 18.04:
 
     $ apt install libspdlog-dev
 
+### Zoltan Version 3.83 (or compatible with, optional but needed to build popsparse)
+
+PopLibs' sparsity support (popsparse) comes in two flavours: static and dynamic. Zoltan (http://www.cs.sandia.gov/Zoltan/) is a third party computational graph partitioning tool that is used to generate efficient parallel graphs for static sparsity problems. Even if you are only using popsparse's dynamic sparsity support you will still need to acquire and build Zoltan to build popsparse.
+
+Acquire Zoltan from http://www.cs.sandia.gov/Zoltan/ under the LGPL license then build and install it as follows:
+
+On Ubuntu 18.04:
+
+    $ cd zoltan/
+    $ mkdir build
+    $ cd build
+    $ ../configure --prefix install --disable-mpi --disable-zoltan-cppdriver --with-cflags='-fPIC' --with-cxxflags='-fPIC' --disable-tests  --disable-zoltan-tests
+    $ make
+    $ make install
+
+You will use the install path later when configuring the PopLibs build.
+
 ### Python 3 (optional)
 
 Python 3 is an optional dependency. If installed, additional convolution unit tests will become available.
@@ -62,8 +79,12 @@ Create 'build' and 'install' directories within your PopLibs source directory:
 
 Run cmake then build with Ninja:
 
-    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<Path to Boost 'install' folder noted earlier> -GNinja
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<path Boost was installed to> -GNinja
     $ ninja
+
+Note: if you intend to use the popsparse library you will need to have Zoltan installed as described in Build Requirements then tell cmake where to find it by adding the following to the cmake command above:
+
+    -DZOLTAN_ROOT=<path Zoltan was installed to>
 
 Install with Ninja then source the enable script:
 
