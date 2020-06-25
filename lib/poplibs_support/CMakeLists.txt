@@ -1,10 +1,7 @@
 include(GNUInstallDirs)
 
-find_package(poplar REQUIRED)
-find_package(Boost 1.65.1 REQUIRED)
 # We actually want Spdlog 0.16.3 but the official release has incorrect version number 0.16.2.
 find_package(spdlog 0.16.2 REQUIRED)
-find_package(Threads REQUIRED)
 
 add_library(poplibs_support STATIC
   Algorithms.cpp
@@ -25,10 +22,10 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/PlanConstraints.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/print.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/StructHelper.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp    
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileHierarchy.hpp  
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileHierarchy.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/VectorUtils.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplibs_support/vv_iterator.hpp 
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/vv_iterator.hpp
 )
 
 set_property(TARGET poplibs_support PROPERTY POSITION_INDEPENDENT_CODE ON)

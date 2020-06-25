@@ -1,7 +1,5 @@
 include(GNUInstallDirs)
 
-find_package(Boost 1.65.1 REQUIRED program_options)
-
 function(add_tool name)
   add_executable(${name} ${ARGN})
   target_link_libraries(${name} poprand popnn poplin popops popfloat poputil)

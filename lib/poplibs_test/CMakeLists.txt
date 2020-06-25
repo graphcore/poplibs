@@ -1,7 +1,5 @@
 include(GNUInstallDirs)
 
-find_package(Boost 1.65.1 REQUIRED)
-
 add_library(poplibs_test SHARED
   Convolution.cpp
   Embedding.cpp

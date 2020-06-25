@@ -1,7 +1,5 @@
 include(GNUInstallDirs)
 
-find_package(Boost 1.65.1 COMPONENTS filesystem system REQUIRED)
-
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
