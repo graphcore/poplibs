@@ -134,6 +134,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Zero.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binarySupervisorOps.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unarySupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/dynamicSliceSupervisor.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/elementwiseStubs.S
