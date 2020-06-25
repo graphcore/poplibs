@@ -497,12 +497,15 @@ int main(int argc, char **argv) {
     graph.createHostRead("unpackOut", unpackOutput);
   }
 
-  Engine engine(graph, gfCastProg,
-                OptionFlags{{"debug.allowOutOfMemory", "true"},
-                            {"debug.outputAllSymbols", "true"},
-                            {"debug.instrumentCompute", "true"},
-                            {"prng.enable", prng ? "true" : "false"},
-                            {"prng.seed", std::to_string(seed)}});
+  Engine engine(
+      graph, gfCastProg,
+      OptionFlags{{"debug.allowOutOfMemory", "true"},
+                  {"debug.outputAllSymbols", "true"},
+                  {"debug.instrumentCompute", "true"},
+                  {"debug.floatPointOpException", "false"},
+                  {"debug.nanOverflowException", "false"},
+                  {"prng.enableStochasticRounding", prng ? "true" : "false"},
+                  {"prng.seed", std::to_string(seed)}});
 
   engine.connectStream(inStreamV, hInput.get());
 

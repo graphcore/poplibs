@@ -275,7 +275,9 @@ int main(int argc, char **argv) {
                 OptionFlags{{"debug.allowOutOfMemory", "true"},
                             {"debug.outputAllSymbols", "true"},
                             {"debug.instrumentCompute", "true"},
-                            {"prng.enable", "true"},
+                            {"debug.floatPointOpException", "false"},
+                            {"debug.nanOverflowException", "false"},
+                            {"prng.enableStochasticRounding", "true"},
                             {"prng.seed", std::to_string(seed)}});
 
   engine.connectStream(inStreamV, hInput.get());
