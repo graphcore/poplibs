@@ -608,8 +608,13 @@ template <expr::UnaryOpType op, typename T> class UnaryOp1D : public Vertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
 public:
+  constexpr static bool isExternal() {
+    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
+  }
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
+
+  IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
 #ifdef __IPU__
@@ -632,7 +637,12 @@ class UnaryOp1DInPlace : public Vertex {
                 "In, Out types must match for in place operations");
 
 public:
+  constexpr static bool isExternal() {
+    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
+  }
   InOut<Vector<T, SPAN, 8>> inOut;
+
+  IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
 #ifdef __IPU__

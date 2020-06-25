@@ -48,8 +48,9 @@ bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   std::vector<double> inTest(total_elems);
 
   // Initialise input pattern, account for integers being tested
-  for (unsigned i = 0; i < total_elems; i++)
+  for (unsigned i = 0; i < total_elems; i++) {
     inTest[i] = inputGenFn();
+  }
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType);
@@ -404,7 +405,13 @@ int main(int argc, char **argv) {
 
   std::function<double(void)> inputGenFn;
   if (inputGenerationMode == "iota") {
-    inputGenFn = [i = 1]() mutable { return i++; };
+    if (dataType == FLOAT || dataType == HALF) {
+      // Range of small +/- values, including 0 to test SIGNUM in
+      // particular but suitable for other vertices as well
+      inputGenFn = [i = 0]() mutable { return (5 - (i++) % 10); };
+    } else {
+      inputGenFn = [i = 1]() mutable { return i++; };
+    }
   } else if (inputGenerationMode == "random-range-pi") {
     inputGenFn = [gen = std::mt19937{{}},
                   dist = std::uniform_real_distribution<>(
