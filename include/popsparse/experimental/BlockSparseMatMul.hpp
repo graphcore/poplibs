@@ -49,13 +49,20 @@ public:
    * \param blockSize[1]  Block size of the columns in the left-hand matrix.
    * \param blockSize[2]  Block size of the columns in the right-hand matrix.
    *
-   * \param rhsSparsity   The 2D sparsity mask for the right-hand block-sparse
-   *                      matrix, in which '1' is a non-zero block and '0'
-   *                      is a zero block.
+   * \param rhsSparsity     The 2D sparsity mask for right hand block sparse
+   *                        matrix, in which '1' is a non zero block and '0'
+   *                        is a zero block.
+   *                        For group operation this parameter is
+   *                        concatenated sparsity masks for all ops in a group.
    *
-   * \param rhsNeedTranspose   True if the right-hand matrix needs to be
-   *                           transposed.
-   *                           This is to support backward passes.
+   * \param rhsNeedTranspose   Whether the right hand matrix need be transposed.
+   *                           This is mostly to support backward pass.
+   *                        If this parameter is true:
+   *                         - dim, blockSize must conform to transposed shape
+   *                         - rhsSparsity must be in original, non-transposed
+   *                           order
+   *                         - rhsMatrix in bsMatMul() must contain data within
+   *                           blocks in original, non-transposed order
    *
    * \param inDataType      Input data type.
    *
@@ -63,12 +70,15 @@ public:
    *
    * \param partialDataType Partial data type.
    *
+   * \param numGroupsIn     number of groups for group operation
+   *                        or 1 for non-group operation
    */
   BSMatMulParams(const std::array<int, 3> &dim,
                  const std::array<int, 3> &blockSize,
                  const std::vector<unsigned char> &rhsSparsity,
                  bool rhsNeedTranspose, poplar::Type inDataType,
-                 poplar::Type outDataType, poplar::Type partialDataType);
+                 poplar::Type outDataType, poplar::Type partialDataType,
+                 unsigned numGroupsIn = 1);
 
   /** This constructor is for a sparse matrix multiplied by a sparse matrix.
    * It is not supported.
@@ -87,21 +97,30 @@ public:
    * \param blockSize[2]  Block size of the columns in the right-hand matrix.
    *
    *
-   * \param lhsSparsity     The 2D sparsity mask for the left-hand block-sparse
-   *                        matrix, in which '1' is a non-zero block and '0'
+   * \param lhsSparsity     The 2D sparsity mask for left hand block sparse
+   *                        matrix, in which '1' is a non zero block and '0'
    *                        is a zero block.
+   *                        For group operation this parameter is
+   *                        concatenated sparsity masks for all ops in a group.
    *
    * \param lhsNeedTranspose   True if the left-hand matrix needs to be
    *                           transposed.
    *                           This is to support the backward pass.
    *
-   * \param rhsSparsity   The 2D sparsity mask for the right-hand block-sparse
-   *                      matrix, in which '1' is a non-zero block and '0'
-   *                      is a zero block.
+   * \param rhsSparsity     The 2D sparsity mask for right hand block sparse
+   *                        matrix, in which '1' is a non zero block and '0'
+   *                        is a zero block.
+   *                        For group operation this parameter is
+   *                        concatenated sparsity masks for all ops in a group.
    *
-   * \param rhsNeedTranspose   True if the right-hand matrix needs to be
-   *                           transposed.
-   *                           This is to support the backward pass.
+   * \param rhsNeedTranspose   Whether the right hand matrix need be transposed
+   *                           This is mostly to support backward pass.
+   *                         If this parameter is true:
+   *                         - dim, blockSize must conform to transposed shape
+   *                         - rhsSparsity must be in original, non-transposed
+   *                           order
+   *                         - rhsMatrix in bsMatMul() must contain data within
+   *                           blocks in original, non-transposed order
    *
    * \param inDataType      Input data type.
    *
@@ -109,6 +128,8 @@ public:
    *
    * \param partialDataType Partial data type.
    *
+   * \param numGroupsIn     number of groups for group operation
+   *                        or 1 for non-group operation
    */
   BSMatMulParams(const std::array<int, 3> &dim,
                  const std::array<int, 3> &blockSize,
@@ -116,7 +137,8 @@ public:
                  bool lhsNeedTranspose,
                  const std::vector<unsigned char> &rhsSparsity,
                  bool rhsNeedTranspose, poplar::Type inDataType,
-                 poplar::Type outDataType, poplar::Type partialDataType);
+                 poplar::Type outDataType, poplar::Type partialDataType,
+                 unsigned numGroupsIn = 1);
 
   /** This constructor is for a dense matrix multiplying a dense matrix.
    *  The multiply is performed as a sparse operation and the result stored
@@ -137,7 +159,11 @@ public:
    *                        matrix, in which '1' is a non-zero block and '0'
    *                        is a zero block.
    *
-   * \param inDataType      Input data type.
+   * \param resSparsity     The 2D sparsity mask for the result block sparse
+   *                        matrix, in which '1' is a non zero block and '0'
+   *                        is a zero block.
+   *                        For group operation this parameter is
+   *                        concatenated sparsity masks for all ops in a group.
    *
    * \param outDataType     Output data type.
    *
@@ -146,13 +172,16 @@ public:
    * \param SubBlockMask    The mask inside a block. See \c SubBlockMask in
    *                        ``BlockSparse.hpp`` for details.
    *
+   * \param numGroupsIn     number of groups for group operation
+   *                        or 1 for non-group operation
    */
   BSMatMulParams(const std::array<int, 3> &dim,
                  const std::array<int, 3> &blockSize,
                  const std::vector<unsigned char> &resSparsity,
                  poplar::Type inDataType, poplar::Type outDataType,
                  poplar::Type partialDataType,
-                 SubBlockMask subBlockMask = SubBlockMask::None);
+                 SubBlockMask subBlockMask = SubBlockMask::None,
+                 unsigned numGroupsIn = 1);
 
   BSMatMulParams(BSMatMulParams &&other);
 
@@ -173,10 +202,15 @@ public:
  *
  * \param name            The debug name of the created matrix.
  *
- * \returns               If the left matrix is a dense matrix, the return
+ * \returns               For non-grouped BSMatMulParams object,
+ *                        if the left matrix is a dense matrix, the return
  *                        tensor is just a regular 2D matrix. If it is a sparse
  *                        matrix, the return tensor is an array of non-zero
  *                        blocks.
+ *                        For group BSMatMulParams object,
+ *                        the return tensor is concatenated along 0 dimension
+ *                        for all ops in a group.
+ *                        tensor for all matrices in a group.
  */
 poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
@@ -194,8 +228,15 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
  *
  * \param name            The debug name of the created matrix.
  *
- * \returns               The return tensor is an array of non-zero
- *                        blocks for the block-sparse matrix
+ * \returns               For non-grouped BSMatMulParams object,
+ *                        if the right matrix is a dense matrix, the return
+ *                        tensor is just a regular 2D matrix. If it is a sparse
+ *                        matrix, the return tensor is an array of non zero
+ *                        blocks.
+ *                        For group BSMatMulParams object,
+ *                        the return tensor is concatenated along 0 dimension
+ *                        for all ops in a group.
+ *                        tensor for all matrices in a group.
  */
 poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
@@ -205,38 +246,51 @@ poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
  *
  * \param graph         The Poplar graph.
  *
- * \param bsMatMul      The object for block-sparse information, includes the
- *                      sparsity mask, the matrix size, the block size,
- *                      and the data type.
+ * \param bsMatMul        The object for block sparse information, includes the
+ *                        sparsity mask, the matrix size, the block size,
+ *                        and the data type
  *
- * \param prog          A reference to a program sequence to which the code
- *                      to perform the multiplication will be appended.
+ * \param prog            A reference to a program sequence which will
+ *                        be appended with the code to perform the
+ *                        multiplication.
  *
- * \param lhsMatrix     If \p BSMatMulParams is for a dense x sparse multiply,
- *                      then this is the left-hand dense matrix.
- *                      If \p BSMatMulParams is for a sparse x sparse multiply,
- *                      then this is the non-zero blocks of the left sparse
- *                      matrix.
+ * \param lhsMatrix       if BSMatMulParams is for dense x sparse, this is
+ *                        the left hand dense matrix,
+ *                        if BSMatMulParams is for sparse x sparse, this is
+ *                        the non zero blocks of the left sparse matrix.
+ *                        For group BSMatMulParams object,
+ *                        it should be concatenated along 0 dimension
+ *                        for all tensors in a group.
  *
- * \param rhsMatrix     A tensor for an array of non-zero blocks in the
- *                      right-hand sparse matrix.
+ * \param rhsMatrix       a tensor for an array of non zero blocks in the right
+ *                        hand sparse matrix.
+ *                        For group BSMatMulParams object,
+ *                        it should be concatenated along 0 dimension
+ *                        for all tensors in a group.
  *
- * \param options       A structure containing options for how the
- *                      multiplication should be implemented.
+ * \param options         The structure describing options on how the
+ *                        multiplication should be implemented.
  *
- *                        * `memory_cycle_ratio`: for computing the
- *                          weight of hyper graph node. This may be only a
- *                          temporary option.
+ *                        option "memory_cycle_ratio" is for computing the
+ *                        weight of hyper graph node. This may be only a
+ *                        temporary option
+ *                           w = memory_cycle_ratio * mem_weight +
+ *                               (1.0 - memory_cycle_ratio) * cycle_weight
  *
- *                          w = memory_cycle_ratio * mem_weight +
- *                             (1.0 - memory_cycle_ratio) * cycle_weight
+ *                        option "partition-method", if it is "block", the
+ *                        matmul computation graph is created for each non zero
+ *                        blocks; if it is "strip", the graph is created for
+ *                        columns or rows.
  *
- * \param debugPrefix   A debug prefix added to compute set and tensor
- *                      names.
+ * \param debugPrefix     A debug prefix added to compute set and tensor
+ *                        names.
  *
- * \returns             The tensor holding the result of the
- *                      multiplication. This tensor will be created, added to
- *                      the graph and mapped to tiles.
+ * \returns               The tensor holding the result of the
+ *                        multiplication. This tensor will be created, added to
+ *                        the graph and mapped to tiles.
+ *                        For group BSMatMulParams object,
+ *                        the return tensor is concatenated along 0 dimension
+ *                        for all ops in a group.
  */
 poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         poplar::program::Sequence &prog,

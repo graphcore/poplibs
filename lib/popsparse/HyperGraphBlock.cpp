@@ -106,7 +106,7 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
   }
 
   poplar::Tensor matCTensor =
-      matCDense->createTensor(graph, outDataType, "/matC");
+      matCDense->createTensor(graph, outDataType, debugPrefix + "/matC");
   matCDense->setBlockTensor(matCTensor);
 
   auto hyperEdgeIdC = populateNodesC(nRowC, nColC, blockIdMatrixC);
@@ -368,6 +368,22 @@ void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
   }
 }
 
+void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
+                                          poplar::ComputeSet *transposeCS,
+                                          poplar::ComputeSet &mulCS,
+                                          poplar::ComputeSet &reduceCS,
+                                          const std::string &debugPrefix) {
+
+  std::map<unsigned int, poplar::Tensor> partialData;
+  std::vector<unsigned int> nodeCTileId;
+
+  createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, transposeCS,
+                         debugPrefix);
+
+  createComputeSetReduce(graph, partialData, nodeCTileId, reduceCS,
+                         debugPrefix);
+}
+
 void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
     std::vector<unsigned int> &nodeCTileId, poplar::program::Sequence &prog,
@@ -429,7 +445,7 @@ void HyperGraphBlock::createComputeSetMatMul(
   unsigned int vNodeCount = 0;
   std::vector<int> tileNodes(nTile, 0);
 
-  const std::string &debugPrefix2 = debugPrefix + "partial_block_";
+  const std::string &debugPrefix2 = debugPrefix + "/partial_block_";
   for (const auto &n : nodeV) {
     unsigned int nodeId = n.id;
     poplar::Tensor t = graph.addVariable(

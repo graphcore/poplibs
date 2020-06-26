@@ -142,6 +142,12 @@ public:
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix) override;
 
+  // Adds a logic to perform matmul to existing compusets
+  void createProgramMatMul(poplar::Graph &graph,
+                           poplar::ComputeSet *transposeCS,
+                           poplar::ComputeSet &mulCS,
+                           poplar::ComputeSet &reduceCS,
+                           const std::string &debugPrefix) override;
   // Creates a compute set to perform a partial matmul
   void createComputeSetMatMul(
       poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,

@@ -467,6 +467,7 @@ if(TARGET popsparse)
   add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
   # TODO: T22622: Re-enable/refine these tests. Disabled due to planner timeout but not essential.
   #add_unit_test(PopsparseFullyConnectedPlan PopsparseFullyConnectedPlan.cpp VARIANTS ${IPUMODEL_VARIANTS})
+
   add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
   add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 endif()
@@ -6866,7 +6867,7 @@ foreach(PLAN_TYPE parallel serial)
                    --alpha=0.5
                    --options={\"planType\":\"${PLAN_TYPE}\"}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-
+  
   add_multitarget_test(NAME octconvLL_${PLAN_TYPE}
            COMMAND oct_conv_layer
                    --input-channels=2
@@ -6926,7 +6927,6 @@ foreach(PLAN_TYPE parallel serial)
                    --options={\"planType\":\"${PLAN_TYPE}\",\"perConvReservedTiles\":4}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 endforeach()
-
 
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
@@ -7821,6 +7821,81 @@ add_unit_test(WrongSyncZone
               LABELS multicard;CE_reproducers)
 
 if(TARGET popsparse)
+  set(SPARSITY_MATRIX ${CMAKE_SOURCE_DIR}/tests/bs-m8x8_0.8_nr.txt)
+  foreach(PART_METHOD "block" "block-naive")
+    add_multitarget_test(
+            NAME BlockSparseMtTest_dsd_fp32_${PART_METHOD}
+            COMMAND bs_matmul_test
+                    --tiles-per-ipu=16
+                    --data-type=float
+                    --sparsity-matrix=${SPARSITY_MATRIX}
+                    --batch=64
+                    --lhs-block-cols=8
+                    --lhs-block-row=8
+                    --lhs-block-col=8
+                    --rhs-block=8
+                    --partition-method=${PART_METHOD}
+                    --check-result=1)
+  
+    add_multitarget_test(
+            NAME BlockSparseMtTest_dds_fp32_${PART_METHOD}
+            COMMAND bs_matmul_test
+                    --tiles-per-ipu=16
+                    --data-type=float
+                    --sparsity-matrix=${SPARSITY_MATRIX}
+                    --batch=64
+                    --lhs-block-cols=8
+                    --lhs-block-row=8
+                    --lhs-block-col=8
+                    --rhs-block=8
+                    --is-rhs-matrix-sparse=0
+                    --is-res-matrix-sparse=1
+                    --partition-method=${PART_METHOD}
+                    --check-result=1)
+
+    add_multitarget_test(
+            NAME BlockSparseMtTest_dsd_fp16_${PART_METHOD}
+            COMMAND bs_matmul_test
+                    --tiles-per-ipu=16
+                    --data-type=half
+                    --sparsity-matrix=${SPARSITY_MATRIX}
+                    --batch=64
+                    --lhs-block-cols=8
+                    --lhs-block-row=16
+                    --lhs-block-col=16
+                    --rhs-block=16
+                    --check-result=1)
+    
+    add_multitarget_test(
+            NAME BlockSparseMtTest_dsd_fp16_need_transpose_${PART_METHOD}
+            COMMAND bs_matmul_test
+                    --tiles-per-ipu=16
+                    --data-type=half
+                    --sparsity-matrix=${SPARSITY_MATRIX}
+                    --batch=64
+                    --lhs-block-cols=8
+                    --lhs-block-row=16
+                    --lhs-block-col=16
+                    --rhs-block=16
+                    --rhs-need-transpose=1
+                    --check-result=1)
+
+    add_multitarget_test(
+        NAME BlockSparseMtTest_dsd_fp32_groups_${PART_METHOD}
+        COMMAND bs_matmul_test
+                --tiles-per-ipu=16
+                --data-type=float
+                --sparsity-matrix=${SPARSITY_MATRIX}
+                --batch=16
+                --lhs-block-cols=4
+                --lhs-block-row=8
+                --lhs-block-col=8
+                --rhs-block=8
+                --rhs-need-transpose=1
+                --number-of-groups=2
+                --check-result=1)
+  endforeach()
+
   foreach(DATA_TYPE half float)
     foreach(SHARED_BUCKETS true false)
       foreach(PASS_TYPE fwd bwd wu all)

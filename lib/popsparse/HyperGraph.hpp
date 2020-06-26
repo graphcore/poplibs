@@ -45,6 +45,13 @@ public:
                                    poplar::program::Sequence &prog,
                                    const std::string &debugPrefix) = 0;
 
+  // Adds a logic to perform matmul to existing compute sets
+  virtual void createProgramMatMul(poplar::Graph &graph,
+                                   poplar::ComputeSet *transposeCS,
+                                   poplar::ComputeSet &mulCS,
+                                   poplar::ComputeSet &reduceCS,
+                                   const std::string &debugPrefix) = 0;
+
   // Gets output matmul tensor result
   poplar::Tensor getResultTensor() const;
 

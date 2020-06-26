@@ -1767,7 +1767,8 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 Testing block-sparse API
 dense x sparse = dense case
 */
-void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
+void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
+                const std::string &partitionMethod = "block-naive") {
   IPUModel ipuModel;
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   const auto &target = device.getTarget();
@@ -1832,8 +1833,11 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
 
   poplar::program::Sequence matMulProg;
 
+  poplar::OptionFlags options = {
+      {"partitionMethod", partitionMethod},
+  };
   poplar::Tensor tensorC =
-      bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB);
+      bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB, options);
 
   std::unique_ptr<char[]> rawHostC =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1865,7 +1869,8 @@ void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
 Testing block-sparse API
 dense x dense = sparse case
 */
-void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
+void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
+                const std::string &partitionMethod = "block-naive") {
   IPUModel ipuModel;
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   const auto &target = device.getTarget();
@@ -1925,8 +1930,12 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
 
   poplar::program::Sequence matMulProg;
 
+  poplar::OptionFlags options = {
+      {"partitionMethod", partitionMethod},
+  };
+
   poplar::Tensor tensorC =
-      bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB);
+      bsMatMul(graph, bsParams, matMulProg, tensorA, tensorB, options);
 
   std::unique_ptr<char[]> rawHostC =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1956,6 +1965,11 @@ void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize) {
                     colsInBlockC, hostC, blocksHostC, sparsityC);
 }
 
-BOOST_AUTO_TEST_CASE(DenseSparseDenseAPI_testF32) { TestDSDAPI(FLOAT, 8, 8); }
+BOOST_AUTO_TEST_CASE(DenseSparseDenseAPI_testF32_block) {
+  TestDSDAPI(FLOAT, 8, 8, "block");
+}
+BOOST_AUTO_TEST_CASE(DenseSparseDenseAPI_testF32_block_naive) {
+  TestDSDAPI(FLOAT, 8, 8, "block-naive");
+}
 
 BOOST_AUTO_TEST_CASE(DenseDenseSparseAPI_testF32) { TestDDSAPI(FLOAT, 8, 8); }
