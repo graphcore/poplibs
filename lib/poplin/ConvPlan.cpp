@@ -1175,6 +1175,7 @@ getStartTile(const poplar::Target &target,
       switch (options.pass) {
       // if no pass, assume forward and training.
       case Pass::NONE:
+      case Pass::NONE_MATMUL:
       case Pass::FC_INFERENCE_FWD:
       case Pass::INFERENCE_FWD:
       case Pass::TRAINING_FWD:
@@ -2489,6 +2490,11 @@ getScaleFactorForTransform(const poplar::Type &type, unsigned dimSize) {
     return {5U, 3U};
 }
 
+static bool isFullyConnected(Pass pass) {
+  return pass == Pass::FC_INFERENCE_FWD || pass == Pass::FC_TRAINING_FWD ||
+         pass == Pass::FC_TRAINING_BWD || pass == Pass::FC_TRAINING_WU;
+}
+
 // returns a pair of the number of cycles and the number of bytes per tile.
 static std::pair<popsolver::Variable, popsolver::Variable>
 addTransformCycleEstimate(
@@ -2503,10 +2509,9 @@ addTransformCycleEstimate(
     const std::vector<ConvTypes> &types, bool isJointPlan,
     const ConvOptions &options, const poplar::Target &target) {
   bool isConvWeightUpdate = options.pass == Pass::TRAINING_WU;
-  bool isFullyConnectedLayer = options.pass == Pass::FC_INFERENCE_FWD ||
-                               options.pass == Pass::FC_TRAINING_FWD ||
-                               options.pass == Pass::FC_TRAINING_BWD ||
-                               options.pass == Pass::FC_TRAINING_WU;
+  bool isFullyConnectedLayer = isFullyConnected(options.pass);
+  bool isMatmulOrFullyConnectedLayer =
+      isFullyConnectedLayer || options.pass == Pass::NONE_MATMUL;
   bool expandDims = false;
   bool swapOperands = false;
   bool outChanFlattenDims = false;
@@ -2530,17 +2535,20 @@ addTransformCycleEstimate(
       transformedOnceUnpaddedParams.outputChannelsPerConvGroup %
           partialChansPerGroup !=
       0;
-  bool rearrangeInput = isConvWeightUpdate || expandDims || swapOperands ||
+  bool rearrangeInput = isConvWeightUpdate || expandDims ||
+                        swapOperands != isMatmulOrFullyConnectedLayer ||
                         combineConvGroups || padInChannels ||
                         options.pass == Pass::FC_TRAINING_WU ||
                         (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
   bool rearrangeWeights =
-      isConvWeightUpdate || expandDims || outChanFlattenDims || swapOperands ||
-      combineConvGroups || padInChannels || padPartialChannels;
+      isConvWeightUpdate || expandDims || outChanFlattenDims ||
+      swapOperands != isMatmulOrFullyConnectedLayer || combineConvGroups ||
+      padInChannels || padPartialChannels;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
-  bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
-                         (isConvWeightUpdate && !swapOperands) ||
+  bool outputShouldBeSwapped =
+      isConvWeightUpdate || isMatmulOrFullyConnectedLayer;
+  bool rearrangeOutput = swapOperands != outputShouldBeSwapped ||
                          outChanFlattenDims || combineConvGroups ||
                          padPartialChannels ||
                          (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
@@ -3203,6 +3211,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     const unsigned partialChansPerGroup,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
+  assert(transforms[0].swapOperands);
   // for the backwards pass the output shape will be Ci x Co (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the backwards pass is a no-op and we can return zero.
@@ -3215,9 +3224,9 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     return {zero, zero, zero, zero};
   }
 
-  assert(!bwdTransformedOnceParams.inputFieldShape.empty());
-  std::swap(bwdUntransformedParams.inputFieldShape.back(),
+  std::swap(bwdUntransformedParams.outputChannelsPerConvGroup,
             bwdUntransformedParams.inputChannelsPerConvGroup);
+  assert(!bwdTransformedOnceParams.inputFieldShape.empty());
   std::swap(bwdTransformedOnceParams.inputFieldShape.back(),
             bwdTransformedOnceParams.inputChannelsPerConvGroup);
   std::swap(bwdTransformedOnceUnpaddedParams.inputFieldShape.back(),
@@ -3273,8 +3282,8 @@ static Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
   // Avoid outer product method if the padded input channels per group are not
   // 1. This is because the current implementation of createOuterProductVertex
   // only supports channel grouping of 1.
-  if (fwdParams.getNumOutputChansPerConvGroup() == 1 &&
-      wuInChansPerGroup == 1) {
+  auto outChansAfterSwapping = fwdParams.batchSize;
+  if (outChansAfterSwapping == 1 && wuInChansPerGroup == 1) {
     return Plan::Method::OUTER_PRODUCT;
   }
   const auto wuPartialChansPerGroup = fwdInChansPerGroup;
@@ -3306,6 +3315,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
     const unsigned partialChansPerGroup,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
+  assert(transforms[0].swapOperands);
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the weight update pass is a no-op and we can return zero.
@@ -3321,7 +3331,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
 
   auto wuUntransformedParams = untransformedParams;
   std::swap(wuUntransformedParams.inputChannelsPerConvGroup,
-            wuUntransformedParams.outputChannelsPerConvGroup);
+            wuUntransformedParams.batchSize);
   std::swap(wuTransformedOnceParams.inputChannelsPerConvGroup,
             wuTransformedOnceParams.outputChannelsPerConvGroup);
   std::swap(wuTransformedOnceUnpaddedParams.inputChannelsPerConvGroup,
@@ -5130,9 +5140,17 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
                                                   bool isJointPlan) {
   std::vector<bool> validValues;
   if (isJointPlan) {
-    // The joint planning logic doesn't yet handle swapped operands.
+    // The joint planning logic assumes swapped operands.
     // TODO: T12885 Lift this restriction.
-    validValues = {false};
+    validValues = {true};
+  } else if (isFullyConnected(options.pass) ||
+             options.pass == Pass::NONE_MATMUL) {
+    // Plans where the operands are swapped are more likely to be optimal
+    // as the planner associates lower transform costs with these plans. Try
+    // these plans first. This also ensures that if there are two plans with
+    // exactly the same cost we prefer the some that swaps operands (because we
+    // find it first).
+    validValues = {true, false};
   } else {
     validValues = {false, true};
   }
@@ -5579,20 +5597,11 @@ static CanonicalConvParams
 getFullyConnectedPassParams(const CanonicalConvParams &params,
                             const ConvOptions &options, Pass pass) {
   assert(params->getNumFieldDims() == 1);
-  assert(params->batchSize == 1);
+  assert(params->getInputSize(0) == 1);
   assert(params->inputTransform.flip[0] == false);
   assert(params->inputTransform.dilation[0] == 1);
   assert(params->kernelTransform.flip[0] == false);
   assert(params->kernelTransform.truncationLower[0] == 0);
-  if (params->inputFieldShape[0] == 0) {
-    // for a zero convolution the canonical form is to provide a kernel of size
-    // 1 and then truncate it back to zero.
-    assert(params->kernelTransform.truncationUpper[0] == 1);
-    assert(params->outputTransform.truncationUpper[0] == 1);
-  } else {
-    assert(params->kernelTransform.truncationUpper[0] == 0);
-    assert(params->outputTransform.truncationUpper[0] == 0);
-  }
   assert(params->kernelShape[0] == 1);
   assert(params->outputTransform.stride[0] == 1);
   assert(params->outputTransform.paddingLower[0] == 0);
@@ -5606,61 +5615,52 @@ getFullyConnectedPassParams(const CanonicalConvParams &params,
     assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_FWD:
     fwdInputSize = params->getNumInputChansPerConvGroup();
-    fwdBatchSize = params->getNumOutputChansPerConvGroup();
-    fwdOutputSize = params->getInputSize(0);
+    fwdOutputSize = params->getNumOutputChansPerConvGroup();
+    fwdBatchSize = params->getBatchSize();
     break;
   case Pass::FC_TRAINING_BWD:
-    fwdInputSize = params->getInputSize(0);
-    fwdBatchSize = params->getNumOutputChansPerConvGroup();
+    fwdInputSize = params->getNumOutputChansPerConvGroup();
     fwdOutputSize = params->getNumInputChansPerConvGroup();
+    fwdBatchSize = params->getBatchSize();
     break;
   case Pass::FC_TRAINING_WU:
-    fwdOutputSize = params->getInputSize(0);
+    fwdInputSize = params->getBatchSize();
+    fwdOutputSize = params->getNumOutputChansPerConvGroup();
     fwdBatchSize = params->getNumInputChansPerConvGroup();
-    fwdInputSize = params->getNumOutputChansPerConvGroup();
     break;
   }
   // Translate fully connected layer forward pass parameters back into
   // convolution parameters for the specified pass.
-  unsigned convFieldSize, convInputChannels, convOutputChannels,
-      inputPadding = 0, outputTruncation = 0;
+  unsigned convBatchSize, convInputChannels, convOutputChannels;
   switch (pass) {
   default:
     assert(0 && "Unexpected pass");
   case Pass::FC_TRAINING_FWD:
     convInputChannels = fwdInputSize;
-    convFieldSize = fwdOutputSize;
-    convOutputChannels = fwdBatchSize;
+    convOutputChannels = fwdOutputSize;
+    convBatchSize = fwdBatchSize;
     break;
   case Pass::FC_TRAINING_BWD:
     convInputChannels = fwdOutputSize;
-    convFieldSize = fwdInputSize;
-    convOutputChannels = fwdBatchSize;
+    convOutputChannels = fwdInputSize;
+    convBatchSize = fwdBatchSize;
     break;
   case Pass::FC_TRAINING_WU:
     convInputChannels = fwdBatchSize;
-    convFieldSize = fwdOutputSize;
-    convOutputChannels = fwdInputSize;
+    convOutputChannels = fwdOutputSize;
+    convBatchSize = fwdInputSize;
     break;
-  }
-  if (convFieldSize == 0) {
-    // Transformed input must be greater than or equal to the transformed kernel
-    // size.
-    inputPadding = 1;
-    outputTruncation = 1;
   }
   ConvParams newParams{
       params->inputType,
       params->outputType,
-      1,                         // batchSize
-      {convFieldSize},           // inputShape
+      convBatchSize,             // batchSize
+      {1},                       // inputShape
       {1},                       // kernelShape
       convInputChannels,         // input channels
       convOutputChannels,        // output channels
       params->getNumConvGroups() // conv groups
   };
-  newParams.inputTransform.paddingUpper = {inputPadding};
-  newParams.outputTransform.truncationUpper = {outputTruncation};
 
   return newParams;
 }
@@ -5917,6 +5917,7 @@ std::string getPlanConstraintsOutputFile(const ConvOptions &options) {
     path += "_WU";
     break;
   case Pass::NONE:
+  case Pass::NONE_MATMUL:
     break;
   }
   path += ".json";
@@ -6015,7 +6016,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
                                     const ConvOptions &fwdOptions,
                                     const Plan &fwdPlan) {
   assert(fwdPlan.isJointPlan);
-  assert(!fwdPlan.transforms[0].swapOperands);
+  assert(fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_WU;
   const auto numPartitions = plan.partitions.size();
@@ -6069,7 +6070,7 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
 
 static Plan getFullyConnectedBwdPlan(const Plan &fwdPlan) {
   assert(fwdPlan.isJointPlan);
-  assert(!fwdPlan.transforms[0].swapOperands);
+  assert(fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
   plan.method = getFullyConnectedBwdMethod(fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
