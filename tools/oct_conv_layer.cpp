@@ -515,7 +515,8 @@ static Tensor upsampleTensor(Graph &graph, Tensor &input,
 // dimension.
 static Tensor downsampleTensor(Graph &graph, const Tensor &input,
                                const unsigned samplingRate,
-                               const std::size_t numFieldDims, Sequence &prog) {
+                               const std::size_t numFieldDims, Sequence &prog,
+                               const OptionFlags &poolOptions = {}) {
   auto inputShape = input.shape();
   popnn::PoolingType poolingType = popnn::PoolingType::AVG;
   std::vector<std::size_t> inputFieldShape;
@@ -534,20 +535,21 @@ static Tensor downsampleTensor(Graph &graph, const Tensor &input,
   const auto poolParams = popnn::pooling::PoolParams(
       poolingType, inputFieldShape, kernelShape, stride, paddingLower,
       paddingUpper, inputShape[1], inputShape[0], input.elementType());
-  return popnn::pooling::pool(graph, poolParams, input, prog);
+  return popnn::pooling::pool(graph, poolParams, input, prog, "", poolOptions);
 }
 
 static std::vector<Tensor> preProcess(Graph &graph,
                                       const std::vector<ConvParameters> &params,
-                                      Sequence &prog) {
+                                      Sequence &prog,
+                                      const OptionFlags poolOptions = {}) {
   std::vector<Tensor> output(params.size());
   for (unsigned i = 0; i < params.size(); ++i) {
     auto &input = params[i].inputData->tensor;
     auto samplingRate = params[i].preDownsamplingRate;
     if (samplingRate > 1) {
       auto numFieldDims = params[i].fwdParams.getNumFieldDims();
-      output[i] =
-          downsampleTensor(graph, input, samplingRate, numFieldDims, prog);
+      output[i] = downsampleTensor(graph, input, samplingRate, numFieldDims,
+                                   prog, poolOptions);
     } else {
       output[i] = input;
     }
@@ -763,6 +765,7 @@ int main(int argc, char **argv) try {
   bool reportPlan;
   bool reportVarStorage;
   bool remapOutputTensor;
+  bool poolOptimizeForSpeed;
   std::string multiConvOptionsString;
 
   Pass pass = Pass::ALL;
@@ -933,6 +936,9 @@ int main(int argc, char **argv) try {
     ("remap-output-tensor",
      po::value<bool>(&remapOutputTensor)->default_value(false),
      "Remap output tensor if layout is detected to be poor")
+    ("pool-optimize-for-speed",
+     po::value<bool>(&poolOptimizeForSpeed)->default_value(false),
+     "Optimize any pooling operation for speed, not memory")
     ("options", po::value<std::string>(&multiConvOptionsString),
     "Options to use for the multi-convolution, specified as a JSON string, "
     "e.g. {\"key\":\"value\"}")
@@ -958,6 +964,8 @@ int main(int argc, char **argv) try {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+  OptionFlags poolOptions = {
+      {"optimizeForSpeed", poolOptimizeForSpeed ? "true" : "false"}};
   if (alpha != 1.0) {
     alphaIn = alphaOut = alpha;
   }
@@ -1209,7 +1217,7 @@ int main(int argc, char **argv) try {
   auto fwdProg = Sequence();
 
   // Convert OctConv inputs to individual convolution prevAct tensors.
-  auto prevAct = preProcess(graph, octConvParams, fwdProg);
+  auto prevAct = preProcess(graph, octConvParams, fwdProg, poolOptions);
   auto fwdArgs = getConvolutionArguments(prevAct, weights, false, octConvParams,
                                          fwdOptions);
   auto nextAct = poplin::multiconv::convolution(
@@ -1225,7 +1233,7 @@ int main(int argc, char **argv) try {
   } else {
     fwdProg = Sequence();
     // Generate convolution inputs
-    prevAct = preProcess(graph, octConvParams, revProg);
+    prevAct = preProcess(graph, octConvParams, revProg, poolOptions);
   }
   const auto learningRate = 0.05;
   std::vector<Tensor> prevDeltas;

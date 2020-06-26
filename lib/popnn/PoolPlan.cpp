@@ -276,8 +276,9 @@ void applyTransformInverse(const poplin::ConvParams &params,
 // plan could incorporate introspection. For now, keep it simple.
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
-Plan getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
-             const poplin::ConvParams &params, const poplar::Tensor &in_) {
+PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
+                   const poplin::ConvParams &params,
+                   const poplar::Tensor &in_) {
   Plan plan;
 
   // Don't use getTypeSize here because IpuModel will report something
@@ -316,7 +317,8 @@ Plan getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   auto s = m.minimize({cycles});
   assert(s.validSolution());
   plan.partition = makePartition(s, vars);
-  return plan;
+
+  return {plan, s[cycles]};
 }
 
 std::ostream &operator<<(std::ostream &os, const Partition &p) {

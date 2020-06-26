@@ -11,6 +11,9 @@ struct PoolOptions {
   // Use tile introspective mapping.
   // If disabled a linear tile mapping is used based on planner split
   bool poolUseIntrospectiveMapping = true;
+  // The pooling implementation defaults to being optimised to aid memory
+  // allocation.  To optimise for speed instead, set this option to true
+  bool optimizeForSpeed = false;
 };
 
 } // namespace pooling

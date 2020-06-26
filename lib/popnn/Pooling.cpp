@@ -55,6 +55,8 @@ static PoolOptions parsePoolOptions(const poplar::OptionFlags &options) {
   const OptionSpec poolSpec{
       {"poolUseIntrospectiveMapping",
        OptionHandler::createWithBool(poolOptions.poolUseIntrospectiveMapping)},
+      {"optimizeForSpeed",
+       OptionHandler::createWithBool(poolOptions.optimizeForSpeed)},
   };
   for (const auto &option : options) {
     poolSpec.parse(option.first, option.second);
@@ -400,9 +402,85 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   } else {
     assert(in_.shape() == fwdOutputActs_->shape());
   }
+  // TODO: T22629
+  // Use `poolingCycles` and a convolution equivalent from
+  // poplin::reportPlanEstimatedCosts to compare cycles and decide on the best
+  // method to use.  First need to check the accuracy of the estimate given in
+  // poolingCycles.
 
-  const auto plan = getPlan(graph, poolCfg, params, in_);
-  logging::trace("Pooling plan:\n{}", plan);
+  const auto poolingHasConvolutionEquivalent = [&poolCfg, &params]() {
+    if (poolCfg.type == PoolingType::MAX) {
+      // Max pooling is not equivalent to convolution
+      return false;
+    }
+    if (poolCfg.type == PoolingType::AVG &&
+        poolCfg.pass == PoolPass::POOL_FWD) {
+      // Average pooling is equivalent to convolution in general.
+      // Scale is given by:
+      // scale = 1/(Number of non-padding elements in the kernel's operating
+      //         region)
+      // So where we use scale !=1.0 and there is input padding, any part of the
+      // pooling that covers a padded input would have a different scale.
+      // As we plan to use a simple convolution kernel with all
+      // elements = scale, this is not so elegant so don't attempt to use
+      // convolution to implement pooling
+      for (unsigned i = 0; i < params.inputTransform.paddingLower.size(); i++) {
+        if (params.inputTransform.paddingLower[i] != 0 ||
+            params.inputTransform.paddingUpper[i] != 0) {
+          return false;
+        }
+      }
+    }
+    // SUM and remaining AVG pool cases are equivalent to convolution
+    return true;
+  }();
+
+  if (poolOptions.optimizeForSpeed && poolingHasConvolutionEquivalent) {
+    // Describe the operation slightly differently for a convolution that is
+    // equivalent to pooling.  For pooling, each channel is independent.
+    auto paramsForConv = params;
+    paramsForConv.numConvGroups = params.inputChannelsPerConvGroup;
+    paramsForConv.inputChannelsPerConvGroup = 1;
+    paramsForConv.outputChannelsPerConvGroup = 1;
+
+    // Create a scaling tensor, which will become the convolution weights
+    // kernel when broadcast
+    auto kernelElements =
+        std::accumulate(params.kernelShape.begin(), params.kernelShape.end(),
+                        1.0, std::multiplies<double>());
+
+    const auto scaleToFindMean = 1.0 / kernelElements;
+    const auto scaleValue =
+        (poolCfg.pass == PoolPass::POOL_FWD && poolCfg.type == PoolingType::AVG)
+            ? scaleToFindMean
+            : 1.0;
+    auto weights = graph.addConstant(in_.elementType(), {1}, scaleValue);
+
+    // Convolution weights: [convGroups, outCPG, inCPG, H, W]
+    // For pooling we have: [convGroups, 1, 1, H, W]
+    // So broadcast the scalar `weights` to match
+    std::vector<std::size_t> zeros(params.kernelShape.size() + 2, 0);
+    weights = weights.expand(zeros);
+    weights = weights.broadcast(paramsForConv.numConvGroups, 0);
+    for (unsigned i = 0; i < params.kernelShape.size(); i++) {
+      weights =
+          weights.broadcast(params.kernelShape[i],
+                            weights.rank() - params.kernelShape.size() + i);
+    }
+    mapTensorLinearly(graph, weights);
+
+    // Shuffle to match convolution input: [batches, channels, H, W]
+    auto in = in_.dimShufflePartial({in_.rank() - 1}, {1});
+
+    const poplar::OptionFlags convOptions = {
+        {"partialsType", in.elementType() == HALF ? "half" : "float"}};
+    return poplin::convolution(graph, in, weights, paramsForConv, false, prog,
+                               debugPrefix, convOptions);
+  }
+  // Implement as pooling
+  auto planningResult = getPlan(graph, poolCfg, params, in_);
+  logging::debug("Pooling plan:\n{}", planningResult.plan);
+
   Tensor fwdInputActs, fwdOutputActs;
   if (fwdInputActs_) {
     fwdInputActs = *fwdInputActs_;
@@ -414,14 +492,14 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   auto preprocessedParams = params;
   // preprocessing may create new tensors
   auto out = createOutputAndPreprocess(
-      graph, preprocessedParams, plan, in,
+      graph, preprocessedParams, planningResult.plan, in,
       fwdInputActs_ ? &fwdInputActs : nullptr,
       fwdOutputActs_ ? &fwdOutputActs : nullptr, debugPrefix);
   tilePartitions(graph, poolCfg, in, out,
                  fwdInputActs_ ? &fwdInputActs : nullptr,
                  fwdOutputActs_ ? &fwdOutputActs : nullptr, preprocessedParams,
-                 prog, plan, debugPrefix, poolOptions);
-  postProcess(params, plan, out);
+                 prog, planningResult.plan, debugPrefix, poolOptions);
+  postProcess(params, planningResult.plan, out);
   return out;
 }
 
@@ -501,7 +579,7 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
   logging::debug("Pool({}x({}x{}), kernel {}, name='{}'",
                  poolParams.inputFieldShape, poolParams.batchSize,
                  poolParams.numChannels, poolParams.kernelShape, debugPrefix);
-  logging::trace("Pool params:\n{}", poolParams);
+  logging::debug("Pool params:\n{}", poolParams);
 
   const auto inputFieldShape = getInputFieldShape(in_);
 
@@ -569,7 +647,7 @@ void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
   logging::debug("PoolGrad({}x({}x{}), kernel {}, name='{}'",
                  poolParams.inputFieldShape, poolParams.batchSize,
                  poolParams.numChannels, poolParams.kernelShape, debugPrefix);
-  logging::trace("PoolGrad params:\n{}", poolParams);
+  logging::debug("PoolGrad params:\n{}", poolParams);
 
   Tensor in, pooled;
   if (maxPooling) {

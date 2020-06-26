@@ -118,8 +118,12 @@ void applyTransformInverse(const poplin::ConvParams &params,
 // plan could incorporate introspection. For now, keep it simple.
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
-Plan getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
-             const poplin::ConvParams &params, const poplar::Tensor &in);
+struct PlanResult {
+  Plan plan;
+  std::size_t cycles;
+};
+PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
+                   const poplin::ConvParams &params, const poplar::Tensor &in);
 
 } // namespace pooling
 } // namespace popnn

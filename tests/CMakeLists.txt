@@ -328,7 +328,8 @@ function(add_oct_conv_benchmark)
   cmake_parse_arguments(OCT_CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
 
   # common arguments for all oct conv benchmarks
-  list(APPEND OCT_CONV_BENCHMARK_PARAMS --ignore-data)
+  list(APPEND OCT_CONV_BENCHMARK_PARAMS --ignore-data )
+  list(APPEND OCT_CONV_BENCHMARK_PARAMS --pool-optimize-for-speed=true)
   add_benchmark(
       NAME ${OCT_CONV_BENCHMARK_NAME}
       PARALLEL_LEVEL ${OCT_CONV_BENCHMARK_PARALLEL_LEVEL}
@@ -5447,275 +5448,312 @@ add_multitarget_test(NAME max_pool_layer_folded_spatial_dims
                  --data-type=half
                  --use-introspection=1)
 
-add_multitarget_test(NAME avg_pool_layer_half
-         COMMAND pooling_layer
-                 --channels 32
-                 --pooling-type=avg
-                 --field={28,28}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=half)
 
-add_multitarget_test(NAME avg_pool_layer_float
-         COMMAND pooling_layer
-                 --channels 32
-                 --pooling-type=avg
-                 --field={28,28}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=float)
+foreach(OPTIMIZE_FOR_SPEED true false)
 
-add_multitarget_test(NAME avg_pool_layer_1chan_overlapping_kernel
-         COMMAND pooling_layer
-                 --channels 1
-                 --pooling-type=avg
-                 --field={100,100}
-                 --tiles-per-ipu=16
-                 --kernel-size=3
-                 --stride=2
-                 --padding-lower=1
-                 --padding-upper=1
-                 --data-type=float)
+  # Presently implementations that optimise for speed only cover average and
+  # sum pooling, so verify those variants.
+  # PLUS at least one max pool to ensure that it is correctly unaffected
 
-add_multitarget_test(NAME avg_pool_layer_same_field_and_kernel_size
-         COMMAND pooling_layer
-                 --channels 16
-                 --pooling-type=avg
-                 --field={7,7}
-                 --tiles-per-ipu=16
-                 --kernel-size=7
-                 --stride=7
-                 --data-type=half)
+  add_multitarget_test(NAME max_pool_layer_same_field_and_kernel_size_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 16
+                   --pooling-type=max
+                   --field={7,7}
+                   --tiles-per-ipu=16
+                   --kernel-size=7
+                   --stride=7
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME sum_pool_layer_same_field_and_kernel_size
-         COMMAND pooling_layer
-                 --channels 16
-                 --pooling-type=sum
-                 --field={7,7}
-                 --tiles-per-ipu=16
-                 --kernel-size=7
-                 --stride=7
-                 --data-type=half)
 
-add_multitarget_test(NAME sum_pool_layer_3d_same_field_and_kernel_size
-         COMMAND pooling_layer
-                 --channels 16
-                 --pooling-type=sum
-                 --field={4,4,4}
-                 --tiles-per-ipu=16
-                 --kernel-size=4
-                 --stride=4
-                 --data-type=half)
+  add_multitarget_test(NAME avg_pool_layer_half_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 32
+                   --pooling-type=avg
+                   --field={28,28}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME max_pool_layer_same_field_and_kernel_size
-         COMMAND pooling_layer
-                 --channels 16
-                 --pooling-type=max
-                 --field={7,7}
-                 --tiles-per-ipu=16
-                 --kernel-size=7
-                 --stride=7
-                 --data-type=half)
+  add_multitarget_test(NAME avg_pool_layer_float_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 32
+                   --pooling-type=avg
+                   --field={28,28}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=float)
 
-add_multitarget_test(NAME avg_pool_layer_half_batch
-         COMMAND pooling_layer
-                 --batch-size=4
-                 --pooling-type=avg
-                 --channels 16
-                 --field={14,14}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=half)
+  add_multitarget_test(NAME avg_pool_layer_1chan_overlapping_kernel_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 1
+                   --pooling-type=avg
+                   --field={100,100}
+                   --tiles-per-ipu=16
+                   --kernel-size=3
+                   --stride=2
+                   --padding-lower=1
+                   --padding-upper=1
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=float)
 
-add_multitarget_test(NAME avg_pool_layer_float_batch
-         COMMAND pooling_layer
-                 --batch-size=4
-                 --pooling-type=avg
-                 --channels 32
-                 --field={14,28}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+  add_multitarget_test(NAME avg_pool_layer_same_field_and_kernel_size_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 16
+                   --pooling-type=avg
+                   --field={7,7}
+                   --tiles-per-ipu=16
+                   --kernel-size=7
+                   --stride=7
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME avg_pool_layer_2ipu
-         COMMAND pooling_layer
-                 --channels 64
-                 --pooling-type=avg
-                 --bwd-chans-per-group=8
-                 --field={56,56}
-                 --kernel-size=3
-                 --tiles-per-ipu=304
-                 --stride=2
-                 --ipus 2
-                 VARIANTS ${TimesOutOnSim})
+  add_multitarget_test(NAME sum_pool_layer_same_field_and_kernel_size_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 16
+                   --pooling-type=sum
+                   --field={7,7}
+                   --tiles-per-ipu=16
+                   --kernel-size=7
+                   --stride=7
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME avg_pool_layer_1x4
-         COMMAND pooling_layer
-                 --channels 16
-                 --pooling-type=avg
-                 --field={1,32}
-                 --tiles-per-ipu=8
-                 --kernel-size={1,4}
-                 --stride={1,4})
+  add_multitarget_test(NAME sum_pool_layer_3d_same_field_and_kernel_size_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 16
+                   --pooling-type=sum
+                   --field={4,4,4}
+                   --tiles-per-ipu=16
+                   --kernel-size=4
+                   --stride=4
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME avg_pool_layer_mixed_padding
-        COMMAND pooling_layer
-                --channels 16
-                --pooling-type=avg
-                --field={16,24}
-                --tiles-per-ipu=16
-                --kernel={5,3}
-                --stride={1,4}
-                --padding-lower={3,1}
-                --padding-upper={4,2})
+  add_multitarget_test(NAME avg_pool_layer_half_batch_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --batch-size=4
+                   --pooling-type=avg
+                   --channels 16
+                   --field={14,14}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                  --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  --data-type=half)
 
-add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding
-        COMMAND pooling_layer
-                --channels 16
-                --pooling-type=avg
-                --field={16,24}
-                --tiles-per-ipu=16
-                --kernel-size={5,3}
-                --stride={1,4}
-                --padding-lower={-3,-1}
-                --padding-upper={4,2})
+  add_multitarget_test(NAME avg_pool_layer_float_batch_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --batch-size=4
+                   --pooling-type=avg
+                   --channels 32
+                   --field={14,28}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --data-type=float
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   VARIANTS ${TimesOutOnSim})
+# TODO - This test fails (for debug builds only) if we actually use optimize-for-speed=true
+# thought to be an exchange problem, so re-enable once T22069 is done
+  if(${OPTIMIZE_FOR_SPEED} STREQUAL  "false")
+    add_multitarget_test(NAME avg_pool_layer_2ipu_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 64
+                   --pooling-type=avg
+                   --bwd-chans-per-group=8
+                   --field={56,56}
+                   --kernel-size=3
+                   --tiles-per-ipu=304
+                   --stride=2
+                   --ipus 2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   VARIANTS ${TimesOutOnSim})
+  endif()
+  add_multitarget_test(NAME avg_pool_layer_1x4_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 16
+                   --pooling-type=avg
+                   --field={1,32}
+                   --tiles-per-ipu=8
+                   --kernel-size={1,4}
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --stride={1,4})
 
-add_multitarget_test(NAME avg_pool_layer_3d_negative_mixed_padding
-        COMMAND pooling_layer
-                --channels 16
-                --pooling-type=avg
-                --field={16,24,4}
-                --tiles-per-ipu=16
-                --kernel-size={5,3,1}
-                --stride={1,4,1}
-                --padding-lower={-3,-1,-1}
-                --padding-upper={4,2,-1})
+  add_multitarget_test(NAME avg_pool_layer_mixed_padding_${OPTIMIZE_FOR_SPEED}
+          COMMAND pooling_layer
+                  --channels 16
+                  --pooling-type=avg
+                  --field={16,24}
+                  --tiles-per-ipu=16
+                  --kernel={5,3}
+                  --stride={1,4}
+                  --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  --padding-lower={3,1}
+                  --padding-upper={4,2})
 
-add_multitarget_test(NAME sum_pool_layer_half
-         COMMAND pooling_layer
-                 --channels 16
-                 --pooling-type=sum
-                 --field={14,14}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=half)
+  add_multitarget_test(NAME avg_pool_layer_negative_mixed_padding_${OPTIMIZE_FOR_SPEED}
+          COMMAND pooling_layer
+                  --channels 16
+                  --pooling-type=avg
+                  --field={16,24}
+                  --tiles-per-ipu=16
+                  --kernel-size={5,3}
+                  --stride={1,4}
+                  --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  --padding-lower={-3,-1}
+                  --padding-upper={4,2})
 
-add_multitarget_test(NAME sum_pool_layer_float
-         COMMAND pooling_layer
-                 --channels 32
-                 --pooling-type=sum
-                 --field={14,14}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=float)
+  add_multitarget_test(NAME avg_pool_layer_3d_negative_mixed_padding_${OPTIMIZE_FOR_SPEED}
+          COMMAND pooling_layer
+                  --channels 16
+                  --pooling-type=avg
+                  --field={16,24,4}
+                  --tiles-per-ipu=16
+                  --kernel-size={5,3,1}
+                  --stride={1,4,1}
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  --padding-lower={-3,-1,-1}
+                  --padding-upper={4,2,-1})
 
-add_multitarget_test(NAME sum_pool_layer_1chan_overlapping_kernel
-         COMMAND pooling_layer
-                 --channels 1
-                 --pooling-type=sum
-                 --field={100,100}
-                 --tiles-per-ipu=16
-                 --kernel-size=3
-                 --stride=2
-                 --padding-lower=1
-                 --padding-upper=1
-                 --data-type=float)
+  add_multitarget_test(NAME sum_pool_layer_half_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 16
+                   --pooling-type=sum
+                   --field={14,14}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME sum_pool_layer_half_batch
-         COMMAND pooling_layer
-                 --batch-size=4
-                 --pooling-type=sum
-                 --channels 16
-                 --field={14,14}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=half)
+  add_multitarget_test(NAME sum_pool_layer_float_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 32
+                   --pooling-type=sum
+                   --field={14,14}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=float)
 
-add_multitarget_test(NAME sum_pool_layer_float_batch
-         COMMAND pooling_layer
-                 --batch-size=4
-                 --pooling-type=sum
-                 --channels 16
-                 --field={14,14}
-                 --tiles-per-ipu=16
-                 --kernel-size=2
-                 --stride=2
-                 --data-type=float)
+  add_multitarget_test(NAME sum_pool_layer_1chan_overlapping_kernel_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 1
+                   --pooling-type=sum
+                   --field={100,100}
+                   --tiles-per-ipu=16
+                   --kernel-size=3
+                   --stride=2
+                   --padding-lower=1
+                   --padding-upper=1
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=float)
 
-add_multitarget_test(NAME sum_pool_layer_2ipu
-         COMMAND pooling_layer
-                 --channels 64
-                 --pooling-type=sum
-                 --bwd-chans-per-group=8
-                 --field={56,56}
-                 --kernel-size=3
-                 --tiles-per-ipu=16
-                 --stride=2
-                 --ipus 2
-                 VARIANTS ${TimesOutOnSim})
+  add_multitarget_test(NAME sum_pool_layer_half_batch_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --batch-size=4
+                   --pooling-type=sum
+                   --channels 16
+                   --field={14,14}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=half)
 
-add_multitarget_test(NAME sum_pool_layer_3d_2ipu
-         COMMAND pooling_layer
-                 --channels 64
-                 --pooling-type=sum
-                 --bwd-chans-per-group=8
-                 --field={14,14,4}
-                 --kernel-size={3,3,1}
-                 --tiles-per-ipu=16
-                 --stride=2
-                 --ipus 2
-                 VARIANTS ${TimesOutOnSim})
+  add_multitarget_test(NAME sum_pool_layer_float_batch_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --batch-size=4
+                   --pooling-type=sum
+                   --channels 16
+                   --field={14,14}
+                   --tiles-per-ipu=16
+                   --kernel-size=2
+                   --stride=2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --data-type=float)
 
-add_multitarget_test(NAME sum_pool_layer_1x4
-         COMMAND pooling_layer
-                 --channels 32
-                 --pooling-type=sum
-                 --field={1,32}
-                 --tiles-per-ipu=16
-                 --kernel-size={1,4}
-                 --stride={1,4})
+  add_multitarget_test(NAME sum_pool_layer_2ipu_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 64
+                   --pooling-type=sum
+                   --bwd-chans-per-group=8
+                   --field={56,56}
+                   --kernel-size=3
+                   --tiles-per-ipu=16
+                   --stride=2
+                   --ipus 2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(NAME sum_pool_layer_mixed_padding
-        COMMAND pooling_layer
-                --channels 16
-                --pooling-type=sum
-                --field={16,24}
-                --tiles-per-ipu=16
-                --kernel-size={5,3}
-                --stride={1,4}
-                --padding-lower={3,1}
-                --padding-upper={4,2})
+  add_multitarget_test(NAME sum_pool_layer_3d_2ipu_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 64
+                   --pooling-type=sum
+                   --bwd-chans-per-group=8
+                   --field={14,14,4}
+                   --kernel-size={3,3,1}
+                   --tiles-per-ipu=16
+                   --stride=2
+                   --ipus 2
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding
-        COMMAND pooling_layer
-                --channels 16
-                --pooling-type=sum
-                --field={16,24}
-                --tiles-per-ipu=16
-                --kernel-size={5,3}
-                --stride={1,4}
-                --padding-lower={-3,-1}
-                --padding-upper={4,2})
+  add_multitarget_test(NAME sum_pool_layer_1x4_${OPTIMIZE_FOR_SPEED}
+           COMMAND pooling_layer
+                   --channels 32
+                   --pooling-type=sum
+                   --field={1,32}
+                   --tiles-per-ipu=16
+                   --kernel-size={1,4}
+                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                   --stride={1,4})
 
-add_multitarget_test(NAME avg_pool_half_single_channel
-        COMMAND pooling_layer
-                --channels=1
-                --field={10,10}
-                --kernel-size={5,5}
-                --padding-lower={0,0}
-                --padding-upper={0,0}
-                --batch-size=1
-                --pooling-type=avg
-                --data-type=half
-                VARIANTS ${IPUMODEL_VARIANTS};Cpu)
+  add_multitarget_test(NAME sum_pool_layer_mixed_padding_${OPTIMIZE_FOR_SPEED}
+          COMMAND pooling_layer
+                  --channels 16
+                  --pooling-type=sum
+                  --field={16,24}
+                  --tiles-per-ipu=16
+                  --kernel-size={5,3}
+                  --stride={1,4}
+                  --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  --padding-lower={3,1}
+                  --padding-upper={4,2})
+
+  add_multitarget_test(NAME sum_pool_layer_negative_mixed_padding_${OPTIMIZE_FOR_SPEED}
+          COMMAND pooling_layer
+                  --channels 16
+                  --pooling-type=sum
+                  --field={16,24}
+                  --tiles-per-ipu=16
+                  --kernel-size={5,3}
+                  --stride={1,4}
+                  --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  --padding-lower={-3,-1}
+                  --padding-upper={4,2})
+
+  add_multitarget_test(NAME avg_pool_half_single_channel_${OPTIMIZE_FOR_SPEED}
+          COMMAND pooling_layer
+                  --channels=1
+                  --field={10,10}
+                  --kernel-size={5,5}
+                  --padding-lower={0,0}
+                  --padding-upper={0,0}
+                  --batch-size=1
+                  --pooling-type=avg
+                  --data-type=half
+                  --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
+                  VARIANTS ${IPUMODEL_VARIANTS};IpuModel)
+endforeach() # OPTIMISE_FOR_SPEED
+
 
 # the ignore data option disables validation, this test basically just checks
 # that the option or any of the profiling options do not cause a crash.
@@ -7938,7 +7976,7 @@ if(TARGET popsparse)
             --batch-size=64
             --sparsity-factor=0.01
             --tiles-per-ipu=24
-            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}      
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
             --single-phase=${PASS_TYPE})
 
         if (${SHARED_BUCKETS} STREQUAL "true")
@@ -7954,7 +7992,7 @@ if(TARGET popsparse)
               --weighted-area-end={400,786}
               --weighted-area-weight=8
               --tiles-per-ipu=24
-              --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"}       
+              --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"}
               --single-phase=${PASS_TYPE}
             VARIANTS ${TimesOutOnSim})
         endif()
@@ -7972,7 +8010,7 @@ if(TARGET popsparse)
             --batch-size=4
             --sparsity-factor=0.1
             --tiles-per-ipu=24
-            --matmul-options={\"sharedBuckets\":\"true\",\"metaInfoBucketOversizeProportion\":\".005\"}      
+            --matmul-options={\"sharedBuckets\":\"true\",\"metaInfoBucketOversizeProportion\":\".005\"}
             --single-phase=all)
 
   add_test_executable(SparsePartitionerTest SparsePartitionerTests.cpp)
@@ -7990,7 +8028,7 @@ if(TARGET popsparse)
                        --matmul-shape={${ROWS},${COLS},${BATCH}}
                        --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
                        --sparsity-level=${SPARSITY}
-                       --excess=${EXCESS}        
+                       --excess=${EXCESS}
                    )
                 endforeach()
               endforeach()

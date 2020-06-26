@@ -417,7 +417,7 @@ void addBias(poplar::Graph &graph, const poplar::Tensor &in,
              const poplar::Tensor &biases, poplar::program::Sequence &prog,
              const std::string &debugPrefix = "");
 
-/** Report the convolution plan corresponding the \p params and \p options
+/** Report the convolution plan corresponding to the \p params and \p options
  * provided.
  *
  * \param out           ostream to report the plan to.
@@ -430,6 +430,27 @@ void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options = {},
                     PlanningCache *cache = nullptr);
+
+/** Report the estimated cycles and memory costs of the convolution plan
+ * corresponding to the \p params and \p options provided.
+ *
+ * \param graph         The graph that the convolution is planned with.
+ * \param params        The same parameters as used by the convolution().
+ * \param options       Options controlling the implementation.
+ * \param cache         Optional pointer to planning cache to use.
+ *
+ * \return              cycles and memory cost estimates for the planned
+ *                      convolution
+ */
+struct PlanCosts {
+  std::size_t cycles;
+  std::size_t memory;
+};
+
+PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
+                                   const ConvParams &params,
+                                   const poplar::OptionFlags &options = {},
+                                   PlanningCache *cache = nullptr);
 
 /** Report the convolution plan corresponding to the weight update pass given
  * the fwd pass \p params and \p options.

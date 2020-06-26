@@ -5585,6 +5585,18 @@ getMatMulSerialSplits(const poplar::Graph &graph, const ConvParams &params,
 
   return std::make_tuple(groupSplit, leftSplit, rightSplit);
 }
+PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
+                                   const ConvParams &params,
+                                   const poplar::OptionFlags &options_,
+                                   PlanningCache *cache) {
+  const ConvOptions options(graph.getTarget(), options_);
+  auto plan = getPlan(graph.getTarget(), params, options, cache);
+  std::size_t cycles, memory;
+  std::tie(cycles, memory) =
+      estimateConvCost(graph.getTarget(), params, options, cache, plan);
+
+  return {cycles, memory};
+}
 
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,

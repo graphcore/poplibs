@@ -18,6 +18,7 @@
 #include <poplibs_support/MultiArray.hpp>
 #include <poplibs_test/Pooling.hpp>
 #include <poplibs_test/Util.hpp>
+#include <poplin/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/Pooling.hpp>
 #include <popnn/codelets.hpp>
@@ -97,6 +98,7 @@ int main(int argc, char **argv) {
   OptionFlags poolingOptions;
   bool useIntrospectiveMapping;
   bool scaledGradientForMaxPool;
+  bool optimizeForSpeed;
 
   boost::optional<std::string> jsonProfileOut;
 
@@ -166,6 +168,10 @@ int main(int argc, char **argv) {
     ("use-introspection",
      po::value<bool>(&useIntrospectiveMapping)->default_value(true),
      "Whether or not to use introspection when performaing tile mapping")
+    ("optimize-for-speed",
+      po::value<bool>(&optimizeForSpeed)->default_value(false),
+      "Allow optimisations for speed at the cost of memory allocation"
+      " constraints")
   ;
   // clang-format on
   po::variables_map vm;
@@ -190,14 +196,15 @@ int main(int argc, char **argv) {
       engineOptions.set("debug.globalExchangeViaDebug", "true");
     }
 
-    poolingOptions.set("poolUseIntrospectiveMapping",
-                       useIntrospectiveMapping ? "true" : "false");
-
     po::notify(vm);
   } catch (std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+  poolingOptions.set("poolUseIntrospectiveMapping",
+                     useIntrospectiveMapping ? "true" : "false");
+
+  poolingOptions.set("optimizeForSpeed", optimizeForSpeed ? "true" : "false");
 
   auto &inputFieldSize = inputFieldSizeOption.val;
   const auto numFieldDims = inputFieldSize.size();
@@ -224,6 +231,7 @@ int main(int argc, char **argv) {
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
+  poplin::addCodelets(graph);
   popops::addCodelets(graph);
 
   // If the output grouping is unspecified, assume the output uses the same
@@ -291,7 +299,8 @@ int main(int argc, char **argv) {
                       std::end(outDims));
 
   auto fwdProg = Sequence();
-  auto nextAct = popnn::pooling::pool(graph, poolParams, prevAct, fwdProg);
+  auto nextAct = popnn::pooling::pool(graph, poolParams, prevAct, fwdProg,
+                                      "TestFwd", poolingOptions);
 
   auto bwdProg = Sequence();
   Tensor prevDeltas;
@@ -299,10 +308,11 @@ int main(int argc, char **argv) {
     if (poolingType == PoolingType::MAX) {
       prevDeltas = popnn::pooling::poolInputGradient(
           graph, poolParams, prevAct, nextAct, zDeltas,
-          scaledGradientForMaxPool, bwdProg);
+          scaledGradientForMaxPool, bwdProg, "TestBwdMax", poolingOptions);
     } else {
       prevDeltas = popnn::pooling::poolInputGradient(
-          graph, poolParams, fwdChansPerGroup, zDeltas, bwdProg);
+          graph, poolParams, fwdChansPerGroup, zDeltas, bwdProg, "TestBwdSum",
+          poolingOptions);
     }
   }
   Sequence uploadProg, downloadProg;
