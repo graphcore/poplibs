@@ -7,6 +7,7 @@
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
+#include "poplin/ConvParams.hpp"
 #include "popnn/PoolingDef.hpp"
 #include <vector>
 

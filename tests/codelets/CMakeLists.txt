@@ -786,6 +786,27 @@ add_unit_test(MultiSliceCodeletTest
               MultiSliceCodeletTest.cpp
               LABELS codelet)
 
+add_multi_target_test_executable(PoolingCodeletTest PoolingCodeletTest.cpp)
+foreach (FIELD 8 9 10 11 12)
+  foreach (KERNEL 2 3 4)
+    foreach (CHANNELS 4 8)
+      foreach (DATA_TYPE half float)
+        foreach(POOLING_TYPE max avg sum)
+          add_multitarget_test(NAME "PoolingCodelet_f${FIELD}_k${KERNEL}_c${CHANNELS}_${DATA_TYPE}_${POOLING_TYPE}"
+          COMMAND PoolingCodeletTest
+            --field=${FIELD}
+            --kernel=${KERNEL}
+            --channels=${CHANNELS}
+            --pooling-type=${POOLING_TYPE}
+            --data-type=${DATA_TYPE}
+          LABELS codelet
+          VARIANTS "Sim;IpuModel")
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 add_multi_target_test_executable(ConvPartial1x4SLIC ConvPartial1x4SLIC.cpp)
 foreach(MODE 0 1 2)
   if (${MODE} EQUAL 0)

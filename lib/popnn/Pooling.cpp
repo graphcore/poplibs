@@ -96,7 +96,7 @@ static void checkWindowParameters(const PoolParams &params) {
 
 // Create a convolution with parameters with same special characteristics
 // as a pooling operation.
-static ConvParams makeConvParams(const PoolParams &poolParams) {
+ConvParams makeConvParams(const PoolParams &poolParams) {
   const auto numFieldDims = poolParams.inputFieldShape.size();
   std::vector<unsigned> inputTruncationLower(numFieldDims),
       inputPaddingLower(numFieldDims), inputTruncationUpper(numFieldDims),

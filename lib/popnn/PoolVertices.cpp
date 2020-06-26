@@ -1,9 +1,11 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 
 #include "PoolVertices.hpp"
+#include "CreatePoolingVertex.hpp"
 #include "PoolingDefUtil.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/VectorUtils.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -18,6 +20,7 @@ using namespace poplar::program;
 using namespace poplin;
 using namespace popnn::pooling;
 using namespace poputil;
+using namespace poplibs_support;
 using BoostInterval = boost::icl::interval<std::size_t>;
 
 namespace {
@@ -412,7 +415,10 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   std::vector<std::vector<unsigned>> worklist;
   unsigned strideX = params.inputTransform.dilation.back();
   unsigned contextStart = 0;
+  logging::trace("Tile: {}", tile);
   for (std::size_t c = 0; c != numContexts; ++c) {
+    std::string loggingStr = "Worklist " + std::to_string(c) + ": ";
+
     for (auto &rowWorkList : worklistEntries[c]) {
       const auto inBase = rowWorkList.at(0).inBeginOffset;
       const auto outBase = rowWorkList.at(0).outBeginOffset;
@@ -423,6 +429,11 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
         const auto numElements = (r.numElements + strideX - 1) / strideX;
         assert(numElements != 0);
         row.push_back(numElements - 1);
+        if (logging::shouldLog(logging::Level::Trace)) {
+          loggingStr += "[" + std::to_string(r.outBeginOffset - outBase) + "," +
+                        std::to_string(r.inBeginOffset - inBase) + "," +
+                        std::to_string(numElements - 1) + "] ";
+        }
       }
       assert(!row.empty());
       offsetBase.push_back(outBase);
@@ -431,6 +442,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
       ++contextStart;
     }
     contextStartPos.push_back(contextStart);
+    logging::trace(loggingStr);
   }
 
   auto codeletName = getVertexName(poolCfg, in.elementType());
@@ -471,6 +483,9 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   assert(outStride % vectorWidth == 0);
   graph.setInitialValue(v["inStrideD"], inStride / vectorWidth);
   graph.setInitialValue(v["outStrideD"], outStride / vectorWidth);
+
+  logging::trace("chansPerGroup: {} Groups: {} inStride: {} outStride: {}",
+                 chansPerGroup, numChanGroups, inStride, outStride);
 
   if (poolCfg.pass == PoolPass::POOL_BWD &&
       poolCfg.type == popnn::PoolingType::MAX) {
@@ -751,6 +766,25 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   for (auto c : cs) {
     prog.add(Execute(c));
   }
+}
+// Test function for vertex test
+void createPoolingVertex(Graph &graph, const PoolParams &poolParams,
+                         const poplar::Tensor &prevAct,
+                         const poplar::Tensor &nextAct,
+                         poplar::program::Sequence &prog) {
+
+  auto convParams = makeConvParams(poolParams);
+  std::vector<ComputeSet> cs;
+  std::vector<std::size_t> start(poolParams.kernelShape.size(), 0);
+  auto outShapeSpatial = nextAct.shape();
+  outShapeSpatial.pop_back();
+  outShapeSpatial.erase(outShapeSpatial.begin(), outShapeSpatial.begin() + 2);
+  PoolSlice slice = {0, poolParams.batchSize,   start, outShapeSpatial,
+                     0, poolParams.numChannels, start, poolParams.kernelShape};
+  generateVertices(graph, {poolParams.poolingType, PoolPass::POOL_FWD, false},
+                   prevAct, nextAct, nullptr, nullptr, convParams, cs, 0, slice,
+                   "TestPoolingVertex");
+  prog.add(Execute(cs[0]));
 }
 
 } // namespace pooling
