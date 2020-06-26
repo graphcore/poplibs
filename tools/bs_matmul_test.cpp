@@ -291,7 +291,7 @@ int main(int argc, char **argv) {
   std::string sparsityFileName = "sparsity.txt";
   std::string profileDir = ".";
   std::string subBlockMask = "None";
-  std::string partitionMethod = "block-naive";
+  std::string partitionMethod = "strip";
   int lhsBlockRowSize = 36;
   int lhsBlockColSize = 8;
   int rhsBlockSize = 8;

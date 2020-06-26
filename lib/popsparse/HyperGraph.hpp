@@ -4,6 +4,7 @@
 #define popsparse_HyperGraph_hpp
 
 #include <random>
+#include <unordered_map>
 
 #include "BSMatrix.hpp"
 #include "HyperGraphPartitioner.hpp"
@@ -50,6 +51,7 @@ public:
                                    poplar::ComputeSet *transposeCS,
                                    poplar::ComputeSet &mulCS,
                                    poplar::ComputeSet &reduceCS,
+                                   poplar::program::Sequence &prog,
                                    const std::string &debugPrefix) = 0;
 
   // Gets output matmul tensor result
@@ -84,8 +86,10 @@ public:
                         const BlockMatrix &rhs,
                         std::vector<poplar::Tensor> &lhsblocks,
                         std::vector<poplar::Tensor> &rhsBlocks,
+                        const std::vector<int> &lhsTileAssignment,
                         const std::vector<int> &rhsTileAssignment,
                         poplar::ComputeSet *transposeCS,
+                        poplar::program::Sequence &prog,
                         const std::string &debugPrefix);
 
 public:
@@ -105,10 +109,13 @@ public:
   std::unique_ptr<HyperGraphPartitioner> partitioner;
 
 protected:
-  poplar::Tensor worklistTensor;
+  // Shared worklist Tensor for different vertices
+  // Since the blocks maybe grouped, the batch size may be different.
+  // This is a look up table to use batch size to find the worklist tensor.
+  std::unordered_map<int, poplar::Tensor> worklistTensorMap;
 
 protected:
-  unsigned int getRandomTile() {
+  unsigned int getRandomTile(int nTile) {
     std::mt19937 randomEngine;
     return randomEngine() % nTile;
   }

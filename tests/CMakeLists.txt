@@ -7822,7 +7822,7 @@ add_unit_test(WrongSyncZone
 
 if(TARGET popsparse)
   set(SPARSITY_MATRIX ${CMAKE_SOURCE_DIR}/tests/bs-m8x8_0.8_nr.txt)
-  foreach(PART_METHOD "block" "block-naive")
+  foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
     add_multitarget_test(
             NAME BlockSparseMtTest_dsd_fp32_${PART_METHOD}
             COMMAND bs_matmul_test
