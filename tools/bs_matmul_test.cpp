@@ -13,6 +13,7 @@
 #define DEVELOP_BLOCKSPARSE
 
 #include "TestDevice.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poplibs_test/Util.hpp"
 #include <poplar/IPUModel.hpp>
 #include <poplin/MatMul.hpp>
@@ -29,6 +30,7 @@ using namespace poplin;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace popsparse::experimental;
+namespace logging = poplibs_support::logging;
 
 const OptionFlags defaultEngineOptions{{"debug.allowOutOfMemory", "true"}};
 
@@ -69,15 +71,13 @@ void populateMatrixData(const std::array<int, 3> &dim,
                         const std::array<int, 3> &blockSize,
                         boost::multi_array<float, 2> &lhsMatrix,
                         boost::multi_array<float, 2> &rhsMatrix,
-                        const std::vector<unsigned char> *sparsity,
-                        bool rhsNeedTranspose) {
+                        const unsigned char *sparsity, bool rhsNeedTranspose) {
 
   std::mt19937 randomEngine;
   randomEngine.seed(102302);
-
   for (int i = 0; i < dim[0]; i++) {
     for (int j = 0; j < dim[1]; j++) {
-      lhsMatrix[i][j] = (float)randomEngine() / (float)INT_MAX;
+      lhsMatrix[i][j] = static_cast<float>(randomEngine()) / INT_MAX;
     }
   }
 
@@ -104,13 +104,71 @@ void populateMatrixData(const std::array<int, 3> &dim,
       int blockRowEnd = blockRowStart + blockRow;
       int blockColEnd = blockColStart + blockCol;
 
-      float val = 0.0f;
-      if (!sparsity || (*sparsity)[i * nColBlock + j] == 1) {
-        val = static_cast<float>(randomEngine()) / static_cast<float>(INT_MAX);
-        for (int r = blockRowStart; r < blockRowEnd; r++)
-          for (int c = blockColStart; c < blockColEnd; c++)
-            rhsMatrix[r][c] = val;
+      if (!sparsity || sparsity[i * nColBlock + j] == 1) {
+        for (int r = blockRowStart; r < blockRowEnd; r++) {
+          for (int c = blockColStart; c < blockColEnd; c++) {
+            rhsMatrix[r][c] = static_cast<float>(randomEngine()) /
+                              static_cast<float>(INT_MAX);
+          }
+        }
       }
+    }
+  }
+}
+
+void populateMatrixData(const std::array<int, 3> &dim,
+                        const std::array<int, 3> &blockSize, int numGroups,
+                        boost::multi_array<float, 3> &lhsMatrix,
+                        boost::multi_array<float, 3> &rhsMatrix,
+                        const unsigned char *sparsity, bool rhsNeedTranspose) {
+
+  std::mt19937 randomEngine;
+  randomEngine.seed(102302);
+  for (int g = 0; g < numGroups; ++g) {
+    for (int r = 0; r < dim[0]; r++) {
+      for (int c = 0; c < dim[1]; c++) {
+        lhsMatrix[g][r][c] = static_cast<float>(randomEngine()) / INT_MAX;
+      }
+    }
+  }
+
+  int blockRow;
+  int blockCol;
+  int nRowBlock;
+  int nColBlock;
+  if (!rhsNeedTranspose) {
+    blockRow = blockSize[1];
+    blockCol = blockSize[2];
+    nRowBlock = dim[1] / blockSize[1];
+    nColBlock = dim[2] / blockSize[2];
+  } else {
+    blockRow = blockSize[2];
+    blockCol = blockSize[1];
+    nRowBlock = dim[2] / blockSize[2];
+    nColBlock = dim[1] / blockSize[1];
+  }
+
+  std::size_t sparsityDenseSize = nRowBlock * nColBlock;
+  const unsigned char *itemSparsity = sparsity;
+  for (int g = 0; g < numGroups; ++g) {
+    for (int i = 0; i < nRowBlock; i++) {
+      for (int j = 0; j < nColBlock; j++) {
+        int blockRowStart = i * blockRow;
+        int blockColStart = j * blockCol;
+        int blockRowEnd = blockRowStart + blockRow;
+        int blockColEnd = blockColStart + blockCol;
+        if (!itemSparsity || itemSparsity[i * nColBlock + j] == 1) {
+          for (int r = blockRowStart; r < blockRowEnd; r++) {
+            for (int c = blockColStart; c < blockColEnd; c++) {
+              rhsMatrix[g][r][c] = static_cast<float>(randomEngine()) /
+                                   static_cast<float>(INT_MAX);
+            }
+          }
+        }
+      }
+    }
+    if (sparsity) {
+      itemSparsity += sparsityDenseSize;
     }
   }
 }
@@ -129,54 +187,86 @@ void printMatrix(std::string msg, float *matrix, int row, int col) {
 }
 
 // TODO: Move to some kind of utils
-void getSparseMatrixBlocks(
-    int rows, int cols, int rowsInBlock, int colsInBlock,
-    std::vector<unsigned char> &sparsity,
-    const boost::multi_array<float, 2> &denseMat,
-    std::vector<boost::multi_array<float, 1>> &blockData) {
+void getSparseMatrixBlocks(int rows, int cols, int rowsInBlock, int colsInBlock,
+                           unsigned char *sparsity, unsigned nonZeroBlock,
+                           const boost::multi_array<float, 2> &denseMat,
+                           boost::multi_array<float, 1> &sparseMat) {
   const int blockRows = rows / rowsInBlock;
   const int blockCols = cols / colsInBlock;
 
-  int blockCount = 0;
-  for (int br = 0; br < blockRows; br++) {
-    for (int bc = 0; bc < blockCols; bc++) {
-      if (sparsity[br * blockCols + bc] == 1) {
-        blockData.push_back(boost::multi_array<float, 1>(
-            boost::extents[rowsInBlock * colsInBlock]));
+  unsigned sparseSize = nonZeroBlock * rowsInBlock * colsInBlock;
+  sparseMat.resize(boost::extents[sparseSize]);
+
+  unsigned index = 0;
+  for (int br = 0, idxDense = 0; br < blockRows; br++) {
+    for (int bc = 0; bc < blockCols; ++bc, ++idxDense) {
+      if (sparsity[idxDense] == 1) {
         int rowStart = br * rowsInBlock;
         int colStart = bc * colsInBlock;
         int rowEnd = rowStart + rowsInBlock;
         int colEnd = colStart + colsInBlock;
-        int index = 0;
         for (int r = rowStart; r < rowEnd; r++) {
           for (int c = colStart; c < colEnd; c++) {
-            blockData[blockCount][index++] = denseMat[r][c];
+            assert(index < sparseSize);
+            sparseMat[index++] = denseMat[r][c];
           }
         }
-        blockCount++;
       }
     }
   }
+  assert(index == sparseSize);
+}
+
+void getSparseMatrixBlocks(int rows, int cols, int rowsInBlock, int colsInBlock,
+                           int numGroups, unsigned char *sparsity,
+                           unsigned nonZeroBlock,
+                           const boost::multi_array<float, 3> &denseMat,
+                           boost::multi_array<float, 1> &sparseMat) {
+  const int blockRows = rows / rowsInBlock;
+  const int blockCols = cols / colsInBlock;
+
+  unsigned sparseSize = nonZeroBlock * rowsInBlock * colsInBlock;
+  sparseMat.resize(boost::extents[sparseSize]);
+
+  std::size_t sparsityDenseSize = blockRows * blockCols;
+  const unsigned char *itemSparsity = sparsity;
+  unsigned index = 0;
+  for (int g = 0; g < numGroups; ++g) {
+    int blockCount = 0;
+    for (int br = 0; br < blockRows; br++) {
+      for (int bc = 0; bc < blockCols; bc++) {
+        if (itemSparsity[br * blockCols + bc] == 1) {
+          int rowStart = br * rowsInBlock;
+          int colStart = bc * colsInBlock;
+          int rowEnd = rowStart + rowsInBlock;
+          int colEnd = colStart + colsInBlock;
+          for (int r = rowStart; r < rowEnd; r++) {
+            for (int c = colStart; c < colEnd; c++) {
+              assert(index < sparseSize);
+              sparseMat[index++] = denseMat[g][r][c];
+            }
+          }
+          blockCount++;
+        }
+      }
+    }
+    itemSparsity += sparsityDenseSize;
+  }
+  assert(index == sparseSize);
 }
 
 BSMatMulParams createBsMatMul(const std::array<int, 3> &dim,
                               const std::array<int, 3> &blockSize,
                               const std::vector<unsigned char> &sparsity,
                               poplar::Type dataType, bool isResSparse,
-                              bool rhsNeedTranspose,
-                              const std::string &subBlockMask) {
+                              bool rhsNeedTranspose, SubBlockMask mask,
+                              unsigned int numGroups) {
   if (isResSparse) {
-    SubBlockMask mask = SubBlockMask::None;
-    if (subBlockMask == "ZeroUpperTriangle") {
-      mask = SubBlockMask::ZeroUpperTriangle;
-    } else if (subBlockMask == "ZeroLowerTriangle") {
-      mask = SubBlockMask::ZeroLowerTriangle;
-    }
     return BSMatMulParams(dim, blockSize, sparsity, dataType, dataType,
-                          dataType, mask);
+                          dataType, mask, numGroups);
   } else
     return BSMatMulParams(dim, blockSize, sparsity, rhsNeedTranspose, dataType,
-                          dataType, dataType);
+                          dataType, dataType, numGroups);
 }
 
 void savePoplarReport(poplar::Engine &engine, std::string &dir) {
@@ -201,6 +291,7 @@ int main(int argc, char **argv) {
   std::string sparsityFileName = "sparsity.txt";
   std::string profileDir = ".";
   std::string subBlockMask = "None";
+  std::string partitionMethod = "block-naive";
   int lhsBlockRowSize = 36;
   int lhsBlockColSize = 8;
   int rhsBlockSize = 8;
@@ -214,6 +305,7 @@ int main(int argc, char **argv) {
   unsigned runs = 1;
   int rhsNeedTranspose = 0;
   int checkResult = 1;
+  int numGroups = 1;
 
   namespace po = boost::program_options;
 
@@ -288,16 +380,23 @@ int main(int argc, char **argv) {
       ("memory-cycle-ratio",
        po::value<float>(&memoryCycleRatio)->default_value(memoryCycleRatio),
        "the ratio between memory weight and cycle weight")
+      // partition-method
+      ("partition-method",
+       po::value<std::string>(&partitionMethod)->default_value(partitionMethod),
+       "The method to generate the computation graph: block, block-naive")
       // runs
       ("runs", po::value<unsigned>(&runs)->default_value(runs),
        "Number of calls to Engine::run")
+      // number-or-groups
+      ("number-of-groups", po::value<int>(&numGroups), "Number of groups")
       // check-result
       ("check-result", po::value<int>(&checkResult)->default_value(checkResult),
-       "check if the ressult is correct")(
-          "sub-block-mask",
-          po::value<std::string>(&subBlockMask)->default_value(subBlockMask),
-          "the mask inside a block: None, ZeroUpperTriangle, "
-          "ZeroLowerTriangle");
+       "check if the ressult is correct")
+      // Sub-block mask
+      ("sub-block-mask",
+       po::value<std::string>(&subBlockMask)->default_value(subBlockMask),
+       "the mask inside a block: None, ZeroUpperTriangle, "
+       "ZeroLowerTriangle");
 
   po::variables_map vm;
   try {
@@ -327,6 +426,9 @@ int main(int argc, char **argv) {
               << lhsBlockRowSize << ".\n";
     return 1;
   }
+  if (numGroups > 1) {
+    printf("Number of groups: %d\n", numGroups);
+  }
 
   bool compileIPUCode = false;
   if (isIpuModel(deviceType))
@@ -338,16 +440,46 @@ int main(int argc, char **argv) {
   Graph graph(target);
 
   std::array<int, 3> dim;
+
+  SubBlockMask mask = SubBlockMask::None;
+  if (subBlockMask == "ZeroUpperTriangle") {
+    mask = SubBlockMask::ZeroUpperTriangle;
+  } else if (subBlockMask == "ZeroLowerTriangle") {
+    mask = SubBlockMask::ZeroLowerTriangle;
+  } else if (subBlockMask != "None") {
+    logging::err("Unrecognized sub-block mask parameter: {}.",
+                 subBlockMask.c_str());
+    return -1;
+  }
   int nonZeroBlock = 0;
   int sparsityRows, sparsityCols;
   std::vector<unsigned char> sparsity;
+  std::size_t sparsityDenseSize = 0;
   if (!ReadMatrixMask(sparsityFileName, nonZeroBlock, sparsityRows,
                       sparsityCols, sparsity))
     return -1;
-
-  if (!isResMatrixSparse && lhsBlockCols == 0) {
-    lhsBlockCols = sparsityRows;
+  if (numGroups == 1) {
+    printf("non zero block: %d\n", nonZeroBlock);
+    printf("sparsity: %f\n",
+           1.0 -
+               nonZeroBlock / static_cast<float>(sparsityRows * sparsityCols));
+  } else {
+    if (sparsityRows % numGroups != 0) {
+      logging::err(
+          "error: Number of rows {} in concatenated group sparsity mask "
+          "is not divisible "
+          "by the number of groups {}.",
+          sparsityRows, numGroups);
+      return -1;
+    }
+    printf("Average non zero block: %f\n",
+           static_cast<float>(nonZeroBlock) / numGroups);
+    printf("Average sparsity: %f\n",
+           1.0 -
+               nonZeroBlock / static_cast<float>(sparsityRows * sparsityCols));
+    sparsityRows /= numGroups;
   }
+  sparsityDenseSize = sparsityRows * sparsityCols;
 
   bool doProfiling = vm.count("profile") > 0;
   bool doProfilingExecution = doProfiling && vm.count("profile-execution") > 0;
@@ -367,7 +499,7 @@ int main(int argc, char **argv) {
   } else {
     if (lhsBlockCols != sparsityRows) {
       std::cerr << "error: LHS number of block columns " << lhsBlockCols
-                << " does not match the number of block rows in output matrix "
+                << " does not match the number of block rows in RHS matrix "
                 << sparsityRows << ".\n";
       return 1;
     }
@@ -387,7 +519,7 @@ int main(int argc, char **argv) {
 
   BSMatMulParams bsMatMulObj =
       createBsMatMul(dim, blockSize, sparsity, dataType, isResMatrixSparse,
-                     (bool)rhsNeedTranspose, subBlockMask);
+                     (bool)rhsNeedTranspose, mask, numGroups);
 
   double flops;
   if (vm.count("dense-matmul") != 0) {
@@ -400,17 +532,31 @@ int main(int argc, char **argv) {
     }
   }
 
-  boost::multi_array<float, 2> lhsHost(boost::extents[dim[0]][dim[1]]);
+  boost::multi_array<float, 2> lhsHost;
   boost::multi_array<float, 2> rhsHost;
-  if (!rhsNeedTranspose) {
-    rhsHost.resize(boost::extents[dim[1]][dim[2]]);
+  boost::multi_array<float, 3> lhsHost3D;
+  boost::multi_array<float, 3> rhsHost3D;
+  if (numGroups == 1) {
+    lhsHost.resize(boost::extents[dim[0]][dim[1]]);
+    if (!rhsNeedTranspose) {
+      rhsHost.resize(boost::extents[dim[1]][dim[2]]);
+    } else {
+      rhsHost.resize(boost::extents[dim[2]][dim[1]]);
+    }
+    populateMatrixData(dim, blockSize, lhsHost, rhsHost,
+                       (!isRhsMatrixSparse ? nullptr : sparsity.data()),
+                       rhsNeedTranspose);
   } else {
-    rhsHost.resize(boost::extents[dim[2]][dim[1]]);
+    lhsHost3D.resize(boost::extents[numGroups][dim[0]][dim[1]]);
+    if (!rhsNeedTranspose) {
+      rhsHost3D.resize(boost::extents[numGroups][dim[1]][dim[2]]);
+    } else {
+      rhsHost3D.resize(boost::extents[numGroups][dim[2]][dim[1]]);
+    }
+    populateMatrixData(dim, blockSize, numGroups, lhsHost3D, rhsHost3D,
+                       (!isRhsMatrixSparse ? nullptr : sparsity.data()),
+                       rhsNeedTranspose);
   }
-  (boost::extents[dim[1]][dim[2]]);
-  populateMatrixData(dim, blockSize, lhsHost, rhsHost,
-                     (isResMatrixSparse ? nullptr : &sparsity),
-                     rhsNeedTranspose);
 
   const std::string debugPrefix = "bs_matmul";
   Sequence matSeq, uploadProg, downloadProg;
@@ -459,7 +605,8 @@ int main(int argc, char **argv) {
         createBSMatMulInputRHS(graph, bsMatMulObj, "matrix_rhs");
 
     poplar::OptionFlags options = {
-        {"memory-cycle-ratio", std::to_string(memoryCycleRatio)},
+        {"memoryCycleRatio", std::to_string(memoryCycleRatio)},
+        {"partitionMethod", partitionMethod},
     };
 
     // sparse matmul
@@ -478,31 +625,50 @@ int main(int argc, char **argv) {
     if (checkResult) {
       lhsRawHost = allocateHostMemoryForTensor(lhsTensor, "matrix_lhs", graph,
                                                uploadProg, downloadProg, tmap);
-      copy(target, lhsHost, dataType, lhsRawHost.get());
+      if (numGroups == 1) {
+        copy(target, lhsHost, dataType, lhsRawHost.get());
+      } else {
+        copy(target, lhsHost3D, dataType, lhsRawHost.get());
+      }
 
       if (isRhsMatrixSparse) {
         // RHS sparse matrix
-        std::vector<boost::multi_array<float, 1>> rhsBlocksHost;
-        if (!rhsNeedTranspose) {
-          getSparseMatrixBlocks(dim[1], dim[2], blockSize[1], blockSize[2],
-                                sparsity, rhsHost, rhsBlocksHost);
+        boost::multi_array<float, 1> rhsBlocksHost;
+        if (numGroups == 1) {
+          if (!rhsNeedTranspose) {
+            getSparseMatrixBlocks(dim[1], dim[2], blockSize[1], blockSize[2],
+                                  sparsity.data(), nonZeroBlock, rhsHost,
+                                  rhsBlocksHost);
+          } else {
+            getSparseMatrixBlocks(dim[2], dim[1], blockSize[2], blockSize[1],
+                                  sparsity.data(), nonZeroBlock, rhsHost,
+                                  rhsBlocksHost);
+          }
         } else {
-          getSparseMatrixBlocks(dim[2], dim[1], blockSize[2], blockSize[1],
-                                sparsity, rhsHost, rhsBlocksHost);
+          if (!rhsNeedTranspose) {
+            getSparseMatrixBlocks(dim[1], dim[2], blockSize[1], blockSize[2],
+                                  numGroups, sparsity.data(), nonZeroBlock,
+                                  rhsHost3D, rhsBlocksHost);
+          } else {
+            getSparseMatrixBlocks(dim[2], dim[1], blockSize[2], blockSize[1],
+                                  numGroups, sparsity.data(), nonZeroBlock,
+                                  rhsHost3D, rhsBlocksHost);
+          }
         }
-
-        rhsBlocksRawHost.resize(rhsTensor.dim(0));
-        for (uint i = 0; i < rhsTensor.dim(0); i++) {
-          rhsBlocksRawHost[i] = allocateHostMemoryForTensor(
-              rhsTensor[i], "matrix_rhs_block_" + std::to_string(i), graph,
-              uploadProg, downloadProg, tmap);
-          copy(target, rhsBlocksHost[i], dataType, rhsBlocksRawHost[i].get());
-        }
+        rhsRawHost =
+            allocateHostMemoryForTensor(rhsTensor, debugPrefix + "/matrix_rhs",
+                                        graph, uploadProg, downloadProg, tmap);
+        copy(target, rhsBlocksHost, dataType, rhsRawHost.get());
       } else {
         // RHS dense matrix
-        rhsRawHost = allocateHostMemoryForTensor(
-            rhsTensor, "matrix_rhs", graph, uploadProg, downloadProg, tmap);
-        copy(target, rhsHost, dataType, rhsRawHost.get());
+        rhsRawHost =
+            allocateHostMemoryForTensor(rhsTensor, debugPrefix + "/matrix_rhs",
+                                        graph, uploadProg, downloadProg, tmap);
+        if (numGroups == 1) {
+          copy(target, rhsHost, dataType, rhsRawHost.get());
+        } else {
+          copy(target, rhsHost3D, dataType, rhsRawHost.get());
+        }
       }
     }
 
@@ -571,54 +737,120 @@ int main(int argc, char **argv) {
 
   std::cout << "Checking the result...\n";
   boost::multi_array<float, 4> denseMatC(boost::extents[1][1][dim[0]][dim[2]]);
+  boost::multi_array<float, 5> denseMatC3D(
+      boost::extents[numGroups][1][1][dim[0]][dim[2]]);
   std::fill_n(denseMatC.data(), denseMatC.num_elements(), 0.0f);
-  if (!isResMatrixSparse) {
-    copy(target, dataType, outputRawHost.get(), denseMatC);
-  } else {
-    denseMatC.reshape(std::vector<int>(
-        {resBlockRows, resBlockCols, resBlockRowSize, resBlockColSize}));
-    boost::multi_array<float, 3> denseMatCTmp(
-        boost::extents[nonZeroBlock][resBlockRowSize][resBlockColSize]);
-    copy(target, dataType, outputRawHost.get(), denseMatCTmp);
-    int blockCount = 0;
-    for (int br = 0; br < resBlockRows; ++br) {
-      for (int bc = 0; bc < resBlockCols; ++bc) {
-        if (sparsity[br * resBlockCols + bc] > 0) {
-          denseMatC[br][bc] = denseMatCTmp[blockCount++];
+  if (numGroups == 1) {
+    if (!isResMatrixSparse) {
+      copy(target, dataType, outputRawHost.get(), denseMatC);
+    } else {
+      denseMatC.reshape(std::vector<int>(
+          {resBlockRows, resBlockCols, resBlockRowSize, resBlockColSize}));
+      boost::multi_array<float, 3> denseMatCTmp(
+          boost::extents[nonZeroBlock][resBlockRowSize][resBlockColSize]);
+      copy(target, dataType, outputRawHost.get(), denseMatCTmp);
+      int blockCount = 0;
+      for (int br = 0; br < resBlockRows; ++br) {
+        for (int bc = 0; bc < resBlockCols; ++bc) {
+          if (sparsity[br * resBlockCols + bc] > 0) {
+            denseMatC[br][bc] = denseMatCTmp[blockCount++];
+          }
         }
+      }
+    }
+  } else {
+    if (!isResMatrixSparse) {
+      copy(target, dataType, outputRawHost.get(), denseMatC3D);
+    } else {
+      denseMatC3D.reshape(
+          std::vector<int>({static_cast<int>(numGroups), resBlockRows,
+                            resBlockCols, resBlockRowSize, resBlockColSize}));
+      const unsigned char *itemSparsity = sparsity.data();
+      boost::multi_array<float, 3> denseMatCTmp(
+          boost::extents[nonZeroBlock][resBlockRowSize][resBlockColSize]);
+      copy(target, dataType, outputRawHost.get(), denseMatCTmp);
+      int blockCount = 0;
+      for (int g = 0; g < numGroups; ++g) {
+        for (int br = 0; br < resBlockRows; ++br) {
+          for (int bc = 0; bc < resBlockCols; ++bc) {
+            if (itemSparsity[br * resBlockCols + bc] > 0) {
+              denseMatC3D[g][br][bc] = denseMatCTmp[blockCount++];
+            }
+          }
+        }
+        itemSparsity += sparsityDenseSize;
       }
     }
   }
 
   std::vector<std::vector<float>> hostMatC(dim[0],
                                            std::vector<float>(dim[2], 0.0f));
+
+  std::vector<std::vector<std::vector<float>>> hostMatC3D(
+      numGroups, std::vector<std::vector<float>>(
+                     dim[0], std::vector<float>(dim[2], 0.0f)));
+
   if (!isResMatrixSparse) {
     for (int r = 0; r < dim[0]; r++) {
       for (int c = 0; c < dim[2]; c++) {
-        float sum = 0.0f;
-        for (int cmul = 0; cmul < dim[1]; cmul++) {
-          sum += lhsHost[r][cmul] *
-                 (rhsNeedTranspose ? (rhsHost[c][cmul]) : (rhsHost[cmul][c]));
+        if (numGroups == 1) {
+          float sum = 0.0f;
+          for (int cmul = 0; cmul < dim[1]; cmul++) {
+            sum += lhsHost[r][cmul] *
+                   (rhsNeedTranspose ? (rhsHost[c][cmul]) : (rhsHost[cmul][c]));
+          }
+          hostMatC[r][c] = sum;
+        } else {
+          for (int g = 0; g < numGroups; ++g) {
+            float sum = 0.0f;
+            for (int cmul = 0; cmul < dim[1]; cmul++) {
+              sum += lhsHost3D[g][r][cmul] * (rhsNeedTranspose
+                                                  ? (rhsHost3D[g][c][cmul])
+                                                  : (rhsHost3D[g][cmul][c]));
+            }
+            hostMatC3D[g][r][c] = sum;
+          }
         }
-        hostMatC[r][c] = sum;
       }
     }
   } else {
     for (int r = 0; r < dim[0]; r++) {
       for (int c = 0; c < dim[2]; c++) {
-        float sum = 0.0f;
-        if (!((subBlockMask == "ZeroUpperTriangle" && r < c) ||
-              (subBlockMask == "ZeroLowerTriangle" && r > c))) {
-          int br = r / lhsBlockRowSize;
-          int bc = c / rhsBlockSize;
-          if (sparsity[br * rhsBlockCols + bc] != 0) {
-            for (int cmul = 0; cmul < dim[1]; cmul++) {
-              sum += lhsHost[r][cmul] * (rhsNeedTranspose ? (rhsHost[c][cmul])
-                                                          : (rhsHost[cmul][c]));
+        if (numGroups == 1) {
+          float sum = 0.0f;
+          if (!((subBlockMask == "ZeroUpperTriangle" && r < c) ||
+                (subBlockMask == "ZeroLowerTriangle" && r > c))) {
+            int br = r / lhsBlockRowSize;
+            int bc = c / rhsBlockSize;
+            if (sparsity[br * rhsBlockCols + bc] != 0) {
+              for (int cmul = 0; cmul < dim[1]; cmul++) {
+                sum +=
+                    lhsHost[r][cmul] * (rhsNeedTranspose ? (rhsHost[c][cmul])
+                                                         : (rhsHost[cmul][c]));
+              }
             }
           }
+          hostMatC[r][c] = sum;
+        } else {
+          const unsigned char *itemSparsity = sparsity.data();
+          for (int g = 0; g < numGroups; ++g) {
+            float sum = 0.0f;
+            if (!((mask == SubBlockMask::ZeroUpperTriangle && r < c) ||
+                  (mask == SubBlockMask::ZeroLowerTriangle && r > c))) {
+              int br = r / lhsBlockRowSize;
+              int bc = c / rhsBlockSize;
+              if (itemSparsity[br * rhsBlockCols + bc] != 0) {
+                for (int cmul = 0; cmul < dim[1]; cmul++) {
+                  sum += lhsHost3D[g][r][cmul] *
+                         (rhsNeedTranspose ? (rhsHost3D[g][c][cmul])
+                                           : (rhsHost3D[g][cmul][c]));
+                }
+              }
+            }
+            hostMatC3D[g][r][c] = sum;
+            itemSparsity += sparsityDenseSize;
+          }
         }
-        hostMatC[r][c] = sum;
       }
     }
   }
@@ -630,30 +862,44 @@ int main(int argc, char **argv) {
   float valTruth = 0.0f;
   float valTest = 0.0f;
   bool success = true;
-  for (int r = 0; r < dim[0]; r++) {
-    for (int c = 0; c < dim[2]; c++) {
-      float err;
-      float curValTruth = hostMatC[r][c];
-      float curValTest;
-      if (!isResMatrixSparse) {
-        curValTest = denseMatC[0][0][r][c];
-        err = fabs(curValTest - curValTruth);
-      } else {
-        int br = r / resBlockRowSize;
-        int bc = c / resBlockColSize;
-        int rb = r % resBlockRowSize;
-        int cb = c % resBlockColSize;
-        curValTest = denseMatC[br][bc][rb][cb];
-        err = fabs(curValTest - curValTruth);
-      }
-      if (!checkIsClose(curValTruth, curValTest, threshold)) {
-        success = false;
-        if (err > maxErr) {
-          valTruth = curValTruth;
-          valTest = curValTest;
-          errRow = r;
-          errCol = c;
-          maxErr = err;
+  for (int g = 0; g < numGroups; ++g) {
+    for (int r = 0; r < dim[0]; r++) {
+      for (int c = 0; c < dim[2]; c++) {
+        float err;
+        float curValTruth, curValTest;
+        if (numGroups == 1) {
+          curValTruth = hostMatC[r][c];
+        } else {
+          curValTruth = hostMatC3D[g][r][c];
+        }
+        if (!isResMatrixSparse) {
+          if (numGroups == 1) {
+            curValTest = denseMatC[0][0][r][c];
+          } else {
+            curValTest = denseMatC3D[g][0][0][r][c];
+          }
+          err = fabs(curValTest - curValTruth);
+        } else {
+          int br = r / resBlockRowSize;
+          int bc = c / resBlockColSize;
+          int rb = r % resBlockRowSize;
+          int cb = c % resBlockColSize;
+          if (numGroups == 1) {
+            curValTest = denseMatC[br][bc][rb][cb];
+          } else {
+            curValTest = denseMatC3D[g][br][bc][rb][cb];
+          }
+          err = fabs(curValTest - curValTruth);
+        }
+        if (!checkIsClose(curValTruth, curValTest, threshold)) {
+          success = false;
+          if (err > maxErr) {
+            valTruth = curValTruth;
+            valTest = curValTest;
+            errRow = r;
+            errCol = c;
+            maxErr = err;
+          }
         }
       }
     }

@@ -3,6 +3,7 @@
 #include "popsparse/experimental/BlockSparseMatMul.hpp"
 #include "BSMatrix.hpp"
 #include "BSOps.hpp"
+#include "HyperGraphBlockNaive.hpp"
 #include "HyperGraphBlockZoltan.hpp"
 #include <iostream>
 #include <memory>
@@ -24,12 +25,17 @@ public:
                const std::array<int, 3> &blockSize,
                const std::vector<unsigned char> &rhsSparsity,
                bool rhsNeedTransposeIn, poplar::Type inDataTypeIn,
-               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn)
+               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
+               unsigned numGroupsIn = 1)
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
         partialDataType(partialDataTypeIn), isLhsSparse(false),
         isRhsSparse(true), isResSparse(false),
-        rhsNeedTranspose(rhsNeedTransposeIn), subBlockMask(SubBlockMask::None) {
+        rhsNeedTranspose(rhsNeedTransposeIn), subBlockMask(SubBlockMask::None),
+        numGroups(numGroupsIn) {
 
+    if (numGroupsIn == 0) {
+      throw poputil::poplibs_error("Input error: zero number of groups.");
+    }
     for (int iDim = 0; iDim < 3; ++iDim) {
       if (dim[iDim] % blockSize[iDim] != 0) {
         throw poputil::poplibs_error(
@@ -39,24 +45,42 @@ public:
             std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
       }
     }
+    std::size_t sparsitySize = rhsSparsity.size();
+    if (sparsitySize % numGroups != 0) {
+      throw poputil::poplibs_error(
+          "Input error: sparsity mask size " + std::to_string(sparsitySize) +
+          " is not divisible by number of groups " + std::to_string(numGroups));
+    }
+    std::size_t sparsitySizePerGroup = sparsitySize / numGroups;
     int numBlocks = dim[1] / blockSize[1] * dim[2] / blockSize[2];
-    if (static_cast<int>(rhsSparsity.size()) != numBlocks) {
-      throw poputil::poplibs_error("Input error: the sparsity mask size: " +
-                                   std::to_string(rhsSparsity.size()) +
-                                   " does not match total number of blocks: " +
-                                   std::to_string(numBlocks));
+    if (static_cast<int>(sparsitySizePerGroup) != numBlocks) {
+      throw poputil::poplibs_error(
+          "Input error: sparsity mask size" +
+          std::string((numGroups > 1 ? " per group:" : ":")) +
+          std::to_string(sparsitySizePerGroup) +
+          " does not match total number of blocks: " +
+          std::to_string(numBlocks));
     }
-    lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
-                                         blockSize[1], false));
-    if (!rhsNeedTranspose) {
-      rhsMatrix.reset(new BlockSparseMatrix(dim[1], dim[2], blockSize[1],
-                                            blockSize[2], rhsNeedTranspose,
-                                            rhsSparsity.data()));
-    } else {
-      rhsMatrix.reset(new BlockSparseMatrix(dim[2], dim[1], blockSize[2],
-                                            blockSize[1], rhsNeedTranspose,
-                                            rhsSparsity.data()));
+    const unsigned char *sparsityBuf = rhsSparsity.data();
+    for (unsigned idxGroup = 0; idxGroup < numGroups; ++idxGroup) {
+      lhsMatrices.emplace_back(new BlockDenseMatrix(
+          dim[0], dim[1], blockSize[0], blockSize[1], false));
+      if (!rhsNeedTransposeIn) {
+        rhsMatrices.emplace_back(
+            new BlockSparseMatrix(dim[1], dim[2], blockSize[1], blockSize[2],
+                                  rhsNeedTransposeIn, sparsityBuf));
+      } else {
+        rhsMatrices.emplace_back(
+            new BlockSparseMatrix(dim[2], dim[1], blockSize[2], blockSize[1],
+                                  rhsNeedTransposeIn, sparsityBuf));
+      }
+      sparsityBuf += sparsitySizePerGroup;
     }
+
+    logging::info(
+        "bsMatMul dsd: {} x {} x {}, block: {} x {} x {} {} {} group(s)",
+        dim[0], dim[1], dim[2], blockSize[0], blockSize[1], blockSize[2],
+        (rhsNeedTransposeIn ? "rhs transposed" : ""), numGroups);
   }
 
   BSMatMulImpl(const std::array<int, 3> &dim,
@@ -65,11 +89,12 @@ public:
                bool lhsNeedTranspose,
                const std::vector<unsigned char> &rhsSparsity,
                bool rhsNeedTranspose, poplar::Type inDataTypeIn,
-               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn)
+               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
+               unsigned numGroupsIn = 1)
       : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
         partialDataType(partialDataTypeIn), isLhsSparse(true),
         isRhsSparse(true), isResSparse(false), rhsNeedTranspose(false),
-        subBlockMask(SubBlockMask::None) {
+        subBlockMask(SubBlockMask::None), numGroups(numGroupsIn) {
     throw poputil::poplibs_error("Sparse x sparse case is not supported.");
   }
 
@@ -83,7 +108,11 @@ public:
       : resSparsity(resSparsityIn), inDataType(inDataTypeIn),
         outDataType(outDataTypeIn), partialDataType(partialDataTypeIn),
         isLhsSparse(false), isRhsSparse(false), isResSparse(true),
-        rhsNeedTranspose(false), subBlockMask(subBlockMaskIn) {
+        rhsNeedTranspose(false), subBlockMask(subBlockMaskIn),
+        numGroups(numGroupsIn) {
+    if (numGroupsIn == 0) {
+      throw poputil::poplibs_error("Input error: zero number of groups.");
+    }
     for (int iDim = 0; iDim < 3; ++iDim) {
       if (dim[iDim] % blockSize[iDim] != 0) {
         throw poputil::poplibs_error(
@@ -93,22 +122,36 @@ public:
             std::to_string(iDim) + ": " + std::to_string(blockSize[iDim]));
       }
     }
-    int numBlocks = dim[0] / blockSize[0] * dim[2] / blockSize[2];
-    if (static_cast<int>(resSparsityIn.size()) != numBlocks) {
-      throw poputil::poplibs_error("Input error: the sparsity mask size: " +
-                                   std::to_string(resSparsityIn.size()) +
-                                   " does not match total number of blocks: " +
-                                   std::to_string(numBlocks));
+    std::size_t sparsitySize = resSparsityIn.size();
+    if (sparsitySize % numGroups != 0) {
+      throw poputil::poplibs_error(
+          "Input error: sparsity mask size " + std::to_string(sparsitySize) +
+          " is not divisible by number of groups " + std::to_string(numGroups));
     }
-    lhsMatrix.reset(new BlockDenseMatrix(dim[0], dim[1], blockSize[0],
-                                         blockSize[1], false));
-    rhsMatrix.reset(new BlockDenseMatrix(dim[1], dim[2], blockSize[1],
-                                         blockSize[2], false));
-    resSparsity = resSparsityIn;
+    std::size_t sparsitySizePerGroup = sparsitySize / numGroups;
+    int numBlocks = dim[0] / blockSize[0] * dim[2] / blockSize[2];
+    if (static_cast<int>(sparsitySizePerGroup) != numBlocks) {
+      throw poputil::poplibs_error(
+          "Input error: sparsity mask size " +
+          std::string((numGroups > 1 ? "per group:" : ":")) +
+          std::to_string(sparsitySizePerGroup) +
+          " does not match total number of blocks: " +
+          std::to_string(numBlocks));
+    }
+    for (unsigned idxGroup = 0; idxGroup < numGroups; ++idxGroup) {
+      lhsMatrices.emplace_back(new BlockDenseMatrix(
+          dim[0], dim[1], blockSize[0], blockSize[1], false));
+      rhsMatrices.emplace_back(new BlockDenseMatrix(
+          dim[1], dim[2], blockSize[1], blockSize[2], false));
+    }
+
+    logging::info("bsMatMul dds: {} x {} x {}, block: {} x {} x {} {} group(s)",
+                  dim[0], dim[1], dim[2], blockSize[0], blockSize[1],
+                  blockSize[2], numGroups);
   }
 
-  std::unique_ptr<BlockMatrix> lhsMatrix;
-  std::unique_ptr<BlockMatrix> rhsMatrix;
+  std::vector<std::unique_ptr<BlockMatrix>> lhsMatrices;
+  std::vector<std::unique_ptr<BlockMatrix>> rhsMatrices;
   std::vector<unsigned char> resSparsity;
   const poplar::Type inDataType;
   const poplar::Type outDataType;
@@ -118,6 +161,7 @@ public:
   const bool isResSparse;
   const bool rhsNeedTranspose;
   const SubBlockMask subBlockMask;
+  const unsigned numGroups;
 };
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
@@ -125,21 +169,21 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                const std::vector<unsigned char> &rhsSparsity,
                                bool rhsNeedTranspose, poplar::Type inDataType,
                                poplar::Type outDataType,
-                               poplar::Type partialDataType)
+                               poplar::Type partialDataType,
+                               unsigned numGroupsIn)
     : impl(new BSMatMulImpl(dim, blockSize, rhsSparsity, rhsNeedTranspose,
-                            inDataType, outDataType, partialDataType)) {}
+                            inDataType, outDataType, partialDataType,
+                            numGroupsIn)) {}
 
-BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
-                               const std::array<int, 3> &blockSize,
-                               const std::vector<unsigned char> &lhsSparsity,
-                               bool lhsNeedTranspose,
-                               const std::vector<unsigned char> &rhsSparsity,
-                               bool rhsNeedTranspose, poplar::Type inDataType,
-                               poplar::Type outDataType,
-                               poplar::Type partialDataType)
+BSMatMulParams::BSMatMulParams(
+    const std::array<int, 3> &dim, const std::array<int, 3> &blockSize,
+    const std::vector<unsigned char> &lhsSparsity, bool lhsNeedTranspose,
+    const std::vector<unsigned char> &rhsSparsity, bool rhsNeedTranspose,
+    poplar::Type inDataType, poplar::Type outDataType,
+    poplar::Type partialDataType, unsigned numGroupsIn)
     : impl(new BSMatMulImpl(dim, blockSize, lhsSparsity, lhsNeedTranspose,
                             rhsSparsity, rhsNeedTranspose, inDataType,
-                            outDataType, partialDataType)) {}
+                            outDataType, partialDataType, numGroupsIn)) {}
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                const std::array<int, 3> &blockSize,
@@ -147,9 +191,10 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                poplar::Type inDataType,
                                poplar::Type outDataType,
                                poplar::Type partialDataType,
-                               SubBlockMask subBlockMask)
+                               SubBlockMask subBlockMask, unsigned numGroupsIn)
     : impl(new BSMatMulImpl(dim, blockSize, resSparsity, inDataType,
-                            outDataType, partialDataType, subBlockMask)) {}
+                            outDataType, partialDataType, subBlockMask,
+                            numGroupsIn)) {}
 
 BSMatMulParams::BSMatMulParams(BSMatMulParams &&other) = default;
 
@@ -160,9 +205,14 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
                                       const std::string &name) {
   BSMatMulImpl *impl = bsMatMul.impl.get();
 
-  BlockMatrix *lhsMatrix = impl->lhsMatrix.get();
-
-  return lhsMatrix->createTensor(graph, impl->inDataType, name);
+  assert(impl->lhsMatrices.size() == impl->numGroups);
+  std::vector<poplar::Tensor> ts;
+  for (unsigned idxGroup = 0; idxGroup < impl->numGroups; ++idxGroup) {
+    poplar::Tensor t = impl->lhsMatrices[idxGroup]->createTensor(
+        graph, impl->inDataType, name);
+    ts.push_back(t);
+  }
+  return poplar::concat(ts);
 }
 
 poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
@@ -170,17 +220,24 @@ poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const std::string &name) {
   BSMatMulImpl *impl = bsMatMul.impl.get();
 
-  BlockMatrix *rhsMatrix = impl->rhsMatrix.get();
-
-  return rhsMatrix->createTensor(graph, impl->inDataType, name);
+  assert(impl->rhsMatrices.size() == impl->numGroups);
+  std::vector<poplar::Tensor> ts;
+  for (unsigned idxGroup = 0; idxGroup < impl->numGroups; ++idxGroup) {
+    poplar::Tensor t = impl->rhsMatrices[idxGroup]->createTensor(
+        graph, impl->inDataType, name);
+    ts.push_back(t);
+  }
+  return poplar::concat(ts);
 }
 
 static void parseOptions(const poplar::OptionFlags &options,
-                         double &memoryCycleRatio) {
+                         double &memoryCycleRatio,
+                         std::string &partitionMethod) {
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec bsSpec{
-      {"memory-cycle-ratio", OptionHandler::createWithDouble(memoryCycleRatio)},
+      {"memoryCycleRatio", OptionHandler::createWithDouble(memoryCycleRatio)},
+      {"partitionMethod", OptionHandler::createWithString(partitionMethod)},
   };
   for (const auto &entry : options) {
     bsSpec.parse(entry.first, entry.second);
@@ -195,33 +252,166 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         const std::string &debugPrefix) {
   BSMatMulImpl &bsMatMulImpl = *(bsMatMul.impl.get());
 
-  double memoryCycleRatio =
-      0.2; // Default value which works well. Found by in tests.
-  parseOptions(optionFlags, memoryCycleRatio);
+  logging::info("blocksparse matmul: number of groups = {}",
+                bsMatMulImpl.numGroups);
 
-  auto &lhs = *bsMatMulImpl.lhsMatrix;
-  auto &rhs = *bsMatMulImpl.rhsMatrix;
-
-  lhs.setBlockTensor(lhsMatrix);
-  rhs.setBlockTensor(rhsMatrix);
-
-  std::unique_ptr<HyperGraph> hg;
-  unsigned numTiles = graph.getTarget().getTilesPerIPU();
-  hg = std::make_unique<HyperGraphBlockZoltan>(
-      lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
-      bsMatMulImpl.partialDataType, numTiles,
-      static_cast<float>(memoryCycleRatio));
-
-  if (!bsMatMulImpl.isResSparse) {
-    hg->createGraphMatMul(graph, debugPrefix);
+  if (lhsMatrix.rank() != 2 || rhsMatrix.rank() != 2) {
+    throw poputil::poplibs_error("The rank of both input matrices must be 2");
+  }
+  double memoryCycleRatio = 0.2;
+  std::string partitionMethod = std::string("block");
+  parseOptions(optionFlags, memoryCycleRatio, partitionMethod);
+  enum class PartitionMethod {
+    BLOCK,
+    BLOCK_NAIVE,
+  };
+  PartitionMethod pm = PartitionMethod::BLOCK_NAIVE;
+  logging::info("Partition method used: {}", partitionMethod.c_str());
+  if (partitionMethod.compare("block") == 0) {
+    pm = PartitionMethod::BLOCK;
+  } else if (partitionMethod.compare("block-naive") == 0) {
+    pm = PartitionMethod::BLOCK_NAIVE;
   } else {
-    hg->createGraphMatMulSparsifyResult(graph, bsMatMulImpl.resSparsity.data(),
-                                        debugPrefix);
+    logging::warn(
+        "Unknown partition method {}. Default method block will be used.",
+        partitionMethod.c_str());
   }
 
-  hg->createProgramMatMul(graph, bsMatMulImpl.subBlockMask, prog, debugPrefix);
+  std::function<std::unique_ptr<HyperGraph>(const BlockMatrix &,
+                                            const BlockMatrix &, unsigned int)>
+      createHyperGraph = [&](const BlockMatrix &lhs, const BlockMatrix &rhs,
+                             unsigned int numTiles) {
+        std::unique_ptr<HyperGraph> hg;
+        switch (pm) {
+        case (PartitionMethod::BLOCK):
+        default:
+          hg = std::make_unique<HyperGraphBlockZoltan>(
+              lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
+              bsMatMulImpl.partialDataType, numTiles,
+              static_cast<float>(memoryCycleRatio));
+          break;
+        case (PartitionMethod::BLOCK_NAIVE):
+          hg = std::make_unique<HyperGraphBlockNaive>(
+              lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
+              bsMatMulImpl.partialDataType, numTiles,
+              static_cast<float>(memoryCycleRatio));
+          break;
+        }
+        return hg;
+      };
 
-  return hg->getResultTensor();
+  if (bsMatMulImpl.numGroups == 1) {
+    auto &lhs = *bsMatMulImpl.lhsMatrices[0];
+    auto &rhs = *bsMatMulImpl.rhsMatrices[0];
+
+    lhs.setBlockTensor(lhsMatrix);
+    rhs.setBlockTensor(rhsMatrix);
+
+    unsigned numTiles = graph.getTarget().getTilesPerIPU();
+    std::unique_ptr<HyperGraph> hg = createHyperGraph(lhs, rhs, numTiles);
+
+    if (!bsMatMulImpl.isResSparse) {
+      hg->createGraphMatMul(graph, debugPrefix);
+    } else {
+      hg->createGraphMatMulSparsifyResult(
+          graph, bsMatMulImpl.resSparsity.data(), debugPrefix);
+    }
+
+    hg->createProgramMatMul(graph, bsMatMulImpl.subBlockMask, prog,
+                            debugPrefix);
+
+    return hg->getResultTensor();
+  } else {
+    std::unique_ptr<poplar::ComputeSet> transposeCS;
+    if (!bsMatMulImpl.rhsNeedTranspose) {
+      transposeCS.reset(new poplar::ComputeSet(
+          graph.addComputeSet(debugPrefix + "/transposeCS")));
+    }
+    poplar::ComputeSet mulCS = graph.addComputeSet(debugPrefix + "/mulCS");
+    poplar::ComputeSet reduceCS =
+        graph.addComputeSet(debugPrefix + "/reduceCS");
+
+    unsigned numTilesTotal = graph.getTarget().getTilesPerIPU();
+    unsigned numTilesPerGroupLow = numTilesTotal / bsMatMulImpl.numGroups;
+    unsigned numTilesPerGroupLeftover = numTilesTotal % bsMatMulImpl.numGroups;
+
+    int resBlockRow, resBlockCol;
+    int resBlockRowCount, resBlockColCount;
+
+    std::vector<poplar::Tensor> resTensors;
+    unsigned idxLowerTile = 0;
+    const unsigned char *sparsityBuf = bsMatMulImpl.resSparsity.data();
+    std::size_t sparsitySizePerGroup =
+        bsMatMulImpl.resSparsity.size() / bsMatMulImpl.numGroups;
+    std::size_t lhsBegin = 0;
+    std::size_t rhsBegin = 0;
+    std::size_t lhsEnd, rhsEnd;
+    for (unsigned idxGroup = 0; idxGroup < bsMatMulImpl.numGroups; ++idxGroup) {
+      unsigned numTiles = (idxGroup < numTilesPerGroupLeftover)
+                              ? numTilesPerGroupLow + 1
+                              : numTilesPerGroupLow;
+      unsigned idxUpperTile = idxLowerTile + numTiles;
+      poplar::Graph subGraph =
+          graph.createVirtualGraph(idxLowerTile, idxUpperTile);
+
+      auto &lhs = *bsMatMulImpl.lhsMatrices[idxGroup];
+      auto &rhs = *bsMatMulImpl.rhsMatrices[idxGroup];
+      std::array<int, 2> lhsDims = lhs.getDimensions();
+      std::array<int, 2> rhsDims = rhs.getDimensions();
+      lhsEnd = lhsBegin + lhsDims[0];
+      rhsEnd = rhsBegin + rhsDims[0];
+      if (lhsEnd > lhsMatrix.dim(0)) {
+        throw poputil::poplibs_error("0 dimension of LHS matrix is too small");
+      }
+      if (rhsEnd > rhsMatrix.dim(0)) {
+        throw poputil::poplibs_error("0 dimension of RHS matrix is too small");
+      }
+
+      lhs.setBlockTensor(lhsMatrix.slice(lhsBegin, lhsEnd, 0));
+      rhs.setBlockTensor(rhsMatrix.slice(rhsBegin, rhsEnd, 0));
+
+      std::unique_ptr<HyperGraph> hg = createHyperGraph(lhs, rhs, numTiles);
+
+      if (!bsMatMulImpl.isResSparse) {
+        hg->createGraphMatMul(subGraph, debugPrefix);
+      } else {
+        hg->createGraphMatMulSparsifyResult(subGraph, sparsityBuf, debugPrefix);
+      }
+
+      hg->createProgramMatMul(subGraph, transposeCS.get(), mulCS, reduceCS,
+                              debugPrefix);
+
+      resTensors.push_back(hg->getResultTensor());
+      hg->getResultBlockSize(resBlockRow, resBlockCol);
+      hg->getResultBlockCount(resBlockRowCount, resBlockColCount);
+
+      sparsityBuf += sparsitySizePerGroup;
+      idxLowerTile = idxUpperTile;
+      lhsBegin = lhsEnd;
+      rhsBegin = rhsEnd;
+    }
+    if (lhsEnd != lhsMatrix.dim(0)) {
+      throw poputil::poplibs_error("0 dimension of LHS matrix is too big");
+    }
+    if (rhsEnd != rhsMatrix.dim(0)) {
+      throw poputil::poplibs_error("0 dimension of RHS matrix is too big");
+    }
+    if (!bsMatMulImpl.rhsNeedTranspose) {
+      prog.add(poplar::program::Execute(*transposeCS.get()));
+    }
+    prog.add(poplar::program::Execute(mulCS));
+    prog.add(poplar::program::Execute(reduceCS));
+
+    poplar::Tensor resTensor = poplar::concat(resTensors);
+    if (bsMatMulImpl.subBlockMask != SubBlockMask::None) {
+      applySubBlockMask(graph, resTensor, bsMatMulImpl.subBlockMask,
+                        resBlockRow, resBlockCol, resBlockRowCount,
+                        resBlockColCount, bsMatMulImpl.resSparsity.data(),
+                        bsMatMulImpl.numGroups, prog, debugPrefix);
+    }
+
+    return resTensor;
+  }
 }
 
 } // namespace experimental

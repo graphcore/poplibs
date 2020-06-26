@@ -11,6 +11,7 @@ add_library(popsparse SHARED
   HyperGraph.cpp
   HyperGraphBlock.cpp
   HyperGraphBlockZoltan.cpp
+  HyperGraphBlockNaive.cpp
   ZoltanPartitioner.cpp
   BSOps.cpp
   BSUtils.cpp
