@@ -1023,6 +1023,8 @@ public:
     return PlanningObjective(MINIMIZE_TILES, false);
   }
 
+  friend std::ostream &operator<<(std::ostream &os, const PlanningObjective &);
+
   PlanningObjective &setCyclesBound(unsigned bound) {
     assert(type != MINIMIZE_CYCLES);
     assert(bound > 0);
@@ -1066,6 +1068,51 @@ public:
     POPLIB_UNREACHABLE();
   }
 };
+
+std::ostream &operator<<(std::ostream &os, const PlanningObjective &po) {
+  switch (po.type) {
+  case PlanningObjective::MINIMIZE_CYCLES: {
+    os << "{ minimise cycles";
+    break;
+  }
+  case PlanningObjective::MINIMIZE_COST_DIFF: {
+    os << "{ minimise cost diff";
+    if (po.minimizeForTiles) {
+      os << " - tiles";
+    } else { // temp memory
+      os << " - temp memory";
+    }
+    break;
+  }
+  case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY: {
+    os << "{ minimise tile temp memory";
+    break;
+  }
+  case PlanningObjective::MINIMIZE_TILES: {
+    os << "{ minimise tiles";
+    break;
+  }
+  }
+  const auto hasCycleBound =
+      po.cyclesBound != std::numeric_limits<unsigned>::max();
+  const auto hasTileTempMemoryBound =
+      po.tileTempMemoryBound != std::numeric_limits<unsigned>::max();
+  const auto hasBoundSet = hasCycleBound || hasTileTempMemoryBound;
+  if (hasBoundSet) {
+    os << " : ";
+    if (hasCycleBound) {
+      os << "cycle bound = " << po.cyclesBound;
+    }
+    if (hasCycleBound && hasTileTempMemoryBound) {
+      os << ", ";
+    }
+    if (hasTileTempMemoryBound) {
+      os << "tile temp memory bound = " << po.tileTempMemoryBound << "B";
+    }
+  }
+  os << " }";
+  return os;
+}
 
 static Cost highestCost(std::numeric_limits<unsigned>::max(),
                         std::numeric_limits<unsigned>::max(),
@@ -5302,6 +5349,7 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
            const boost::optional<Plan> &referencePlan,
            const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
+  logging::debug("Creating plan with objective {}", objective);
   validateLayerParams(params, options, target);
 
   // A coarse metric to measure the efficiency of the constraint solver
@@ -5415,7 +5463,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
                            convVertexType, params, isJointPlan, bestCost,
                            objective, startTileIdxForVirtualHierarchy,
                            referencePlan, referenceCost, cache, options);
-            logging::trace("Evaluated {} constraints", constraintsEvaluated);
+            logging::trace("Evaluated {} constraints for candidate plan",
+                           constraintsEvaluated);
             totalConstraintsEvaluated += constraintsEvaluated;
             if (candidateCost == highestCost) {
               continue;
@@ -5436,7 +5485,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
     }
   }
 
-  if (isJointPlan && bestCost != highestCost) {
+  const auto planIsValid = bestCost != highestCost;
+
+  if (isJointPlan && planIsValid) {
     // If we created a plan with the assumption that inputType == outputType,
     // we now restore resultType to ensure bestPlan is valid.
     const auto numLevelsOfHierarchy = hierarchy.size() + 1;
@@ -5453,8 +5504,14 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
     }
   }
 
-  logging::debug("Evaluated a total of {} constraints to find the best plan",
-                 totalConstraintsEvaluated);
+  if (planIsValid) {
+    logging::debug("Evaluated a total of {} constraints to find the best plan",
+                   totalConstraintsEvaluated);
+  } else {
+    logging::debug(
+        "Evaluated a total of {} constraints and could not find a valid plan",
+        totalConstraintsEvaluated);
+  }
   return {bestPlan, bestCost};
 }
 static CanonicalConvParams
