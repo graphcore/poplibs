@@ -71,14 +71,13 @@ static void hypergraphList(void *data, int globalIDEntries, int hyperGraphSize,
   }
 }
 
-bool ZoltanPartitioner::partitionGraph(const HyperGraphData &graphData,
-                                       int nPartition,
-                                       std::vector<int> &nodeAssignment) {
+float ZoltanPartitioner::partitionGraph(const HyperGraphData &graphData,
+                                        int nPartition,
+                                        std::vector<int> &nodeAssignment) {
   float zoltanVersion;
 
   if (Zoltan_Initialize(0, nullptr, &zoltanVersion) != ZOLTAN_OK) {
     throw poputil::poplibs_error("Partitioning of the graph failed");
-    return false;
   }
 
   std::unique_ptr<Zoltan> zz(new Zoltan);
@@ -183,7 +182,19 @@ bool ZoltanPartitioner::partitionGraph(const HyperGraphData &graphData,
     nodeAssignment[data.exportGlobalIDs[i]] = data.exportToPart[i];
   }
 
-  return true;
+  float minWeight, maxWeight, avgWeight, balance;
+  int minTileId, maxTileId, zeroTiles;
+  computeLoadBalance(graphData.weights, nPartition, nodeAssignment, minWeight,
+                     minTileId, maxWeight, maxTileId, avgWeight, balance,
+                     zeroTiles);
+
+  logging::info("Min weight {} on tile {}", minWeight, minTileId);
+  logging::info("Max weight {} on tile {}", maxWeight, maxTileId);
+  logging::info("Average weight {}", avgWeight);
+  logging::info("partition load balance {}, number of tile that has no "
+                "assignment {}",
+                balance, zeroTiles);
+  return balance + zeroTiles;
 }
 
 } // namespace experimental

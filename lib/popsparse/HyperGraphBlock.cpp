@@ -372,13 +372,14 @@ void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
                                           poplar::ComputeSet *transposeCS,
                                           poplar::ComputeSet &mulCS,
                                           poplar::ComputeSet &reduceCS,
+                                          poplar::program::Sequence &prog,
                                           const std::string &debugPrefix) {
 
   std::map<unsigned int, poplar::Tensor> partialData;
   std::vector<unsigned int> nodeCTileId;
 
   createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, transposeCS,
-                         debugPrefix);
+                         prog, debugPrefix);
 
   createComputeSetReduce(graph, partialData, nodeCTileId, reduceCS,
                          debugPrefix);
@@ -393,12 +394,12 @@ void HyperGraphBlock::createComputeSetMatMul(
   if (!matB.getNeedTranspose()) {
     poplar::ComputeSet transposeCS =
         graph.addComputeSet(debugPrefix + "/transposeCS");
-    createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, &transposeCS,
-                           debugPrefix);
     prog.add(poplar::program::Execute(transposeCS));
+    createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, &transposeCS,
+                           prog, debugPrefix);
   } else {
     createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, nullptr,
-                           debugPrefix);
+                           prog, debugPrefix);
   }
   prog.add(poplar::program::Execute(mulCS));
 }
@@ -406,10 +407,12 @@ void HyperGraphBlock::createComputeSetMatMul(
 void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
     std::vector<unsigned int> &nodeCTileId, poplar::ComputeSet &mulCS,
-    poplar::ComputeSet *transposeCS, const std::string &debugPrefix) {
+    poplar::ComputeSet *transposeCS, poplar::program::Sequence &prog,
+    const std::string &debugPrefix) {
 
   // set tile mapping for tensors in all nodes
   const std::vector<poplar::Tensor> &blockDataA = matA.getBlockTensor();
+  std::vector<int> lhsBlockTileId(blockDataA.size());
   for (const auto &n : nodeA) {
     unsigned int blockId = n.blockId;
     unsigned int nodeId = n.id;
@@ -420,6 +423,7 @@ void HyperGraphBlock::createComputeSetMatMul(
     }
     unsigned int tileId = static_cast<unsigned int>(tileAssignment[nodeId]);
     graph.setTileMapping(blockDataA[blockId], tileId);
+    lhsBlockTileId[blockId] = tileId;
   }
 
   const std::vector<poplar::Tensor> &blockDataB = matB.getBlockTensor();
@@ -440,7 +444,8 @@ void HyperGraphBlock::createComputeSetMatMul(
 
   std::vector<poplar::Tensor> processedBlockDataA, processedBlockDataB;
   preprocessBlocks(graph, matA, matB, processedBlockDataA, processedBlockDataB,
-                   rhsBlockTileId, transposeCS, debugPrefix);
+                   lhsBlockTileId, rhsBlockTileId, transposeCS, prog,
+                   debugPrefix);
 
   unsigned int vNodeCount = 0;
   std::vector<int> tileNodes(nTile, 0);
@@ -519,7 +524,7 @@ void HyperGraphBlock::createComputeSetMatMul(
     if (max == -1) {
       // This node does not have any input, so it is zero block
       // put it on a random tile
-      tileId = getRandomTile();
+      tileId = getRandomTile(nTile);
     }
 
     assert(tileId >= 0);

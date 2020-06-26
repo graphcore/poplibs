@@ -1,10 +1,12 @@
-// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+// Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 
 #include "popsparse/experimental/BlockSparseMatMul.hpp"
 #include "BSMatrix.hpp"
 #include "BSOps.hpp"
 #include "HyperGraphBlockNaive.hpp"
 #include "HyperGraphBlockZoltan.hpp"
+#include "HyperGraphStrip.hpp"
+#include "HyperGraphStripV0.hpp"
 #include <iostream>
 #include <memory>
 #include <poplibs_support/logging.hpp>
@@ -231,12 +233,13 @@ poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
 }
 
 static void parseOptions(const poplar::OptionFlags &options,
-                         double &memoryCycleRatio,
+                         double &memoryCycleRatio, int &nPass,
                          std::string &partitionMethod) {
   using poplibs::OptionHandler;
   using poplibs::OptionSpec;
   const OptionSpec bsSpec{
       {"memoryCycleRatio", OptionHandler::createWithDouble(memoryCycleRatio)},
+      {"numberOfPass", OptionHandler::createWithInteger(nPass)},
       {"partitionMethod", OptionHandler::createWithString(partitionMethod)},
   };
   for (const auto &entry : options) {
@@ -258,23 +261,72 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
   if (lhsMatrix.rank() != 2 || rhsMatrix.rank() != 2) {
     throw poputil::poplibs_error("The rank of both input matrices must be 2");
   }
+
   double memoryCycleRatio = 0.2;
-  std::string partitionMethod = std::string("block");
-  parseOptions(optionFlags, memoryCycleRatio, partitionMethod);
+  int nPass = 1;
+  std::string partitionMethod = std::string("strip");
+  parseOptions(optionFlags, memoryCycleRatio, nPass, partitionMethod);
+
+  if (nPass > 1 && bsMatMulImpl.numGroups > 1) {
+    throw poputil::poplibs_error(
+        "For group operation number-of-pass option must be 1");
+  }
+
   enum class PartitionMethod {
+    STRIPV0,
+    STRIP,
     BLOCK,
     BLOCK_NAIVE,
   };
-  PartitionMethod pm = PartitionMethod::BLOCK_NAIVE;
+  PartitionMethod pm = PartitionMethod::STRIP;
   logging::info("Partition method used: {}", partitionMethod.c_str());
   if (partitionMethod.compare("block") == 0) {
     pm = PartitionMethod::BLOCK;
   } else if (partitionMethod.compare("block-naive") == 0) {
     pm = PartitionMethod::BLOCK_NAIVE;
+  } else if (partitionMethod.compare("stripv0") == 0) {
+    pm = PartitionMethod::STRIPV0;
+  } else if (partitionMethod.compare("strip") == 0) {
+    pm = PartitionMethod::STRIP;
   } else {
     logging::warn(
-        "Unknown partition method {}. Default method block will be used.",
+        "Unknown partition method {}. Default method strip will be used.",
         partitionMethod.c_str());
+  }
+
+  logging::info("matrix dimension [{}, {}, {}, {}] rhs need transpose {} "
+                "inner group size = {}",
+                (int)bsMatMulImpl.lhsMatrices.size(),
+                bsMatMulImpl.lhsMatrices[0]->getRowCount(),
+                bsMatMulImpl.lhsMatrices[0]->getColCount(),
+                bsMatMulImpl.rhsMatrices[0]->getColCount(),
+                bsMatMulImpl.rhsNeedTranspose, bsMatMulImpl.numGroups);
+
+  if (bsMatMulImpl.isResSparse) {
+    logging::info("result sparse");
+  }
+
+  logging::info("block dimention [{}, {}, {}]",
+                bsMatMulImpl.lhsMatrices[0]->getBlockRow(),
+                bsMatMulImpl.lhsMatrices[0]->getBlockCol(),
+                bsMatMulImpl.rhsMatrices[0]->getBlockCol());
+
+  float sparsity = 0.0;
+  if (bsMatMulImpl.isResSparse) {
+    int zeros = 0;
+    for (unsigned i = 0; i < bsMatMulImpl.resSparsity.size(); i++) {
+      if (bsMatMulImpl.resSparsity[i] == 0)
+        zeros++;
+    }
+    sparsity = (float)zeros / (float)bsMatMulImpl.resSparsity.size();
+    logging::info("non zero blocks {}, sparsity {}",
+                  (int)(bsMatMulImpl.resSparsity.size() - zeros), sparsity);
+  } else {
+    int nonZeros = bsMatMulImpl.rhsMatrices[0]->getNonZeroBlockCount();
+    int blocks = bsMatMulImpl.rhsMatrices[0]->getBlockRowCount() *
+                 bsMatMulImpl.rhsMatrices[0]->getBlockColCount();
+    logging::info("non zero blocks {}, sparsity {}\n", nonZeros,
+                  1.0 - (float)nonZeros / (float)blocks);
   }
 
   std::function<std::unique_ptr<HyperGraph>(const BlockMatrix &,
@@ -284,7 +336,6 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
         std::unique_ptr<HyperGraph> hg;
         switch (pm) {
         case (PartitionMethod::BLOCK):
-        default:
           hg = std::make_unique<HyperGraphBlockZoltan>(
               lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
               bsMatMulImpl.partialDataType, numTiles,
@@ -296,7 +347,18 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
               bsMatMulImpl.partialDataType, numTiles,
               static_cast<float>(memoryCycleRatio));
           break;
-        }
+        case (PartitionMethod::STRIPV0):
+          hg = std::make_unique<HyperGraphStripV0>(
+              lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
+              bsMatMulImpl.partialDataType, numTiles,
+              static_cast<float>(memoryCycleRatio));
+          break;
+        default:
+          hg = std::make_unique<HyperGraphStrip>(
+              lhs, rhs, bsMatMulImpl.inDataType, bsMatMulImpl.outDataType,
+              bsMatMulImpl.partialDataType, numTiles, nPass);
+          break;
+        };
         return hg;
       };
 
@@ -326,6 +388,7 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
     if (!bsMatMulImpl.rhsNeedTranspose) {
       transposeCS.reset(new poplar::ComputeSet(
           graph.addComputeSet(debugPrefix + "/transposeCS")));
+      prog.add(poplar::program::Execute(*transposeCS.get()));
     }
     poplar::ComputeSet mulCS = graph.addComputeSet(debugPrefix + "/mulCS");
     poplar::ComputeSet reduceCS =
@@ -379,7 +442,7 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
       }
 
       hg->createProgramMatMul(subGraph, transposeCS.get(), mulCS, reduceCS,
-                              debugPrefix);
+                              prog, debugPrefix);
 
       resTensors.push_back(hg->getResultTensor());
       hg->getResultBlockSize(resBlockRow, resBlockCol);
@@ -395,9 +458,6 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
     }
     if (rhsEnd != rhsMatrix.dim(0)) {
       throw poputil::poplibs_error("0 dimension of RHS matrix is too big");
-    }
-    if (!bsMatMulImpl.rhsNeedTranspose) {
-      prog.add(poplar::program::Execute(*transposeCS.get()));
     }
     prog.add(poplar::program::Execute(mulCS));
     prog.add(poplar::program::Execute(reduceCS));

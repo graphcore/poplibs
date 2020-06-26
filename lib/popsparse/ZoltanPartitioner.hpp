@@ -20,8 +20,8 @@ public:
 
   virtual ~ZoltanPartitioner() = default;
 
-  virtual bool partitionGraph(const HyperGraphData &graphData, int nPartition,
-                              std::vector<int> &nodeAssignment) override;
+  virtual float partitionGraph(const HyperGraphData &graphData, int nPartition,
+                               std::vector<int> &nodeAssignment) override;
 
   PartitionType partitionType;
 };

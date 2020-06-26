@@ -70,8 +70,14 @@ public:
   nPartition - number of partitions
   resulting partAssignment - assignment of nodes on partitions
   */
-  virtual bool partitionGraph(const HyperGraphData &graphData, int nPartition,
-                              std::vector<int> &partAssignment) = 0;
+  virtual float partitionGraph(const HyperGraphData &graphData, int nPartition,
+                               std::vector<int> &partAssignment) = 0;
+
+  static void
+  computeLoadBalance(const std::vector<float> &nodeWeight, int nPartition,
+                     std::vector<int> &nodeAssignment, float &minWeight,
+                     int &minTileId, float &maxWeight, int &maxTileId,
+                     float &avgWeight, float &balance, int &zeroTiles);
 };
 
 } // namespace experimental

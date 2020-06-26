@@ -147,6 +147,7 @@ public:
                            poplar::ComputeSet *transposeCS,
                            poplar::ComputeSet &mulCS,
                            poplar::ComputeSet &reduceCS,
+                           poplar::program::Sequence &prog,
                            const std::string &debugPrefix) override;
   // Creates a compute set to perform a partial matmul
   void createComputeSetMatMul(
@@ -158,7 +159,8 @@ public:
   void createComputeSetMatMul(
       poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
       std::vector<unsigned int> &nodeCTileId, poplar::ComputeSet &mulCS,
-      poplar::ComputeSet *transposeCS, const std::string &debugPrefix);
+      poplar::ComputeSet *transposeCS, poplar::program::Sequence &prog,
+      const std::string &debugPrefix);
 
   // Creates a compute set to perform reduce
   void createComputeSetReduce(

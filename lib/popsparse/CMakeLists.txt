@@ -10,9 +10,13 @@ add_library(popsparse SHARED
   BSMatrix.cpp
   HyperGraph.cpp
   HyperGraphBlock.cpp
+  HyperGraphStripV0.cpp
+  HyperGraphStrip.cpp
   HyperGraphBlockZoltan.cpp
   HyperGraphBlockNaive.cpp
+  HyperGraphPartitioner.cpp
   ZoltanPartitioner.cpp
+  BalancedPartitioner.cpp
   BSOps.cpp
   BSUtils.cpp
   BSNonLinearity.cpp

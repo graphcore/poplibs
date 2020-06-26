@@ -6,6 +6,7 @@
 #include <popops/ElementWise.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
+#include <unordered_map>
 
 namespace popsparse {
 namespace experimental {
@@ -25,18 +26,18 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
   const auto inElementTypeSize = inDataType == poplar::HALF ? 2 : 4;
   assert((convOutChannels * outElementTypeSize) % 8 == 0);
 
-  if (!worklistTensor.valid()) {
+  int batchSize = lhs[0].dim(0) * lhs[0].dim(1) / matA.getBlockCol();
+  poplar::Tensor worklistTensor;
+
+  if (worklistTensorMap.find(batchSize) != worklistTensorMap.end()) {
+    worklistTensor = worklistTensorMap[batchSize];
+  } else {
     int nWorker = graph.getTarget().getNumWorkerContexts();
     if (nWorker != 6) {
-      throw poputil::poplibs_error("Error: the number of IPU work contexts is "
+      throw poputil::poplibs_error("Error: the number of IPU work context is "
                                    "NOT 6");
       return;
     }
-
-    // Here we use term "batchSize" more general just for the lack of better
-    // term Number of rows in matrix A == batchSize if we use matmut to multiply
-    // input by weights for forward pass
-    int batchSize = matA.getBlockRow();
 
     int workerSize = batchSize / nWorker;
     int leftover = batchSize % nWorker;
@@ -57,7 +58,8 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
     worklistTensor = graph.addConstant(
         poplar::UNSIGNED_SHORT, {static_cast<unsigned long>(nWorker * 3)},
         worklist.data(), debugPrefix + "/worklists");
-    graph.setTileMapping(worklistTensor, getRandomTile());
+    graph.setTileMapping(worklistTensor, getRandomTile(nTile));
+    worklistTensorMap[batchSize] = worklistTensor;
   }
 
   assert(rhs.size() == lhs.size());
@@ -99,49 +101,16 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
 void HyperGraph::addReduceVertex(
     poplar::Graph &graph, const std::vector<poplar::Tensor> &partialBlocks,
     poplar::Tensor &output, unsigned int tileId, poplar::ComputeSet &reduceCS) {
-  int nWorker = graph.getTarget().getNumWorkerContexts();
-  if (nWorker != 6) {
-    throw poputil::poplibs_error("Error: The number of IPU work context is "
-                                 "NOT 6");
-    return;
-  }
+  auto v = graph.addVertex(
+      reduceCS, poputil::templateVertex("poplin::ReduceAdd", outDataType,
+                                        partialDataType, false, false));
+  graph.connect(v["out"], output);
+  graph.setInitialValue(v["numElems"], output.numElements());
+  graph.connect(v["partials"], partialBlocks);
+  graph.setInitialValue(v["numPartials"], partialBlocks.size());
+  graph.setTileMapping(v, tileId);
 
-  // how many partials we can fit in 128-bits: 4 is for FLOAT, 8 for HALF
-  const unsigned numValsIn128 = outDataType == poplar::FLOAT ? 4 : 8;
-  int blockSize = matC->getBlockRow() * matC->getBlockCol();
-  if (blockSize % numValsIn128 != 0) {
-    throw poputil::poplibs_error(
-        "Error: the size of block in output matrix should be divisible by " +
-        std::to_string(numValsIn128));
-  }
-  int grains = blockSize / numValsIn128;
-  int grainsPerWorker = grains / nWorker;
-  int grainsLeftover = grains % nWorker;
-
-  for (int w = 0, offset = 0; w < nWorker; w++) {
-    int curGrains =
-        (w < grainsLeftover) ? (grainsPerWorker + 1) : grainsPerWorker;
-    int curElements = curGrains * numValsIn128;
-    std::vector<poplar::Tensor> inputOneWorker;
-    for (const auto &b : partialBlocks) {
-      inputOneWorker.push_back(b.slice(offset, offset + curElements));
-    }
-    auto v = graph.addVertex(
-        reduceCS,
-        poputil::templateVertex(
-            "popops::Reduce", "popops::ReduceAdd", partialDataType, outDataType,
-            "false", "popops::ReductionSpecialisation::STRIDED_REDUCE"));
-    graph.connect(v["out"], output.slice(offset, offset + curElements));
-    graph.setInitialValue(v["numOutputs"], curElements);
-    graph.connect(v["partials"], concat(inputOneWorker));
-    graph.setInitialValue(v["numPartialsM1"],
-                          concat(inputOneWorker).numElements() / curElements -
-                              1);
-    graph.setInitialValue(v["partialsWidth"], curElements);
-    graph.setTileMapping(v, tileId);
-
-    offset += curElements;
-  }
+  return;
 }
 
 void HyperGraph::applySubBlockMask(poplar::Graph &graph,
@@ -206,8 +175,10 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
                                   const BlockMatrix &rhs,
                                   std::vector<poplar::Tensor> &lhsBlocks,
                                   std::vector<poplar::Tensor> &rhsBlocks,
+                                  const std::vector<int> &lhsTileAssignment,
                                   const std::vector<int> &rhsTileAssignment,
                                   poplar::ComputeSet *transposeCS,
+                                  poplar::program::Sequence &prog,
                                   const std::string &debugPrefix) {
 
   const unsigned inChansPerGroup = (inDataType == poplar::FLOAT ? 8 : 16);
@@ -222,6 +193,8 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
   const std::vector<poplar::Tensor> lhsInBlocks = lhs.getBlockTensor();
   unsigned long lhsBlockRow = static_cast<unsigned long>(lhs.getBlockRow());
   unsigned long lhsBlockCol = static_cast<unsigned long>(lhs.getBlockCol());
+  lhsBlocks.resize(lhsInBlocks.size());
+  std::vector<poplar::Tensor> needArrangeLHS;
   for (unsigned i = 0; i < lhsInBlocks.size(); i++) {
     // split into small groups
     poplar::Tensor reshaped =
@@ -234,8 +207,30 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
           reshaped.slice({0, start}, {lhsBlockRow, end}).flatten().expand({0}));
       start = end;
     }
+    poplar::Tensor concated = concat(smallBlocks);
+    if (concated.isContiguous()) {
+      lhsBlocks[i] = concated;
+    } else {
+      needArrangeLHS.push_back(concated.expand({0}));
+    }
+  }
 
-    lhsBlocks.push_back(concat(smallBlocks));
+  if (!needArrangeLHS.empty()) {
+    poplar::Tensor rearrangedLHS = graph.addVariable(
+        inDataType,
+        {needArrangeLHS.size(), numInGroups,
+         static_cast<unsigned long>(lhsBlockRow * lhsBlockCol / numInGroups)},
+        debugPrefix + "/rearranged_block");
+    unsigned count = 0;
+    for (unsigned i = 0; i < lhsInBlocks.size(); i++) {
+      if (!lhsBlocks[i].valid()) {
+        graph.setTileMapping(rearrangedLHS[count], lhsTileAssignment[i]);
+        lhsBlocks[i] = rearrangedLHS[count];
+        count++;
+      }
+    }
+    assert(count == needArrangeLHS.size());
+    prog.add(poplar::program::Copy(concat(needArrangeLHS), rearrangedLHS));
   }
 
   const std::vector<poplar::Tensor> rhsInBlocks = rhs.getBlockTensor();
@@ -246,6 +241,8 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
   int rhsCol = rhs.getBlockColCount();
 
   rhsBlocks.resize(rhs.getNonZeroBlockCount());
+  std::vector<poplar::Tensor> needArrangeRHS;
+  std::unordered_map<int, int> blockIdMap;
   for (int c = 0; c < rhsCol; c++) {
     for (int r = 0; r < rhsRow; r++) {
       int blockId = rhsBlockIdMatrix[r][c];
@@ -282,11 +279,16 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
               rhsInBlocks[blockId].reshape({rhsBlockRow, rhsBlockCol});
           poplar::Tensor oneSlice =
               reshaped.slice({start, 0}, {end, rhsBlockCol}).flatten();
-          poplar::Tensor transposedSlice = graph.addVariable(
-              inDataType,
-              {static_cast<unsigned long>(rhsBlockRow * rhsBlockCol /
-                                          numInGroups)},
-              debugPrefix + "/transposed_block_" + std::to_string(blockId));
+          char buffer[1024];
+          sprintf(buffer, "[%d %d %d][%d %d %d]", matA.getRowCount(),
+                  matA.getColCount(), matB.getColCount(), matA.getBlockRow(),
+                  matA.getBlockCol(), matB.getBlockCol());
+          poplar::Tensor transposedSlice =
+              graph.addVariable(inDataType,
+                                {static_cast<unsigned long>(
+                                    rhsBlockRow * rhsBlockCol / numInGroups)},
+                                debugPrefix + "/transposed_block_" + buffer +
+                                    std::to_string(blockId));
           std::vector<poplar::Tensor> src, dst;
           src.push_back(oneSlice);
           dst.push_back(transposedSlice);
@@ -307,8 +309,30 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
         start = end;
       }
 
-      rhsBlocks[blockId] = concat(smallBlocks);
+      poplar::Tensor concated = concat(smallBlocks);
+      if (concated.isContiguous()) {
+        rhsBlocks[blockId] = concated;
+      } else {
+        blockIdMap[blockId] = needArrangeRHS.size();
+        needArrangeRHS.push_back(concated.expand({0}));
+      }
     }
+  }
+
+  if (!needArrangeRHS.empty()) {
+    poplar::Tensor rearrangedRHS = graph.addVariable(
+        inDataType,
+        {needArrangeRHS.size(), numInGroups,
+         static_cast<unsigned long>(rhsBlockRow * rhsBlockCol / numInGroups)},
+        debugPrefix + "/rhs_rearranged_block");
+    for (unsigned i = 0; i < rhsInBlocks.size(); i++) {
+      if (!rhsBlocks[i].valid()) {
+        graph.setTileMapping(rearrangedRHS[blockIdMap[i]],
+                             rhsTileAssignment[i]);
+        rhsBlocks[i] = rearrangedRHS[blockIdMap[i]];
+      }
+    }
+    prog.add(poplar::program::Copy(concat(needArrangeRHS), rearrangedRHS));
   }
 }
 
