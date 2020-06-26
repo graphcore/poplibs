@@ -13,6 +13,8 @@
 #include <vector>
 
 #include <boost/program_options.hpp>
+#include <boost/random.hpp>
+#include <boost/range/algorithm/random_shuffle.hpp>
 #include <poplar/Graph.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popsparse/codelets.hpp>
@@ -133,7 +135,12 @@ int main(int argc, char **argv) try {
   std::vector<unsigned short> hostIndices;
   hostIndices.resize(numIndices);
   std::iota(hostIndices.begin(), hostIndices.end(), 0);
-  std::random_shuffle(hostIndices.begin(), hostIndices.end());
+  std::mt19937 rng;
+  const auto randomGen = [&](auto max) {
+    boost::random::uniform_int_distribution<decltype(max)> dist(0, max - 1);
+    return dist(rng);
+  };
+  boost::range::random_shuffle(hostIndices, randomGen);
 
   const auto scale = dataType == HALF ? 2 : 4;
 
