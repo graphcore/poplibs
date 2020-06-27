@@ -22,7 +22,7 @@ Within a suitable directory, extract the archive and run:
 
     $ mkdir install # Make a note of this path for later.
     $ ./bootstrap.sh --prefix=install
-    $ ./b2 link=static runtime-link=static --abbreviate-paths variant=release toolset=gcc "cxxflags= -fno-semantic-interposition -fPIC" cxxstd=14 --with-all install
+    $ ./b2 link=static runtime-link=static --abbreviate-paths variant=release toolset=gcc "cxxflags= -fno-semantic-interposition -fPIC" cxxstd=14 --with=all install
 
 Note: Consider using '-j8' (or similar) with './b2' to reduce build time by increasing concurrency.
 
