@@ -7,11 +7,11 @@
 namespace popsparse {
 namespace dynamic {
 
-/// Representation of a sparse tensor
+/// Representation of a sparse tensor.
 class SparseTensor {
-  /// Tensor containing positional sparsity information
+  /// Tensor containing positional sparsity information.
   poplar::Tensor metaInfo;
-  /// Tensor contains non zero values
+  /// Tensor contains non zero values.
   poplar::Tensor nzValues;
 
 public:

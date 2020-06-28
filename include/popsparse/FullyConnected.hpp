@@ -9,20 +9,8 @@
 #include <popsparse/FullyConnectedParams.hpp>
 #include <popsparse/SparseTensor.hpp>
 
-// Note:
-// In the API, the sparse weight matrix representing the parameters of the fully
-// connected layer is W, with a dense shape of
-//    [outputChannelsPerGroup, inputChannelsPerGroup].
-//
-// The equivalent dense operations done for the different passes are where
-// each multuplication is per group.
-// Fwd/Inf :   Ao = W  * Ai     Ao has shape [outputChannelsPerGroup,batchSize]
-//                              Ai has shape [inputChannelsPerGroup,batchSize]
-// GradA   :   Gi = W' * Go     Go has shape [outputChannelsPerGroup,batchSize]
-//                              Gi has shape [inputChannelsPerGroup,batchSize]
-// GradW   :   Gw = Go * Ai
-
 namespace popsparse {
+/// Support for dynamic sparse matrices.
 namespace dynamic {
 
 /** Class used to cache the calculation of plans for fully connected operations.
@@ -34,7 +22,36 @@ class PlanningCache;
  * Create a sparse tensor that is used as the weights W for a fully connected
  * layer.
  *
- * \param graph The Poplar graph.
+ * The following options are available:
+ *
+ *    * `availableMemoryProportion` Decimal between 0 and 1 [=0.6]
+ *
+ *      The maximum proportion of available memory on each tile that this
+ *      layer should consume temporarily during the course of the operation.
+ *
+ *    * `metaInfoBucketOversizeProportion` Decimal between 0 and 1 [=0.3]
+ *
+ *      This specifies additional elements to allocate in each bucket of
+ *      meta-information as a proportion of the required size for a perfectly
+ *      uniformly distributed sparsity pattern.
+ *
+ *    * `doGradAPass` (true, false) [=false]
+ *
+ *      `doGradWPass` (true, false) [=false]
+ *
+ *      Indicate which passes are present for the operation of the layer as a
+ *      whole. It is assumed that the forward pass is always present.
+ *
+ *    * `partialsType` poplar::Type [=poplar::FLOAT]
+ *
+ *      The type to use for partial results.
+ *
+ *    * `sharedBuckets` (true, false) [=true]
+ *
+ *      If set, forces the same buckets to be used for all three passes.
+ *
+ *
+ * * \param graph The Poplar graph.
  * \param inputType The type for inputs to the operation.
  * \param params Parameters for the fully connected layer.
  * \param debugPrefix Optional prefix for all debug names added to the graph.
@@ -59,6 +76,7 @@ SparseTensor createFullyConnectedWeights(
  * \param params Parameters for the fully connected layer.
  * \param debugPrefix Optional prefix for all debug names added to the graph.
  * \param options Implementation options for the fully connected layer.
+ *        See createFullyConnectedWeights() for details.
  * \param cache Optional pointer to planning cache to use.
  */
 poplar::Tensor createFullyConnectedInput(
@@ -68,13 +86,13 @@ poplar::Tensor createFullyConnectedInput(
 
 /** Run a fully connected forward (or inference) pass.
  *
- *  The sparse weights tensor is made up of meta information for the sparsity
+ *  The sparse-weights tensor is made up of meta information for the sparsity
  *  and the non-zero values. Does the Fwd operation described in the Note
  *  above but with input and output transposed.
  *
  *  The meta information for the sparse weights tensor must be created for the
- *  forward(or inference) pass and should be created by use of the
- *  createFullyConnectedWeights function.
+ *  forward (or inference) pass and should be created by use of the
+ *  createFullyConnectedWeights() function.
  *
  *  \param graph           The Poplar graph.
  *  \param weights         Sparsity information of the weights tensor.
@@ -88,6 +106,7 @@ poplar::Tensor createFullyConnectedInput(
  *                         names.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
+ *                         See createFullyConnectedWeights() for details.
  *  \param cache           Optional pointer to planning cache to use.
  *  \returns               The tensor holding the result.
  *                         This tensor will be created, added to the graph and
@@ -102,14 +121,14 @@ poplar::Tensor fullyConnectedFwd(
 
 /** Run a fully connected GradA pass.
  *
- *  The sparse weights tensor is made up of meta information
+ *  The sparse-weights tensor is made up of meta information
  *  for the sparsity and the non-zero values. Does the GradA
  *  computation as described in the Note above but with input and output
  *  transposed.
  *
- *  The meta information for the sparse weights tensor must be created for the
+ *  The meta information for the sparse-weights tensor must be created for the
  *  GradA pass and should be created by use of
- *  createFullyConnectedWeights function
+ *  createFullyConnectedWeights() function.
  *
  *  \param graph           The Poplar graph.
  *  \param weights         Sparsity information of the weights tensor.
@@ -124,8 +143,9 @@ poplar::Tensor fullyConnectedFwd(
  *                         names.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
+ *                         See createFullyConnectedWeights() for details.
  *  \param cache           Optional pointer to planning cache to use.
-
+ *
  *  \returns               The tensor holding the result.
  *                         This tensor will be created, added to the graph and
  *                         mapped to tiles. The tensor is of shape
@@ -161,6 +181,7 @@ poplar::Tensor fullyConnectedGradA(
  *                         names.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
+ *                         See createFullyConnectedWeights() for details.
  *  \param cache           Optional pointer to planning cache to use.
  *  \returns               The tensor holding the result.
  *                         This tensor will be created, added to the graph and
@@ -182,6 +203,7 @@ poplar::Tensor fullyConnectedSparseGradW(
  *  \param params          Fully connected params.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
+ *                         See createFullyConnectedWeights() for details.
  *  \param cache           Optional pointer to planning cache to use.
  *  \returns               Serial splits for each of the output dimensions
  *                         [numGroups][inputSize][outputSize].
@@ -202,4 +224,4 @@ public:
 } // namespace dynamic
 } // namespace popsparse
 
-#endif // popsparse_FullyConnectedParams_hpp
+#endif // popsparse_FullyConnected_hpp
