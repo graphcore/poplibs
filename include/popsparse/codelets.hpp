@@ -4,6 +4,7 @@
 
 #include <poplar/Graph.hpp>
 
+/// Support for sparse matrices
 namespace popsparse {
 
 void addCodelets(poplar::Graph &graph);

@@ -14,40 +14,51 @@ namespace dynamic {
 
 class FullyConnectedParams {
 
-  /// Sparsity parameters
+  /// Sparsity parameters.
   SparsityParams sparsityParams;
 
-  /// Proportion of weights which are non-zero in range [0,1]
+  /// Proportion of weights which are non-zero in range [0,1].
   double nzRatio;
 
-  // These are parameters which define a fully connected layer.
-  //   Matrix multiplications for the different passes are the following
-  //    For Pass = FC_INFERENCE and FC_TRAINING_FWD
-  //      [numGroups][outputChannelsPerGroup][inputChannelsPerGroup] *
-  //      [numGroups][inputChannelsPerGroup][batchSize]
-  //
-  //    For Pass = FC_TRAINING_GRADA
-  //      [numGroups][inputChannelsPerGroup][outputChannelsPerGroup] *
-  //      [numGroups][outputChannelsPerGroup][batchSize]
-  //
-  //    For Pass = FC_TRAINING_GRADW
-  //      [numGroups][outputChannelsPerGroup][batchSize] *
-  //      [numGroups][batchSize][inputChannelsPerGroup]
   std::size_t batchSize;
   std::size_t numGroups;
   std::size_t inputChannelsPerGroup;
   std::size_t outputChannelsPerGroup;
 
 public:
+  /** @name Fully connected parameters
+   *  These are the parameters which define a fully connected layer.
+   *
+   *  Matrix multiplications for the different passes are as follows
+   *
+   *  - For pass = \c FC_INFERENCE or \c FC_TRAINING_FWD
+   *
+   *    [\p numGroups][\p outputChannelsPerGroup][\p inputChannelsPerGroup] *
+   *    [\p numGroups][\p inputChannelsPerGroup][\p batchSize]
+   *
+   *  - For pass = \c FC_TRAINING_GRADA
+   *
+   *    [\p numGroups][\p inputChannelsPerGroup][\p outputChannelsPerGroup] *
+   *    [\p numGroups][\p outputChannelsPerGroup][\p batchSize]
+   *
+   *  - For pass = \c FC_TRAINING_GRADW
+   *
+   *    [\p numGroups][\p outputChannelsPerGroup][\p batchSize] *
+   *    [\p numGroups][\p batchSize][\p inputChannelsPerGroup]
+   */
+  ///@{
+  /** Create parameters with the specified ratio of non-zero elements. */
   static FullyConnectedParams
   createWithNzRatio(const SparsityParams &sparsityParams, double nzRatio,
                     std::size_t batchSize, std::size_t numGroups,
                     std::size_t inputChannels, std::size_t outputChannels);
+  /** Create parameters with the specified number of non-zero elements. */
   static FullyConnectedParams
   createWithNumNonZeroValues(const SparsityParams &sparsityParams,
                              std::size_t numNonZeroElems, std::size_t batchSize,
                              std::size_t numGroups, std::size_t inputChannels,
                              std::size_t outputChannels);
+  ///@}
 
   std::size_t getBatchSize() const { return batchSize; }
   std::size_t getNumGroups() const { return numGroups; }

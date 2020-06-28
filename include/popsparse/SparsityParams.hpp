@@ -9,25 +9,25 @@
 namespace popsparse {
 namespace dynamic {
 
-/// Sparsity type
+/// Sparsity type.
 enum class SparsityType {
-  /// Sparsity is defined at an element level
+  /// Sparsity is defined at an element level.
   Element
 };
 
 std::ostream &operator<<(std::ostream &os, const SparsityType &t);
 
-/// Sparsity structure
+/// Sparsity structure.
 enum class SparsityStructure { Unstructured };
 
 std::ostream &operator<<(std::ostream &os, const SparsityStructure &s);
 
 struct SparsityParams {
 
-  /// sparsity type
+  /// sparsity type.
   SparsityType type;
 
-  /// sparsity structure
+  /// sparsity structure.
   SparsityStructure structure;
 
   SparsityParams(SparsityType type = SparsityType::Element,
