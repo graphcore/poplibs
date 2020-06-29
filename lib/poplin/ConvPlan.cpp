@@ -3036,7 +3036,14 @@ static Estimates<popsolver::Variable> addEstimates(
       target, types.back().partialType, transformedOnceParams.inputType, method,
       slicWindowWidth);
   const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
-  m.lessOrEqual(totalMacs / maxMACsPerCyclePerTile,
+  // This lower bound to sum of number of cycles on all tiles can become very
+  // large, we explicitly avoid overflow here but when we hit this limit there
+  // is the implication that we may be culling parts of the search space that
+  // we might be interested in. The solution to this is likely to use integers
+  // with larger ranges in the solver T23007.
+  const unsigned minTotalTileCycles = std::min<std::uint64_t>(
+      std::numeric_limits<unsigned>::max(), totalMacs / maxMACsPerCyclePerTile);
+  m.lessOrEqual(minTotalTileCycles,
                 m.product({usedTiles, e.partialCalcCycles, serialSplits}));
 
   std::vector<popsolver::Variable> outputsPerLevel;
