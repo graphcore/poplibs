@@ -773,8 +773,8 @@ add_unit_test(ScaledAddSupervisor_integral
 add_unit_test(TransposeTest
               TransposeTest.cpp
               LABELS codelet)
-add_unit_test(ZeroTest
-              ZeroTest.cpp
+add_unit_test(FillAndZeroTest
+              FillAndZeroTest.cpp
               LABELS codelet)
 add_unit_test(DynamicSliceCodeletTest
               DynamicSliceCodeletTest.cpp

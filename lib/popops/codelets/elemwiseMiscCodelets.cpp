@@ -789,27 +789,29 @@ public:
 template class HadamardProd<float>;
 template class HadamardProd<half>;
 
-template <typename InType> class Zero : public Vertex {
+template <typename InType> class Fill : public Vertex {
 public:
+  InType in;
   Output<Vector<InType>> out;
 
   IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     for (auto &x : out) {
-      x = 0;
+      x = in;
     }
     return true;
   }
 };
 
-template class Zero<float>;
-template class Zero<half>;
-template class Zero<int>;
-template class Zero<unsigned>;
+template class Fill<float>;
+template class Fill<half>;
+template class Fill<int>;
+template class Fill<unsigned>;
 
-template <typename FPType> class Zero2d : public Vertex {
+template <typename FPType> class Fill2d : public Vertex {
 public:
+  FPType in;
   Vector<Output<Vector<FPType>>> out;
 
   IS_EXTERNAL_CODELET(true);
@@ -817,15 +819,15 @@ public:
   bool compute() {
     for (auto &row : out) {
       for (auto &x : row) {
-        x = 0;
+        x = in;
       }
     }
     return true;
   }
 };
 
-template class Zero2d<float>;
-template class Zero2d<half>;
+template class Fill2d<float>;
+template class Fill2d<half>;
 
 // A couple of macros to instantiate more compactly the templates of the various
 // Cast vertices, for all possible combinations of input and output types

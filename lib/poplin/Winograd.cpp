@@ -970,8 +970,9 @@ static Program dataTransform(Graph &graph, const WgdTilePartition &tp,
               graph.setTileMapping(zeroVec, tile);
 
               auto vZ = graph.addVertex(
-                  zCs, templateVertex("popops::Zero", tp.dType));
+                  zCs, templateVertex("popops::Fill", tp.dType));
               graph.connect(vZ["out"], zeroVec);
+              graph.setInitialValue(vZ["in"], 0);
               graph.setTileMapping(vZ, tile);
               zeroTensorCreated = true;
             }
@@ -1089,9 +1090,10 @@ static Program dataTransform(Graph &graph, const WinogradOptions &options,
           graph.setTileMapping(zeroVec, tile);
 
           auto v =
-              graph.addVertex(zCs, templateVertex("popops::Zero", tp.dType));
+              graph.addVertex(zCs, templateVertex("popops::Fill", tp.dType));
 
           graph.connect(v["out"], zeroVec);
+          graph.setInitialValue(v["in"], 0);
           graph.setTileMapping(v, tile);
           zeroTensorCreated = true;
         }

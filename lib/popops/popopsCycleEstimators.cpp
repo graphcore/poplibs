@@ -1027,27 +1027,80 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(HadamardProd)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Zero)(const VertexIntrospector &vertex,
+std::uint64_t _fillCycleEstimate(std::uint64_t size, const Target &target,
+                                 const Type &type) {
+  const bool isHalf = type == HALF;
+  const auto width = target.getDataPathWidth() / (isHalf ? 16 : 32);
+
+  if (isHalf) {
+    // Cycle breakdown:
+    //
+    //  In an eight byte interval there is one 8-byte-aligned address, two
+    //  four-byte-aligned addresses and four two-byte-aligned addresses. So if
+    //  the aligned addresses are chosen randomly, then on average
+    //  two-byte-alignment will occur ~57% of the time, four-byte-alignement
+    //  will occur ~29% of the time and eight byte alignment will occur ~14% of
+    //  the time. So the return value should slightly bias towards
+    //  2-byte-aligment.
+    //
+    //      size  | 2-byte-aligned | 4-byte-aligned | 8-byte-aligned | return
+    //   ---------+----------------+----------------+----------------+---------
+    //    2 bytes | 15             | 16             | 16             | 15
+    //    4 bytes | 20             | 23             | 22             | 21
+    //    8 bytes | 30             | 24             | 22             | 27
+    //   16 bytes | 31             | 25             | 23             | 28
+    switch (size) {
+    case 1:
+      return 15;
+    case 2:
+      return 21;
+    default:
+      return 26 + size / width;
+    }
+  }
+
+  // Cycle breakdown:
+  //
+  // + 16 cycles for pre-loop code, such as loading data and checking alignment.
+  // + 6 cycles for all the post-loop checks.
+  // + 1 cycle if there are 4 bytes left after the loop.
+  // + 1 cycle to on average account for 4 byte alignemnt rather than 8.
+  //   There's an additional two cycles if the data is only 4 byte aligned
+  //   rather than 8 byte aligned, and as 4 byte alignments are twice as likely
+  //   to occur than 8 byte alignments this function could bias towards 4 byte
+  //   alignments however in practise the cycle difference is so small, that the
+  //   result of the bias is negligble and the returned cycles tend to the
+  //   average.
+  //
+  // This ends up being roughly right in the small cases too:
+  //
+  //      size  | 4-byte-aligned | 8-byte-aligned | return
+  //   ---------+----------------+----------------+----------
+  //    4 bytes | 24             | 23             | 24
+  //    8 bytes | 25             | 23             | 24
+  //   16 bytes | 26             | 24             | 25
+  return 16 + size / width + 6 + (size % width == 1) + 1;
+}
+
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Fill)(const VertexIntrospector &vertex,
                                               const Target &target,
                                               const Type &type) {
-  const auto out = vertex.getFieldInfo("out");
-  bool isHalf = type == HALF;
-  auto width = target.getDataPathWidth() / (isHalf ? 16 : 32);
-
-  return 20 + out.size() / width;
+  return _fillCycleEstimate(vertex.getFieldInfo("out").size(), target, type);
 }
 
 std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Zero2d)(const VertexIntrospector &vertex,
+MAKE_CYCLE_ESTIMATOR_NAME(Fill2d)(const VertexIntrospector &vertex,
                                   const Target &target, const Type &type) {
   const auto out = vertex.getFieldInfo("out");
-  bool isHalf = type == HALF;
-  auto width = target.getDataPathWidth() / (isHalf ? 16 : 32);
-
-  std::uint64_t cycles = 0;
-  for (unsigned i = 0; i < out.size(); ++i) {
-    cycles += 20 + out[i].size() / width;
-  }
+  std::uint64_t cycles = 5 + (type != HALF);
+  for (unsigned i = 0; i < out.size(); ++i)
+    cycles += _fillCycleEstimate(out[i].size(), target, type);
+  // The 1d fill function includes overhead from loading variables which takes 5
+  // cycles for half types and 6 cycles for other types, but the 2d fill
+  // function has an additional per-loop overhead of 3 cycles, so subtract two
+  // cycles for each call to fill to account for the difference (three cycles
+  // for non-halves).
+  cycles -= (2 + (type != HALF)) * out.size();
   return cycles;
 }
 
@@ -2621,13 +2674,13 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, HadamardProd, HALF),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, Zero, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Zero, HALF),
-      CYCLE_ESTIMATOR_ENTRY(popops, Zero, INT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Zero, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill, UNSIGNED_INT),
 
-      CYCLE_ESTIMATOR_ENTRY(popops, Zero2d, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popops, Zero2d, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, HALF),
 
       CAST_CYCLE_ESTIM_ENTRIES(Cast),
       CAST_CYCLE_ESTIM_ENTRIES(Cast2d),

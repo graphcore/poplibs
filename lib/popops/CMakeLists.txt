@@ -131,7 +131,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Transpose.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversion2D.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/VarianceConversionSupervisor.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Zero.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Fill.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binaryOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/binarySupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unarySupervisorOps.S
