@@ -4225,7 +4225,7 @@ static void add(Sequence &prog, const std::vector<Copy> &copies) {
 
 ConvProgramTree::TransformPreProgram::TransformPreProgram(
     Graph &graph, const std::string &debugPrefix)
-    : transposeCS(graph.addComputeSet(debugPrefix + "/Transpose")) {}
+    : transposeCS(graph.addComputeSet(debugPrefix)) {}
 
 void ConvProgramTree::TransformPreProgram::lower(
     poplar::program::Sequence &prog) {
@@ -4241,7 +4241,7 @@ void ConvProgramTree::TransformPreProgram::lower(
 
 ConvProgramTree::TransformPostSerialProgram::TransformPostSerialProgram(
     Graph &graph, const std::string &debugPrefix)
-    : castCS(graph.addComputeSet(debugPrefix + "/CastSerialOut")) {}
+    : castCS(graph.addComputeSet(debugPrefix)) {}
 
 void ConvProgramTree::TransformPostSerialProgram::lower(
     poplar::program::Sequence &prog) {
@@ -4251,14 +4251,16 @@ void ConvProgramTree::TransformPostSerialProgram::lower(
 
 ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
                                  const std::string &debugPrefix)
-    : transformPre(), transformPost(plan.numLevels()),
-      transformPreSerial(graph, debugPrefix),
-      transformPostSerial(graph, debugPrefix),
+    : weightsTranspose(graph, debugPrefix + "/WeightsTranspose"),
+      transformPre(), transformPost(plan.numLevels()),
+      transformPreSerial(graph, debugPrefix + "/PreTranspose"),
+      transformPostSerial(graph, debugPrefix + "/CastSerialOut"),
       loopCount(plan.totalSerialSplit()),
       convolveCSGroup(graph.addComputeSet(debugPrefix + "/Convolve")),
       reduceComputeSets(plan.numLevels() - 1) {
   for (unsigned i = 0; i < plan.numLevels(); ++i) {
-    transformPre.emplace_back(graph, debugPrefix);
+    transformPre.emplace_back(graph,
+                              debugPrefix + "/Transpose_#" + std::to_string(i));
   }
 }
 
@@ -4267,7 +4269,7 @@ void ConvProgramTree::lower(Sequence &prog) {
     prog.add(WriteUndef(c.second));
   }
 
-  prog.add(initProg);
+  weightsTranspose.lower(prog);
 
   assert(transformPre.size() == transformPost.size());
   const unsigned numLevels = transformPre.size();
@@ -4804,7 +4806,9 @@ static Tensor convolutionInternal(
     auto bwdWeights =
         createWeights(graph, plan, params.getParams(), "bwdWeights", options);
     if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
-      weightsTransposeChansFlipXY(graph, weights, bwdWeights, cpt.initProg,
+      auto &prog = cpt.weightsTranspose;
+      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog.preTranspose,
+                                  prog.transposeCS, prog.postTranspose,
                                   debugPrefix);
     }
     weights = bwdWeights;
@@ -4954,10 +4958,13 @@ double getWuPerfectCycleCount(const Graph &graph, const ConvParams &params) {
   return getPerfectCycleCount(graph, params);
 }
 
-void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
-                                 const Tensor &weightsOutUnGrouped,
-                                 Sequence &prog,
-                                 const std::string &debugPrefix) {
+void weightsTransposeChansFlipXY(
+    Graph &graph, const Tensor &weightsInUnGrouped,
+    const Tensor &weightsOutUnGrouped,
+    std::vector<poplar::program::Copy> &preTranspose,
+    poplar::ComputeSet transposeCS,
+    std::vector<poplar::program::Copy> &postTranspose,
+    const std::string &debugPrefix) {
   assert(weightsInUnGrouped.rank() >= 3);
   const auto numFieldDims = weightsInUnGrouped.rank() - 3;
 
@@ -4999,13 +5006,10 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
     partiallyTransposed = weightsIn.reshapePartial(
         weightsIn.rank() - 2, weightsIn.rank(), {G1 / G5, G5, G2});
 
-    auto cs = graph.addComputeSet(debugPrefix + "/WeightTranspose");
-
     // [GC1][O/G1][I/G2]...[GC2][G1/G5][G5][G2]
     //    -> [GC1][O/G1][I/G2]...[GC2][G1/G5][G2][G5]
     partiallyTransposed = popops::rearrange::partialTranspose(
-        graph, partiallyTransposed, cs, debugPrefix);
-    prog.add(Execute(cs));
+        graph, partiallyTransposed, transposeCS, debugPrefix);
   }
 
   auto flipped = partiallyTransposed;
@@ -5051,10 +5055,24 @@ void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
   // only if it's innermost dimension doesn't match the destination tensor. If
   // a partial transpose is done, then the regrouping will not be done.
   auto maybeRegroupedFlipped = popops::rearrange::regroupIfBeneficial(
-      graph, flipped, weightsOutUnGrouped, prog,
+      graph, flipped, weightsOutUnGrouped, preTranspose, transposeCS,
       debugPrefix + "/attemptRegroup");
+  postTranspose.emplace_back(maybeRegroupedFlipped, weightsOutUnGrouped);
+}
 
-  prog.add(Copy(maybeRegroupedFlipped, weightsOutUnGrouped));
+void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
+                                 const Tensor &weightsOutUnGrouped,
+                                 Sequence &prog,
+                                 const std::string &debugPrefix) {
+  std::vector<Copy> preTranspose, postTranspose;
+  auto transposeCS = graph.addComputeSet(debugPrefix + "/WeightTranspose");
+  weightsTransposeChansFlipXY(graph, weightsInUnGrouped, weightsOutUnGrouped,
+                              preTranspose, transposeCS, postTranspose,
+                              debugPrefix);
+
+  add(prog, preTranspose);
+  prog.add(Execute(transposeCS));
+  add(prog, postTranspose);
 }
 
 ConvParams getWeightUpdateParams(const ConvParams &fwdParams_) {

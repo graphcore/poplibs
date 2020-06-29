@@ -297,6 +297,29 @@ void weightsTransposeChansFlipXY(poplar::Graph &graph,
                                  poplar::program::Sequence &prog,
                                  const std::string &debugPrefix = "");
 
+/** Copy the weights in \p weightsIn into \p weightsOut such that
+ * each element of the kernel is transposed with respect to the input and
+ * output channels and flip each spatial dimension of the kernel.
+ *
+ * Overload that takes vectors of Copy programs and a ComputeSet instead of
+ * a Sequence.
+ *
+ * See `transposeAndFlipWeights` parameter in convolution().
+ *
+ * \param graph         The graph that the operation will be added to.
+ * \param weightsIn     The input weights tensor.
+ * \param weightsOut    The output weights tensor.
+ * \param prog          Poplar program sequence to append the operation onto.
+ * \param debugPrefix   Name of the operation, for debugging.
+ */
+void weightsTransposeChansFlipXY(
+    poplar::Graph &graph, const poplar::Tensor &weightsInUnGrouped,
+    const poplar::Tensor &weightsOutUnGrouped,
+    std::vector<poplar::program::Copy> &preTranspose,
+    poplar::ComputeSet transposeCS,
+    std::vector<poplar::program::Copy> &postTranspose,
+    const std::string &debugPrefix = "");
+
 /** Append an operation to generate the tensor of weight deltas onto \p prog.
  *
  * \param graph         The tensor will be added to this graph.
