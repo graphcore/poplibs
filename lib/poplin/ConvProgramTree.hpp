@@ -64,7 +64,7 @@ struct ConvProgramTree {
   // assuming 2 levels in the hierarchy.
   //
   // serially split convolutions:
-  //  - initProg
+  //  - weightsTranspose (optional)
   //  - transformPreSerial
   //  - repeat(loopCount)
   //    - slice
@@ -87,8 +87,8 @@ struct ConvProgramTree {
   // a decision has been made about how to implement multiple dimensions of
   // serial slices, this can be nailed down better.
   //
-  // Program run before all others at any level of the hierarchy.
-  poplar::program::Sequence initProg;
+  // create transposed/flipped weights if this is for the backwards pass.
+  TransformPreProgram weightsTranspose;
   // Transformations applied before and after the convolution at each level.
   // outer vector is indexed by level in hierarchy.
   std::vector<TransformPreProgram> transformPre;
