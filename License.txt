@@ -1,6 +1,6 @@
 Copyright ©2020 Graphcore Limited
 	
-Licensed under terms if MIT license.
+Licensed under terms of MIT license.
 You may obtain a copy of the license at https://opensource.org/licenses/MIT
 	
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
