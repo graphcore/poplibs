@@ -2499,6 +2499,7 @@ addTransformCycleEstimate(
   bool expandDims = false;
   bool swapOperands = false;
   bool outChanFlattenDims = false;
+  bool combineConvGroups = false;
   assert(transforms.size() >= 2);
   const auto ipuLevel = transforms.size() - 2;
   for (unsigned level = 0; level <= ipuLevel; ++level) {
@@ -2508,21 +2509,29 @@ addTransformCycleEstimate(
       expandDims = true;
     if (!transforms[level].outChanFlattenDims.empty())
       outChanFlattenDims = true;
+    if (transforms[level].combineConvGroupsFactor > 1)
+      combineConvGroups = true;
   }
-  bool padInChannels = params.inputChannelsPerConvGroup % inChansPerGroup;
+  bool padInChannels = transformedOnceUnpaddedParams.inputChannelsPerConvGroup %
+                           inChansPerGroup !=
+                       0;
   bool padPartialChannels =
-      params.outputChannelsPerConvGroup % partialChansPerGroup;
+      transformedOnceUnpaddedParams.outputChannelsPerConvGroup %
+          partialChansPerGroup !=
+      0;
   bool rearrangeInput = isConvWeightUpdate || expandDims || swapOperands ||
-                        padInChannels || options.pass == Pass::FC_TRAINING_WU ||
+                        combineConvGroups || padInChannels ||
+                        options.pass == Pass::FC_TRAINING_WU ||
                         (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
-  bool rearrangeWeights = isConvWeightUpdate || expandDims ||
-                          outChanFlattenDims || swapOperands || padInChannels ||
-                          padPartialChannels;
+  bool rearrangeWeights =
+      isConvWeightUpdate || expandDims || outChanFlattenDims || swapOperands ||
+      combineConvGroups || padInChannels || padPartialChannels;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
   bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
                          (isConvWeightUpdate && !swapOperands) ||
-                         outChanFlattenDims || padPartialChannels ||
+                         outChanFlattenDims || combineConvGroups ||
+                         padPartialChannels ||
                          (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
   // We assume the next layer uses an input channel grouping of
   // weightsPerConvUnit and apply a small cost if the output channel
