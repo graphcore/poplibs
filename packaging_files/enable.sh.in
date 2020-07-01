@@ -11,5 +11,5 @@ else
   export LIBRARY_PATH="$DIR/lib:$LIBRARY_PATH"
 
   # For backward compatibility, create symbolic link <LIB>_local.so to each <LIB>.so file:
-  /usr/bin/find "$DIR/lib" -name '*.so' -type f -exec /bin/sh -c 'LIB="{}"; /bin/ln -s "${LIB}" "${LIB%.so}_local.so"' \;
+  /usr/bin/find $DIR/lib*/ -name '*.so' -type f -exec /bin/sh -c 'LIB="{}"; /bin/ln -s "${LIB}" "${LIB%.so}_local.so"' \;
 fi
