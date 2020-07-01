@@ -1572,16 +1572,16 @@ VERTEX(half_float).kernel:
     // for the x2 and x1 cases.
     zero $datai1
   }
-  {
-    brnz $mscratch, .Lhalf_scalar2
-    zero $dataBi1
-  }
+  brnz $mscratch, .Lhalf_scalar2
 
   // remainder 2
-  ld32 $datai0, $dataPtr, $mzero, 0
   ld64step $dataB, $mzero, $dataBPtr+=, 1
-
   f32v2tof16 $dataBi0, $dataB
+
+  {
+    ld32 $datai0, $dataPtr, $mzero, 0
+    zero $dataBi1
+  }
 
   f16v4mix $azeros, $dataB, $data
   {
@@ -1595,7 +1595,11 @@ VERTEX(half_float).kernel:
   brnz $mscratch, .Lhalf_epilogue2
 
 .Lhalf_scalar2:
-  ld32 $dataBi0, $dataBPtr, $mzero, 0
+  {
+    ld32 $dataBi0, $dataBPtr, $mzero, 0
+    zero $dataBi1
+  }
+
   {
     ldb16 $datai0, $dataPtr, $mzero, 0
     f32tof16 $dataBi0, $dataBi0

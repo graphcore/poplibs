@@ -28,7 +28,7 @@ namespace pe = popops::expr;
 
 static DeviceType deviceType;
 
-const poplar::OptionFlags options;
+poplar::OptionFlags options;
 
 #define DIM_SIZE 3
 
@@ -83,8 +83,6 @@ static void setUnaryOpInput(float hIn[DIM_SIZE][DIM_SIZE]) {
       hIn[r][c] = (val + (r * DIM_SIZE + c) * .1) * sign;
     }
   }
-  hIn[0][0] = std::numeric_limits<float>::infinity();
-  hIn[0][1] = -std::numeric_limits<float>::infinity();
 }
 
 static void setUnaryOpInput(int hIn[DIM_SIZE][DIM_SIZE]) {
@@ -210,7 +208,7 @@ using UnaryOpFn =
 
 template <typename T, typename TestT>
 void unaryOpTest(const UnaryOpFn &op, const std::function<TestT(T)> &testFn,
-                 bool positiveInputs = false) {
+                 bool positiveInputs = false, bool disableFpException = false) {
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
@@ -222,6 +220,11 @@ void unaryOpTest(const UnaryOpFn &op, const std::function<TestT(T)> &testFn,
   graph.createHostWrite("in", in);
   graph.createHostRead("out", out);
 
+  // Some inbuild functions will trigger an float point exception hence need
+  // to disable FP exception for specific tests
+  if (disableFpException) {
+    options.set("debug.floatPointOpException", "false");
+  }
   Engine eng(graph, prog, options);
   T hIn[DIM_SIZE][DIM_SIZE];
   T hOut[DIM_SIZE][DIM_SIZE];
@@ -1081,6 +1084,9 @@ void isFiniteTest() {
 
   bool hOut[DIM_SIZE][DIM_SIZE];
 
+  // Disabling float point exception here cause it needs to check for INF and
+  // that will automatically trigger an exception
+  options.set("debug.floatPointOpException", "false");
   Engine eng(graph, prog, options);
   device.bind([&](const Device &d) {
     eng.load(d);
@@ -2008,10 +2014,13 @@ int main(int argc, char **argv) {
       return res;
     });
   } else if (test == "Asin") {
-    unaryOpTest<float, double>(popops::asin, [](float x) -> double {
-      double res = std::asin(static_cast<double>(x));
-      return res;
-    });
+    unaryOpTest<float, double>(
+        popops::asin,
+        [](float x) -> double {
+          double res = std::asin(static_cast<double>(x));
+          return res;
+        },
+        false, true);
   } else if (test == "Tan") {
     unaryOpTest<float, double>(popops::tan, [](float x) -> double {
       double res = std::tan(static_cast<double>(x));
