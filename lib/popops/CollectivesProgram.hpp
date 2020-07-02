@@ -110,7 +110,8 @@ struct SwitchSliceCopy {
                          return clockwiseAreSame && anticlockwiseAreSame;
                        }));
     // --------------------------------------------------------------
-    poplar::program::Switch sliceProg(sliceIndex);
+    poplar::program::Switch sliceProg =
+        poplar::program::Switch::switchWithUnreachableDefault(sliceIndex);
     for (unsigned i = 0; i < cases.size(); ++i) {
       sliceProg.add(i, cases[i].createProgram());
     }
