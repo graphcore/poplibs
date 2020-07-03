@@ -51,7 +51,7 @@ public:
   bool enableFastReduce = false;
   // Disable the use of the faster singleInputReduce vertex while performance
   // is investigated
-  bool enableSingleInputReduce = false;
+  bool enableSingleInputReduce = true;
   // Remap output tensor if its layout is poor
   bool remapOutputTensor = true;
   // Use the ConvParams to pseudo-randomly select a start tile and direction

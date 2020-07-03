@@ -66,7 +66,7 @@ struct MatMulOptions {
   bool use128BitConvUnitLoad = false;
   bool enableMultiStageReduce = true;
   bool enableFastReduce = false;
-  bool enableSingleInputReduce = false;
+  bool enableSingleInputReduce = true;
   bool remapOutputTensor = true;
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;

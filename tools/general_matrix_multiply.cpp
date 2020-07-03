@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
      po::value<bool>(&enableFastReduce)->default_value(false),
      "enable a faster reduction vertex")
     ("enable-single-input-reduce",
-     po::value<bool>(&enableSingleInputReduce)->default_value(false),
+     po::value<bool>(&enableSingleInputReduce)->default_value(true),
      "enable a faster reduction vertex")
     ("report-plan", "Show plan info")
     ("show-execution-steps", "Show execution steps (requires profiling)")
