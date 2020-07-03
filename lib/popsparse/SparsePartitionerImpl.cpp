@@ -35,7 +35,6 @@ getDimSplits(const FullyConnectedParams &params, const Plan &plan) {
     }
     return split;
   };
-
   auto xSplits = createSplit(params.getOutputChannelsPerGroup(),
                              plan.partition.x, plan.grouping.x);
   auto ySplits = createSplit(params.getInputChannelsPerGroup(),
@@ -44,6 +43,45 @@ getDimSplits(const FullyConnectedParams &params, const Plan &plan) {
       createSplit(params.getBatchSize(), plan.partition.z, plan.grouping.z);
 
   return std::make_tuple(xSplits, ySplits, zSplits);
+}
+
+std::vector<RowPositionValues>
+getPositionValuePairsPerRow(const CSRInternal &csr, const Tile &tile) {
+  const auto startRow = tile.getRows().begin();
+  const auto endRow = tile.getRows().end();
+  const auto startColumn = tile.getColumns().begin();
+  const auto endColumn = tile.getColumns().end();
+
+  if (startRow >= csr.rowIndices.size()) {
+    throw poputil::poplibs_error("Start row in tile doesn't match information "
+                                 "in CSR");
+  }
+
+  if (endRow >= csr.rowIndices.size()) {
+    throw poputil::poplibs_error("End row in tile doesn't match information "
+                                 "in CSR");
+  }
+
+  std::vector<RowPositionValues> rowValuePairs;
+
+  for (auto row = startRow; row != endRow; ++row) {
+    std::vector<std::pair<std::size_t, ValueType>> valuePairs;
+    for (auto column = csr.rowIndices[row]; column != csr.rowIndices[row + 1];
+         ++column) {
+      // This can be optimised if the columns are always sorted in increasing
+      // order.
+      if (csr.columnIndices[column] >= startColumn &&
+          csr.columnIndices[column] < endColumn) {
+        valuePairs.emplace_back(csr.columnIndices[column] - startColumn,
+                                csr.nzValues[column]);
+      }
+    }
+    if (!valuePairs.empty()) {
+      rowValuePairs.emplace_back(
+          RowPositionValues(row - startRow, std::move(valuePairs)));
+    }
+  }
+  return rowValuePairs;
 }
 
 // Virtual mapping of tile to PN
@@ -68,17 +106,16 @@ using MI = popsparse::MetaInfo<MetaInfoType>;
 // to compute number of elements
 #define miElems(x) (sizeof(x) / sizeof(MetaInfoType))
 
-template <typename T>
-void PartitionerImpl<T>::init(const std::vector<std::size_t> &dimensions,
-                              const std::vector<std::size_t> &grainSizes,
-                              const std::vector<std::size_t> &xSplits_,
-                              const std::vector<std::size_t> &ySplits_,
-                              const std::vector<std::size_t> &zSplits_,
-                              std::size_t metaInfoBucketElements_,
-                              std::size_t nzElementsBucketElements_,
-                              std::size_t numWorkerContexts_,
-                              std::size_t bucketsPerZ_, bool includeGradA_,
-                              bool includeGradW_) {
+void PartitionerImpl::init(const std::vector<std::size_t> &dimensions,
+                           const std::vector<std::size_t> &grainSizes,
+                           const std::vector<std::size_t> &xSplits_,
+                           const std::vector<std::size_t> &ySplits_,
+                           const std::vector<std::size_t> &zSplits_,
+                           std::size_t metaInfoBucketElements_,
+                           std::size_t nzElementsBucketElements_,
+                           std::size_t numWorkerContexts_,
+                           std::size_t bucketsPerZ_, bool includeGradA_,
+                           bool includeGradW_) {
 
   auto verifySplit = [](std::size_t dimension, const std::vector<size_t> &split,
                         const std::string &str) {
@@ -137,12 +174,11 @@ void PartitionerImpl<T>::init(const std::vector<std::size_t> &dimensions,
                  nzElementsBucketElements);
 }
 
-template <typename T>
-PartitionerImpl<T>::PartitionerImpl(const FullyConnectedParams &params,
-                                    const poplar::Type &dataType_,
-                                    const poplar::Target &target,
-                                    const poplar::OptionFlags &options,
-                                    PlanningCache *cache) {
+PartitionerImpl::PartitionerImpl(const FullyConnectedParams &params,
+                                 const poplar::Type &dataType_,
+                                 const poplar::Target &target,
+                                 const poplar::OptionFlags &options,
+                                 PlanningCache *cache) {
   Plan plan;
   Cost planCost;
   std::tie(plan, planCost) = getPlan(target, dataType_, params, options, cache);
@@ -165,38 +201,35 @@ PartitionerImpl<T>::PartitionerImpl(const FullyConnectedParams &params,
   useActualWorkerSplitCosts = optionFlags.partitioner.useActualWorkerSplitCosts;
 }
 
-template <typename T>
-PartitionerImpl<T>::PartitionerImpl(const std::vector<std::size_t> &dimensions,
-                                    const std::vector<std::size_t> &grainSizes,
-                                    const std::vector<std::size_t> &xSplits_,
-                                    const std::vector<std::size_t> &ySplits_,
-                                    const std::vector<std::size_t> &zSplits_,
-                                    std::size_t metaInfoBucketElements_,
-                                    std::size_t nzElementsBucketElements_,
-                                    std::size_t numWorkerContexts_,
-                                    std::size_t bucketsPerZ_,
-                                    bool includeGradA_, bool includeGradW_) {
+PartitionerImpl::PartitionerImpl(const std::vector<std::size_t> &dimensions,
+                                 const std::vector<std::size_t> &grainSizes,
+                                 const std::vector<std::size_t> &xSplits_,
+                                 const std::vector<std::size_t> &ySplits_,
+                                 const std::vector<std::size_t> &zSplits_,
+                                 std::size_t metaInfoBucketElements_,
+                                 std::size_t nzElementsBucketElements_,
+                                 std::size_t numWorkerContexts_,
+                                 std::size_t bucketsPerZ_, bool includeGradA_,
+                                 bool includeGradW_) {
   init(dimensions, grainSizes, xSplits_, ySplits_, zSplits_,
        metaInfoBucketElements_, nzElementsBucketElements_, numWorkerContexts_,
        bucketsPerZ_, includeGradA_, includeGradW_);
 }
 
 // Number of non-zero values in a partition
-template <typename T>
-std::size_t numNonZeroValues(const TilePartition<T> &partition) {
+std::size_t numNonZeroValues(const TilePartition &partition) {
   return std::accumulate(
       partition.tileInfo.begin(), partition.tileInfo.end(), 0UL,
-      [](std::size_t a, const RowPositionValues<T> &row) -> std::size_t {
+      [](std::size_t a, const RowPositionValues &row) -> std::size_t {
         return a + row.positionValues.size();
       });
 }
 
 // convert tile partition to a CSR representation
-template <typename T>
-CSRMatrix<T> tilePartitionToCsrMatrix(const TilePartition<T> &partition) {
+CSRInternal tilePartitionToCsrMatrix(const TilePartition &partition) {
   std::vector<std::size_t> rowIndices;
   std::vector<std::size_t> columnIndices;
-  std::vector<T> nzValues;
+  std::vector<ValueType> nzValues;
 
   const auto numNzValues = numNonZeroValues(partition);
   columnIndices.resize(numNzValues);
@@ -208,7 +241,7 @@ CSRMatrix<T> tilePartitionToCsrMatrix(const TilePartition<T> &partition) {
     rowIndices[row] = index;
     auto match = std::find_if(
         partition.tileInfo.begin(), partition.tileInfo.end(),
-        [&](const RowPositionValues<T> &r) { return r.rowNumber == row; });
+        [&](const RowPositionValues &r) { return r.rowNumber == row; });
     if (match != partition.tileInfo.end()) {
       for (const auto &p : match->positionValues) {
         columnIndices[index] = p.first;
@@ -217,36 +250,34 @@ CSRMatrix<T> tilePartitionToCsrMatrix(const TilePartition<T> &partition) {
     }
   }
   rowIndices.back() = index;
-  return CSRMatrix<T>(nzValues, columnIndices, rowIndices);
+  return CSRInternal(nzValues, columnIndices, rowIndices);
 }
 
 // Create a tile representation from a CSR matrix
-template <typename T>
-TilePartition<T> csrMatrixToTilePartition(const CSRMatrix<T> &csrMatrix,
-                                          const Tile &tile,
-                                          const TileIndex &tileIndex) {
-  std::vector<RowPositionValues<T>> tileInfo;
+TilePartition csrMatrixToTilePartition(const CSRInternal &csrMatrix,
+                                       const Tile &tile,
+                                       const TileIndex &tileIndex) {
+  std::vector<RowPositionValues> tileInfo;
   const auto numEntries = csrMatrix.rowIndices.size();
   for (std::size_t row = 1; row != numEntries; ++row) {
     const auto numValues =
         csrMatrix.rowIndices[row] - csrMatrix.rowIndices[row - 1];
     if (numValues) {
-      std::vector<std::pair<std::size_t, T>> rowEntry;
+      std::vector<std::pair<std::size_t, ValueType>> rowEntry;
       auto posIt =
           csrMatrix.columnIndices.begin() + csrMatrix.rowIndices[row - 1];
       auto valIt = csrMatrix.nzValues.begin() + csrMatrix.rowIndices[row - 1];
       for (std::size_t i = 0; i != numValues; ++i) {
         rowEntry.emplace_back(*posIt++, *valIt++);
       }
-      tileInfo.push_back(RowPositionValues<T>(row - 1, rowEntry));
+      tileInfo.push_back(RowPositionValues(row - 1, rowEntry));
     }
   }
-  return TilePartition<T>(tileIndex, tile, tileInfo);
+  return TilePartition(tileIndex, tile, tileInfo);
 }
 
-template <typename T>
-std::vector<TilePartition<T>> static getTilePartition(
-    const CSRMatrix<T> matrix, std::size_t numX, std::size_t numY,
+std::vector<TilePartition> static getTilePartition(
+    const CSRInternal matrix, std::size_t numX, std::size_t numY,
     std::size_t numZ, const std::vector<std::size_t> &xSplits,
     const std::vector<std::size_t> &ySplits,
     const std::vector<std::size_t> &zSplits, std::size_t bucketsPerZ,
@@ -263,7 +294,7 @@ std::vector<TilePartition<T>> static getTilePartition(
   logging::trace("  Creating tile partitions for {} PNs : transpose ? {}",
                  numPNs, transposed);
 
-  std::vector<TilePartition<T>> tilePartitions(numPNs);
+  std::vector<TilePartition> tilePartitions(numPNs);
 
   for (std::size_t row = 0; row != xSplits.size(); ++row) {
     for (std::size_t column = 0; column != ySplits.size(); ++column) {
@@ -283,7 +314,7 @@ std::vector<TilePartition<T>> static getTilePartition(
       }
 
       Tile tile(rowInterval, columnInterval);
-      auto tp = getPositionValuePairsPerRow<T>(csr, tile);
+      auto tp = getPositionValuePairsPerRow(csr, tile);
       logging::trace("    Tile X={} Y={} number of rows {} ", tile.getRows(),
                      tile.getColumns(), tp.size());
 
@@ -305,18 +336,18 @@ std::vector<TilePartition<T>> static getTilePartition(
       std::size_t rIndex = 0, cIndex = 0, elementsUsed = 0;
       for (std::size_t z = 0; z != splits.size(); ++z) {
         const auto pn = getPNId({row, column, z}, numXYZ);
-        std::vector<RowPositionValues<T>> rowPosValues;
+        std::vector<RowPositionValues> rowPosValues;
         logging::trace("      z={}, pn={} : z splits={}", z, pn, splits[z]);
         auto splitIt = splits[z].begin();
         do {
           assert(!tp[rIndex].positionValues.empty());
-          std::vector<std::pair<std::size_t, T>> positionValues;
+          std::vector<std::pair<std::size_t, ValueType>> positionValues;
           for (std::size_t col = 0; col != splitIt->size(); ++col, ++cIndex) {
             positionValues.push_back(tp[rIndex].positionValues[cIndex]);
           }
           logging::trace("        row : {} = {} ", tp[rIndex].rowNumber,
                          positionValues);
-          RowPositionValues<T> rpEntry(tp[rIndex].rowNumber, positionValues);
+          RowPositionValues rpEntry(tp[rIndex].rowNumber, positionValues);
           rowPosValues.push_back(rpEntry);
           elementsUsed += splitIt->size();
           ++splitIt;
@@ -326,7 +357,7 @@ std::vector<TilePartition<T>> static getTilePartition(
             cIndex = 0;
           }
         } while (splitIt != splits[z].end());
-        tilePartitions[pn] = TilePartition<T>(
+        tilePartitions[pn] = TilePartition(
             std::make_tuple(rowIndex, columnIndex, z), tile, rowPosValues);
       }
     }
@@ -336,10 +367,9 @@ std::vector<TilePartition<T>> static getTilePartition(
 
 // creates tile partitions based purely on tiling of the matrix. The tiling is
 // done given the splits the planner decides to split the matrix.
-template <typename T>
-std::vector<TilePartition<T>>
-PartitionerImpl<T>::getTilePartitions(const CSRMatrix<T> &matrix_,
-                                      bool transposed) const {
+std::vector<TilePartition>
+PartitionerImpl::getTilePartitions(const CSRInternal &matrix_,
+                                   bool transposed) const {
   if (matrix_.rowIndices.size() != numX + 1) {
     throw poputil::poplibs_error("Column indices must match matrix colums");
   }
@@ -353,18 +383,17 @@ PartitionerImpl<T>::getTilePartitions(const CSRMatrix<T> &matrix_,
 
   // TODO: remove this copy
   auto matrix = matrix_;
-  canonicalizeCSR<T>(matrix);
+  canonicalizeCSR<ValueType>(matrix);
 
-  return getTilePartition<T>(matrix, numX, numY, numZ, xSplits, ySplits,
-                             zSplits, bucketsPerZ, transposed);
+  return getTilePartition(matrix, numX, numY, numZ, xSplits, ySplits, zSplits,
+                          bucketsPerZ, transposed);
 }
 
 // creates tile partitions based purely on tiling of the matrix. The tiling is
 // done given the splits the planner decides to split the matrix.
-template <typename T>
-std::vector<TilePartition<T>>
-PartitionerImpl<T>::getTilePartitions(const CSCMatrix<T> &matrix_,
-                                      bool transposed) const {
+std::vector<TilePartition>
+PartitionerImpl::getTilePartitions(const CSCInternal &matrix_,
+                                   bool transposed) const {
 
   if (matrix_.columnIndices.size() != numY + 1) {
     throw poputil::poplibs_error("Column indices must match matrix colums");
@@ -376,15 +405,14 @@ PartitionerImpl<T>::getTilePartitions(const CSCMatrix<T> &matrix_,
   }
   logging::trace("Partitioner called with CSC representation");
 
-  auto matrix = cscToCSR<T>(numX, numY, matrix_);
-  return getTilePartition<T>(matrix, numX, numY, numZ, xSplits, ySplits,
-                             zSplits, bucketsPerZ, transposed);
+  auto matrix = cscToCSR<ValueType>(numX, numY, matrix_);
+  return getTilePartition(matrix, numX, numY, numZ, xSplits, ySplits, zSplits,
+                          bucketsPerZ, transposed);
 }
 
 // find amount of information kept on tile which is a sub-tile of the
 // partition
-template <typename T>
-std::size_t numMetaInfoElementsForWorker(const TilePartition<T> &partition,
+std::size_t numMetaInfoElementsForWorker(const TilePartition &partition,
                                          const Tile &tile, bool includeGradW) {
   bool rowInTile = tile.getRows().begin() <
                    std::min(partition.tileInfo.size(), tile.getRows().end());
@@ -412,9 +440,8 @@ std::size_t fixedMetaInfoCost(std::size_t numWorkers, bool gradWEnabled) {
   return metaInfoCost;
 }
 
-template <typename T>
 std::pair<std::size_t, std::size_t>
-sizesForTilePartition(const TilePartition<T> &partition, std::size_t numZGrains,
+sizesForTilePartition(const TilePartition &partition, std::size_t numZGrains,
                       std::size_t numWorkers, bool useWorkerSplits,
                       bool includeGradW) {
 
@@ -474,8 +501,7 @@ static std::size_t getNumZGrains(const TileIndex &tileIndex,
 
 // Given a bucket, computes the exact size in elements required for meta info
 // and NZ values. The size information is then filled into the bucket structure.
-template <typename T>
-static void fillBucketSizes(PNBucket<T> &bucket,
+static void fillBucketSizes(PNBucket &bucket,
                             const std::vector<std::size_t> &zSplits,
                             const std::size_t numZ,
                             const std::size_t grainSizeZ, bool useWorkerSplits,
@@ -492,8 +518,8 @@ static void fillBucketSizes(PNBucket<T> &bucket,
       }
       const auto numGrains = getNumZGrains(subgroup.tileIndex, zSplits, numZ,
                                            bucketsPerZ, grainSizeZ);
-      auto bucketSizes = sizesForTilePartition<T>(
-          subgroup, numGrains, numWorkers, useWorkerSplits, includeGradW);
+      auto bucketSizes = sizesForTilePartition(subgroup, numGrains, numWorkers,
+                                               useWorkerSplits, includeGradW);
       logging::trace("        Bucket group size : metainfo {}   nz elements {}",
                      bucketSizes.first, bucketSizes.second);
       nzElements += bucketSizes.second;
@@ -545,14 +571,13 @@ findPartitionsToRemove(const std::vector<std::size_t> &rowWeights,
   return partition;
 }
 
-// Removes rows until it reaches a target
-template <typename T>
-static TilePartition<T>
-removeRows(PNBucket<T> &bucket, const std::vector<std::size_t> &zSplits,
+// Removes rows until target is reached
+static TilePartition
+removeRows(PNBucket &bucket, const std::vector<std::size_t> &zSplits,
            std::size_t numZ, std::size_t grainSizeZ, std::size_t numWorkers,
            std::size_t metaInfoElementsTarget, std::size_t nzElementsTarget,
            std::size_t bucketsPerZ, bool useWorkerSplits, bool includeGradW) {
-  TilePartition<T> removedPartition;
+  TilePartition removedPartition;
 
   if (bucket.metaInfoElements <= metaInfoElementsTarget &&
       bucket.numNzElements <= nzElementsTarget) {
@@ -565,7 +590,7 @@ removeRows(PNBucket<T> &bucket, const std::vector<std::size_t> &zSplits,
 
   // For now just go through row vectors and remove them.
   // TODO: Do this better
-  std::vector<RowPositionValues<T>> rowsRemoved;
+  std::vector<RowPositionValues> rowsRemoved;
   for (std::size_t i = bucket.subGroups[0].tileInfo.size(); i > 0; --i) {
     auto index = i - 1;
     rowsRemoved.push_back(bucket.subGroups[0].tileInfo[index]);
@@ -584,8 +609,8 @@ removeRows(PNBucket<T> &bucket, const std::vector<std::size_t> &zSplits,
   }
 
   if (!rowsRemoved.empty()) {
-    removedPartition = TilePartition<T>(bucket.subGroups[0].tileIndex,
-                                        bucket.subGroups[0].tile, rowsRemoved);
+    removedPartition = TilePartition(bucket.subGroups[0].tileIndex,
+                                     bucket.subGroups[0].tile, rowsRemoved);
   }
 
   return removedPartition;
@@ -593,12 +618,10 @@ removeRows(PNBucket<T> &bucket, const std::vector<std::size_t> &zSplits,
 
 // The partition is described in terms of the row number and the end column as
 // the start position is always zero
-// TODO:
-template <typename T>
-TilePartition<T>
-removeIntervals(TilePartition<T> &tilePartition,
+TilePartition
+removeIntervals(TilePartition &tilePartition,
                 std::vector<std::pair<std::size_t, std::size_t>> &intervals) {
-  std::vector<RowPositionValues<T>> rowPositionValues;
+  std::vector<RowPositionValues> rowPositionValues;
 
   // Sort to erase from largest index
   std::sort(
@@ -617,7 +640,7 @@ removeIntervals(TilePartition<T> &tilePartition,
       tilePartition.tileInfo.erase(tilePartition.tileInfo.begin() + p.first);
     } else {
       // remove elements from the end
-      std::vector<std::pair<std::size_t, T>> posValues;
+      std::vector<std::pair<std::size_t, ValueType>> posValues;
       posValues.insert(posValues.end(),
                        row.positionValues.begin() + numColElems - p.second,
                        row.positionValues.end());
@@ -625,19 +648,18 @@ removeIntervals(TilePartition<T> &tilePartition,
       row.positionValues.resize(numColElems - p.second);
     }
   }
-  return TilePartition<T>(tilePartition.tileIndex, tilePartition.tile,
-                          std::move(rowPositionValues));
+  return TilePartition(tilePartition.tileIndex, tilePartition.tile,
+                       std::move(rowPositionValues));
 }
 
-template <typename T>
-static std::vector<PNBucket<T>>
-createBucketsForPN(std::vector<TilePartition<T>> &tilePartitions,
+static std::vector<PNBucket>
+createBucketsForPN(std::vector<TilePartition> &tilePartitions,
                    const std::vector<std::size_t> &zSplits, std::size_t numZ,
                    std::size_t grainSizeZ, bool useWorkerSplits,
                    std::size_t numWorkers, std::size_t bucketsPerZ,
                    bool includeGradW) {
   const auto numPNs = tilePartitions.size();
-  std::vector<PNBucket<T>> buckets(tilePartitions.size());
+  std::vector<PNBucket> buckets(tilePartitions.size());
   // The initial buckets contain one tile partition
   for (std::size_t p = 0; p != numPNs; ++p) {
     if (!tilePartitions[p].empty()) {
@@ -651,13 +673,12 @@ createBucketsForPN(std::vector<TilePartition<T>> &tilePartitions,
   return buckets;
 }
 
-template <typename T>
-void dumpBucketStatus(const std::vector<PNBucket<T>> &mainBuckets,
-                      const std::vector<PNBucket<T>> &overflowBuckets = {}) {
+void dumpBucketStatus(const std::vector<PNBucket> &mainBuckets,
+                      const std::vector<PNBucket> &overflowBuckets = {}) {
   const auto numBuckets = mainBuckets.size();
   if (numBuckets == overflowBuckets.size()) {
     auto empty = std::all_of(overflowBuckets.begin(), overflowBuckets.end(),
-                             [](const PNBucket<T> &b) { return b.empty(); });
+                             [](const PNBucket &b) { return b.empty(); });
     logging::trace("  - buckets overflown ? {}", !empty);
     for (std::size_t p = 0; p != numBuckets; ++p) {
       auto &bucket = mainBuckets[p];
@@ -678,17 +699,15 @@ void dumpBucketStatus(const std::vector<PNBucket<T>> &mainBuckets,
   }
 }
 
-template <typename T>
-static std::size_t countNonEmpty(const std::vector<PNBucket<T>> &bucket) {
+static std::size_t countNonEmpty(const std::vector<PNBucket> &bucket) {
   return std::accumulate(
       bucket.begin(), bucket.end(), (std::size_t)0,
-      [](std::size_t prior, const PNBucket<T> &b) -> std::size_t {
+      [](std::size_t prior, const PNBucket &b) -> std::size_t {
         return prior + (b.metaInfoElements != 0 || b.numNzElements != 0);
       });
 }
 
-template <typename T>
-static void logBucket(const PNBucket<T> &b, const std::string &str) {
+static void logBucket(const PNBucket &b, const std::string &str) {
   logging::trace("   - Logging Bucket : {} : [{}, {}]", str, b.metaInfoElements,
                  b.numNzElements);
   for (const auto &sg : b.subGroups) {
@@ -705,9 +724,8 @@ static void logBucket(const PNBucket<T> &b, const std::string &str) {
   }
 }
 
-template <typename T>
-void PartitionerImpl<T>::balanceBuckets(std::vector<PNBucket<T>> &pnBuckets,
-                                        bool transposed) const {
+void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
+                                     bool transposed) const {
 
   const auto numBuckets = pnBuckets.size();
 
@@ -715,13 +733,13 @@ void PartitionerImpl<T>::balanceBuckets(std::vector<PNBucket<T>> &pnBuckets,
   logging::trace("Before rebalancing ... ");
   dumpBucketStatus(pnBuckets);
 
-  auto overflown = [&](const PNBucket<T> &bucket) {
+  auto overflown = [&](const PNBucket &bucket) {
     return (bucket.metaInfoElements > metaInfoBucketElements - 1 ||
             bucket.numNzElements > nzElementsBucketElements);
   };
 
   // The overflow is kept in this
-  std::vector<PNBucket<T>> overflowBuckets(numBuckets);
+  std::vector<PNBucket> overflowBuckets(numBuckets);
 
   // First determine the number of elements overflow and strip off rows
   for (std::size_t p = 0; p != numBuckets; ++p) {
@@ -750,7 +768,7 @@ void PartitionerImpl<T>::balanceBuckets(std::vector<PNBucket<T>> &pnBuckets,
   logging::trace("After partitioning to overflown buckets ... ");
   dumpBucketStatus(pnBuckets, overflowBuckets);
 
-  auto fits = [&](const PNBucket<T> &target, const PNBucket<T> &cand) {
+  auto fits = [&](const PNBucket &target, const PNBucket &cand) {
     return (target.metaInfoElements + cand.metaInfoElements <=
             metaInfoBucketElements - 1) &&
            (target.numNzElements + cand.numNzElements <=
@@ -763,7 +781,7 @@ void PartitionerImpl<T>::balanceBuckets(std::vector<PNBucket<T>> &pnBuckets,
 
   auto rebalance = [&](std::size_t pnRange, bool splitColumns) {
     if (std::all_of(overflowBuckets.begin(), overflowBuckets.end(),
-                    [](const PNBucket<T> &b) { return b.empty(); })) {
+                    [](const PNBucket &b) { return b.empty(); })) {
       return;
     }
 
@@ -923,7 +941,7 @@ void PartitionerImpl<T>::balanceBuckets(std::vector<PNBucket<T>> &pnBuckets,
     std::size_t maxMetaInfo = 0;
     std::size_t maxNzValues = 0;
     std::for_each(overflowBuckets.begin(), overflowBuckets.end(),
-                  [&](const PNBucket<T> &b) {
+                  [&](const PNBucket &b) {
                     maxMetaInfo = std::max(maxMetaInfo, b.metaInfoElements);
                     maxNzValues = std::max(maxNzValues, b.numNzElements);
                   });
@@ -958,9 +976,8 @@ static std::size_t formSubgroupId(const TileIndex &tileIndex,
 // moves and they move in increasing ORGs. If 'moveBuckets' is set to true then
 // buckets move, else data moves.
 //
-template <typename T>
 std::vector<std::size_t>
-findOverflowDistance(const std::vector<PNBucket<T>> &pnBuckets,
+findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
                      const std::vector<std::size_t> &numSplits,
                      bool genForGradA, bool genForGradW,
                      std::size_t bucketsPerZ) {
@@ -1043,61 +1060,79 @@ findOverflowDistance(const std::vector<PNBucket<T>> &pnBuckets,
 }
 
 template <typename T>
-std::vector<PNBucket<T>>
-PartitionerImpl<T>::createBuckets(const CSCMatrix<T> &matrix_) const {
+PNBucketsImpl<T>
+PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
+  // Convert CSR to matrix to std::size_t
+  std::vector<ValueType> nzOffsets;
+  nzOffsets.resize(matrix_.nzValues.size());
+  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
+  auto cscInternal = CSCInternal(std::move(nzOffsets), matrix_.columnIndices,
+                                 matrix_.rowIndices);
   const bool transposed = false;
-  auto tilePartitions = getTilePartitions(matrix_, transposed);
+  auto tilePartitions = getTilePartitions(cscInternal, transposed);
   auto pnBuckets = createBucketsForPN(
       tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
       numWorkerContexts, bucketsPerZ, gradWEnabled);
   balanceBuckets(pnBuckets, transposed);
-  return pnBuckets;
+  return {pnBuckets, matrix_.nzValues};
 }
 
 template <typename T>
-std::vector<PNBucket<T>>
-PartitionerImpl<T>::createBuckets(const CSRMatrix<T> &matrix_) const {
+PNBucketsImpl<T>
+PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
   const bool transposed = false;
-  auto tilePartitions = getTilePartitions(matrix_, transposed);
+  // Convert CSR to matrix to std::size_t
+  std::vector<ValueType> nzOffsets;
+  nzOffsets.resize(matrix_.nzValues.size());
+  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
+  auto csrInternal = CSRInternal(std::move(nzOffsets), matrix_.columnIndices,
+                                 matrix_.rowIndices);
+
+  auto tilePartitions = getTilePartitions(std::move(csrInternal), transposed);
   auto pnBuckets = createBucketsForPN(
       tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
       numWorkerContexts, bucketsPerZ, gradWEnabled);
   balanceBuckets(pnBuckets, transposed);
-  return pnBuckets;
+  return {pnBuckets, matrix_.nzValues};
 }
 
 template <typename T>
-std::vector<PNBucket<T>>
-PartitionerImpl<T>::createBuckets(const COOMatrix<T> &matrix_) const {
+PNBucketsImpl<T>
+PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
   const bool transposed = false;
   auto csrMatrix = cooToCSR(numX, numY, matrix_);
-
-  auto tilePartitions = getTilePartitions(csrMatrix, transposed);
+  std::vector<ValueType> nzOffsets;
+  nzOffsets.resize(csrMatrix.nzValues.size());
+  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
+  auto csrInternal =
+      CSRInternal(std::move(nzOffsets), std::move(csrMatrix.columnIndices),
+                  std::move(csrMatrix.rowIndices));
+  auto tilePartitions = getTilePartitions(std::move(csrInternal), transposed);
   auto pnBuckets = createBucketsForPN(
       tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
       numWorkerContexts, bucketsPerZ, gradWEnabled);
   balanceBuckets(pnBuckets, transposed);
-  return pnBuckets;
+  return {pnBuckets, csrMatrix.nzValues};
 }
 
-template <typename T>
-std::vector<PNBucket<T>> PartitionerImpl<T>::transposedBuckets(
-    const std::vector<PNBucket<T>> &in) const {
+std::vector<PNBucket>
+PartitionerImpl::transposedBuckets(const std::vector<PNBucket> &in) const {
   const auto numBuckets = in.size();
-  std::vector<PNBucket<T>> out;
+  std::vector<PNBucket> out;
   out.resize(numBuckets);
 
   for (std::size_t b = 0; b != numBuckets; ++b) {
     for (std::size_t sg = 0; sg != in[b].subGroups.size(); ++sg) {
       const auto &subGroup = in[b].subGroups[sg];
-      auto csr = tilePartitionToCsrMatrix<T>(subGroup);
-      auto transpose = csrTranspose<T>(subGroup.tile.getRows().size(),
-                                       subGroup.tile.getColumns().size(), csr);
+      auto csr = tilePartitionToCsrMatrix(subGroup);
+      auto transpose =
+          csrTranspose<ValueType>(subGroup.tile.getRows().size(),
+                                  subGroup.tile.getColumns().size(), csr);
       Tile tile(subGroup.tile.getColumns(), subGroup.tile.getRows());
       TileIndex tileIndex = std::make_tuple(std::get<1>(subGroup.tileIndex),
                                             std::get<0>(subGroup.tileIndex),
                                             std::get<2>(subGroup.tileIndex));
-      auto tp = csrMatrixToTilePartition<T>(transpose, tile, tileIndex);
+      auto tp = csrMatrixToTilePartition(transpose, tile, tileIndex);
       out[b].subGroups.push_back(tp);
     }
     fillBucketSizes(out[b], zSplits, numZ, grainZ, useActualWorkerSplitCosts,
@@ -1111,15 +1146,17 @@ std::vector<PNBucket<T>> PartitionerImpl<T>::transposedBuckets(
 }
 
 template <typename T>
-std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
-    const PNBucket<T> &bucket, const std::vector<std::size_t> &xSplits,
-    const std::vector<std::size_t> &ySplits,
-    const std::vector<std::size_t> &zSplits, std::size_t numZ,
-    std::size_t grainZ, bool includeGradW, bool genForGradA,
-    const poplar::Type &dataType, const poplar::Type &accumType,
-    std::size_t metaInfoBucketElements, std::size_t nzElementsBucketElements,
-    std::size_t numWorkers, std::size_t bucketsPerZ,
-    const std::string &debugStr = "") {
+std::pair<std::vector<std::size_t>, std::vector<T>>
+bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
+                    const std::vector<std::size_t> &xSplits,
+                    const std::vector<std::size_t> &ySplits,
+                    const std::vector<std::size_t> &zSplits, std::size_t numZ,
+                    std::size_t grainZ, bool includeGradW, bool genForGradA,
+                    const poplar::Type &dataType, const poplar::Type &accumType,
+                    std::size_t metaInfoBucketElements,
+                    std::size_t nzElementsBucketElements,
+                    std::size_t numWorkers, std::size_t bucketsPerZ,
+                    const std::string &debugStr = "") {
   const std::size_t yOffsetTypeFactor =
       popsparse::getYOffsetTypeFactor(dataType == poplar::FLOAT);
   const std::size_t xOffsetTypeFactor =
@@ -1292,7 +1329,7 @@ std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
         }
         group.push_back(colPair.first * yOffsetTypeFactor * numGrains * grainZ);
         if (!genForGradA) {
-          nzBucket.push_back(colPair.second);
+          nzBucket.push_back(nzValues.at(colPair.second));
         }
       }
     }
@@ -1329,63 +1366,66 @@ std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
 
 template <typename T>
 std::pair<std::vector<std::size_t>, std::vector<T>>
-PartitionerImpl<T>::bucketForForward(const PNBucket<T> &pnBucket,
-                                     const std::string &debugStr) const {
+PartitionerImpl::bucketForForward(const PNBucket &pnBucket,
+                                  const std::vector<T> &nzValues,
+                                  const std::string &debugStr) const {
   return bucketsImplInternal<T>(
-      pnBucket, xSplits, ySplits, zSplits, numZ, grainZ, gradWEnabled, false,
-      dataType, accumType, metaInfoBucketElements, nzElementsBucketElements,
-      numWorkerContexts, bucketsPerZ, debugStr);
+      pnBucket, nzValues, xSplits, ySplits, zSplits, numZ, grainZ, gradWEnabled,
+      false, dataType, accumType, metaInfoBucketElements,
+      nzElementsBucketElements, numWorkerContexts, bucketsPerZ, debugStr);
 }
 
 template <typename T>
 std::vector<std::size_t>
-PartitionerImpl<T>::bucketForGradA(const PNBucket<T> &pnBucket,
-                                   const std::string &debugStr) const {
-  using U = std::size_t;
-  PNBucket<U> indicesBucket;
+PartitionerImpl::bucketForGradA(const PNBucket &pnBucket,
+                                const std::vector<T> &nzValues,
+                                const std::string &debugStr) const {
+  PNBucket indicesBucket;
   indicesBucket.metaInfoElements = pnBucket.metaInfoElements;
   indicesBucket.numNzElements = pnBucket.numNzElements;
   for (const auto &sg : pnBucket.subGroups) {
-    U index = 0;
-    TilePartition<U> tp;
+    ValueType index = 0;
+    TilePartition tp;
     tp.tile = sg.tile;
     tp.tileIndex = sg.tileIndex;
     for (const auto &rowPos : sg.tileInfo) {
-      std::vector<std::pair<std::size_t, U>> positionValues;
+      std::vector<std::pair<std::size_t, ValueType>> positionValues;
       for (const auto &posVal : rowPos.positionValues) {
         positionValues.emplace_back(posVal.first, index++);
       }
       tp.tileInfo.emplace_back(
-          RowPositionValues<U>(rowPos.rowNumber, positionValues));
+          RowPositionValues(rowPos.rowNumber, positionValues));
     }
-    auto csr = tilePartitionToCsrMatrix<U>(tp);
-    auto transpose = csrTranspose<U>(tp.tile.getRows().size(),
-                                     tp.tile.getColumns().size(), csr);
+    auto csr = tilePartitionToCsrMatrix(tp);
+    auto transpose = csrTranspose<ValueType>(tp.tile.getRows().size(),
+                                             tp.tile.getColumns().size(), csr);
 
     Tile tile(tp.tile.getColumns(), tp.tile.getRows());
     TileIndex tileIndex =
         std::make_tuple(std::get<1>(tp.tileIndex), std::get<0>(tp.tileIndex),
                         std::get<2>(tp.tileIndex));
-    auto tpGradA = csrMatrixToTilePartition<U>(transpose, tile, tileIndex);
+    auto tpGradA = csrMatrixToTilePartition(transpose, tile, tileIndex);
     indicesBucket.subGroups.emplace_back(tpGradA);
   }
-  return bucketsImplInternal<U>(
-             indicesBucket, ySplits, xSplits, zSplits, numZ, grainZ, false,
-             true, dataType, accumType, metaInfoBucketElementsGradA,
+  return bucketsImplInternal<T>(
+             indicesBucket, nzValues, ySplits, xSplits, zSplits, numZ, grainZ,
+             false, true, dataType, accumType, metaInfoBucketElementsGradA,
              nzElementsBucketElements, numWorkerContexts, bucketsPerZ, debugStr)
       .first;
 }
 
 template <typename T>
 std::pair<std::vector<std::vector<std::size_t>>, std::vector<std::vector<T>>>
-PartitionerImpl<T>::bucketsForForward(const std::vector<PNBucket<T>> &pnBuckets,
-                                      const std::string &debugStr) const {
+PartitionerImpl::bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
+                                   const std::string &debugStr) const {
+  const auto &pnBuckets = pnBucketsImpl.pnBuckets;
+  const auto &nzValues = pnBucketsImpl.nzValues;
   const auto numBuckets = pnBuckets.size();
   std::vector<std::vector<std::size_t>> metaInfoBucket(numBuckets);
   std::vector<std::vector<T>> nzBucket(numBuckets);
 
   for (std::size_t b = 0; b != numBuckets; ++b) {
-    auto pnImpl = bucketForForward(pnBuckets[b], debugStr);
+    auto pnImpl = bucketForForward(pnBuckets[b], nzValues, debugStr);
     metaInfoBucket[b] = std::move(pnImpl.first);
     nzBucket[b] = std::move(pnImpl.second);
   }
@@ -1394,48 +1434,48 @@ PartitionerImpl<T>::bucketsForForward(const std::vector<PNBucket<T>> &pnBuckets,
 
 template <typename T>
 std::vector<std::vector<std::size_t>>
-PartitionerImpl<T>::bucketsForGradA(const std::vector<PNBucket<T>> &pnBuckets,
-                                    const std::string &debugStr) const {
+PartitionerImpl::bucketsForGradA(const PNBucketsImpl<T> &pnBucketsImpl,
+                                 const std::string &debugStr) const {
+  const auto &pnBuckets = pnBucketsImpl.pnBuckets;
+  const auto &nzValues = pnBucketsImpl.nzValues;
   const auto numBuckets = pnBuckets.size();
   std::vector<std::vector<std::size_t>> metaInfoBucket(numBuckets);
   std::vector<std::vector<T>> nzBucket(numBuckets);
 
   for (std::size_t b = 0; b != numBuckets; ++b) {
-    auto metaInfoBucketImpl = bucketForGradA(pnBuckets[b], debugStr);
+    auto metaInfoBucketImpl = bucketForGradA(pnBuckets[b], nzValues, debugStr);
     metaInfoBucket[b] = std::move(metaInfoBucketImpl);
   }
   return metaInfoBucket;
 }
 
-template <typename T>
-std::vector<std::size_t> PartitionerImpl<T>::overflowInfoForFwd(
-    const std::vector<PNBucket<T>> &pnBuckets) const {
+std::vector<std::size_t> PartitionerImpl::overflowInfoForFwd(
+    const std::vector<PNBucket> &pnBuckets) const {
   const std::vector<std::size_t> numXYZ = {xSplits.size(), ySplits.size(),
                                            zSplits.size()};
-  return findOverflowDistance<T>(pnBuckets, numXYZ, false, false, bucketsPerZ);
+  return findOverflowDistance(pnBuckets, numXYZ, false, false, bucketsPerZ);
 }
 
-template <typename T>
-std::vector<std::size_t> PartitionerImpl<T>::overflowInfoForGradA(
-    const std::vector<PNBucket<T>> &pnBuckets) const {
+std::vector<std::size_t> PartitionerImpl::overflowInfoForGradA(
+    const std::vector<PNBucket> &pnBuckets) const {
   const std::vector<std::size_t> numXYZ = {xSplits.size(), ySplits.size(),
                                            zSplits.size()};
-  return findOverflowDistance<T>(pnBuckets, numXYZ, true, false, bucketsPerZ);
+  return findOverflowDistance(pnBuckets, numXYZ, true, false, bucketsPerZ);
 }
 
-template <typename T>
-std::vector<std::size_t> PartitionerImpl<T>::overflowInfoForGradW(
-    const std::vector<PNBucket<T>> &pnBuckets) const {
+std::vector<std::size_t> PartitionerImpl::overflowInfoForGradW(
+    const std::vector<PNBucket> &pnBuckets) const {
   const std::vector<std::size_t> numXYZ = {xSplits.size(), ySplits.size(),
                                            zSplits.size()};
-  return findOverflowDistance<T>(pnBuckets, numXYZ, false, true, bucketsPerZ);
+  return findOverflowDistance(pnBuckets, numXYZ, false, true, bucketsPerZ);
 }
 
 template <typename T>
 std::pair<std::vector<std::size_t>, std::vector<T>>
-PartitionerImpl<T>::bucketImplAllPasses(
-    const std::vector<PNBucket<T>> &pnBuckets,
-    const std::string &debugStr) const {
+PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
+                                     const std::string &debugStr) const {
+  const auto &pnBuckets = pnBucketsImpl.pnBuckets;
+  const auto &nzValues = pnBucketsImpl.nzValues;
   // We use the same overflow info for all passes
   auto metaInfoBucket = overflowInfoForFwd(pnBuckets);
 
@@ -1445,7 +1485,7 @@ PartitionerImpl<T>::bucketImplAllPasses(
     if (logging::shouldLog(logging::Level::Debug)) {
       str = "Real forward buckets for PN " + std::to_string(b);
     }
-    auto bucketFwd = bucketForForward(pnBuckets[b], str);
+    auto bucketFwd = bucketForForward(pnBuckets[b], nzValues, str);
 
     metaInfoBucket.insert(metaInfoBucket.end(), bucketFwd.first.begin(),
                           bucketFwd.first.end());
@@ -1457,7 +1497,7 @@ PartitionerImpl<T>::bucketImplAllPasses(
       if (!debugStr.empty() && logging::shouldLog(logging::Level::Debug)) {
         str = "Real forward buckets for PN " + std::to_string(b);
       }
-      auto bucketGradA = bucketForGradA(pnBuckets[b], str);
+      auto bucketGradA = bucketForGradA(pnBuckets[b], nzValues, str);
 
       metaInfoBucket.insert(metaInfoBucket.end(), bucketGradA.begin(),
                             bucketGradA.end());
@@ -1468,8 +1508,8 @@ PartitionerImpl<T>::bucketImplAllPasses(
 
 template <typename T>
 COOMatrix<T>
-PartitionerImpl<T>::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
-                                       const std::vector<T> &nzValues) const {
+PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
+                                    const std::vector<T> &nzValues) const {
   using U = std::size_t;
   using MI_U = MetaInfo<U>;
 
@@ -1587,22 +1627,69 @@ PartitionerImpl<T>::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
 
 template <typename T>
 CSRMatrix<T>
-PartitionerImpl<T>::bucketsToCSRMatrix(const std::vector<std::size_t> &metaInfo,
-                                       const std::vector<T> &nzValues) const {
+PartitionerImpl::bucketsToCSRMatrix(const std::vector<std::size_t> &metaInfo,
+                                    const std::vector<T> &nzValues) const {
   auto cooMatrix = bucketsToCOOMatrix(metaInfo, nzValues);
   return cooToCSR(numX, numY, cooMatrix);
 }
 
 template <typename T>
 CSCMatrix<T>
-PartitionerImpl<T>::bucketsToCSCMatrix(const std::vector<std::size_t> &metaInfo,
-                                       const std::vector<T> &nzValues) const {
+PartitionerImpl::bucketsToCSCMatrix(const std::vector<std::size_t> &metaInfo,
+                                    const std::vector<T> &nzValues) const {
   auto csrMatrix = bucketsToCSRMatrix(metaInfo, nzValues);
   return csrToCSC(numX, numY, csrMatrix);
 }
 
-} // namespace popsparse
+// Instantiations of templated member methods
+template PNBucketsImpl<double>
+PartitionerImpl::createBuckets<double>(const CSCMatrix<double> &) const;
+template PNBucketsImpl<float>
+PartitionerImpl::createBuckets<float>(const CSCMatrix<float> &) const;
 
-// instantiation of supported types
-template class popsparse::PartitionerImpl<double>;
-template class popsparse::PartitionerImpl<float>;
+template PNBucketsImpl<double>
+PartitionerImpl::createBuckets<double>(const CSRMatrix<double> &) const;
+template PNBucketsImpl<float>
+PartitionerImpl::createBuckets<float>(const CSRMatrix<float> &) const;
+
+template PNBucketsImpl<double>
+PartitionerImpl::createBuckets<double>(const COOMatrix<double> &) const;
+template PNBucketsImpl<float>
+PartitionerImpl::createBuckets<float>(const COOMatrix<float> &) const;
+
+template CSCMatrix<double>
+PartitionerImpl::bucketsToCSCMatrix<double>(const std::vector<std::size_t> &,
+                                            const std::vector<double> &) const;
+template CSCMatrix<float>
+PartitionerImpl::bucketsToCSCMatrix<float>(const std::vector<std::size_t> &,
+                                           const std::vector<float> &) const;
+
+template CSRMatrix<double>
+PartitionerImpl::bucketsToCSRMatrix<double>(const std::vector<std::size_t> &,
+                                            const std::vector<double> &) const;
+template CSRMatrix<float>
+PartitionerImpl::bucketsToCSRMatrix<float>(const std::vector<std::size_t> &,
+                                           const std::vector<float> &) const;
+template COOMatrix<double>
+PartitionerImpl::bucketsToCOOMatrix<double>(const std::vector<std::size_t> &,
+                                            const std::vector<double> &) const;
+template COOMatrix<float>
+PartitionerImpl::bucketsToCOOMatrix<float>(const std::vector<std::size_t> &,
+                                           const std::vector<float> &) const;
+
+template std::vector<std::vector<std::size_t>>
+PartitionerImpl::bucketsForGradA<double>(const PNBucketsImpl<double> &,
+                                         const std::string &) const;
+template std::vector<std::vector<std::size_t>>
+PartitionerImpl::bucketsForGradA<float>(const PNBucketsImpl<float> &,
+                                        const std::string &) const;
+
+template std::pair<std::vector<std::size_t>, std::vector<double>>
+PartitionerImpl::bucketImplAllPasses<double>(const PNBucketsImpl<double> &,
+                                             const std::string &) const;
+
+template std::pair<std::vector<std::size_t>, std::vector<float>>
+PartitionerImpl::bucketImplAllPasses<float>(const PNBucketsImpl<float> &,
+                                            const std::string &) const;
+
+} // namespace popsparse

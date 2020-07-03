@@ -13,7 +13,7 @@ Partitioner<T>::Partitioner(const FullyConnectedParams &params,
                             const poplar::Target &target,
                             const poplar::OptionFlags &options,
                             PlanningCache *cache) {
-  impl.reset(new PartitionerImpl<T>(params, dataType, target, options, cache));
+  impl.reset(new PartitionerImpl(params, dataType, target, options, cache));
 }
 
 template <typename T> Partitioner<T>::~Partitioner() {}
@@ -21,34 +21,22 @@ template <typename T> Partitioner<T>::~Partitioner() {}
 template <typename T>
 SparsityDataImpl<T>
 Partitioner<T>::createSparsityDataImpl(const CSCMatrix<T> &matrix_) const {
-  auto pnBuckets = impl->createBuckets(matrix_);
-  auto info = impl->bucketImplAllPasses(pnBuckets);
-  SparsityDataImpl<T> bucketImpl;
-  bucketImpl.metaInfo = std::move(std::get<0>(info));
-  bucketImpl.nzValues = std::move(std::get<1>(info));
-  return bucketImpl;
+  auto info = impl->bucketImplAllPasses(impl->createBuckets(matrix_));
+  return {std::get<0>(info), std::get<1>(info)};
 }
 
 template <typename T>
 SparsityDataImpl<T>
 Partitioner<T>::createSparsityDataImpl(const CSRMatrix<T> &matrix_) const {
-  auto pnBuckets = impl->createBuckets(matrix_);
-  auto info = impl->bucketImplAllPasses(pnBuckets);
-  SparsityDataImpl<T> bucketImpl;
-  bucketImpl.metaInfo = std::move(std::get<0>(info));
-  bucketImpl.nzValues = std::move(std::get<1>(info));
-  return bucketImpl;
+  auto info = impl->bucketImplAllPasses(impl->createBuckets(matrix_));
+  return {std::get<0>(info), std::get<1>(info)};
 }
 
 template <typename T>
 SparsityDataImpl<T>
 Partitioner<T>::createSparsityDataImpl(const COOMatrix<T> &matrix_) const {
-  auto pnBuckets = impl->createBuckets(matrix_);
-  auto info = impl->bucketImplAllPasses(pnBuckets);
-  SparsityDataImpl<T> bucketImpl;
-  bucketImpl.metaInfo = std::move(std::get<0>(info));
-  bucketImpl.nzValues = std::move(std::get<1>(info));
-  return bucketImpl;
+  auto info = impl->bucketImplAllPasses(impl->createBuckets(matrix_));
+  return {std::get<0>(info), std::get<1>(info)};
 }
 
 template <typename T>

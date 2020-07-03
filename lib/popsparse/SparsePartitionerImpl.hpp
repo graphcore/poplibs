@@ -18,19 +18,15 @@
 
 namespace popsparse {
 
+template <typename T> struct PNBucketsImpl {
+  // Buckets with offset in nz values
+  std::vector<PNBucket> pnBuckets;
+  // Non zero values
+  std::vector<T> nzValues;
+};
+
 // The partitioner partitions a Fully Connected layer or a standalone
-// matrix multiplication. The actual partitions used depend on the planning
-// mode. These are the use cases as follows:
-//
-// PlanningMode = StandAlone:
-//
-// Should be used when each of the passes are planned independently for
-// a Fully Connected layer, or a stand-alone matrix multiplication is performed.
-//
-// PlaningMode = Joint
-//
-// A joint planning mode is used when all the passes of a fully connected layer
-// share the same plan.
+// matrix multiplication.
 //
 // If Q = R * S is the matrix multiplication in stand-alone mode, or,  is the
 // Fwd phase in a fully connected layer with dimensions of Q, R, S
@@ -39,8 +35,7 @@ namespace popsparse {
 //
 // Consecutive entries in the set give the starting positions of the
 // partitions of a dimensions.
-
-template <typename T> class PartitionerImpl {
+class PartitionerImpl {
   // number of X dimensions - rows in  sparse matrix R
   std::size_t numX;
 
@@ -107,15 +102,14 @@ template <typename T> class PartitionerImpl {
   poplar::Type accumType{poplar::FLOAT};
 
   // creates a partition for each PN for a CSC representation.
-  std::vector<TilePartition<T>> getTilePartitions(const CSCMatrix<T> &matrix,
-                                                  bool transposed) const;
+  std::vector<TilePartition> getTilePartitions(const CSCInternal &matrix,
+                                               bool transposed) const;
 
   // creates a partition for each PN for a CSR representation.
-  std::vector<TilePartition<T>> getTilePartitions(const CSRMatrix<T> &matrix,
-                                                  bool transposed) const;
+  std::vector<TilePartition> getTilePartitions(const CSRInternal &matrix,
+                                               bool transposed) const;
 
-  void balanceBuckets(std::vector<PNBucket<T>> &pnBuckets,
-                      bool transposed) const;
+  void balanceBuckets(std::vector<PNBucket> &pnBuckets, bool transposed) const;
 
   void init(const std::vector<std::size_t> &dimensions,
             const std::vector<std::size_t> &grainSizes,
@@ -145,42 +139,49 @@ public:
                   bool includeGradA_, bool includeGradW_);
 
   // Create buckets for a CSC matrix
-  std::vector<PNBucket<T>> createBuckets(const CSCMatrix<T> &matrix_) const;
+  template <typename T>
+  PNBucketsImpl<T> createBuckets(const CSCMatrix<T> &matrix_) const;
 
   // creates buckets for a CSR matrix
-  std::vector<PNBucket<T>> createBuckets(const CSRMatrix<T> &matrix_) const;
+  template <typename T>
+  PNBucketsImpl<T> createBuckets(const CSRMatrix<T> &matrix_) const;
 
   // creates buckets for a COO matrix
-  std::vector<PNBucket<T>> createBuckets(const COOMatrix<T> &matrix_) const;
+  template <typename T>
+  PNBucketsImpl<T> createBuckets(const COOMatrix<T> &matrix_) const;
 
   // keeeps the nz values exactly as passed in the input bucket and creates
   // meta information for the transposed form
-  std::vector<PNBucket<T>>
-  transposedBuckets(const std::vector<PNBucket<T>> &in) const;
+  std::vector<PNBucket>
+  transposedBuckets(const std::vector<PNBucket> &in) const;
 
   // Build real metainformation and NZ value buckets from a single PN bucket
   // for Forward pass.
+  template <typename T>
   std::pair<std::vector<std::size_t>, std::vector<T>>
-  bucketForForward(const PNBucket<T> &pnBucket,
+  bucketForForward(const PNBucket &pnBucket, const std::vector<T> &nzValues,
                    const std::string &debugStr = "") const;
 
   // Build real buckets as required by implementation for Forward and GradW
   // The first in the output pair is the metainformation buckets and the
   // second the NZ bucket
+  template <typename T>
   std::pair<std::vector<std::vector<std::size_t>>, std::vector<std::vector<T>>>
-  bucketsForForward(const std::vector<PNBucket<T>> &pnBuckets,
+  bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
                     const std::string &debugStr = "") const;
 
   // Build real metainformation bucket for a single PN bucket for a GradA pass
+  template <typename T>
   std::vector<std::size_t>
-  bucketForGradA(const PNBucket<T> &pnBuckets,
+  bucketForGradA(const PNBucket &pnBuckets, const std::vector<T> &nzValues,
                  const std::string &debugStr = "") const;
 
   // Build buckets as required by implementation GradA. The NZ values are the
   // same the forward and onlythe meta information containing the transposition
   // information is included.
+  template <typename T>
   std::vector<std::vector<std::size_t>>
-  bucketsForGradA(const std::vector<PNBucket<T>> &pnBuckets,
+  bucketsForGradA(const PNBucketsImpl<T> &pnBucketsImpl,
                   const std::string &debugStr = "") const;
 
   // Creates a pair of flat bucket for metaInfo and NZ values
@@ -197,8 +198,9 @@ public:
   //   - ... remaining PNs in order
   //
   // The NZ value bucket for each tile
+  template <typename T>
   std::pair<std::vector<std::size_t>, std::vector<T>>
-  bucketImplAllPasses(const std::vector<PNBucket<T>> &pnBuckets,
+  bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
                       const std::string &debugStr = "") const;
 
   // Overflow information for Fwd. This gives the implementation specific
@@ -208,7 +210,7 @@ public:
   //   second entry : max distance within an ORG
   //   third entry : max distance within S-ORG
   std::vector<std::size_t>
-  overflowInfoForFwd(const std::vector<PNBucket<T>> &pnBuckets) const;
+  overflowInfoForFwd(const std::vector<PNBucket> &pnBuckets) const;
 
   // Overflow information for GradA. This gives the implementation specific
   // information on the max distance of overflow bucket. The information is
@@ -219,7 +221,7 @@ public:
   // The buckets given here must be the buckets for the FWD as we always use
   // joint plans.
   std::vector<std::size_t>
-  overflowInfoForGradA(const std::vector<PNBucket<T>> &pnBuckets) const;
+  overflowInfoForGradA(const std::vector<PNBucket> &pnBuckets) const;
 
   // Overflow information for GradW. This gives the implementation specific
   // information on the max distance of overflow bucket. The information is
@@ -228,17 +230,20 @@ public:
   //   second entry : max distance within an ORG
   //   third entry : max distance within S-ORG
   std::vector<std::size_t>
-  overflowInfoForGradW(const std::vector<PNBucket<T>> &pnBuckets) const;
+  overflowInfoForGradW(const std::vector<PNBucket> &pnBuckets) const;
 
   // create COO matrix from buckets
+  template <typename T>
   COOMatrix<T> bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
                                   const std::vector<T> &nzValues) const;
 
   // create CSR matrix from buckets
+  template <typename T>
   CSRMatrix<T> bucketsToCSRMatrix(const std::vector<std::size_t> &metaInfo,
                                   const std::vector<T> &nzValues) const;
 
   // create CSC matrix from buckets
+  template <typename T>
   CSCMatrix<T> bucketsToCSCMatrix(const std::vector<std::size_t> &metaInfo,
                                   const std::vector<T> &nzValues) const;
 };

@@ -214,7 +214,7 @@ boost::multi_array<double, 2> denseMatrixFromSparse(const CSRMatrix<EType> &csr,
 }
 
 template <typename T>
-static void logBucketStatistics(std::vector<PNBucket<T>> &buckets,
+static void logBucketStatistics(std::vector<PNBucket> &buckets,
                                 const CSRMatrix<T> &csrMatrix) {
   if (buckets.empty()) {
     std::cerr << "   - No buckets found"
@@ -226,7 +226,7 @@ static void logBucketStatistics(std::vector<PNBucket<T>> &buckets,
 
   std::size_t maxNzElements = 0, maxMetaInfo = 0;
   std::size_t totalNzElements = 0, totalMetaInfo = 0;
-  std::for_each(buckets.begin(), buckets.end(), [&](const PNBucket<T> &b) {
+  std::for_each(buckets.begin(), buckets.end(), [&](const PNBucket &b) {
     maxNzElements = std::max(maxNzElements, b.numNzElements);
     maxMetaInfo = std::max(maxMetaInfo, b.metaInfoElements);
     totalNzElements += b.numNzElements;
@@ -243,7 +243,7 @@ static void logBucketStatistics(std::vector<PNBucket<T>> &buckets,
 }
 
 template <typename T>
-void validateBuckets(const std::vector<PNBucket<T>> &pnBuckets,
+void validateBuckets(const PNBucketsImpl<T> &pnBucketsImpl,
                      const CSRMatrix<T> &csrMatrix, std::size_t numRows,
                      std::size_t numColumns) {
   // piece together information per row into a CSR format
@@ -261,7 +261,7 @@ void validateBuckets(const std::vector<PNBucket<T>> &pnBuckets,
     rowIndicesActual.push_back(numValues);
     for (std::size_t col = 0; col != numColumns; ++col) {
       // find tile partition that matched
-      for (const auto &pn : pnBuckets) {
+      for (const auto &pn : pnBucketsImpl.pnBuckets) {
 
         for (const auto &p : pn.subGroups) {
           auto rowInterval = p.tile.getRows();
@@ -273,7 +273,8 @@ void validateBuckets(const std::vector<PNBucket<T>> &pnBuckets,
                 for (const auto &c : r.positionValues) {
                   if (c.first + colInterval.begin() == col) {
                     colIndicesActual.push_back(c.first + colInterval.begin());
-                    nzValuesActual.push_back(c.second);
+                    nzValuesActual.push_back(
+                        pnBucketsImpl.nzValues.at(c.second));
                     ++numValues;
                   }
                 }
@@ -598,17 +599,18 @@ int main(int argc, char **argv) try {
   boost::multi_array<double, 2> hostInputGrad(
       boost::extents[batchSize][inputSize]);
 
-  auto pnBuckets = partitioner.getImpl().createBuckets(csrMatrix);
+  auto pnBucketsImpl = partitioner.getImpl().createBuckets(csrMatrix);
 
   if (validatePartition) {
-    validateBuckets(pnBuckets, csrMatrix, outputSize, inputSize);
+    validateBuckets(pnBucketsImpl, csrMatrix, outputSize, inputSize);
   }
 
   std::cerr << "Logging Forward pass bucket statistics: ";
-  logBucketStatistics(pnBuckets, csrMatrix);
+  logBucketStatistics(pnBucketsImpl.pnBuckets, csrMatrix);
 
   if (doBwdPass) {
-    auto transposed = partitioner.getImpl().transposedBuckets(pnBuckets);
+    auto transposed =
+        partitioner.getImpl().transposedBuckets(pnBucketsImpl.pnBuckets);
     std::cerr << "Logging Backward pass bucket statistics: ";
     logBucketStatistics(transposed, csrMatrix);
   }

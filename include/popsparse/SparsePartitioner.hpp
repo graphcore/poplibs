@@ -17,7 +17,7 @@
 
 namespace popsparse {
 
-template <typename T> class PartitionerImpl;
+class PartitionerImpl;
 
 namespace dynamic {
 
@@ -38,7 +38,7 @@ template <typename T> struct SparsityDataImpl {
  */
 template <typename T> class Partitioner {
 public:
-  const PartitionerImpl<T> &getImpl() const { return *impl; }
+  const PartitionerImpl &getImpl() const { return *impl; }
 
   Partitioner(const FullyConnectedParams &params, const poplar::Type &dataType,
               const poplar::Target &target, const poplar::OptionFlags &options,
@@ -75,7 +75,7 @@ public:
       const SparsityDataImpl<T> &sparsityDataImpl) const;
 
 private:
-  std::unique_ptr<PartitionerImpl<T>> impl;
+  std::unique_ptr<PartitionerImpl> impl;
 };
 
 } // namespace dynamic

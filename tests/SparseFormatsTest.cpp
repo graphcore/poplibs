@@ -15,6 +15,10 @@ static const popsparse::CSRMatrix<double>
     csrRef({10.0, 20, 30, 40, 50, 60, 70, 80.0}, {0, 1, 1, 3, 2, 3, 4, 5},
            {0, 2, 4, 7, 8});
 
+static const popsparse::CSRMatrix<std::size_t>
+    csrRefS({10, 20, 30, 40, 50, 60, 70, 80}, {0, 1, 1, 3, 2, 3, 4, 5},
+            {0, 2, 4, 7, 8});
+
 static const popsparse::CSCMatrix<double>
     cscRef({10, 20, 30, 50, 40, 60, 70, 80}, {0, 1, 3, 4, 6, 7, 8},
            {0, 0, 1, 2, 1, 2, 2, 3});
@@ -92,11 +96,10 @@ BOOST_AUTO_TEST_CASE(GetRowPositionTest) {
 
   const auto tile =
       popsparse::Tile(poplar::Interval(0, 2), poplar::Interval(0, 4));
-  const auto rowInfo =
-      popsparse::getPositionValuePairsPerRow<double>(csrRef, tile);
+  const auto rowInfo = popsparse::getPositionValuePairsPerRow(csrRefS, tile);
 
   const std::vector<std::vector<std::pair<double, std::size_t>>> expectedInfo =
-      {{{0, 10.0}, {1, 20.0}}, {{1, 30.0}, {3, 40.0}}};
+      {{{0, 10}, {1, 20}}, {{1, 30}, {3, 40}}};
 
   BOOST_CHECK_EQUAL(rowInfo.size(), expectedInfo.size());
 

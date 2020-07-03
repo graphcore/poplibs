@@ -67,11 +67,13 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   auto csrMatrix = buildCSRMatrix(dimensions, sparsityFactor);
 
   // Create partitioner object with plan information
-  popsparse::PartitionerImpl<double> partitioner(
+  popsparse::PartitionerImpl partitioner(
       dimensions, grainSizes, xSplits, ySplits, zSplits, metaInfoBucketSize,
       nzElementsBucketSize, 6, bucketsPerZ, includeGradA, includeGradW);
 
-  auto pnBuckets = partitioner.createBuckets(csrMatrix);
+  auto pnBucketsImpl = partitioner.createBuckets(csrMatrix);
+  auto pnBuckets = pnBucketsImpl.pnBuckets;
+
   partitioner.overflowInfoForFwd(pnBuckets);
 
   // If transposed implementation, we do a transpose followed by a transpose
@@ -124,7 +126,7 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
     std::sort(nzValues.begin(), nzValues.end());
     for (const auto &entry : nzValues) {
       colIndicesActual.push_back(entry.first);
-      nzValuesActual.push_back(entry.second);
+      nzValuesActual.push_back(pnBucketsImpl.nzValues.at(entry.second));
     }
     totalNzValues += nzValues.size();
   }

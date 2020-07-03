@@ -13,6 +13,11 @@
 
 namespace popsparse {
 
+using ValueType = std::size_t;
+using CSCInternal = CSCMatrix<ValueType>;
+using CSRInternal = CSRMatrix<ValueType>;
+using COOInternal = COOMatrix<ValueType>;
+
 // Gives the row index, column index and the z index
 using TileIndex = std::tuple<std::size_t, std::size_t, std::size_t>;
 
@@ -45,13 +50,13 @@ public:
 
 // Non zero information in a row. Contains the row number and a vector of
 // non zero column value pairs in that row.
-template <typename T> struct RowPositionValues {
+struct RowPositionValues {
   std::size_t rowNumber;
-  std::vector<std::pair<std::size_t, T>> positionValues;
+  std::vector<std::pair<std::size_t, ValueType>> positionValues;
 
   RowPositionValues(
       std::size_t rowNumber,
-      const std::vector<std::pair<std::size_t, T>> &positionValues)
+      const std::vector<std::pair<std::size_t, ValueType>> &positionValues)
       : rowNumber(rowNumber), positionValues(positionValues) {}
 
   friend bool operator>(const RowPositionValues &a,
@@ -63,25 +68,25 @@ template <typename T> struct RowPositionValues {
 // The row and column dimensions are divided by straight lines creating
 // rectangular tiles. A tile is then given by a right open interval for
 // the row and column dimension.
-template <typename T> struct TilePartition {
+struct TilePartition {
   // indices of the tile in the X, Y, Z splits
   TileIndex tileIndex;
   // actual row and column intervals
   Tile tile;
-  std::vector<RowPositionValues<T>> tileInfo;
+  std::vector<RowPositionValues> tileInfo;
 
   TilePartition() = default;
   TilePartition(const TilePartition &) = default;
 
   TilePartition(const TileIndex &tileIndex, const Tile &tile,
-                const std::vector<RowPositionValues<T>> &tileInfo_)
+                const std::vector<RowPositionValues> &tileInfo_)
       : tileIndex(tileIndex), tile(tile) {
     tileInfo = tileInfo_;
 
     // keep sorted so that it is easy to remove rows which are the smallest
     // first
     std::sort(tileInfo.begin(), tileInfo.end(),
-              [](const RowPositionValues<T> &a, const RowPositionValues<T> &b) {
+              [](const RowPositionValues &a, const RowPositionValues &b) {
                 return a > b;
               });
   }
@@ -99,11 +104,11 @@ template <typename T> struct TilePartition {
 
 // Information kept in a bucket. Two buckets are kept. One for meta information
 // and the other for non-zero values.
-template <typename T> struct PNBucket {
+struct PNBucket {
   std::size_t metaInfoElements;
   std::size_t numNzElements;
 
-  std::vector<TilePartition<T>> subGroups;
+  std::vector<TilePartition> subGroups;
   std::size_t numSubgroups() const { return subGroups.size(); }
   bool empty() const { return metaInfoElements == 0 && numNzElements == 0; }
 
@@ -129,7 +134,7 @@ template <typename T> struct PNBucket {
 
 // Convert from a CSR representation of a matrix of dimension
 // [numRows x numColumns] to a CSC representation.
-// x§
+//
 // \param  numRows    Number of rows in the matrix.
 // \param  numColumns Number of columns in the matrix.
 // \param  csr        CSR representation of matrix .
@@ -256,45 +261,8 @@ CSRMatrix<T> csrTranspose(std::size_t numRows, std::size_t numColumns,
 //
 // A vector for each row in the row interval range containing (column, value)
 // pairs.
-template <typename T>
-std::vector<RowPositionValues<T>>
-getPositionValuePairsPerRow(const CSRMatrix<T> &csr, const Tile &tile) {
-  const auto startRow = tile.getRows().begin();
-  const auto endRow = tile.getRows().end();
-  const auto startColumn = tile.getColumns().begin();
-  const auto endColumn = tile.getColumns().end();
-
-  if (startRow >= csr.rowIndices.size()) {
-    throw poputil::poplibs_error("Start row in tile doesn't match information "
-                                 "in CSR");
-  }
-
-  if (endRow >= csr.rowIndices.size()) {
-    throw poputil::poplibs_error("End row in tile doesn't match information "
-                                 "in CSR");
-  }
-
-  std::vector<RowPositionValues<T>> rowValuePairs;
-
-  for (auto row = startRow; row != endRow; ++row) {
-    std::vector<std::pair<std::size_t, T>> valuePairs;
-    for (auto column = csr.rowIndices[row]; column != csr.rowIndices[row + 1];
-         ++column) {
-      // This can be optimised if the columns are always sorted in increasing
-      // order.
-      if (csr.columnIndices[column] >= startColumn &&
-          csr.columnIndices[column] < endColumn) {
-        valuePairs.emplace_back(csr.columnIndices[column] - startColumn,
-                                csr.nzValues[column]);
-      }
-    }
-    if (!valuePairs.empty()) {
-      rowValuePairs.emplace_back(
-          RowPositionValues<T>(row - startRow, std::move(valuePairs)));
-    }
-  }
-  return rowValuePairs;
-}
+std::vector<RowPositionValues>
+getPositionValuePairsPerRow(const CSRInternal &csr, const Tile &tile);
 
 // Convert from a COO representation of a matrix of dimension
 // [numRows x numColumns] to a CSR representation. Duplicate entries are not
