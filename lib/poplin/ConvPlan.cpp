@@ -3529,7 +3529,9 @@ calculateFlattenedParams(const ConvParams &params,
   }
   // Flatten from the innermost out.
 
-  flattenDims.push_back(0);
+  if (flattenedParams.batchSize > 0) {
+    flattenDims.push_back(0);
+  }
   for (unsigned spatialDim = 0; spatialDim != flattenedParams.getNumFieldDims();
        ++spatialDim) {
     if (dimCanBeFlattened(flattenedParams, spatialDim)) {
@@ -5102,10 +5104,6 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
           "' but this is not valid for these parameters");
     }
     validValues = {*constraint};
-  } else if (!params.outputChannelsPerConvGroup) {
-    // Avoid swapping operands when output channels could be swapped with batch
-    // size
-    validValues = {false};
   }
 
   return validValues;

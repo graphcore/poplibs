@@ -242,10 +242,6 @@ static void verifyInputShapes(const CanonicalConvParams &params,
     throw poputil::poplibs_error("Batchsize of input tensor does not match "
                                  "convolution parameters");
   }
-  if (in.dim(1) == 0) {
-    throw poputil::poplibs_error("Batch size of input tensor equal to zero "
-                                 "is not supported");
-  }
   if (params->getNumInputChansPerConvGroup() != in.dim(in.rank() - 1)) {
     throw poputil::poplibs_error("Number of channels per convolution group of "
                                  "input tensor does not match convolution "
@@ -2439,6 +2435,19 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
 static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
                       const poplar::Tensor &out) {
   const auto &target = graph.getTarget();
+  const auto dType = out.elementType();
+  const auto grainSize = target.getVectorWidth(dType);
+  // Limit the minimum number of bias bytes per tile to reduce the amount of
+  // exchange code. Increasing this constant reduces exchange code size and
+  // increases execution time due to imbalance. The current limit was
+  // chosen experimentally.
+  const auto dTypeSize = target.getTypeSize(dType);
+  const auto minBytesPerTile = 8;
+  const auto minElementsPerTile = (minBytesPerTile + dTypeSize - 1) / dTypeSize;
+
+  if (out.numElements() == 0) {
+    mapTensorLinearly(graph, biases, minElementsPerTile, grainSize);
+  }
   const auto numTiles = target.getNumTiles();
   TensorUseTracker useTracker(numTiles);
   // Create a view of the output where channels are the outermost dimension.
@@ -2454,16 +2463,6 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
       useTracker.add(graph, tile, biases.slice(chanBegin, chanEnd));
     }
   }
-  const auto dType = out.elementType();
-  const auto grainSize = target.getVectorWidth(dType);
-
-  // Limit the minimum number of bias bytes per tile to reduce the amount of
-  // exchange code. Increasing this constant reduces exchange code size and
-  // increases execution time due to imbalance. The current limit was
-  // chosen experimentally.
-  const auto dTypeSize = target.getTypeSize(dType);
-  const auto minBytesPerTile = 8;
-  const auto minElementsPerTile = (minBytesPerTile + dTypeSize - 1) / dTypeSize;
 
   useTracker.mapTensorsByUse(graph, grainSize, minElementsPerTile,
                              true /* extendPartialUsage */);

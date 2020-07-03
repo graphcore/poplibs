@@ -3252,6 +3252,45 @@ add_multitarget_test(NAME conv1x1_float_input_odd
          --padding=0
          --stride=1)
 
+add_multitarget_test(NAME conv3x3_zero_batch
+        COMMAND single_conv_layer
+        --conv-groups=2
+        --batch-size=0
+        --input-channels=16
+        --output-channels=16
+        --field={32}
+        --kernel-size=3
+        --padding=1
+        --data-type=float
+        --tiles-per-ipu=16
+        --stride=1)
+
+add_multitarget_test(NAME conv3x3_zero_in_chans
+        COMMAND single_conv_layer
+        --conv-groups=2
+        --batch-size=2
+        --input-channels=0
+        --output-channels=16
+        --field={32}
+        --kernel-size=3
+        --padding=1
+        --data-type=float
+        --tiles-per-ipu=16
+        --stride=1)
+
+add_multitarget_test(NAME conv3x3_zero_out_chans
+        COMMAND single_conv_layer
+        --conv-groups=2
+        --batch-size=2
+        --input-channels=16
+        --output-channels=0
+        --field={32}
+        --kernel-size=3
+        --padding=1
+        --data-type=float
+        --tiles-per-ipu=16
+        --stride=1)
+
 #  ORIG Layer tests
 add_multitarget_test(NAME conv3x3_stride_2_128_out
          COMMAND single_conv_layer
