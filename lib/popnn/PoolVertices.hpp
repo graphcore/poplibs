@@ -66,6 +66,13 @@ void tilePartitions(poplar::Graph &graph, const PoolConfig &poolConfig,
                     const std::string &debugPrefix,
                     const PoolOptions &poolOptions);
 
+// Retrieve the cycle estimate for the pooling vertex based on the parameters
+// and partition of the input to be processed on a single tile
+std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
+                                    const PoolConfig &poolCfg,
+                                    const poplin::ConvParams &params,
+                                    const unsigned numContexts);
+
 } // namespace pooling
 } // namespace popnn
 

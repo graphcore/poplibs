@@ -2,13 +2,13 @@
 
 #include "PoolVertices.hpp"
 #include "CreatePoolingVertex.hpp"
+#include "PerformanceEstimation.hpp"
 #include "PoolingDefUtil.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/TileMapping.hpp"
-#include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/icl/interval_map.hpp>
@@ -124,73 +124,27 @@ static std::pair<unsigned, unsigned> getTileOutRange(const ConvParams &params,
   return {outBegin, outEnd};
 }
 
-// Generate vertices on a tile
-// in               Input tensor of shape [CG][B][...][CPG]
-// out              Input tensor of shape [CG][B][...][CPG]
-// params           Parameters for the pooling operation
-// cs               Compute sets to attach vertices to
-// tile             Tile on which vertices are generated
-// indices          indices of planning parameter splits assigned to this tile
-// slice            parameters for slicing channels, batch, field and kernel
-static void
-generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
-                 const Tensor &out, const Tensor *fwdInputActs,
-                 const Tensor *fwdOutputActs, const ConvParams &params,
-                 std::vector<ComputeSet> &cs, unsigned tile,
-                 const PoolSlice &slice, const std::string &debugPrefix) {
-  const auto &target = graph.getTarget();
-  const auto numContexts = target.getNumWorkerContexts();
-  const auto numFieldDims = slice.kernelBegin.size();
-  const auto chansPerGroup = out.dim(out.rank() - 1);
+// Work paritions derived from splitting batch and field on this tile
+struct PartitionPerKernelPos {
+  std::vector<std::size_t> inBeginIndices;
+  std::vector<std::size_t> outBeginIndices;
+  std::size_t inWidthX;
+  std::size_t outWidthX;
+  std::size_t b;
+};
 
-  if (cs.empty()) {
-    cs.push_back(graph.addComputeSet(debugPrefix + "/Pool"));
-  }
+std::vector<std::vector<std::vector<PartitionPerKernelPos>>>
+createPartitions(const std::vector<std::vector<PartialRow>> &contextPartition,
+                 const std::vector<std::size_t> &kernelShape,
+                 unsigned numContexts, const ConvParams &params,
+                 const PoolSlice &slice) {
 
-  // build input and kernel shapes used on this tile. These are relative offsets
-  // from the slice begin offsets
-  std::vector<std::size_t> kernelShape;
-  std::vector<std::size_t> outputShape;
-  for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
-    kernelShape.push_back(slice.getKernelSize(dim));
-    outputShape.push_back(slice.getFieldSize(dim));
-  }
-
-  // There is no work assigned to this tile if any of the split dimensions in
-  // the slice has size 0
-  if (slice.getBatchSize() == 0 || slice.getNumChans() == 0 ||
-      product(kernelShape) == 0 || product(outputShape) == 0)
-    return;
-
-  // compute the number of kernel positions used by this slice
-  const auto numKernelPositions = product(kernelShape);
-
-  // Work paritions derived from splitting batch and field on this tile
-  struct PartitionPerKernelPos {
-    std::vector<std::size_t> inBeginIndices;
-    std::vector<std::size_t> outBeginIndices;
-    std::size_t inWidthX;
-    std::size_t outWidthX;
-    std::size_t b;
-  };
-
-  // For each context and each partial row, keep a vector of
   std::vector<std::vector<std::vector<PartitionPerKernelPos>>> partitions(
       numContexts);
 
-  // Note that some calculations here are on the original field. i.e. the full
-  // field given by "params".
-
-  // Ensure that each output is always processed by a single context. This will
-  // guarantee that no parallel writes can occur between contexts writing to
-  // the same output sample as long as there are no sub-word writes. That can
-  // be controlled by the channel grain size.
-  // The partitioner splits the batch axis and all the field dimension such that
-  // other than the innermost dimension every partition has size 1.
-  // The indices and offsets returned by the partitioner are relative to the
-  // slice used on this tile and given by outputShape
-  auto contextPartition =
-      partitionPartialByContext(slice.getBatchSize(), outputShape, numContexts);
+  // compute the number of kernel positions used by this slice
+  const auto numKernelPositions = product(kernelShape);
+  const auto numFieldDims = slice.kernelBegin.size();
 
   for (std::size_t c = 0; c != contextPartition.size(); ++c) {
     for (const auto &row : contextPartition[c]) {
@@ -228,8 +182,9 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
         // There may be no contribution to the output for the kernel position.
         // If it the case, there is no work to be done.
         // Move on to next kernel position.
-        if (product(tileOutSize) == 0)
+        if (product(tileOutSize) == 0) {
           continue;
+        }
 
         // Find the input range which contributes to the output. We need the
         // output indices to be relative to the slice we take from the full
@@ -264,21 +219,14 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
       partitions[c].push_back(std::move(rowPartition));
     }
   }
-
-  // flattened view of the partitions
-  std::vector<PartitionPerKernelPos *> flattenedPartitions;
-  for (auto &partition : partitions) {
-    for (auto &rowPartition : partition) {
-      for (auto &p : rowPartition) {
-        flattenedPartitions.push_back(&p);
-      }
-    }
-  }
-
-  // There may be no work to do on this tile
-  if (flattenedPartitions.empty())
-    return;
-
+  return partitions;
+}
+void createSlices(
+    const std::vector<PartitionPerKernelPos *> &flattenedPartitions,
+    const unsigned numFieldDims, std::vector<std::size_t> &inSliceBegin,
+    std::vector<std::size_t> &inSliceEnd,
+    std::vector<std::size_t> &outSliceBegin,
+    std::vector<std::size_t> &outSliceEnd) {
   // From the partitions find the range of field dimensions used by the
   // partition. This is required because we extract only the portion of the
   // input required by the tile (Need to check if this would result in a
@@ -305,6 +253,171 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
     }
   }
 
+  for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
+    inSliceBegin.push_back(inputRange[dim].first);
+    inSliceEnd.push_back(inputRange[dim].second);
+    outSliceBegin.push_back(outputRange[dim].first);
+    outSliceEnd.push_back(outputRange[dim].second);
+  }
+  // once the input and output tensor slices are taken, adjust the indices to
+  // reflect that
+  for (auto &fp : flattenedPartitions) {
+    for (auto dim = 0UL; dim != numFieldDims; ++dim) {
+      fp->outBeginIndices[dim + 1] -= outputRange[dim].first;
+      fp->inBeginIndices[dim + 1] -= inputRange[dim].first;
+    }
+  }
+}
+// transform indices into offsets
+struct WorkListEntry {
+  unsigned inBeginOffset;
+  unsigned outBeginOffset;
+  unsigned numElements;
+};
+
+void createWorklists(
+    const unsigned numContexts, const unsigned tile, const unsigned strideX,
+    const std::vector<std::vector<std::vector<PartitionPerKernelPos>>>
+        &partitions,
+    const std::vector<std::size_t> &inputBatchAndFieldShape,
+    const std::vector<std::size_t> &outputBatchAndFieldShape,
+    const bool isAveragePooling, std::vector<unsigned> &contextStartPos,
+    std::vector<unsigned> &offsetBase,
+    std::vector<std::vector<unsigned>> &worklist,
+    boost::icl::interval_map<std::size_t, std::size_t> &scaleFactorMap) {
+
+  // These are ordered the same way as inputs
+  std::vector<std::vector<std::vector<WorkListEntry>>> worklistEntries(
+      numContexts);
+
+  // Build scale factors for average pooling
+  for (std::size_t c = 0; c != numContexts; ++c) {
+    for (const auto &rowPartition : partitions[c]) {
+      std::vector<WorkListEntry> row;
+      for (const auto &r : rowPartition) {
+        const unsigned outBeginOffset =
+            flattenIndex(outputBatchAndFieldShape, r.outBeginIndices);
+        const unsigned inBeginOffset =
+            flattenIndex(inputBatchAndFieldShape, r.inBeginIndices);
+        const unsigned numFieldElems = r.outWidthX;
+        row.push_back({inBeginOffset, outBeginOffset, numFieldElems});
+        if (isAveragePooling) {
+          const auto region = boost::icl::interval<std::size_t>::right_open(
+              outBeginOffset, outBeginOffset + numFieldElems);
+          scaleFactorMap.add(std::make_pair(region, 1));
+        }
+      }
+      // sort work list entries in each row
+      std::sort(row.begin(), row.end(), [](WorkListEntry &a, WorkListEntry &b) {
+        return std::tie(a.outBeginOffset, a.inBeginOffset, a.numElements) <
+               std::tie(b.outBeginOffset, b.inBeginOffset, b.numElements);
+      });
+      if (!row.empty())
+        worklistEntries[c].push_back(std::move(row));
+    }
+  }
+
+  unsigned contextStart = 0;
+  logging::trace("Tile: {}", tile);
+  for (std::size_t c = 0; c != numContexts; ++c) {
+    std::string loggingStr = "Worklist " + std::to_string(c) + ": ";
+
+    for (auto &rowWorkList : worklistEntries[c]) {
+      const auto inBase = rowWorkList.at(0).inBeginOffset;
+      const auto outBase = rowWorkList.at(0).outBeginOffset;
+      std::vector<unsigned> row;
+      for (auto &r : rowWorkList) {
+        row.push_back(r.outBeginOffset - outBase);
+        row.push_back(r.inBeginOffset - inBase);
+        const auto numElements = (r.numElements + strideX - 1) / strideX;
+        assert(numElements != 0);
+        row.push_back(numElements - 1);
+        if (logging::shouldLog(logging::Level::Trace)) {
+          loggingStr += "[" + std::to_string(r.outBeginOffset - outBase) + "," +
+                        std::to_string(r.inBeginOffset - inBase) + "," +
+                        std::to_string(numElements - 1) + "] ";
+        }
+      }
+      assert(!row.empty());
+      offsetBase.push_back(outBase);
+      offsetBase.push_back(inBase);
+      worklist.push_back(std::move(row));
+      ++contextStart;
+    }
+    contextStartPos.push_back(contextStart);
+    logging::trace(loggingStr);
+  }
+}
+
+// Generate vertices on a tile
+// in               Input tensor of shape [CG][B][...][CPG]
+// out              Input tensor of shape [CG][B][...][CPG]
+// params           Parameters for the pooling operation
+// cs               Compute sets to attach vertices to
+// tile             Tile on which vertices are generated
+// indices          indices of planning parameter splits assigned to this tile
+// slice            parameters for slicing channels, batch, field and kernel
+static void
+generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
+                 const Tensor &out, const Tensor *fwdInputActs,
+                 const Tensor *fwdOutputActs, const ConvParams &params,
+                 std::vector<ComputeSet> &cs, unsigned tile,
+                 const PoolSlice &slice, const std::string &debugPrefix) {
+  const auto &target = graph.getTarget();
+  const auto numContexts = target.getNumWorkerContexts();
+  const auto numFieldDims = slice.kernelBegin.size();
+  const auto chansPerGroup = out.dim(out.rank() - 1);
+
+  if (cs.empty()) {
+    cs.push_back(graph.addComputeSet(debugPrefix + "/Pool"));
+  }
+
+  // build input and kernel shapes used on this tile. These are relative offsets
+  // from the slice begin offsets
+  std::vector<std::size_t> kernelShape;
+  std::vector<std::size_t> outputShape;
+
+  for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
+    kernelShape.push_back(slice.getKernelSize(dim));
+    outputShape.push_back(slice.getFieldSize(dim));
+  }
+
+  if (slice.getBatchSize() == 0 || slice.getNumChans() == 0 ||
+      product(kernelShape) == 0 || product(outputShape) == 0)
+    return;
+
+  // Note that some calculations here are on the original field. i.e. the full
+  // field given by "params".
+
+  // Ensure that each output is always processed by a single context. This will
+  // guarantee that no parallel writes can occur between contexts writing to
+  // the same output sample as long as there are no sub-word writes. That can
+  // be controlled by the channel grain size.
+  // The partitioner splits the batch axis and all the field dimension such that
+  // other than the innermost dimension every partition has size 1.
+  // The indices and offsets returned by the partitioner are relative to the
+  // slice used on this tile and given by outputShape
+  auto contextPartition =
+      partitionPartialByContext(slice.getBatchSize(), outputShape, numContexts);
+
+  // For each context and each partial row, keep a vector of partitions
+  auto partitions = createPartitions(contextPartition, kernelShape, numContexts,
+                                     params, slice);
+
+  // flattened view of the partitions
+  std::vector<PartitionPerKernelPos *> flattenedPartitions;
+  for (auto &partition : partitions) {
+    for (auto &rowPartition : partition) {
+      for (auto &p : rowPartition) {
+        flattenedPartitions.push_back(&p);
+      }
+    }
+  }
+
+  // There may be no work to do on this tile
+  if (flattenedPartitions.empty()) {
+    return;
+  }
   // now all the ranges are available and we can take the required slice from
   // the input and output tensors
   std::vector<std::size_t> inSliceBegin = {slice.chanBegin / chansPerGroup,
@@ -313,12 +426,9 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
                                          slice.batchEnd};
   auto outSliceBegin = inSliceBegin;
   auto outSliceEnd = inSliceEnd;
-  for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
-    inSliceBegin.push_back(inputRange[dim].first);
-    inSliceEnd.push_back(inputRange[dim].second);
-    outSliceBegin.push_back(outputRange[dim].first);
-    outSliceEnd.push_back(outputRange[dim].second);
-  }
+
+  createSlices(flattenedPartitions, numFieldDims, inSliceBegin, inSliceEnd,
+               outSliceBegin, outSliceEnd);
 
   auto inWindow = in.slice(inSliceBegin, inSliceEnd);
   auto outWindow = out.slice(outSliceBegin, outSliceEnd);
@@ -358,92 +468,17 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
     // map output tensor to tile
     graph.setTileMapping(outWindowFlat, tile);
   }
-
-  // once the input and output tensor slices are taken, adjust the indices to
-  // reflect that
-  for (auto &fp : flattenedPartitions) {
-    for (auto dim = 0UL; dim != numFieldDims; ++dim) {
-      fp->outBeginIndices[dim + 1] -= outputRange[dim].first;
-      fp->inBeginIndices[dim + 1] -= inputRange[dim].first;
-    }
-  }
-
-  // transform indices into offsets
-  struct WorkListEntry {
-    unsigned inBeginOffset;
-    unsigned outBeginOffset;
-    unsigned numElements;
-  };
-
-  // These are ordered the same way as inputs
-  std::vector<std::vector<std::vector<WorkListEntry>>> worklistEntries(
-      numContexts);
-
   // Build scale factors for average pooling
   boost::icl::interval_map<std::size_t, std::size_t> scaleFactorMap;
-
-  for (std::size_t c = 0; c != numContexts; ++c) {
-    for (const auto &rowPartition : partitions[c]) {
-      std::vector<WorkListEntry> row;
-      for (const auto &r : rowPartition) {
-        const unsigned outBeginOffset =
-            flattenIndex(outputBatchAndFieldShape, r.outBeginIndices);
-        const unsigned inBeginOffset =
-            flattenIndex(inputBatchAndFieldShape, r.inBeginIndices);
-        const unsigned numFieldElems = r.outWidthX;
-        row.push_back({inBeginOffset, outBeginOffset, numFieldElems});
-        if (poolCfg.type == popnn::PoolingType::AVG) {
-          const auto region = boost::icl::interval<std::size_t>::right_open(
-              outBeginOffset, outBeginOffset + numFieldElems);
-          scaleFactorMap.add(std::make_pair(region, 1));
-        }
-      }
-      // sort work list entries in each row
-      std::sort(row.begin(), row.end(), [](WorkListEntry &a, WorkListEntry &b) {
-        return std::tie(a.outBeginOffset, a.inBeginOffset, a.numElements) <
-               std::tie(b.outBeginOffset, b.inBeginOffset, b.numElements);
-      });
-      if (!row.empty())
-        worklistEntries[c].push_back(std::move(row));
-    }
-  }
-
-  // Build worklist used by pooling, see the MaxPooling vertex for a breakdown
-  // of what the worklist contains.
   std::vector<unsigned> contextStartPos;
   std::vector<unsigned> offsetBase;
   std::vector<std::vector<unsigned>> worklist;
   unsigned strideX = params.inputTransform.dilation.back();
-  unsigned contextStart = 0;
-  logging::trace("Tile: {}", tile);
-  for (std::size_t c = 0; c != numContexts; ++c) {
-    std::string loggingStr = "Worklist " + std::to_string(c) + ": ";
 
-    for (auto &rowWorkList : worklistEntries[c]) {
-      const auto inBase = rowWorkList.at(0).inBeginOffset;
-      const auto outBase = rowWorkList.at(0).outBeginOffset;
-      std::vector<unsigned> row;
-      for (auto &r : rowWorkList) {
-        row.push_back(r.outBeginOffset - outBase);
-        row.push_back(r.inBeginOffset - inBase);
-        const auto numElements = (r.numElements + strideX - 1) / strideX;
-        assert(numElements != 0);
-        row.push_back(numElements - 1);
-        if (logging::shouldLog(logging::Level::Trace)) {
-          loggingStr += "[" + std::to_string(r.outBeginOffset - outBase) + "," +
-                        std::to_string(r.inBeginOffset - inBase) + "," +
-                        std::to_string(numElements - 1) + "] ";
-        }
-      }
-      assert(!row.empty());
-      offsetBase.push_back(outBase);
-      offsetBase.push_back(inBase);
-      worklist.push_back(std::move(row));
-      ++contextStart;
-    }
-    contextStartPos.push_back(contextStart);
-    logging::trace(loggingStr);
-  }
+  createWorklists(numContexts, tile, strideX, partitions,
+                  inputBatchAndFieldShape, outputBatchAndFieldShape,
+                  poolCfg.type == popnn::PoolingType::AVG, contextStartPos,
+                  offsetBase, worklist, scaleFactorMap);
 
   auto codeletName = getVertexName(poolCfg, in.elementType());
   auto v = graph.addVertex(cs[0], codeletName);
@@ -785,6 +820,67 @@ void createPoolingVertex(Graph &graph, const PoolParams &poolParams,
                    prevAct, nextAct, nullptr, nullptr, convParams, cs, 0, slice,
                    "TestPoolingVertex");
   prog.add(Execute(cs[0]));
+}
+
+// Cycle estimator call for use by the planner
+std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
+                                    const PoolConfig &poolCfg,
+                                    const ConvParams &params,
+                                    const unsigned numContexts) {
+  std::vector<std::size_t> start(tilePartition.field.size(), 0);
+  PoolSlice slice = {0,     tilePartition.batch,         // Batch start, end
+                     start, tilePartition.field,         // Field start, end
+                     0,     tilePartition.chansPerGroup, // Channel begin, end
+                     start, tilePartition.kernel};       // Kernel begin, end
+
+  auto contextPartition = partitionPartialByContext(
+      slice.getBatchSize(), slice.fieldEnd, numContexts);
+  // For each context and each partial row, keep a vector of partitions
+  auto partitions = createPartitions(contextPartition, tilePartition.kernel,
+                                     numContexts, params, slice);
+
+  // `partitions` has dimensions [context, worklistsForContext, worklistEntries]
+  // But the vertex accepts
+  // `workList` [N, workListEntries]
+  // `startPos` [contexts] = Start position in workList for worker, indexed with
+  //            id - 1.  Worker 0 starts at position 0
+
+  // Find the value of N to use to build the worklist
+  unsigned numPartitions = 0;
+  for (unsigned i = 0; i < numContexts; i++) {
+    numPartitions += partitions[i].size();
+  }
+
+  // Build worklist, startPos array, populating the worklist with (size-1) only,
+  // as we don't need in, out offsets for cycle estimation
+  std::vector<unsigned short> startPos;
+  std::vector<std::vector<unsigned short>> workList(numPartitions);
+  unsigned index = 0;
+  unsigned strideX = params.inputTransform.dilation.back();
+  for (unsigned i = 0; i < numContexts; i++) {
+    for (unsigned j = 0; j < partitions[i].size(); j++) {
+      for (unsigned k = 0; k < partitions[i][j].size(); k++) {
+        const auto size =
+            (partitions[i][j][k].outWidthX + strideX - 1) / strideX;
+        workList[index].push_back(size - 1);
+      }
+      index++;
+    }
+    startPos.push_back(index);
+  }
+  unsigned outSize = product(tilePartition.field) * tilePartition.batch;
+  const auto chansPerGroupD =
+      tilePartition.chansPerGroup / (params.inputType == HALF ? 4 : 2);
+  // Amount of data the tile has to initialise
+  auto initInfo = outSize / chansPerGroupD;
+
+  const auto usingBwdPassVertex = (poolCfg.type == PoolingType::MAX) &&
+                                  (poolCfg.pass == PoolPass::POOL_BWD);
+
+  return getPoolingCycles(initInfo, chansPerGroupD,
+                          tilePartition.chanGroups - 1, startPos, workList,
+                          boost::none, poolCfg.type == PoolingType::MAX,
+                          usingBwdPassVertex, numContexts, true);
 }
 
 } // namespace pooling

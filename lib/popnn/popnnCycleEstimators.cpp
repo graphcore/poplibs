@@ -251,135 +251,31 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
 
   const auto numWorkers = target.getNumWorkerContexts();
 
-  const auto outLayout = out.getProfilerVectorLayout(0);
-  const auto inLayout = in.getProfilerVectorLayout(0);
-
-  const auto fwdOutLayout = outLayout;
-  const auto fwdInLayout = inLayout;
-
-  const auto outInnerLayout = out.getProfilerVectorLayout(1);
-  const auto inInnerLayout = in.getProfilerVectorLayout(1);
-
   const auto startPosLayout =
       vertex.getFieldInfo("startPos").getProfilerVectorLayout(0);
   const auto workListLayout =
       vertex.getFieldInfo("workList").getProfilerVectorListLayout();
 
-  // per-worker cycles
-  const auto workerCycles = [&](unsigned wId) {
-    std::uint64_t cycles = 4   // load vertex state
-                           + 1 // scale initInfo
-                           + 2 // get $WSR and load identity
-                           + 7 // divide init work
-        ;
-    // maybe unpack outPtrPtr
-    cycles += poplibs::getUnpackCost(outLayout);
+  UnpackCosts unpackCosts;
+  unpackCosts.outLayout =
+      poplibs::getUnpackCost(out.getProfilerVectorLayout(0));
+  unpackCosts.outInnerLayout =
+      poplibs::getUnpackCost(out.getProfilerVectorLayout(1));
 
-    // calculate how much initialisation each worker does.
-    const auto initElems = [&] {
-      const unsigned numElems = initInfo * chansPerGroupD;
-      const unsigned extra = wId < (initInfo - numElems * numWorkers);
+  unpackCosts.inLayout = poplibs::getUnpackCost(in.getProfilerVectorLayout(0));
+  unpackCosts.inInnerLayout =
+      poplibs::getUnpackCost(in.getProfilerVectorLayout(1));
+  unpackCosts.fwdOutLayout = unpackCosts.outLayout;
+  unpackCosts.fwdInLayout = unpackCosts.inLayout;
 
-      return (numElems + extra) * 8;
-    }();
-    // init loop overhead, number of rpt loop cycles, number of brnzdec cycles.
-    cycles += (2 + initElems) * numChanGroupsM1;
+  unpackCosts.startPosLayout = poplibs::getUnpackCost(startPosLayout);
+  unpackCosts.workListLayout = poplibs::getUnpackCost(workListLayout);
 
-    cycles += 5   // load startPosPtr, numRows and startPos
-              + 1 // bnz numRows
-        ;
+  auto result = getPoolingCycles(
+      initInfo, chansPerGroupD, numChanGroupsM1, startPos, workList,
+      unpackCosts, pType == PoolingType::MAX, isBwdPass, numWorkers);
 
-    // maybe unpack outPtr and startPosPtr
-    cycles += poplibs::getUnpackCost(outInnerLayout);
-    cycles += poplibs::getUnpackCost(startPosLayout);
-
-    // if numRows is zero this worker is done.
-    const unsigned numRows =
-        wId == 0 ? startPos[0] : startPos[wId] - startPos[wId - 1];
-    if (numRows == 0) {
-      return cycles + 1; // exitz
-    }
-
-    cycles +=
-        2 // save startPos, load inPtrPtr and workListBase
-        +
-        (pType == PoolingType::MAX ? 1 : 2) // unpack inPtrPtr, maybe load scale
-        + poplibs::getUnpackCost(inInnerLayout);
-
-    // load and (possibly) unpack acts pointer pointers
-    if (isBwdPass) {
-      cycles += 6 + poplibs::getUnpackCost(outLayout) +
-                poplibs::getUnpackCost(inLayout);
-    }
-
-    cycles += 2   // unpack workListBase
-              + 1 // decrement numRows
-        ;
-
-    for (unsigned row = 0; row < numRows; ++row) {
-      cycles +=
-          13 + poplibs::getUnpackCost(workListLayout); // row_loop overhead
-
-      const unsigned sPos = wId == 0 ? 0 : startPos[wId - 1];
-      const unsigned numWorkItems = workList[sPos + row].size();
-      for (unsigned w = 0; w < numWorkItems; w += 3) {
-        cycles += 20; // work_loop overhead
-        for (unsigned cg = 0; cg < numChanGroupsM1 + 1u; ++cg) {
-          cycles += 2 // reload outPos and inPos
-                    + poplibs::getUnpackCost(outLayout) +
-                    poplibs::getUnpackCost(inLayout) +
-                    2   // reload chansPerGroupD, decrement it
-                    + 4 // move pointers on by outPos and inPos
-              ;
-
-          if (isBwdPass) {
-            cycles += poplibs::getUnpackCost(outInnerLayout) +
-                      poplibs::getUnpackCost(inInnerLayout) +
-                      poplibs::getUnpackCost(fwdInLayout) +
-                      poplibs::getUnpackCost(fwdOutLayout) +
-                      4 // move pointers on by outPos and inPos
-                ;
-          }
-
-          for (unsigned c = 0; c < chansPerGroupD; ++c) {
-            // rpt loop cycles.
-            const auto rptCycles = [&] {
-              // numElementsM1, aka the rpt count
-              const unsigned n = workList[sPos + row][w + 2];
-
-              if (isBwdPass) {
-                return 7 + 5 * n;
-              } else if (pType == PoolingType::MAX) {
-                return 4 + 3 * n;
-              } else {
-                return 5 + 3 * n;
-              }
-            }();
-
-            cycles += 2           // chans_per_group_loop overhead
-                      + rptCycles // innermost loop
-                      + 1         // brnzdec chansPerGroupD
-                ;
-          }
-          ++cycles; // brnzdec numChanGroupsM1
-        }
-        cycles += 3; // reload, decrement and brnz numWorkItems
-      }
-      cycles += 2; // reload numRows and brnzdec
-    }
-    return cycles + 1; // exitz
-  };
-
-  // calculate how long each worker take
-  std::vector<std::uint64_t> allWorkerCycles;
-  for (unsigned wId = 0; wId < numWorkers; ++wId) {
-    allWorkerCycles.push_back(workerCycles(wId));
-  }
-
-  return 7                                          // supervisor overhead
-         + *boost::max_element(allWorkerCycles) * 6 // longest worker
-         + 6                                        // br $lr
-      ;
+  return result;
 }
 
 std::uint64_t
