@@ -14,10 +14,6 @@
 using namespace poplibs_support;
 using namespace poplibs_test::util;
 
-static bool inInterval(const poplar::Interval range, std::size_t val) {
-  return (val >= range.begin() && val < range.end());
-}
-
 // Build CSR matrix
 popsparse::CSRMatrix<double>
 buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor) {
@@ -67,7 +63,6 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
                               bool includeGradA, bool includeGradW) {
 
   const auto numRows = dimensions[0];
-  const auto numColumns = dimensions[1];
 
   auto csrMatrix = buildCSRMatrix(dimensions, sparsityFactor);
 
@@ -91,41 +86,50 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
     return false;
   }
 
-  // piece together information per row into a CSR format
-  std::vector<std::size_t> colIndicesActual;
-  std::vector<double> nzValuesActual;
-  std::vector<std::size_t> rowIndicesActual;
+  // convert bucket information back to a CSR format
+  std::vector<std::vector<std::pair<std::size_t, double>>> nzValuesByRow(
+      numRows);
+  std::size_t totalNzValues = 0;
+  for (const auto &pn : pnBuckets) {
+    for (const auto &p : pn.subGroups) {
+      const auto &rowInterval = p.tile.getRows();
+      const auto &colInterval = p.tile.getColumns();
 
-  std::size_t numValues = 0;
-  for (std::size_t row = 0; row != numRows; ++row) {
-    rowIndicesActual.push_back(numValues);
-    for (std::size_t col = 0; col != numColumns; ++col) {
-      // find tile partition that matched
-      for (const auto &pn : pnBuckets) {
-
-        for (const auto &p : pn.subGroups) {
-          auto rowInterval = p.tile.getRows();
-          auto colInterval = p.tile.getColumns();
-
-          if (inInterval(rowInterval, row) && inInterval(colInterval, col)) {
-            for (const auto &r : p.tileInfo) {
-              if (r.rowNumber + rowInterval.begin() == row) {
-                for (const auto &c : r.positionValues) {
-                  if (c.first + colInterval.begin() == col) {
-                    colIndicesActual.push_back(c.first + colInterval.begin());
-                    nzValuesActual.push_back(c.second);
-                    ++numValues;
-                  }
-                }
-              }
-            }
-          }
+      for (const auto &r : p.tileInfo) {
+        const auto row = r.rowNumber + rowInterval.begin();
+        for (const auto &c : r.positionValues) {
+          const auto col = c.first + colInterval.begin();
+          nzValuesByRow.at(row).emplace_back(col, c.second);
         }
+        totalNzValues += r.positionValues.size();
       }
     }
   }
 
-  rowIndicesActual.push_back(numValues);
+  std::vector<std::size_t> colIndicesActual;
+  std::vector<double> nzValuesActual;
+  std::vector<std::size_t> rowIndicesActual;
+  colIndicesActual.reserve(totalNzValues);
+  nzValuesActual.reserve(totalNzValues);
+  rowIndicesActual.reserve(numRows + 1);
+
+  totalNzValues = 0;
+  for (std::size_t row = 0; row < numRows; ++row) {
+    rowIndicesActual.push_back(totalNzValues);
+
+    auto &nzValues = nzValuesByRow.at(row);
+
+    // Sort by column index. Column index should be unique
+    // and so the default std::pair sort should be sufficient.
+    std::sort(nzValues.begin(), nzValues.end());
+    for (const auto &entry : nzValues) {
+      colIndicesActual.push_back(entry.first);
+      nzValuesActual.push_back(entry.second);
+    }
+    totalNzValues += nzValues.size();
+  }
+
+  rowIndicesActual.push_back(totalNzValues);
 
   logging::debug(" Actual nz values: {} ", nzValuesActual);
   logging::debug(" expect nz values: {} ", csrMatrix.nzValues);
