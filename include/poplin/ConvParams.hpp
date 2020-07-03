@@ -151,6 +151,7 @@ struct ConvParams {
 };
 
 std::ostream &operator<<(std::ostream &os, const ConvParams &p);
+std::istream &operator>>(std::istream &is, ConvParams &p);
 
 std::size_t hash_value(const ConvParams::InputTransform &it);
 std::size_t hash_value(const ConvParams::OutputTransform &ot);

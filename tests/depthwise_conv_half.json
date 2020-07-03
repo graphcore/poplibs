@@ -1,0 +1,9 @@
+{
+  "dataType": "half",
+  "batchSize": 1,
+  "numConvGroups": 24,
+  "inputFieldShape": [28,28],
+  "kernelShape": [5,5],
+  "inputChannelsPerConvGroup": 1,
+  "outputChannelsPerConvGroup": 1
+}

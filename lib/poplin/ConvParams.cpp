@@ -7,6 +7,9 @@
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <boost/functional/hash.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <unordered_map>
 
 namespace poplin {
 
@@ -300,6 +303,99 @@ std::ostream &operator<<(std::ostream &os, const ConvParams &p) {
   printContainer(p.getOutputFieldShape(), os);
   os << "\n";
   return os;
+}
+
+static const std::unordered_map<std::string, poplar::Type> typeMap{
+    {"half", poplar::HALF}, {"float", poplar::FLOAT}};
+
+std::istream &operator>>(std::istream &is, ConvParams &p) {
+  namespace pt = boost::property_tree;
+
+  pt::ptree root;
+  pt::json_parser::read_json(is, root);
+
+  if (const auto dataType = root.get_optional<std::string>("dataType")) {
+    p.inputType = typeMap.at(*dataType);
+    p.outputType = typeMap.at(*dataType);
+  }
+
+  if (const auto inputType = root.get_optional<std::string>("inputType")) {
+    p.inputType = typeMap.at(*inputType);
+  }
+
+  if (const auto outputType = root.get_optional<std::string>("outputType")) {
+    p.outputType = typeMap.at(*outputType);
+  }
+
+  const auto getScalar = [](const pt::ptree &node, const char *name,
+                            auto &field) {
+    using T = std::remove_reference_t<decltype(field)>;
+    if (const auto child = node.get_optional<T>(name)) {
+      field = *child;
+    }
+  };
+
+  getScalar(root, "batchSize", p.batchSize);
+  getScalar(root, "numConvGroups", p.numConvGroups);
+  getScalar(root, "inputChannelsPerConvGroup", p.inputChannelsPerConvGroup);
+  getScalar(root, "outputChannelsPerConvGroup", p.outputChannelsPerConvGroup);
+
+  const auto getVector = [](const pt::ptree &node, const char *name,
+                            auto &field) {
+    using T = std::remove_reference_t<decltype(field)>;
+    if (const auto child = node.get_child_optional(name)) {
+      T values;
+      for (const auto &item : *child) {
+        values.push_back(item.second.get_value<typename T::value_type>());
+      }
+
+      field = std::move(values);
+    }
+  };
+
+  getVector(root, "inputFieldShape", p.inputFieldShape);
+  getVector(root, "kernelShape", p.kernelShape);
+  if (p.inputFieldShape.size() != p.kernelShape.size()) {
+    throw poputil::poplibs_error(
+        "Input and kernel must have the same number of dimensions");
+  }
+
+  p.inputTransform = InputTransform(p.inputFieldShape.size());
+  if (const auto inputTransform = root.get_child_optional("inputTransform")) {
+    getVector(*inputTransform, "truncationLower",
+              p.inputTransform.truncationLower);
+    getVector(*inputTransform, "truncationUpper",
+              p.inputTransform.truncationUpper);
+    getVector(*inputTransform, "dilation", p.inputTransform.dilation);
+    getVector(*inputTransform, "paddingLower", p.inputTransform.paddingLower);
+    getVector(*inputTransform, "paddingUpper", p.inputTransform.paddingUpper);
+    getVector(*inputTransform, "flip", p.inputTransform.flip);
+  }
+
+  p.kernelTransform = InputTransform(p.inputFieldShape.size());
+  if (const auto kernelTransform = root.get_child_optional("kernelTransform")) {
+    getVector(*kernelTransform, "truncationLower",
+              p.kernelTransform.truncationLower);
+    getVector(*kernelTransform, "truncationUpper",
+              p.kernelTransform.truncationUpper);
+    getVector(*kernelTransform, "dilation", p.kernelTransform.dilation);
+    getVector(*kernelTransform, "paddingLower", p.kernelTransform.paddingLower);
+    getVector(*kernelTransform, "paddingUpper", p.kernelTransform.paddingUpper);
+    getVector(*kernelTransform, "flip", p.kernelTransform.flip);
+  }
+
+  p.outputTransform = OutputTransform(p.inputFieldShape.size());
+  if (const auto outputTransform = root.get_child_optional("outputTransform")) {
+    getVector(*outputTransform, "truncationLower",
+              p.outputTransform.truncationLower);
+    getVector(*outputTransform, "truncationUpper",
+              p.outputTransform.truncationUpper);
+    getVector(*outputTransform, "stride", p.outputTransform.stride);
+    getVector(*outputTransform, "paddingLower", p.outputTransform.paddingLower);
+    getVector(*outputTransform, "paddingUpper", p.outputTransform.paddingUpper);
+  }
+
+  return is;
 }
 
 std::size_t hash_value(const ConvParams::InputTransform &it) {

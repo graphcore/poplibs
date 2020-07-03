@@ -6967,6 +6967,16 @@ foreach(PLAN_TYPE parallel serial)
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 endforeach()
 
+file(READ ${CMAKE_SOURCE_DIR}/tests/depthwise_conv_half.json DEPTHWISE_CONV)
+file(READ ${CMAKE_SOURCE_DIR}/tests/pointwise_conv_float.json POINTWISE_CONV)
+add_multitarget_test(
+         NAME multi_conv_different_types
+         COMMAND multi_conv_layer
+                 --tiles-per-ipu 128
+                 --conv ${DEPTHWISE_CONV}
+                 --conv ${POINTWISE_CONV}
+         VARIANTS ${TimesOutOnSim})
+
 add_multitarget_test(
          NAME cast_to_gfloat_1_5_10_RZ
          COMMAND cast_to_gfloat

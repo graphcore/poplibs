@@ -644,3 +644,36 @@ BOOST_AUTO_TEST_CASE(CombineConvWeightUpdateArgs) {
   checkMappingEntirelyOneTile(graph,
                               result.weights.slice(5 + 6, 5 + 6 + 7, wDim), 7);
 }
+
+BOOST_AUTO_TEST_CASE(ReadConvParamsFromJSON) {
+  std::stringstream is;
+  is << R"(
+    {
+      "dataType": "float",
+      "batchSize": 1,
+      "numConvGroups": 2,
+      "inputChannelsPerConvGroup": 3,
+      "outputChannelsPerConvGroup": 4,
+      "kernelShape": [50, 60],
+      "inputFieldShape": [70, 80],
+      "inputTransform": {
+        "truncationLower": [1, 2],
+        "paddingUpper": [3, 4],
+        "flip": [true, false]
+      },
+      "outputTransform": {
+        "stride": [5, 6]
+      }
+    }
+  )";
+
+  ConvParams uut{};
+  is >> uut;
+
+  ConvParams expected(FLOAT, 1, {70, 80}, {50, 60}, 3, 4, 2);
+  expected.inputTransform.truncationLower = {1, 2};
+  expected.inputTransform.paddingUpper = {3, 4};
+  expected.inputTransform.flip = {true, false};
+  expected.outputTransform.stride = {5, 6};
+  BOOST_TEST(uut == expected);
+}

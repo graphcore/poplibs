@@ -14,6 +14,11 @@ target_link_libraries(single_conv_layer
                       poplibs_test
                       Boost::program_options)
 
+add_tool(multi_conv_layer multi_conv_layer.cpp)
+target_link_libraries(multi_conv_layer
+                      poplibs_test
+                      Boost::program_options)
+
 add_tool(oct_conv_layer oct_conv_layer.cpp)
 target_link_libraries(oct_conv_layer
                       poplibs_test
