@@ -13,15 +13,20 @@
 namespace popops {
 namespace {
 
-poplar::program::Program swap(poplar::Graph &graph, poplar::Tensor a,
-                              poplar::Tensor b) {
+poplar::program::Program predicatedSwap(poplar::Graph &graph,
+                                        poplar::Tensor pred, poplar::Tensor a,
+                                        poplar::Tensor b,
+                                        const std::string &debugPrefix) {
   poplar::program::Sequence result;
-  poplar::Tensor tmp = graph.addVariable(a.elementType(), a.shape());
-  graph.setTileMapping(tmp, graph.getTileMapping(a));
 
-  result.add(poplar::program::Copy(a, tmp));
-  result.add(poplar::program::Copy(b, a));
-  result.add(poplar::program::Copy(tmp, b));
+  poplar::Tensor tmp =
+      popops::select(graph, b, a, pred, result, debugPrefix + "/select_left");
+  poplar::Tensor not_pred =
+      popops::logicalNot(graph, pred, result, debugPrefix + "invert_pred");
+  popops::selectInPlace(graph, b, a, not_pred, result,
+                        debugPrefix + "/select_right");
+
+  result.add(poplar::program::Copy(tmp, a));
 
   return std::move(result);
 }
@@ -103,8 +108,8 @@ poplar::Tensor isNotSortedPredicate(poplar::Graph &graph,
                                     poplar::program::Sequence &prog,
                                     poplar::Tensor input,
                                     const std::string &debugPrefix) {
-  std::vector<poplar::Tensor> results;
-
+  std::vector<poplar::Tensor> lhss;
+  std::vector<poplar::Tensor> rhss;
   for (std::size_t i = 0; i < input.dim(0); ++i) {
     poplar::Tensor inputSlice = input[i];
 
@@ -119,32 +124,34 @@ poplar::Tensor isNotSortedPredicate(poplar::Graph &graph,
       // For each neighbouring pair of intervals, check that the neighbouring
       // elements are in order.
       for (std::size_t k = 0; k < intervals.size() - 1; ++k) {
-        poplar::Tensor lMax = inputSlice[intervals[k].end() - 1];
-        poplar::Tensor rMin = inputSlice[intervals[k + 1].begin()];
-
-        results.push_back(popops::lt(graph, rMin, lMax, prog).reshape({1}));
+        lhss.push_back(inputSlice[intervals[k].end() - 1].expand({0}));
+        rhss.push_back(inputSlice[intervals[k + 1].begin()].expand({0}));
       }
     }
   }
 
-  if (results.empty()) {
+  if (lhss.empty()) {
     auto c = graph.addConstant(poplar::BOOL, {}, false, debugPrefix + "/false");
     graph.setTileMapping(c, 0);
     return c;
   } else {
-    poplar::Tensor edges = poplar::concat(results);
+    poplar::Tensor lhs = poplar::concat(lhss);
+    poplar::Tensor rhs = poplar::concat(rhss);
+    poplar::Tensor edges = popops::lt(graph, rhs, lhs, prog,
+                                      debugPrefix + "/isNotSortedPredicate");
 
     std::vector<std::size_t> dims(edges.rank());
     std::iota(std::begin(dims), std::end(dims), 0);
 
     return reduce(graph, edges, poplar::BOOL, dims, {Operation::LOGICAL_OR},
-                  prog);
+                  prog, debugPrefix + "/reduction");
   }
 }
 
 poplar::program::Sequence createExchange(poplar::Graph &graph,
                                          poplar::Tensor input,
-                                         const std::size_t startIndex) {
+                                         const std::size_t startIndex,
+                                         const std::string &debugPrefix) {
   poplar::program::Sequence result;
 
   for (std::size_t i = 0; i < input.dim(0); ++i) {
@@ -161,13 +168,18 @@ poplar::program::Sequence createExchange(poplar::Graph &graph,
     if (!intervals.empty()) {
       // For each neighbouring pair of intervals, conditionally exchange the
       // neighbouring elements.
+      std::vector<poplar::Tensor> lhss;
+      std::vector<poplar::Tensor> rhss;
       for (std::size_t k = startIndex; k < intervals.size() - 1; k += 2) {
-        poplar::Tensor lMax = inputSlice[intervals[k].end() - 1];
-        poplar::Tensor rMin = inputSlice[intervals[k + 1].begin()];
+        lhss.push_back(inputSlice[intervals[k].end() - 1].expand({0}));
+        rhss.push_back(inputSlice[intervals[k + 1].begin()].expand({0}));
+      }
 
-        result.add(poplar::program::If(popops::lteq(graph, lMax, rMin, result),
-                                       poplar::program::Sequence(),
-                                       swap(graph, lMax, rMin)));
+      if (!lhss.empty()) {
+        poplar::Tensor lhs = poplar::concat(lhss);
+        poplar::Tensor rhs = poplar::concat(rhss);
+        poplar::Tensor pred = popops::lt(graph, rhs, lhs, result);
+        result.add(predicatedSwap(graph, pred, lhs, rhs, debugPrefix));
       }
     }
   }
@@ -175,10 +187,9 @@ poplar::program::Sequence createExchange(poplar::Graph &graph,
   return result;
 }
 
-poplar::program::Sequence createExchange(poplar::Graph &graph,
-                                         poplar::Tensor key,
-                                         poplar::Tensor value,
-                                         const std::size_t startIndex) {
+poplar::program::Sequence
+createExchange(poplar::Graph &graph, poplar::Tensor key, poplar::Tensor value,
+               const std::size_t startIndex, const std::string &debugPrefix) {
   poplar::program::Sequence result;
 
   for (std::size_t i = 0; i < key.dim(0); ++i) {
@@ -195,20 +206,27 @@ poplar::program::Sequence createExchange(poplar::Graph &graph,
     if (!intervals.empty()) {
       // For each neighbouring pair of intervals, conditionally exchange the
       // neighbouring elements.
+      std::vector<poplar::Tensor> key_lhss;
+      std::vector<poplar::Tensor> key_rhss;
+      std::vector<poplar::Tensor> value_lhss;
+      std::vector<poplar::Tensor> value_rhss;
       for (std::size_t k = startIndex; k < intervals.size() - 1; k += 2) {
-        poplar::Tensor lMax = keySlice[intervals[k].end() - 1];
-        poplar::Tensor rMin = keySlice[intervals[k + 1].begin()];
+        key_lhss.push_back(keySlice[intervals[k].end() - 1].expand({0}));
+        key_rhss.push_back(keySlice[intervals[k + 1].begin()].expand({0}));
 
-        poplar::Tensor predicate = popops::lteq(graph, lMax, rMin, result);
+        value_lhss.push_back(valueSlice[intervals[k].end() - 1].expand({0}));
+        value_rhss.push_back(valueSlice[intervals[k + 1].begin()].expand({0}));
+      }
 
-        poplar::program::Sequence swapElems;
-        swapElems.add(swap(graph, lMax, rMin));
-
-        lMax = valueSlice[intervals[k].end() - 1];
-        rMin = valueSlice[intervals[k + 1].begin()];
-        swapElems.add(swap(graph, lMax, rMin));
-        result.add(poplar::program::If(predicate, poplar::program::Sequence(),
-                                       swapElems));
+      if (!key_lhss.empty()) {
+        poplar::Tensor key_lhs = poplar::concat(key_lhss);
+        poplar::Tensor key_rhs = poplar::concat(key_rhss);
+        poplar::Tensor value_lhs = poplar::concat(value_lhss);
+        poplar::Tensor value_rhs = poplar::concat(value_rhss);
+        poplar::Tensor pred = popops::lt(graph, key_rhs, key_lhs, result);
+        result.add(predicatedSwap(graph, pred, key_lhs, key_rhs, debugPrefix));
+        result.add(
+            predicatedSwap(graph, pred, value_lhs, value_rhs, debugPrefix));
       }
     }
   }
@@ -217,25 +235,29 @@ poplar::program::Sequence createExchange(poplar::Graph &graph,
 }
 
 poplar::program::Sequence createEvenExchange(poplar::Graph &graph,
-                                             poplar::Tensor input) {
-  return createExchange(graph, input, 0);
+                                             poplar::Tensor input,
+                                             const std::string &debugPrefix) {
+  return createExchange(graph, input, 0, debugPrefix);
 }
 
 poplar::program::Sequence createOddExchange(poplar::Graph &graph,
-                                            poplar::Tensor input) {
-  return createExchange(graph, input, 1);
+                                            poplar::Tensor input,
+                                            const std::string &debugPrefix) {
+  return createExchange(graph, input, 1, debugPrefix);
 }
 
 poplar::program::Sequence createEvenExchange(poplar::Graph &graph,
                                              poplar::Tensor key,
-                                             poplar::Tensor value) {
-  return createExchange(graph, key, value, 0);
+                                             poplar::Tensor value,
+                                             const std::string &debugPrefix) {
+  return createExchange(graph, key, value, 0, debugPrefix);
 }
 
 poplar::program::Sequence createOddExchange(poplar::Graph &graph,
                                             poplar::Tensor key,
-                                            poplar::Tensor value) {
-  return createExchange(graph, key, value, 1);
+                                            poplar::Tensor value,
+                                            const std::string &debugPrefix) {
+  return createExchange(graph, key, value, 1, debugPrefix);
 }
 
 } // namespace
@@ -266,10 +288,10 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
   poplar::program::Sequence sortStep;
 
   // swap the even interval edges
-  sortStep.add(createEvenExchange(graph, tView));
+  sortStep.add(createEvenExchange(graph, tView, debugPrefix));
 
   // swap the odd interval edges
-  sortStep.add(createOddExchange(graph, tView));
+  sortStep.add(createOddExchange(graph, tView, debugPrefix));
 
   // Sort each interval
   sortStep.add(poplar::program::Execute(sortCS));
@@ -321,10 +343,10 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
   poplar::program::Sequence sortStep;
 
   // swap the even interval edges
-  sortStep.add(createEvenExchange(graph, keyView, valueView));
+  sortStep.add(createEvenExchange(graph, keyView, valueView, debugPrefix));
 
   // swap the odd interval edges
-  sortStep.add(createOddExchange(graph, keyView, valueView));
+  sortStep.add(createOddExchange(graph, keyView, valueView, debugPrefix));
 
   // Sort each interval
   sortStep.add(poplar::program::Execute(sortCS));
