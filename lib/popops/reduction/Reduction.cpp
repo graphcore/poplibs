@@ -353,41 +353,36 @@ void reduceWithOutputProgOrCss(
       out = graph.addVariable(outputType, outputShape);
       poputil::mapTensorLinearly(graph, out.get());
     }
-    // Initialise it to the default value which depends on the operation.
-    if (params.op == popops::Operation::ADD ||
-        params.op == popops::Operation::SQUARE_ADD ||
-        params.op == popops::Operation::LOGICAL_OR) {
-      popops::zero(graph, out.get(), prog, debugPrefix + "/ReduceAddInit");
-    } else {
-      double initVal = 0.0;
-      switch (params.op) {
-      case popops::Operation::MUL:
-        break;
-      case popops::Operation::MIN:
-        initVal = std::numeric_limits<double>::infinity();
-        break;
-      case popops::Operation::MAX:
-        initVal = -std::numeric_limits<double>::infinity();
-        break;
-      case popops::Operation::LOGICAL_AND:
-        initVal = 1.0;
-        break;
-      default:
-        throw poputil::poplibs_error(
-            "Internal error, unhandled reduction type:" +
-            std::to_string(static_cast<int>(params.op)));
-      }
-      Tensor initialiser;
-      if (params.op != popops::Operation::MUL) {
-        initialiser = graph.addConstant(outputType, out.get().shape(), initVal,
-                                        debugPrefix + "/initialiser");
-        graph.setTileMapping(initialiser, 0);
-        prog.add(program::Copy(initialiser, out.get()));
+    if (!params.update) {
+      double initVal = [&]() {
+        switch (params.op) {
+        case popops::Operation::ADD:
+        case popops::Operation::SQUARE_ADD:
+        case popops::Operation::LOGICAL_OR:
+          return 0.0;
+        case popops::Operation::MIN:
+          return std::numeric_limits<double>::infinity();
+        case popops::Operation::MAX:
+          return -std::numeric_limits<double>::infinity();
+        case popops::Operation::MUL:
+        case popops::Operation::LOGICAL_AND:
+          return 1.0;
+        default:
+          throw poputil::poplibs_error(
+              "Internal error, unhandled reduction type:" +
+              std::to_string(static_cast<int>(params.op)));
+        }
+      }();
+      if (initVal == 0.0) {
+        popops::zero(graph, out.get(), prog, debugPrefix + "/ReduceAddInit");
       } else {
-        auto paramsBroadcast = params.scale;
-        Tensor outCopy = out.get();
-        poputil::broadcastToMatch(outCopy, paramsBroadcast);
-        prog.add(program::Copy(paramsBroadcast, out.get()));
+        // Scale is only valid with the ADD and SQUARE_ADD, both of which
+        // use a zero initialiser.
+        assert(!params.useScale);
+        auto initialiser = graph.addConstant(outputType, out->shape(), initVal,
+                                             debugPrefix + "/initialiser");
+        graph.setTileMapping(initialiser, graph.getTileMapping(out.get()));
+        prog.add(program::Copy(initialiser, out.get()));
       }
     }
     return;

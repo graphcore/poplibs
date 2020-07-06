@@ -65,10 +65,14 @@ reduce(const poplibs_support::MultiArray<T> &input,
                     element = 1;
                     break;
                   case popops::Operation::MIN:
-                    element = std::numeric_limits<T>::max();
+                    element = std::numeric_limits<T>::has_infinity
+                                  ? std::numeric_limits<T>::infinity()
+                                  : std::numeric_limits<T>::max();
                     break;
                   case popops::Operation::MAX:
-                    element = std::numeric_limits<T>::lowest();
+                    element = std::numeric_limits<T>::has_infinity
+                                  ? -std::numeric_limits<T>::infinity()
+                                  : std::numeric_limits<T>::lowest();
                     break;
                   }
                 });
