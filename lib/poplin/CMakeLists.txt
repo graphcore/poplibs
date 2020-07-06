@@ -60,6 +60,40 @@ target_include_directories(poplin
     .
 )
 
+set(IPU1_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_float_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_supervisor.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_zero_output.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_supervisor.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_float_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAddSingleInput.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_half_8.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/OuterProduct.S
+)
+# These contain source for both IPU1 and IPU2.  Internal to the source file
+# IPU2 is conditionally assembled by checking __IPU_ARCH_VERSION__
+set(IPU1_AND_IPU2_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_float_8_and_half_half_h16.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_float_8_and_half_half_16.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float_8_and_half_half_16.S
+)
+set(IPU2_SOURCES
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_float_float_16.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_float_float_16.S
+)
+
+set(ARCH_SOURCES ${IPU1_SOURCES})
+list(APPEND ARCH_SOURCES ${IPU1_AND_IPU2_SOURCES})
+if("ipu2" IN_LIST POPLIBS_ENABLED_IPU_ARCH_NAMES)
+  list(APPEND ARCH_SOURCES ${IPU2_SOURCES})
+endif()
+
 add_gp_library(
   NAME poplin
   CPP_SOURCES
@@ -76,26 +110,10 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdKernelTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdPartials.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdReduce.cpp
+
   ASM_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_supervisor.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_float_float_16.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_1x1_half_float_8_and_half_half_h16.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_zero_output.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_supervisor.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_float_float_16.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_float_8_and_half_half_16.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_float_8_and_half_half_16.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_half_8.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAddSingleInput.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/OuterProduct.S
+    ${ARCH_SOURCES}
+
   HEADERS
     PerformanceEstimation.hpp
 )

@@ -384,9 +384,11 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry):
 .endm
 ////////////////////////////////////////////////////////////////////////////////
 // Instantiate supervisor entry
-supervisor_fn float 8
-supervisor_fn half 16
+  supervisor_fn float 8
 
+#if __IPU_ARCH_VERSION__ >=2
+  supervisor_fn half 16
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 //=============
@@ -907,24 +909,27 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 ////////////////////////////////////////////////////////////////////////////////
 // Use the worker function and macros above to build the code for the stride = 1
 // case with half partials
+
+#if __IPU_ARCH_VERSION__ >=2
 .section .text.CODELET_SYMBOL(half_worker_fn_stride1), "ax"
   // Instantiate the worker entry point and loop body
   worker_fn stride1 f16v4hihov4slic half
   // Instantiate routines used in the loop body
   worker_process_group_field_row_implicit_zero_stride1_lt5_elems W0_32 TSLIC_F16V4_1x4_W0 f16v4hihov4slic
   worker_process_group_field_row_stride1_lt5_elems W0_32 TSLIC_F16V4_1x4_W0 f16v4hihov4slic
-
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // Use the worker function and macros above to build the code for the stride = 2
 // case with half partials
+#if __IPU_ARCH_VERSION__ >=2
 .section .text.CODELET_SYMBOL(half_worker_fn_stride2), "ax"
   // Instantiate the worker entry point and loop body
   worker_fn stride2 f16v4hihov4slic half
   // Instantiate routines used in the loop body for stride = 2
   worker_process_group_field_row_implicit_zero_stride2_lt3_elems W0_32 TSLIC_F16V4_1x4_W0 f16v4hihov4slic
   worker_process_group_field_row_stride2_lt3_elems W0_32 TSLIC_F16V4_1x4_W0 f16v4hihov4slic
-
+#endif
 //=============
 #undef w_rem
 #undef w_out_ptr

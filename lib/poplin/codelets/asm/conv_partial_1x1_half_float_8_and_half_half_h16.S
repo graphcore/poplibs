@@ -54,7 +54,7 @@ nop
 //                      29  + (num_field_pos - 3) * 4
 //
 //
-// The very first call of the worker requires 11 more cycles 
+// The very first call of the worker requires 11 more cycles
 // Otherwise all calls of workers requires 11 cycles more for a given input channel
 //                                         8 cycles when an input channel changes
 
@@ -458,14 +458,18 @@ bri             LNumElemsEq2_\COMMAND\()
 // =============================================================================
 // Instantiate codelets
 // Workers
-CONV_1x1_WORKER f16v4hihov4amp
+#if __IPU_ARCH_VERSION__ >=2
+  CONV_1x1_WORKER f16v4hihov4amp
+#endif
 CONV_1x1_WORKER f16v4sisoamp
 
 
 // Instantiate codelets
 // Supervisors
-CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp
-CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp
+#if __IPU_ARCH_VERSION__ >=2
+  CONV_1x1_SUPERVISOR half half false 16 f16v4hihov4amp
+  CONV_1x1_SUPERVISOR half half true  16 f16v4hihov4amp
+#endif
 
 CONV_1x1_SUPERVISOR half float false 8 f16v4sisoamp
 CONV_1x1_SUPERVISOR half float true  8 f16v4sisoamp

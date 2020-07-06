@@ -361,7 +361,7 @@ Loop_start_Amp:
     // &output += 1
     ld2xst64pace    X_IN_P_IN, P2_OUT, $tripacked_addr+=, $mzero, 0b000011
     f32sisov2amp    P2_OUT, X_IN_1, P_IN, TAMP_F32_E4_P3
-  }  
+  }
 Loop_end_Amp:
 {
   // &input += 1 // second read from input address and post increment

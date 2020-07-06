@@ -393,13 +393,17 @@ bri           StoreFinalAmpOutputs2_\COMMAND\()
 // =============================================================================
 // Instantiate codelets
 // Workers
-CONV_Nx1_WORKER f16v4hihov4amp
+#if __IPU_ARCH_VERSION__ >=2
+  CONV_Nx1_WORKER f16v4hihov4amp
+#endif
 CONV_Nx1_WORKER f16v4sisoamp
 
 
 // Supervisors
-CONV_Nx1_SUPERVISOR half half false 16 f16v4hihov4amp
-CONV_Nx1_SUPERVISOR half half true  16 f16v4hihov4amp
+#if __IPU_ARCH_VERSION__ >=2
+  CONV_Nx1_SUPERVISOR half half false 16 f16v4hihov4amp
+  CONV_Nx1_SUPERVISOR half half true  16 f16v4hihov4amp
+#endif
 
 CONV_Nx1_SUPERVISOR half float false 8 f16v4sisoamp
 CONV_Nx1_SUPERVISOR half float true  8 f16v4sisoamp
