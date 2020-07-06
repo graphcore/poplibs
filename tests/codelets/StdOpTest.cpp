@@ -29,7 +29,7 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 
-const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
+poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
 //*************************************************
 bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
@@ -37,7 +37,8 @@ bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
                    const std::function<double()> &inputGenFn, unsigned rows,
                    unsigned columns, expr::UnaryOpType operation,
                    const std::function<double(double)> &hostFn,
-                   unsigned inPlace, bool doCheck, bool doReport) {
+                   unsigned inPlace, bool doCheck, bool doReport,
+                   bool disableFpException) {
 
   // Whole data array size
   auto total_elems = rows * columns;
@@ -111,6 +112,12 @@ bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
     graph.createHostRead("outStream", in);
   else
     graph.createHostRead("outStream", out);
+
+  // Some inbuild functions will trigger an float point exception hence need
+  // to disable FP exception for specific tests
+  if (disableFpException) {
+    options.set("debug.floatPointOpException", "false");
+  }
   // Run each sequence and compare host and IPU result
   Engine engine(graph, Sequence(uploadProg, sequence, downloadProg), options);
   attachStreams(engine, tmap);
@@ -402,6 +409,7 @@ int main(int argc, char **argv) {
   expr::UnaryOpType unaryOperation;
   std::function<double(double, double)> binaryHostFn;
   std::function<double(double)> unaryHostFn;
+  bool disableFpException = false;
 
   std::function<double(void)> inputGenFn;
   if (inputGenerationMode == "iota") {
@@ -436,6 +444,7 @@ int main(int argc, char **argv) {
     outputBool = false;
     unaryOperation = expr::UnaryOpType::INVERSE;
     unaryHostFn = [](double x) -> double { return 1.0 / x; };
+    disableFpException = true;
   } else if (operation == "ASIN") {
     unaryOp = 1;
     outputBool = false;
@@ -561,7 +570,7 @@ int main(int argc, char **argv) {
   if (unaryOp) {
     if (!doUnaryOpTest(deviceType, dataType, dataTypeOut, inputGenFn, rows,
                        columns, unaryOperation, unaryHostFn, inPlace, doCheck,
-                       doReport))
+                       doReport, disableFpException))
       return 1;
 
   } else {

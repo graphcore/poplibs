@@ -56,7 +56,8 @@ void hasNaNTest(const bool introduceNaN, const Type &type) {
   auto rawHostOutput = allocateHostMemoryForTensor(
       out, "out", graph, uploadProg, downloadProg, tmap);
 
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
+  const poplar::OptionFlags options{{"debug.floatPointOpException", "false"}};
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
