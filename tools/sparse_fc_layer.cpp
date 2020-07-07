@@ -479,8 +479,8 @@ int main(int argc, char **argv) try {
 
   // Build the graph
   std::cerr << "Constructing graph...\n";
-  const SparseTensor weights =
-      createFullyConnectedWeights(graph, dataType, params, "weights", options);
+  const SparseTensor weights = createFullyConnectedWeights(
+      graph, dataType, params, "weights", options, &cache);
   const Tensor input = createFullyConnectedInput(graph, dataType, params,
                                                  "input", options, &cache);
   const Tensor outputActs = fullyConnectedFwd(graph, weights, input, params,
