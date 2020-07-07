@@ -21,9 +21,35 @@ namespace poplin {
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field.
+/// \param type            The type of the output tensor.
+/// \returns               Gamma vector of dimension `C`.
+poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
+                               const poplar::Type &type);
+
+/// Create and map the per channel multiplicative gamma parameter tensor used
+/// for normalisation in convolution layers.
+/// \param graph           The graph with the activations and gamma tensor.
+/// \param acts            The activations tensor has shape `[N][C][..F..]`
+///                        where\n
+///                           - `N` is the batch size
+///                           - `C` is the number of channels
+///                           - `..F..` is dimensions of a N-dimensional field.
 /// \returns               Gamma vector of dimension `C`.
 poplar::Tensor createNormGamma(poplar::Graph &graph,
                                const poplar::Tensor &acts);
+
+/// Create and map the per channel additive beta parameter tensor used for
+/// normalisation in convolution layers.
+/// \param graph           The graph with the activations and beta tensor.
+/// \param acts            The activations tensor has shape `[N][C][..F..]`
+///                        where\n
+///                           - `N` is the batch size
+///                           - `C` is the number of channels
+///                           - `..F..` is dimensions of a N-dimensional field
+/// \param type            The type of the output tensor.
+/// \returns               Beta vector of dimension `C`.
+poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts,
+                              const poplar::Type &type);
 
 /// Create and map the per channel additive beta parameter tensor used for
 /// normalisation in convolution layers.

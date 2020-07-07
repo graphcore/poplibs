@@ -166,14 +166,20 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   return std::make_pair(mean, iStdDev);
 }
 
+Tensor createNormGamma(Graph &graph, const Tensor &acts, const Type &type) {
+  return createBroadcastOperand(graph, acts, type, 1, true, "gamma");
+}
+
 Tensor createNormGamma(Graph &graph, const Tensor &acts) {
-  return createBroadcastOperand(graph, acts, acts.elementType(), 1, true,
-                                "gamma");
+  return createNormGamma(graph, acts, acts.elementType());
+}
+
+Tensor createNormBeta(Graph &graph, const Tensor &acts, const Type &type) {
+  return createBroadcastOperand(graph, acts, type, 1, true, "beta");
 }
 
 Tensor createNormBeta(Graph &graph, const Tensor &acts) {
-  return createBroadcastOperand(graph, acts, acts.elementType(), 1, true,
-                                "beta");
+  return createNormBeta(graph, acts, acts.elementType());
 }
 
 std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
