@@ -104,15 +104,6 @@ struct ConvTransform {
   // the batch is dimension 0 and the spatial dimensions start at 1.
   // The dimensions are flattened into the last dimension in reverse order.
   std::vector<unsigned> flattenDims;
-
-  // Depthwise convolutions often result in 1 input channel per conv group, this
-  // can result in sub-optimal padding of the activations tensor. Therefore
-  // this transformation will pad the conv groups up to the factor specified by
-  // this unsigned, F and then transform the params so that we have N/F conv
-  // groups, each with, F input channels and Fx output channels.
-  // By padding the weights to only be non-zero if they are for
-  // the same conv groups this will produce the same result as before.
-  unsigned combineConvGroupsFactor = 1;
 };
 
 bool operator<(const ConvTransform &a, const ConvTransform &b);
@@ -289,12 +280,6 @@ ConvParams calculateParamsWithDeferredDilation(
     const ConvParams &params, const std::vector<unsigned> &dilatePostConv);
 
 void swapOperands(ConvParams &params);
-void combineConvGroups(const unsigned factor, ConvParams &params);
-
-// this factor is how much we reduce the number of groups by and increase the
-// channel dimensions by when applying the combineConvGroup transformation.
-unsigned convGroupCombineFactor(const unsigned factor,
-                                unsigned inputChannelsPerConvGroup);
 
 std::uint64_t getNumberOfMACs(const ConvParams &params);
 
