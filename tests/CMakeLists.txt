@@ -2471,7 +2471,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --batch-size 4)
   add_conv_benchmark(NAME mobilenet_depthwise_6
           PARAMS --field {14,14}
-                 --kernel-size 1
+                 --kernel-size 3
                  --padding 1
                  --input-channels 1
                  --output-channels 1
