@@ -7,16 +7,12 @@
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 #include <popsparse/FullyConnectedParams.hpp>
+#include <popsparse/PlanningCache.hpp>
 #include <popsparse/SparseTensor.hpp>
 
 namespace popsparse {
 /// Support for dynamic sparse matrices.
 namespace dynamic {
-
-/** Class used to cache the calculation of plans for fully connected operations.
- *  This is optional and speeds up graph construction.
- */
-class PlanningCache;
 
 /**
  * Create a sparse tensor that is used as the weights W for a fully connected
@@ -51,7 +47,7 @@ class PlanningCache;
  *      If set, forces the same buckets to be used for all three passes.
  *
  *
- * * \param graph The Poplar graph.
+ * \param graph The Poplar graph.
  * \param inputType The type for inputs to the operation.
  * \param params Parameters for the fully connected layer.
  * \param debugPrefix Optional prefix for all debug names added to the graph.
@@ -212,14 +208,6 @@ std::tuple<unsigned, unsigned, unsigned> fullyConnectedDenseGradWSerialSplits(
     const poplar::Graph &graph, const poplar::Type &inputType,
     const FullyConnectedParams &fcParams,
     const poplar::OptionFlags &options_ = {}, PlanningCache *cache = nullptr);
-
-class PlanningCacheImpl;
-class PlanningCache {
-public:
-  PlanningCache();
-  ~PlanningCache();
-  std::unique_ptr<PlanningCacheImpl> impl;
-};
 
 } // namespace dynamic
 } // namespace popsparse

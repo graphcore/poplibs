@@ -67,9 +67,19 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   auto csrMatrix = buildCSRMatrix(dimensions, sparsityFactor);
 
   // Create partitioner object with plan information
+  //
+  // The following doesn't actually affect partition generation so just
+  // set them to some value.
+  const std::size_t metaInfoBucketSizeGradA = 0;
+  const bool sharedBuckets = false;
+  const poplar::Type dataType = poplar::FLOAT;
+  const poplar::Type accumType = poplar::FLOAT;
+  // TODO: Test partitioner options
+  const popsparse::PartitionerOptions options;
   popsparse::PartitionerImpl partitioner(
       dimensions, grainSizes, xSplits, ySplits, zSplits, metaInfoBucketSize,
-      nzElementsBucketSize, 6, bucketsPerZ, includeGradA, includeGradW);
+      metaInfoBucketSizeGradA, nzElementsBucketSize, 6, bucketsPerZ,
+      includeGradA, includeGradW, sharedBuckets, dataType, accumType, options);
 
   auto pnBucketsImpl = partitioner.createBuckets(csrMatrix);
   auto pnBuckets = pnBucketsImpl.pnBuckets;

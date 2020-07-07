@@ -91,6 +91,10 @@ struct Plan {
 
 std::ostream &operator<<(std::ostream &os, const Plan &p);
 
+std::array<std::vector<std::size_t>, 3>
+getPartitionStartIndices(const popsparse::dynamic::FullyConnectedParams &params,
+                         const Plan &plan);
+
 std::tuple<Plan, Cost>
 getPlan(const poplar::Target &target, const poplar::Type &inputType,
         const popsparse::dynamic::FullyConnectedParams &params,

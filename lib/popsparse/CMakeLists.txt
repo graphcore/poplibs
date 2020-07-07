@@ -30,10 +30,20 @@ add_library(popsparse SHARED
   FullyConnectedPlan.hpp  
   FullyConnectedPNMapping.cpp
   FullyConnectedPNMapping.hpp
+  FullyConnectedTensorMetaData.hpp
   FullyConnectedUtils.hpp
   FullyConnectedUtils.cpp
   FullyConnectedVector.hpp
+  MatMul.cpp
+  MatMulOptions.cpp
+  MatMulOptions.hpp
+  MatMulParams.cpp
+  MatMulTensorMetaData.hpp
+  MatMulUtils.cpp
+  MatMulUtils.hpp
   PerformanceEstimation.hpp
+  PlanningCacheImpl.hpp
+  PlanningCache.cpp
   popsparseCycleEstimators.hpp
   popsparseCycleEstimators.cpp
   SparseMetaInfo.hpp
@@ -42,10 +52,15 @@ add_library(popsparse SHARED
   SparsePartitioner.cpp
   SparsePartitionerImpl.cpp
   SparsePartitionerImpl.hpp
+  SparsePartitionerOptions.cpp
+  SparsePartitionerOptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/FullyConnectedParams.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/FullyConnected.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsparse/MatMul.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsparse/MatMulParams.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsparse/PlanningCache.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/SparseTensor.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/SparsityParams.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/SparseStorageFormats.hpp  
@@ -68,6 +83,7 @@ target_include_directories(popsparse
   PRIVATE
     # Needed for popsparse to access ConvReduce functionality for the timebeing
     $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:poputil,INCLUDE_DIRECTORIES>
     .
 )
 

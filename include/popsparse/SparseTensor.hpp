@@ -4,6 +4,8 @@
 
 #include <poplar/Tensor.hpp>
 
+#include <poputil/TensorMetaData.hpp>
+
 namespace popsparse {
 namespace dynamic {
 
@@ -14,17 +16,23 @@ class SparseTensor {
   /// Tensor contains non zero values.
   poplar::Tensor nzValues;
 
+  /// Meta-data for this tensor object.
+  poputil::TensorMetaData opMetaData;
+
 public:
   SparseTensor() = default;
 
   SparseTensor(const SparseTensor &t) = default;
 
-  SparseTensor(const poplar::Tensor &metaInfo, const poplar::Tensor &nzValues)
-      : metaInfo(metaInfo), nzValues(nzValues) {}
+  SparseTensor(const poplar::Tensor &metaInfo, const poplar::Tensor &nzValues,
+               const poputil::TensorMetaData &opMetaData = {})
+      : metaInfo(metaInfo), nzValues(nzValues), opMetaData(opMetaData) {}
 
-  poplar::Tensor getMetaInfoTensor() const { return metaInfo; }
+  const poplar::Tensor &getMetaInfoTensor() const { return metaInfo; }
 
-  poplar::Tensor getNzValuesTensor() const { return nzValues; }
+  const poplar::Tensor &getNzValuesTensor() const { return nzValues; }
+
+  const poputil::TensorMetaData &getOpMetaData() const { return opMetaData; }
 };
 
 } // end namespace dynamic

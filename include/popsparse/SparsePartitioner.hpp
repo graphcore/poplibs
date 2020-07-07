@@ -11,6 +11,7 @@
 #include <poplar/Type.hpp>
 #include <popsparse/FullyConnected.hpp>
 #include <popsparse/FullyConnectedParams.hpp>
+#include <popsparse/MatMulParams.hpp>
 #include <popsparse/SparseStorageFormats.hpp>
 #include <string>
 #include <vector>
@@ -41,6 +42,10 @@ public:
   const PartitionerImpl &getImpl() const { return *impl; }
 
   Partitioner(const FullyConnectedParams &params, const poplar::Type &dataType,
+              const poplar::Target &target, const poplar::OptionFlags &options,
+              PlanningCache *cache = {});
+
+  Partitioner(const MatMulParams &params, const poplar::Type &dataType,
               const poplar::Target &target, const poplar::OptionFlags &options,
               PlanningCache *cache = {});
 

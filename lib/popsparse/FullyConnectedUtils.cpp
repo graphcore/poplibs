@@ -5,6 +5,7 @@
 #include "poplibs_support/Algorithm.hpp"
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <numeric>
 
 using namespace poplar;
@@ -321,6 +322,35 @@ splitTileBetweenWorkers(std::size_t numRows, std::size_t numColumns,
   }
 
   return workers;
+}
+
+double convertAbsoluteNzElemsToRatio(std::size_t numGroups,
+                                     std::size_t inputSize,
+                                     std::size_t outputSize,
+                                     std::size_t numNonZeroElems) {
+  const auto totalDenseElems = numGroups * inputSize * outputSize;
+  if (numNonZeroElems > totalDenseElems) {
+    throw poputil::poplibs_error(
+        "Number of non-zero elements (" + std::to_string(numNonZeroElems) +
+        ") exceeds maximum possible for given dense matrix dimensions (" +
+        (numGroups > 1 ? std::to_string(numGroups) + "x" : "") +
+        std::to_string(outputSize) + "x" + std::to_string(inputSize) + ")");
+  }
+  const double nzRatio = double(numNonZeroElems) / double(totalDenseElems);
+  // Double check we can represent this ratio exactly enough to recover the
+  // exact absolute number of non-zero elems.
+  assert(convertRatioNzElemsToAbsolute(numGroups, inputSize, outputSize,
+                                       nzRatio) == numNonZeroElems);
+  return nzRatio;
+}
+
+std::size_t convertRatioNzElemsToAbsolute(std::size_t numGroups,
+                                          std::size_t inputSize,
+                                          std::size_t outputSize,
+                                          const double nonZeroRatio) {
+  const auto totalDenseElems = numGroups * inputSize * outputSize;
+  const std::size_t numNonZeroElems = std::ceil(nonZeroRatio * totalDenseElems);
+  return numNonZeroElems;
 }
 
 } // end namespace fullyconnected

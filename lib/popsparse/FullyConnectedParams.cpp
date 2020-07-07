@@ -4,7 +4,14 @@
 
 #include <poputil/exceptions.hpp>
 
+#include "poplibs_support/StructHelper.hpp"
+
+#include "FullyConnectedUtils.hpp"
+
 namespace popsparse {
+
+using namespace fullyconnected;
+
 namespace dynamic {
 
 FullyConnectedParams FullyConnectedParams::createWithNzRatio(
@@ -35,13 +42,12 @@ FullyConnectedParams FullyConnectedParams::createWithNumNonZeroValues(
     throw poputil::poplibs_error(
         "Number of non-zero elements (" + std::to_string(numNonZeroElems) +
         ") exceeds maximum possible for given dense matrix dimensions (" +
+        (numGroups > 1 ? std::to_string(numGroups) + "x" : "") +
         std::to_string(outputChannels) + "x" + std::to_string(inputChannels) +
         ")");
   }
-  const double nzRatio = double(numNonZeroElems) / double(totalDenseElems);
-  // Double check that we really can represent this number of non-zero elements
-  // as a double without losing precision.
-  assert(std::size_t(std::ceil(nzRatio * totalDenseElems)) == numNonZeroElems);
+  const auto nzRatio = convertAbsoluteNzElemsToRatio(
+      numGroups, inputChannels, outputChannels, numNonZeroElems);
   return createWithNzRatio(sparsityParams, nzRatio, batchSize, numGroups,
                            inputChannels, outputChannels);
 }
@@ -49,33 +55,42 @@ FullyConnectedParams FullyConnectedParams::createWithNumNonZeroValues(
 double FullyConnectedParams::getNzRatio() const { return nzRatio; }
 
 std::size_t FullyConnectedParams::getNumNonZeroValues() const {
-  const auto totalDenseElems =
-      numGroups * inputChannelsPerGroup * outputChannelsPerGroup;
-  return std::ceil(nzRatio * totalDenseElems);
+  return convertRatioNzElemsToAbsolute(numGroups, inputChannelsPerGroup,
+                                       outputChannelsPerGroup, nzRatio);
 }
 
 std::ostream &operator<<(std::ostream &os, const FullyConnectedParams &p) {
   os << "{sparsity: " << p.getSparsityParams()
-     << ",\n"
-        " batch size: "
-     << p.getBatchSize()
-     << ",\n"
-        " no. of groups: "
-     << p.getNumGroups()
-     << ",\n"
-        " input channels: "
-     << p.getInputChannelsPerGroup()
-     << ",\n"
-        " output channels: "
-     << p.getOutputChannelsPerGroup() << "}";
+     << ",\n sparsity ratio: " << p.getNzRatio()
+     << ",\n batch size: " << p.getBatchSize()
+     << ",\n no. of groups: " << p.getNumGroups()
+     << ",\n input channels: " << p.getInputChannelsPerGroup()
+     << ",\n output channels: " << p.getOutputChannelsPerGroup() << "}";
   return os;
 }
 
 bool operator<(const FullyConnectedParams &a, const FullyConnectedParams &b) {
-  return std::tie(a.batchSize, a.inputChannelsPerGroup, a.numGroups,
-                  a.outputChannelsPerGroup, a.sparsityParams) <
-         std::tie(b.batchSize, b.inputChannelsPerGroup, b.numGroups,
-                  b.outputChannelsPerGroup, b.sparsityParams);
+  // A bit awkward but this isn't a struct really and hence the members are not
+  // public. Still shorter than writing out in full.
+  static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+      &FullyConnectedParams::sparsityParams, &FullyConnectedParams::nzRatio,
+      &FullyConnectedParams::batchSize,
+      &FullyConnectedParams::inputChannelsPerGroup,
+      &FullyConnectedParams::outputChannelsPerGroup);
+  return comparisonHelper.lt(a, b);
+}
+
+bool operator==(const FullyConnectedParams &a, const FullyConnectedParams &b) {
+  static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+      &FullyConnectedParams::sparsityParams, &FullyConnectedParams::nzRatio,
+      &FullyConnectedParams::batchSize,
+      &FullyConnectedParams::inputChannelsPerGroup,
+      &FullyConnectedParams::outputChannelsPerGroup);
+  return comparisonHelper.eq(a, b);
+}
+
+bool operator!=(const FullyConnectedParams &a, const FullyConnectedParams &b) {
+  return !(a == b);
 }
 
 } // end namespace dynamic

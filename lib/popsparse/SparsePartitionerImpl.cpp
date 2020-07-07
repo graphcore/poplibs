@@ -1,7 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "SparsePartitionerImpl.hpp"
-#include "FullyConnectedOptions.hpp"
-#include "FullyConnectedPlan.hpp"
 #include "FullyConnectedUtils.hpp"
 #include "SparseMetaInfo.hpp"
 #include "SparsePartitionerImpl.hpp"
@@ -20,30 +18,6 @@ namespace popsparse {
 
 using namespace dynamic;
 using namespace fullyconnected;
-
-static std::tuple<std::vector<std::size_t>, std::vector<std::size_t>,
-                  std::vector<std::size_t>>
-getDimSplits(const FullyConnectedParams &params, const Plan &plan) {
-  auto createSplit = [](unsigned size, unsigned partitionSize,
-                        unsigned grainSize) {
-    auto grains = poplibs_support::ceildiv(size, grainSize);
-    std::vector<std::size_t> split;
-    const auto grainsPerPartition = ceildiv(grains, partitionSize);
-    for (unsigned i = 0; i != partitionSize; ++i) {
-      const auto tileBegin = i * grainsPerPartition * grainSize;
-      split.push_back(tileBegin);
-    }
-    return split;
-  };
-  auto xSplits = createSplit(params.getOutputChannelsPerGroup(),
-                             plan.partition.x, plan.grouping.x);
-  auto ySplits = createSplit(params.getInputChannelsPerGroup(),
-                             plan.partition.y, plan.grouping.y);
-  auto zSplits =
-      createSplit(params.getBatchSize(), plan.partition.z, plan.grouping.z);
-
-  return std::make_tuple(xSplits, ySplits, zSplits);
-}
 
 std::vector<RowPositionValues>
 getPositionValuePairsPerRow(const CSRInternal &csr, const Tile &tile) {
@@ -106,16 +80,20 @@ using MI = popsparse::MetaInfo<MetaInfoType>;
 // to compute number of elements
 #define miElems(x) (sizeof(x) / sizeof(MetaInfoType))
 
-void PartitionerImpl::init(const std::vector<std::size_t> &dimensions,
-                           const std::vector<std::size_t> &grainSizes,
-                           const std::vector<std::size_t> &xSplits_,
-                           const std::vector<std::size_t> &ySplits_,
-                           const std::vector<std::size_t> &zSplits_,
-                           std::size_t metaInfoBucketElements_,
-                           std::size_t nzElementsBucketElements_,
-                           std::size_t numWorkerContexts_,
-                           std::size_t bucketsPerZ_, bool includeGradA_,
-                           bool includeGradW_) {
+PartitionerImpl::PartitionerImpl(const std::vector<std::size_t> &dimensions,
+                                 const std::vector<std::size_t> &grainSizes,
+                                 const std::vector<std::size_t> &xSplits_,
+                                 const std::vector<std::size_t> &ySplits_,
+                                 const std::vector<std::size_t> &zSplits_,
+                                 std::size_t metaInfoBucketElements_,
+                                 std::size_t metaInfoBucketElementsGradA_,
+                                 std::size_t nzElementsBucketElements_,
+                                 std::size_t numWorkerContexts_,
+                                 std::size_t bucketsPerZ_, bool includeGradA_,
+                                 bool includeGradW_, bool sharedBuckets_,
+                                 const poplar::Type &dataType_,
+                                 const poplar::Type &accumType_,
+                                 const PartitionerOptions &options) {
 
   auto verifySplit = [](std::size_t dimension, const std::vector<size_t> &split,
                         const std::string &str) {
@@ -156,11 +134,18 @@ void PartitionerImpl::init(const std::vector<std::size_t> &dimensions,
 
   // keep meta info size in elements
   metaInfoBucketElements = metaInfoBucketElements_;
+  metaInfoBucketElementsGradA = metaInfoBucketElementsGradA_;
   nzElementsBucketElements = nzElementsBucketElements_;
   numWorkerContexts = numWorkerContexts_;
   bucketsPerZ = bucketsPerZ_;
   gradWEnabled = includeGradW_;
   gradAEnabled = includeGradA_;
+  sharedBuckets = sharedBuckets_;
+  dataType = dataType_;
+  accumType = accumType_;
+  optimiseForSpeed = options.optimiseForSpeed;
+  forceBucketSpills = options.forceBucketSpills;
+  useActualWorkerSplitCosts = options.useActualWorkerSplitCosts;
 
   logging::debug("Created partitioner for sparse matrix mult [X,Y] x [Y,Z]: ");
   logging::debug("  --X = {}, Y = {}, Z = {}", numX, numY, numZ);
@@ -168,52 +153,12 @@ void PartitionerImpl::init(const std::vector<std::size_t> &dimensions,
   logging::debug("  --Split Y : {}", ySplits);
   logging::debug("  --Split Z : {}", zSplits);
   logging::debug("  --Buckets per Z dimension : {}", bucketsPerZ_);
-  logging::debug("  --Meta-info bucket size in elems : {}",
+  logging::debug("  --Meta-info bucket size in elems (fwd) : {}",
                  metaInfoBucketElements);
+  logging::debug("  --Meta-info bucket size in elems (grad-a) : {}",
+                 metaInfoBucketElementsGradA);
   logging::debug("  --NZ bucket size in elements : {}",
                  nzElementsBucketElements);
-}
-
-PartitionerImpl::PartitionerImpl(const FullyConnectedParams &params,
-                                 const poplar::Type &dataType_,
-                                 const poplar::Target &target,
-                                 const poplar::OptionFlags &options,
-                                 PlanningCache *cache) {
-  Plan plan;
-  Cost planCost;
-  std::tie(plan, planCost) = getPlan(target, dataType_, params, options, cache);
-  auto splitTuple = getDimSplits(params, plan);
-  const auto optionFlags = fullyconnected::parseOptionFlags(options);
-
-  init({params.getOutputChannelsPerGroup(), params.getInputChannelsPerGroup(),
-        params.getBatchSize()},
-       {plan.grouping.x, plan.grouping.y, plan.grouping.z},
-       std::get<0>(splitTuple), std::get<1>(splitTuple),
-       std::get<2>(splitTuple), plan.fwdMetaInfoElemsPerBucket,
-       plan.nzElemsPerBucket, target.getNumWorkerContexts(), 1,
-       optionFlags.doGradAPass, optionFlags.doGradWPass);
-  metaInfoBucketElementsGradA = plan.gradAMetaInfoElemsPerBucket;
-  optimiseForSpeed = optionFlags.partitioner.optimiseForSpeed;
-  sharedBuckets = optionFlags.sharedBuckets;
-  forceBucketSpills = optionFlags.partitioner.forceBucketSpills;
-  dataType = dataType_;
-  accumType = optionFlags.partialsType;
-  useActualWorkerSplitCosts = optionFlags.partitioner.useActualWorkerSplitCosts;
-}
-
-PartitionerImpl::PartitionerImpl(const std::vector<std::size_t> &dimensions,
-                                 const std::vector<std::size_t> &grainSizes,
-                                 const std::vector<std::size_t> &xSplits_,
-                                 const std::vector<std::size_t> &ySplits_,
-                                 const std::vector<std::size_t> &zSplits_,
-                                 std::size_t metaInfoBucketElements_,
-                                 std::size_t nzElementsBucketElements_,
-                                 std::size_t numWorkerContexts_,
-                                 std::size_t bucketsPerZ_, bool includeGradA_,
-                                 bool includeGradW_) {
-  init(dimensions, grainSizes, xSplits_, ySplits_, zSplits_,
-       metaInfoBucketElements_, nzElementsBucketElements_, numWorkerContexts_,
-       bucketsPerZ_, includeGradA_, includeGradW_);
 }
 
 // Number of non-zero values in a partition

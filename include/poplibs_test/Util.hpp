@@ -148,6 +148,10 @@ void inline writeRandomValues(const poplar::Target &target,
   }
 }
 
+std::pair<std::int64_t, std::int64_t>
+getPreciselyRepresentableIntegerRange(const poplar::Target &target,
+                                      const poplar::Type &type);
+
 template <typename T>
 void copy(const poplar::Target &target, const T *src, std::size_t n,
           const poplar::Type &dstType, void *dst) {

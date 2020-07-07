@@ -1,25 +1,39 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "FullyConnectedOptions.hpp"
+
+#include "MatMulOptions.hpp"
 
 #include <poputil/OptionParsing.hpp>
 
 #include "poplibs_support/StructHelper.hpp"
 
-#include <map>
-#include <string>
-
 using namespace poplar;
 using namespace poplibs;
 
 namespace popsparse {
-namespace fullyconnected {
+namespace dynamic {
 
-std::ostream &operator<<(std::ostream &os, const Options &o) {
+static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+    &MatMulOptions::availableMemoryProportion,
+    &MatMulOptions::metaInfoBucketOversizeProportion,
+    &MatMulOptions::partialsType, &MatMulOptions::sharedBuckets,
+    &MatMulOptions::partitioner);
+
+bool operator<(const MatMulOptions &a, const MatMulOptions &b) {
+  return comparisonHelper.lt(a, b);
+}
+
+bool operator==(const MatMulOptions &a, const MatMulOptions &b) {
+  return comparisonHelper.eq(a, b);
+}
+
+bool operator!=(const MatMulOptions &a, const MatMulOptions &b) {
+  return !(a == b);
+}
+
+std::ostream &operator<<(std::ostream &os, const MatMulOptions &o) {
   os << "{availableMemoryProportion: " << o.availableMemoryProportion
      << ",\n metaInfoBucketOversizeProportion: "
      << o.metaInfoBucketOversizeProportion
-     << ",\n doGradAPass: " << o.doGradAPass
-     << ",\n doGradWPass: " << o.doGradWPass
      << ",\n partialsType: " << o.partialsType
      << ",\n sharedBuckets: " << o.sharedBuckets
      << ",\n partitioner.optimiseForSpeed: " << o.partitioner.optimiseForSpeed
@@ -32,17 +46,14 @@ std::ostream &operator<<(std::ostream &os, const Options &o) {
 static std::map<std::string, poplar::Type> partialsTypeMap{
     {"half", poplar::HALF}, {"float", poplar::FLOAT}};
 
-Options parseOptionFlags(const OptionFlags &flags) {
-  Options options;
-
+MatMulOptions parseMatMulOptionFlags(const OptionFlags &flags) {
+  MatMulOptions options;
   const OptionSpec optSpec{
       {"availableMemoryProportion",
        OptionHandler::createWithDouble(options.availableMemoryProportion)},
       {"metaInfoBucketOversizeProportion",
        OptionHandler::createWithDouble(
            options.metaInfoBucketOversizeProportion)},
-      {"doGradAPass", OptionHandler::createWithBool(options.doGradAPass)},
-      {"doGradWPass", OptionHandler::createWithBool(options.doGradWPass)},
       {"partialsType",
        OptionHandler::createWithEnum(options.partialsType, partialsTypeMap)},
       {"sharedBuckets", OptionHandler::createWithBool(options.sharedBuckets)},
@@ -59,21 +70,5 @@ Options parseOptionFlags(const OptionFlags &flags) {
   return options;
 }
 
-static constexpr auto optionsHelper = poplibs_support::makeStructHelper(
-    &Options::availableMemoryProportion,
-    &Options::metaInfoBucketOversizeProportion, &Options::doGradAPass,
-    &Options::doGradWPass, &Options::partialsType, &Options::sharedBuckets,
-    &Options::partitioner);
-
-bool operator<(const Options &a, const Options &b) {
-  return optionsHelper.lt(a, b);
-}
-
-bool operator==(const Options &a, const Options &b) {
-  return optionsHelper.eq(a, b);
-}
-
-bool operator!=(const Options &a, const Options &b) { return !(a == b); }
-
-} // end namespace fullyconnected
+} // end namespace dynamic
 } // end namespace popsparse

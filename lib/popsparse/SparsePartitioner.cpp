@@ -2,19 +2,48 @@
 #include "popsparse/SparsePartitioner.hpp"
 #include "FullyConnectedOptions.hpp"
 #include "FullyConnectedPlan.hpp"
+#include "MatMulUtils.hpp"
 #include "SparsePartitionerImpl.hpp"
 
 namespace popsparse {
+
+using namespace fullyconnected;
+
 namespace dynamic {
 
 template <typename T>
 Partitioner<T>::Partitioner(const FullyConnectedParams &params,
                             const poplar::Type &dataType,
                             const poplar::Target &target,
-                            const poplar::OptionFlags &options,
+                            const poplar::OptionFlags &optionFlags,
                             PlanningCache *cache) {
-  impl.reset(new PartitionerImpl(params, dataType, target, options, cache));
+  Plan plan;
+  Cost planCost;
+  std::tie(plan, planCost) =
+      getPlan(target, dataType, params, optionFlags, cache);
+  const auto partitionIndices = getPartitionStartIndices(params, plan);
+  const auto options = fullyconnected::parseOptionFlags(optionFlags);
+
+  impl.reset(new PartitionerImpl(
+      {params.getOutputChannelsPerGroup(), params.getInputChannelsPerGroup(),
+       params.getBatchSize()},
+      {plan.grouping.x, plan.grouping.y, plan.grouping.z},
+      partitionIndices.at(0), partitionIndices.at(1), partitionIndices.at(2),
+      plan.fwdMetaInfoElemsPerBucket, plan.gradAMetaInfoElemsPerBucket,
+      plan.nzElemsPerBucket, target.getNumWorkerContexts(), 1,
+      options.doGradAPass, options.doGradWPass, options.sharedBuckets, dataType,
+      options.partialsType, options.partitioner));
 }
+
+template <typename T>
+Partitioner<T>::Partitioner(const MatMulParams &params,
+                            const poplar::Type &dataType,
+                            const poplar::Target &target,
+                            const poplar::OptionFlags &optionFlags,
+                            PlanningCache *cache)
+    : Partitioner(getFullyConnectedParams(params), dataType, target,
+                  getFullyConnectedOptions(parseMatMulOptionFlags(optionFlags)),
+                  cache) {}
 
 template <typename T> Partitioner<T>::~Partitioner() {}
 

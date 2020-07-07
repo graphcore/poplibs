@@ -37,6 +37,8 @@ struct SparsityParams {
   SparsityParams(const SparsityParams &) = default;
 
   friend bool operator<(const SparsityParams &a, const SparsityParams &b);
+  friend bool operator==(const SparsityParams &a, const SparsityParams &b);
+  friend bool operator!=(const SparsityParams &a, const SparsityParams &b);
 
   friend std::ostream &operator<<(std::ostream &os, const SparsityParams &p);
 };

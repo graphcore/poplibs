@@ -17,6 +17,7 @@
 
 #include "FullyConnectedOptions.hpp"
 #include "FullyConnectedUtils.hpp"
+#include "PlanningCacheImpl.hpp"
 #include "popsparse/FullyConnected.hpp"
 
 #include <map>
@@ -30,32 +31,6 @@ using namespace poplibs_support;
 using MetaInfoType = unsigned short;
 
 namespace popsparse {
-
-namespace dynamic {
-
-class PlanningCacheImpl {
-public:
-  struct Key {
-    FullyConnectedParams params;
-    fullyconnected::Options options;
-    Key(FullyConnectedParams params, fullyconnected::Options options)
-        : params(std::move(params)), options(std::move(options)) {}
-    Key() = default;
-    bool operator<(const Key &other) const {
-      return std::tie(params, options) < std::tie(other.params, other.options);
-    }
-  };
-
-  std::map<Key, std::tuple<fullyconnected::Plan, fullyconnected::Cost>> plans;
-};
-
-PlanningCache::PlanningCache() {
-  impl = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl());
-}
-
-PlanningCache::~PlanningCache() = default;
-
-} // end namespace dynamic
 
 using namespace dynamic;
 
@@ -1424,6 +1399,30 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
      << "\n  grad-a pass on-tile method: " << p.gradAMethod
      << "\n  grad-w pass on-tile method: " << p.gradWMethod << "\n";
   return os;
+}
+
+std::array<std::vector<std::size_t>, 3>
+getPartitionStartIndices(const popsparse::dynamic::FullyConnectedParams &params,
+                         const Plan &plan) {
+  auto createSplit = [](unsigned size, unsigned partitionSize,
+                        unsigned grainSize) {
+    auto grains = poplibs_support::ceildiv(size, grainSize);
+    std::vector<std::size_t> split;
+    const auto grainsPerPartition = ceildiv(grains, partitionSize);
+    for (unsigned i = 0; i != partitionSize; ++i) {
+      const auto tileBegin = i * grainsPerPartition * grainSize;
+      split.push_back(tileBegin);
+    }
+    return split;
+  };
+  auto xSplits = createSplit(params.getOutputChannelsPerGroup(),
+                             plan.partition.x, plan.grouping.x);
+  auto ySplits = createSplit(params.getInputChannelsPerGroup(),
+                             plan.partition.y, plan.grouping.y);
+  auto zSplits =
+      createSplit(params.getBatchSize(), plan.partition.z, plan.grouping.z);
+
+  return {xSplits, ySplits, zSplits};
 }
 
 std::tuple<Plan, Cost> getPlan(const Target &target, const Type &inputType,

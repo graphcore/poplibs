@@ -6,13 +6,13 @@ add_library(poplibs_test SHARED
   FullyConnected.cpp
   GeneralMatrixAdd.cpp
   GeneralMatrixMultiply.cpp
-  Lstm.cpp
   Gru.cpp
-  Norms.cpp
-  Pooling.cpp
-  NonLinearity.cpp
+  Lstm.cpp
   Multirate.cpp
+  NonLinearity.cpp
+  Norms.cpp
   Pass.cpp
+  Pooling.cpp
   Rnn.cpp
   Util.cpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Convolution.hpp
@@ -20,14 +20,15 @@ add_library(poplibs_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/FullyConnected.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixAdd.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixMultiply.hpp
-  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Lstm.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Gru.hpp
-  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Norms.hpp
-  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pooling.hpp
-  ${PROJECT_SOURCE_DIR}/include/poplibs_test/NonLinearity.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Lstm.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Multirate.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/NonLinearity.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Norms.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pass.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/Pooling.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Rnn.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/SparseMatrix.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Util.hpp
 )
 

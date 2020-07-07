@@ -142,6 +142,25 @@ template void writeRandomValues<unsigned>(const Target &target,
                                           unsigned max,
                                           std::mt19937 &randomEngine);
 
+// Range of integers that can be precisely represented using the given type.
+std::pair<std::int64_t, std::int64_t>
+getPreciselyRepresentableIntegerRange(const Target &target, const Type &type) {
+  if (type == HALF || type == FLOAT) {
+    // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    // https://en.wikipedia.org/wiki/Single-precision_floating-point_format
+    const std::int64_t maxContiguousRepresentableInteger =
+        type == HALF ? 2048 : 16777216;
+    return std::make_pair(-maxContiguousRepresentableInteger,
+                          maxContiguousRepresentableInteger);
+  } else if (type == INT) {
+    return std::make_pair(std::numeric_limits<int>::lowest(),
+                          std::numeric_limits<int>::max());
+  } else {
+    assert(false && "Unhandled type");
+  }
+  return {};
+}
+
 template <typename FPType>
 bool checkIsClose(FPType a, FPType b, double relativeTolerance) {
   // These checks are necessary because close_at_tolerance doesn't handle

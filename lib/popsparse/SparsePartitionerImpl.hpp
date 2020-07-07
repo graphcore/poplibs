@@ -5,13 +5,12 @@
 #ifndef _poplibs_popsparse_SparsePartitionerImpl_hpp_
 #define _poplibs_popsparse_SparsePartitionerImpl_hpp_
 
+#include "SparsePartitionerOptions.hpp"
 #include "SparseStorageInternal.hpp"
 #include "poplar/Interval.hpp"
 #include "poplar/OptionFlags.hpp"
 #include "poplar/Target.hpp"
 #include "poplar/Type.hpp"
-#include "popsparse/FullyConnected.hpp"
-#include "popsparse/FullyConnectedParams.hpp"
 #include "popsparse/SparseStorageFormats.hpp"
 #include <string>
 #include <vector>
@@ -111,32 +110,19 @@ class PartitionerImpl {
 
   void balanceBuckets(std::vector<PNBucket> &pnBuckets, bool transposed) const;
 
-  void init(const std::vector<std::size_t> &dimensions,
-            const std::vector<std::size_t> &grainSizes,
-            const std::vector<std::size_t> &xSplits_,
-            const std::vector<std::size_t> &ySplits_,
-            const std::vector<std::size_t> &zSplits_,
-            std::size_t metaInfoBucketElements_,
-            std::size_t nzElementsBucketElements_,
-            std::size_t numWorkerContexts_, std::size_t bucketsPerZ_,
-            bool includeGradA_, bool includeGradW_);
-
 public:
-  PartitionerImpl(const popsparse::dynamic::FullyConnectedParams &params,
-                  const poplar::Type &dataType, const poplar::Target &target,
-                  const poplar::OptionFlags &options,
-                  popsparse::dynamic::PlanningCache *cache = {});
-
-  // Constructor for the partitioner which takes in the planning parameters
   PartitionerImpl(const std::vector<std::size_t> &dimensions,
                   const std::vector<std::size_t> &grainSizes,
                   const std::vector<std::size_t> &xSplits_,
                   const std::vector<std::size_t> &ySplits_,
                   const std::vector<std::size_t> &zSplits_,
                   std::size_t metaInfoBucketElements_,
+                  std::size_t metaInfoBucketElementsGradA_,
                   std::size_t nzElementsBucketElements_,
                   std::size_t numWorkerContexts_, std::size_t bucketsPerZ_,
-                  bool includeGradA_, bool includeGradW_);
+                  bool includeGradA_, bool includeGradW_, bool sharedBuckets_,
+                  const poplar::Type &dataType_, const poplar::Type &accumType_,
+                  const PartitionerOptions &options);
 
   // Create buckets for a CSC matrix
   template <typename T>

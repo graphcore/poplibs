@@ -3,6 +3,8 @@
 #include "poputil/exceptions.hpp"
 #include <tuple>
 
+#include "poplibs_support/StructHelper.hpp"
+
 namespace popsparse {
 namespace dynamic {
 
@@ -33,8 +35,19 @@ std::ostream &operator<<(std::ostream &os, const SparsityParams &p) {
   return os;
 }
 
+static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
+    &SparsityParams::type, &SparsityParams::structure);
+
 bool operator<(const SparsityParams &a, const SparsityParams &b) {
-  return std::tie(a.type, a.structure) < std::tie(b.type, b.structure);
+  return comparisonHelper.lt(a, b);
+}
+
+bool operator==(const SparsityParams &a, const SparsityParams &b) {
+  return comparisonHelper.eq(a, b);
+}
+
+bool operator!=(const SparsityParams &a, const SparsityParams &b) {
+  return !(a == b);
 }
 
 } // end namespace dynamic

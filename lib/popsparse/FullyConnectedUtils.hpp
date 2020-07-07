@@ -86,6 +86,17 @@ splitTileBetweenWorkers(std::size_t numRows, std::size_t numColumns,
                         std::size_t numWorkers,
                         const std::vector<std::size_t> &rowWeights = {});
 
+// Convert between 2 different ways of representing number of non-zero elements
+// in the API.
+double convertAbsoluteNzElemsToRatio(std::size_t numGroups,
+                                     std::size_t inputSize,
+                                     std::size_t outputSize,
+                                     std::size_t numNonZeroElems);
+std::size_t convertRatioNzElemsToAbsolute(std::size_t numGroups,
+                                          std::size_t inputSize,
+                                          std::size_t outputSize,
+                                          double nonZeroRatio);
+
 } // end namespace fullyconnected
 } // end namespace popsparse
 

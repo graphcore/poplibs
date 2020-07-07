@@ -111,4 +111,10 @@ if (TARGET popsparse)
                         poplibs_support
                         poplibs_test
                         Boost::program_options)
+
+  add_tool(sparse_matmul sparse_matmul.cpp)
+  target_link_libraries(sparse_matmul
+                        poplibs_support
+                        poplibs_test
+                        Boost::program_options)
 endif()

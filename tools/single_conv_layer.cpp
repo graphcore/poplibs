@@ -570,24 +570,21 @@ int main(int argc, char **argv) try {
     }
   }
 
-  const auto opLimit = [=]() -> size_t {
-    auto isFloatingPointType = [](Type t) { return t == HALF || t == FLOAT; };
-    if (isFloatingPointType(inputType) || isFloatingPointType(outputType)) {
-      const auto lowestPrecisionDataType =
-          (inputType == HALF || outputType == HALF) ? HALF : FLOAT;
-      // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
-      // https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-      const auto maxContiguousRepresentableInteger =
-          lowestPrecisionDataType == HALF ? 2048 : 16777216;
-
-      // Naively increasing n by a factor of 10 is still very unlikely to
-      // over/underflow. Since it's so unlikely, we'll pad this value a little.
-      const auto modifier = 10;
-      return maxContiguousRepresentableInteger * modifier;
-    } else {
-      // Integral types represent all integers exactly
-      return std::numeric_limits<int>::max();
-    }
+  const auto &target = parentGraph.getTarget();
+  const auto opLimit = [&]() -> std::size_t {
+    const auto inRange =
+        poplibs_test::util::getPreciselyRepresentableIntegerRange(target,
+                                                                  inputType);
+    const auto outRange =
+        poplibs_test::util::getPreciselyRepresentableIntegerRange(target,
+                                                                  outputType);
+    assert(inRange.first != 0 && inRange.second != 0);
+    assert(outRange.first != 0 && outRange.second != 0);
+    const auto maxInVal =
+        std::min(std::abs(inRange.first), std::abs(inRange.second));
+    const auto maxOutVal =
+        std::min(std::abs(outRange.first), std::abs(outRange.second));
+    return static_cast<std::size_t>(std::min(maxInVal, maxOutVal));
   }();
 
   // For a large conv, the accumulation may exceed the range exactly
@@ -817,7 +814,6 @@ int main(int argc, char **argv) try {
       boost::extents[batchSize * replicationFactor][fwdOutChans]
                     [product(outFieldSize)]);
   std::mt19937 randomEngine;
-  auto target = parentGraph.getTarget();
   if (useUniformRandomData) {
     writeRandomValues(target, inputType, hostPrevAct, -1.0, +5.0, randomEngine);
     writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);

@@ -6,6 +6,7 @@ add_library(poputil SHARED
   exceptions.cpp
   GraphFunction.cpp
   TensorUseTracker.cpp
+  TensorMetaData.cpp
   TileMapping.cpp
   VarStructure.cpp
   Util.cpp
@@ -14,10 +15,11 @@ add_library(poputil SHARED
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Loop.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/OptionParsing.hpp
+  ${CMAKE_SOURCE_DIR}/include/poputil/TensorMetaData.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/TileMapping.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/VarStructure.hpp
-  ${CMAKE_SOURCE_DIR}/include/poputil/Util.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/VertexTemplates.hpp
+  ${CMAKE_SOURCE_DIR}/include/poputil/Util.hpp
 )
 
 target_link_libraries(poputil

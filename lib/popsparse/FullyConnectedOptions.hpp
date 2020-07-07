@@ -9,6 +9,8 @@
 #include <ostream>
 #include <tuple>
 
+#include "SparsePartitionerOptions.hpp"
+
 namespace popsparse {
 namespace fullyconnected {
 
@@ -28,25 +30,13 @@ struct Options {
   poplar::Type partialsType = poplar::FLOAT;
   // If set, forces the buckets to be used for all three passes to be the same
   bool sharedBuckets = true;
+  PartitionerOptions partitioner;
 
-  struct Partitioner {
-    // Optimise bucket overflow allocation for speed. Overflow allocation would
-    // attempt to allocate buckets that have the shortest distance to travel
-    bool optimiseForSpeed = true;
-
-    // If set uses actual worker split every time costs for a partition are
-    // evaluated. This will give exact cost as the final "real" allocation, but
-    // is expensive to compute. If not set, then all workers are assumed to be
-    // used and the final allocation will actually be lower.
-    bool useActualWorkerSplitCosts = false;
-
-    // Test mode to force bucket spills
-    bool forceBucketSpills = false;
-  } partitioner;
   friend bool operator<(const Options &a, const Options &b);
+  friend bool operator==(const Options &a, const Options &b);
+  friend bool operator!=(const Options &a, const Options &b);
+  friend std::ostream &operator<<(std::ostream &os, const Options &o);
 };
-
-std::ostream &operator<<(std::ostream &os, const Options &o);
 
 Options parseOptionFlags(const poplar::OptionFlags &flags);
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "TestDevice.hpp"
 #include "poputil/exceptions.hpp"
 #include <algorithm>
@@ -19,6 +19,7 @@
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Pass.hpp>
+#include <poplibs_test/SparseMatrix.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -67,152 +68,6 @@ void print(const boost::multi_array_ref<double, 2> &matA) {
   }
 }
 
-static std::tuple<double, double> calculateWeightedVsRemainingSparsityFactor(
-    const std::vector<std::size_t> &dimensions, double sparsityFactor,
-    const std::vector<std::size_t> &weightedAreaBegin,
-    const std::vector<std::size_t> &weightedAreaEnd,
-    double weightedAreaSparsityWeight) {
-  // Calculate the likelihood of generating an element in the denser area
-  // vs. the rest of the matrix.
-  const auto matrixArea = product(dimensions);
-  const auto weightedAreaShape = [&] {
-    auto v = weightedAreaEnd;
-    assert(weightedAreaEnd.size() == weightedAreaBegin.size());
-    for (std::size_t i = 0; i < v.size(); ++i) {
-      v.at(i) -= weightedAreaBegin.at(i);
-    }
-    return v;
-  }();
-  const auto weightedArea = product(weightedAreaShape);
-  if (weightedArea == 0) {
-    return std::make_tuple(0.0, sparsityFactor);
-  }
-
-  // We want to weight the sparsity factor used in the weighted area
-  // up to a maximum which is the most elements we can fit into the
-  // weighted area.
-  const auto totalExpectedElems = std::round(matrixArea * sparsityFactor);
-  const auto maxElemsInWeightedArea =
-      std::min<double>(totalExpectedElems, weightedArea);
-  const auto uniformElemsInWeightedArea = weightedArea * sparsityFactor;
-  const auto weightedElemsInWeightedArea =
-      std::min(maxElemsInWeightedArea,
-               uniformElemsInWeightedArea * weightedAreaSparsityWeight);
-
-  const double weightedThreshold = weightedElemsInWeightedArea / weightedArea;
-  const double remainingThreshold =
-      (totalExpectedElems - weightedElemsInWeightedArea) /
-      double(matrixArea - weightedArea);
-  return std::make_tuple(weightedThreshold, remainingThreshold);
-}
-
-// Build CSR matrix
-template <typename T, typename RandomEngine>
-CSRMatrix<T> buildCSRMatrix(RandomEngine &rng,
-                            const std::vector<size_t> &dimensions,
-                            double sparsityFactor,
-                            const std::vector<std::size_t> &weightedAreaBegin,
-                            const std::vector<std::size_t> &weightedAreaEnd,
-                            // Specified as a weight to make it easy to default
-                            // to an even distribution.
-                            double weightedAreaSparsityWeight,
-                            bool useBipolarValueDistribution) {
-  logging::debug("Dimension in CSR Matrix generation {}", dimensions);
-  logging::debug("Weighted area {},{} with sparse entry weighting of {}",
-                 weightedAreaBegin, weightedAreaEnd,
-                 weightedAreaSparsityWeight);
-
-  std::vector<T> nzValues;
-  std::vector<std::size_t> columnIndices;
-  std::vector<std::size_t> rowIndices;
-
-  std::size_t capacityEstimate = product(dimensions) * sparsityFactor * 1.25;
-
-  // reserve sufficient data
-  rowIndices.reserve(dimensions[0]);
-  columnIndices.reserve(capacityEstimate);
-  nzValues.reserve(capacityEstimate);
-
-  auto randUniform = boost::random::uniform_real_distribution<float>(0, 1.0);
-  auto randNormal = boost::random::normal_distribution<float>(0, 1.0);
-  auto randBernoulli = boost::random::bernoulli_distribution<float>{};
-
-  double weightedThreshold, remainingThreshold;
-  std::tie(weightedThreshold, remainingThreshold) =
-      calculateWeightedVsRemainingSparsityFactor(
-          dimensions, sparsityFactor, weightedAreaBegin, weightedAreaEnd,
-          weightedAreaSparsityWeight);
-
-  // generating two random numbers takes time and hence if the numbers
-  // are not important for any arithmetic, we use the ones already generated.
-  const bool useNormal = false;
-
-  std::size_t numNzRowElements = 0;
-  rowIndices.push_back(0);
-  // A pool of weight vals to use rather than generating new ones
-  // when !useNormal.
-  std::queue<float> weightVals;
-  for (std::size_t row = 0; row != dimensions[0]; ++row) {
-    for (std::size_t col = 0; col != dimensions[1]; ++col) {
-      const bool inWeightedArea =
-          (row >= weightedAreaBegin.at(0) && row < weightedAreaEnd.at(0) &&
-           col >= weightedAreaBegin.at(1) && col < weightedAreaEnd.at(1));
-      auto u = randUniform(rng);
-      if (!useNormal && !useBipolarValueDistribution) {
-        weightVals.emplace(u);
-      }
-      const auto threshold =
-          inWeightedArea ? weightedThreshold : remainingThreshold;
-      if (u < threshold) {
-        float y;
-        if (useBipolarValueDistribution) {
-          y = randBernoulli(rng) ? 1.0 : -1.0;
-        } else {
-          if (useNormal) {
-            y = randNormal(rng);
-          } else {
-            y = weightVals.front() * 2 - 1;
-            weightVals.pop();
-          }
-        }
-        nzValues.push_back(y);
-        columnIndices.push_back(col);
-        ++numNzRowElements;
-      }
-    }
-    rowIndices.push_back(numNzRowElements);
-  }
-  logging::debug("{} nz values generated", nzValues.size());
-
-  logging::trace("NZ Values {} : {}", nzValues.size(), nzValues);
-  logging::trace("Columns Indices {} : {}", columnIndices.size(),
-                 columnIndices);
-  logging::trace("Row Indices {} : {}", rowIndices.size(), rowIndices);
-
-  return CSRMatrix<T>(nzValues, columnIndices, rowIndices);
-}
-
-// create full matrix from CSR matrix
-boost::multi_array<double, 2> denseMatrixFromSparse(const CSRMatrix<EType> &csr,
-                                                    std::size_t numRows,
-                                                    std::size_t numColumns) {
-  boost::multi_array<double, 2> mat(boost::extents[numRows][numColumns]);
-  assert(csr.rowIndices.size() == numRows + 1);
-  // zero out matrix
-  std::fill(mat.data(), mat.data() + mat.num_elements(), 0);
-  std::size_t i = 0;
-  for (std::size_t row = 0; row != numRows; ++row) {
-    std::size_t numColEntries = csr.rowIndices[row + 1] - csr.rowIndices[row];
-    assert(numColEntries <= numColumns);
-    for (std::size_t col = 0; col != numColEntries; ++col) {
-      assert(csr.columnIndices[i] < numColumns);
-      mat[row][csr.columnIndices[i]] = csr.nzValues[i];
-      ++i;
-    }
-  }
-  return mat;
-}
-
 template <typename T>
 static void logBucketStatistics(std::vector<PNBucket> &buckets,
                                 const CSRMatrix<T> &csrMatrix) {
@@ -242,6 +97,8 @@ static void logBucketStatistics(std::vector<PNBucket> &buckets,
   std::cerr << "\n";
 }
 
+// TODO: Move this to a shared source file with SparsePartitionerTest which
+// does the same exact validation.
 template <typename T>
 void validateBuckets(const PNBucketsImpl<T> &pnBucketsImpl,
                      const CSRMatrix<T> &csrMatrix, std::size_t numRows,
@@ -507,24 +364,16 @@ int main(int argc, char **argv) try {
   }
 
   const bool floatingPointCouldRepresentMaxAccum = [&] {
-    const auto getMaxPreciselyRepresentableIntegerForType =
-        [](const Type &type) {
-          if (type == HALF || type == FLOAT) {
-            // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
-            // https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-            const auto maxContiguousRepresentableInteger =
-                type == HALF ? 2048 : 16777216;
-            return maxContiguousRepresentableInteger;
-          } else {
-            // Integral types represent all integers exactly
-            return std::numeric_limits<int>::max();
-          }
-        };
-    const auto maxVal = getMaxPreciselyRepresentableIntegerForType(dataType);
+    const auto intRange =
+        poplibs_test::util::getPreciselyRepresentableIntegerRange(target,
+                                                                  dataType);
+    assert(intRange.first != 0 && intRange.second != 0);
+    const auto maxVal =
+        std::min(std::abs(intRange.first), std::abs(intRange.second));
 
     double weightedThreshold, remainingThreshold;
     std::tie(weightedThreshold, remainingThreshold) =
-        calculateWeightedVsRemainingSparsityFactor(
+        poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
             {outputSize, inputSize}, sparsityFactor, weightedAreaBegin,
             weightedAreaEnd, weightedAreaWeighting);
     const auto numWeightedInputChannels =
@@ -568,12 +417,15 @@ int main(int argc, char **argv) try {
     }
     return true;
   }();
-  const bool useBipolarDistribution = floatingPointCouldRepresentMaxAccum;
 
   // create CSR matrix for the given sparsity factor
-  auto csrMatrix = buildCSRMatrix<EType>(
-      randomEngine, {outputSize, inputSize}, sparsityFactor, weightedAreaBegin,
-      weightedAreaEnd, weightedAreaWeighting, useBipolarDistribution);
+  const bool useBipolarDistribution = floatingPointCouldRepresentMaxAccum;
+  CSRMatrix<EType> csrMatrix;
+  std::tie(csrMatrix.nzValues, csrMatrix.columnIndices, csrMatrix.rowIndices) =
+      poplibs_test::sparse::buildCSRMatrix<EType, std::size_t>(
+          randomEngine, {outputSize, inputSize}, sparsityFactor,
+          weightedAreaBegin, weightedAreaEnd, weightedAreaWeighting,
+          useBipolarDistribution);
 
   // Forward
   boost::multi_array<double, 2> hostInput(boost::extents[batchSize][inputSize]);
@@ -758,7 +610,10 @@ int main(int argc, char **argv) try {
         boost::extents[outputSize][inputSize]);
     boost::multi_array<double, 2> modelOutputActs(
         boost::extents[batchSize][outputSize]);
-    hostDenseWeights = denseMatrixFromSparse(csrMatrix, outputSize, inputSize);
+    hostDenseWeights = poplibs_test::sparse::csrToDenseMatrix(
+        csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
+        csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), outputSize,
+        inputSize);
     poplibs_test::gemm::generalMatrixMultiply(hostInput, hostDenseWeights,
                                               modelOutputActs, false, true);
     matchesModel &= checkIsClose("outputActs", hostOutputActs, modelOutputActs,

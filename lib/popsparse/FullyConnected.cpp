@@ -4,7 +4,10 @@
 #include "FullyConnectedOnTile.hpp"
 #include "FullyConnectedOptions.hpp"
 #include "FullyConnectedPlan.hpp"
+#include "FullyConnectedTensorMetaData.hpp"
 #include "FullyConnectedUtils.hpp"
+#include "PlanningCacheImpl.hpp"
+#include "TensorMetaDataBase.hpp"
 
 // FIXME: poplin internal includes
 #include "ConvOptions.hpp"
@@ -16,6 +19,7 @@
 #include <popops/Pad.hpp>
 #include <popops/Reduce.hpp>
 
+#include "poputil/TensorMetaData.hpp"
 #include <poplin/MatMul.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
@@ -1694,8 +1698,16 @@ SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
   const auto overflowInfo = graph.addVariable(
       UNSIGNED_SHORT, {overflowInfoElems}, debugName + "/overflowInfo");
   graph.setTileMapping(overflowInfo, 0);
-  return packWeights(weightBuckets, getTotalMetaInfoElemsPerBuckets(plan),
-                     plan.nzElemsPerBucket, overflowInfo);
+
+  const auto packed =
+      packWeights(weightBuckets, getTotalMetaInfoElemsPerBuckets(plan),
+                  plan.nzElemsPerBucket, overflowInfo);
+
+  // Attach meta-data to the sparse tensor.
+  std::unique_ptr<TensorMetaDataBase> opMetaData =
+      std::make_unique<FullyConnectedTensorMetaData>(params, options);
+  return SparseTensor(packed.getMetaInfoTensor(), packed.getNzValuesTensor(),
+                      std::move(opMetaData));
 }
 
 Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
@@ -1731,17 +1743,44 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
   return inputInternalToExternalShape(input, params.getNumGroups());
 }
 
+static void validateSparseOperandMetaData(const SparseTensor &weights,
+                                          const FullyConnectedParams &params,
+                                          const Options &options) {
+  const auto opMetaData = weights.getOpMetaData();
+
+  // For FullyConnected interface, this validation is optional dependent on
+  // whether or not the meta-data was given.
+  // TODO: Make this mandatory
+  if (opMetaData.getData() == nullptr) {
+    return;
+  }
+
+  const auto *fcMetaData =
+      dynamic_cast<const FullyConnectedTensorMetaData *>(opMetaData.getData());
+  if (!fcMetaData) {
+    throw poplibs_error(
+        "Op meta-data is present on sparse tensor but tensor was "
+        " not created through createFullyConnectedWeights");
+  }
+
+  if (fcMetaData->planningKey != PlanningCacheImpl::Key(params, options)) {
+    throw poplibs_error(
+        "Given sparse tensor was not created for this operation");
+  }
+}
+
 Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                          const Tensor &activations,
                          const FullyConnectedParams &params, Sequence &prog,
                          const std::string &debugPrefix,
                          const OptionFlags &optionFlags, PlanningCache *cache) {
-  logging::debug("popsparse::fullyConnectedFwd: '{}' params={}", debugPrefix,
-                 params);
   // TODO: Parameter validation - shapes/sizes match given params etc.
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
+  logging::debug("popsparse::fullyConnectedFwd: '{}' params={}, options={}",
+                 debugPrefix, params, options);
+  validateSparseOperandMetaData(weights, params, options);
   Plan plan;
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
@@ -1787,11 +1826,12 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
                            const std::string &debugPrefix,
                            const OptionFlags &optionFlags,
                            PlanningCache *cache) {
-  logging::debug("popsparse::fullyConnectedGradA: '{}' params={}", debugPrefix,
-                 params);
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
+  logging::debug("popsparse::fullyConnectedGradA: '{}' params={}, options={}",
+                 debugPrefix, params, options);
+  validateSparseOperandMetaData(weights, params, options);
   Plan plan;
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
@@ -1855,12 +1895,15 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
                                  Sequence &prog, const std::string &debugPrefix,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
-  logging::debug("popsparse::fullyConnectedSparseGradW: '{}' params={}",
-                 debugPrefix, params);
+  // TODO: Should this take meta-data for sparse tensor for validation?
+  // Validation is the only purpose this serves right now.
 
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
+  logging::debug(
+      "popsparse::fullyConnectedSparseGradW: '{}' params={}, options={}",
+      debugPrefix, params, options);
   Plan plan;
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);

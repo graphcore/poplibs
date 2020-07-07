@@ -8032,6 +8032,37 @@ if(TARGET popsparse)
             VARIANTS ${TimesOutOnSim})
         endif()
       endforeach()
+
+      # Just a couple of tests to hit combinations of transpose. These are sparse fully connected
+      # layers in implementation which should hit majority of test coverage required.
+      foreach(TRANSPOSE_LHS 0 1)
+        foreach(TRANSPOSE_RHS 0 1)
+          add_multitarget_test(
+            NAME sparse_matmul_${DATA_TYPE}_float_lhsT${TRANSPOSE_LHS}_rhsT${TRANSPOSE_RHS}_1024m_1024k_4n_0.1sl_sb_${SHARED_BUCKETS}
+            COMMAND sparse_matmul
+              --data-type=${DATA_TYPE}
+              --m=1024
+              --k=1024
+              --n=4
+              --tiles-per-ipu=24
+              --sparsity-factor=0.1
+              --transpose-lhs=${TRANSPOSE_LHS}
+              --transpose-rhs=${TRANSPOSE_RHS}
+              --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"})
+          add_multitarget_test(
+            NAME sparse_matmul_${DATA_TYPE}_float_lhsT${TRANSPOSE_LHS}_rhsT${TRANSPOSE_RHS}_1024m_256k_16n_0.1sl_sb_${SHARED_BUCKETS}
+            COMMAND sparse_matmul
+              --data-type=${DATA_TYPE}
+              --m=1024
+              --k=256
+              --n=16
+              --tiles-per-ipu=24
+              --sparsity-factor=0.1
+              --transpose-lhs=${TRANSPOSE_LHS}
+              --transpose-rhs=${TRANSPOSE_RHS}
+              --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"})
+        endforeach()
+      endforeach()
     endforeach()
   endforeach()
 
@@ -8039,8 +8070,7 @@ if(TARGET popsparse)
   add_multitarget_test(
     NAME sparse_fc_layer_all_half_1024in_1024out_4b_0.1sl_sb_true_exc_0.005
           COMMAND sparse_fc_layer
-            --data-type=half
-            --input-size=1024
+            --data-type=half --input-size=1024
             --output-size=1080
             --batch-size=4
             --sparsity-factor=0.1

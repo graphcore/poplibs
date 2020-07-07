@@ -66,14 +66,16 @@ public:
   std::size_t getOutputChannelsPerGroup() const {
     return outputChannelsPerGroup;
   }
-  struct SparsityParams getSparsityParams() const {
-    return sparsityParams;
-  }
+  const SparsityParams &getSparsityParams() const { return sparsityParams; }
   double getNzRatio() const;
   std::size_t getNumNonZeroValues() const;
 
   friend bool operator<(const FullyConnectedParams &a,
                         const FullyConnectedParams &b);
+  friend bool operator==(const FullyConnectedParams &a,
+                         const FullyConnectedParams &b);
+  friend bool operator!=(const FullyConnectedParams &a,
+                         const FullyConnectedParams &b);
 };
 
 std::ostream &operator<<(std::ostream &os, const FullyConnectedParams &p);
