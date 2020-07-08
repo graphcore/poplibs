@@ -1,5 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -27,8 +27,7 @@
 using namespace poplar;
 using namespace poplibs_test::util;
 using namespace poplar::program;
-
-namespace logging = poplibs_support::logging;
+using namespace poplibs_support;
 
 // Default tolerances used in tests
 constexpr double FLOAT_REL_TOL = 0.01;

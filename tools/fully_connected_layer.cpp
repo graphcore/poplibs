@@ -1,5 +1,4 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include "popops/Cast.hpp"
 #include "poputil/exceptions.hpp"
 #include <algorithm>
@@ -17,6 +16,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/FullyConnected.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Pass.hpp>
@@ -37,6 +37,7 @@ using namespace poplibs_test::util;
 using namespace poplin;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions;

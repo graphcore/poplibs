@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE CollectiveControlCode
 #include <iostream>
 #include <math.h>
 #include <poplar/DeviceManager.hpp>

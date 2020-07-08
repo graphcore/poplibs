@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE ConvPartial1x4SLIC
 #include "CreateConvPartialVertex.hpp"
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <assert.h>
 #include <boost/multi_array.hpp>

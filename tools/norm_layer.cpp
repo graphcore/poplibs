@@ -1,11 +1,11 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <cassert>
 #include <functional>
 #include <iostream>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/Norms.hpp>
 #include <poplibs_test/Util.hpp>
@@ -34,6 +34,7 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popnn;
 using namespace popops;
+using namespace poplibs_support;
 
 const OptionFlags engineOptions;
 

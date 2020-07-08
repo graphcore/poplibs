@@ -1,10 +1,10 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ConvTest
 #include "ConvUtilInternal.hpp"
-#include "TestDevice.hpp"
 #include "poputil/TileMapping.hpp"
 #include <boost/random.hpp>
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/Util.hpp>
@@ -15,6 +15,7 @@
 using namespace poplar;
 using namespace poplin;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(MappingSplitOutChansSerially) {
   constexpr std::size_t numTiles = 16;

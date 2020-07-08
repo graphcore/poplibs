@@ -1,11 +1,12 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE NonLinearitySweepTest
 // Test for the Non-Linearity Forward Operations
 // Used to verify the accuracy of Non-Linearity forward processing functions
 // over the full Half-Precision range.
 
-#include <TestDevice.hpp>
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
 #include "poputil/VertexTemplates.hpp"
@@ -30,6 +31,7 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 using namespace popnn;
+using namespace poplibs_support;
 
 const poplar::OptionFlags options{{"debug.executionProfile", "compute_sets"}};
 

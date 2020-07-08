@@ -1,6 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE DynamicSliceTest
-#include "TestDevice.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/test/framework.hpp>
 #include <boost/test/unit_test.hpp>
@@ -10,6 +9,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Interval.hpp>
 #include <poplar/Program.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/print.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/codelets.hpp>
@@ -22,6 +22,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 using poplibs_support::toString;
 

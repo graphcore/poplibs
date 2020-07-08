@@ -3,13 +3,13 @@
 #include <boost/test/unit_test.hpp>
 
 #include "../popnn/NonLinearityInternal.hpp"
-#include "TestDevice.hpp"
 #include "poplar/Engine.hpp"
 #include "poplar/IPUModel.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popnn/Loss.hpp"
 #include "popnn/NonLinearityDef.hpp"
 #include "popops/EncodingConstants.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 // codelets
 #include "popnn/codelets.hpp"
@@ -27,6 +27,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace popnn;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 namespace {
 

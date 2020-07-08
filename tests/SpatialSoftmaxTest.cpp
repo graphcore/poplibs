@@ -1,9 +1,10 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE SpatialSoftmaxTest
 
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplar/Engine.hpp>
 #include <poplar/OptionFlags.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/SpatialSoftMax.hpp>
 #include <popnn/codelets.hpp>
@@ -11,6 +12,7 @@
 #include <poputil/TileMapping.hpp>
 
 #include <vector>
+using namespace poplibs_support;
 
 const poplar::OptionFlags options;
 

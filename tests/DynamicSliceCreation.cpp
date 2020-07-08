@@ -1,10 +1,10 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE DynamicSliceCreation
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <cassert>
 #include <iostream>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -12,6 +12,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_support;
 
 int testDim(unsigned sliceDim) {
   auto device = createTestDeviceFullSize(TEST_TARGET);
@@ -78,16 +79,16 @@ int testDim(unsigned sliceDim) {
 }
 
 BOOST_AUTO_TEST_CASE(Dim0,
-                     *boost::unit_test::enable_if<isIpuModel(TEST_TARGET)>()) {
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
   testDim(0);
 }
 
 BOOST_AUTO_TEST_CASE(Dim1,
-                     *boost::unit_test::enable_if<isIpuModel(TEST_TARGET)>()) {
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
   testDim(1);
 }
 
 BOOST_AUTO_TEST_CASE(Dim2,
-                     *boost::unit_test::enable_if<isIpuModel(TEST_TARGET)>()) {
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
   testDim(2);
 }

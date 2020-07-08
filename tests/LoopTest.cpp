@@ -1,18 +1,19 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE LoopTests
 #include "poputil/Loop.hpp"
-#include "TestDevice.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace popops;
+using namespace poplibs_support;
 
 static std::size_t loopTest(std::size_t begin, std::size_t end,
                             std::size_t step) {

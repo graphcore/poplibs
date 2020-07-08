@@ -1,8 +1,8 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE GraphFunctionTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/GraphFunction.hpp>
@@ -11,6 +11,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;

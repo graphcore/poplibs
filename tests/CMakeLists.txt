@@ -21,7 +21,7 @@ function(add_multi_target_test_executable name)
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name}
-    popfloat poprand popnn poputil poplar poplibs_test
+    popfloat poprand popnn poputil poplar poplibs_support poplibs_test
     Boost::program_options ${CMAKE_THREAD_LIBS_INIT})
   if(TARGET popsparse)
     target_link_libraries(${name} popsparse)
@@ -56,13 +56,12 @@ endfunction()
 
 function(add_test_executable name)
   add_executable(${name} ${ARGN})
-  if (NOT TEST_TARGET STREQUAL "NoTarget")
-    if (${TEST_TARGET} MATCHES "^Hw")
-      set(TEST_TARGET "Hw")
-    endif()
+  if (DEFINED TEST_REQUIRES_TEST_TARGET)
     set_property(TARGET ${name}
-                 APPEND_STRING PROPERTY
-                 COMPILE_FLAGS "-DTEST_TARGET=DeviceType::${TEST_TARGET}")
+                 APPEND_STRING PROPERTY COMPILE_FLAGS "-DTEST_WITH_TARGET")
+  else()
+    set_property(TARGET ${name}
+                 APPEND_STRING PROPERTY COMPILE_FLAGS "-DTEST_WITHOUT_TARGET")
   endif()
   target_compile_options(${name} PRIVATE -Wno-deprecated-declarations)
   target_include_directories(${name}
@@ -72,7 +71,7 @@ function(add_test_executable name)
       $<TARGET_PROPERTY:popnn,INCLUDE_DIRECTORIES>
       $<TARGET_PROPERTY:poplin,INCLUDE_DIRECTORIES>)
   target_link_libraries(${name} popfloat poprand popnn poputil
-    poplar poplibs_test Boost::unit_test_framework
+    poplibs_support poplibs_test poplar Boost::unit_test_framework
     Boost::timer Boost::system Boost::program_options
     ${CMAKE_THREAD_LIBS_INIT})
   if(TARGET popsparse)
@@ -159,6 +158,11 @@ endfunction()
 function(add_unit_test name)
   cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES;LABELS" "FILES;${ARGN}")
   sanitise_variants(add_unit_test_VARIANTS)
+  if (NOT add_unit_test_VARIANTS)
+    # When all variants are disabled don't even generate the test exe as
+    # we don't know whether it needs a target
+    return()
+  endif()
   set(FILES "${add_unit_test_FILES}")
   extract_targets(add_unit_test_VARIANTS TARGETS)
 
@@ -166,11 +170,11 @@ function(add_unit_test name)
     message(STATUS
             "Adding test '${name}' with variants: ${add_unit_test_VARIANTS}")
   endif()
+  if (NOT TARGETS STREQUAL "NoTarget")
+    set(TEST_REQUIRES_TEST_TARGET TRUE)
+  endif()
+  add_test_executable(${name} ${FILES})
 
-  foreach(TEST_TARGET ${TARGETS})
-    set(executable_name "${TEST_TARGET}_${name}")
-    add_test_executable(${executable_name} ${FILES})
-  endforeach()
 
   foreach(VARIANT ${add_unit_test_VARIANTS})
     extract_target(VARIANT TEST_TARGET)
@@ -187,7 +191,6 @@ function(add_unit_test name)
 
     macro(add_unit_test_impl)
       set(test_name "${TEST_TARGET}_${TEST_CONFIG}_${name}")
-      set(executable_name "${TEST_TARGET}_${name}")
 
       set(test_suite "")
       if (SUITE)
@@ -195,9 +198,15 @@ function(add_unit_test name)
         string(APPEND test_suite "--run_test=${SUITE}/*")
       endif()
 
+      if (TEST_TARET STREQUAL "NoTarget")
       add_test(NAME "${test_name}"
-        COMMAND ${executable_name} ${test_suite}
+        COMMAND ${name} ${test_suite}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+      else()
+        add_test(NAME "${test_name}"
+          COMMAND ${name} ${test_suite} -- --device-type ${TEST_TARGET}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+      endif()
       if (add_unit_test_LABELS)
         set_tests_properties(${test_name}
             PROPERTIES LABELS "${add_unit_test_LABELS}")

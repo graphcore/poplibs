@@ -1,5 +1,5 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE RedcutionTests
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <cassert>
@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
@@ -22,6 +23,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 using namespace poplibs_test::util;
 
 const OptionFlags options;

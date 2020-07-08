@@ -2,15 +2,16 @@
 
 #define BOOST_TEST_MODULE ExprName
 #include <../lib/popops/ExpressionGenerator.hpp>
-#include <TestDevice.hpp>
 #include <boost/test/unit_test.hpp>
 #include <limits>
 #include <poplar/TypeTraits.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Expr.hpp>
 
 using namespace poplar;
 using namespace popops::expr;
 using namespace popops;
+using namespace poplibs_support;
 
 static void checkNames(const Expr &A, const Expr &B, const bool match = false,
                        const bool inPlace = false) {

@@ -1,8 +1,9 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE CastTest
 // Test for the Cast vertex
 //
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
 #include "poputil/VertexTemplates.hpp"
@@ -17,6 +18,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 //*************************************************
 // Test function for Cast

@@ -1,8 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE TileMappingTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
@@ -15,6 +15,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 namespace {
 

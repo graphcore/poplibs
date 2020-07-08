@@ -1,14 +1,15 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ReductionPatternsTest
-#include "TestDevice.hpp"
 #include "popops/reduction/ReductionStages.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 #include <iostream>
 
 using namespace poplar;
 using namespace popops;
+using namespace poplibs_support;
 
 void printResult(const std::vector<PartialsDescription> &partialsDescription) {
   for (auto &par : partialsDescription) {

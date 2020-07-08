@@ -12,12 +12,12 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
-#include "TestDevice.hpp"
 #define BOOST_TEST_MODULE ReplicatedAllToAll
-#include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_support;
 namespace pe = popops::expr;
 
 void RunAllToAll() {

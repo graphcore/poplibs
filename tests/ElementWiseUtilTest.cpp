@@ -8,7 +8,7 @@
 
 #include <poplar/Engine.hpp>
 
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;

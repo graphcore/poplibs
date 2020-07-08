@@ -1,23 +1,26 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE SelectScalarFromRowsTest
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <cmath>
 
 #include <boost/test/unit_test.hpp>
 
-#include "ScalarInFromRowsCommon.hpp"
 #include "popops/EncodingConstants.hpp"
 #include <poplar/Engine.hpp>
+#include <poplar/Tensor.hpp>
 #include <popops/SelectScalarFromRows.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
+#include "ScalarInFromRowsCommon.hpp"
+
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 template <std::size_t N>
 void findReferenceResult(std::vector<float> &in,

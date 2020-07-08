@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE GatherTest
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <boost/test/unit_test.hpp>
 
@@ -14,6 +14,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 template <typename T>
 std::vector<T>

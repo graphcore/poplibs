@@ -1,6 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE PoolingCodeletTest
 #include "CreatePoolingVertex.hpp"
-#include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -17,6 +17,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Pooling.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/NonLinearity.hpp>

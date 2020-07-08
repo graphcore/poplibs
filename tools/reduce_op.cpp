@@ -6,10 +6,10 @@
 #include <fstream>
 #include <random>
 
-#include "TestDevice.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Reduce.hpp>

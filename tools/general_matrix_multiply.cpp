@@ -1,5 +1,4 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -15,6 +14,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/MatMul.hpp>
@@ -32,6 +32,7 @@ using namespace poplibs_test::util;
 using namespace poplin;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL 0.01

@@ -1,11 +1,13 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE MeshGridTest
 
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplin/MeshGrid.hpp>
 
 #include <vector>
+using namespace poplibs_support;
 
 struct TestCase {
   poplar::Type type;

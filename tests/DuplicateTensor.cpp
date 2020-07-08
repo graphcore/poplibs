@@ -1,15 +1,16 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE DuplicateTensorTest
 
-#include "TestDevice.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 static void TestFunc(poplar::TensorCloneMethod cloneMethod) {
   const auto numIpus = 1;

@@ -1,14 +1,15 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ConvUtilTest
 #include "ConvUtilInternal.hpp"
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplin/ConvUtil.hpp>
 #include <poplin/Convolution.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
 
 using namespace poplar;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(getInputRangeFlipActsAndWeights) {
   poplin::ConvParams params{

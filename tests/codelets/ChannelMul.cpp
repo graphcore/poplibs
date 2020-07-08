@@ -2,13 +2,12 @@
 #define BOOST_TEST_MODULE ChannelMul
 
 #include "../lib/popops/ExprOpUtil.hpp"
-#include "TestDevice.hpp"
 #include <boost/multi_array.hpp>
-#include <boost/test/unit_test.hpp>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -24,6 +23,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 const OptionFlags options;
 
@@ -185,7 +185,7 @@ BOOST_AUTO_TEST_CASE(ChannelMulTiny) {
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMulSmall,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, 1, 480},   {HALF, 4, 480},  {HALF, 8, 480},  {HALF, 12, 480},
       {HALF, 16, 480},  {HALF, 1, 15},   {HALF, 4, 12},   {HALF, 8, 40},
@@ -199,7 +199,7 @@ BOOST_AUTO_TEST_CASE(ChannelMulSmall,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMulLarge1_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, 1, 8000},
   };
@@ -207,7 +207,7 @@ BOOST_AUTO_TEST_CASE(ChannelMulLarge1_half,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMulLarge8_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, 8, 8000},
   };
@@ -215,7 +215,7 @@ BOOST_AUTO_TEST_CASE(ChannelMulLarge8_half,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMulLarge1_float,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {FLOAT, 1, 8000},
   };
@@ -223,7 +223,7 @@ BOOST_AUTO_TEST_CASE(ChannelMulLarge1_float,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMulLarge8_float,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {FLOAT, 8, 8000},
   };
@@ -232,7 +232,7 @@ BOOST_AUTO_TEST_CASE(ChannelMulLarge8_float,
 
 // Above an addend length over 2044, we switch to scalar code. Check that works.
 BOOST_AUTO_TEST_CASE(ChannelMul_MaxChannels_MultipleOfFour_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   for (std::size_t scaleLen = 2040; scaleLen <= 2052; scaleLen += 4) {
     std::vector<TestCase> cases = {
         {HALF, scaleLen, scaleLen * 4},

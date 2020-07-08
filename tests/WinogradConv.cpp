@@ -1,9 +1,11 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE FullyConnectedTest
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
+
 #include <Winograd.hpp>
 #include <boost/random.hpp>
 #include <boost/test/unit_test.hpp>
+#include <poplar/Engine.hpp>
 #include <poplin/Convolution.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -14,6 +16,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 const OptionFlags engineOptions;
 

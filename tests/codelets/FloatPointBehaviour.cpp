@@ -1,8 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include <poplar/Engine.hpp>
 #define BOOST_TEST_MODULE FloatPointBehaviour
-#include "TestDevice.hpp"
-#include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 #include "poplar/CSRFunctions.hpp"
 #include "popops/ElementWise.hpp"
@@ -10,6 +9,7 @@
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(FloarPointBehaviourCheckExceptsFloat) {
   auto device = createTestDevice(TEST_TARGET);

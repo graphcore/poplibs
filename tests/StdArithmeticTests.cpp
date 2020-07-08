@@ -1,7 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE StdArithmeticTests
 
-#include "TestDevice.hpp"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ElementWise.hpp"
 #include <boost/multi_array.hpp>
@@ -12,6 +11,7 @@
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/codelets.hpp>
@@ -21,6 +21,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;

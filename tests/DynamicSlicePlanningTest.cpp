@@ -1,11 +1,11 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE DynamicSliceTest
-#include "TestDevice.hpp"
 #include <boost/test/framework.hpp>
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <numeric>
 #include <poplar/Type.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/DynamicSliceInternal.hpp>
 #include <sstream>
@@ -13,6 +13,7 @@
 
 using namespace poplar;
 using namespace popops;
+using namespace poplibs_support;
 
 void checkPlanner(Type dType, unsigned numEntries, unsigned embeddingSize,
                   const std::vector<std::size_t> numLookups,

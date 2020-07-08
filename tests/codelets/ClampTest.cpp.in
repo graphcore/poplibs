@@ -1,7 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd, All rights reserved.
 // Test for the clamp vertex
 //
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Zero.hpp>
@@ -20,12 +19,13 @@
 #define CLAMP_TEST_DATA_TYPE @DATA_TYPE_UPPER@
 #define CLAMP_TEST_TYPE @FUNC_TYPE_UPPER@
 // clang-format on
-#include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 // Input array sizes
 #define ROWS 2u

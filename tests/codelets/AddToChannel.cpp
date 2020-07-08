@@ -2,13 +2,12 @@
 #define BOOST_TEST_MODULE AddToChannel
 
 #include "../lib/popops/ExprOpUtil.hpp"
-#include "TestDevice.hpp"
 #include <boost/multi_array.hpp>
-#include <boost/test/unit_test.hpp>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -24,6 +23,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 const OptionFlags options;
 
@@ -194,7 +194,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelTiny) {
 }
 
 BOOST_AUTO_TEST_CASE(AddToChannelSmall,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, 1, 480, 3.0f},   {HALF, 4, 480, 3.0f},   {HALF, 8, 480, 3.0f},
       {HALF, 12, 480, 3.0f},  {HALF, 16, 480, 3.0f},  {HALF, 1, 15, 3.0f},
@@ -217,7 +217,7 @@ std::size_t maxBlockCount() {
 }
 
 BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, 1, maxBlockCount(), 3.0f},
   };
@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half,
 }
 
 BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, 8, 8000, 3.0f},
   };
@@ -233,7 +233,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half,
 }
 
 BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {FLOAT, 1, maxBlockCount(), 3.0f},
   };
@@ -241,7 +241,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float,
 }
 
 BOOST_AUTO_TEST_CASE(AddToChannelLarge8_float,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {FLOAT, 8, 8000, 3.0f},
   };
@@ -250,7 +250,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge8_float,
 
 // Above an addend length over 2048, we switch to scalar code. Check that works.
 BOOST_AUTO_TEST_CASE(AddToChannel_MaxChannels_MultipleOfFour_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   for (std::size_t addendLen = 2044; addendLen <= 2056; addendLen += 4) {
     std::vector<TestCase> cases = {
         {HALF, addendLen, addendLen * 4, 3.0f},

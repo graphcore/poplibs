@@ -7,11 +7,12 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;

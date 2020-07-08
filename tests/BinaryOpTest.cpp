@@ -1,10 +1,11 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE BinaryOpTest
 //
 // Perform a binary operation between two tensors with any desired shape, each
 // mapped in any desired way among tiles.
 
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
 #include "poputil/VertexTemplates.hpp"
@@ -29,6 +30,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
+using namespace poplibs_support;
 
 const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 

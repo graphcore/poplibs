@@ -1,5 +1,4 @@
-// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+// Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <boost/multi_array.hpp>
@@ -17,6 +16,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/SparseMatrix.hpp>
@@ -245,10 +245,10 @@ int main(int argc, char **argv) try {
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
      "Options to use for the matrix multiplication, specified as a JSON "
      "string, e.g. {\"key\":\"value\"}")
-    ("report-dense-gradw-serial-splits", 
+    ("report-dense-gradw-serial-splits",
       po::value<bool>(&denseGradWSerialSplits)->
         default_value(denseGradWSerialSplits),
-     "Report dense GradW splits when GradW pass is enabled")     
+     "Report dense GradW splits when GradW pass is enabled")
   ;
   // clang-format on
   po::variables_map vm;

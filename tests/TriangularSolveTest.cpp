@@ -1,6 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE TriangularSolveTest
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <iostream>
 
@@ -20,6 +20,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplin;
+using namespace poplibs_support;
 namespace bu = boost::unit_test;
 namespace bud = boost::unit_test::data;
 

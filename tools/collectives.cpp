@@ -1,5 +1,4 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include <boost/program_options.hpp>
 #include <cassert>
 #include <cstdint>
@@ -8,6 +7,7 @@
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/Program.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/Collectives.hpp>
 #include <popops/ElementWise.hpp>
@@ -25,6 +25,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 namespace po = boost::program_options;
 
 namespace {

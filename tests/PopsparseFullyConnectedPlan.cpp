@@ -1,5 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #define BOOST_TEST_MODULE PopsparseFullyConnectedPlan
 #include <boost/test/unit_test.hpp>
@@ -18,6 +18,7 @@ using namespace poplar;
 using namespace popsparse;
 using namespace popsparse::dynamic;
 using namespace popsparse::fullyconnected;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(getAPlan) {
   auto device = createTestDevice(TEST_TARGET, 1, 64);

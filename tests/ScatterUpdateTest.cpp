@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ScatterTest
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <iostream>
 
@@ -17,6 +17,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 template <typename T, std::size_t N1, std::size_t N2, std::size_t N3>
 std::array<T, N1> deviceScatter(

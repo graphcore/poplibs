@@ -1,4 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE StdOpTest
 // Test for the elementwise vertex operations.
 // Used to verify aspects of implementation that
 // aren't simply to correctness of arithmetic on a single item. Also
@@ -6,8 +7,8 @@
 // Eg - different length vectors for Supervisor vertices or other
 // vectorised implementations, where data quantity is important.
 //
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
 #include "poputil/VertexTemplates.hpp"
@@ -28,6 +29,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
+using namespace poplibs_support;
 
 poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 

@@ -1,7 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 // Test for the transpose2d vertex
 //
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
 #include <popops/Zero.hpp>
 
@@ -14,7 +13,7 @@
 #include <poputil/TileMapping.hpp>
 
 #define BOOST_TEST_MODULE TransposeTest
-#include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -22,6 +21,7 @@ using namespace popops::rearrange;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace poplin;
+using namespace poplibs_support;
 
 // Define a number of tests to run:
 struct TestParams {

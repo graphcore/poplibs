@@ -1,10 +1,10 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE StdOperatorTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/CircBuf.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -14,6 +14,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
+using namespace poplibs_support;
 
 const OptionFlags options;
 

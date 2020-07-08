@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE SparseDenseMatMulElementWise
+#include <poplibs_support/TestDevice.hpp>
 
 // Default tolerances used in tests
 #define FLOAT_REL_TOL 0.01

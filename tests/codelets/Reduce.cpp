@@ -1,7 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE Reduce
 #include <poplar/Engine.hpp>
 
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 // codelets
 #include "../../lib/popops/reduction/ReductionVertex.hpp"
 #include "poplibs_test/Util.hpp"
@@ -23,6 +24,7 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 static bool do_test(const DeviceType &deviceType, const Type &inType,
                     const Type &outType, unsigned outerDim,

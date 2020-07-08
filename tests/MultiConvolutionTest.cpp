@@ -3,17 +3,18 @@
 #define BOOST_TEST_MODULE MultiConvolution
 #include <boost/test/unit_test.hpp>
 
-#include "TestDevice.hpp"
 #include "poplin/MultiConvolution.hpp"
 #include "poplin/codelets.hpp"
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/codelets.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplin;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(DifferentDataTypes) {
   ConvParams convA(HALF, 4, {8, 8}, {4, 4}, 1, 1, 10);

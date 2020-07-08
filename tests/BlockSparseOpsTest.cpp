@@ -1,10 +1,10 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #define BOOST_TEST_MODULE BlockSparseOpsTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
@@ -27,6 +27,7 @@ using namespace poplar::program;
 using namespace popsparse::experimental;
 using namespace poputil;
 using namespace popnn;
+using namespace poplibs_support;
 
 unsigned computeNz(unsigned blockRows, unsigned blockCols,
                    const unsigned char *sparsity,

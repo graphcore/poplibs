@@ -2,13 +2,12 @@
 #define BOOST_TEST_MODULE ChannelMul2d
 
 #include "../lib/popops/ExprOpUtil.hpp"
-#include "TestDevice.hpp"
 #include <boost/multi_array.hpp>
-#include <boost/test/unit_test.hpp>
 #include <functional>
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -24,6 +23,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 const OptionFlags options;
 
@@ -237,7 +237,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DTiny) {
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMul2DSmall,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}},
       {HALF, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}},
@@ -253,7 +253,7 @@ std::size_t maxBlockCount() {
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, {1, 1}, {maxBlockCount(), 80}},
   };
@@ -261,7 +261,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_half,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge8_half,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {HALF, {8, 8}, {8000, 80}},
   };
@@ -269,7 +269,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DLarge8_half,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_float,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {FLOAT, {1, 1}, {maxBlockCount(), 80}},
   };
@@ -277,7 +277,7 @@ BOOST_AUTO_TEST_CASE(ChannelMul2DLarge1_float,
 }
 
 BOOST_AUTO_TEST_CASE(ChannelMul2DLarge8_float,
-                     *boost::unit_test::enable_if<isNotSim>()) {
+                     *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
       {FLOAT, {8, 8}, {8000, 80}},
   };

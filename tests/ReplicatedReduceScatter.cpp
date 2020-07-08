@@ -9,12 +9,12 @@
 #include <poputil/Util.hpp>
 #include <poputil/exceptions.hpp>
 
-#include "TestDevice.hpp"
 #define BOOST_TEST_MODULE ReplicatedReduceScatter
-#include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(ReduceScatterOneIPUPerReplica) {
   const unsigned numIpus = 8;

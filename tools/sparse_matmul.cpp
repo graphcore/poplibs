@@ -1,5 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#include "poplibs_support/TestDevice.hpp"
 
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
@@ -32,6 +32,7 @@ using namespace poplar;
 using namespace poplar::program;
 
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 using namespace popsparse;
 using namespace popsparse::dynamic;

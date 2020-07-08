@@ -2,7 +2,6 @@
 #define BOOST_TEST_MODULE NaNTest
 
 #include "popops/NaN.hpp"
-#include "TestDevice.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/codelets.hpp"
@@ -10,11 +9,13 @@
 #include <boost/multi_array.hpp>
 #include <boost/random.hpp>
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <random>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 static constexpr std::size_t D0 = 6;
 static constexpr std::size_t D1 = 5;

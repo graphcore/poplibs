@@ -2,7 +2,6 @@
 #define BOOST_TEST_MODULE EncodingTests
 
 #include "popops/Encoding.hpp"
-#include "TestDevice.hpp"
 #include "poplar/IPUModel.hpp"
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
@@ -13,6 +12,7 @@
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <limits>
+#include <poplibs_support/TestDevice.hpp>
 #include <random>
 #include <type_traits>
 
@@ -20,6 +20,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace popops;
+using namespace poplibs_support;
 
 static inline std::vector<std::uint64_t>
 getRandomIndices(std::size_t numIndices, std::size_t length,

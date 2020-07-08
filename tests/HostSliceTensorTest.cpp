@@ -1,13 +1,13 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
-#include <poplar/Graph.hpp>
-#include <popops/HostSliceTensor.hpp>
 #define BOOST_TEST_MODULE HostSliceTensor
-#include <boost/test/unit_test.hpp>
 #include <iostream>
+#include <poplar/Graph.hpp>
+#include <poplibs_support/TestDevice.hpp>
+#include <popops/HostSliceTensor.hpp>
 
 using namespace poplar;
 using namespace popops;
+using namespace poplibs_support;
 
 static unsigned getNumTiles(const std::vector<std::vector<Interval>> &ans,
                             const bool print = false /*for debugging*/) {

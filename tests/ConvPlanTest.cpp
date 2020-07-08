@@ -2,17 +2,17 @@
 #define BOOST_TEST_MODULE ConvPlanTest
 #include "ConvPlan.hpp"
 #include "ConvOptions.hpp"
-#include "TestDevice.hpp"
 #include "poplin/CanonicalConvParams.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popnn/codelets.hpp>
 #include <vector>
 
-const auto testIpuName = deviceTypeToIPUName(TEST_TARGET);
+using namespace poplibs_support;
 
 static auto params = poplin::ConvParams{poplar::FLOAT, // Data type
                                         2,             // batch size
@@ -39,8 +39,9 @@ BOOST_AUTO_TEST_CASE(getPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(getCachedPlans) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, testIpuName));
-  auto &target = graph.getTarget();
+  auto device = createTestDeviceFullSize(TEST_TARGET, 2);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
 
   poplin::PlanningCache cache;
 
@@ -49,8 +50,9 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
 }
 
 BOOST_AUTO_TEST_CASE(StartTileIsPassOblivious) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, testIpuName));
-  auto &target = graph.getTarget();
+  auto device = createTestDeviceFullSize(TEST_TARGET, 2);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
 
   poplin::PlanningCache cache;
 
@@ -108,8 +110,9 @@ BOOST_AUTO_TEST_CASE(StartTileIsPassOblivious) {
 
 // Test some simple aspects of plan constraining that we currently support
 BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDeviceFullSize(TEST_TARGET);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
 
   poplin::PlanningCache cache;
 
@@ -138,8 +141,9 @@ BOOST_AUTO_TEST_CASE(PartiallyConstrainPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDeviceFullSize(TEST_TARGET);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
 
   poplin::PlanningCache cache;
 
@@ -203,8 +207,9 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidConstraints) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDeviceFullSize(TEST_TARGET);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
 
   poplin::PlanningCache cache;
 
@@ -291,8 +296,9 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 4, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -324,8 +330,9 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct1) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(4, 1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 4, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -357,8 +364,9 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct2) {
 }
 
 BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 2, 2);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -391,8 +399,9 @@ BOOST_AUTO_TEST_CASE(ValidOuterProduct3) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -450,160 +459,10 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
                     poputil::poplibs_error);
 }
 
-BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_2InputChannels) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
-  poplin::PlanningCache cache;
-
-  using namespace boost::property_tree;
-  std::stringstream ss;
-  ss << R"delim(
-    {
-      "0": {
-        "transform": {
-          "combineConvGroupsFactor": [2, 4, 8, 16]
-        }
-      }
-    }
-  )delim";
-  ptree t;
-  json_parser::read_json(ss, t);
-  auto options = poplin::ConvOptions(target);
-  options.planConstraints = std::move(t);
-  poplin::Plan plan;
-
-  // must have one input channel per group for the combineConvGroup transform
-  BOOST_CHECK_THROW(
-      plan = poplin::getPlan(target,
-                             poplin::ConvParams{
-                                 poplar::FLOAT, // Data type
-                                 1,             // batch size
-                                 {1, 1},        // input field shape
-                                 {1, 1},        // kernel shape
-                                 2, // input channels (invalid! must be 1)
-                                 1, // output channels
-                                 1  // conv groups
-                             },
-                             options, &cache),
-      poputil::poplibs_error);
-}
-
-BOOST_AUTO_TEST_CASE(ValidCombineConvGroups_ExpandDims) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
-  poplin::PlanningCache cache;
-
-  using namespace boost::property_tree;
-  std::stringstream ss;
-  ss << R"delim(
-    {
-       "0": {
-          "transform":{
-            "combineConvGroupsFactor": [2, 4, 8, 16],
-            "expandDims": []
-        }
-      }
-    }
-  )delim";
-  ptree t;
-  json_parser::read_json(ss, t);
-  auto options = poplin::ConvOptions(target);
-  options.planConstraints = std::move(t);
-
-  // expandDims is constrained but constrained to be empty so this is fine.
-  poplin::getPlan(target,
-                  poplin::ConvParams{
-                      poplar::FLOAT, // Data type
-                      1,             // batch size
-                      {1, 1},        // input field shape
-                      {1, 1},        // kernel shape
-                      1,             // input channels
-                      1,             // output channels
-                      2              // conv groups
-                  },
-                  options, &cache);
-}
-
-BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_ExpandDims) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
-  poplin::PlanningCache cache;
-
-  using namespace boost::property_tree;
-  std::stringstream ss;
-  ss << R"delim(
-    {
-       "0": {
-          "transform":{
-            "combineConvGroupsFactor": [2, 4, 8, 16],
-            "expandDims": [0, 1]
-        }
-      }
-    }
-  )delim";
-  ptree t;
-  json_parser::read_json(ss, t);
-  auto options = poplin::ConvOptions(target);
-  options.planConstraints = std::move(t);
-  poplin::Plan plan;
-
-  // Sometimes we cannot have both combineConvGroups and expandDims constrained.
-  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
-                                           poplin::ConvParams{
-                                               poplar::FLOAT, // Data type
-                                               1,             // batch size
-                                               {1, 1}, // input field shape
-                                               {1, 1}, // kernel shape
-                                               3,      // input channels
-                                               1,      // output channels
-                                               2       // conv groups
-                                           },
-                                           options, &cache),
-                    poputil::poplibs_error);
-}
-
-BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_OutChanFlattenDims) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
-  poplin::PlanningCache cache;
-
-  using namespace boost::property_tree;
-  std::stringstream ss;
-  ss << R"delim(
-    {
-       "0": {
-          "transform":{
-            "combineConvGroupsFactor": [2, 4, 8, 16],
-            "outChanFlattenDims": [0, 1]
-        }
-      }
-    }
-  )delim";
-  ptree t;
-  json_parser::read_json(ss, t);
-  auto options = poplin::ConvOptions(target);
-  options.planConstraints = std::move(t);
-  poplin::Plan plan;
-
-  // Sometimes we cannot have both combineConvGroups and outChanFlattenDims
-  // constrained.
-  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
-                                           poplin::ConvParams{
-                                               poplar::FLOAT, // Data type
-                                               1,             // batch size
-                                               {1, 1}, // input field shape
-                                               {1, 1}, // kernel shape
-                                               3,      // input channels
-                                               1,      // output channels
-                                               2       // conv groups
-                                           },
-                                           options, &cache),
-                    poputil::poplibs_error);
-}
-
 BOOST_AUTO_TEST_CASE(InvalidLevel) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -639,8 +498,9 @@ BOOST_AUTO_TEST_CASE(InvalidLevel) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidFieldDimensionIndex) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -676,8 +536,9 @@ BOOST_AUTO_TEST_CASE(InvalidFieldDimensionIndex) {
 }
 
 BOOST_AUTO_TEST_CASE(InvalidKernelDimensionIndex) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -716,8 +577,9 @@ BOOST_AUTO_TEST_CASE(InvalidKernelDimensionIndex) {
 }
 
 BOOST_AUTO_TEST_CASE(GetSLICPlan) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(2, 2, testIpuName));
-  const auto &target = graph.getTarget();
+  auto device = createTestDevice(TEST_TARGET, 2, 2);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   using namespace boost::property_tree;
@@ -756,11 +618,11 @@ BOOST_AUTO_TEST_CASE(GetSLICPlan) {
 
 // Check the mk1-only enableAmpHalfEnginesPlan option works
 // (the option is ignored for IpuModel2)
-BOOST_AUTO_TEST_CASE(
-    GetAMP4Plan,
-    *boost::unit_test::enable_if<(DeviceType::IpuModel == TEST_TARGET)>()) {
-  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
-  const auto &target = graph.getTarget();
+BOOST_AUTO_TEST_CASE(GetAMP4Plan,
+                     *boost::unit_test::precondition(enableIfIpuModel())) {
+  auto device = createTestDevice(TEST_TARGET, 1, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
   poplin::PlanningCache cache;
 
   auto options = poplin::ConvOptions(target);
@@ -780,6 +642,7 @@ BOOST_AUTO_TEST_CASE(
                                               options, &cache));
 
   BOOST_CHECK(plan.method == poplin::Plan::Method::AMP);
-  BOOST_CHECK(plan.numConvUnitsRequired == 4);
+  if (TEST_TARGET == DeviceType::IpuModel)
+    BOOST_CHECK(plan.numConvUnitsRequired == 4);
   BOOST_TEST_MESSAGE(plan << "\n");
 }

@@ -1,9 +1,10 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE BroadcastGeneratePatterns
 // Test for generating a broadcastOp pattern.
 // Used to generate customised patterns that may require optimised vertices.
 //
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
 #include "poputil/VertexTemplates.hpp"
@@ -23,6 +24,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
+using namespace poplibs_support;
 
 const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 

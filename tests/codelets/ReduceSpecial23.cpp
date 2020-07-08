@@ -1,6 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE ReduceSpecial23
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 // codelets
 #include "../../lib/popops/reduction/ReductionVertex.hpp"
 #include "poplar/Target.hpp"

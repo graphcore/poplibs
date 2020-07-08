@@ -1,7 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/print.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
@@ -46,6 +46,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
+using namespace poplibs_support;
 using poplibs_test::Pass;
 
 const OptionFlags defaultEngineOptions;

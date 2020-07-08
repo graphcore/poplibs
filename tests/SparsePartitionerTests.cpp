@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE SparsePartionerTests
 #include "../lib/popsparse/SparsePartitionerImpl.hpp"
 #include "../lib/popsparse/SparseStorageInternal.hpp"
 #include "poplar/Type.hpp"

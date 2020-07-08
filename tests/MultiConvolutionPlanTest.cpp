@@ -3,14 +3,15 @@
 #define BOOST_TEST_MODULE MultiConvolutionPlan
 #include <boost/test/unit_test.hpp>
 
-#include "TestDevice.hpp"
 #include "poplin/CanonicalConvParams.hpp"
 #include "poplin/ConvOptions.hpp"
 #include "poplin/ConvPlan.hpp"
 #include "poplin/ConvUtilInternal.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <algorithm>
 #include <functional>
+using namespace poplibs_support;
 
 const poplar::OptionFlags multiConvOptions{{"planType", "parallel"}};
 

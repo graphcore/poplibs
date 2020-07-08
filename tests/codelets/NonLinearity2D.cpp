@@ -1,9 +1,10 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+#define BOOST_TEST_MODULE NonLinearity2D
 #include "poplibs_test/NonLinearity.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
-#include <TestDevice.hpp>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popnn/NonLinearity.hpp>
 #include <popnn/NonLinearityDefUtil.hpp>
 #include <popnn/codelets.hpp>
@@ -20,6 +21,7 @@ using namespace poplar::program;
 using namespace popnn;
 using namespace poputil;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 #define TOL 0.1 // tolerance of 0.1%
 #define FLOAT_ATOL 1e-20

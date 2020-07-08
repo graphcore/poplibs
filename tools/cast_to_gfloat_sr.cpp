@@ -14,8 +14,8 @@
 #include "cast_to_gfloat.hpp"
 #include "poputil/TileMapping.hpp"
 
-#include "TestDevice.hpp"
 #include <poplibs_support/Compiler.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
 
@@ -35,6 +35,7 @@ using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
 using namespace popfloat::experimental;
+using namespace poplibs_support;
 using poplibs_test::Pass;
 
 const OptionFlags simDebugOptions{{"debug.trace", "false"}};

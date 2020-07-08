@@ -1,10 +1,10 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #define BOOST_TEST_MODULE BlockSparseTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -18,6 +18,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace popsparse::experimental;
+using namespace poplibs_support;
 
 static const float MEMORY_CYCLE_RATIO = 1.0f;
 

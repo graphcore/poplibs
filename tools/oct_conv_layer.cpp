@@ -1,5 +1,4 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/print.hpp"
 #include <boost/multi_array.hpp>
@@ -16,6 +15,7 @@
 #include <poplar/Graph.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/GeneralMatrixAdd.hpp>
 #include <poplibs_test/Multirate.hpp>

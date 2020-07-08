@@ -12,10 +12,10 @@
 
 #define DEVELOP_BLOCKSPARSE
 
-#include "TestDevice.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_test/Util.hpp"
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
@@ -30,7 +30,7 @@ using namespace poplin;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace popsparse::experimental;
-namespace logging = poplibs_support::logging;
+using namespace poplibs_support;
 
 const OptionFlags defaultEngineOptions{{"debug.allowOutOfMemory", "true"}};
 

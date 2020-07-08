@@ -1,8 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 
 #define BOOST_TEST_MODULE EnumerateDevices
-#include <boost/test/unit_test.hpp>
+#include "poplibs_support/TestDevice.hpp"
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(Enumerate) {
   // This test relies on createTestDevice() throwing in case of failure to

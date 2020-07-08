@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 
 #define BOOST_TEST_MODULE SortTest
-#include "TestDevice.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 #include <boost/random/mersenne_twister.hpp>
 #include <boost/random/uniform_int_distribution.hpp>
@@ -17,6 +17,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
+using namespace poplibs_support;
 
 template <typename T, std::size_t N>
 std::array<T, N> deviceSort(std::array<T, N> in,

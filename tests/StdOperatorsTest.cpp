@@ -1,11 +1,12 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE StdOperatorsTest
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
 #include <cmath>
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/AllTrue.hpp>
 #include <popops/ElementWise.hpp>
@@ -23,6 +24,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 namespace br = boost::random;
 namespace pe = popops::expr;
 

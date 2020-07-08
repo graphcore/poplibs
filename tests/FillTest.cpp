@@ -1,18 +1,17 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 // Test for the popops::fill function.
 // This test is a modified version of the ZeroTest.cpp test.
-#include <TestDevice.hpp>
+#define BOOST_TEST_MODULE FillTest
+#include <poplibs_support/TestDevice.hpp>
 
 #include <poplar/Engine.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/Fill.hpp>
 
-#define BOOST_TEST_MODULE FillTest
-#include <boost/test/unit_test.hpp>
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 // Define a number of tests to run:
 struct TestParams {

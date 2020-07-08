@@ -1,16 +1,15 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE ScaledAdd2D_integral
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include <cassert>
 #include <poplar/Engine.hpp>
-
-#define BOOST_TEST_MODULE ScaledAdd2D_integral
-#include <boost/test/included/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 // test data of lengths 1 to 16
 template <typename T> struct TestData;

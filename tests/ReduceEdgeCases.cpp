@@ -1,6 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ReduceEdgeCases
-#include "TestDevice.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/unit_test.hpp>
@@ -8,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
@@ -18,6 +18,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 const OptionFlags options;
 

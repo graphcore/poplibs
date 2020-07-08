@@ -2,12 +2,12 @@
 // Check that we can handle large tensors on two tiles
 //
 #define BOOST_TEST_MODULE NonLinearityTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/NonLinearity.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/NonLinearity.hpp>
@@ -20,6 +20,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popnn;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 namespace utf = boost::unit_test;
 namespace fpc = boost::test_tools::fpc;

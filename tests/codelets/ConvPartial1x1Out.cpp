@@ -4,7 +4,7 @@
 // This allow to test the assembly code without adding the complexity
 // of the code in Convolution.cpp
 
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE ConvPartial1x1Out
 #include "poplibs_test/Util.hpp"
 #include "poplin/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -12,15 +12,15 @@
 #include <boost/multi_array.hpp>
 #include <functional>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
-#define BOOST_TEST_MODULE ConvPartial1x1Out
-#include <boost/test/included/unit_test.hpp>
 namespace utf = boost::unit_test::framework;
 
 using namespace poplar;
 using namespace poputil;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 
 // Some test cases are to be run only on IPU2
 boost::test_tools::assertion_result isIpu2(boost::unit_test::test_unit_id = 0) {

@@ -1,9 +1,10 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE MapFusionTest
 #include "poplar/Engine.hpp"
 #include "poplar/IPUModel.hpp"
 #include "poplibs_test/Util.hpp"
 #include "poputil/exceptions.hpp"
+#include <poplibs_support/TestDevice.hpp>
 
 // codelets
 #include "popnn/codelets.hpp"
@@ -21,6 +22,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
+using namespace poplibs_support;
 namespace pe = popops::expr;
 
 namespace {

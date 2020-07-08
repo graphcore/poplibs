@@ -1,17 +1,18 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
 #include "poplin/MultiConvolution.hpp"
 #include <boost/assign/list_of.hpp>
 #include <boost/optional.hpp>
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
 #include <iostream>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/Convolution.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <sstream>
+using namespace poplibs_support;
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;

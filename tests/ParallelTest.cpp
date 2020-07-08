@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ParallelTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <popops/codelets.hpp>
 
 #include <atomic>
@@ -10,6 +10,7 @@
 
 using namespace poplar;
 using namespace popops;
+using namespace poplibs_support;
 
 BOOST_AUTO_TEST_CASE(ManyParallelGraphLoads) {
   std::atomic<bool> success{true};

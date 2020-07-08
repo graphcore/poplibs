@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#include "TestDevice.hpp"
+#define BOOST_TEST_MODULE ReduceNMaxClassSparse
 #include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_test/Util.hpp"
@@ -15,6 +16,7 @@ using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_test::util;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace {
 

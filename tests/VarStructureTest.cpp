@@ -1,8 +1,8 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE VarStructureTest
-#include "TestDevice.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poputil/VarStructure.hpp>
 
 using namespace poplar;
