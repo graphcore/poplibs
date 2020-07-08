@@ -934,13 +934,21 @@ int main(int argc, char **argv) try {
       copy(target, duplicatedHostBiases, outputType, rawHostBiases.get());
     }
 
-    // Run the forward pass.
+    if (doBwdPass || doWuPass) {
+      copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+    }
+
     dev.bind([&](const Device &d) {
       engine.load(d);
       if (validationMethod) {
         engine.run(uploadProgIndex);
       }
+      // Run the forward pass.
       engine.run(fwdProgIndex);
+      if (doBwdPass || doWuPass) {
+        // Run the backwards and/or weight update passes.
+        engine.run(revProgIndex);
+      }
       if (validationMethod) {
         engine.run(downloadProgIndex);
       }
@@ -964,21 +972,7 @@ int main(int argc, char **argv) try {
       boost::multi_array<double, 3> hostPrevDeltas(
           boost::extents[batchSize * replicationFactor]
                         [params.getNumInputChans()][product(inputFieldSize)]);
-      // Run the backwards and/or weight update passes.
-      copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
 
-      dev.bind([&](const Device &d) {
-        engine.load(d);
-        if (validationMethod) {
-          engine.run(uploadProgIndex);
-        }
-        engine.run(revProgIndex);
-        if (validationMethod) {
-          engine.run(downloadProgIndex);
-        }
-      });
-
-      copy(target, inputType, rawHostZDeltas.get(), hostZDeltas);
       if (doBwdPass) {
         copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
       }
