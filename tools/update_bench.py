@@ -78,14 +78,25 @@ def main():
     cmd = [args.test_script, 'poplibs', '-L', 'benchmarks',
            '--output-on-failure', f'-j{nproc}']
     num_updates = 0
+    max_increase = [0, 0, 0]
     update_report = ""
-    for test_key, expected in updated_results_iter(cmd, number_of_benchmarks):
-        expected_dict[test_key] = expected
-        update_report += f'\nUpdated {test_key} with results {expected}'
+    for test_key, actual in updated_results_iter(cmd, number_of_benchmarks):
+        actual = Expected._make(map(float, actual))
+        expected = expected_dict[test_key]
+        increase = []
+        for field in actual._fields:
+          if field.endswith('_change'):
+            increase.append(getattr(actual, field))
+        max_increase = max(max_increase, increase)
+        expected_dict[test_key] = actual
+        update_report += f'Updating {test_key} with results {actual}'
+        # Write out the CSV on every update to ease inspection while a long
+        # update is executing
         write_results(args.expected_csv, expected_dict)
         num_updates += 1
 
-    # Finally, write out the new CSV if there were any more updates
+    if num_updates > 0:
+        print(f'Highest increases: {max_increase}')
     print(f'Done. Updated {num_updates} benchmark results')
     print(update_report)
 
