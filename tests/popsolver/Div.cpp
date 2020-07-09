@@ -14,7 +14,7 @@ BOOST_AUTO_TEST_CASE(CeilDiv) {
   auto b = m.addConstant(4);
   auto c = m.ceildiv(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 3);
+  BOOST_CHECK_EQUAL(s[c], DataType{3});
 }
 
 BOOST_AUTO_TEST_CASE(CeilDiv2) {
@@ -22,10 +22,10 @@ BOOST_AUTO_TEST_CASE(CeilDiv2) {
   auto a = m.addVariable();
   auto b = m.addConstant(4);
   auto c = m.ceildiv(a, b);
-  m.lessOrEqual(3, c);
+  m.lessOrEqual(DataType{3}, c);
   auto s = m.minimize(a);
-  BOOST_CHECK_EQUAL(s[a], 9);
-  BOOST_CHECK_EQUAL(s[c], 3);
+  BOOST_CHECK_EQUAL(s[a], DataType{9});
+  BOOST_CHECK_EQUAL(s[c], DataType{3});
 }
 
 BOOST_AUTO_TEST_CASE(FloorDiv) {
@@ -33,10 +33,10 @@ BOOST_AUTO_TEST_CASE(FloorDiv) {
   auto a = m.addVariable();
   auto b = m.addConstant(4);
   auto c = m.floordiv(a, b);
-  m.lessOrEqual(3, c);
+  m.lessOrEqual(DataType{3}, c);
   auto s = m.minimize(a);
-  BOOST_CHECK_EQUAL(s[a], 12);
-  BOOST_CHECK_EQUAL(s[c], 3);
+  BOOST_CHECK_EQUAL(s[a], DataType{12});
+  BOOST_CHECK_EQUAL(s[c], DataType{3});
 }
 
 BOOST_AUTO_TEST_CASE(CeilDivZero) {
@@ -65,7 +65,8 @@ BOOST_AUTO_TEST_CASE(CeilDivConstrainDivisor) {
     BOOST_CHECK_EQUAL(s.validSolution(), expectSolution);
     // division correct?
     if (expectSolution && s.validSolution()) {
-      BOOST_CHECK_EQUAL(s[c], poplibs_support::ceildiv(dividend, s[b]));
+      BOOST_CHECK_EQUAL(s[c], DataType{poplibs_support::ceildiv(
+                                  dividend, s[b].getAs<unsigned>())});
     }
   }
 }

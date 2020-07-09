@@ -12,7 +12,7 @@ BOOST_AUTO_TEST_CASE(Mod) {
   auto b = m.addConstant(1);
   auto c = m.mod(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 0);
+  BOOST_CHECK_EQUAL(s[c], DataType{0});
 }
 
 BOOST_AUTO_TEST_CASE(Mod0) {
@@ -31,7 +31,7 @@ BOOST_AUTO_TEST_CASE(ModAEqualB) {
   auto b = m.addConstant(4);
   auto c = m.mod(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 0);
+  BOOST_CHECK_EQUAL(s[c], DataType{0});
 }
 
 BOOST_AUTO_TEST_CASE(ModBEqual1) {
@@ -40,7 +40,7 @@ BOOST_AUTO_TEST_CASE(ModBEqual1) {
   auto b = m.addConstant(1);
   auto c = m.mod(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 0);
+  BOOST_CHECK_EQUAL(s[c], DataType{0});
 }
 
 BOOST_AUTO_TEST_CASE(ModAGreaterThanB) {
@@ -49,7 +49,7 @@ BOOST_AUTO_TEST_CASE(ModAGreaterThanB) {
   auto b = m.addConstant(4);
   auto c = m.mod(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 0);
+  BOOST_CHECK_EQUAL(s[c], DataType{0});
 }
 
 BOOST_AUTO_TEST_CASE(ModAGreaterThanBNonZero) {
@@ -58,7 +58,7 @@ BOOST_AUTO_TEST_CASE(ModAGreaterThanBNonZero) {
   auto b = m.addConstant(4);
   auto c = m.mod(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 3);
+  BOOST_CHECK_EQUAL(s[c], DataType{3});
 }
 
 BOOST_AUTO_TEST_CASE(ModALessThanB) {
@@ -67,5 +67,5 @@ BOOST_AUTO_TEST_CASE(ModALessThanB) {
   auto b = m.addConstant(8);
   auto c = m.mod(a, b);
   auto s = m.minimize(c);
-  BOOST_CHECK_EQUAL(s[c], 4);
+  BOOST_CHECK_EQUAL(s[c], DataType{4});
 }

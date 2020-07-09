@@ -2,10 +2,14 @@
 #ifndef _popsolver_Constraint_hpp_
 #define _popsolver_Constraint_hpp_
 
-#include <boost/optional.hpp>
-#include <functional>
 #include <poplar/ArrayRef.hpp>
+#include <popsolver/Model.hpp>
 #include <popsolver/Variable.hpp>
+
+#include <boost/optional.hpp>
+#include <boost/variant.hpp>
+
+#include <functional>
 #include <vector>
 
 namespace popsolver {
@@ -22,26 +26,25 @@ public:
   virtual poplar::ArrayRef<Variable> getVariables() = 0;
 };
 
-class GenericAssignment : public Constraint {
+template <typename T> class GenericAssignment : public Constraint {
   // first variable is the result, remaining variables are the arguments
   std::vector<Variable> vars;
-  std::function<boost::optional<unsigned>(const std::vector<unsigned> &values)>
-      f;
+  std::function<boost::optional<DataType>(const std::vector<T> &)> f;
   // Vector for storing variable values, used in the propagate() method. This
   // is a class member instead of a local variable to reduce the number of
   // allocations needed.
-  std::vector<unsigned> values;
+  std::vector<DataType> values;
 
 public:
-  GenericAssignment(Variable result, std::vector<Variable> vars_,
-                    std::function<boost::optional<unsigned>(
-                        const std::vector<unsigned> &values)>
-                        f)
+  GenericAssignment(
+      Variable result, std::vector<Variable> vars_,
+      std::function<boost::optional<DataType>(const std::vector<T> &)> f)
       : vars(), f(f), values(vars_.size()) {
     vars.reserve(vars_.size() + 1);
     vars.push_back(result);
     vars.insert(std::end(vars), std::begin(vars_), std::end(vars_));
   }
+
   bool propagate(Scheduler &scheduler) override;
   poplar::ArrayRef<Variable> getVariables() override { return vars; }
 };

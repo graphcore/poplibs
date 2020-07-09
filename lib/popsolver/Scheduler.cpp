@@ -9,9 +9,9 @@ using namespace popsolver;
 
 Scheduler::Scheduler(Domains domains_, std::vector<Constraint *> constraints_)
     : domains(std::move(domains_)), constraints(std::move(constraints_)) {
-  unsigned numConstraints = constraints.size();
+  const auto numConstraints = constraints.size();
   queued.resize(numConstraints);
-  for (unsigned c = 0; c != numConstraints; ++c) {
+  for (std::size_t c = 0; c != numConstraints; ++c) {
     for (auto v : constraints[c]->getVariables()) {
       if (variableConstraints.size() <= v.id) {
         variableConstraints.resize(v.id + 1);
@@ -32,7 +32,8 @@ std::pair<bool, ConstraintEvaluationSummary> Scheduler::propagate() {
             poplibs_support::logging::Level::Trace)) {
       // Only provide a breakdown when we are trace log level because this is
       // too slow to be on by default.
-      if (dynamic_cast<GenericAssignment *>(constraint) != nullptr) {
+      if (dynamic_cast<GenericAssignment<DataType> *>(constraint) != nullptr ||
+          dynamic_cast<GenericAssignment<unsigned> *>(constraint) != nullptr) {
         constraintEvalCount.call++;
       } else if (dynamic_cast<Product *>(constraint) != nullptr) {
         constraintEvalCount.product++;
@@ -67,7 +68,7 @@ std::pair<bool, ConstraintEvaluationSummary> Scheduler::propagate() {
 }
 
 std::pair<bool, ConstraintEvaluationSummary> Scheduler::initialPropagate() {
-  for (unsigned i = 0; i != variableConstraints.size(); ++i) {
+  for (std::size_t i = 0; i != variableConstraints.size(); ++i) {
     queueConstraints(Variable(i));
   }
   return propagate();

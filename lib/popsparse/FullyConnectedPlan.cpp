@@ -46,8 +46,7 @@ using CostVariables = Estimates<popsolver::Variable>;
 using CostBreakdownVariables =
     std::vector<std::pair<std::string, CostVariables>>;
 
-static Cost highestCost(std::numeric_limits<unsigned>::max(),
-                        std::numeric_limits<unsigned>::max());
+static Cost highestCost(popsolver::DataType::max(), popsolver::DataType::max());
 
 // TODO: This can easily be shared along with other stuff with the
 // (dense) convolution library.
@@ -57,8 +56,8 @@ public:
 
 private:
   Type type;
-  unsigned cyclesBound = std::numeric_limits<unsigned>::max();
-  unsigned tileTempMemoryBound = std::numeric_limits<unsigned>::max();
+  popsolver::DataType cyclesBound = popsolver::DataType::max();
+  popsolver::DataType tileTempMemoryBound = popsolver::DataType::max();
   PlanningObjective(Type type) : type(type) {}
 
 public:
@@ -69,20 +68,22 @@ public:
   static PlanningObjective minimizeTileTempMemory() {
     return PlanningObjective(MINIMIZE_TILE_TEMP_MEMORY);
   }
-  PlanningObjective &setCyclesBound(unsigned bound) {
+  PlanningObjective &setCyclesBound(popsolver::DataType bound) {
     assert(type != MINIMIZE_CYCLES);
-    assert(bound > 0);
+    assert(*bound > 0);
     cyclesBound = bound;
     return *this;
   }
-  PlanningObjective &setTileTempMemoryBound(unsigned bound) {
+  PlanningObjective &setTileTempMemoryBound(popsolver::DataType bound) {
     assert(type != MINIMIZE_TILE_TEMP_MEMORY);
-    assert(bound > 0);
+    assert(*bound > 0);
     tileTempMemoryBound = bound;
     return *this;
   }
-  unsigned getCyclesBound() const { return cyclesBound; }
-  unsigned getTileTempMemoryBound() const { return tileTempMemoryBound; }
+  popsolver::DataType getCyclesBound() const { return cyclesBound; }
+  popsolver::DataType getTileTempMemoryBound() const {
+    return tileTempMemoryBound;
+  }
   Type getType() const { return type; }
   bool lowerCost(Cost a, Cost b) const {
     bool aCyclesOutOfBounds = a.cycles >= cyclesBound;
@@ -521,11 +522,10 @@ addInitialComputeCostSparseDense(
   const auto partialsType = options.partialsType;
   const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialsType));
   const auto mNumBucketsPerTile = mCumulativePartitions.z;
-
-  const auto mCycles = m.call(
+  const auto mCycles = m.call<unsigned>(
       {mPartialsPerTile, mNumBucketsPerTile, mGroups.x, mGroups.y, mGroups.z,
        mGrouping.x, mGrouping.y, mGrouping.z},
-      [=](const std::vector<unsigned> &values) {
+      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
         const auto partialsPerTile = values[0];
         const auto numBuckets = values[1];
         const auto xGroups = values[2];
@@ -562,13 +562,15 @@ addInitialComputeCostSparseDense(
           case OnTileMethod::Forward:
             mulCycles = sparseDenseElementwiseMultiply(
                 numBuckets, numBuckets, numSubGroupsPerBucket, numXPerWorker,
-                numZPerWorker, std::vector<unsigned>({numY}),
+                numZPerWorker,
+                std::vector<unsigned>({static_cast<unsigned>(numY)}),
                 inputType == FLOAT, partialsType == FLOAT, numWorkers);
             break;
           case OnTileMethod::GradA:
             mulCycles = sparseDenseGradAElementwiseMultiply(
                 numBuckets, numBuckets, numSubGroupsPerBucket, numXPerWorker,
-                numZPerWorker, std::vector<unsigned>({numY}),
+                numZPerWorker,
+                std::vector<unsigned>({static_cast<unsigned>(numY)}),
                 inputType == FLOAT, partialsType == FLOAT, numWorkers);
             break;
           case OnTileMethod::Transpose:
@@ -585,7 +587,7 @@ addInitialComputeCostSparseDense(
         }
         cycles += maxMulCycles;
 
-        return cycles;
+        return popsolver::DataType{cycles};
       });
 
   // The temporary memory during this operation is the temporary memory for
@@ -619,11 +621,10 @@ addInitialComputeCostDenseDense(
   const auto numWorkers = target.getNumWorkerContexts();
   const auto &partialsType = options.partialsType;
   const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialsType));
-
-  const auto mCycles = m.call(
+  const auto mCycles = m.call<unsigned>(
       {mPartialsPerTile, mGroups.x, mGroups.y, mGroups.z, mGrouping.x,
        mGrouping.y, mGrouping.z},
-      [=](const std::vector<unsigned> &values) {
+      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
         const auto partialsPerTile = values[0];
         const auto xGroups = values[1];
         const auto yGroups = values[2];
@@ -686,7 +687,7 @@ addInitialComputeCostDenseDense(
         }
         cycles += maxMulCycles;
 
-        return cycles;
+        return popsolver::DataType{cycles};
       });
   const auto mNeedsCast = m.addConstant(inputType != partialsType ? 1u : 0u);
   const auto mNeedsReduction = m.sub(mCumulativePartitions.z, m.one());
@@ -790,30 +791,29 @@ addReductionCost(
           exchangeEstimator(mBytesToExchange, level);
       mExchangeTempBytesPerLevel[level] =
           m.sum({mQTempBytesAfterCompute, mBytesToExchangePerTile});
-
-      mComputeCyclesPerLevel[level] = m.call(
+      mComputeCyclesPerLevel[level] = m.call<unsigned>(
           {mPartialsPerTile[level], mReductionDepth[level]},
-          [=](const std::vector<unsigned> &values) -> unsigned {
+          [=](const std::vector<unsigned> &values) -> popsolver::DataType {
             const auto partialsPerTile = values[0];
             const auto reductionDepth = values[1];
 
             if (reductionDepth == 0) {
-              return 0;
+              return popsolver::DataType{0};
             }
 
             if (reductionDepth == 1) {
               if (floatOutput == floatPartials) {
-                return 0;
+                return popsolver::DataType{0};
               } else {
-                return getCastCycleEstimate(partialsPerTile,
-                                            partialsVectorWidth,
-                                            outputVectorWidth, numWorkers);
+                return popsolver::DataType{
+                    getCastCycleEstimate(partialsPerTile, partialsVectorWidth,
+                                         outputVectorWidth, numWorkers)};
               }
             }
 
-            return getReduceCycleEstimate(partialsPerTile, reductionDepth,
-                                          dataPathWidth, floatOutput,
-                                          floatPartials, numWorkers);
+            return popsolver::DataType{getReduceCycleEstimate(
+                partialsPerTile, reductionDepth, dataPathWidth, floatOutput,
+                floatPartials, numWorkers)};
           });
       const auto mNeedsCast =
           m.addConstant(reducePartialsType != inputType ? 1u : 0u);
@@ -1039,7 +1039,8 @@ createPlan(const PlanningObjective &objective, const Target &target,
   mFwdGroups[0] = groups.transform<popsolver::Variable>(
       [&](const auto groups) { return m.addConstant(groups); });
   for (unsigned level = 0; level < hierarchy.size(); ++level) {
-    m.lessOrEqual(fwdPartition.product[level], hierarchy[level]);
+    m.lessOrEqual(fwdPartition.product[level],
+                  popsolver::DataType{hierarchy[level]});
     mFwdGroups[level + 1] = mFwdGroups[level].binaryOp(
         fwdPartition.partition[level],
         [&](const auto &groups, const auto &partition) {
@@ -1051,7 +1052,7 @@ createPlan(const PlanningObjective &objective, const Target &target,
 
     // Our vertex doesn't handle groups at all.
     if (level == hierarchy.size() - 1) {
-      m.equal(mFwdGroups[level + 1].groups, 1u);
+      m.equal(mFwdGroups[level + 1].groups, popsolver::DataType{1});
     }
   }
 
@@ -1073,14 +1074,17 @@ createPlan(const PlanningObjective &objective, const Target &target,
   const auto mRElems = m.addConstant(rElems);
   const auto mRElemsPerBucket = [&] {
     auto mElems = m.ceildiv(mRElems, fwdPartition.tile.at(0));
-    return m.call({mElems}, [=](const std::vector<unsigned> &values) {
-      const unsigned elems = std::round(
-          values[0] * (1.0 + options.metaInfoBucketOversizeProportion));
-      return roundUp(elems, inputElemsPerExchangeAtom);
-    });
+    return m.call<unsigned>(
+        {mElems},
+        [=](const std::vector<unsigned> &values) -> popsolver::DataType {
+          const unsigned elems = std::round(
+              values[0] * (1.0 + options.metaInfoBucketOversizeProportion));
+          return popsolver::DataType{roundUp(elems, inputElemsPerExchangeAtom)};
+        });
   }();
 
-  auto calcFwdBucketSize = [=](const std::vector<unsigned> &values) {
+  auto calcFwdBucketSize =
+      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
     const auto xGroups = values[0];
     const auto yGroups = values[1];
     unsigned xNonZeroGroups, yNonZeroGroups;
@@ -1111,11 +1115,10 @@ createPlan(const PlanningObjective &objective, const Target &target,
             numSubgroupsPerBucket +
         std::ceil(numElemsPerfectlyUniform *
                   (1.0 + options.metaInfoBucketOversizeProportion));
-    return roundUp(elems, metaInfoElemsPerExchangeAtom);
+    return popsolver::DataType{roundUp(elems, metaInfoElemsPerExchangeAtom)};
   };
-
-  const auto mRFwdMetaInfoElemsPerBucket =
-      m.call({mFwdGroups.back().x, mFwdGroups.back().y}, calcFwdBucketSize);
+  const auto mRFwdMetaInfoElemsPerBucket = m.call<unsigned>(
+      {mFwdGroups.back().x, mFwdGroups.back().y}, calcFwdBucketSize);
 
   const auto mFwdGrouping = grouping.transform<popsolver::Variable>(
       [&](const auto grouping) { return m.addConstant(grouping); });
@@ -1176,7 +1179,8 @@ createPlan(const PlanningObjective &objective, const Target &target,
     }();
     const auto mGradAGrouping = toGradA(mFwdGrouping);
 
-    auto calcGradABucketSize = [=](const std::vector<unsigned> &values) {
+    auto calcGradABucketSize =
+        [=](const std::vector<unsigned> &values) -> popsolver::DataType {
       const auto xGroups = values[0];
       const auto yGroups = values[1];
       unsigned xNonZeroGroups, yNonZeroGroups;
@@ -1204,16 +1208,15 @@ createPlan(const PlanningObjective &objective, const Target &target,
               numSubgroupsPerBucket +
           std::ceil(numElemsPerfectlyUniform *
                     (1.0 + options.metaInfoBucketOversizeProportion));
-      return roundUp(elems, metaInfoElemsPerExchangeAtom);
+      return popsolver::DataType{roundUp(elems, metaInfoElemsPerExchangeAtom)};
     };
-
     if (gradAMethod == OnTileMethod::Transpose) {
       // We actually use the same buckets as forward and for a joint plan
       // the split should just be the tranpose of the forward.
-      mRGradAMetaInfoElemsPerBucket = m.call(
+      mRGradAMetaInfoElemsPerBucket = m.call<unsigned>(
           {mGradAGroups.back().y, mGradAGroups.back().x}, calcFwdBucketSize);
     } else {
-      mRGradAMetaInfoElemsPerBucket = m.call(
+      mRGradAMetaInfoElemsPerBucket = m.call<unsigned>(
           {mGradAGroups.back().x, mGradAGroups.back().y}, calcGradABucketSize);
     }
 
@@ -1270,14 +1273,18 @@ createPlan(const PlanningObjective &objective, const Target &target,
   Plan plan;
   plan.grouping = grouping;
   plan.partition = fwdPartition.partition[0].transform<unsigned>(
-      [&](auto partitionVar) { return solution[partitionVar]; });
+      [&](popsolver::Variable partitionVar) {
+        return solution[partitionVar].getAs<unsigned>();
+      });
   // For now these are hard-coded but we could plan for it further
   // down the road if temporary memory did not allow this
   plan.initialDistributionBucketPartition = plan.partition;
   plan.initialDistributionBucketPartition.z = 1;
-  plan.nzElemsPerBucket = solution[mRElemsPerBucket];
-  plan.fwdMetaInfoElemsPerBucket = solution[mRFwdMetaInfoElemsPerBucket];
-  plan.gradAMetaInfoElemsPerBucket = solution[mRGradAMetaInfoElemsPerBucket];
+  plan.nzElemsPerBucket = solution[mRElemsPerBucket].getAs<unsigned>();
+  plan.fwdMetaInfoElemsPerBucket =
+      solution[mRFwdMetaInfoElemsPerBucket].getAs<unsigned>();
+  plan.gradAMetaInfoElemsPerBucket =
+      solution[mRGradAMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.mappingOrder = PartitionToPNMappingOrder::FwdLinearGYZX;
   plan.fwdMethod = fwdMethod;
   plan.gradAMethod = gradAMethod;
@@ -1316,7 +1323,7 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
         "limit of {} bytes.",
         availableTileMem);
     auto objective = PlanningObjective::minimizeCycles();
-    objective.setTileTempMemoryBound(availableTileMem);
+    objective.setTileTempMemoryBound(popsolver::DataType{availableTileMem});
 
     std::tie(plan, cost, costBreakdown) =
         createPlan(objective, target, inputType, params, options);

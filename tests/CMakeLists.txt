@@ -6975,7 +6975,7 @@ foreach(PLAN_TYPE parallel serial)
                    --alpha=0.5
                    --options={\"planType\":\"${PLAN_TYPE}\"}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
-  
+
   add_multitarget_test(NAME octconvLL_${PLAN_TYPE}
            COMMAND oct_conv_layer
                    --input-channels=2
@@ -7954,7 +7954,7 @@ if(TARGET popsparse)
                     --rhs-block=8
                     --partition-method=${PART_METHOD}
                     --check-result=1)
-  
+
     add_multitarget_test(
             NAME BlockSparseMtTest_dds_fp32_${PART_METHOD}
             COMMAND bs_matmul_test
@@ -7983,7 +7983,7 @@ if(TARGET popsparse)
                     --lhs-block-col=16
                     --rhs-block=16
                     --check-result=1)
-    
+
     add_multitarget_test(
             NAME BlockSparseMtTest_dsd_fp16_need_transpose_${PART_METHOD}
             COMMAND bs_matmul_test

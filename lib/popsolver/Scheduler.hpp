@@ -19,8 +19,8 @@ class Scheduler {
   std::vector<Constraint *> constraints;
   /// Map from each variable to the constraint number to propagate when the
   /// domain of the variable changes.
-  std::vector<std::vector<unsigned>> variableConstraints;
-  std::queue<unsigned> worklist;
+  std::vector<std::vector<Variable::IndexType>> variableConstraints;
+  std::queue<Variable::IndexType> worklist;
   std::vector<bool> queued;
   void queueConstraints(Variable v) {
     if (v.id < variableConstraints.size()) {
@@ -37,19 +37,19 @@ public:
   Scheduler(Domains domains, std::vector<Constraint *> constraints);
   const Domains &getDomains() { return domains; }
   void setDomains(Domains value) { domains = value; }
-  void set(Variable v, unsigned value) {
+  void set(Variable v, DataType value) {
     assert(value >= domains[v].min_);
     assert(value <= domains[v].max_);
     domains[v].min_ = domains[v].max_ = value;
     queueConstraints(v);
   }
-  void setMin(Variable v, unsigned value) {
+  void setMin(Variable v, DataType value) {
     assert(value >= domains[v].min_);
     assert(value <= domains[v].max_);
     domains[v].min_ = value;
     queueConstraints(v);
   }
-  void setMax(Variable v, unsigned value) {
+  void setMax(Variable v, DataType value) {
     assert(value >= domains[v].min_);
     assert(value <= domains[v].max_);
     domains[v].max_ = value;

@@ -11,88 +11,88 @@ BOOST_AUTO_TEST_CASE(PropagateNoChange) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({7, 8});  // a
-  domains.push_back({2, 5});  // b
-  domains.push_back({9, 13}); // c
+  domains.push_back({DataType{7}, DataType{8}});  // a
+  domains.push_back({DataType{2}, DataType{5}});  // b
+  domains.push_back({DataType{9}, DataType{13}}); // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
   BOOST_CHECK(success);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), 7);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), 8);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), 2);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), 5);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), 9);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), 13);
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), DataType{7});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), DataType{8});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), DataType{2});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), DataType{5});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), DataType{9});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), DataType{13});
 }
 
 BOOST_AUTO_TEST_CASE(PropagateResult) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({7, 8});  // a
-  domains.push_back({2, 5});  // b
-  domains.push_back({1, 20}); // c
+  domains.push_back({DataType{7}, DataType{8}});  // a
+  domains.push_back({DataType{2}, DataType{5}});  // b
+  domains.push_back({DataType{1}, DataType{20}}); // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
   BOOST_CHECK(success);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), 7);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), 8);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), 2);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), 5);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), 9);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), 13);
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), DataType{7});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), DataType{8});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), DataType{2});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), DataType{5});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), DataType{9});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), DataType{13});
 }
 
 BOOST_AUTO_TEST_CASE(PropagateOperands) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({7, 1000}); // a
-  domains.push_back({0, 9});    // b
-  domains.push_back({9, 13});   // c
+  domains.push_back({DataType{7}, DataType{1000}}); // a
+  domains.push_back({DataType{0}, DataType{9}});    // b
+  domains.push_back({DataType{9}, DataType{13}});   // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
   BOOST_CHECK(success);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), 7);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), 13);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), 0);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), 6);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), 9);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), 13);
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), DataType{7});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), DataType{13});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), DataType{0});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), DataType{6});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), DataType{9});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), DataType{13});
 }
 
 BOOST_AUTO_TEST_CASE(PropagateBoth) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({7, 8});  // a
-  domains.push_back({0, 5});  // b
-  domains.push_back({9, 20}); // c
+  domains.push_back({DataType{7}, DataType{8}});  // a
+  domains.push_back({DataType{0}, DataType{5}});  // b
+  domains.push_back({DataType{9}, DataType{20}}); // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
   BOOST_CHECK(success);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), 7);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), 8);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), 1);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), 5);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), 9);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), 13);
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), DataType{7});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), DataType{8});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), DataType{1});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), DataType{5});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), DataType{9});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), DataType{13});
 }
 
 BOOST_AUTO_TEST_CASE(AvoidOverflow) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));
   Domains domains;
-  domains.push_back({1, std::numeric_limits<unsigned>::max() - 1}); // a
-  domains.push_back({2, std::numeric_limits<unsigned>::max() - 1}); // b
-  domains.push_back({20, 21});                                      // c
+  domains.push_back({DataType{1}, DataType::max() - DataType{1}}); // a
+  domains.push_back({DataType{2}, DataType::max() - DataType{1}}); // b
+  domains.push_back({DataType{20}, DataType{21}});                 // c
   Scheduler scheduler(domains, {sum.get()});
   bool success = sum->propagate(scheduler);
   BOOST_CHECK(success);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), 1);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), 19);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), 2);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), 20);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), 20);
-  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), 21);
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].min(), DataType{1});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[a].max(), DataType{19});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].min(), DataType{2});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[b].max(), DataType{20});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].min(), DataType{20});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), DataType{21});
 }

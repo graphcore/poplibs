@@ -224,24 +224,26 @@ getForwardWorkerPartition(const Target &target, const Type &inputType,
       m.ceildiv(mNumBColumnGrains, mWorkerBColumnGrainsPartition);
 
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto mMaxWorkerAElems =
-      m.call({mWorkerARows}, [&](const std::vector<unsigned> &values) {
+  const auto mMaxWorkerAElems = m.call<unsigned>(
+      {mWorkerARows},
+      [&](const std::vector<unsigned> &values) -> popsolver::DataType {
         const auto workerARows = values[0];
         unsigned maxWorkerAElems = 0;
         for (unsigned worker = 0; worker < numWorkers; ++worker) {
           const auto elems = std::accumulate(
-              aRowColumnCounts.begin() + std::min(worker * workerARows, aRows),
               aRowColumnCounts.begin() +
-                  std::min((worker + 1) * workerARows, aRows),
+                  std::min<unsigned>(worker * workerARows, aRows),
+              aRowColumnCounts.begin() +
+                  std::min<unsigned>((worker + 1) * workerARows, aRows),
               0u);
-          maxWorkerAElems = std::max(maxWorkerAElems, elems);
+          maxWorkerAElems = std::max<unsigned>(maxWorkerAElems, elems);
         }
-        return maxWorkerAElems;
+        return popsolver::DataType{maxWorkerAElems};
       });
 
   m.lessOrEqual(
       m.product({mWorkerARowsPartition, mWorkerBColumnGrainsPartition}),
-      numWorkers);
+      popsolver::DataType{numWorkers});
 
   const auto mMaxWorkerGrains =
       m.product({mMaxWorkerAElems, mWorkerBColumnGrains});
@@ -251,8 +253,9 @@ getForwardWorkerPartition(const Target &target, const Type &inputType,
     throw poplibs_error("Failed to find a plan to split work between workers!");
   }
 
-  const auto numAPartitions = s[mWorkerARowsPartition];
-  const auto numBPartitions = s[mWorkerBColumnGrainsPartition];
+  const auto numAPartitions = s[mWorkerARowsPartition].getAs<unsigned>();
+  const auto numBPartitions =
+      s[mWorkerBColumnGrainsPartition].getAs<unsigned>();
   return std::make_tuple(bColumnGrainSize, numAPartitions, numBPartitions);
 }
 
@@ -528,7 +531,7 @@ int main(int argc, char **argv) try {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
     ("profile", "Output profiling information for the program")
-    ("ignore-data", "Don't validate outputs, don't add streams etc." 
+    ("ignore-data", "Don't validate outputs, don't add streams etc."
      " Useful for profiling")
     ("show-execution-steps", "If profiling, show execution steps in the "
      "summary")

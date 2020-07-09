@@ -8,8 +8,9 @@
 #include <boost/optional.hpp>
 
 #include <cassert>
+#include <cstdint>
 #include <functional>
-#include <iosfwd>
+#include <iostream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -22,7 +23,7 @@ class Constraint;
 class Scheduler;
 
 struct ConstraintEvaluationSummary {
-  using CountType = unsigned long long;
+  using CountType = std::uint64_t;
   CountType call = 0;
   CountType product = 0;
   CountType sum = 0;
@@ -54,18 +55,133 @@ struct ConstraintEvaluationSummary {
 std::ostream &operator<<(std::ostream &os,
                          const ConstraintEvaluationSummary &s);
 
+class DataType {
+public:
+  using UnderlyingType = std::uint64_t;
+
+private:
+  UnderlyingType underlying = 0;
+
+  template <typename T> constexpr bool representable(T x, T delta = 0) {
+    assert(x >= 0);
+    const auto partial = static_cast<UnderlyingType>(x);
+    const auto xPrime = static_cast<T>(partial);
+    return std::abs(x - xPrime) <= delta;
+  }
+
+public:
+  DataType() = default;
+  template <typename T> explicit constexpr DataType(T x) : underlying(x) {
+    static_assert(std::is_unsigned<T>::value, "Must be unsigned type");
+    static_assert(sizeof(T) <= sizeof(UnderlyingType),
+                  "Size of type must be less or equal underlying type");
+  }
+
+  explicit constexpr DataType(double x) {
+    assert(representable(x, 1.0) &&
+           "can't represent double with popsolver::DataType");
+    underlying = x;
+  }
+  explicit constexpr DataType(int64_t x) {
+    assert(representable(x) &&
+           "can't represent int64_t with popsolver::DataType");
+    underlying = x;
+  }
+  explicit constexpr DataType(int x) {
+    assert(representable(x) && "can't represent int with popsolver::DataType");
+    underlying = x;
+  }
+
+  static constexpr DataType min() {
+    return DataType{std::numeric_limits<UnderlyingType>::min()};
+  }
+  static constexpr DataType max() {
+    return DataType{std::numeric_limits<UnderlyingType>::max()};
+  }
+
+  constexpr UnderlyingType operator*() const { return underlying; }
+  explicit operator UnderlyingType() const { return underlying; }
+  explicit operator UnderlyingType &() { return underlying; }
+
+  template <typename T> T getAs() const {
+    assert(static_cast<UnderlyingType>(static_cast<T>(underlying)) ==
+               underlying &&
+           "loss of precision for value in popsolver::DataType when converting "
+           "to type");
+    assert(underlying <= std::numeric_limits<T>::max() &&
+           "value in popsolver::DataType is too large to fit in type");
+    return static_cast<T>(underlying);
+  }
+
+  DataType &operator++() {
+    underlying++;
+    return *this;
+  }
+  DataType &operator--() {
+    underlying--;
+    return *this;
+  }
+
+  DataType operator++(int) {
+    underlying++;
+    return DataType{underlying - 1};
+  }
+  DataType operator--(int) {
+    underlying--;
+    return DataType{underlying + 1};
+  }
+
+  void operator+=(DataType r) { underlying += *r; }
+  void operator*=(DataType r) { underlying *= *r; }
+
+  friend std::istream &operator>>(std::istream &is, DataType &x);
+};
+
+inline DataType operator+(DataType l, DataType r) { return DataType{*l + *r}; }
+inline DataType operator-(DataType l, DataType r) { return DataType{*l - *r}; }
+inline DataType operator*(DataType l, DataType r) { return DataType{*l * *r}; }
+inline DataType operator/(DataType l, DataType r) { return DataType{*l / *r}; }
+inline DataType operator%(DataType l, DataType r) { return DataType{*l % *r}; }
+
+inline bool operator<(DataType l, DataType r) { return *l < *r; }
+inline bool operator>(DataType l, DataType r) { return *l > *r; }
+inline bool operator<=(DataType l, DataType r) { return *l <= *r; }
+inline bool operator>=(DataType l, DataType r) { return *l >= *r; }
+inline bool operator!=(DataType l, DataType r) { return *l != *r; }
+inline bool operator==(DataType l, DataType r) { return *l == *r; }
+
+inline std::ostream &operator<<(std::ostream &os, DataType x) {
+  os << *x;
+  return os;
+}
+inline std::istream &operator>>(std::istream &is, DataType &x) {
+  is >> x.underlying;
+  return is;
+}
+} // namespace popsolver
+
+namespace std {
+template <> struct hash<popsolver::DataType> {
+  std::size_t operator()(const popsolver::DataType &k) const {
+    return std::hash<popsolver::DataType::UnderlyingType>()(*k);
+  }
+};
+} // namespace std
+
+namespace popsolver {
+
 class Domain {
 public:
-  unsigned min_;
-  unsigned max_;
-  Domain(unsigned min_, unsigned max_) : min_(min_), max_(max_) {}
-  unsigned min() const { return min_; }
-  unsigned max() const { return max_; }
-  unsigned val() const {
+  DataType min_;
+  DataType max_;
+  Domain(DataType min_, DataType max_) : min_(min_), max_(max_) {}
+  DataType min() const { return min_; }
+  DataType max() const { return max_; }
+  DataType val() const {
     assert(min_ == max_);
     return min_;
   }
-  unsigned size() const { return max_ - min_ + 1; }
+  DataType size() const { return max_ - min_ + DataType{1}; }
 };
 
 class Domains {
@@ -90,14 +206,14 @@ public:
 class Model;
 
 class Solution {
-  std::vector<unsigned> values;
+  std::vector<DataType> values;
   ConstraintEvaluationSummary constraintEvalSummary;
 
 public:
   Solution() = default;
-  Solution(std::vector<unsigned> values) : values(values) {}
-  unsigned &operator[](Variable v) { return values[v.id]; }
-  unsigned operator[](Variable v) const { return values[v.id]; }
+  Solution(std::vector<DataType> values) : values(values) {}
+  DataType &operator[](Variable v) { return values[v.id]; }
+  DataType operator[](Variable v) const { return values[v.id]; }
   bool validSolution() const { return values.size() > 0; }
   ConstraintEvaluationSummary constraintsEvaluated() {
     return constraintEvalSummary;
@@ -134,18 +250,23 @@ public:
   Model();
   ~Model();
   std::vector<std::string> debugNames;
-  std::unordered_map<unsigned, Variable> constants;
-  std::vector<unsigned> priority;
+  std::unordered_map<DataType, Variable> constants;
+  std::vector<DataType> priority;
   std::vector<std::unique_ptr<Constraint>> constraints;
   Domains initialDomains;
 
   /// Add a new variable.
   Variable addVariable(const std::string &debugName = "");
   /// Add a new variable with a domain of [min,max].
-  Variable addVariable(unsigned min, unsigned max,
+  Variable addVariable(DataType min, DataType max,
+                       const std::string &debugName = "");
+  Variable addVariable(DataType::UnderlyingType min,
+                       DataType::UnderlyingType max,
                        const std::string &debugName = "");
   /// Add a constant with the specified value.
-  Variable addConstant(unsigned value, const std::string &debugName = "");
+  Variable addConstant(DataType value, const std::string &debugName = "");
+  Variable addConstant(DataType::UnderlyingType value,
+                       const std::string &debugName = "");
   /// Add a constant with value 0 (for convenience).
   Variable zero();
   /// Add a constant with value 1 (for convenience).
@@ -181,35 +302,38 @@ public:
   /// Constrain the left variable to be less than the right variable.
   void less(Variable left, Variable right);
   /// Constrain the left variable to be less than the right constant.
-  void less(Variable left, unsigned right);
+  void less(Variable left, DataType right);
   /// Constrain the left constant to be less than the right variable.
-  void less(unsigned left, Variable right);
+  void less(DataType left, Variable right);
   /// Constrain the left variable to be less than or equal to the right
   /// variable.
   void lessOrEqual(Variable left, Variable right);
   /// Constrain the left variable to be less than or equal to the right
   /// constant.
-  void lessOrEqual(Variable left, unsigned right);
+  void lessOrEqual(Variable left, DataType right);
   /// Constrain the left constant to be less than or equal to the right
   /// variable.
-  void lessOrEqual(unsigned left, Variable right);
+  void lessOrEqual(DataType left, Variable right);
   /// Constrain the left variable to be equal to the right variable.
   void equal(Variable left, Variable right);
   /// Constrain the left variable to be equal to the right constant.
-  void equal(Variable left, unsigned right);
+  void equal(Variable left, DataType right);
   /// Constrain the left constant to be equal to the right variable.
-  void equal(unsigned left, Variable right);
+  void equal(DataType left, Variable right);
   /// Constrain the right variable to be a factor of the left constant.
-  void factorOf(unsigned left, Variable right);
+  void factorOf(DataType left, Variable right);
   /// Constrain the right variable to be a factor of the left variable.
   void factorOf(Variable left, Variable right);
   /// Add a new variable that is the result of applying the specified function
-  /// to the specified variables.
-  Variable call(std::vector<Variable> vars,
-                std::function<boost::optional<unsigned>(
-                    const std::vector<unsigned> &values)>
-                    f,
-                const std::string &debugName = "");
+  /// to the specified variables. Input variable domains are restricted to be
+  /// at most the range of T.
+  /// Supported specialisations are DataType, unsigned.
+  template <typename T>
+  Variable
+  call(std::vector<Variable> vars,
+       std::function<boost::optional<DataType>(const std::vector<T> &values)> f,
+       const std::string &debugName = "");
+
   /// Find a solution that minimizes the value of the specified variables.
   /// Lexicographical comparison is used to compare the values of the variables.
   /// \returns The solution

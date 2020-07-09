@@ -29,11 +29,11 @@ struct PartitionVariables {
 static Partition makePartition(const popsolver::Solution &solution,
                                const PartitionVariables &vars) {
   Partition partition;
-  partition.chansPerGroup = solution[vars.chansPerGroup];
-  partition.batch = solution[vars.batchSplit];
-  partition.chanGroups = solution[vars.chanGroupsSplit];
+  partition.chansPerGroup = solution[vars.chansPerGroup].getAs<unsigned>();
+  partition.batch = solution[vars.batchSplit].getAs<unsigned>();
+  partition.chanGroups = solution[vars.chanGroupsSplit].getAs<unsigned>();
   for (unsigned i = 0; i < vars.fieldSplit.size(); i++) {
-    partition.field.push_back(solution[vars.fieldSplit[i]]);
+    partition.field.push_back(solution[vars.fieldSplit[i]].getAs<unsigned>());
 
     // currently kernel is not split. set it to 1
     partition.kernel.push_back(1);
@@ -182,7 +182,7 @@ static popsolver::Variable constructModel(
   };
   splitVars.insert(splitVars.end(), fieldVar.begin(), fieldVar.end());
   splitVars.insert(splitVars.end(), kernelVar.begin(), kernelVar.end());
-  auto cycles = m.call(
+  auto cycles = m.call<unsigned>(
       splitVars, [target, params, vectorWidth, fieldShape,
                   detChansPerGroup](const std::vector<unsigned> &values) {
         // Note that "perTile" is not a partition per se, but it contains
@@ -217,7 +217,8 @@ static popsolver::Variable constructModel(
         if (detChansPerGroup != perTile.chansPerGroup) {
           rearrangementCost += bytesPerTile / 4;
         }
-        return computeCost + exchangeCost + rearrangementCost;
+        return popsolver::DataType{computeCost + exchangeCost +
+                                   rearrangementCost};
       });
   return cycles;
 }
@@ -318,7 +319,7 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   assert(s.validSolution());
   plan.partition = makePartition(s, vars);
 
-  return {plan, s[cycles]};
+  return {plan, *s[cycles]};
 }
 
 std::ostream &operator<<(std::ostream &os, const Partition &p) {

@@ -102,7 +102,7 @@ const std::string &Model::getDebugName(Variable v) const {
   return debugNames[v.id];
 }
 
-Variable Model::addVariable(unsigned min, unsigned max,
+Variable Model::addVariable(DataType min, DataType max,
                             const std::string &debugName) {
   assert(min <= max);
   Variable v(initialDomains.size());
@@ -112,7 +112,7 @@ Variable Model::addVariable(unsigned min, unsigned max,
       return result.first->second;
   }
   initialDomains.push_back({min, max});
-  priority.push_back(0);
+  priority.push_back(popsolver::DataType{0});
   if (debugName.empty()) {
     debugNames.emplace_back("var#" + std::to_string(v.id));
   } else {
@@ -122,12 +122,24 @@ Variable Model::addVariable(unsigned min, unsigned max,
 }
 
 Variable Model::addVariable(const std::string &debugName) {
-  return addVariable(0, std::numeric_limits<unsigned>::max() - 1, debugName);
+  return addVariable(popsolver::DataType{0},
+                     DataType::max() - popsolver::DataType{1}, debugName);
 }
 
-Variable Model::addConstant(unsigned value, const std::string &debugName) {
+Variable Model::addVariable(DataType::UnderlyingType min,
+                            DataType::UnderlyingType max,
+                            const std::string &debugName) {
+  return addVariable(DataType{min}, DataType{max}, debugName);
+}
+
+Variable Model::addConstant(DataType value, const std::string &debugName) {
   return addVariable(value, value,
-                     debugName.empty() ? std::to_string(value) : debugName);
+                     debugName.empty() ? std::to_string(*value) : debugName);
+}
+
+Variable Model::addConstant(DataType::UnderlyingType value,
+                            const std::string &debugName) {
+  return addConstant(DataType{value}, debugName);
 }
 
 Variable Model::zero() { return addConstant(0u); }
@@ -253,12 +265,12 @@ void Model::less(Variable left, Variable right) {
   addConstraint(std::move(p));
 }
 
-void Model::less(Variable left, unsigned right) {
+void Model::less(Variable left, DataType right) {
   auto rightVar = addConstant(right);
   less(left, rightVar);
 }
 
-void Model::less(unsigned left, Variable right) {
+void Model::less(DataType left, Variable right) {
   auto leftVar = addConstant(left);
   less(leftVar, right);
 }
@@ -268,12 +280,12 @@ void Model::lessOrEqual(Variable left, Variable right) {
   addConstraint(std::move(p));
 }
 
-void Model::lessOrEqual(Variable left, unsigned right) {
+void Model::lessOrEqual(Variable left, DataType right) {
   auto rightVar = addConstant(right);
   lessOrEqual(left, rightVar);
 }
 
-void Model::lessOrEqual(unsigned left, Variable right) {
+void Model::lessOrEqual(DataType left, Variable right) {
   auto leftVar = addConstant(left);
   lessOrEqual(leftVar, right);
 }
@@ -283,15 +295,15 @@ void Model::equal(Variable left, Variable right) {
   addConstraint(std::move(p));
 }
 
-void Model::equal(unsigned left, Variable right) {
+void Model::equal(DataType left, Variable right) {
   equal(addConstant(left), right);
 }
 
-void Model::equal(Variable left, unsigned right) {
+void Model::equal(Variable left, DataType right) {
   equal(left, addConstant(right));
 }
 
-void Model::factorOf(unsigned left_, Variable right) {
+void Model::factorOf(DataType left_, Variable right) {
   const auto left = addConstant(left_);
   const auto result =
       addVariable(makeParameterisedOpDebugName({left, right}, "factorOf"));
@@ -304,23 +316,35 @@ void Model::factorOf(Variable left, Variable right) {
   equal(left, product({result, right}));
 }
 
-Variable Model::call(std::vector<Variable> vars,
-                     std::function<boost::optional<unsigned>(
-                         const std::vector<unsigned> &values)>
-                         f,
-                     const std::string &debugName) {
-  for (auto var : vars) {
+template <typename T>
+Variable Model::call(
+    std::vector<Variable> vars,
+    std::function<boost::optional<DataType>(const std::vector<T> &values)> f,
+    const std::string &debugName) {
+  for (const auto var : vars) {
     // Call constraints cannot be used to cut down the search space until all of
     // their operands are set. Prefer to set variables that are operands of
     // calls first.
-    priority[var.id] = 1;
+    priority[var.id] = popsolver::DataType{1};
   }
   auto result = addVariable(debugName);
   auto p = std::unique_ptr<Constraint>(
-      new GenericAssignment(result, std::move(vars), f));
+      new GenericAssignment<T>(result, std::move(vars), f));
   addConstraint(std::move(p));
   return result;
 }
+
+template Variable
+Model::call<DataType>(std::vector<Variable>,
+                      std::function<boost::optional<DataType>(
+                          const std::vector<DataType> &values)>,
+                      const std::string &);
+
+template Variable
+Model::call<unsigned>(std::vector<Variable>,
+                      std::function<boost::optional<DataType>(
+                          const std::vector<unsigned> &values)>,
+                      const std::string &);
 
 static bool foundLowerCostSolution(const Domains domains,
                                    const std::vector<Variable> &objectives,
@@ -350,8 +374,8 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
   };
   boost::optional<Variable> v;
   const auto numVars = domains.size();
-  for (unsigned i = 0; i != numVars; ++i) {
-    if (domains[Variable(i)].size() > 1 &&
+  for (std::size_t i = 0; i != numVars; ++i) {
+    if (domains[Variable(i)].size() > popsolver::DataType{1} &&
         (!v || lhsIsHigherPriority(Variable(i), *v))) {
       v = Variable(i);
     }
@@ -359,7 +383,7 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
   if (!v) {
     // All variables are assigned.
     if (!foundSolution) {
-      std::vector<unsigned> values;
+      std::vector<DataType> values;
       values.reserve(domains.size());
       for (const auto &d : domains) {
         values.push_back(d.val());
@@ -378,7 +402,7 @@ Model::minimize(Scheduler &scheduler, const std::vector<Variable> &objectives,
   }
   // Evaluate the cost for every possible value of this variable.
   bool improvedSolution = false;
-  for (unsigned value = scheduler.getDomains()[*v].min();
+  for (DataType value = scheduler.getDomains()[*v].min();
        value <= scheduler.getDomains()[*v].max(); ++value) {
     auto savedDomains = scheduler.getDomains();
     scheduler.set(*v, value);

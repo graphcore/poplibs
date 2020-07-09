@@ -2,11 +2,22 @@
 #include "Constraint.hpp"
 
 #include "Scheduler.hpp"
-#include <boost/range/iterator_range.hpp>
-#include <limits>
+
 #include <popsolver/Model.hpp>
 
+#include <poplibs_support/Visitor.hpp>
+
+#include <boost/multiprecision/cpp_int.hpp>
+#include <boost/range/iterator_range.hpp>
+
+#include <limits>
+
 using namespace popsolver;
+
+using BigInteger = boost::multiprecision::uint128_t;
+static_assert(
+    sizeof(BigInteger) >= sizeof(DataType::UnderlyingType) * 2,
+    "BigInteger isn't large enough to perform operations on DataType");
 
 Constraint::~Constraint() = default;
 
@@ -19,44 +30,79 @@ bool Product::propagate(Scheduler &scheduler) {
   bool madeChange;
   do {
     madeChange = false;
-    static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
-    auto maxProduct = static_cast<unsigned long long>(domains[left].max()) *
-                      domains[right].max();
-    auto minProduct = static_cast<unsigned long long>(domains[left].min()) *
-                      domains[right].min();
-    if (minProduct > domains[result].max() ||
-        maxProduct < domains[result].min()) {
+
+    // Check if the result doesn't match the inputs
+    // left[max] * right[max] = result[max]
+    // left[min] * right[min] = result[min]
+    const BigInteger maxProduct =
+        BigInteger{*domains[left].max()} * BigInteger{*domains[right].max()};
+    const BigInteger minProduct =
+        BigInteger{*domains[left].min()} * BigInteger{*domains[right].min()};
+    if (minProduct > *domains[result].max() ||
+        maxProduct < *domains[result].min()) {
       return false;
     }
-    if (minProduct > domains[result].min()) {
-      scheduler.setMin(result, minProduct);
+    if (minProduct > *domains[result].min()) {
+      // This is fine to do unchecked because minProduct is less than the
+      // value in *domains[result].max() which is limited to DataType. Otherwise
+      // We would have already bailed out.
+      scheduler.setMin(result,
+                       popsolver::DataType{
+                           minProduct.convert_to<DataType::UnderlyingType>()});
       madeChange = true;
     }
-    if (maxProduct < domains[result].max()) {
-      scheduler.setMax(result, maxProduct);
+    if (maxProduct < *domains[result].max()) {
+      // This is fine to do unchecked because we are less than the value of
+      // *domains[result].max(), which is of type DataType.
+      scheduler.setMax(result,
+                       popsolver::DataType{
+                           maxProduct.convert_to<DataType::UnderlyingType>()});
       madeChange = true;
     }
-    if (domains[right].min() != 0) {
+
+    // Check if the inputs do not match the result
+    // We shortcut some calculations avoiding a costly divide by noting:
+    // result[min] <= left[max] * right[min] <= result[max]
+    // result[min] <= left[min] * right[max] <= result[max]
+
+    // If we want to reduce the value of left[max] we can check if it
+    // is valid by comparing against result[max].
+    //
+    // If (left[max] * right[min] <= result[max]) is not true,
+    // we can reduce the value of left[max] to be result[max] / right[min]. And
+    // likewise for all other permutations.
+
+    // left[max] * right[min] <= result[max]
+    if (domains[right].min() != popsolver::DataType{0} &&
+        BigInteger{*domains[right].min()} * BigInteger{*domains[left].max()} >
+            BigInteger{*domains[result].max()}) {
       auto newLeftMax = domains[result].max() / domains[right].min();
-      if (newLeftMax < domains[left].max()) {
-        if (newLeftMax < domains[left].min())
-          return false;
-        scheduler.setMax(left, newLeftMax);
-        madeChange = true;
-      }
+      assert(newLeftMax < domains[left].max());
+      if (newLeftMax < domains[left].min())
+        return false;
+      scheduler.setMax(left, newLeftMax);
+      madeChange = true;
     }
-    if (domains[left].min() != 0) {
+    // left[min] * right[max] <= result[max]
+    if (domains[left].min() != popsolver::DataType{0} &&
+        BigInteger{*domains[left].min()} * BigInteger{*domains[right].max()} >
+            BigInteger{*domains[result].max()}) {
       auto newRightMax = domains[result].max() / domains[left].min();
-      if (newRightMax < domains[right].max()) {
-        if (newRightMax < domains[right].min())
-          return false;
-        scheduler.setMax(right, newRightMax);
-        madeChange = true;
-      }
+      assert(newRightMax < domains[right].max());
+      if (newRightMax < domains[right].min())
+        return false;
+      scheduler.setMax(right, newRightMax);
+      madeChange = true;
     }
-    if (domains[right].max() != 0) {
-      auto newLeftMin = domains[result].min() / domains[right].max() +
-                        (domains[result].min() % domains[right].max() != 0);
+
+    // left[min] * right[max] >= result[min]
+    if (domains[right].max() != popsolver::DataType{0} &&
+        BigInteger{*domains[right].max()} * BigInteger{*domains[left].min()} <
+            BigInteger{*domains[result].min()}) {
+      auto newLeftMin =
+          domains[result].min() / domains[right].max() +
+          popsolver::DataType{(domains[result].min() % domains[right].max() !=
+                               popsolver::DataType{0})};
       if (newLeftMin > domains[left].min()) {
         if (newLeftMin > domains[left].max())
           return false;
@@ -64,9 +110,14 @@ bool Product::propagate(Scheduler &scheduler) {
         madeChange = true;
       }
     }
-    if (domains[left].max() != 0) {
-      auto newRightMin = domains[result].min() / domains[left].max() +
-                         (domains[result].min() % domains[left].max() != 0);
+    // left[max] * right[min] >= result[min]
+    if (domains[left].max() != popsolver::DataType{0} &&
+        BigInteger{*domains[left].max()} * BigInteger{*domains[right].min()} <
+            BigInteger{*domains[result].min()}) {
+      auto newRightMin =
+          domains[result].min() / domains[left].max() +
+          popsolver::DataType{(domains[result].min() % domains[left].max() !=
+                               popsolver::DataType{0})};
       if (newRightMin > domains[right].min()) {
         if (newRightMin > domains[right].max())
           return false;
@@ -88,39 +139,44 @@ bool Sum::propagate(Scheduler &scheduler) {
   // the maximum value of the result plus the maximum value of any operand so
   // that we can compute the max sum of a subset containing all but one variable
   // by subtracting the the maximum value of the variable from the max sum.
-  static_assert(sizeof(unsigned long long) >= sizeof(unsigned) * 2, "");
-  unsigned long long minSum = 0;
-  unsigned long long maxSum = 0;
+  BigInteger minSum = 0;
+  BigInteger maxSum = 0;
   for (const auto &v : args) {
-    minSum = minSum + domains[v].min();
-    maxSum = maxSum + domains[v].max();
+    minSum = minSum + *domains[v].min();
+    maxSum = maxSum + *domains[v].max();
   }
-  if (minSum > domains[result].max() || maxSum < domains[result].min()) {
+  if (minSum > *domains[result].max() || maxSum < *domains[result].min()) {
     return false;
   }
-  if (minSum > domains[result].min()) {
-    scheduler.setMin(result, minSum);
+  if (minSum > *domains[result].min()) {
+    scheduler.setMin(
+        result,
+        popsolver::DataType{minSum.convert_to<DataType::UnderlyingType>()});
   }
-  if (maxSum < domains[result].max()) {
-    scheduler.setMax(result, maxSum);
+  if (maxSum < *domains[result].max()) {
+    scheduler.setMax(
+        result,
+        popsolver::DataType{maxSum.convert_to<DataType::UnderlyingType>()});
   }
   for (const auto &v : args) {
     auto &domain = domains[v];
-    auto minOtherVarsSum = minSum - domain.min();
-    if (minOtherVarsSum > domains[result].max())
+    auto minOtherVarsSum = minSum - *domain.min();
+    if (minOtherVarsSum > *domains[result].max())
       return false;
-    auto newMax = domains[result].max() - minOtherVarsSum;
-    if (newMax < domain.min())
+    auto newMax = *domains[result].max() - minOtherVarsSum;
+    if (newMax < *domain.min())
       return false;
-    if (newMax < domain.max())
-      scheduler.setMax(v, newMax);
-    auto maxOtherVarsSum = maxSum - domain.max();
-    if (maxOtherVarsSum < domains[result].min()) {
-      auto newMin = domains[result].min() - maxOtherVarsSum;
-      if (newMin > domain.max())
+    if (newMax < *domain.max())
+      scheduler.setMax(v, popsolver::DataType{
+                              newMax.convert_to<DataType::UnderlyingType>()});
+    auto maxOtherVarsSum = maxSum - *domain.max();
+    if (maxOtherVarsSum < *domains[result].min()) {
+      auto newMin = *domains[result].min() - maxOtherVarsSum;
+      if (newMin > *domain.max())
         return false;
-      if (newMin > domain.min())
-        scheduler.setMin(v, newMin);
+      if (newMin > *domain.min())
+        scheduler.setMin(v, popsolver::DataType{
+                                newMin.convert_to<DataType::UnderlyingType>()});
     }
   }
   return true;
@@ -144,10 +200,10 @@ bool Max::propagate(Scheduler &scheduler) {
   const auto resultLower = domains[result].min();
   const auto resultUpper = domains[result].max();
 
-  auto maxLowerBound = std::numeric_limits<unsigned>::min();
-  auto minLowerBound = std::numeric_limits<unsigned>::max();
-  auto maxUpperBound = std::numeric_limits<unsigned>::min();
-  auto minUpperBound = std::numeric_limits<unsigned>::max();
+  auto maxLowerBound = DataType::min();
+  auto minLowerBound = DataType::max();
+  auto maxUpperBound = DataType::min();
+  auto minUpperBound = DataType::max();
 
   for (const auto &var : args) {
     if (domains[var].min() > resultUpper) {
@@ -196,10 +252,10 @@ bool Min::propagate(Scheduler &scheduler) {
   const auto resultLower = domains[result].min();
   const auto resultUpper = domains[result].max();
 
-  auto maxLowerBound = std::numeric_limits<unsigned>::min();
-  auto minLowerBound = std::numeric_limits<unsigned>::max();
-  auto maxUpperBound = std::numeric_limits<unsigned>::min();
-  auto minUpperBound = std::numeric_limits<unsigned>::max();
+  auto maxLowerBound = DataType::min();
+  auto minLowerBound = DataType::max();
+  auto maxUpperBound = DataType::min();
+  auto minUpperBound = DataType::max();
 
   for (const auto &var : args) {
     if (domains[var].max() < resultLower) {
@@ -239,10 +295,10 @@ bool Less::propagate(Scheduler &scheduler) {
     return false;
   }
   if (domains[left].min() >= domains[right].min()) {
-    scheduler.setMin(right, domains[left].min() + 1);
+    scheduler.setMin(right, domains[left].min() + popsolver::DataType{1});
   }
   if (domains[right].max() <= domains[left].max()) {
-    scheduler.setMax(left, domains[right].max() - 1);
+    scheduler.setMax(left, domains[right].max() - popsolver::DataType{1});
   }
   return true;
 }
@@ -264,19 +320,22 @@ bool LessOrEqual::propagate(Scheduler &scheduler) {
   return true;
 }
 
-bool GenericAssignment::propagate(Scheduler &scheduler) {
+template <> bool GenericAssignment<DataType>::propagate(Scheduler &scheduler) {
   const Domains &domains = scheduler.getDomains();
   for (std::size_t i = 1; i != vars.size(); ++i) {
-    if (domains[vars[i]].size() > 1) {
+    const auto domain = domains[vars[i]];
+    if (domain.size() > popsolver::DataType{1}) {
       return true;
     }
-    values[i - 1] = domains[vars[i]].val();
+    values[i - 1] = domain.val();
   }
-  const auto result = vars[0];
-  const boost::optional<unsigned> x = f(values);
+
+  const auto x = f(values);
+
   if (!x) {
     return false;
   }
+  const auto result = vars[0];
   if (x.get() < domains[result].min() || x.get() > domains[result].max()) {
     return false;
   }
@@ -285,3 +344,55 @@ bool GenericAssignment::propagate(Scheduler &scheduler) {
   }
   return true;
 }
+
+template <typename T>
+bool GenericAssignment<T>::propagate(Scheduler &scheduler) {
+  const Domains &domains = scheduler.getDomains();
+  for (std::size_t i = 1; i != vars.size(); ++i) {
+    // Input operands must be with the range allowed for the data type
+    const auto &domain = domains[vars[i]];
+    if (domain.min() > popsolver::DataType{std::numeric_limits<T>::max()} ||
+        domain.max() < popsolver::DataType{std::numeric_limits<T>::min()}) {
+      return false;
+    }
+    if (domain.min() < popsolver::DataType{std::numeric_limits<T>::min()}) {
+      scheduler.setMin(vars[i],
+                       popsolver::DataType{std::numeric_limits<T>::min()});
+    }
+    if (domain.max() > popsolver::DataType{std::numeric_limits<T>::max()}) {
+      scheduler.setMax(vars[i],
+                       popsolver::DataType{std::numeric_limits<T>::max()});
+    }
+  }
+
+  for (std::size_t i = 1; i != vars.size(); ++i) {
+    const auto domain = domains[vars[i]];
+    if (domain.size() > popsolver::DataType{1}) {
+      return true;
+    }
+    values[i - 1] = domain.val();
+  }
+
+  std::vector<T> castedValues{};
+  castedValues.reserve(values.size());
+  for (auto v : values) {
+    castedValues.push_back(v.template getAs<T>());
+  }
+
+  const auto x = f(castedValues);
+
+  if (!x) {
+    return false;
+  }
+  const auto result = vars[0];
+  if (x.get() < domains[result].min() || x.get() > domains[result].max()) {
+    return false;
+  }
+  if (domains[result].min() != x.get() || domains[result].max() != x.get()) {
+    scheduler.set(result, x.get());
+  }
+  return true;
+}
+
+template class popsolver::GenericAssignment<DataType>;
+template class popsolver::GenericAssignment<unsigned>;

@@ -2061,7 +2061,7 @@ static void applyPlanConstraints(popsolver::Model &m,
                                  const popsolver::Variable mLookupSplit) {
   const auto constrainVar = [&](const char *name, popsolver::Variable var) {
     if (auto constraint = planConstraints.get_optional<unsigned>(name)) {
-      m.equal(var, *constraint);
+      m.equal(var, popsolver::DataType{*constraint});
     }
   };
 
@@ -2327,10 +2327,10 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
     return std::make_unique<SlicePlanInternal>();
   }
 
-  p.partition.lookupSplit = s[mLookupSplit];
-  p.partition.slicedDimSplit = s[mDictSplit];
-  p.partition.unslicedDimSplit = s[mEmbeddingSplit];
-  p.partition.unslicedGrainSize = s[mUnslicedGrainSize];
+  p.partition.lookupSplit = *s[mLookupSplit];
+  p.partition.slicedDimSplit = *s[mDictSplit];
+  p.partition.unslicedDimSplit = *s[mEmbeddingSplit];
+  p.partition.unslicedGrainSize = *s[mUnslicedGrainSize];
   p.rank = 2;
   p.slicedDims = {0};
   p.slicedDimSizes = {1};
