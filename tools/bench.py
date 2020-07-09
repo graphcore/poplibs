@@ -20,19 +20,26 @@ TestKey = collections.namedtuple(
     "TestKey", ["target", "config", "name"]
 )
 Expected = collections.namedtuple(
-    "Expected", ["cycles", "total_memory", "max_tile_memory"]
+    "Expected", ["cycles", "cycles_change", 
+                 "total_memory", "total_memory_change", 
+                 "max_tile_memory", "max_tile_memory_change"]
 )
 
 CHANGED_RESULT_PREFIX = "CHANGED_BENCHMARK_RESULT"
 CHANGED_RESULT_PATTERN = re.compile(
     '^' + CHANGED_RESULT_PREFIX + ': '
     'target=(\w+),config=(\w+),name=(\w+),'
-    'cycles=(\d+),total_memory=(\d+),max_tile_memory=(\d+)$')
+    'cycles=(\d+)\((.+)%\),'
+    'total_memory=(\d+)\((.+)%\),'
+    'max_tile_memory=(\d+)\((.+)%\)$')
 
 NONE = Expected(
     cycles = sys.maxsize,
+    cycles_change = sys.maxsize,
     total_memory = sys.maxsize,
-    max_tile_memory = sys.maxsize
+    total_memory_change = sys.maxsize,
+    max_tile_memory = sys.maxsize,
+    max_tile_memory_change = sys.maxsize
 )
 
 def read_ignoring_comments(f):
@@ -44,7 +51,7 @@ def read_results_file(path):
     with open(path) as results_file:
         results_reader = csv.reader(read_ignoring_comments(results_file), delimiter=',')
         expected_dict = {
-          TestKey._make(row[0:3]): Expected._make(int(x) for x in row[3:])
+          TestKey._make(row[0:3]): Expected._make(float(x) for x in row[3:])
           for row in results_reader if row
         }
         return expected_dict
@@ -130,22 +137,23 @@ def main():
                 f"ERROR: {name} usage ({actual_value:,}) differs by "
                 f"{pc_diff:.1f}% from the expected value ({expected_value:,})"
             )
-            return False
-        return True
+            return [False, pc_diff]
+        return [True, float(0)]
 
-    passed = True
-    passed &= check_value("Total memory", memory, expected.total_memory)
-    passed &= check_value(
-        "Max tile memory", max_tile_mem, expected.max_tile_memory
-    )
-    passed &= check_value("Cycles", cycles, expected.cycles)
-    if not passed:
+    [mem_passed, mem_diff] = check_value(
+        "Total memory", memory, expected.total_memory)
+    [tile_mem_passed, tile_mem_diff] = check_value(
+        "Max tile memory", max_tile_mem, expected.max_tile_memory)
+    [cycles_passed, cycles_diff] = check_value("Cycles", cycles, expected.cycles)
+
+    if not (mem_passed and tile_mem_passed and cycles_passed):
         out_line = (
             CHANGED_RESULT_PREFIX +
             f': target={args.device_type},'
             f'config={args.config},name={args.name},'
-            f'cycles={cycles},total_memory={memory},'
-            f'max_tile_memory={max_tile_mem}'
+            f'cycles={cycles}({cycles_diff:.1f}%),'
+            f'total_memory={memory}({mem_diff:.1f}%),'
+            f'max_tile_memory={max_tile_mem}({tile_mem_diff:.1f}%)'
         )
         # update_bench.py relies on this format of output
         assert CHANGED_RESULT_PATTERN.match(out_line)
