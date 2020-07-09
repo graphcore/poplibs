@@ -510,7 +510,7 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleWeightLoadEstimate(
   } else {
     assert(convGroupsPerGroup == 4 || convGroupsPerGroup == 2);
     const std::uint64_t workerLoadWeightsCycles =
-        (convGroupsPerGroup == 4) ? 10 : 14;
+        (convGroupsPerGroup == 4) ? 10 : 12;
     cycles += (9 + // brnzdec, put CCCSLOAD pointer (stall), store weights
                    // pointer for rearrangement.
                6 + // runall
@@ -546,7 +546,7 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
       weightLoadCycles +
       (half8Conv ? 0 : 3) + // deal with whether to swap output pointers or not
       2 +                   // store new worklist pointer and increment
-      (half8Conv ? 0 : 2) + // or, store implicit zero/stride
+      (half8Conv ? 0 : 1) + // or, store implicit zero/stride
       6 +                   // runall
       6 +                   // sync
       1;                    // load new weights pointer
@@ -607,6 +607,7 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
         workerCycles += 1; // Extra branch to exit
       }
       std::uint64_t rowCycles = 0;
+
       if (outputStride == 1) {
         if (numFieldElems < loopDecisionThreshold) {
           if (implicitZeroing) {
@@ -640,6 +641,12 @@ inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
           rowCycles += 15 + 2 * (numFieldElems - 3);
         }
       }
+
+      // For float partials, dummy dual load is used to incrememnt pointers
+      if (floatPartials) {
+        rowCycles -= 1;
+      }
+
       // Account for the passes over input data
       workerCycles += (floatPartials ? 3 : 0) + rowCycles * inputDataPasses;
       // Count field elems total so we can account for the merging copy

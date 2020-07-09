@@ -334,13 +334,12 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry):
       ld64putcs (5 * 4 + SECOND_WEIGHT_BANK)
       ld64putcs (2 * 4)
       ld64putcs (3 * 4)
-      xnor $s_swap_out_ptrs_on_load, $s_swap_out_ptrs_on_load, $mzero
+      sub       $s_swap_out_ptrs_on_load, 4, $s_swap_out_ptrs_on_load
       ld64putcs (2 * 4 + SECOND_WEIGHT_BANK)
       ld64putcs (3 * 4 + SECOND_WEIGHT_BANK)
       ld64putcs (0 * 4)
       ld64putcs (1 * 4)
       ld64putcs (0 * 4 + SECOND_WEIGHT_BANK)
-      and $s_swap_out_ptrs_on_load, $s_swap_out_ptrs_on_load, 0x4
       ld64putcs (1 * 4 + SECOND_WEIGHT_BANK)
 
       st32 $s_worklists_deltan_ptr, $sp, $mzero, (PROCESS_GROUP_WORKER_STATE_OFFSET_worklist + 4)/4
@@ -405,6 +404,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry):
 #define w_input_pair a0:1
 #define w_partials_pair a2:3
 #define w_input_and_partials_pairs a0:3
+#define w_dummy_a64 a0:1
 #define w_output_pair a4:5
 // We need a second register in order to delay
 // output stores so that we don't cause a conflict with
@@ -506,6 +506,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 //=============
 #define w_curr_out_ptr m8
 #define w_last_out_ptr m9
+#define w_out_ptr_pair m8:9
 //=============
     add $w_last_out_ptr, $w_last_out_base_ptr, $w_out_offset
     add $w_curr_out_ptr, $w_curr_out_base_ptr, $w_out_offset
@@ -526,8 +527,12 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     // Two loops required, accounting for 2 float partials each
     worker_process_group_field_row_implicit_zero_\WORK_MACRO_POSTFIX W0 TSLIC_F16V4_1x4_W0 \SLIC_INSTR
     ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1
-    add $w_last_out_ptr, $w_last_out_ptr, 2 * PARTIAL_ELEM_SIZE
-    add $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
+    
+    // Dummy loads
+    {
+      ld2x64pace $w_dummy_a64, $azeros, $w_out_ptr_pair+=, $mzero, 0b0000
+      fnop
+    }
     worker_process_group_field_row_implicit_zero_\WORK_MACRO_POSTFIX W1 TSLIC_F16V4_1x4_W1 \SLIC_INSTR
     brnzdec $w_work_items, .Lworker_process_group_worklist_loop\@
     exitz $mzero
@@ -537,9 +542,12 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     // No implicit zeroing path.
     // Two loops required, accounting for 2 float partials each
     worker_process_group_field_row_\WORK_MACRO_POSTFIX W0 TSLIC_F16V4_1x4_W0 \SLIC_INSTR
-    ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1
-    add $w_last_out_ptr, $w_last_out_ptr, 2 * PARTIAL_ELEM_SIZE
-    add $w_curr_out_ptr, $w_curr_out_ptr, 2 * PARTIAL_ELEM_SIZE
+    ldz16step $w_num_field_elems, $mzero, $w_worklist_ptr+=, 1 
+    // Dummy loads
+    {
+      ld2x64pace $w_dummy_a64, $azeros, $w_out_ptr_pair+=, $mzero, 0b0000
+      fnop
+    }
     worker_process_group_field_row_\WORK_MACRO_POSTFIX W1 TSLIC_F16V4_1x4_W1 \SLIC_INSTR
 .endif
 
@@ -577,7 +585,6 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 // >= 5 items, output stride = 1 with implicit zero
 .macro worker_process_group_field_row_implicit_zero_stride1 ID SLIC_FLAGS SLIC_INSTR
     tapack $w_inoutout_triptr, $w_in_ptr, $w_last_out_ptr, $w_curr_out_ptr
-
     add $w_num_field_elems, $w_num_field_elems, -5
     brneg $w_num_field_elems, .Lworker_process_group_field_row_implicit_zero_stride1_lt5_elems_\ID
     ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $w_implicit_zero_and_strides, 0b0100
@@ -1016,8 +1023,6 @@ CODELET_SYMBOL(worker_load_weights_2x2x2):
   // 2 workers * 16 bytes, and overwrite 2 workers * 32 bytes.
   mul $w_weights_in_offset, $w_id, 16
   mul $w_weights_out_offset, $w_id, 32
-  sub $w_id, 5, $w_id
-  brz $w_id, 0f
 
   ld64 $a0:1, $w_weights_ptr, $w_weights_in_offset, 0
   { ld64 $a2:3, $w_weights_ptr, $w_weights_in_offset, 1
@@ -1029,8 +1034,8 @@ CODELET_SYMBOL(worker_load_weights_2x2x2):
   { st64 $a4:5, $mvertex_base, $w_weights_out_offset, 2
     sort4x32hi $a4:5, $azeros, $a2:3 }
   st64 $a4:5, $mvertex_base, $w_weights_out_offset, 3
-0:
   exitz $mzero
+
 //=============
 #undef w_weights_out_offset
 #undef w_weights_in_offset
