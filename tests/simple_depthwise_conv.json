@@ -1,0 +1,22 @@
+{
+	"0": {
+		"transform": {
+			"combineConvGroupsFactor": [
+				2,
+				4,
+				8,
+				16
+			]
+		}
+	},
+	"1": {
+		"transform": {
+			"combineConvGroupsFactor": [
+				2,
+				4,
+				8,
+				16
+			]
+		}
+	}
+}

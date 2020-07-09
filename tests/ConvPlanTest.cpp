@@ -450,6 +450,157 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
                     poputil::poplibs_error);
 }
 
+BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_2InputChannels) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+      "0": {
+        "transform": {
+          "combineConvGroupsFactor": [2, 4, 8, 16]
+        }
+      }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // must have one input channel per group for the combineConvGroup transform
+  BOOST_CHECK_THROW(
+      plan = poplin::getPlan(target,
+                             poplin::ConvParams{
+                                 poplar::FLOAT, // Data type
+                                 1,             // batch size
+                                 {1, 1},        // input field shape
+                                 {1, 1},        // kernel shape
+                                 2, // input channels (invalid! must be 1)
+                                 1, // output channels
+                                 1  // conv groups
+                             },
+                             options, &cache),
+      poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(ValidCombineConvGroups_ExpandDims) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "0": {
+          "transform":{
+            "combineConvGroupsFactor": [2, 4, 8, 16],
+            "expandDims": []
+        }
+      }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+
+  // expandDims is constrained but constrained to be empty so this is fine.
+  poplin::getPlan(target,
+                  poplin::ConvParams{
+                      poplar::FLOAT, // Data type
+                      1,             // batch size
+                      {1, 1},        // input field shape
+                      {1, 1},        // kernel shape
+                      1,             // input channels
+                      1,             // output channels
+                      2              // conv groups
+                  },
+                  options, &cache);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_ExpandDims) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "0": {
+          "transform":{
+            "combineConvGroupsFactor": [2, 4, 8, 16],
+            "expandDims": [0, 1]
+        }
+      }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // Sometimes we cannot have both combineConvGroups and expandDims constrained.
+  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
+                                           poplin::ConvParams{
+                                               poplar::FLOAT, // Data type
+                                               1,             // batch size
+                                               {1, 1}, // input field shape
+                                               {1, 1}, // kernel shape
+                                               3,      // input channels
+                                               1,      // output channels
+                                               2       // conv groups
+                                           },
+                                           options, &cache),
+                    poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(InvalidCombineConvGroups_OutChanFlattenDims) {
+  poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
+  const auto &target = graph.getTarget();
+  poplin::PlanningCache cache;
+
+  using namespace boost::property_tree;
+  std::stringstream ss;
+  ss << R"delim(
+    {
+       "0": {
+          "transform":{
+            "combineConvGroupsFactor": [2, 4, 8, 16],
+            "outChanFlattenDims": [0, 1]
+        }
+      }
+    }
+  )delim";
+  ptree t;
+  json_parser::read_json(ss, t);
+  auto options = poplin::ConvOptions(target);
+  options.planConstraints = std::move(t);
+  poplin::Plan plan;
+
+  // Sometimes we cannot have both combineConvGroups and outChanFlattenDims
+  // constrained.
+  BOOST_CHECK_THROW(plan = poplin::getPlan(target,
+                                           poplin::ConvParams{
+                                               poplar::FLOAT, // Data type
+                                               1,             // batch size
+                                               {1, 1}, // input field shape
+                                               {1, 1}, // kernel shape
+                                               3,      // input channels
+                                               1,      // output channels
+                                               2       // conv groups
+                                           },
+                                           options, &cache),
+                    poputil::poplibs_error);
+}
+
 BOOST_AUTO_TEST_CASE(InvalidLevel) {
   poplar::Graph graph(poplar::Target::createIPUTarget(1, 1, testIpuName));
   const auto &target = graph.getTarget();
