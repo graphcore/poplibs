@@ -4,6 +4,7 @@
 #include "popops/codelets.hpp"
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poputil/TileMapping.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -26,13 +27,10 @@ template <> struct TestData<int> {
       -37, 46, 4,   36,  43,  12,  -1,  10,  46,  23,  46,  32,  -24,
       2,   30, 38,  0,   -32, 18,  -45, 41,  -39, -38, 27,  -12, -35,
       33,  12, -43, 45,  8,   32,  -36, -33, 43,  -35, 1};
-
-  static std::array<int, N> expected;
 };
 
 constexpr const std::array<int, N> TestData<int>::data;
 constexpr const std::array<int, N> TestData<int>::deltas;
-std::array<int, N> TestData<int>::expected;
 
 template <> struct TestData<unsigned> {
   constexpr static const std::array<unsigned, N> data = {
@@ -44,13 +42,10 @@ template <> struct TestData<unsigned> {
       28, 46, 39, 70, 72, 67, 16, 47, 13, 81, 82, 15, 25, 89, 85, 34, 46,
       58, 53, 6,  81, 23, 61, 66, 61, 23, 74, 70, 27, 97, 46, 95, 10, 62,
       54, 51, 92, 80, 47, 20, 86, 67, 51, 54, 14, 26, 16, 34, 22, 92};
-
-  static std::array<unsigned, N> expected;
 };
 
 constexpr const std::array<unsigned, N> TestData<unsigned>::data;
 constexpr const std::array<unsigned, N> TestData<unsigned>::deltas;
-std::array<unsigned, N> TestData<unsigned>::expected;
 
 template <typename T>
 void testScaledAddSupervisor(const char *vertex, const Type &type,
@@ -58,82 +53,96 @@ void testScaledAddSupervisor(const char *vertex, const Type &type,
                              const bool &doSubtract) {
   const auto &data = TestData<T>::data;
   const auto &deltas = TestData<T>::deltas;
-  auto &expected = TestData<T>::expected;
   const int k = 9;
 
-  // Generate the expected result
-  for (unsigned i = 0; i < data.size(); i++) {
-    if (doSubtract)
-      expected[i] = data[i] - deltas[i] * k;
-    else
-      expected[i] = data[i] + deltas[i] * k;
-  }
-
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto &target = device.getTarget();
   Graph graph(device.getTarget());
   popops::addCodelets(graph);
 
   Sequence prog;
 
-  // create a ComputeSet for each test case of size = 1...N
+  auto dataTensor = graph.addVariable(type, {N});
+  poputil::mapTensorLinearly(graph, dataTensor);
+
+  graph.createHostWrite("data", dataTensor);
+
+  auto deltasTensor = graph.addVariable(type, {N});
+  poputil::mapTensorLinearly(graph, deltasTensor);
+  graph.createHostWrite("deltas", deltasTensor);
+
+  std::vector<Tensor> outs;
+  outs.reserve(N);
+
+  // put a test case on each tile.
+  auto cs = graph.addComputeSet("cs");
   for (unsigned i = 1; i <= N; ++i) {
-    auto cs = graph.addComputeSet("cs" + std::to_string(i));
+    const unsigned tile = (i - 1) % target.getTilesPerIPU();
+
     auto v = graph.addVertex(cs, vertex);
-    graph.setTileMapping(v, 0);
+    graph.setTileMapping(v, tile);
 
-    auto dataTensor = graph.addVariable(type, {i});
-    graph.setTileMapping(dataTensor, 0);
-    graph.connect(v["A"], dataTensor);
+    Interval interval = {0, i};
+    auto A = graph.addVariable(type, {N});
+    graph.setTileMapping(A, tile);
 
-    graph.createHostWrite("data" + std::to_string(i), dataTensor);
-    graph.createHostRead("data" + std::to_string(i), dataTensor);
+    prog.add(Copy(dataTensor, A));
+    outs.push_back(A);
 
-    auto deltasTensor = graph.addVariable(type, {i});
-    graph.setTileMapping(deltasTensor, 0);
-    graph.connect(v["B"], deltasTensor);
-    graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
+    graph.connect(v["A"], A.slice(interval));
+    graph.connect(v["B"], deltasTensor.slice(interval));
 
     graph.setInitialValue(v["size"], i);
     if (constantFactor) {
       graph.setInitialValue(v["scaleB"], k);
     } else {
       auto factorTensor = graph.addVariable(type, {});
-      graph.setTileMapping(factorTensor, 0);
+      graph.setTileMapping(factorTensor, tile);
       graph.connect(v["scaleB"], factorTensor.reshape({1}));
       graph.setInitialValue(factorTensor, 9);
     }
-    prog.add(Execute(cs));
   }
+  prog.add(Execute(cs));
+
+  auto out = concat(outs);
+  graph.createHostRead("out", out);
 
   Engine e(graph, prog);
 
   const char *pdata = reinterpret_cast<const char *>(data.data());
   const char *pdeltas = reinterpret_cast<const char *>(deltas.data());
 
+  // one tensor for each slice {0..N}
+  std::vector<char> outBuffer(N * N * target.getTypeSize(type));
+
   device.bind([&](const Device &d) {
     e.load(d);
 
-    for (unsigned i = 1; i <= N; ++i) {
-
-      e.writeTensor("data" + std::to_string(i), pdata,
-                    pdata + i * target.getTypeSize(type));
-      e.writeTensor("deltas" + std::to_string(i), pdeltas,
-                    pdeltas + i * target.getTypeSize(type));
-    }
+    e.writeTensor("data", pdata, pdata + N * target.getTypeSize(type));
+    e.writeTensor("deltas", pdeltas, pdeltas + N * target.getTypeSize(type));
 
     e.run();
 
-    std::array<T, N> actual;
-    char *pactual = reinterpret_cast<char *>(actual.data());
-    for (unsigned i = 1; i <= N; ++i) {
-      e.readTensor("data" + std::to_string(i), pactual,
-                   pactual + i * target.getTypeSize(type));
-      for (unsigned j = 0; j < i; ++j) {
-        BOOST_CHECK(actual[j] == expected[j]);
-      }
-    }
+    e.readTensor("out", outBuffer.data(), outBuffer.data() + outBuffer.size());
   });
+
+  std::array<T, N> expected;
+  std::array<T, N> actual;
+  std::copy(&data[0], &data[N], std::begin(expected));
+
+  for (unsigned i = 0; i < N; ++i) {
+    const auto start = i * N * target.getTypeSize(type);
+    copy(target, type, outBuffer.data() + start, actual.data(), N);
+
+    // Generate the next required result given the length of the test has
+    // increased by one. Earlier expected results have already been computed.
+    // Later expected results remain equal to the original input value until
+    // overwritten.
+    expected[i] =
+        doSubtract ? data[i] - deltas[i] * k : data[i] + deltas[i] * k;
+
+    BOOST_TEST(actual == expected, boost::test_tools::per_element());
+  }
 }
 
 BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorIntConstant)

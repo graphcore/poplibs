@@ -4,6 +4,7 @@
 #include "popops/codelets.hpp"
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poputil/TileMapping.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -51,7 +52,7 @@ void testScaledAddSupervisor(
     const float &factorDelta = 1.0, const float testSign = 1.0,
     const bool doXminusaXPlusbY = false, const float &scaleFloatTolerance = 0.0,
     const double testTolerance = 0.1) {
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
   auto &target = device.getTarget();
   Graph graph(device.getTarget());
   float scaledData[N];
@@ -69,24 +70,36 @@ void testScaledAddSupervisor(
        std::string(vertex).rfind("popops::aXPlusbYSupervisor", 0) == 0) &&
       dataType == HALF && deltaType == HALF && scaleType == FLOAT;
   Sequence prog;
-  // create a ComputeSet for each test case of size = 1...N
+
+  auto dataTensor = graph.addVariable(dataType, {N});
+  poputil::mapTensorLinearly(graph, dataTensor);
+
+  graph.createHostWrite("data", dataTensor);
+
+  auto deltasTensor = graph.addVariable(deltaType, {N});
+  poputil::mapTensorLinearly(graph, deltasTensor);
+  graph.createHostWrite("deltas", deltasTensor);
+
+  std::vector<Tensor> outs;
+  outs.reserve(N);
+
+  // put a test case on each tile.
+  auto cs = graph.addComputeSet("cs");
   for (unsigned i = 1; i <= N; ++i) {
-    auto cs = graph.addComputeSet("cs" + std::to_string(i));
+    const unsigned tile = (i - 1) % target.getTilesPerIPU();
+
     auto v = graph.addVertex(cs, vertex);
-    graph.setTileMapping(v, 0);
+    graph.setTileMapping(v, tile);
 
     Interval interval = {0, i};
-    auto dataTensor = graph.addVariable(dataType, {N});
-    graph.setTileMapping(dataTensor, 0);
-    graph.connect(v["A"], dataTensor.slice(interval));
+    auto A = graph.addVariable(dataType, {N});
+    graph.setTileMapping(A, tile);
 
-    graph.createHostWrite("data" + std::to_string(i), dataTensor);
-    graph.createHostRead("data" + std::to_string(i), dataTensor);
+    prog.add(Copy(dataTensor, A));
+    outs.push_back(A);
 
-    auto deltasTensor = graph.addVariable(deltaType, {N});
-    graph.setTileMapping(deltasTensor, 0);
+    graph.connect(v["A"], A.slice(interval));
     graph.connect(v["B"], deltasTensor.slice(interval));
-    graph.createHostWrite("deltas" + std::to_string(i), deltasTensor);
 
     graph.setInitialValue(v["size"], i);
 
@@ -99,7 +112,7 @@ void testScaledAddSupervisor(
       }
     } else {
       auto factorBTensor = graph.addVariable(scaleType, {});
-      graph.setTileMapping(factorBTensor, 0);
+      graph.setTileMapping(factorBTensor, tile);
       if (factorA == 1.0) {
         graph.connect(v["scaleB"], factorBTensor.reshape({1}));
         graph.setInitialValue(factorBTensor, std::fabs(factorB));
@@ -108,7 +121,7 @@ void testScaledAddSupervisor(
         graph.setInitialValue(factorBTensor, factorB);
 
         auto factorATensor = graph.addVariable(scaleType, {});
-        graph.setTileMapping(factorATensor, 0);
+        graph.setTileMapping(factorATensor, tile);
         graph.connect(v["scaleA"], factorATensor.reshape({1}));
         graph.setInitialValue(factorATensor, factorA);
       }
@@ -117,49 +130,53 @@ void testScaledAddSupervisor(
         graph.setInitialValue(v["tolerance"], scaleFloatTolerance);
       }
     }
-    prog.add(Execute(cs));
   }
+  prog.add(Execute(cs));
+
+  auto out = concat(outs);
+  graph.createHostRead("out", out);
+
+  std::vector<char> dataBuffer(N * target.getTypeSize(dataType));
+  std::vector<char> deltaBuffer(N * target.getTypeSize(deltaType));
+  copy(target, scaledData, N, dataType, dataBuffer.data());
+  copy(target, scaledDeltas, N, deltaType, deltaBuffer.data());
+
+  // one tensor for each slice {0..N}
+  std::vector<char> outBuffer(N * N * target.getTypeSize(dataType));
 
   Engine e(graph, prog);
   device.bind([&](const Device &d) {
     e.load(d);
 
-    std::unique_ptr<char[]> dataBuffer(
-        new char[N * target.getTypeSize(dataType)]);
-    std::unique_ptr<char[]> deltaBuffer(
-        new char[N * target.getTypeSize(deltaType)]);
-
-    for (unsigned i = 1; i <= N; ++i) {
-      copy(target, scaledData, N, dataType, dataBuffer.get());
-
-      e.writeTensor("data" + std::to_string(i), dataBuffer.get(),
-                    dataBuffer.get() + N * target.getTypeSize(dataType));
-      copy(target, scaledDeltas, N, deltaType, deltaBuffer.get());
-      e.writeTensor("deltas" + std::to_string(i), deltaBuffer.get(),
-                    deltaBuffer.get() + N * target.getTypeSize(deltaType));
-    }
+    e.writeTensor("data", dataBuffer.data(),
+                  dataBuffer.data() + dataBuffer.size());
+    e.writeTensor("deltas", deltaBuffer.data(),
+                  deltaBuffer.data() + deltaBuffer.size());
 
     e.run();
 
-    std::array<float, N> expected;
-    std::array<float, N> actual;
-    std::copy(&scaledData[0], &scaledData[N], std::begin(expected));
-    for (unsigned i = 1; i <= N; ++i) {
-      e.readTensor("data" + std::to_string(i), dataBuffer.get(),
-                   dataBuffer.get() + (N * target.getTypeSize(dataType)));
-      copy(target, dataType, dataBuffer.get(), actual.data(), N);
-      auto dataScaling = doXminusaXPlusbY ? 1 - factorA : factorA;
-      // Generate the next required result given the length of the test has
-      // increased by one. Earlier expected results have already been computed.
-      // Later expected results remain equal to the original input value until
-      // overwritten.
-      expected[i - 1] = dataScaling * scaledData[i - 1] +
-                        testSign * factorB * scaledDeltas[i - 1];
-      auto test = "n=" + std::to_string(i);
-      BOOST_CHECK(checkIsClose(test, actual.data(), {N}, expected.data(), N,
-                               testTolerance, atol(dataType)));
-    }
+    e.readTensor("out", outBuffer.data(), outBuffer.data() + outBuffer.size());
   });
+
+  std::array<float, N> expected;
+  std::array<float, N> actual;
+  std::copy(&scaledData[0], &scaledData[N], std::begin(expected));
+
+  for (unsigned i = 0; i < N; ++i) {
+    const auto start = i * N * target.getTypeSize(dataType);
+    copy(target, dataType, outBuffer.data() + start, actual.data(), N);
+
+    auto dataScaling = doXminusaXPlusbY ? 1 - factorA : factorA;
+    // Generate the next required result given the length of the test has
+    // increased by one. Earlier expected results have already been computed.
+    // Later expected results remain equal to the original input value until
+    // overwritten.
+    expected[i] =
+        dataScaling * scaledData[i] + testSign * factorB * scaledDeltas[i];
+    auto test = "n=" + std::to_string(i);
+    BOOST_CHECK(checkIsClose(test, actual.data(), {N}, expected.data(), N,
+                             testTolerance, atol(dataType)));
+  }
 }
 
 BOOST_AUTO_TEST_SUITE(ScaledAddSupervisorHalfConst)
