@@ -355,11 +355,37 @@ supervisor_fn half 8
 #define w_alt_output0 a6
 
 ////////////////////////////////////////////////////////////////////////////////
+// Macros to ensure repeat alignment
+// Rely on careful, exclusive use of the 2 labels used
+////////////////////////////////////////////////////////////////////////////////
+.macro ALIGNED_RPT_START LOOP_COUNT
+  // The condition means:
+  // If the delta (which can be computed at assemble time) between a ".align 8 aligned
+  // label" and the current point is not a multiple of 8
+  .if ( . - 7b ) & 0x7
+    // If misaligned vs the last aligned label, this will cause alignment
+    rpt \LOOP_COUNT, (7f - 6f) / 8 - 1;
+  .else
+    // Otherwise maintain alignment
+    {rpt \LOOP_COUNT, (7f - 6f) / 8 - 1; fnop}
+  .endif
+6:
+.endm
+
+.macro ALIGNED_RPT_END
+7:
+.endm
+
+.macro ALIGNED_RPT_BASE
+.align 8
+7:
+.endm
+////////////////////////////////////////////////////////////////////////////////
 // Worker routine to process a single group entry point in macro definition
 
 .macro worker_fn WORK_MACRO_POSTFIX PARTIALS_TYPE
 .worker
-.align 8
+ALIGNED_RPT_BASE
   .equ PARTIAL_ELEM_SIZE, HALF_PARTIAL_ELEM_SIZE
 
 
@@ -406,8 +432,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
   shr $w_work_items, $w_work_items, 16
 
   ld32 $w_implicit_zero, $mvertex_base, $mzero, PROCESS_GROUP_WORKER_STATE_OFFSET_implicit_zero/4
-  {brpos $w_implicit_zero, .Lworker_process_group_worklist_loop\@
-  fnop}
+  brpos $w_implicit_zero, .Lworker_process_group_worklist_loop\@
 //=============
 #undef w_implicit_zero
 //=============
@@ -455,7 +480,6 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     // Two loops required, accounting for 2 half partials each.  These go in place into the actual output,
     // with each 64 bits padded with 2 don't care values
     worker_process_group_field_row_implicit_zero_\WORK_MACRO_POSTFIX W0_C8 TSLIC_F16V4_1x4_W0 w_curr_out_ptr
-
     // These go into the temporary buffer, with each 64 bits padded with 2 don't care values
     worker_process_group_field_row_implicit_zero_\WORK_MACRO_POSTFIX W1_C8 TSLIC_F16V4_1x4_W1 w_buffer_out_ptr
 
@@ -472,14 +496,14 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     // Offset the "write" ptr to write into the 2nd half of each 64 bits of the
     // actual output
     add  $w_curr_out_ptr, $w_curr_out_ptr, 4
-    {rpt $w_num_field_elems_const, (2f - 1f)/8 -1;
-     fnop}
-1:
+
+ALIGNED_RPT_START $w_num_field_elems_const
     {ld32step $w_output_0, $mzero, $w_buffer_out_ptr+=,2
      fnop}
     {st32step $w_output_0, $mzero, $w_curr_out_ptr+=,2
      fnop}
-2:
+ALIGNED_RPT_END
+
 .LLoopEndZero\@:
     brnzdec $w_work_items, .Lworker_process_group_worklist_loop_implicit_zero\@
     exitz $mzero
@@ -492,8 +516,6 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 //=============
 
 // Loop over work items - no implicit zeros
-.align 8
- nop
 .Lworker_process_group_worklist_loop\@:
 //=============
 #define w_in_offset m7
@@ -553,18 +575,18 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     // Offset the "write" ptr to write into the 2nd half of each 64 bits of the
     // actual output
     add  $w_curr_out_ptr, $w_curr_out_ptr, 4
-    rpt $w_num_field_elems_const, (2f - 1f)/8 -1
-1:
+
+ALIGNED_RPT_START $w_num_field_elems_const
     {ld32step $w_output_0, $mzero, $w_buffer_out_ptr+=,2
      fnop}
     {st32step $w_output_0, $mzero, $w_curr_out_ptr+=,2
      fnop}
-2:
+ALIGNED_RPT_END
+
 .LLoopEnd\@:
     brnzdec $w_work_items, .Lworker_process_group_worklist_loop\@
 0:
   exitz $mzero
-  .align 8 // Maintain alignmnet for the next macro and its repeat loop
 .endm
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -591,11 +613,12 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1;
-1:
+
+ALIGNED_RPT_START $w_num_field_elems
     { ld2xst64pace $w_input_and_partials_pairs, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b000000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b0000
@@ -629,11 +652,12 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1
-1:
+
+ALIGNED_RPT_START $w_num_field_elems
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     { st64pace $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b00
       f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS }
     bri .Lworker_process_group_field_row_implicit_zero_write_and_end_\ID
@@ -641,7 +665,6 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 3:
     { bri .Lworker_process_group_field_row_implicit_zero_write_and_end_\ID
       f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS }
-.align 8 // Maintain alignment for the next macro and its repeat loop
 .endm // worker_process_group_field_row_implicit_zero_lt5_elems
 
 
@@ -672,13 +695,13 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_alt_output0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
 
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1
-1:
+ALIGNED_RPT_START $w_num_field_elems
     { ld2xst64pace $w_input_and_partials_pairs, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b000000
       f16v4hihoslic $w_output_0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
     { ld2xst64pace $w_input_and_partials_pairs, $w_alt_output_pair, $w_inoutout_triptr+=, $mzero, 0b000000
       f16v4hihoslic $w_alt_output0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     // Check if there were an odd number of items to process (loop always processes an even number)
     and $w_num_field_elems, $w_num_field_elems_const,1
     brz $w_num_field_elems, 3f
@@ -721,6 +744,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 // < 6 items, output stride = 1 with no implicit zero
 .macro worker_process_group_field_row_stride1_lt6_elems ID SLIC_FLAGS
 .Lworker_process_group_field_row_stride1_lt6_elems_\ID:
+
     // + 6 (back to original num field elems) - 1
     add $w_num_field_elems, $w_num_field_elems, (6 - 1)
     ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $mzero, 0b0000
@@ -730,27 +754,30 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     brz $w_num_field_elems, 3f
     // 1st loop - inputs and partials used.  Max 4 passes so with the instruction above
     // 5 slic instructions and (in that case) the output is ready
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1
-1:
+
+ALIGNED_RPT_START $w_num_field_elems
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     // 2nd loop - input only, to get to the point the output is ready. 4 - (elems -1) passes
     // so no loop in case of 5 items, 1 if 4 items etc....
     sub $w_num_field_elems, (5 - 1), $w_num_field_elems
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1
-1:
+
+ALIGNED_RPT_START $w_num_field_elems
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b1100
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     // 3rd loop - write the output, 3 - ( 4 -(elems-1)) =  elems - 2 passes,
     // there are 2 different writes after the loop
     sub $w_num_field_elems, (5 - 2), $w_num_field_elems
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1
-1:
+
+ALIGNED_RPT_START $w_num_field_elems
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     { st64pace $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b00
       f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS }
     bri .Lworker_process_group_field_row_write_and_end_\ID
@@ -763,7 +790,6 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 
     { bri .Lworker_process_group_field_row_write_and_end_\ID
      f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS }
-.align 8 // Maintain alignment for the next macro and its repeat loop
 .endm // worker_process_group_field_row_lt6_elems
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -787,21 +813,21 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
 
-    rpt $w_num_field_elems, (2f - 1f) / 8 - 1;
-1:
+ALIGNED_RPT_START $w_num_field_elems
     { ld2xst64pace $w_input_and_partials_pairs, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b000000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b1100
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b1100
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
     { st64pace $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b00
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-    { nop // Maintain alignment for the next macro and its repeat loop
-      f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS }
+
+      f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS
 .Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID:
     st64pace $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b11
 
@@ -868,13 +894,13 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
     { ld2x64pace $w_input_pair, $w_partials_pair, $w_inoutout_triptr+=, $mzero, 0b1100
       f16v4hihoslic $w_output_0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
 
-    { rpt $w_num_field_elems, (2f - 1f) / 8 - 1; fnop }
-1:
+ALIGNED_RPT_START $w_num_field_elems
     { ld2xst64pace $w_input_and_partials_pairs, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b000000
       f16v4hihoslic $w_output_0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
     { ld2x64pace $w_input_pair, $azeros, $w_inoutout_triptr+=, $mzero, 0b1100
       f16v4hihoslic $w_output_0, $w_input_pair, $w_partials_0, \SLIC_FLAGS }
-2:
+ALIGNED_RPT_END
+
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b0000
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
     { ldst64pace $w_input_pair, $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b1100
@@ -909,11 +935,11 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_\WORK_MACRO_POSTFIX):
 
     { st64pace $w_output_pair, $w_inoutout_triptr+=, $mzero, 0b00
       f16v4hihoslic $w_output_0, $w_input_pair, $azero, \SLIC_FLAGS }
-    f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS
-    bri .Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID
+    {bri .Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID
+     f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS}
 3:
     {bri .Lworker_process_group_field_row_implicit_zero_stride2_write_and_end_\ID
-    f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS}
+     f16v4hihoslic $w_output_0, $azeros, $azero, \SLIC_FLAGS}
 .endm // worker_process_group_field_row_implicit_zero_lt3_elems
 
 
