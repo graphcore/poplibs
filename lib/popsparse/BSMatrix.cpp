@@ -54,6 +54,8 @@ void BlockSparseMatrix::init(const unsigned char *sparsity) {
   const int nrow = row / blockRow;
   const int ncol = col / blockCol;
 
+  indexPtr.reserve(nrow + 1);
+
   int indexForRow = 0;
   for (int i = 0; i < nrow; i++) {
     indexPtr.push_back(indexForRow);

@@ -48,6 +48,7 @@ partitionPartialByContext(std::size_t batchElements,
   const auto elementsPerRow = tileConvOutSize.back();
   unsigned activeRows = 1;
   std::vector<unsigned> activeRowShape;
+  activeRowShape.reserve(numFieldDims);
   for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
     auto dimActiveRows = tileConvOutSize[dim];
     activeRowShape.push_back(dimActiveRows);
@@ -151,6 +152,8 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   // from the slice begin offsets
   std::vector<std::size_t> kernelShape;
   std::vector<std::size_t> outputShape;
+  kernelShape.reserve(numFieldDims);
+  outputShape.reserve(numFieldDims);
   for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
     kernelShape.push_back(slice.getKernelSize(dim));
     outputShape.push_back(slice.getFieldSize(dim));
@@ -341,11 +344,20 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
 
   // we could keep a 1D tensor by flattening the channel dimension as
   // well but it may be that the channels groups are exchanged from other tiles
+  const size_t n = slice.getNumChans() / chansPerGroup;
   std::vector<Tensor> inWindows;
   std::vector<Tensor> outWindows;
   std::vector<Tensor> fwdInputActsWindows;
   std::vector<Tensor> fwdOutputActsWindows;
-  for (std::size_t oc = 0; oc != slice.getNumChans() / chansPerGroup; ++oc) {
+
+  inWindows.reserve(n);
+  outWindows.reserve(n);
+  if (fwdInputActs)
+    fwdInputActsWindows.reserve(n);
+  if (fwdOutputActs)
+    fwdOutputActsWindows.reserve(n);
+
+  for (std::size_t oc = 0; oc != n; ++oc) {
     inWindows.push_back(inWindow[oc].flatten());
     auto outWindowFlat = outWindow[oc].flatten();
     outWindows.push_back(outWindowFlat);
@@ -416,6 +428,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   unsigned strideX = params.inputTransform.dilation.back();
   unsigned contextStart = 0;
   logging::trace("Tile: {}", tile);
+  contextStartPos.reserve(numContexts);
   for (std::size_t c = 0; c != numContexts; ++c) {
     std::string loggingStr = "Worklist " + std::to_string(c) + ": ";
 
@@ -423,6 +436,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
       const auto inBase = rowWorkList.at(0).inBeginOffset;
       const auto outBase = rowWorkList.at(0).outBeginOffset;
       std::vector<unsigned> row;
+      row.reserve(3 * rowWorkList.size());
       for (auto &r : rowWorkList) {
         row.push_back(r.outBeginOffset - outBase);
         row.push_back(r.inBeginOffset - inBase);
@@ -509,6 +523,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
     // split regions between workers to scale output
     // first convert interval regions to poplar regions
     std::vector<Interval> regions;
+    regions.reserve(scaleFactorMap.size());
     for (auto &r : scaleFactorMap) {
       commonScaleFactor = static_cast<float>(r.second);
       regions.emplace_back(r.first.lower(), r.first.upper());
@@ -518,6 +533,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
     // build scale work list
     std::vector<std::vector<unsigned short>> scaleWorklist(numContexts);
     for (std::size_t c = 0; c != scalePartitions.size(); ++c) {
+      scaleWorklist[c].reserve(3 * scalePartitions[c].size());
       for (const auto &s : scalePartitions[c]) {
         scaleWorklist[c].push_back(s.begin());
         scaleWorklist[c].push_back(s.size());
@@ -588,6 +604,7 @@ tileRegionsSet(const PoolSlice &slice, const std::vector<std::size_t> &shape) {
   auto reducedShape = shape;
   reducedShape.pop_back();
   std::vector<std::size_t> fieldSliceSize;
+  fieldSliceSize.reserve(numFieldDims);
 
   for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
     fieldSliceSize.push_back(slice.getFieldSize(dim));

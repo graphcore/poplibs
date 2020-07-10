@@ -145,6 +145,9 @@ public:
                     const std::vector<PartitionVariables> &partitionVars,
                     const Plan::LinearizeTileOrder linearizeTileOrder)
       : m(m), target(target), numLevelsOfHierarchy(numLevelsOfHierarchy) {
+    assert(numLevelsOfHierarchy > 0);
+    perLevelScaledExchangeBytesPerCycle.reserve(numLevelsOfHierarchy - 1);
+    perLevelScaledExchangeBytesPerCycleVar.reserve(numLevelsOfHierarchy - 1);
     for (unsigned level = 0; level != numLevelsOfHierarchy - 1; ++level) {
       const auto scaledBytesPerCycle = getScaledExchangeBytesPerCycle(
           m, perLevelExchangeBytesPerCycle[level], exchangeBytesScalingFactor);
@@ -561,10 +564,13 @@ static std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
       (positionsOuter * kernelElements / kernelShape[0]);
   const auto outStrideX =
       inputDilation.back() / gcd(inputDilation.back(), stride.back());
+  workList.reserve(numWorkerContexts);
   for (unsigned context = 0; context < numWorkerContexts; ++context) {
     workList.emplace_back();
+    workList.back().reserve(numKernelPositions);
     for (auto k = 0U; k != numKernelPositions; ++k) {
       workList.back().emplace_back();
+      workList.back().back().reserve(partition[context].size());
       for (const auto &partialRow : partition[context]) {
         const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
         const auto numFieldPos = ceildiv(workerOutWidth, outStrideX);
@@ -2473,6 +2479,7 @@ addPartialsPerTile(popsolver::Model &m, const PartitionVariables &partitionVars,
                    const ConvSizeVariables &convSize) {
   const unsigned fieldGrainSizeProduct = product(partitionVars.fieldGrainSize);
   auto partialDimSizes = convSize.numFieldGrains;
+  partialDimSizes.reserve(partialDimSizes.size() + 4);
   partialDimSizes.push_back(m.addConstant(fieldGrainSizeProduct));
   partialDimSizes.push_back(convSize.batchSize);
   partialDimSizes.push_back(m.product(
@@ -2996,6 +3003,8 @@ static Estimates<popsolver::Variable> addEstimates(
   // variables so this dummy call is no longer necessary (or provide a proper
   // mechanism for ordering hints).
   std::vector<popsolver::Variable> variables;
+  const auto numFieldDims = transformedOnceParams.getNumFieldDims();
+  variables.reserve((6 + 2 * numFieldDims) * partitionVars.size());
   for (const auto &vars : partitionVars) {
     variables.push_back(vars.batchSplit);
     variables.push_back(vars.outChanSplit.parallel);
@@ -3240,6 +3249,12 @@ static Estimates<popsolver::Variable> addBwdEstimates(
   std::vector<PartitionVariables> bwdPartitionVars;
   std::vector<ConvSizeVariables> bwdConvSize;
   std::vector<ConvSizeVariables> bwdTransformedConvSize;
+
+  assert(numLevelsOfHierarchy > 0);
+  bwdPartitionVars.reserve(numLevelsOfHierarchy - 1);
+  bwdConvSize.reserve(numLevelsOfHierarchy);
+  bwdTransformedConvSize.reserve(numLevelsOfHierarchy);
+
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
@@ -3345,6 +3360,12 @@ static Estimates<popsolver::Variable> addWuEstimates(
   std::vector<PartitionVariables> wuPartitionVars;
   std::vector<ConvSizeVariables> wuConvSize;
   std::vector<ConvSizeVariables> wuTransformedConvSize;
+
+  assert(numLevelsOfHierarchy > 0);
+  wuPartitionVars.reserve(numLevelsOfHierarchy - 1);
+  wuConvSize.reserve(numLevelsOfHierarchy);
+  wuTransformedConvSize.reserve(numLevelsOfHierarchy);
+
   for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
     if (level + 1 < numLevelsOfHierarchy) {
       const auto &p = partitionVars[level];
@@ -3408,10 +3429,12 @@ static Estimates<popsolver::Variable> addWuEstimates(
 static Partition makePartition(const popsolver::Solution &s,
                                const PartitionVariables &vars) {
   std::vector<unsigned> fieldSplitValues;
+  fieldSplitValues.reserve(vars.fieldSplit.size());
   for (const auto var : vars.fieldSplit) {
     fieldSplitValues.push_back(s[var].getAs<unsigned>());
   }
   std::vector<unsigned> kernelSplitValues;
+  kernelSplitValues.reserve(vars.kernelSplit.size());
   for (const auto var : vars.kernelSplit) {
     kernelSplitValues.push_back(s[var].getAs<unsigned>());
   }
@@ -3918,10 +3941,12 @@ getUsedTiles(popsolver::Model &m,
              const std::vector<PartitionVariables> &partitionVars,
              const std::vector<unsigned> &hierarchy) {
   std::vector<popsolver::Variable> perLevelSplits;
+  perLevelSplits.reserve(hierarchy.size());
   for (unsigned level = 0; level != hierarchy.size(); ++level) {
     const auto &p = partitionVars[level];
     // we only care about splits across tiles so don't include the serial splits
     std::vector<popsolver::Variable> splits;
+    splits.reserve(4 + p.fieldSplit.size() + p.kernelSplit.size());
     splits.push_back(p.batchSplit);
     splits.push_back(p.outChanSplit.parallel);
     splits.push_back(p.inChanSplit.parallel);
@@ -4108,6 +4133,7 @@ static Estimates<popsolver::Variable> constructModel(
       // apply flattenDims transformation
       if (!transforms[level].flattenDims.empty()) {
         std::vector<Variable> vars;
+        vars.reserve(transforms[level].flattenDims.size());
         unsigned multiplier = 1;
         for (const auto dim : transforms[level].flattenDims) {
           if (dim == 0) {
@@ -5028,6 +5054,7 @@ static std::vector<std::vector<T>> getPowerSet(const std::vector<T> &items) {
     std::abort();
   }
   std::vector<std::vector<T>> subsets;
+  subsets.reserve(1u << numItems);
   // We associate each subset with a number. The nth bit of the number indicates
   // whether the nth item is in the subset. We enumerate all subsets by
   // iterating over all numbers in the range [0, 1 << numItems).
@@ -5050,6 +5077,7 @@ getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
   std::vector<std::vector<unsigned>> candidateDimSets;
   if (constraint) {
     std::vector<unsigned> forcedDims;
+    forcedDims.reserve(constraint->size());
     for (const auto &child : *constraint) {
       forcedDims.push_back(child.second.get_value<unsigned>());
     }
@@ -5094,6 +5122,7 @@ getOutChanFlattenDimsCandidates(unsigned ipuLevel, const ConvParams &params,
   std::vector<std::vector<unsigned>> candidateDimSets;
   if (constraint) {
     std::vector<unsigned> forcedDims;
+    forcedDims.reserve(constraint->size());
     for (const auto &child : *constraint) {
       forcedDims.push_back(child.second.get_value<unsigned>());
     }
@@ -5272,7 +5301,37 @@ static std::vector<unsigned> getCombineConvGroupCandidates(
       assert(isPowerOf2(baseLoadElements));
       assert(isPowerOf2(ci));
       assert(isPowerOf2(maxFactor));
+      assert(minFactor > 0);
       std::vector<unsigned> result;
+
+      // We call `result.push_back` until `minFactor * (2^n) <= maxFactor` is
+      // false, where `n` is the loop counter. Solving for the loop counter
+      // when the condition is false gives:
+      //
+      //    n > log2(maxFactor / minFactor)
+      //
+      // As n is an integer the greater than condition is first fulfilled by
+      //
+      //    n = floor(log2(maxFactor / minFactor)) + 1
+      //      = 8 * sizeof(maxFactor) - __builtin_clz(maxFactor / minFactor)
+      //
+      // We also unconditionally push_back once and __builtin_clz (and log2)
+      // is undefined for an input of zero, so we need to handle that case too.
+      //
+      // Some examples of the using the formula:
+      //
+      //     minFactor | maxFactor | expected | formula
+      //    -----------+-----------+----------+---------
+      //             1 |         2 |        3 |       3
+      //             1 |         8 |        5 |       5
+      //             3 |         8 |        3 |       3
+      //             2 |        16 |        5 |       5
+      //             4 |         2 |        1 |       1
+      size_t n = 1;
+      if (minFactor < maxFactor)
+        n += 8 * sizeof(maxFactor) - __builtin_clz(maxFactor / minFactor);
+
+      result.reserve(n);
       result.push_back(1U); // 1 is noop transform
       while (minFactor <= maxFactor) {
         result.push_back(minFactor);
@@ -6398,6 +6457,7 @@ getSerialMultiPlan(const poplar::Target &target,
   const auto totalPlans = params.size();
 
   std::vector<Plan> plans;
+  plans.reserve(totalPlans);
   for (std::size_t i = 0; i < totalPlans; i++) {
     plans.push_back(getPlan(target, params[i], options[i], cache));
   }

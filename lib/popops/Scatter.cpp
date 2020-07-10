@@ -233,6 +233,7 @@ poplar::Tensor expandIndexVectorIntoOperandSpace(
       graph.addConstant(indices.elementType(), {1}, 0, debugPrefix + "/zero");
   graph.setTileMapping(zero, 0);
   std::vector<poplar::Tensor> expandedIndexComponents;
+  expandedIndexComponents.reserve(rank);
 
   for (auto i = 0u; i < rank; ++i) {
     auto indexVectorDimItr = std::find(std::begin(scatterDimsToOperandDims),

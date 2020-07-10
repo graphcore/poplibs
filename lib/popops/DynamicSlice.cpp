@@ -219,6 +219,8 @@ static void generateVertices(std::string vertexName, Graph &graph,
     std::vector<Tensor *> toRearrange;
     std::vector<Tensor> s2dElems(numSubElements), t2dElems(numBaseElements);
 
+    const size_t n = numSubElements > 0 ? numSubElements - 1 : 0;
+    toRearrange.reserve(n + numBaseElements);
     for (unsigned i = 0; i != numSubElements; ++i) {
       s2dElems[i] = s2d[i];
       if (i != 0)
@@ -1631,6 +1633,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
   auto idxOrder = bestSliceOrder(t.shape(), dims, sizes);
 
   std::vector<Tensor> reducedT;
+  reducedT.reserve(idxOrder.size() + 1);
   reducedT.emplace_back(t); // reducedT[0] = t
   // slice off the larger dimensions one at a time
   for (unsigned i = 0; i != idxOrder.size() - 1; ++i) {

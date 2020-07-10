@@ -69,6 +69,7 @@ getMatMulPrePlanParameters(FullyConnectedParams params,
                            poplar::OptionFlags matmulOptions, poplar::Type type,
                            bool inferenceOnly) {
   std::vector<std::pair<MatMulParams, poplar::OptionFlags>> matmuls;
+  matmuls.reserve(1 + (inferenceOnly ? 0 : 2));
 
   // Fwd pass
   const auto fwdPassParams = toMatMulParams(params, type, Pass::FWD);

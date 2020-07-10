@@ -310,6 +310,8 @@ static MatMulParams convertFwdToWuParams(const MatMulParams &fwdPassParams) {
 std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 bwdAndWuPassPermutations(std::pair<MatMulParams, poplar::OptionFlags> fwdPass) {
   std::vector<std::pair<MatMulParams, poplar::OptionFlags>> permutations;
+  permutations.reserve(2);
+
   const auto fwdPassParams = fwdPass.first;
   const auto fwdPassOpt = fwdPass.second;
 

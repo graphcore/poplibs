@@ -76,6 +76,7 @@ createGatherInputTensor(poplar::Graph &graph, poplar::Type type,
                         const std::vector<std::size_t> &sliceSizes,
                         const std::string &name) {
   std::vector<std::size_t> slicedDims;
+  slicedDims.reserve(sliceSizes.size());
   for (unsigned d = 0; d != sliceSizes.size(); ++d)
     slicedDims.emplace_back(d);
   // TODO: T12948 If nonSlicedDimProduct is small we should add an outer stage.

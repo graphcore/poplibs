@@ -202,8 +202,10 @@ combine(const std::vector<multiconv::internal::ConvWeightUpdateArgs<T>> &args);
 template <typename T>
 std::vector<T> combine(const std::vector<std::vector<const T *>> &groups) {
   std::vector<T> args;
+  args.reserve(groups.size());
   for (const auto &group : groups) {
     std::vector<T> combinedArgs;
+    combinedArgs.reserve(group.size());
     for (const auto ca : group) {
       combinedArgs.push_back(*ca);
     }
@@ -230,6 +232,7 @@ split(const std::vector<std::vector<const T *>> &groups,
   std::vector<poplar::Tensor> splitOuts;
   for (unsigned i(0); i < groups.size(); ++i) {
     std::vector<CanonicalConvParams> convParams;
+    convParams.reserve(groups[i].size());
     for (const auto ca : groups[i]) {
       convParams.push_back(ca->params);
     }

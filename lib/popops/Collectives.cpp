@@ -72,6 +72,7 @@ splitIntervals(std::vector<Interval> &toMatch,
   // intervals whenever there is a split between regions in the reference
   // intervals.
   std::vector<Interval> newToMatch;
+  newToMatch.reserve(toMatch.size());
   unsigned j = 0;
   unsigned sizeSoFar = 0;
   for (unsigned i = 0; i < toMatch.size(); ++i) {
@@ -189,6 +190,7 @@ static std::vector<Tensor> getPerIpuTensors(const Tensor &t, Graph &graph,
   const auto ipuMapping = getIpuMapping(graph, t);
 
   std::vector<Tensor> result;
+  result.reserve(endIpu - startIpu);
   for (unsigned ipu = startIpu; ipu < endIpu; ++ipu) {
     result.push_back(getOnIpuTensor(t, graph, ipuMapping[ipu]));
   }
@@ -229,6 +231,7 @@ static std::vector<Tensor> splitRankIntoFragments(const Tensor &t, Graph &graph,
   std::vector<Tensor> fragments(numFragments);
   for (unsigned j = 0; j < numFragments; ++j) {
     std::vector<Tensor> fragmentsToConcat;
+    fragmentsToConcat.reserve(ipusPerRank);
     for (unsigned k = 0; k < ipusPerRank; ++k) {
       fragmentsToConcat.push_back(std::move(perIpuFragments[k][j]));
     }
@@ -665,6 +668,7 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
               debugPrefix + "/Step" + std::to_string(step));
   }
   std::vector<Tensor> data;
+  data.reserve(numPartials);
   for (unsigned i = 0; i != numPartials; ++i) {
     data.push_back(concat(clockwiseData[i], anticlockwiseData[i]));
   }
@@ -861,9 +865,9 @@ struct ipuIndexPair {
 };
 
 // Through out the all reduce the tensors created have had their order
-// shuffled within the rank inorder to send corresponding fragments on
+// shuffled within the rank in-order to send corresponding fragments on
 // different ipus with in the rank in the same step. This means that the
-// returned tensors indexing won't match the orginal. To fix this must
+// returned tensors indexing won't match the original. To fix this must
 // reorder the tensor before returning it. As splitting into fragments
 // and concatting the modelParallel chunks will have maintained order
 // on each ipu. Can use the ipu mappings of the original input tensor
@@ -890,12 +894,14 @@ static Tensor reorderRank(Graph &graph, const std::vector<Tensor> &partials,
   std::vector<std::vector<Tensor>> perIPUTensors(partials.size());
   for (unsigned i = 0; i < partials.size(); ++i) {
     const auto ipuMapping = getIpuMapping(graph, partials[i]);
+    perIPUTensors[i].reserve(ipusPerRank);
     for (unsigned j = 0; j < ipusPerRank; ++j) {
       perIPUTensors[i].push_back(getOnIpuTensor(
           partials[i], graph, ipuMapping[((rank * ipusPerRank) + j)]));
     }
   }
   std::vector<Tensor> unorderedPieces;
+  unorderedPieces.reserve(ipusPerRank * partials.size());
   for (unsigned j = 0; j < ipusPerRank; ++j) {
     for (unsigned i = 0; i < partials.size(); ++i) {
       unorderedPieces.push_back(perIPUTensors[i][j]);
@@ -921,6 +927,7 @@ static Tensor reorderRank(Graph &graph, const std::vector<Tensor> &partials,
   }
 
   std::vector<Tensor> orderedPieces;
+  orderedPieces.reserve(concatMap.size());
   for (const auto &values : concatMap) {
     const auto &newInterval =
         unorderedMapping[values.second.ipu][values.second.index];
@@ -1029,6 +1036,7 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
   result.reserve(numChunksToGather);
   for (unsigned rank = 0; rank != numChunksToGather; ++rank) {
     std::vector<Tensor> resultChunks;
+    resultChunks.reserve(2 * numChunksToGather);
     for (unsigned chunk = 0; chunk != numChunksToGather; ++chunk) {
       resultChunks.push_back(clockwiseResultChunks[rank][chunk]);
       resultChunks.push_back(anticlockwiseResultChunks[rank][chunk]);

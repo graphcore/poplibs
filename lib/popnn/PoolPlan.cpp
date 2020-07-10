@@ -32,6 +32,8 @@ static Partition makePartition(const popsolver::Solution &solution,
   partition.chansPerGroup = solution[vars.chansPerGroup].getAs<unsigned>();
   partition.batch = solution[vars.batchSplit].getAs<unsigned>();
   partition.chanGroups = solution[vars.chanGroupsSplit].getAs<unsigned>();
+  partition.field.reserve(vars.fieldSplit.size());
+  partition.kernel.reserve(vars.fieldSplit.size());
   for (unsigned i = 0; i < vars.fieldSplit.size(); i++) {
     partition.field.push_back(solution[vars.fieldSplit[i]].getAs<unsigned>());
 
@@ -151,6 +153,7 @@ static popsolver::Variable constructModel(
   vars.batchSplit = m.addVariable(1, params.batchSize);
 
   // Sweep across each field dimension
+  vars.fieldSplit.reserve(fieldShape.size());
   for (auto dimSize : fieldShape) {
     vars.fieldSplit.push_back(m.addVariable(1, dimSize));
   }
@@ -165,6 +168,8 @@ static popsolver::Variable constructModel(
   // Work out the size of each partition after applying the split
   std::vector<popsolver::Variable> fieldVar;
   std::vector<popsolver::Variable> kernelVar;
+  fieldVar.reserve(vars.fieldSplit.size());
+  kernelVar.reserve(vars.fieldSplit.size());
   auto nChGroups = m.ceildiv(nChGroupsMax, vars.chanGroupsSplit);
   auto batchSize = m.addConstant(params.batchSize);
   auto nBatch = m.ceildiv(batchSize, vars.batchSplit);

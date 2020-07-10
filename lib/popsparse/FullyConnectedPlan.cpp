@@ -122,6 +122,8 @@ public:
                     const std::vector<unsigned> &hierarchy,
                     const std::vector<double> &perLevelExchangeBytesPerCycle)
       : m(m), target(target), levelsOfHierarchy(hierarchy.size()) {
+    perLevelScaledExchangeBytesPerCycle.reserve(hierarchy.size());
+    perLevelScaledExchangeBytesPerCycleVar.reserve(hierarchy.size());
     for (unsigned level = 0; level != hierarchy.size(); ++level) {
       const auto scaledBytesPerCycle = getScaledExchangeBytesPerCycle(
           m, perLevelExchangeBytesPerCycle[level], exchangeBytesScalingFactor);

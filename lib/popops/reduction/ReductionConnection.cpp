@@ -428,6 +428,7 @@ static void createStridedReduceVertex(
                    r0.getStride());
 
     std::vector<poplar::Tensor> outputs;
+    outputs.reserve(reductions.size());
     for (const auto &region : reductions) {
       outputs.push_back(region.output);
     }
@@ -553,6 +554,7 @@ createContinuousReductionVertex(poplar::Graph &graph,
                         reductions.front().getNumPartialsElements());
 
   std::vector<poplar::Tensor> outputs;
+  outputs.reserve(reductions.size());
   for (const auto &red : reductions) {
     outputs.push_back(red.output);
   }

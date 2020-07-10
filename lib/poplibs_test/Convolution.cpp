@@ -43,6 +43,7 @@ getTransformedSize(const std::vector<unsigned> &inputSize,
                    const std::vector<unsigned> &paddingUpper) {
   const auto numFieldDims = inputSize.size();
   std::vector<unsigned> outputSize;
+  outputSize.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     outputSize.push_back(getTransformedSize(
         inputSize[dim], truncationLower[dim], truncationUpper[dim],
@@ -94,6 +95,7 @@ getOutputFieldSize(const std::vector<unsigned> &inputSize,
                    const std::vector<unsigned> &outputPaddingUpper) {
   const auto numFieldDims = inputSize.size();
   std::vector<unsigned> outputSize;
+  outputSize.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     outputSize.push_back(getOutputFieldSize(
         inputSize[dim], kernelSize[dim], inputTruncationLower[dim],
@@ -112,6 +114,7 @@ dilateIndices(const std::vector<unsigned> &indices,
               const std::vector<unsigned> &dilation) {
   const auto numFieldDims = indices.size();
   std::vector<unsigned> dilatedIndices;
+  dilatedIndices.reserve(numFieldDims);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     const auto index = indices[dim];
     dilatedIndices.push_back(index * dilation[dim]);
@@ -150,6 +153,7 @@ truncateDilatePadAndFlip(boost::const_multi_array_ref<double, 2> in,
     for (unsigned e = 0; e != truncatedElements; ++e) {
       auto truncatedIndices = unflattenIndex(truncatedSize, e);
       std::vector<unsigned> indices;
+      indices.reserve(numFieldDims);
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
         const auto truncatedIndex = truncatedIndices[dim];
         const auto index = truncatedIndex + truncationLower[dim];
@@ -176,6 +180,7 @@ truncateDilatePadAndFlip(boost::const_multi_array_ref<double, 2> in,
     for (unsigned e = 0; e != dilatedElements; ++e) {
       auto indices = unflattenIndex(dilatedSize, e);
       std::vector<unsigned> paddedIndices;
+      paddedIndices.reserve(numFieldDims);
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
         const auto index = indices[dim];
         auto paddedIndex = index + paddingLower[dim];
@@ -288,6 +293,7 @@ truncateDilatePadAndFlipInverse(boost::const_multi_array_ref<double, 2> padded,
     for (unsigned e = 0; e != dilatedElements; ++e) {
       auto indices = unflattenIndex(dilatedSize, e);
       std::vector<unsigned> paddedIndices;
+      paddedIndices.reserve(numFieldDims);
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
         const auto index = indices[dim];
         auto paddedIndex = index + paddingLower[dim];
@@ -317,6 +323,7 @@ truncateDilatePadAndFlipInverse(boost::const_multi_array_ref<double, 2> padded,
     for (unsigned e = 0; e != truncatedElements; ++e) {
       auto truncatedIndices = unflattenIndex(truncatedSize, e);
       std::vector<unsigned> indices;
+      indices.reserve(numFieldDims);
       for (unsigned dim = 0; dim != numFieldDims; ++dim) {
         const auto truncatedIndex = truncatedIndices[dim];
         const auto index = truncatedIndex + truncationLower[dim];

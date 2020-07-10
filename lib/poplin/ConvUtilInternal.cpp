@@ -76,6 +76,7 @@ std::vector<std::vector<PartialRow>> partitionConvPartialByWorker(
       (tileConvOutSize.back() + outputStride.back() - 1) / outputStride.back();
   unsigned activeRows = 1;
   std::vector<unsigned> activeRowShape;
+  activeRowShape.reserve(numFieldDims);
   for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
     auto dimActiveRows =
         (tileConvOutSize[dim] + outputStride[dim] - 1) / outputStride[dim];
@@ -489,6 +490,7 @@ std::vector<multiconv::internal::CreateTensorArgs>
 convertToConvOptions(poplar::Graph &graph,
                      const std::vector<multiconv::CreateTensorArgs> &args) {
   std::vector<multiconv::internal::CreateTensorArgs> v;
+  v.reserve(args.size());
   for (const auto &arg : args) {
     const ConvOptions options(graph.getTarget(), arg.options);
     v.push_back({arg.params, options, arg.name});
@@ -500,6 +502,7 @@ std::vector<multiconv::internal::ConvolutionArgs>
 convertToConvOptions(poplar::Graph &graph,
                      const std::vector<multiconv::ConvolutionArgs> &args) {
   std::vector<multiconv::internal::ConvolutionArgs> v;
+  v.reserve(args.size());
   for (const auto &arg : args) {
     const ConvOptions options(graph.getTarget(), arg.options);
     v.push_back({arg.inputs, arg.weights, arg.params, options});
@@ -512,6 +515,7 @@ convertToConvOptions(
     poplar::Graph &graph,
     const std::vector<multiconv::CalculateWeightDeltasArgs> &args) {
   std::vector<multiconv::internal::CalculateWeightDeltasArgs> v;
+  v.reserve(args.size());
   for (const auto &arg : args) {
     const ConvOptions options(graph.getTarget(), arg.options);
     v.push_back({arg.zDeltas, arg.activations, arg.params, options});
@@ -526,6 +530,7 @@ template <typename ScaleType, typename T>
 std::vector<multiconv::internal::ConvWeightUpdateArgs<ScaleType>>
 convertToConvOptionsImpl(poplar::Graph &graph, const std::vector<T> &args) {
   std::vector<multiconv::internal::ConvWeightUpdateArgs<ScaleType>> v;
+  v.reserve(args.size());
   for (const auto &arg : args) {
     const ConvOptions options(graph.getTarget(), arg.options);
     v.push_back({arg.zDeltas, arg.weights, arg.activations, arg.scale,
@@ -670,6 +675,9 @@ multiconv::internal::ConvolutionArgs combine(
   std::vector<CanonicalConvParams> convParams;
   std::vector<poplar::Tensor> inputs;
   std::vector<poplar::Tensor> weights;
+  convParams.reserve(convolutionArgs.size());
+  inputs.reserve(convolutionArgs.size());
+  weights.reserve(convolutionArgs.size());
   for (const auto &cp : convolutionArgs) {
     convParams.push_back(cp.params);
     inputs.push_back(cp.inputs);
@@ -689,6 +697,9 @@ multiconv::internal::CalculateWeightDeltasArgs combine(
   std::vector<CanonicalConvParams> convParams;
   std::vector<poplar::Tensor> zDeltas;
   std::vector<poplar::Tensor> activations;
+  convParams.reserve(args.size());
+  zDeltas.reserve(args.size());
+  activations.reserve(args.size());
   for (const auto &arg : args) {
     convParams.push_back(arg.params);
     zDeltas.push_back(arg.zDeltas);
@@ -710,6 +721,10 @@ combine(const std::vector<multiconv::internal::ConvWeightUpdateArgs<T>> &args) {
   std::vector<poplar::Tensor> zDeltas;
   std::vector<poplar::Tensor> weights;
   std::vector<poplar::Tensor> activations;
+  convParams.reserve(args.size());
+  zDeltas.reserve(args.size());
+  weights.reserve(args.size());
+  activations.reserve(args.size());
   for (const auto &arg : args) {
     convParams.push_back(arg.params);
     zDeltas.push_back(arg.zDeltas);
@@ -736,6 +751,7 @@ splitOutput(const std::vector<CanonicalConvParams> &convParams,
             const poplar::Tensor &out) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
+  intervals.reserve(convParams.size());
   std::size_t prev(0);
   const std::size_t outputChannelsPerConvGroup =
       convParams[0]->outputChannelsPerConvGroup;
@@ -752,6 +768,7 @@ splitInput(const std::vector<CanonicalConvParams> &convParams,
            const poplar::Tensor &in) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
+  intervals.reserve(convParams.size());
   std::size_t prev(0);
   const std::size_t inChans = convParams[0]->inputChannelsPerConvGroup;
   for (const auto &cp : convParams) {
@@ -767,6 +784,7 @@ splitWeights(const std::vector<CanonicalConvParams> &convParams,
              const poplar::Tensor &weights) {
   assert(!convParams.empty());
   std::vector<Interval> intervals;
+  intervals.reserve(convParams.size());
   std::size_t prev(0);
   for (const auto &cp : convParams) {
     const auto intervalSize = cp->numConvGroups;

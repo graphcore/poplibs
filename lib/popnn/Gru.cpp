@@ -330,6 +330,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
 
   const std::string baseStr = debugPrefix + "/BasicGruCell";
   std::vector<Tensor> toConcat;
+  toConcat.reserve(2);
   toConcat.push_back(
       graph.clone(prevOutput, debugPrefix + "/" + "Update Gate Rearranged")
           .expand({0}));

@@ -47,6 +47,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
   bool floatPartials = accumType == FLOAT;
 
   std::vector<unsigned> tZeroWorkList;
+  tZeroWorkList.reserve(numWorkerContexts);
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
     tZeroWorkList.push_back((zerosInfo + numWorkerContexts - 1) /
                             numWorkerContexts);
@@ -58,11 +59,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
   if (numInGroups * inChansPerGroup == 0) {
     return convNx1Overhead() + zeroCycles;
   }
+  workerPartitions.reserve(usedContexts);
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();
+    workerPartitions.back().reserve(kernelSize);
     for (auto k = 0U; k != kernelSize; ++k) {
       workerPartitions.back().emplace_back();
       const auto &wl = worklists[k * usedContexts + context];
+      workerPartitions.back().back().reserve(wl.size() / 3);
       for (auto wi = 0U; wi < wl.size(); wi += 3) {
         // The number of elements minus 3 is the second element in the work list
         int numFieldPos;
@@ -189,11 +193,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
   assert(kernelSize > 0);
   const auto usedContexts = worklists.size() / kernelSize;
+  workerPartitions.reserve(usedContexts);
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();
+    workerPartitions.back().reserve(kernelSize);
     for (auto k = 0U; k != kernelSize; ++k) {
       workerPartitions.back().emplace_back();
       const auto &wl = worklists[k * usedContexts + context];
+      workerPartitions.back().back().reserve(wl.size() / 3);
       for (auto wi = 0U; wi < wl.size(); wi += 3) {
         auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
         workerPartitions.back().back().push_back(numFieldPos);
@@ -235,6 +242,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
   std::vector<std::vector<unsigned>> workerPartitions(numWorkerContexts);
   for (unsigned context = 0; context < numWorkerContexts; ++context) {
     const auto &wl = worklists[context];
+    workerPartitions[context].reserve(wl.size() / 3);
     for (unsigned wi = 0; wi < wl.size(); wi += 3) {
       workerPartitions[context].push_back(wl[wi + 2]);
     }

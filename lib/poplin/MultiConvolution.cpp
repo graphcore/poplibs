@@ -34,6 +34,10 @@ static MultiPlan getMultiPlan(const poplar::Target &target,
                               const poplar::OptionFlags &options) {
   std::vector<CanonicalConvParams> params;
   std::vector<ConvOptions> convOptions;
+
+  params.reserve(args.size());
+  convOptions.reserve(args.size());
+
   for (const auto &arg : args) {
     params.push_back(arg.params);
     convOptions.push_back(arg.options);

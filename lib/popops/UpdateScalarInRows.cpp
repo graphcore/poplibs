@@ -135,6 +135,12 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
   std::vector<unsigned> regionWidths;
   std::vector<unsigned> firstColumns;
 
+  vertexParams.reserve(regions.size());
+  vertexIndices.reserve(regions.size());
+  regionHeights.reserve(regions.size());
+  regionWidths.reserve(regions.size());
+  firstColumns.reserve(regions.size());
+
   for (const Region &region : regions) {
     vertexParams.push_back(concat(flatParams.slices(region)));
 

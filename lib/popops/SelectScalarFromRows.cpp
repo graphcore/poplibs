@@ -47,6 +47,7 @@ void create1DVertex(Graph &graph, ComputeSet &computeSet, Type type,
   std::size_t startRow = getBounds(interval, width, bounds);
 
   std::vector<int> rowsStart;
+  rowsStart.reserve(bounds.size());
   int sum = 0;
   for (const auto &bound : bounds) {
     rowsStart.push_back(sum);
@@ -89,6 +90,11 @@ void create2DVertex(Graph &graph, ComputeSet &computeSet, Type type,
   std::vector<unsigned> lastEndCol;
   std::vector<unsigned> rowCounts;
 
+  firstStartCol.reserve(intervals.size());
+  lastEndCol.reserve(intervals.size());
+  rowCounts.reserve(intervals.size());
+  output.reserve(intervals.size());
+
   for (const Interval &interval : intervals) {
     if (interval.size() == 0) {
       continue;
@@ -99,6 +105,7 @@ void create2DVertex(Graph &graph, ComputeSet &computeSet, Type type,
     std::size_t startRow = getBounds(interval, width, bounds);
 
     int sum = 0;
+    rowsStart.reserve(rowsStart.size() + bounds.size());
     for (const auto &bound : bounds) {
       rowsStart.push_back(sum);
       sum += bound.size();
@@ -156,6 +163,11 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
   std::vector<unsigned> regionHeights;
   std::vector<unsigned> regionWidths;
   std::vector<unsigned> firstColumns;
+
+  output.reserve(regions.size());
+  regionHeights.reserve(regions.size());
+  regionWidths.reserve(regions.size());
+  firstColumns.reserve(regions.size());
 
   for (const Region &region : regions) {
     vertexParams.push_back(concat(flatParams.slices(region)));

@@ -288,6 +288,7 @@ static Tensor concatSlices(const Tensor &t, Graph &graph,
                            const std::vector<Interval> &intervals) {
   assert(t.rank() == 1);
   std::vector<Tensor> toConcat;
+  toConcat.reserve(intervals.size());
   for (const auto &interval : intervals) {
     toConcat.push_back(t.slice(interval.begin(), interval.end()));
   }
@@ -1152,7 +1153,7 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
 
   // Slice up the input and output tensor into replica number of slices.
   std::vector<Interval> sliceIntervals;
-
+  sliceIntervals.reserve(replicationFactor);
   for (unsigned replica = 0; replica < replicationFactor; ++replica) {
     sliceIntervals.push_back({replica, replica + 1});
   }

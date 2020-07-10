@@ -539,6 +539,8 @@ void HyperGraphBlock::createComputeSetMatMul(
   for (const auto &n : nodeV) {
     unsigned int nodeId = n.id;
     std::vector<poplar::Tensor> inputA, inputB;
+    inputA.reserve(n.idxA.size());
+    inputB.reserve(n.idxA.size());
     for (unsigned int i = 0; i < n.idxA.size(); i++) {
       inputA.push_back(processedBlockDataA[n.idxA[i]]);
       inputB.push_back(processedBlockDataB[n.idxB[i]]);
@@ -594,6 +596,7 @@ void HyperGraphBlock::createComputeSetReduce(
     maxC = std::max(static_cast<uint>(e.in.size()), maxC);
 
     std::vector<poplar::Tensor> partialBlocks;
+    partialBlocks.reserve(e.in.size());
     for (const auto &in : e.in) {
       auto iter = partialDataIn.find(in);
       if (iter == partialDataIn.end()) {

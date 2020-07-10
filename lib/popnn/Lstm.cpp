@@ -511,6 +511,7 @@ basicLstmCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
   const std::string baseStr = debugPrefix + "/BasicLstmCell";
 
   std::vector<Tensor> toConcat;
+  toConcat.reserve(BASIC_LSTM_CELL_NUM_UNITS);
   for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
     toConcat.push_back(
         graph
@@ -559,6 +560,7 @@ static void basicLstmCellForwardPassInPlace(
   const std::string baseStr = debugPrefix + "/BasicLstmCell";
 
   std::vector<Tensor> toConcat;
+  toConcat.reserve(BASIC_LSTM_CELL_NUM_UNITS);
   for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
     if (i == BASIC_LSTM_CELL_OUTPUT_GATE) {
       toConcat.push_back(output.expand({0}));

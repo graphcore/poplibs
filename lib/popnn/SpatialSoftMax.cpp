@@ -69,6 +69,7 @@ spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
   // flattened into the second column. The reversal is in order to preserve
   // a consistent (row, col) indexing order in the result (Poplar is row major).
   std::vector<poplar::Tensor> colTensors;
+  colTensors.reserve(2);
   colTensors.push_back(yGrid.reshape({fieldSize, 1}));
   colTensors.push_back(xGrid.reshape({fieldSize, 1}));
   auto rhs = poplar::concat(colTensors, 1).reshape(rhsShape);

@@ -66,6 +66,8 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
 
   const unsigned numInGroups = matA.getBlockCol() / convInChannels;
   std::vector<poplar::Tensor> inputA, inputB;
+  inputA.reserve(rhs.size() * numInGroups);
+  inputB.reserve(rhs.size() * numInGroups);
   for (unsigned i = 0; i < rhs.size(); i++) {
     for (unsigned g = 0; g < numInGroups; g++) {
       inputA.push_back(lhs[i][g]);
@@ -153,6 +155,7 @@ poplar::Tensor HyperGraph::getResultTensor() const {
     return static_cast<BlockDenseMatrix *>(matC.get())->denseMatrix;
   } else {
     std::vector<poplar::Tensor> blocks;
+    blocks.reserve(matC->getBlockTensor().size());
     for (auto &b : matC->getBlockTensor()) {
       blocks.push_back(b.expand({0}));
     }
@@ -200,6 +203,7 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
     poplar::Tensor reshaped =
         lhsInBlocks[i].reshape({lhsBlockRow, lhsBlockCol});
     std::vector<poplar::Tensor> smallBlocks;
+    smallBlocks.reserve(numInGroups);
     std::size_t start = 0, end = 0;
     for (unsigned g = 0; g < numInGroups; g++) {
       end += inChansPerGroup;
@@ -253,6 +257,7 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
 
       // split into small groups
       std::vector<poplar::Tensor> smallBlocks;
+      smallBlocks.reserve(numInGroups);
       std::size_t start = 0, end = 0;
       for (unsigned g = 0; g < numInGroups; g++) {
         end += inChansPerGroup;

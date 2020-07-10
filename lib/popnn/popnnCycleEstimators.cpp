@@ -372,6 +372,7 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
 
   // calculate how long each worker take
   std::vector<std::uint64_t> allWorkerCycles;
+  allWorkerCycles.reserve(numWorkers);
   for (unsigned wId = 0; wId < numWorkers; ++wId) {
     allWorkerCycles.push_back(workerCycles(wId));
   }

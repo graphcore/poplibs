@@ -105,6 +105,7 @@ IntermediatePartials tensorToIntermediatePartials(
 
     // The list of tensors to concatenate to get the data tensor.
     std::vector<poplar::Tensor> toConcat;
+    toConcat.reserve(sortedRegions.size());
 
     // The output indices (i.e. columns of the 2D input tensor) for the regions
     // mapped to this tile.

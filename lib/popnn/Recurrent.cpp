@@ -161,6 +161,7 @@ Tensor createInput(Graph &graph, unsigned sequenceSize, unsigned batchSize,
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
   std::vector<Tensor> input;
+  input.reserve(1 + sequenceSize);
   input.emplace_back(createMatMulInputLHS(graph, dType, {batchSize, inputSize},
                                           {inputSize, outputSize}, name, mmOpt,
                                           cache)

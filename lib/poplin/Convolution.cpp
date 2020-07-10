@@ -187,6 +187,7 @@ std::size_t ConvParams::getOutputSize(unsigned dim) const {
 
 std::vector<std::size_t> ConvParams::getOutputFieldShape() const {
   std::vector<std::size_t> outputFieldShape;
+  outputFieldShape.reserve(inputFieldShape.size());
   for (auto dim = 0U; dim != inputFieldShape.size(); ++dim) {
     outputFieldShape.push_back(getOutputSize(dim));
   }
@@ -906,6 +907,7 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
       (*graph).setTileMapping(*acts, 0);
     } else {
       std::vector<Tensor> slices;
+      slices.reserve(kernelFactor);
       auto subsampledKernelElements =
           getDilatedSize(weightsFactoredSize, kernelFactor);
       for (unsigned k = 0; k < kernelFactor; ++k) {
@@ -1641,6 +1643,7 @@ static CanonicalConvParams convolutionPreprocess(
 
         // need to build up a new tensor with the output channels padded.
         std::vector<Tensor> paddedCi;
+        paddedCi.reserve(weights->dim(0));
 
         for (unsigned co = 0; co < weights->dim(0); ++co) {
           auto x = (co / numOutChans) % factor;
@@ -2518,6 +2521,7 @@ partitionConvOutputBetweenWorkers(const Graph &graph, unsigned batchBegin,
   const auto outXBegin = outFieldBegin.back();
   const auto outXEnd = outFieldEnd.back();
   const auto outWidth = outXEnd - outXBegin;
+  perWorkerConvOutputSlices.reserve(numWorkers);
   for (unsigned worker = 0; worker != numWorkers; ++worker) {
     const auto begin = (worker * numPartRows) / numWorkers;
     const auto end = ((worker + 1) * numPartRows) / numWorkers;
@@ -2567,6 +2571,7 @@ static std::vector<Tensor> reorderWeightsTensor(std::vector<Tensor> &in,
                                                 unsigned numConvGroups) {
   assert(in.size() == numInGroups * numOutGroups * numConvGroups);
   std::vector<Tensor> reorderedIn;
+  reorderedIn.reserve(in.size());
   for (auto cg = 0U; cg != numConvGroups; ++cg) {
     for (auto ig = 0U; ig != numInGroups; ++ig) {
       for (auto ogp1 = numOutGroups; ogp1 > 0; --ogp1) {
@@ -2608,6 +2613,8 @@ createPartitions(const CanonicalConvParams &params,
     kernelBeginIndices.back() = kernelBeginIndices.back() * convUnitWeightWidth;
     std::vector<unsigned> tileConvOutBegin;
     std::vector<unsigned> tileConvOutSize;
+    tileConvOutBegin.reserve(numFieldDims);
+    tileConvOutSize.reserve(numFieldDims);
     for (unsigned dim = 0; dim != numFieldDims; ++dim) {
       const auto kernelBeginIndex = kernelBeginIndices[dim];
       const auto kernelEndIndex =
@@ -2635,6 +2642,7 @@ createPartitions(const CanonicalConvParams &params,
         if (workerOutWidth == 0)
           continue;
         std::vector<std::size_t> outBeginIndices = {partialRow.b};
+        outBeginIndices.reserve(numFieldDims);
         for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
           outBeginIndices.push_back(partialRow.outerFieldIndices[dim] +
                                     tileConvOutBegin[dim]);
@@ -3032,6 +3040,10 @@ static Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
   // shape of out is [G1][OC1][N]...[G2][OC2]
   std::vector<std::size_t> begin, end;
 
+  const auto numFieldDims = slice.outFieldBegin.size();
+  begin.reserve(5 + numFieldDims);
+  end.reserve(5 + numFieldDims);
+
   assert(slice.cgBegin % convGroupsPerGroup == 0);
   assert(slice.cgEnd % convGroupsPerGroup == 0);
   begin.push_back(slice.cgBegin / convGroupsPerGroup);
@@ -3045,7 +3057,6 @@ static Tensor sliceOutput(const Tensor &out, const ConvSlice &slice,
   begin.push_back(slice.batchBegin);
   end.push_back(slice.batchEnd);
 
-  const auto numFieldDims = slice.outFieldBegin.size();
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     begin.push_back(slice.outFieldBegin[dim]);
     end.push_back(slice.outFieldEnd[dim]);
@@ -3325,6 +3336,12 @@ static void createConvPartialHorizontalMacVertex(
   std::vector<Tensor> outWindow;
   std::vector<Tensor> inWindow;
   std::vector<Tensor> weightsWindow;
+
+  outWindow.reserve(numConvGroupGroups * numOutChanGroups);
+  inWindow.reserve(numConvGroupGroups * numInChanGroups);
+  weightsWindow.reserve(numConvGroupGroups * numOutChanGroups *
+                        numInChanGroups);
+
   for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
     // Output Tensor slices
     for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
@@ -3608,6 +3625,7 @@ void createConvPartialSlicVertex(
 
   const auto outputSpatialShape = [&] {
     std::vector<unsigned> r;
+    r.reserve(1 + numFieldDims);
     r.push_back(params.batchSize);
     for (unsigned d = 0; d < numFieldDims; ++d) {
       r.push_back(params.getUntransformedOutputSize(d));
@@ -4085,6 +4103,7 @@ getPartialOutputShape(const ConvParams &params,
                                        numOutChans / outChansPerGroup,
                                        params.getBatchSize()};
   const auto numFieldDims = params.getNumFieldDims();
+  outShape.reserve(outShape.size() + numFieldDims + 2);
   for (unsigned dim = 0; dim != numFieldDims; ++dim) {
     outShape.push_back(params.getOutputSize(dim));
   }
@@ -4257,6 +4276,7 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
       loopCount(plan.totalSerialSplit()),
       convolveCSGroup(graph.addComputeSet(debugPrefix + "/Convolve")),
       reduceComputeSets(plan.numLevels() - 1) {
+  transformPre.reserve(plan.numLevels());
   for (unsigned i = 0; i < plan.numLevels(); ++i) {
     transformPre.emplace_back(graph,
                               debugPrefix + "/Transpose_#" + std::to_string(i));
