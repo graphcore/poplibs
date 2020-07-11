@@ -440,6 +440,7 @@ add_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_unit_test(LargeSplitRegionsTest LargeSplitRegionsTest.cpp)
 add_unit_test(MeshGridTest MeshGridTest.cpp)
 add_unit_test(SpatialSoftmaxTest SpatialSoftmaxTest.cpp)
+add_unit_test(ScaledAddEquivalenceTest ScaledAddEquivalenceTest.cpp)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
                      MultiUpdate MultiUpdateSingles MultiUpdateMultiples)

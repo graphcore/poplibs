@@ -550,7 +550,21 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
   if (B.elementType() != targetType) {
     B = cast(graph, B, targetType, prog, debugPrefix + "/ScaledSub/B");
   }
-  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB, targetType,
+
+  bool useFloatScale = false;
+  auto scaleType =
+      specialisedVertexExists(A, B, B) ? B.elementType() : targetType;
+  if ((A.elementType() == HALF || A.elementType() == FLOAT) &&
+      B.elementType() == HALF) {
+
+    // Consider doing arithmetic as float internally to the codelet if scale
+    // can't be correctly represented as a half, using this function:
+    useFloatScale = !(poputil::checkAccuracyWhenCast(
+        graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
+  }
+
+  scaledArithmeticConstImpl(graph, A, 1.0, B, -scaleB,
+                            useFloatScale ? FLOAT : scaleType,
                             ScaledAddSpecialisation::DEFAULT, prog,
                             !regroupBeforeCast, debugPrefix, opts);
 }
