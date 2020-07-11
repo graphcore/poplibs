@@ -15,6 +15,7 @@ import sys
 from bisect import bisect_left
 from operator import mul
 from functools import reduce
+from itertools import chain
 
 vector_width = {
     'half': 4,
@@ -45,6 +46,9 @@ max_chans_per_group = 128
 max_stride = 4
 max_flops = 500000
 max_flops_per_tile = 50000
+
+min_num_convs = 2
+max_num_convs = 6
 
 def geometric_sequence(a, r):
     """
@@ -132,6 +136,31 @@ class Params:
         cmd.append('--convolution-options=' + json.dumps(self.conv_options))
         return cmd
 
+    def get_args_as_json(self):
+        params = {
+            'dataType': self.data_type,
+            'numConvGroups': self.conv_groups,
+            'batchSize': self.batch_size,
+            'inputFieldShape': self.field,
+            'inputChannelsPerConvGroup': self.in_chans_per_group,
+            'outputChannelsPerConvGroup': self.out_chans_per_group,
+            'kernelShape': self.kernel_size,
+            'inputTransform': {
+                'paddingLower': self.padding_lower,
+                'paddingUpper': self.padding_upper,
+                'dilation': self.in_dilation,
+            },
+            'kernelTransform': {
+                'paddingLower': self.kernel_padding_lower,
+                'paddingUpper': self.kernel_padding_upper,
+                'dilation': self.kernel_dilation,
+            },
+            'outputTransform': {
+                'stride': self.stride,
+            },
+        }
+        return ['--conv=' + json.dumps(params)]
+
     def get_dilated_and_padded_input_size(self):
         return dilate_and_pad(self.field,
                               self.in_dilation,
@@ -166,7 +195,7 @@ class Params:
         return (output_elements * kernel_elements * in_chans_per_group *
                 out_chans_per_group)
 
-def make_params(num_ipus):
+def make_params():
     """Return a random set of convolution parameters"""
     params = Params()
 
@@ -297,7 +326,7 @@ def make_params(num_ipus):
 
     return params
 
-def make_constrained_params(tiles_per_ipu, num_ipus):
+def make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv):
     """
     Return a random set of convolution parameters subject to constraints
 
@@ -305,7 +334,7 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
     by single_conv_layer and not exceed the maximum number of FLOPs.
     """
     while True:
-        p = make_params(num_ipus)
+        p = make_params()
         if any(f < k for f, k in zip(p.get_dilated_and_padded_input_size(),
                                      p.get_dilated_and_padded_kernel_size())):
             continue
@@ -315,14 +344,21 @@ def make_constrained_params(tiles_per_ipu, num_ipus):
         nOddDims=len([a for a in p.stride if a > 1 and a%2])
         if nOddDims:
           print("odd: " + str(p.stride))
-        if (flops > max_flops):
+        if (flops > max_flops_per_conv):
             continue
-        if (flops * (1 + 0.5*nOddDims) > max_flops_per_tile * tiles_per_ipu):
+        if (flops * (1 + 0.5*nOddDims) > max_flops_per_tile_per_conv * tiles_per_ipu):
             continue;
         return p
 
-def select_tiles_per_ipu():
-    return weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
+def select_tiles_per_ipu(large):
+    if large:
+        return weighted_choice([32, 64, 128], [0.3, 0.4, 0.3])
+    else:
+        return weighted_choice([1, 16, 24], [0.3, 0.4, 0.3])
+
+
+def select_num_convs():
+    return random.randrange(min_num_convs, max_num_convs)
 
 
 class TestFailureException(Exception):
@@ -332,15 +368,16 @@ class TestFailureException(Exception):
         self.returncode = returncode
 
 
-def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False):
+def run(params, binary='single_conv_layer', extra_args=None, dummy_run=False, as_json=False):
     """Run single_conv_layer with the specified convolution parameters"""
     cmd = [binary]
-    cmd += params.get_args()
+    ps = [p.get_args_as_json() if as_json else p.get_args() for p in params]
+    cmd += list(chain.from_iterable(ps))
     if (extra_args):
         cmd += extra_args
     cmd_str = ' '.join("'" + e + "'" for e in cmd)
     print('CMD=' + cmd_str)
-    print('FLOPS=' + str(params.get_flops()))
+    print('FLOPS=' + ', '.join([str(p.get_flops()) for p in params]))
 
     my_env = os.environ
     if platform.system() == 'Darwin':
@@ -362,50 +399,63 @@ def main():
     )
     parser.add_argument('--binary', default='single_conv_layer',
                         help='single_conv_layer binary to run')
-    parser.add_argument('--n', type=int, required=True,
-                        help='Number of convolutions to run')
     parser.add_argument('--seed', default=42, type=int,
                         help='Random number seed')
     parser.add_argument('--device-type', default='IpuModel',
                         help='Underlying target to use')
     parser.add_argument('--profile', action='store_true',
                         help='Print profiling report once complete')
+    parser.add_argument('--json', action='store_true',
+                        help='Pass conv params as a json string or not')
     parser.add_argument('--dummy', action='store_true',
                         help='Print parameters without running convolution')
+    parser.add_argument('--num-convs', default=1, type=int,
+                        help='The amount of convolutions to run. Will split '
+                             'the FLOPs between them. If 0, picks a random '
+                             ' amount to do')
     parser.add_argument('--ipus', default=1, type=int,
                         help='Number of ipus to use')
     parser.add_argument('--tiles-per-ipu', type=int,
                         help='Number of tiles per ipu to use')
+    parser.add_argument('--large', action='store_true',
+                        help='Generally use more tiles if not specified')
     parser.add_argument('--num-determinism-checks', type=int, default=0,
-                        help='Amount of additional identical executions to check determinism (Hw only)')
+                        help='Amount of additional identical executions to '
+                             'check determinism (Hw only)')
     args = parser.parse_args()
 
     random.seed(args.seed)
 
-    for i in range(args.n):
-        if args.tiles_per_ipu is not None:
-            tiles_per_ipu = args.tiles_per_ipu
-        else:
-            tiles_per_ipu = select_tiles_per_ipu()
+    if args.tiles_per_ipu is not None:
+        tiles_per_ipu = args.tiles_per_ipu
+    else:
+        tiles_per_ipu = select_tiles_per_ipu(args.large)
 
-        device_args = []
-        device_args.append('--tiles-per-ipu=' + str(tiles_per_ipu))
+    device_args = []
+    device_args.append('--tiles-per-ipu=' + str(tiles_per_ipu))
+    if args.ipus > 1:
         device_args.append('--ipus=' + str(args.ipus))
-        params = make_constrained_params(tiles_per_ipu, args.ipus)
-        print('Run #{}:'.format(i))
-        try:
-            extra_args=device_args + ['--device-type=' +
-                str(args.device_type)];
-            if args.device_type == 'Hw':
-                extra_args.append('--num-determinism-checks=' + str(args.num_determinism_checks))
-            if args.profile:
-                extra_args.append('--profile');
-            run(params, binary=args.binary,
-                extra_args=extra_args,
-                dummy_run=args.dummy)
-        except TestFailureException as inst:
-            print('TestFailure: ' + str(inst.args))
-            sys.exit(inst.returncode);
+
+    num_convs = args.num_convs if args.num_convs > 0 else select_num_convs()
+    max_flops_per_conv = max_flops / num_convs
+    max_flops_per_tile_per_conv = max_flops_per_tile / num_convs
+    def make_conv_params():
+        return make_constrained_params(tiles_per_ipu, max_flops_per_conv, max_flops_per_tile_per_conv)
+    params = [make_conv_params() for _ in range(num_convs)]
+    try:
+        extra_args=device_args + ['--device-type=' +
+            str(args.device_type)];
+        if args.device_type == 'Hw':
+            extra_args.append('--num-determinism-checks=' + str(args.num_determinism_checks))
+        if args.profile:
+            extra_args.append('--profile');
+        run(params, binary=args.binary,
+            extra_args=extra_args,
+            dummy_run=args.dummy,
+            as_json=args.json)
+    except TestFailureException as inst:
+        print('TestFailure: ' + str(inst.args))
+        sys.exit(inst.returncode);
 
 if __name__ == "__main__":
     sys.exit(main())

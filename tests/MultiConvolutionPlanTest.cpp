@@ -101,7 +101,7 @@ BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
   // it's hardcoded because currently the splitting of tiles is internal to
   // ConvPlan, if this breaks then it's because the allocation method of tiles
   // has changed (or FLOP estimation has?!).
-  const std::vector<unsigned> expectedStartTiles{0, 66, 46, 54};
+  const std::vector<unsigned> expectedStartTiles{0, 28, 20, 24};
 
   // When
   const auto concurrentPlans =

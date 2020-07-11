@@ -245,7 +245,7 @@ endfunction()
 
 # add a test to run on the specified VARIANTS
 function(add_multitarget_test)
-  cmake_parse_arguments(add_multitarget_test "" "NAME"
+  cmake_parse_arguments(add_multitarget_test "ALLOW_SKIP" "NAME"
                         "VARIANTS;COMMAND;LABELS"
                         "${ARGN}")
   sanitise_variants(add_multitarget_test_VARIANTS)
@@ -268,7 +268,9 @@ function(add_multitarget_test)
     add_test(NAME "${test_name}"
       COMMAND ${add_multitarget_test_COMMAND} "--device-type=${TEST_TARGET}"
       WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
-    set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 77)
+    if (add_multitarget_test_ALLOW_SKIP)
+      set_tests_properties(${test_name} PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
 
     set(test_env ${TEST_ENVIRONMENT})
     if (${TEST_CONFIG} STREQUAL "cpp")
@@ -1598,9 +1600,9 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
           NAME conv_random_${n}
           COMMAND ${PYTHON_EXECUTABLE}
                   ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
-                  --n 1
                   --seed ${n}
-                  --binary $<TARGET_FILE:single_conv_layer>)
+                  --binary $<TARGET_FILE:single_conv_layer>
+          ALLOW_SKIP)
   endforeach()
 
   # Random single_conv_layer tests with fixed seed on multi ipus
@@ -1610,11 +1612,26 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
              NAME multi_ipu_conv_random_${n}
              COMMAND ${PYTHON_EXECUTABLE}
                      ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
-                     --n 1
                      --seed ${n}
                      --ipus 2
                      --binary $<TARGET_FILE:single_conv_layer>
-             VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+             VARIANTS "Hw;${IPUMODEL_VARIANTS}"
+             ALLOW_SKIP)
+  endforeach()
+
+  # Random multi_conv_layer tests with fixed seed.
+  set(NUM_CONV_RANDOM_TESTS 25)
+  foreach(n RANGE 1 ${NUM_CONV_RANDOM_TESTS})
+  add_multitarget_test(
+          NAME multi_conv_random_${n}
+          COMMAND ${PYTHON_EXECUTABLE}
+                  ${CMAKE_SOURCE_DIR}/tools/single_conv_layer_random.py
+                  --seed ${n}
+                  --json
+                  --large
+                  --num-convs 0
+                  --binary $<TARGET_FILE:multi_conv_layer>
+          ALLOW_SKIP)
   endforeach()
 
   # Some of the following benchmarks use quite a lot of host memory, too much
@@ -3965,7 +3982,7 @@ add_multitarget_test(
                 --output-channels=32
                 --field={13,13}
                 --kernel-size=${KERNEL_SIZE}
-                --tiles-per-ipu=1
+                --tiles-per-ipu=4
                 --single-phase=fwd
                  --data-type=float
                 --fwd-plan-constraints={\"method\":\"AMP\",\"numAmpConvUnits\":\"16\"}
@@ -7023,7 +7040,7 @@ foreach(PLAN_TYPE parallel serial)
                    --batch-size=3
                    --padding-lower={1,2}
                    --data-type=half
-                   --tiles-per-ipu=16
+                   --tiles-per-ipu=32
                    --alpha=0.5
                    --options={\"planType\":\"${PLAN_TYPE}\"}
                    VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)

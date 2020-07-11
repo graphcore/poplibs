@@ -14,7 +14,7 @@
 #include <sstream>
 using namespace poplibs_support;
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
   DeviceType deviceType;
@@ -235,4 +235,9 @@ int main(int argc, char **argv) {
   }
 
   return 0;
+} catch (const poplar::graph_memory_allocation_error &e) {
+  std::cerr << e.what() << std::endl;
+
+  // this exit code has been marked as a "skip" for ctest.
+  return 77;
 }

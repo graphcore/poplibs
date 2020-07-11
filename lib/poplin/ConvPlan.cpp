@@ -6289,7 +6289,7 @@ getParallelMultiPlan(const poplar::Target &target,
   unsigned perConvReservedTiles = options.perConvReservedTiles;
   if (target.getNumTiles() < idx.size() * perConvReservedTiles) {
     logging::warn("Not enough tiles to reserve any for the multi-convolution.");
-    perConvReservedTiles = 1;
+    perConvReservedTiles = target.getNumTiles() / idx.size();
   }
 
   // don't include first conv.
