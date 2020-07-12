@@ -388,8 +388,8 @@ matMulImpl(poplar::Graph &graph, const poplar::Tensor &A,
   if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_BWD &&
       !options.inputRHSIsPreArranged) {
     weightsView = poplin::fullyConnectedWeightTranspose(
-        graph, weightsView.dimShuffle({0, 2, 1, 3}), convParams, prog, "",
-        convOptions, linCache);
+        graph, weightsView.dimShuffle({0, 2, 1, 3}), convParams, prog,
+        debugPrefix, convOptions, linCache);
   }
   auto out =
       poplin::convolution(graph, actsView, weightsView, convParams, false, prog,
