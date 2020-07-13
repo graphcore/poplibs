@@ -8,6 +8,7 @@
 #include <poplar/IPUModel.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Target.hpp>
+#include <poplar/Type.hpp>
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/MultiArray.hpp>
 
@@ -148,9 +149,20 @@ void inline writeRandomValues(const poplar::Target &target,
   }
 }
 
-std::pair<std::int64_t, std::int64_t>
-getPreciselyRepresentableIntegerRange(const poplar::Target &target,
-                                      const poplar::Type &type);
+size_t maxContiguousInteger(const poplar::Type &t);
+
+size_t maxContiguousIntegerFromBinaryOp(const poplar::Type &inputType,
+                                        const poplar::Type &outputType);
+
+// Return true if the number of multiply-accumulates per output element is
+// likely to exceed the contiguous range of exactly representable integer
+// values for either `inputType` or `outputType`, assuming the values being
+// accumulated are randomly chosen from {-1, 1}.
+// Note that the distribution of {-1, 1} is not strictly Bernoulli, as
+// Bernoulli uses the values {0, 1}.
+bool isLikelyToHaveNumericalErrorsUsingBernoulli(
+    size_t macsPerOutputElement, const poplar::Type &inputType,
+    const poplar::Type &outputType);
 
 template <typename T>
 void copy(const poplar::Target &target, const T *src, std::size_t n,

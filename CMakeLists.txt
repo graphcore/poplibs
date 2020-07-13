@@ -60,6 +60,8 @@ foreach(IPU_ARCH_TEST_VARIANT ${ABBREV_TARGETS})
   endif()
 endforeach()
 
+set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2;Sim;Sim2;Sim:cpp;Sim2:cpp;Hw")
+
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 

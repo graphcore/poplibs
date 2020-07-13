@@ -186,7 +186,34 @@ int main(int argc, char **argv) {
     absoluteTolerance = HALF_ABS_TOL;
   }
 
-  const auto learningRate = 0.5;
+  size_t numOutputElements = 0;
+  if (doFwdPass)
+    numOutputElements =
+        std::min(numOutputElements,
+                 static_cast<size_t>(numGroups * batchSize * outputSize));
+  if (doBwdPass)
+    numOutputElements =
+        std::min(numOutputElements,
+                 static_cast<size_t>(numGroups * batchSize * inputSize));
+  if (doWuPass)
+    numOutputElements =
+        std::min(numOutputElements,
+                 static_cast<size_t>(numGroups * inputSize * outputSize));
+
+  const size_t numMacs = numGroups * batchSize * inputSize * outputSize;
+  const size_t numMacsPerOutputElement =
+      numOutputElements ? numMacs / numOutputElements : 0;
+  const bool useUniformRandomData = isLikelyToHaveNumericalErrorsUsingBernoulli(
+      numMacsPerOutputElement, inputType, outputType);
+  std::cout << "Using " << (useUniformRandomData ? "uniform" : "{-1, 1}")
+            << " random data\n";
+
+  if (!useUniformRandomData) {
+    absoluteTolerance = 0.0;
+    relativeTolerance = 0.0;
+  }
+
+  const auto learningRate = useUniformRandomData ? 0.5 : 1.0;
   auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
                     : createTestDeviceFullSize(deviceType, numIPUs);
@@ -325,6 +352,7 @@ int main(int argc, char **argv) {
   }
 
   std::vector<Program> programs;
+  programs.reserve(4);
   const auto fwdProgIndex = programs.size();
   programs.push_back(std::move(fwdProg));
   const auto bwdProgIndex = programs.size();
@@ -349,10 +377,23 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 3> hostNextAct(
       boost::extents[numGroups][batchSize][outputSize]);
   std::mt19937 randomEngine;
-  writeRandomValues(target, inputType, hostPrevAct, -4.0, 4.0, randomEngine);
-  writeRandomValues(target, inputType, hostWeights, -3.0, 3.0, randomEngine);
+  if (useUniformRandomData) {
+    writeRandomValues(target, inputType, hostPrevAct, -4.0, 4.0, randomEngine);
+    writeRandomValues(target, inputType, hostWeights, -3.0, 3.0, randomEngine);
+  } else {
+    writeRandomBinaryValues(target, inputType, hostPrevAct, -1.0, 1.0,
+                            randomEngine);
+    writeRandomBinaryValues(target, inputType, hostWeights, -1.0, 1.0,
+                            randomEngine);
+  }
   if (bias) {
-    writeRandomValues(target, outputType, hostBiases, -4.0, 4.0, randomEngine);
+    if (useUniformRandomData) {
+      writeRandomValues(target, outputType, hostBiases, -4.0, 4.0,
+                        randomEngine);
+    } else {
+      writeRandomBinaryValues(target, outputType, hostBiases, -1.0, 1.0,
+                              randomEngine);
+    }
   } else {
     std::fill(hostBiases.data(), hostBiases.data() + hostBiases.num_elements(),
               0.0);
@@ -395,7 +436,12 @@ int main(int argc, char **argv) {
     auto modelWeights = hostWeights;
     auto modelBiases = hostBiases;
     // Run the backwards pass.
-    writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0, randomEngine);
+    if (useUniformRandomData)
+      writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0,
+                        randomEngine);
+    else
+      writeRandomBinaryValues(target, inputType, hostWeights, -1.0, 1.0,
+                              randomEngine);
     copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
     device.bind([&](const Device &d) {
       engine.load(d);

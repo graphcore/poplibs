@@ -199,12 +199,7 @@ int main(int argc, char **argv) try {
   std::mt19937 randomEngine;
 
   const bool floatingPointCouldRepresentMaxAccum = [&] {
-    const auto intRange =
-        poplibs_test::util::getPreciselyRepresentableIntegerRange(target,
-                                                                  dataType);
-    assert(intRange.first != 0 && intRange.second != 0);
-    const auto maxVal =
-        std::min(std::abs(intRange.first), std::abs(intRange.second));
+    const auto maxVal = maxContiguousInteger(dataType);
 
     double weightedThreshold, remainingThreshold;
     std::tie(weightedThreshold, remainingThreshold) =

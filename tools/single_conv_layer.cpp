@@ -572,59 +572,43 @@ int main(int argc, char **argv) try {
   }
 
   const auto &target = parentGraph.getTarget();
-  const auto opLimit = [&]() -> std::size_t {
-    const auto inRange =
-        poplibs_test::util::getPreciselyRepresentableIntegerRange(target,
-                                                                  inputType);
-    const auto outRange =
-        poplibs_test::util::getPreciselyRepresentableIntegerRange(target,
-                                                                  outputType);
-    assert(inRange.first != 0 && inRange.second != 0);
-    assert(outRange.first != 0 && outRange.second != 0);
-    const auto maxInVal =
-        std::min(std::abs(inRange.first), std::abs(inRange.second));
-    const auto maxOutVal =
-        std::min(std::abs(outRange.first), std::abs(outRange.second));
-    return static_cast<std::size_t>(std::min(maxInVal, maxOutVal));
-  }();
-
-  // For a large conv, the accumulation may exceed the range exactly
-  // representable by the floating point type (most likely half), so we should
-  // default to uniform random number generation in that case.
-  const auto convIsLarge = [=]() {
-    const auto opsPerOutputElement = [](const poplin::ConvParams &params,
-                                        uint64_t macs) -> uint64_t {
-      const auto numberOfOutputElements =
-          product(params.getOutputFieldShape()) * params.getNumOutputChans();
-      if (numberOfOutputElements != 0) {
-        return macs / (numberOfOutputElements);
-      } else {
-        return 0; // Zero conv group case
-      }
-    };
-    if (doFwdPass) {
-      const auto macs = poplin::getFwdFlops(params) / 2;
-      if (opsPerOutputElement(params, macs) > opLimit) {
-        return true;
-      }
+  std::size_t maxAccsPerOutputElement = 0;
+  if (doFwdPass) {
+    const std::size_t numOutElems = product(params.getOutputFieldShape()) *
+                                    params.getNumOutputChans() *
+                                    params.getBatchSize();
+    if (numOutElems) {
+      const std::size_t fwdMaxAccsPerOutElem =
+          (poplin::getFwdFlops(params) / 2) / numOutElems;
+      maxAccsPerOutputElement =
+          std::max(maxAccsPerOutputElement, fwdMaxAccsPerOutElem);
     }
-    if (doBwdPass) {
-      const auto macs = poplin::getBwdFlops(bwdParams) / 2;
-      if (opsPerOutputElement(bwdParams, macs) > opLimit) {
-        return true;
-      }
+  }
+  if (doBwdPass) {
+    const std::size_t numOutElems = product(params.getInputFieldShape()) *
+                                    params.getNumInputChans() *
+                                    params.getBatchSize();
+    if (numOutElems) {
+      const std::size_t bwdMaxAccsPerOutElem =
+          (poplin::getBwdFlops(params) / 2) / numOutElems;
+      maxAccsPerOutputElement =
+          std::max(maxAccsPerOutputElement, bwdMaxAccsPerOutElem);
     }
-    if (doWuPass) {
-      const auto macs = poplin::getWuFlops(params) / 2;
-      if (opsPerOutputElement(params, macs) > opLimit) {
-        return true;
-      }
+  }
+  if (doWuPass) {
+    const std::size_t numOutElems = product(params.getKernelShape()) *
+                                    params.getNumInputChans() *
+                                    params.getNumOutputChans();
+    if (numOutElems) {
+      const std::size_t wuMaxAccsPerOutElem =
+          (poplin::getWuFlops(params) / 2) / numOutElems;
+      maxAccsPerOutputElement =
+          std::max(maxAccsPerOutputElement, wuMaxAccsPerOutElem);
     }
-    return false;
-  }();
+  }
 
   // To avoid destructive addition (a + b) + c != a + (b + c), which is
-  // particuarlly poor with halves, we look to only using values which we can
+  // particularly poor with halves, we look to only using values which we can
   // represent exactly, such that (a + b) + c == a + (b + c).
   // Accumulating random binary distribution of {-1, 1}, with a mean of 0
   // provides us this most of the time. Such that accumulating many items from
@@ -634,7 +618,10 @@ int main(int argc, char **argv) try {
 
   // We also disable this for determinism checks, which is testing stochastic
   // rounding specifically.
-  const bool useUniformRandomData = numDeterminismChecks || convIsLarge;
+  const bool useUniformRandomData =
+      numDeterminismChecks ||
+      isLikelyToHaveNumericalErrorsUsingBernoulli(maxAccsPerOutputElement,
+                                                  inputType, outputType);
 
   if (useUniformRandomData) {
     std::cout << "Using uniform random data\n";

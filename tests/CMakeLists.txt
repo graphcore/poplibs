@@ -30,12 +30,21 @@ endfunction()
 
 # Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
 # If no variants were requested filtered ${DEFAULT_TEST_VARIANTS} are returned.
+# Raise a fatal error if any of the variants are not in ${ALL_POSSIBLE_TEST_VARIANTS}.
 function(sanitise_variants variant_name)
   set(variants ${${variant_name}})
   set(old_variants "${variants}")
   if (NOT old_variants)
     set(old_variants ${DEFAULT_TEST_VARIANTS})
   endif()
+
+  # Check that all specified variants are supported.
+  foreach(variant ${old_variants})
+    if (NOT ${variant} IN_LIST ALL_POSSIBLE_TEST_VARIANTS)
+      message(FATAL_ERROR "Unrecognised variant: ${variant}")
+    endif()
+  endforeach()
+
   set(new_variants "")
   # Only allow each variant if it is enabled:
   # Tests labelled with VARIANT Hw1 or Hw2 are included if ENABLED_TEST_VARIANTS contains Hw
@@ -5315,9 +5324,9 @@ add_multitarget_test(
                  --tiles-per-ipu 12
                  --num-groups 2
                  --batch-size=4
-                 VARIANTS ${TimesOutOnSim}
                  --input-type=half
-                 --output-type=float)
+                 --output-type=float
+         VARIANTS ${TimesOutOnSim})
 
 add_test(
          NAME grouped_fully_connected_half_batch_4_two_ipus_floathalf
@@ -5339,9 +5348,9 @@ add_multitarget_test(
               --tiles-per-ipu 8
               --num-groups 3
               --batch-size=7
-              VARIANTS ${TimesOutOnSim}
               --input-type=half
-              --output-type=float)
+              --output-type=float
+      VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME grouped_fully_connected_batch_fwd_one_tile_floathalf
@@ -6592,9 +6601,9 @@ add_multitarget_test(
                  --kernel-size=3
                  --tiles-per-ipu=1
                  --in-dilation={2,3}
-                 VARIANTS ${TimesOutOnSim}
                  --input-type=float
-                 --output-type=half)
+                 --output-type=half
+         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv3x3_kernel_dilation_amp_halffloat
@@ -6606,9 +6615,9 @@ add_multitarget_test(
                 --kernel-size={3,5}
                 --kernel-dilation={3,2}
                 --tiles-per-ipu=12
-                VARIANTS ${TimesOutOnSim}
                 --input-type=half
-                --output-type=float)
+                --output-type=float
+         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv3x3_kernel_padding_amp_floathalf
@@ -6621,9 +6630,9 @@ add_multitarget_test(
                  --kernel-padding-lower={4,2}
                  --kernel-padding-upper={4,3}
                  --tiles-per-ipu=16
-                 VARIANTS ${TimesOutOnSim}
                  --input-type=float
-                 --output-type=half)
+                 --output-type=half
+         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME conv1x1_stride_1_fwd_serial_split_ocx2
@@ -6636,7 +6645,7 @@ add_multitarget_test(
              --kernel-size=1
              --single-phase=fwd
              --fwd-plan-constraints-file=${CMAKE_SOURCE_DIR}/tests/pc_serial_split_ocx2.json
-             VARIANTS ${TimesOutOnSim})
+         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
         NAME conv3x3_stride_2_128_out_fwd_serial_split_ocx4

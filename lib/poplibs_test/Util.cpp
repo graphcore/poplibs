@@ -142,23 +142,32 @@ template void writeRandomValues<unsigned>(const Target &target,
                                           unsigned max,
                                           std::mt19937 &randomEngine);
 
-// Range of integers that can be precisely represented using the given type.
-std::pair<std::int64_t, std::int64_t>
-getPreciselyRepresentableIntegerRange(const Target &target, const Type &type) {
-  if (type == HALF || type == FLOAT) {
+size_t maxContiguousInteger(const Type &t) {
+  if (t == HALF)
     // https://en.wikipedia.org/wiki/Half-precision_floating-point_format
+    return 2048;
+  else if (t == FLOAT)
     // https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-    const std::int64_t maxContiguousRepresentableInteger =
-        type == HALF ? 2048 : 16777216;
-    return std::make_pair(-maxContiguousRepresentableInteger,
-                          maxContiguousRepresentableInteger);
-  } else if (type == INT) {
-    return std::make_pair(std::numeric_limits<int>::lowest(),
-                          std::numeric_limits<int>::max());
-  } else {
-    assert(false && "Unhandled type");
-  }
-  return {};
+    return 16777216;
+  else if (t == INT)
+    return std::numeric_limits<int>::max();
+  else
+    throw std::runtime_error("Type not supported");
+}
+
+size_t maxContiguousIntegerFromBinaryOp(const Type &inputType,
+                                        const Type &outputType) {
+  return std::min(maxContiguousInteger(inputType),
+                  maxContiguousInteger(outputType));
+}
+
+bool isLikelyToHaveNumericalErrorsUsingBernoulli(size_t macsPerOutputElement,
+                                                 const Type &inputType,
+                                                 const Type &outputType) {
+  // Naively increasing maxInt by a factor of 30 is still very unlikely to
+  // over/underflow. Since it's so unlikely, we'll pad this value a little.
+  const size_t maxInt = maxContiguousIntegerFromBinaryOp(inputType, outputType);
+  return macsPerOutputElement > 10 * maxInt;
 }
 
 template <typename FPType>
