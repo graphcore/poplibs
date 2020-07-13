@@ -2,11 +2,19 @@
 #ifndef _performance_estimation_h_
 #define _performance_estimation_h_
 
+#include "ConvReducePlan.hpp"
+#include "ConvUtilInternal.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <limits>
 #include <numeric>
+#include <poplar/Target.hpp>
+#include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/VectorUtils.hpp>
+#include <poplibs_support/gcd.hpp>
+#include <poplin/ConvParams.hpp>
+#include <poplin/ConvUtil.hpp>
 #include <utility>
 #include <vector>
 
@@ -854,5 +862,306 @@ inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
 
   return cycles;
 }
+
+namespace poplin {
+
+inline std::uint64_t getNumberOfMACs(const poplin::ConvParams &params) {
+  std::uint64_t numMACs = params.getNumConvGroups() * params.getBatchSize() *
+                          params.getNumOutputChansPerConvGroup() *
+                          params.getNumInputChansPerConvGroup();
+  for (unsigned dim = 0; dim != params.getNumFieldDims(); ++dim) {
+    unsigned fieldMACs = 0;
+    auto kernelSize = params.kernelShape[dim];
+    auto kernelTruncationLower = params.kernelTransform.truncationLower[dim];
+    auto kernelTruncationUpper = params.kernelTransform.truncationUpper[dim];
+    auto outputSize = params.getOutputSize(dim);
+    auto outputStride = params.outputTransform.stride[dim];
+    auto inputDilation = params.inputTransform.dilation[dim];
+    // For a fixed kernel index the distance between elements in the output
+    // whose calculation involves that kernel index.
+    auto MACStride = lcm(outputStride, inputDilation) / outputStride;
+    for (unsigned k = kernelTruncationLower;
+         k != kernelSize - kernelTruncationUpper; ++k) {
+      auto outRange =
+          getOutputRangeForKernelIndex(dim, {0, outputSize}, k, params);
+      auto outRangeSize = outRange.second - outRange.first;
+      fieldMACs += (outRangeSize + MACStride - 1) / MACStride;
+    }
+    numMACs *= fieldMACs;
+  }
+  return numMACs;
+}
+
+inline unsigned getNumConvUnits(bool floatActivations, bool floatPartial,
+                                const poplar::Target &target) {
+  if (floatActivations) {
+    return target.getFp32InFp32OutConvUnitsPerTile();
+  } else {
+    return floatPartial ? target.getFp16InFp32OutConvUnitsPerTile()
+                        : target.getFp16InFp16OutConvUnitsPerTile();
+  }
+}
+
+inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
+    unsigned batchElements, const std::vector<unsigned> &outShape,
+    const std::vector<unsigned> &kernelShape, unsigned filterHeight,
+    unsigned outChansPerGroup, unsigned convUnitInputLoadElemsPerCycle,
+    unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
+    unsigned numWorkerContexts, bool floatWeights, bool floatPartials,
+    const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride) {
+  using poplibs_support::ceildiv;
+
+  const auto kernelElements = product(kernelShape);
+  const auto partition = partitionConvPartialByWorker(
+      batchElements, vectorConvert<unsigned>(outShape), numWorkerContexts,
+      inputDilation, stride);
+
+  // use conv nx1 vertex
+  // workList is indexed by [context][numKernelPositions][numPartitions]
+  std::vector<std::vector<std::vector<WorklistDataType>>> workList;
+  const unsigned positionsOuter = ceildiv(kernelShape[0], filterHeight);
+  const unsigned numKernelPositions =
+      (positionsOuter * kernelElements / kernelShape[0]);
+  const auto outStrideX =
+      inputDilation.back() / gcd(inputDilation.back(), stride.back());
+  for (unsigned context = 0; context < numWorkerContexts; ++context) {
+    workList.emplace_back();
+    for (auto k = 0U; k != numKernelPositions; ++k) {
+      workList.back().emplace_back();
+      for (const auto &partialRow : partition[context]) {
+        const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
+        const auto numFieldPos = ceildiv(workerOutWidth, outStrideX);
+        if (numFieldPos) {
+          workList.back().back().push_back(numFieldPos);
+        }
+      }
+    }
+  }
+  const auto kernelOuterElems = numKernelPositions / positionsOuter;
+  const auto kernelInnerElems = positionsOuter;
+
+  return getConvPartialnx1SupervisorCycleInnerLoopEstimate(
+      workList, kernelInnerElems, kernelOuterElems, filterHeight,
+      outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnits,
+      convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
+      floatPartials);
+}
+
+inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimate(
+    unsigned batchElements, const std::vector<unsigned> &outShape,
+    unsigned numWorkerContexts, unsigned numConvUnits,
+    const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride, bool floatActivations,
+    bool floatPartials, bool zeroPartials) {
+  assert(inputDilation == stride);
+  std::vector<std::vector<PartialRow>> partition = partitionConvPartialByWorker(
+      batchElements, vectorConvert<unsigned>(outShape), numWorkerContexts,
+      inputDilation, stride);
+  // use conv 1x1 vertex
+  std::vector<std::vector<WorklistDataType>> worklist(numWorkerContexts);
+  for (unsigned context = 0; context != numWorkerContexts; ++context) {
+    for (const auto &partialRow : partition[context]) {
+      const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
+      if (workerOutWidth == 0)
+        continue;
+      worklist[context].push_back(workerOutWidth);
+    }
+  }
+  return getConvPartial1x1SupervisorInnerLoopCycleEstimate(
+      worklist, numWorkerContexts, numConvUnits, zeroPartials, floatActivations,
+      floatPartials);
+}
+
+inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithZeroing(
+    unsigned batchElements, const std::vector<unsigned> &outShape,
+    unsigned numWorkerContexts, unsigned numConvUnits,
+    const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride, bool floatActivations,
+    bool floatPartials) {
+  return getConvPartial1x1InnerLoopCycleEstimate(
+      batchElements, outShape, numWorkerContexts, numConvUnits, inputDilation,
+      stride, floatActivations, floatPartials, true);
+}
+
+inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
+    unsigned batchElements, const std::vector<unsigned> &outShape,
+    unsigned numWorkerContexts, unsigned numConvUnits,
+    const std::vector<unsigned> &inputDilation,
+    const std::vector<unsigned> &stride, bool floatActivations,
+    bool floatPartials) {
+  return getConvPartial1x1InnerLoopCycleEstimate(
+      batchElements, outShape, numWorkerContexts, numConvUnits, inputDilation,
+      stride, floatActivations, floatPartials, false);
+}
+
+inline std::uint64_t getConvPartialSlicInnerLoopCycles(
+    unsigned outStride, bool implicitZeroing, unsigned batchElements,
+    const std::vector<unsigned> &outShape, unsigned numWorkerContexts,
+    unsigned numConvUnits, unsigned slicWindowWidth, bool floatActivations,
+    bool floatPartials) {
+  // SLIC doesn't support input dilation
+  std::vector<unsigned> inputDilation(outShape.size(), 1);
+  // SLIC only supports output striding (of 1 or 2) in the innermost dimension.
+  std::vector<unsigned> outputStride(outShape.size(), 1);
+  outputStride.back() = outStride;
+
+  const auto partition = partitionConvPartialByWorker(
+      batchElements, outShape, numWorkerContexts, inputDilation, outputStride);
+  std::vector<std::vector<WorklistDataType>> worklist(numWorkerContexts);
+  for (unsigned context = 0; context != numWorkerContexts; ++context) {
+    for (const auto &partialRow : partition[context]) {
+      const auto workerOutWidth = partialRow.xEnd - partialRow.xBegin;
+      if (workerOutWidth == 0) {
+        continue;
+      }
+
+      worklist[context].push_back(workerOutWidth);
+    }
+  }
+  return getConvPartialSlicSupervisorCycleInnerLoopEstimate(
+      worklist, numWorkerContexts, numConvUnits, slicWindowWidth,
+      floatActivations, floatPartials, outputStride.back(), implicitZeroing);
+}
+
+inline std::uint64_t estimateCastCycles(unsigned outputSize,
+                                        unsigned partialsVectorWidth,
+                                        unsigned outputVectorWidth,
+                                        unsigned numWorkers) {
+  const auto outputPerWorker = (outputSize + numWorkers - 1) / numWorkers;
+  std::uint64_t loadPartialsCycles =
+      (outputPerWorker + partialsVectorWidth - 1) / partialsVectorWidth;
+  std::uint64_t writeOutputCycles =
+      (outputPerWorker + outputVectorWidth - 1) / outputVectorWidth;
+  std::uint64_t cycles = std::max(loadPartialsCycles, writeOutputCycles);
+  return (cycles + 26) * numWorkers;
+}
+
+inline std::uint64_t estimateConvReduceCycles(
+    unsigned outputSize, unsigned reductionDepth, unsigned inChanSerialSplit,
+    bool floatOutput, bool floatPartials, unsigned numWorkers,
+    unsigned dataPathWidth, unsigned partialsVectorWidth,
+    unsigned outputVectorWidth, unsigned bytesPerTile,
+    unsigned bytesPerPartialsElement, bool enableMultiStageReduce,
+    bool enableFastReduce, bool enableSingleInputReduce) {
+  using poplibs_support::ceildiv;
+
+  if (reductionDepth == 0)
+    return 0;
+  if (reductionDepth == 1) {
+    // if input-channel serial splitting is involved, casting is deferred until
+    // all the serial splits have been processed.
+    if ((floatOutput == floatPartials) || (inChanSerialSplit > 1)) {
+      return 0;
+    } else {
+      return estimateCastCycles(outputSize, partialsVectorWidth,
+                                outputVectorWidth, numWorkers);
+    }
+  }
+
+  // Determine number of stages used in the reduction
+  auto reductionPlan =
+      getMultiStageReducePlan(reductionDepth, enableMultiStageReduce);
+  std::uint64_t cycles = 0;
+
+  unsigned remainingDepth = reductionDepth;
+  // Output size depends on the depth used in the reduction
+  unsigned outputSizeThisStage = outputSize * reductionDepth;
+  const unsigned widthForFastReduce = floatPartials ? 4 : 8;
+
+  for (auto d : reductionPlan) {
+    const auto depthThisStage = ceildiv(remainingDepth, d);
+    remainingDepth = ceildiv(remainingDepth, depthThisStage);
+    const auto stageOutputIsFloat =
+        remainingDepth == 1 ? floatOutput : floatPartials;
+    outputSizeThisStage = ceildiv(outputSizeThisStage, depthThisStage);
+
+    const auto exchangedPartialsBytes =
+        (depthThisStage - 1) * outputSizeThisStage * bytesPerPartialsElement;
+    bool useSingleInputReduce = enableSingleInputReduce &&
+                                checkPartialsSizeForSingleInputReduce(
+                                    exchangedPartialsBytes, bytesPerTile) &&
+                                (outputSizeThisStage % widthForFastReduce) == 0;
+    const auto depthForEstimate = depthThisStage - useSingleInputReduce;
+
+    cycles += getReduceCycleEstimate(outputSizeThisStage, depthForEstimate,
+                                     dataPathWidth, stageOutputIsFloat,
+                                     floatPartials, useSingleInputReduce,
+                                     enableFastReduce, numWorkers);
+  }
+
+  if (remainingDepth > 1) {
+    outputSizeThisStage =
+        (outputSizeThisStage + remainingDepth - 1) / remainingDepth;
+    const auto exchangedPartialsBytes =
+        (remainingDepth - 1) * outputSizeThisStage * bytesPerPartialsElement;
+    bool useSingleInputReduce = enableSingleInputReduce &&
+                                checkPartialsSizeForSingleInputReduce(
+                                    exchangedPartialsBytes, bytesPerTile) &&
+                                (outputSizeThisStage % widthForFastReduce) == 0;
+    const auto depthForEstimate = remainingDepth - useSingleInputReduce;
+
+    cycles += getReduceCycleEstimate(
+        outputSizeThisStage, depthForEstimate, dataPathWidth, floatOutput,
+        floatPartials, useSingleInputReduce, enableFastReduce, numWorkers);
+  }
+  return cycles;
+}
+
+inline std::uint64_t estimateZeroSupervisorCycles(unsigned fieldSize,
+                                                  unsigned numOutGroups,
+                                                  unsigned numConvGroups,
+                                                  unsigned outChansPerGroup,
+                                                  unsigned dataPathWidth,
+                                                  unsigned numWorkerContexts) {
+  std::vector<WorklistDataType> zeroWorkList;
+  zeroWorkList.reserve(numWorkerContexts);
+
+  for (unsigned i = 0; i != numWorkerContexts; ++i) {
+    zeroWorkList.push_back(
+        (fieldSize * outChansPerGroup + numWorkerContexts - 1) /
+        numWorkerContexts);
+  }
+  return getZeroSupervisorVertexCycleEstimate(
+      zeroWorkList, numOutGroups * numConvGroups, dataPathWidth,
+      numWorkerContexts, true);
+}
+
+inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
+    unsigned numOutRows, unsigned tileOutWidth, unsigned outputStrideX,
+    unsigned tileKernelHeight, unsigned tileKernelWidth, unsigned numWorkers,
+    bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
+    unsigned outChansPerGroup, unsigned dataPathWidth) {
+  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numOutRows);
+  unsigned numPartRows = numOutRows * rowSplitFactor;
+  const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
+  const auto workerWholeRows = maxPartRows / rowSplitFactor;
+  const auto workerPartRows = maxPartRows % rowSplitFactor;
+  const auto wholeRowConvSize =
+      (tileOutWidth + outputStrideX - 1) / outputStrideX;
+  std::vector<std::vector<std::vector<unsigned>>> workerPartitions;
+  workerPartitions.emplace_back();
+  const auto kernelSize = tileKernelWidth * tileKernelHeight;
+  for (auto k = 0U; k != kernelSize; ++k) {
+    workerPartitions.back().emplace_back();
+    if (wholeRowConvSize) {
+      for (unsigned r = 0; r != workerWholeRows; ++r) {
+        workerPartitions.back().back().push_back(wholeRowConvSize);
+      }
+      if (workerPartRows) {
+        auto convSize = workerPartRows *
+                        (wholeRowConvSize + rowSplitFactor - 1) /
+                        rowSplitFactor;
+        workerPartitions.back().back().push_back(convSize);
+      }
+    }
+  }
+
+  return getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
+      workerPartitions, kernelSize, inChansPerGroup, outChansPerGroup,
+      numWorkers, floatActivations, floatPartials);
+}
+
+} // namespace poplin
 
 #endif // _performance_estimation_h_

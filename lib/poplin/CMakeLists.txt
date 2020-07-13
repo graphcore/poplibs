@@ -3,40 +3,46 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 
 add_library(poplin SHARED
-  codelets.cpp
-  poplinCycleEstimators.cpp
-  ConvOptions.hpp
-  ConvOptions.cpp
-  Convolution.cpp
-  ConvParams.cpp
   CanonicalConvParams.hpp
-  ConvPlan.hpp
+  codelets.cpp
+  ConvModel.cpp
+  ConvModel.hpp
+  Convolution.cpp
+  ConvOptions.cpp
+  ConvOptions.hpp
+  ConvParams.cpp
   ConvPlan.cpp
-  ConvReduce.hpp
+  ConvPlan.hpp
+  ConvPlanTypes.hpp
   ConvReduce.cpp
-  ConvReducePlan.hpp
+  ConvReduce.hpp
   ConvReducePlan.cpp
+  ConvReducePlan.hpp
   ConvUtil.cpp
   ConvUtilInternal.cpp
   ConvUtilInternal.hpp
-  ConvValidation.hpp
   ConvValidation.cpp
+  ConvValidation.hpp
   CreateConvPartialVertex.hpp
-  MatMul.cpp
-  MultiConvolution.cpp
+  ExchangeEstimator.hpp
   FullyConnected.cpp
+  MatMul.cpp
   MatMulInternal.hpp
   MeshGrid.cpp
+  MultiConvolution.cpp
   Norms.cpp
   PerformanceEstimation.hpp
+  PlanningCache.hpp
+  PlanningObjective.hpp
+  poplinCycleEstimators.cpp
   TriangularSolve.cpp
   Winograd.cpp
   Winograd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/ConvUtil.hpp
-  ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/FullyConnected.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/MatMul.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/MeshGrid.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Norms.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/TriangularSolve.hpp

@@ -21,6 +21,8 @@
 
 namespace poplin {
 
+using WorklistDataType = unsigned;
+
 inline unsigned absdiff(unsigned a, unsigned b) {
   return a < b ? b - a : a - b;
 }
