@@ -281,8 +281,8 @@ int main(int argc, char **argv) {
                             {"prng.enableStochasticRounding", "true"},
                             {"prng.seed", std::to_string(seed)}});
 
-  engine.connectStream(inStreamV, hInput.get());
-  engine.connectStream(seedStreamV, hSeed);
+  engine.connectStream("InputVector", hInput.get());
+  engine.connectStream("seed", hSeed);
 
   // Run the forward pass.
   if (gfFormatCfg.getCalculationType() == poplar::FLOAT) {

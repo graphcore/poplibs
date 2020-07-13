@@ -508,13 +508,13 @@ int main(int argc, char **argv) {
                   {"prng.enableStochasticRounding", prng ? "true" : "false"},
                   {"prng.seed", std::to_string(seed)}});
 
-  engine.connectStream(inStreamV, hInput.get());
+  engine.connectStream("InputVector", hInput.get());
 
   if (!gfCast.getStoreAsNative()) {
     if (gfFormatCfg.getStorageType() == poplar::CHAR) {
-      engine.connectStream(castOutStream, chrCastOut.get());
+      engine.connectStream("CastOutputStream", chrCastOut.get());
     } else if (gfFormatCfg.getStorageType() == poplar::SHORT) {
-      engine.connectStream(castOutStream, shrCastOut.get());
+      engine.connectStream("CastOutputStream", shrCastOut.get());
     } else {
       std::cout << "packOutType not valid" << std::endl;
     }
