@@ -145,7 +145,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer) {
-  // TODO: T12902 Add cost estimates for non-limited version.
+  // Non-limited versions of MAC have same cycle counts as the limited ones.
   (void)useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);

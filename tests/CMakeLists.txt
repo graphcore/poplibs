@@ -3768,6 +3768,48 @@ add_multitarget_test(
 endforeach() # FLIP_INPUT
 endforeach() # PARTIALS_TYPE
 
+# Tests to target non-limited MAC codelets
+add_multitarget_test(
+         NAME "conv_mac_half_half_non_limited"
+         COMMAND single_conv_layer
+                 --input-channels=4
+                 --output-channels=2
+                 --field={7,4}
+                 --tiles-per-ipu=1
+                 --input-type=half
+                 --output-type=half
+                 --convolution-options={"partialsType":"half"}
+                 --single-phase=fwd
+                 --fwd-plan-constraints={"method":"MAC","useLimitedVersion":false}
+                 --bias=0)
+
+add_multitarget_test(
+         NAME "conv_mac_half_float_non_limited"
+         COMMAND single_conv_layer
+                 --input-channels=4
+                 --output-channels=2
+                 --field={7,4}
+                 --tiles-per-ipu=1
+                 --input-type=half
+                 --output-type=float
+                 --convolution-options={"partialsType":"float"}
+                 --single-phase=fwd
+                 --fwd-plan-constraints={"method":"MAC","useLimitedVersion":false}
+                 --bias=0)
+
+add_multitarget_test(
+         NAME "conv_mac_float_float_non_limited"
+         COMMAND single_conv_layer
+                 --input-channels=4
+                 --output-channels=2
+                 --field={7,4}
+                 --tiles-per-ipu=1
+                 --data-type=float
+                 --convolution-options={"partialsType":"float"}
+                 --single-phase=fwd
+                 --fwd-plan-constraints={"method":"MAC","useLimitedVersion":false}
+                 --bias=0)
+
 foreach(CHANS 8 16 32 64)
 add_multitarget_test(
          NAME "conv_dual_amp_half_1x1_channels_${CHANS}"

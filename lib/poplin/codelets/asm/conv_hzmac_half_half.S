@@ -1,5 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-// Computes an nx1 convolution using AMP. A contiguous field is partitioned
+// Computes an nx1 convolution using MAC. A contiguous field is partitioned
 // between workers for each position of the kernel element.
 //
 #ifdef __IPU__
@@ -105,9 +105,9 @@
 //
 // Loop performance:
 //   With input channels per group % 4 == 0:
-//     partition loop: 19 + num_fp * (7 + outChansPerGroup / 2 * (9 + inChansPerGroup/4))
+//     partition loop: 19 + num_fp * (7 + outChansPerGroup/2 * (11 + inChansPerGroup/4))
 //   Otherwise:
-//     partition loop: 19 + num_fp * (7 + outChansPerGroup / 2 * (10 + 2*(inChansPerGroup/2 - 1)))
+//     partition loop: 19 + num_fp * (7 + outChansPerGroup/2 * (12 + 2*(inChansPerGroup/2 - 1)))
 
 
 .section ".text.convHorizMacFlattened_half_half", "ax"
@@ -277,7 +277,7 @@ LProcessFourInputsOcgLoop:
     }
     INNER_LOOP_PROCESS_F16V4 1
 
-    // First inner loop to accumulate second half partial
+    // Second inner loop to accumulate second half partial
     {
       rpt $icg_count_v, (LProcessFourInputsIcgLoopEnd_2 - LProcessFourInputsIcgLoopBegin_2)/8 - 1
       f32add        $a6, $a4, $a5

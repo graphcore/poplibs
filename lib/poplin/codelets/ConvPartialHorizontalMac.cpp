@@ -19,8 +19,7 @@ namespace poplin {
 
 template <typename FPType, typename AccumType, bool useLimitedVer>
 constexpr bool hasAssembly() {
-  return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>()) &&
-         useLimitedVer == true;
+  return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>());
 }
 
 /* Perform a series of 1x1 convolutions using the MAC instruction where the

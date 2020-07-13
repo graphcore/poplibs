@@ -202,13 +202,18 @@ struct Plan {
   // determined from the plan for one pass.
   bool isJointPlan;
 
+  // If TRUE convolution library will use unsigned short type for vertex
+  // states, otherwise will fallback into unsigned type
+  bool useLimitedVersion;
+
   Plan() = default;
   Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
        unsigned convGroupsPerGroup_, unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_, unsigned slicWindowWidth_,
        unsigned numConvUnitsRequired_, Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
-       Plan::LinearizeTileDirection linearizeTileDirection_, bool isJointPlan)
+       Plan::LinearizeTileDirection linearizeTileDirection_, bool isJointPlan,
+       bool useLimitedVersion_)
       : partitions(std::move(partitions_)), types(std::move(types_)),
         convGroupsPerGroup(convGroupsPerGroup_),
         inChansPerGroup(inChansPerGroup_),
@@ -217,7 +222,7 @@ struct Plan {
         numConvUnitsRequired(numConvUnitsRequired_), method(method_),
         linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
         linearizeTileDirection(linearizeTileDirection_),
-        isJointPlan(isJointPlan) {}
+        isJointPlan(isJointPlan), useLimitedVersion(useLimitedVersion_) {}
 
   unsigned numLevels() const {
     assert(transforms.size() == types.size());

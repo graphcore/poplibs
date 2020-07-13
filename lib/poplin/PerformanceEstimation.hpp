@@ -48,18 +48,20 @@ inline std::uint64_t getDenseDotProductCycles(bool floatActivations,
 
   // float activations and float partials
   if (floatActivations) {
-    if ((size % 2) == 0)
+    if ((size % 2) == 0) {
       return innerCycles + size;
-    else
+    } else {
       return innerCycles + (2 * size);
+    }
   }
 
   // half activations and float partials
   if (floatPartials) {
-    if ((size % 4) == 0)
+    if ((size % 4) == 0) {
       return innerCycles + size / 4;
-    else
+    } else {
       return innerCycles + size;
+    }
   }
 
   // half activations and half partials

@@ -1,5 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-// Computes an nx1 convolution using AMP. A contiguous field is partitioned
+// Computes an nx1 convolution using MAC. A contiguous field is partitioned
 // between workers for each position of the kernel element.
 //
 #ifdef __IPU__

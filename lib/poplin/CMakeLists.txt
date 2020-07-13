@@ -73,6 +73,9 @@ set(IPU1_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half_non_limited.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float_non_limited.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float_non_limited.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ConvPartial1x4SLIC_half_half_8.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/OuterProduct.S
 )

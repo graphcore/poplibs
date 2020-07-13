@@ -3455,7 +3455,7 @@ static void createConvPartialHorizontalMacVertex(
 
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
-  bool useLimitedVer = true;
+  bool useLimitedVer = plan.useLimitedVersion;
   const auto zerosInfo = outWindow[0].numElements();
 
   const auto doubleWordWrites =

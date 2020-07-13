@@ -356,17 +356,22 @@ struct ConvVertexType {
   // Number of engines enabled. Allowed options: 4 or 8
   unsigned numConvUnitsRequired;
 
+  // If TRUE convolution library will use unsigned short type for vertex
+  // states, otherwise will fallback into unsigned type
+  bool useLimitedVersion;
+
   ConvVertexType(Plan::Method method, poplar::Type inputType,
                  poplar::Type outputType, poplar::Type partialType,
                  unsigned convGroupsPerGroup, unsigned inChansPerGroup,
                  unsigned partialChansPerGroup, unsigned slicWindowWidth,
-                 unsigned numConvUnitsRequired)
+                 unsigned numConvUnitsRequired, bool useLimitedVersion)
       : method(method), inputType(inputType), partialType(partialType),
         convGroupsPerGroup(convGroupsPerGroup),
         inChansPerGroup(inChansPerGroup),
         partialChansPerGroup(partialChansPerGroup),
         slicWindowWidth(slicWindowWidth),
-        numConvUnitsRequired(numConvUnitsRequired) {}
+        numConvUnitsRequired(numConvUnitsRequired),
+        useLimitedVersion(useLimitedVersion) {}
 };
 
 static const char *asString(Plan::Method m) {
@@ -4510,7 +4515,7 @@ choosePlan(const poplar::Target &target,
             convVertexType.partialChansPerGroup, convVertexType.slicWindowWidth,
             convVertexType.numConvUnitsRequired, convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD, startTile.first,
-            startTile.second, isJointPlan);
+            startTile.second, isJointPlan, convVertexType.useLimitedVersion);
   plan.transforms = transforms;
 
   Cost cost;
@@ -4565,12 +4570,21 @@ static void getConvVertexMACCandidates(
       planConstraints.get_optional<popsolver::DataType>("inChansPerGroup");
   const auto constrainedPartialChansPerGroup =
       planConstraints.get_optional<popsolver::DataType>("partialChansPerGroup");
+  const auto constrainedUseLimitedVersion =
+      planConstraints.get_optional<bool>("useLimitedVersion");
 
   bool floatActivations = inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
   bool ampFloatPartials = floatPartials;
   auto numConvUnits =
       getNumConvUnits(floatActivations, ampFloatPartials, target);
+  bool useLimitedVersion = true;
+
+  // For the test purposes constrain vertex to use unsigned type for
+  // vertex states
+  if (constrainedUseLimitedVersion) {
+    useLimitedVersion = *constrainedUseLimitedVersion;
+  }
 
   // Constrain the input channel grouping to a multiple of two if the activation
   // type is half. This ensures that we never need to apply padding when sending
@@ -4640,7 +4654,8 @@ static void getConvVertexMACCandidates(
 
     candidates.emplace_back(Plan::Method::MAC, inputType, outputType,
                             partialType, convGroupsPerGroup, inChansPerGroup,
-                            partialChansPerGroup, numConvUnits, numConvUnits);
+                            partialChansPerGroup, numConvUnits, numConvUnits,
+                            useLimitedVersion);
     previousInChanGroups = inChanGroups;
   }
 }
@@ -4756,7 +4771,7 @@ static void getConvVertexAMPCandidates(
 
           candidates.emplace_back(Plan::Method::AMP, inputType, outputType,
                                   ampPartialType, convGroupsPerGroup, inputs,
-                                  partials, 0, convUnits);
+                                  partials, 0, convUnits, true);
         }
       }
     }
@@ -4872,7 +4887,7 @@ static void getConvVertexSLICCandidates(
       candidates.emplace_back(Plan::Method::SLIC, inputType, outputType,
                               ampPartialType, grouping.groups,
                               grouping.channels, grouping.channels,
-                              slicWindowWidth, convUnits);
+                              slicWindowWidth, convUnits, true);
     }
   }
 }
@@ -4911,7 +4926,7 @@ static void getConvVertexOuterProductCandidates(
 
   candidates.emplace_back(Plan::Method::OUTER_PRODUCT, inputType, outputType,
                           inputType, convGroupsPerGroup, inChansPerGroup,
-                          partialChansPerGroup, 0, 0);
+                          partialChansPerGroup, 0, 0, true);
 }
 
 static std::vector<ConvVertexType>
@@ -6459,7 +6474,7 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
       plan.method, params.inputType, params.outputType,
       plan.types.back().partialType, plan.convGroupsPerGroup,
       plan.inChansPerGroup, plan.partialChansPerGroup, plan.slicWindowWidth,
-      plan.numConvUnitsRequired);
+      plan.numConvUnitsRequired, plan.useLimitedVersion);
   const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
   // Check grain size is the same at each level.
 #ifndef NDEBUG
