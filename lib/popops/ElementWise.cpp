@@ -12,6 +12,7 @@
 #include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
+#include "poputil/VarStructure.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
@@ -1335,24 +1336,88 @@ void validatePatterns(
 // The second operand is always checked for broadcasting into the first,
 // while doing the reverse (first operand broadcasted into the second) has
 // some restrictions.
-void constructBroadcastBinaryOp(Graph &graph, Sequence &prog,
-                                const Tensor &in1_, const Tensor &in2_,
-                                const Tensor &out_, BinaryOpType op,
+void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
+                                Tensor in2, Tensor out, BinaryOpType op,
                                 bool inPlace, const std::string &debugPrefix) {
   // Tensors in1, in2 and out will be the same broadcast shape.
-  assert(in1_.shape() == in2_.shape() && in2_.shape() == out_.shape());
+  assert(in1.shape() == in2.shape() && in2.shape() == out.shape());
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
-  const auto dType = in1_.elementType();
+  const auto dType = in1.elementType();
 
   // The normal case is try to broadcast second operand into the first.
   // Only for non-inplace, commutative operators we will check if we can
   // broadcast the first operand into the second.
   bool checkReverse = !inPlace && isBinaryOpCommutative(op);
 
-  auto in1 = in1_.flatten();
-  auto in2 = in2_.flatten();
-  auto out = out_.flatten();
+  auto regroupOperandIfBeneficial = [&](Tensor &operand) {
+    const double threshold = 0.1;
+    const auto outGrouping = poputil::detectDimGroupings(graph, out);
+    if (outGrouping.empty()) {
+      return;
+    }
+    const auto outInnerDim = outGrouping[0].first;
+    const auto unbroadcastOperand = graph.findUnbroadcastTensor(operand);
+    assert(out.rank() == unbroadcastOperand.rank());
+    if (unbroadcastOperand.dim(outInnerDim) == 1 ||
+        unbroadcastOperand.numElements() > threshold * out.numElements()) {
+      return;
+    }
+
+    unsigned operandGrouping = 1;
+    for (const auto &grouping :
+         poputil::detectDimGroupings(graph, unbroadcastOperand)) {
+      if (grouping.first == outInnerDim) {
+        operandGrouping = grouping.second;
+        break;
+      }
+    }
+
+    if (gcd(outGrouping[0].second, operandGrouping) == 1) {
+      std::vector<std::size_t> dims;
+      for (std::size_t i = 0; i < out.rank(); ++i) {
+        if (out.dim(i) == unbroadcastOperand.dim(i)) {
+          dims.push_back(i);
+        }
+      }
+
+      if (dims.size() > 0) {
+        const auto nBroadcastDims = out.rank() - dims.size();
+        auto newOut = out;
+
+        // Roll all broadcast dims to the end
+        for (std::size_t i = 0; i < dims.size(); ++i) {
+          newOut = newOut.dimRoll(dims[i] - i, out.rank() - 1);
+        }
+        // Shape for un-flattening later (with all non-broadcast dims set to 1)
+        auto rolledShape = newOut.shape();
+        std::fill_n(rolledShape.begin(), nBroadcastDims, 1);
+
+        // Flatten combined broadcast dim and use for creating new operand
+        newOut = newOut.flatten(nBroadcastDims, out.rank());
+        auto newOperand = poputil::createBroadcastOperand(graph, newOut, dType,
+                                                          nBroadcastDims)
+                              .reshape(rolledShape);
+
+        // Roll broadcast dims back to their original positions
+        for (std::size_t i = 0; i < dims.size(); ++i) {
+          newOperand = newOperand.dimRoll(nBroadcastDims + i, dims[i]);
+        }
+        prog.add(Copy(unbroadcastOperand, newOperand));
+        broadcastToMatch(operand, newOperand);
+        operand = std::move(newOperand);
+      }
+    }
+  };
+
+  regroupOperandIfBeneficial(in2);
+  if (checkReverse) {
+    regroupOperandIfBeneficial(in1);
+  }
+
+  in1 = in1.flatten();
+  in2 = in2.flatten();
+  out = out.flatten();
   graph.reorderToSimplify(&out, {&in1, &in2});
   const auto outMapping = graph.getTileMapping(out);
 
