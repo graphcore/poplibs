@@ -14,6 +14,8 @@ function(add_popsolver_unit_test name)
   endif()
   add_test(NAME ${test_name}
     COMMAND ${test_name})
+  set_tests_properties(${test_name}
+    PROPERTIES LABELS "popsolver")
 endfunction()
 
 add_popsolver_unit_test(Div Div.cpp)
