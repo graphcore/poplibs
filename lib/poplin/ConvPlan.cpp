@@ -590,8 +590,8 @@ static void getConvVertexMACCandidates(
     // The MAC vertex does not require a grouping of the conv groups.
     const unsigned convGroupsPerGroup = 1;
 
-    candidates.emplace_back(Plan::Method::MAC, inputType, outputType,
-                            partialType, convGroupsPerGroup, inChansPerGroup,
+    candidates.emplace_back(Plan::Method::MAC, inputType, partialType,
+                            convGroupsPerGroup, inChansPerGroup,
                             partialChansPerGroup, numConvUnits, numConvUnits,
                             useLimitedVersion);
     previousInChanGroups = inChanGroups;
@@ -707,9 +707,9 @@ static void getConvVertexAMPCandidates(
           // AMP only supports a conv group grouping of 1.
           const unsigned convGroupsPerGroup = 1;
 
-          candidates.emplace_back(Plan::Method::AMP, inputType, outputType,
-                                  ampPartialType, convGroupsPerGroup, inputs,
-                                  partials, 0, convUnits, true);
+          candidates.emplace_back(Plan::Method::AMP, inputType, ampPartialType,
+                                  convGroupsPerGroup, inputs, partials, 0,
+                                  convUnits, true);
         }
       }
     }
@@ -822,10 +822,10 @@ static void getConvVertexSLICCandidates(
         continue;
       }
 
-      candidates.emplace_back(Plan::Method::SLIC, inputType, outputType,
-                              ampPartialType, grouping.groups,
-                              grouping.channels, grouping.channels,
-                              slicWindowWidth, convUnits, true);
+      candidates.emplace_back(Plan::Method::SLIC, inputType, ampPartialType,
+                              grouping.groups, grouping.channels,
+                              grouping.channels, slicWindowWidth, convUnits,
+                              true);
     }
   }
 }
@@ -862,8 +862,8 @@ static void getConvVertexOuterProductCandidates(
   // The OuterProduct vertex does not require a grouping of the conv groups.
   const unsigned convGroupsPerGroup = 1;
 
-  candidates.emplace_back(Plan::Method::OUTER_PRODUCT, inputType, outputType,
-                          inputType, convGroupsPerGroup, inChansPerGroup,
+  candidates.emplace_back(Plan::Method::OUTER_PRODUCT, inputType, inputType,
+                          convGroupsPerGroup, inChansPerGroup,
                           partialChansPerGroup, 0, 0, true);
 }
 
@@ -2452,10 +2452,9 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   assert(perLevelExchangeBytesPerCycle.size() == plan.partitions.size());
   auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(
-      plan.method, params.inputType, params.outputType,
-      plan.types.back().partialType, plan.convGroupsPerGroup,
-      plan.inChansPerGroup, plan.partialChansPerGroup, plan.slicWindowWidth,
-      plan.numConvUnitsRequired, plan.useLimitedVersion);
+      plan.method, params.inputType, plan.types.back().partialType,
+      plan.convGroupsPerGroup, plan.inChansPerGroup, plan.partialChansPerGroup,
+      plan.slicWindowWidth, plan.numConvUnitsRequired, plan.useLimitedVersion);
   const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
   // Check grain size is the same at each level.
 #ifndef NDEBUG

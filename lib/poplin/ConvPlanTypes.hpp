@@ -74,10 +74,10 @@ struct ConvVertexType {
   bool useLimitedVersion;
 
   ConvVertexType(Plan::Method method, poplar::Type inputType,
-                 poplar::Type outputType, poplar::Type partialType,
-                 unsigned convGroupsPerGroup, unsigned inChansPerGroup,
-                 unsigned partialChansPerGroup, unsigned slicWindowWidth,
-                 unsigned numConvUnitsRequired, bool useLimitedVersion)
+                 poplar::Type partialType, unsigned convGroupsPerGroup,
+                 unsigned inChansPerGroup, unsigned partialChansPerGroup,
+                 unsigned slicWindowWidth, unsigned numConvUnitsRequired,
+                 bool useLimitedVersion)
       : method(method), inputType(inputType), partialType(partialType),
         convGroupsPerGroup(convGroupsPerGroup),
         inChansPerGroup(inChansPerGroup),
