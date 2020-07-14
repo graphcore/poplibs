@@ -6,6 +6,7 @@
 #include <cfloat>
 #include <numeric>
 #include <poplibs_support/logging.hpp>
+#include <popops/Cast.hpp>
 #include <popops/Zero.hpp>
 #include <poputil/exceptions.hpp>
 #include <unordered_set>
@@ -81,7 +82,9 @@ void HyperGraphStrip::createGraphMatMul(poplar::Graph &graph,
   if (nSplitFactor == 0) {
     nSplitFactor = 1;
   }
-
+  if (nSplitFactor > nTilePerGroup) {
+    nSplitFactor = nTilePerGroup;
+  }
   float loadBalance =
       createPartitionPlan(graph, matB, partitionPlan, nTilePerGroup,
                           nSplitFactor, true, debugPrefix);
@@ -344,7 +347,7 @@ float HyperGraphStrip::createPartitionPlan(
         if (i != nColumn - 1) {
           tileCount = static_cast<int>(nTotalTile * weight[i] / totalWeight);
 
-          if (tileCount < 1) {
+          if (tileCount < 1 && weight[i] > 0.0) {
             tileCount = 1;
           }
 
@@ -369,6 +372,10 @@ float HyperGraphStrip::createPartitionPlan(
     }
     for (int j = 0; j < nColumn; j++) {
       int c = columns[j];
+      if (weight[j] == 0.0f) {
+        // This is the case the column does not have any block
+        continue;
+      }
       int tileCount = static_cast<int>(columnTileId[j].size());
 
       std::vector<unsigned int> nonZeroBlocks;
@@ -734,6 +741,7 @@ void HyperGraphStrip::createComputeSetDSD(
           // this is the zero block
           popops::zero(graph, blockDataC[blockId], outputBlockTileId[blockId],
                        reduceCS);
+          continue;
         }
         for (auto &p : partitionPlan[c]) {
           if (p.rows.size() == 0) {
@@ -747,7 +755,7 @@ void HyperGraphStrip::createComputeSetDSD(
             inputB.push_back(blockDataB[blockIdMatrixB[k][c]]);
           }
 
-          if (partitionPlan[c].size() == 1) {
+          if (partitionPlan[c].size() == 1 && partialDataType == outDataType) {
             addConv1x1Vertex(graph, inputA, inputB,
                              blockDataC[blockIdMatrixC[r][c]], tileId, mulCS,
                              debugPrefix);
@@ -760,7 +768,7 @@ void HyperGraphStrip::createComputeSetDSD(
 
         // sum partials
         int nPartition = partitionPlan[c].size();
-        if (nPartition <= 1)
+        if (nPartition <= 1 && partialDataType == outDataType)
           continue;
 
         int sliceSize = matC->getBlockRow() / nPartition;
@@ -999,8 +1007,8 @@ void HyperGraphStrip::setRHSTileMapDDS(poplar::Graph &graph,
         for (int r = start; r < end; r++) {
           int blockId = blockIdMatrix[r][c];
           if (tileCount == 0) {
-            graph.setTileMapping(blockData[blockId],
-                                 getRandomTile(nTilePerGroup) + tileOffset);
+            blockTileId[blockId] = getRandomTile(nTilePerGroup) + tileOffset;
+            graph.setTileMapping(blockData[blockId], blockTileId[blockId]);
             continue;
           }
           // TODO: blockTileId is used for transpose the block, use the first
@@ -1109,7 +1117,7 @@ void HyperGraphStrip::createComputeSetDDS(
   const std::vector<std::vector<int>> blockIdMatrixC = matC->getBlockIdMatrix();
 
   std::vector<std::vector<poplar::Tensor>> partialSum;
-  if (nGroup > 1) {
+  if (nGroup > 1 || (partialDataType != outDataType)) {
     partialSum.resize(nGroup);
     int tileOffset = 0;
     for (int i = 0; i < nGroup; i++) {
@@ -1169,7 +1177,7 @@ void HyperGraphStrip::createComputeSetDDS(
           std::vector<poplar::Tensor> outputBlocks;
           for (unsigned n = 0; n < p.rows.size(); n++) {
             poplar::Tensor t;
-            if (nGroup == 1) {
+            if (nGroup == 1 && partialDataType == outDataType) {
               t = blockDataC[blockIdMatrixC[p.rows[n]][c]];
             } else {
               t = partialSum[g][blockIdMatrixC[p.rows[n]][c]];
@@ -1200,6 +1208,17 @@ void HyperGraphStrip::createComputeSetDDS(
             poplar::Tensor out = blockDataC[blockId];
             addReduceVertex(graph, inputBlocks, out, outputBlockTileId[blockId],
                             reduceCS);
+          }
+        }
+      }
+    } else if (partialDataType != outDataType) {
+      // cast parital data type to output data type
+      for (unsigned c = 0; c < nColC; c++) {
+        for (auto &p : partitionPlan[c]) {
+          for (auto r : p.rows) {
+            int blockId = blockIdMatrixC[r][c];
+            popops::cast(graph, partialSum[0][blockId], blockDataC[blockId],
+                         reduceCS);
           }
         }
       }

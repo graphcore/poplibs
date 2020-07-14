@@ -22,7 +22,7 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
   assert(convInChannels == static_cast<unsigned int>(matB.getBlockRow()));
 
   const auto convOutChannels = matB.getBlockCol();
-  const auto outElementTypeSize = outDataType == poplar::HALF ? 2 : 4;
+  const auto outElementTypeSize = partialDataType == poplar::HALF ? 2 : 4;
   const auto inElementTypeSize = inDataType == poplar::HALF ? 2 : 4;
   assert((convOutChannels * outElementTypeSize) % 8 == 0);
 

@@ -108,6 +108,8 @@ public:
   // or parts of hypergraph presented in abstract format.
   std::unique_ptr<HyperGraphPartitioner> partitioner;
 
+  std::mt19937 randomEngine;
+
 protected:
   // Shared worklist Tensor for different vertices
   // Since the blocks maybe grouped, the batch size may be different.
@@ -115,9 +117,9 @@ protected:
   std::unordered_map<int, poplar::Tensor> worklistTensorMap;
 
 protected:
-  unsigned int getRandomTile(int nTile) {
-    std::mt19937 randomEngine;
-    return randomEngine() % nTile;
+  unsigned int getRandomTile(int totalTile) {
+    std::uniform_int_distribution<> distrib(0, totalTile - 1);
+    return distrib(randomEngine);
   }
 };
 
