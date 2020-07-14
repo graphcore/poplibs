@@ -569,6 +569,75 @@ ConvParams ConvParams::canonicalize() const {
   return newParams;
 }
 
+static unsigned getTruncatedSize(std::size_t size, unsigned truncationLower,
+                                 unsigned truncationUpper) {
+  assert(size >= truncationLower + truncationUpper);
+  return size - (truncationLower + truncationUpper);
+}
+
+static unsigned getTransformedSize(const std::vector<std::size_t> &size,
+                                   const ConvParams::InputTransform &transform,
+                                   unsigned dim) {
+  const auto truncatedSize =
+      getTruncatedSize(size[dim], transform.truncationLower[dim],
+                       transform.truncationUpper[dim]);
+  const auto truncatedDilatedSize =
+      getDilatedSize(truncatedSize, transform.dilation[dim]);
+  int truncatedDilatedPaddedSize = transform.paddingLower[dim] +
+                                   truncatedDilatedSize +
+                                   transform.paddingUpper[dim];
+  return truncatedDilatedPaddedSize;
+}
+
+unsigned ConvParams::getTruncatedInputSize(unsigned dim) const {
+  return getTruncatedSize(inputFieldShape[dim],
+                          inputTransform.truncationLower[dim],
+                          inputTransform.truncationUpper[dim]);
+}
+
+unsigned ConvParams::getTruncatedKernelSize(unsigned dim) const {
+  return getTruncatedSize(kernelShape[dim],
+                          kernelTransform.truncationLower[dim],
+                          kernelTransform.truncationUpper[dim]);
+}
+
+unsigned ConvParams::getTransformedInputSize(unsigned dim) const {
+  return getTransformedSize(inputFieldShape, inputTransform, dim);
+}
+unsigned ConvParams::getTransformedKernelSize(unsigned dim) const {
+  return getTransformedSize(kernelShape, kernelTransform, dim);
+}
+
+std::size_t ConvParams::getUntransformedOutputSize(unsigned dim) const {
+  auto transformedInputSize = getTransformedInputSize(dim);
+  auto transformedKernelSize = getTransformedKernelSize(dim);
+  assert(transformedInputSize >= transformedKernelSize);
+  return transformedInputSize + 1 - transformedKernelSize;
+}
+
+std::size_t ConvParams::getOutputSize(unsigned dim) const {
+  auto convOutSize = getUntransformedOutputSize(dim);
+  assert(convOutSize >= outputTransform.truncationLower[dim] +
+                            outputTransform.truncationUpper[dim]);
+  auto truncatedSize = convOutSize - (outputTransform.truncationLower[dim] +
+                                      outputTransform.truncationUpper[dim]);
+  auto stride = outputTransform.stride[dim];
+  auto truncatedStridedSize = (truncatedSize + stride - 1) / stride;
+  auto truncatedStridedPaddedSize = outputTransform.paddingLower[dim] +
+                                    truncatedStridedSize +
+                                    outputTransform.paddingUpper[dim];
+  return truncatedStridedPaddedSize;
+}
+
+std::vector<std::size_t> ConvParams::getOutputFieldShape() const {
+  std::vector<std::size_t> outputFieldShape;
+  outputFieldShape.reserve(inputFieldShape.size());
+  for (auto dim = 0U; dim != inputFieldShape.size(); ++dim) {
+    outputFieldShape.push_back(getOutputSize(dim));
+  }
+  return outputFieldShape;
+}
+
 } // namespace poplin
 
 namespace std {

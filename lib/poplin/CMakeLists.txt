@@ -18,12 +18,15 @@ add_library(poplin SHARED
   ConvReduce.hpp
   ConvReducePlan.cpp
   ConvReducePlan.hpp
+  ConvTransforms.cpp
+  ConvTransforms.hpp
   ConvUtil.cpp
   ConvUtilInternal.cpp
   ConvUtilInternal.hpp
   ConvValidation.cpp
   ConvValidation.hpp
-  CreateConvPartialVertex.hpp
+  ConvVertices.cpp
+  ConvVertices.hpp
   ExchangeEstimator.hpp
   FullyConnected.cpp
   MatMul.cpp

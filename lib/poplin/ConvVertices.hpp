@@ -1,5 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
+#include "ConvPlan.hpp"
+#include "ConvProgramTree.hpp"
 #include <map>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -9,6 +11,15 @@
 #include <utility>
 
 namespace poplin {
+
+void calcPartialConvOutput(poplar::Graph &graph, const Plan &plan,
+                           unsigned tile, ConvParams params,
+                           std::vector<poplar::program::Copy> &transformPre,
+                           std::map<poplar::Type, poplar::Tensor> &copyWritten,
+                           ConvProgramTree::ComputeSetsGroup &convolveCS,
+                           poplar::Tensor in, poplar::Tensor weights,
+                           poplar::Tensor out, bool use128BitConvUnitLoad,
+                           const std::string &debugPrefix);
 
 void createConvPartialSlicVertex(
     poplar::Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,

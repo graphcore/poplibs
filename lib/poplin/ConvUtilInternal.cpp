@@ -21,6 +21,22 @@ using namespace poputil;
 
 namespace poplin {
 
+bool isZeroConvolution(const CanonicalConvParams &params) {
+  if (params->inputChannelsPerConvGroup == 0 ||
+      params->outputChannelsPerConvGroup == 0 || params->batchSize == 0 ||
+      params->numConvGroups == 0)
+    return true;
+  const auto numFieldDims = params->getNumFieldDims();
+  for (unsigned dim = 0; dim != numFieldDims; ++dim) {
+    if (params->outputTransform.paddingLower[dim] +
+            params->outputTransform.paddingUpper[dim] ==
+        params->getOutputSize(dim)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Return a convolution where the same input, kernel and output size match the
 // specified convolution and where the output is all zero.
 ConvParams getZeroConv(const ConvParams &params) {

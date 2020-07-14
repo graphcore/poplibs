@@ -10,6 +10,8 @@
 
 namespace poplin {
 
+struct Plan;
+
 // This object reflects the control program that is constructed to create a
 // convolution.
 struct ConvProgramTree {

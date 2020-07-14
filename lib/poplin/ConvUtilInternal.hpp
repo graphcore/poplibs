@@ -38,6 +38,11 @@ struct PartialRow {
         xEnd(xEnd) {}
 };
 
+/// Return whether the specified convolution produces an output that is known
+/// to be all zeros. A convolution that produces an empty output is trivially
+/// a zero convolution.
+bool isZeroConvolution(const CanonicalConvParams &params);
+
 ConvParams getZeroConv(const ConvParams &params);
 
 std::vector<std::vector<PartialRow>> partitionConvPartialByWorker(
