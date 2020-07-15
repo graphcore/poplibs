@@ -13,8 +13,8 @@
 #include <poplibs_support/print.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
+#include <popops/Fill.hpp>
 #include <popops/ScaledAdd.hpp>
-#include <popops/Zero.hpp>
 #include <poputil/Broadcast.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -216,6 +216,25 @@ bool opBenefitsFromHigherIntermediatePrecision(const popops::Operation &op) {
   POPLIB_UNREACHABLE();
 }
 
+static float reductionInitialValue(const popops::Operation &op) {
+  switch (op) {
+  case popops::Operation::ADD:
+  case popops::Operation::SQUARE_ADD:
+  case popops::Operation::LOGICAL_OR:
+    return 0.0;
+  case popops::Operation::MIN:
+    return std::numeric_limits<double>::infinity();
+  case popops::Operation::MAX:
+    return -std::numeric_limits<double>::infinity();
+  case popops::Operation::MUL:
+  case popops::Operation::LOGICAL_AND:
+    return 1.0;
+  default:
+    throw poputil::poplibs_error("Internal error, unhandled reduction type:" +
+                                 std::to_string(static_cast<int>(op)));
+  }
+}
+
 std::map<std::string, poplar::Type> accumTypeMap{{"half", poplar::HALF},
                                                  {"float", poplar::FLOAT}};
 
@@ -330,16 +349,7 @@ void reduceWithOutputProgOrCss(
   if (in.numElements() == 0) {
 
     logging::debug("zero input elements to reduction");
-    // If it's an update and there are no inputs the output won't change.
 
-    // TODO: T12956 Add support to initialise a tensor with a value using only
-    // a compute set.
-    if (!isProg) {
-      throw poputil::poplibs_error("The popops::Reduce() vector<ComputeSet> API"
-                                   " cannot reduce empty inputs yet.");
-    }
-
-    auto &prog = boost::get<program::Sequence &>(progOrCss);
     if (out) {
       // If the output mapping isn't complete, just linearly map it.
       bool mappingComplete;
@@ -353,38 +363,30 @@ void reduceWithOutputProgOrCss(
       out = graph.addVariable(outputType, outputShape);
       poputil::mapTensorLinearly(graph, out.get());
     }
-    if (!params.update) {
-      double initVal = [&]() {
-        switch (params.op) {
-        case popops::Operation::ADD:
-        case popops::Operation::SQUARE_ADD:
-        case popops::Operation::LOGICAL_OR:
-          return 0.0;
-        case popops::Operation::MIN:
-          return std::numeric_limits<double>::infinity();
-        case popops::Operation::MAX:
-          return -std::numeric_limits<double>::infinity();
-        case popops::Operation::MUL:
-        case popops::Operation::LOGICAL_AND:
-          return 1.0;
-        default:
-          throw poputil::poplibs_error(
-              "Internal error, unhandled reduction type:" +
-              std::to_string(static_cast<int>(params.op)));
-        }
-      }();
-      if (initVal == 0.0) {
-        popops::zero(graph, out.get(), prog, debugPrefix + "/ReduceAddInit");
-      } else {
-        // Scale is only valid with the ADD and SQUARE_ADD, both of which
-        // use a zero initialiser.
-        assert(!params.useScale);
-        auto initialiser = graph.addConstant(outputType, out->shape(), initVal,
-                                             debugPrefix + "/initialiser");
-        graph.setTileMapping(initialiser, graph.getTileMapping(out.get()));
-        prog.add(program::Copy(initialiser, out.get()));
-      }
+
+    // If it's an update and there are no inputs the output won't change.
+    if (params.update)
+      return;
+
+    float initVal = reductionInitialValue(params.op);
+
+    if (isProg) {
+      auto &prog = boost::get<program::Sequence &>(progOrCss);
+      popops::fill(graph, out.get(), prog, initVal,
+                   debugPrefix + "/ReductionOnEmptyInputsFillOutput");
+      return;
     }
+
+    auto &computeSets = boost::get<std::vector<ComputeSet> &>(progOrCss);
+    if (computeSets.empty())
+      computeSets.push_back(graph.addComputeSet(
+          debugPrefix + "/ReductionOnEmptyInputsFillOutputCS"));
+    auto &fillCS = computeSets.front();
+
+    auto outFlat = out.get().flatten();
+    graph.reorderToSimplify(&outFlat, {});
+    popops::fill(graph, outFlat, graph.getTileMapping(outFlat), fillCS,
+                 initVal);
     return;
   }
 

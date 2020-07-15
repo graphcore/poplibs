@@ -1288,31 +1288,37 @@ endforeach()
 foreach(type half float)
   foreach(operation ADD SQUARE_ADD MUL MIN MAX)
     foreach(update true false)
-      add_multitarget_test(
-        NAME reduce_op_empty_reduce_${operation}_${type}_${update}
-        COMMAND $<TARGET_FILE:reduce_op>
-          "--shape=0,64"
-          "--dims=0"
-          --type=${type}
-          --update=${update}
-          --operation=${operation}
-          --tiles-per-ipu=1)
+      foreach(computesetapi true false)
+        add_multitarget_test(
+          NAME reduce_op_empty_reduce_${operation}_${type}_${update}_${computesetapi}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=0,64"
+            "--dims=0"
+            --type=${type}
+            --update=${update}
+            --computesetapi=${computesetapi}
+            --operation=${operation}
+            --tiles-per-ipu=1)
+      endforeach()
     endforeach()
   endforeach()
 endforeach()
 
 foreach(operation LOGICAL_OR LOGICAL_AND)
   foreach(update true false)
-    add_multitarget_test(
-      NAME reduce_op_empty_reduce_${operation}_${update}
-      COMMAND $<TARGET_FILE:reduce_op>
-        "--shape=0,64"
-        "--dims=0"
-        --type=bool
-        --update=${update}
-        --operation=${operation}
-        --tiles-per-ipu=1)
-  endforeach()
+    foreach(computesetapi true false)
+      add_multitarget_test(
+        NAME reduce_op_empty_reduce_${operation}_${update}_${computesetapi}
+        COMMAND $<TARGET_FILE:reduce_op>
+          "--shape=0,64"
+          "--dims=0"
+          --type=bool
+          --update=${update}
+          --computesetapi=${computesetapi}
+          --operation=${operation}
+          --tiles-per-ipu=1)
+      endforeach()
+    endforeach()
 endforeach()
 
 foreach(type half float)
