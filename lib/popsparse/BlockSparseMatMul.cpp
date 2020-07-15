@@ -87,21 +87,6 @@ public:
 
   BSMatMulImpl(const std::array<int, 3> &dim,
                const std::array<int, 3> &blockSize,
-               const std::vector<unsigned char> &lhsSparsity,
-               bool lhsNeedTranspose,
-               const std::vector<unsigned char> &rhsSparsity,
-               bool rhsNeedTranspose, poplar::Type inDataTypeIn,
-               poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
-               unsigned numGroupsIn = 1)
-      : inDataType(inDataTypeIn), outDataType(outDataTypeIn),
-        partialDataType(partialDataTypeIn), isLhsSparse(true),
-        isRhsSparse(true), isResSparse(false), rhsNeedTranspose(false),
-        subBlockMask(SubBlockMask::None), numGroups(numGroupsIn) {
-    throw poputil::poplibs_error("Sparse x sparse case is not supported.");
-  }
-
-  BSMatMulImpl(const std::array<int, 3> &dim,
-               const std::array<int, 3> &blockSize,
                const std::vector<unsigned char> &resSparsityIn,
                poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
                poplar::Type partialDataTypeIn,
@@ -176,16 +161,6 @@ BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
     : impl(new BSMatMulImpl(dim, blockSize, rhsSparsity, rhsNeedTranspose,
                             inDataType, outDataType, partialDataType,
                             numGroupsIn)) {}
-
-BSMatMulParams::BSMatMulParams(
-    const std::array<int, 3> &dim, const std::array<int, 3> &blockSize,
-    const std::vector<unsigned char> &lhsSparsity, bool lhsNeedTranspose,
-    const std::vector<unsigned char> &rhsSparsity, bool rhsNeedTranspose,
-    poplar::Type inDataType, poplar::Type outDataType,
-    poplar::Type partialDataType, unsigned numGroupsIn)
-    : impl(new BSMatMulImpl(dim, blockSize, lhsSparsity, lhsNeedTranspose,
-                            rhsSparsity, rhsNeedTranspose, inDataType,
-                            outDataType, partialDataType, numGroupsIn)) {}
 
 BSMatMulParams::BSMatMulParams(const std::array<int, 3> &dim,
                                const std::array<int, 3> &blockSize,

@@ -48,6 +48,8 @@ public:
    * \param blockSize[0]  Block size of the rows in the left-hand matrix.
    * \param blockSize[1]  Block size of the columns in the left-hand matrix.
    * \param blockSize[2]  Block size of the columns in the right-hand matrix.
+   *                      Block size must be divisible by 16 for FP16 and
+   *                      divisible by 8 for FP32
    *
    * \param rhsSparsity     The 2D sparsity mask for right hand block sparse
    *                        matrix, in which '1' is a non zero block and '0'
@@ -80,66 +82,6 @@ public:
                  poplar::Type outDataType, poplar::Type partialDataType,
                  unsigned numGroupsIn = 1);
 
-  /** This constructor is for a sparse matrix multiplied by a sparse matrix.
-   * It is not supported.
-   */
-  /* we can not find this use case in AI models.
-   *
-   * \param dim[0]        Number of rows in the left-hand matrix.
-   * \param dim[1]        Number of columns in the left-hand matrix.
-   * \param dim[2]        If the right matrix needs to be transposed,
-   *                      this is the number of rows in the right-hand
-   *                      matrix. Otherwise, it is number of columns
-   *                      in the right-hand matrix.
-   *
-   * \param blockSize[0]  Block size of the rows in the left-hand matrix.
-   * \param blockSize[1]  Block size of the columns in the left-hand matrix.
-   * \param blockSize[2]  Block size of the columns in the right-hand matrix.
-   *
-   *
-   * \param lhsSparsity     The 2D sparsity mask for left hand block sparse
-   *                        matrix, in which '1' is a non zero block and '0'
-   *                        is a zero block.
-   *                        For group operation this parameter is
-   *                        concatenated sparsity masks for all ops in a group.
-   *
-   * \param lhsNeedTranspose   True if the left-hand matrix needs to be
-   *                           transposed.
-   *                           This is to support the backward pass.
-   *
-   * \param rhsSparsity     The 2D sparsity mask for right hand block sparse
-   *                        matrix, in which '1' is a non zero block and '0'
-   *                        is a zero block.
-   *                        For group operation this parameter is
-   *                        concatenated sparsity masks for all ops in a group.
-   *
-   * \param rhsNeedTranspose   Whether the right hand matrix need be transposed
-   *                           This is mostly to support backward pass.
-   *                         If this parameter is true:
-   *                         - dim, blockSize must conform to transposed shape
-   *                         - rhsSparsity must be in original, non-transposed
-   *                           order
-   *                         - rhsMatrix in bsMatMul() must contain data within
-   *                           blocks in original, non-transposed order
-   *
-   * \param inDataType      Input data type.
-   *
-   * \param outDataType     Output data type.
-   *
-   * \param partialDataType Partial data type.
-   *
-   * \param numGroupsIn     number of groups for group operation
-   *                        or 1 for non-group operation
-   */
-  BSMatMulParams(const std::array<int, 3> &dim,
-                 const std::array<int, 3> &blockSize,
-                 const std::vector<unsigned char> &lhsSparsity,
-                 bool lhsNeedTranspose,
-                 const std::vector<unsigned char> &rhsSparsity,
-                 bool rhsNeedTranspose, poplar::Type inDataType,
-                 poplar::Type outDataType, poplar::Type partialDataType,
-                 unsigned numGroupsIn = 1);
-
   /** This constructor is for a dense matrix multiplying a dense matrix.
    *  The multiply is performed as a sparse operation and the result stored
    *  as a sparse matrix.
@@ -154,6 +96,8 @@ public:
    *                        The block size of the columns in the left-hand
    *                        matrix equals the block size of the rows in the
    *                        right-hand matrix.
+   *                        Block size must be divisible by 16 for FP16 and
+   *                        divisible by 8 for FP32
    *
    * \param resSparsity     The 2D sparsity mask for the result block-sparse
    *                        matrix, in which '1' is a non-zero block and '0'
