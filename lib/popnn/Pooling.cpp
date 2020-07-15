@@ -402,11 +402,8 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   } else {
     assert(in_.shape() == fwdOutputActs_->shape());
   }
-  // TODO: T22629
-  // Use `poolingCycles` and a convolution equivalent from
-  // poplin::reportPlanEstimatedCosts to compare cycles and decide on the best
-  // method to use.  First need to check the accuracy of the estimate given in
-  // poolingCycles.
+
+  auto poolMethodResult = getPlan(graph, poolCfg, params, in_);
 
   const auto poolingHasConvolutionEquivalent = [&poolCfg, &params]() {
     if (poolCfg.type == PoolingType::MAX) {
@@ -443,44 +440,51 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     paramsForConv.inputChannelsPerConvGroup = 1;
     paramsForConv.outputChannelsPerConvGroup = 1;
 
-    // Create a scaling tensor, which will become the convolution weights
-    // kernel when broadcast
-    auto kernelElements =
-        std::accumulate(params.kernelShape.begin(), params.kernelShape.end(),
-                        1.0, std::multiplies<double>());
-
-    const auto scaleToFindMean = 1.0 / kernelElements;
-    const auto scaleValue =
-        (poolCfg.pass == PoolPass::POOL_FWD && poolCfg.type == PoolingType::AVG)
-            ? scaleToFindMean
-            : 1.0;
-    auto weights = graph.addConstant(in_.elementType(), {1}, scaleValue);
-
-    // Convolution weights: [convGroups, outCPG, inCPG, H, W]
-    // For pooling we have: [convGroups, 1, 1, H, W]
-    // So broadcast the scalar `weights` to match
-    std::vector<std::size_t> zeros(params.kernelShape.size() + 2, 0);
-    weights = weights.expand(zeros);
-    weights = weights.broadcast(paramsForConv.numConvGroups, 0);
-    for (unsigned i = 0; i < params.kernelShape.size(); i++) {
-      weights =
-          weights.broadcast(params.kernelShape[i],
-                            weights.rank() - params.kernelShape.size() + i);
-    }
-    mapTensorLinearly(graph, weights);
-
-    // Shuffle to match convolution input: [batches, channels, H, W]
-    auto in = in_.dimShufflePartial({in_.rank() - 1}, {1});
-
     const poplar::OptionFlags convOptions = {
-        {"partialsType", in.elementType() == HALF ? "half" : "float"}};
-    return poplin::convolution(graph, in, weights, paramsForConv, false, prog,
-                               debugPrefix, convOptions);
+        {"partialsType", in_.elementType() == HALF ? "half" : "float"}};
+    poplin::PlanningCache cache;
+    auto convMethodCosts =
+        reportPlanEstimatedCosts(graph, paramsForConv, convOptions, &cache);
+
+    logging::debug("Choosing method between Pool {} cycles or Conv {} cycles ",
+                   poolMethodResult.cycles, convMethodCosts.cycles);
+    if (convMethodCosts.cycles < poolMethodResult.cycles) {
+      // Create a scaling tensor, which will become the convolution weights
+      // kernel when broadcast
+      auto kernelElements =
+          std::accumulate(params.kernelShape.begin(), params.kernelShape.end(),
+                          1.0, std::multiplies<double>());
+
+      const auto scaleToFindMean = 1.0 / kernelElements;
+      const auto scaleValue = (poolCfg.pass == PoolPass::POOL_FWD &&
+                               poolCfg.type == PoolingType::AVG)
+                                  ? scaleToFindMean
+                                  : 1.0;
+      auto weights = graph.addConstant(in_.elementType(), {1}, scaleValue);
+
+      // Convolution weights: [convGroups, outCPG, inCPG, H, W]
+      // For pooling we have: [convGroups, 1, 1, H, W]
+      // So broadcast the scalar `weights` to match
+      std::vector<std::size_t> zeros(params.kernelShape.size() + 2, 0);
+      weights = weights.expand(zeros);
+      weights = weights.broadcast(paramsForConv.numConvGroups, 0);
+      for (unsigned i = 0; i < params.kernelShape.size(); i++) {
+        weights =
+            weights.broadcast(params.kernelShape[i],
+                              weights.rank() - params.kernelShape.size() + i);
+      }
+      mapTensorLinearly(graph, weights);
+
+      // Shuffle to match convolution input: [batches, channels, H, W]
+      auto in = in_.dimShufflePartial({in_.rank() - 1}, {1});
+
+      return poplin::convolution(graph, in, weights, paramsForConv, false, prog,
+                                 debugPrefix, convOptions, &cache);
+    }
   }
   // Implement as pooling
-  auto planningResult = getPlan(graph, poolCfg, params, in_);
-  logging::debug("Pooling plan:\n{}", planningResult.plan);
-
+  logging::debug("Plan cost: {} cycles", poolMethodResult.cycles);
+  logging::debug("Pooling plan:\n{}", poolMethodResult.plan);
   Tensor fwdInputActs, fwdOutputActs;
   if (fwdInputActs_) {
     fwdInputActs = *fwdInputActs_;
@@ -492,14 +496,14 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   auto preprocessedParams = params;
   // preprocessing may create new tensors
   auto out = createOutputAndPreprocess(
-      graph, preprocessedParams, planningResult.plan, in,
+      graph, preprocessedParams, poolMethodResult.plan, in,
       fwdInputActs_ ? &fwdInputActs : nullptr,
       fwdOutputActs_ ? &fwdOutputActs : nullptr, debugPrefix);
   tilePartitions(graph, poolCfg, in, out,
                  fwdInputActs_ ? &fwdInputActs : nullptr,
                  fwdOutputActs_ ? &fwdOutputActs : nullptr, preprocessedParams,
-                 prog, planningResult.plan, debugPrefix, poolOptions);
-  postProcess(params, planningResult.plan, out);
+                 prog, poolMethodResult.plan, debugPrefix, poolOptions);
+  postProcess(params, poolMethodResult.plan, out);
   return out;
 }
 

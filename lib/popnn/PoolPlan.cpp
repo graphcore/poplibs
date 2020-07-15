@@ -1,9 +1,14 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 
 #include "PoolPlan.hpp"
+#include "../poplin/ConvPlan.hpp"
+#include "PerformanceEstimation.hpp"
+#include "PoolVertices.hpp"
+#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/print.hpp"
+#include "poplin/ConvUtil.hpp"
 #include "poputil/VarStructure.hpp"
 #include <popsolver/Model.hpp>
 
@@ -122,19 +127,54 @@ static Transform getTransform(const poplar::Graph &graph,
   }
   return transform;
 }
+// Functions to cache cycle estimates using a map.  Only the Partition
+// that is passed will differ on each call so it is simpler/faster to
+// compare that instead of the content of all function parameters.
+bool operator<(const Partition &lhs, const Partition &rhs) {
+  const auto helper = poplibs_support::makeStructHelper(
+      &Partition::field, &Partition::kernel, &Partition::batch,
+      &Partition::chanGroups, &Partition::chansPerGroup);
+  return helper.lt(lhs, rhs);
+}
+
+using EstimateCache = std::map<Partition, std::uint64_t>;
+std::size_t cachedPoolVertexCycleEstimate(const Partition &tilePartition,
+                                          const PoolConfig &poolCfg,
+                                          const poplin::ConvParams &params,
+                                          const unsigned numContexts,
+                                          EstimateCache &cache) {
+  auto cached = cache.find(tilePartition);
+  if (cached == cache.end()) {
+    const auto result =
+        poolVertexCycleEstimate(tilePartition, poolCfg, params, numContexts);
+    cache.insert(std::make_pair(tilePartition, result));
+    return result;
+  }
+  return cached->second;
+}
+
+std::uint64_t getNumberOfOperations(const poplin::ConvParams &params) {
+  // The operations used in pooling can be calculated in a similar way to
+  // convolution, except that each channel is independent.
+  auto convParams = params;
+  convParams.inputChannelsPerConvGroup = 1;
+
+  return getNumberOfMACs(convParams);
+}
 
 // Build a popsolver model with the appropriate Pooling Planning variables and
 // constraints. Return the "cycle" cost as the derived variable which needs to
 // be optimized.
 static popsolver::Variable constructModel(
     popsolver::Model &m, const poplar::Target &target, PartitionVariables &vars,
-    const poplin::ConvParams &params, const unsigned minGrainsPerChanGroup,
-    const unsigned maxGrainsPerChanGroup, const std::size_t chanGrainSize,
-    const std::size_t numChannels, const std::size_t detChansPerGroup) {
+    const PoolConfig &poolCfg, const poplin::ConvParams &params,
+    const unsigned minGrainsPerChanGroup, const unsigned maxGrainsPerChanGroup,
+    const std::size_t chanGrainSize, const std::size_t numChannels,
+    const std::size_t detChansPerGroup, EstimateCache &cache) {
+
   auto numTiles = target.getNumTiles();
   auto fieldShape = params.getOutputFieldShape();
   auto kernelShape = params.kernelShape;
-  auto vectorWidth = target.getVectorWidth(params.inputType);
   auto nChGrain = m.addVariable(minGrainsPerChanGroup,
                                 std::min(maxGrainsPerChanGroup, numTiles));
   auto nCh = m.addConstant(numChannels);
@@ -173,11 +213,28 @@ static popsolver::Variable constructModel(
   auto nChGroups = m.ceildiv(nChGroupsMax, vars.chanGroupsSplit);
   auto batchSize = m.addConstant(params.batchSize);
   auto nBatch = m.ceildiv(batchSize, vars.batchSplit);
+
   for (unsigned i = 0; i < vars.fieldSplit.size(); i++) {
     auto fieldDim = m.addConstant(fieldShape[i]);
     fieldVar.push_back(m.ceildiv(fieldDim, vars.fieldSplit[i]));
     kernelVar.push_back(m.addConstant(kernelShape[i]));
   }
+
+  // Compute lower bound on cycles - define some constants
+  auto totalOperations = m.addConstant(getNumberOfOperations(params));
+
+  auto vertexCyclesPerInnerLoop = m.addConstant(poolVertexCyclesPerVector(
+      poolCfg.type == PoolingType::MAX, poolCfg.pass == PoolPass::POOL_BWD));
+  auto vectorWidth = m.addConstant(target.getVectorWidth(params.inputType));
+  auto vertexCyclesPerRow = m.addConstant(poolVertexCyclesPerRow());
+
+  // Compute lower bound on cycles, rounding down as it is a lower bound
+  auto rowsPerTile = m.floordiv(m.product(fieldVar), fieldVar.back());
+  auto rowOverheadPerTile = m.product({rowsPerTile, vertexCyclesPerRow});
+  auto operationsPerTile = m.floordiv(totalOperations, usedTiles);
+  auto minCyclesPerTile = m.sum(
+      {rowOverheadPerTile, m.product({m.ceildiv(operationsPerTile, vectorWidth),
+                                      vertexCyclesPerInnerLoop})});
 
   // Evaluate the cycle-cost for each possible partition
   std::vector<popsolver::Variable> splitVars = {
@@ -187,9 +244,17 @@ static popsolver::Variable constructModel(
   };
   splitVars.insert(splitVars.end(), fieldVar.begin(), fieldVar.end());
   splitVars.insert(splitVars.end(), kernelVar.begin(), kernelVar.end());
+
+  // Passing in fieldSplits, minCyclesPerTile forces them and fieldVar to be
+  // evaluated before the main (time consuming) cycles call is made.
+  // This avoids evaluating the cycle cost of plans that will be rejected later.
+  splitVars.insert(splitVars.end(), vars.fieldSplit.begin(),
+                   vars.fieldSplit.end());
+  splitVars.push_back(minCyclesPerTile);
+
   auto cycles = m.call<unsigned>(
-      splitVars, [target, params, vectorWidth, fieldShape,
-                  detChansPerGroup](const std::vector<unsigned> &values) {
+      splitVars, [&target, poolCfg, &params, fieldShape, detChansPerGroup,
+                  &cache](const std::vector<unsigned> &values) {
         // Note that "perTile" is not a partition per se, but it contains
         // the variables after they were partitioned for each tile:
         //      perTile->batch = batchSize / batchSplit
@@ -197,24 +262,44 @@ static popsolver::Variable constructModel(
         //      perTile->field[d] = ConvParams::fieldShape[d] / fieldSplit[d]
         //      perTile->kernel[d] = ConvParams::kernelShape[d] / kernelSplit[d]
         Partition perTile = makePartition(values, fieldShape.size());
-        const auto innerDimElems = perTile.field.back();
-        const auto outerDimElems = product(perTile.field) / innerDimElems;
-        const auto innerVectorsPerTile =
-            (perTile.chansPerGroup + vectorWidth - 1) / vectorWidth;
 
-        // compute cost
-        uint64_t computeCost =
-            outerDimElems *
-            (10 + product(perTile.kernel) *
-                      (innerDimElems * (3 + innerVectorsPerTile * 2))) *
-            perTile.batch * perTile.chanGroups;
-
-        const unsigned exchangeBytesPerCycle = 4;
+        auto computeCost = cachedPoolVertexCycleEstimate(
+            perTile, poolCfg, params, target.getNumWorkerContexts(), cache);
+        // Where the field was divided it was rounded up.  For plans where
+        // that is not exact, the tiles which take the rounded down field
+        // pieces can use more cycles.  This could be true for any dimension, so
+        // we try them all and allow the planning cost to determine which is
+        // best rather than coding assumptions about the planning cost here. It
+        // could be that the slowest tile has a combination of rounded down dims
+        // to deal with, but that is not necessarily going to happen and adds
+        // many more calls to the estimator, so is not implemented.
+        for (unsigned i = 0; i < fieldShape.size(); i++) {
+          if (fieldShape[i] % perTile.field[i]) {
+            auto altPerTile = perTile;
+            altPerTile.field[i] -= 1;
+            computeCost = std::max(computeCost,
+                                   cachedPoolVertexCycleEstimate(
+                                       altPerTile, poolCfg, params,
+                                       target.getNumWorkerContexts(), cache));
+          }
+        }
+        // But the partitioned field size is the output, we'll be exchanging
+        // and rearranging the input - scale to find the input needed to
+        // produce the tile's partitioned output
+        std::vector<std::size_t> inFieldPerTile;
+        for (unsigned i = 0; i < perTile.field.size(); i++) {
+          const auto factor =
+              params.outputTransform.stride[i] +
+              (perTile.kernel[i] - params.outputTransform.stride[i]) -
+              params.inputTransform.paddingLower[i];
+          inFieldPerTile.push_back(perTile.field[i] * factor);
+        }
         std::uint64_t bytesPerTile =
-            product(perTile.field) * perTile.batch * perTile.chanGroups *
+            product(inFieldPerTile) * perTile.batch * perTile.chanGroups *
             perTile.chansPerGroup * target.getTypeSize(params.inputType);
-
         // exchange cost: assume everything brought onto tile
+        const unsigned exchangeBytesPerCycle =
+            target.getExchangeBytesPerCycle();
         uint64_t exchangeCost = bytesPerTile / exchangeBytesPerCycle;
 
         // Penalise for changing from detected group
@@ -225,6 +310,12 @@ static popsolver::Variable constructModel(
         return popsolver::DataType{computeCost + exchangeCost +
                                    rearrangementCost};
       });
+
+  // Constrain so that the min cycles estimate per tile is < cycles
+  // which avoids calling the costly cycle estimator in cases where it is clear
+  // that the cycles estimate will be large
+  m.lessOrEqual(minCyclesPerTile, cycles);
+
   return cycles;
 }
 
@@ -315,9 +406,12 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   // Construct model with variables and constraints
   popsolver::Model m;
   PartitionVariables vars;
-  auto cycles = constructModel(m, graph.getTarget(), vars, transformedParams,
-                               minGrainsPerChanGroup, maxGrainsPerChanGroup,
-                               chanGrainSize, numChannels, chansPerGroupDet);
+  EstimateCache cache;
+
+  auto cycles =
+      constructModel(m, graph.getTarget(), vars, poolCfg, transformedParams,
+                     minGrainsPerChanGroup, maxGrainsPerChanGroup,
+                     chanGrainSize, numChannels, chansPerGroupDet, cache);
 
   // Optimise within constraints
   auto s = m.minimize({cycles});
