@@ -299,7 +299,8 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
   poplar::Tensor copy = graph.clone(src, name, method);
   poplar::Tensor copyDst = copy;
   poplar::Tensor copySrc = src;
-  if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES) {
+  if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES &&
+      src.containsAliases()) {
     // remove all aliased regions in source and destination tensors
     auto copyFlat = copy.flatten();
     auto srcFlat = src.flatten();
