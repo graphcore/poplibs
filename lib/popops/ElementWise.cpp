@@ -2097,7 +2097,9 @@ inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
 
 boost::optional<unsigned> getLowestTileMapping(const Graph &graph,
                                                const Tensor &tensor) {
-  auto mapping = graph.getTileMapping(tensor, false);
+  auto tensorSimplified = tensor.flatten();
+  graph.reorderToSimplify(&tensorSimplified, {});
+  auto mapping = graph.getTileMapping(tensorSimplified, false);
   auto isNonEmpty = [](const std::vector<Interval> &intervals) {
     return !intervals.empty();
   };
