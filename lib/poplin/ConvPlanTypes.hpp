@@ -238,8 +238,11 @@ struct ConvDescription {
       : params{std::move(params)},
         options({std::move(options)}), referencePlan{std::move(referencePlan)},
         referenceCost{std::move(referenceCost)},
-        minimizeForTiles{minimizeForTiles}, cycleLimit{cycleLimit},
+        minimizeForTiles{minimizeForTiles}, cycleLimit{std::move(cycleLimit)},
         startTileIdxForVirtualHierarchy{startTileIdxForVirtualHierarchy} {}
+
+  ConvDescription(const ConvDescription &) = default;
+  ConvDescription(ConvDescription &&) = default;
 
   bool operator<(const ConvDescription &other) const {
     constexpr static auto helper = poplibs_support::makeStructHelper(
