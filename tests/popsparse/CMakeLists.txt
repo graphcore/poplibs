@@ -5,7 +5,7 @@ add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIAN
 add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 
-set(SPARSITY_MATRIX ${CMAKE_SOURCE_DIR}/tests/bs-m8x8_0.8_nr.txt)
+set(SPARSITY_MATRIX ${CMAKE_CURRENT_SOURCE_DIR}/bs-m8x8_0.8_nr.txt)
 foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
   add_multitarget_test(
           NAME BlockSparseMtTest_dsd_fp32_${PART_METHOD}

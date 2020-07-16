@@ -455,6 +455,127 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
     --operation=ADD
     --test=Ops)
 
+# Reduction tests
+foreach(type half float)
+  foreach(update true false)
+    foreach(scale 1.0 1.2)
+      foreach(op ADD SQUARE_ADD)
+        add_multitarget_test(
+          NAME reduce_op_no_reduce_${op}_${type}_${update}_${scale}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=32,4,1"
+            "--dims=2"
+            --type=${type}
+            --scale ${scale}
+            --update ${update}
+            --operation ${op}
+            --tiles-per-ipu=1)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+
+foreach(type half float)
+  foreach(update true false)
+    foreach(scale 1.0 1.2)
+      add_multitarget_test(
+        NAME reduce_op_${partialsType}_${type}_${update}_${scale}
+        COMMAND $<TARGET_FILE:reduce_op>
+          "--shape=32,4,4"
+          "--dims=0"
+          --type=${type}
+          --scale ${scale}
+          --update ${update}
+          --operation ADD
+          --tiles-per-ipu=1)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(operation ADD SQUARE_ADD)
+  add_multitarget_test(
+    NAME reduce_op_empty_dims_${operation}
+    COMMAND $<TARGET_FILE:reduce_op>
+      "--shape=32,4,4"
+      --type=half
+      --scale=1.2
+      --update false
+      --operation ${operation}
+      --tiles-per-ipu=1)
+endforeach()
+
+foreach(type half float)
+  foreach(operation ADD SQUARE_ADD MUL MIN MAX)
+    foreach(update true false)
+      foreach(computesetapi true false)
+        add_multitarget_test(
+          NAME reduce_op_empty_reduce_${operation}_${type}_${update}_${computesetapi}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=0,64"
+            "--dims=0"
+            --type=${type}
+            --update=${update}
+            --computesetapi=${computesetapi}
+            --operation=${operation}
+            --tiles-per-ipu=1)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(operation LOGICAL_OR LOGICAL_AND)
+  foreach(update true false)
+    foreach(computesetapi true false)
+      add_multitarget_test(
+        NAME reduce_op_empty_reduce_${operation}_${update}_${computesetapi}
+        COMMAND $<TARGET_FILE:reduce_op>
+          "--shape=0,64"
+          "--dims=0"
+          --type=bool
+          --update=${update}
+          --computesetapi=${computesetapi}
+          --operation=${operation}
+          --tiles-per-ipu=1)
+      endforeach()
+    endforeach()
+endforeach()
+
+foreach(type half float)
+  foreach(update true false)
+    foreach(scale 1.0 1.2)
+      foreach(tiles 1 2)
+        add_multitarget_test(
+          NAME reduce_op_shuffle_${partialsType}_${type}_${update}_${scale}_${tiles}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=128,8,2"
+            "--initial-shape=256,4,2"
+            "--shuffle=0,2,1"
+            "--dims=0"
+            --type=${type}
+            --scale ${scale}
+            --update ${update}
+            --operation ADD
+            --tiles-per-ipu=${tiles})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+# Random reduce_op tests with fixed seed.
+set(NUM_REDUCE_RANDOM_TESTS 150)
+foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
+  add_multitarget_test(NAME reduce_random_${n}
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n})
+endforeach()
+
+# Random reduce_op tests with fixed seed.
+set(NUM_REDUCE_RANDOM_TESTS 15)
+foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
+  add_multitarget_test(NAME multi_ipu_reduce_random_${n}
+           COMMAND $<TARGET_FILE:reduce_op> --seed ${n} --ipus=2
+           VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+endforeach()
 
 add_unit_test(ReplicatedAllToAll
   ReplicatedAllToAll.cpp
@@ -588,3 +709,316 @@ add_std_operators_test(MultiplyFloatInPlaceConstScalarTest)
 add_std_operators_test(AddHalfConstScalarTest)
 
 add_unit_test(UpdateScalarInRows UpdateScalarInRowsTest.cpp)
+
+# Embedding layer tests
+
+add_multitarget_test(
+         NAME embedding_layer_float_10x20
+         COMMAND embedding_layer
+                 --data-type=float
+                 --shape={10,20}
+                 --num-indices=50
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
+         NAME embedding_layer_half_10x20
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={10,20}
+                 --num-indices=50
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
+         NAME embedding_layer_float_10x20_2_index_sets
+         COMMAND embedding_layer
+                 --data-type=float
+                 --shape={10,20}
+                 --num-indices={100,10}
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
+	 NAME embedding_layer_half_10x20_2_index_sets
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={10,20}
+                 --num-indices={5,20}
+                 --tiles-per-ipu=16)
+
+add_multitarget_test(
+         NAME embedding_layer_half_pad_grain1
+         COMMAND embedding_layer
+                 --shape {5,4}
+                 --num-indices 3
+                 --grain-size 1
+		 --use-embedding-plan=0
+                 --data-type half
+                 --tiles-per-ipu 4)
+
+add_multitarget_test(
+         NAME embedding_layer_half_pad_grain3
+         COMMAND embedding_layer
+                 --shape {5,4}
+                 --num-indices 3
+                 --grain-size 3
+		 --use-embedding-plan=0
+                 --data-type half
+                 --tiles-per-ipu 4)
+
+# These tests are quite slow to execute on the simulator
+add_multitarget_test(
+         NAME embedding_layer_big_embedding
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100000,200}
+                 --num-indices=1440
+                 --use-embedding-plan=1
+                 --ignore-data=1
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
+
+add_multitarget_test(
+         NAME embedding_layer_many_lookups
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={1000,200}
+                 --num-indices=18000
+                 --use-embedding-plan=1
+                 --ignore-data=1
+         VARIANTS ${IPUMODEL_VARIANTS};Hw)
+
+# This test is too slow and fails on MACS
+#add_multitarget_test(
+         #NAME embedding_layer_vmany_lookups
+         #COMMAND embedding_layer
+                 #--data-type=half
+                 #--shape={1000,200}
+                 #--num-indices=40001
+                 #--use-embedding-plan=1
+                 #--ignore-data=1
+         #VARIANTS ${IPUMODEL_VARIANTS};Hw)
+
+# This will also split the unsliced dim
+add_multitarget_test(
+         NAME embedding_layer_quick_split_sliced_dim
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={5000,100}
+                 --num-indices=1440
+                 --use-embedding-plan=1
+                 --ignore-data=1
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"slicedDimSplit\":\"6\"})
+
+# This will also split the unsliced dim
+add_multitarget_test(
+         NAME embedding_layer_quick_split_lookup
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100,200}
+                 --num-indices=450
+                 --use-embedding-plan=1
+                 --ignore-data=1
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"lookupSplit\":\"3\"})
+
+add_multitarget_test(
+         NAME embedding_layer_quick_unsliced_split_lookup
+         COMMAND embedding_layer
+                 --data-type=half
+                 --shape={100,200}
+                 --num-indices=450
+                 --use-embedding-plan=1
+                 --ignore-data=1
+                 --tiles-per-ipu=30
+                 --plan-constraints={\"unslicedDimSplit\":\"10\"})
+
+# Collective operations
+foreach(collective reduce_scatter
+                   all_gather
+                   all_reduce)
+  foreach(method bidirectional_ring_pair
+                 meet_in_middle_ring
+                 clockwise_ring
+                 anticlockwise_ring)
+    foreach(num_ipus 2 4 8 16)
+      add_multitarget_test(
+        NAME collective_${method}_${collective}_${num_ipus}ipus
+        COMMAND collectives
+                --reduction-operator=ADD
+                --collective=${collective}
+                --ipus=${num_ipus}
+                --tiles-per-ipu=64
+                --elements=1024
+                --method=${method}
+                --shuffle-mapping=true
+        LABELS Collectives
+        VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+endforeach()
+
+# Collectives where each rank consists of multiple IPUs.
+foreach(collective all_reduce)
+  foreach(ipus_per_rank 2 4 8)
+    add_multitarget_test(
+      NAME collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank
+      COMMAND collectives
+              --reduction-operator=ADD
+              --collective=${collective}
+              --ipus-per-rank=${ipus_per_rank}
+              --ipus=8
+              --tiles-per-ipu=64
+              --elements=1024
+              --shuffle-mapping=true
+      LABELS Collectives
+      VARIANTS ${IPUMODEL_VARIANTS})
+  endforeach()
+endforeach()
+
+# Replicated collectives
+foreach(collective all_reduce)
+  foreach(method bidirectional_ring_pair
+                 meet_in_middle_ring
+                 clockwise_ring
+                 anticlockwise_ring)
+    foreach(num_ipus 2 4 8 16)
+     foreach(in_place false true)
+	add_multitarget_test(
+	  NAME replicated_collective_${method}_${collective}_${num_ipus}ipus_${in_place}
+	  COMMAND replicated_collectives
+		  --use-replicated-implementation
+		  --reduction-operator=ADD
+		  --collective=${collective}
+		  --ipus=${num_ipus}
+		  --tiles-per-ipu=64
+		  --elements=1024
+		  --method=${method}
+		  --shuffle-mapping=true
+                  --in-place=${in_place}
+	  LABELS Collectives
+	  VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
+    endforeach()
+  endforeach()
+
+  foreach(ipus_per_rank 2 4 8)
+    foreach(in_place false true)
+      add_multitarget_test(
+	NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${in_place}
+	COMMAND replicated_collectives
+		--use-replicated-implementation
+		--reduction-operator=ADD
+		--collective=${collective}
+		--ipus-per-rank=${ipus_per_rank}
+		--ipus=8
+		--tiles-per-ipu=64
+		--elements=1291
+		--shuffle-mapping=true
+                --in-place=${in_place}
+	LABELS Collectives
+	VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+
+  foreach(ipus_per_rank 1 2 4)
+    foreach(method clockwise_ring
+                   anticlockwise_ring
+                   bidirectional_ring_pair
+                   meet_in_middle_ring)
+        add_multitarget_test(
+        NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${method}
+        COMMAND replicated_collectives
+                --use-replicated-implementation
+                --replicate-top-level-graph=true
+                --reduction-operator=ADD
+                --collective=${collective}
+                --method=${method}
+                --ipus-per-rank=${ipus_per_rank}
+                --ipus=8
+                --tiles-per-ipu=64
+                --elements=1399
+                --shuffle-mapping=true
+        LABELS Collectives multicard
+        VARIANTS Hw)
+    endforeach()
+  endforeach()
+endforeach()
+
+add_multitarget_test(NAME replicated_collectives_few_elements
+                     COMMAND replicated_collectives
+                             --use-replicated-implementation
+                             --reduction-operator=ADD
+                             --collective=all_reduce
+                             --ipus-per-rank=1
+                             --ipus=2
+                             --tiles-per-ipu=4
+                             --elements=1
+                             --shuffle-mapping=false
+                      LABELS Collectives;CE_reproducers
+                      VARIANTS ${IPUMODEL_VARIANTS})
+
+add_multitarget_test(NAME replicated_collectives_force_mapping
+                      COMMAND replicated_collectives
+                              --use-replicated-implementation
+                              --reduction-operator=ADD
+                              --collective=all_reduce
+                              --ipus-per-rank=2
+                              --ipus=4
+                              --tiles-per-ipu=4
+                              --elements=1
+                              --shuffle-mapping=false
+                              --force-mapping=0
+                       LABELS Collectives
+                       VARIANTS ${IPUMODEL_VARIANTS})
+
+
+foreach(operator ADD MUL MIN MAX)
+  add_multitarget_test(
+    NAME collective_${operator}_reduce_scatter
+    COMMAND collectives
+            --reduction-operator=${operator}
+            --collective=reduce_scatter
+            --ipus=4
+            --tiles-per-ipu=64
+            --elements=1024
+            --method=auto
+            --shuffle-mapping=true
+    LABELS Collectives
+    VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
+
+# Test each method with multi ipu rank
+foreach(collective all_reduce)
+  foreach(method bidirectional_ring_pair
+                 meet_in_middle_ring
+                 clockwise_ring
+                 anticlockwise_ring)
+    add_multitarget_test(
+      NAME collective_${collective}_${method}_2_ipus_per_rank
+      COMMAND collectives
+                --reduction-operator=ADD
+                --collective=${collective}
+                --ipus=8
+                --ipus-per-rank=2
+                --tiles-per-ipu=64
+                --elements=1024
+                --method=${method}
+                --shuffle-mapping=true
+        LABELS Collectives
+        VARIANTS ${IPUMODEL_VARIANTS})
+
+  endforeach()
+endforeach()
+
+# Test it collectives handles tensors with no elements on some ipus
+add_multitarget_test(
+      NAME collective_empty_ipus
+      COMMAND collectives
+                --reduction-operator=ADD
+                --collective=all_reduce
+                --ipus=4
+                --ipus-per-rank=2
+                --tiles-per-ipu=4
+                --elements=1
+                --method=meet_in_middle_ring
+        LABELS Collectives
+        VARIANTS ${IPUMODEL_VARIANTS})
