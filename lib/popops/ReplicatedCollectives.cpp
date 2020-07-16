@@ -1131,7 +1131,10 @@ createCommunicationMap(unsigned replicationFactor) {
 
 Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
                                     program::Sequence &sequence,
-                                    const std::string &debugPrefix) {
+                                    const std::string &debugPrefix,
+                                    const poplar::OptionFlags &options) {
+  // Options are currently not supported.
+  (void)options;
   using namespace popops::expr;
   if (graph.getTopLevelGraph().getReplicationFactor() !=
       graph.getReplicationFactor()) {

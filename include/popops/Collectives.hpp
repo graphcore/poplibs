@@ -251,7 +251,8 @@ poplar::Tensor replicatedAllGather(poplar::Graph &graph,
 poplar::Tensor
 allToAllPersonalizedExchange(poplar::Graph &graph, const poplar::Tensor &input,
                              poplar::program::Sequence &sequence,
-                             const std::string &debugPrefix = "");
+                             const std::string &debugPrefix = "",
+                             const poplar::OptionFlags &options = {});
 
 } // End namespace popops
 
