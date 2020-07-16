@@ -16,7 +16,6 @@ using poplibs_support::validatePlanConstraintsUnsignedArray;
 
 std::map<std::string, Pass> passMap{
     {"NONE", Pass::NONE},
-    {"NONE_MATMUL", Pass::NONE_MATMUL},
     {"INFERENCE_FWD", Pass::INFERENCE_FWD},
     {"TRAINING_FWD", Pass::TRAINING_FWD},
     {"TRAINING_BWD", Pass::TRAINING_BWD},
@@ -33,8 +32,6 @@ std::ostream &operator<<(std::ostream &os, const Pass p) {
   switch (p) {
   case Pass::NONE:
     return os << "NONE";
-  case Pass::NONE_MATMUL:
-    return os << "NONE_MATMUL";
   case Pass::INFERENCE_FWD:
     return os << "INFERENCE_FWD";
   case Pass::TRAINING_FWD:

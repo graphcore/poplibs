@@ -1194,8 +1194,6 @@ addTransformCycleEstimate(
     const ConvOptions &options, const poplar::Target &target) {
   bool isConvWeightUpdate = options.pass == Pass::TRAINING_WU;
   bool isFullyConnectedLayer = isFullyConnected(options.pass);
-  bool isMatmulOrFullyConnectedLayer =
-      isFullyConnectedLayer || options.pass == Pass::NONE_MATMUL;
   bool expandDims = false;
   bool swapOperands = false;
   bool outChanFlattenDims = false;
@@ -1219,23 +1217,21 @@ addTransformCycleEstimate(
       transformedOnceUnpaddedParams.outputChannelsPerConvGroup %
           partialChansPerGroup !=
       0;
-  bool rearrangeInput = isConvWeightUpdate || expandDims ||
-                        swapOperands != isMatmulOrFullyConnectedLayer ||
+  bool rearrangeInput = isConvWeightUpdate || expandDims || swapOperands ||
                         combineConvGroups || padInChannels ||
                         options.pass == Pass::FC_TRAINING_WU ||
                         (options.pass == Pass::FC_TRAINING_BWD && !isJointPlan);
   bool rearrangeWeights =
-      isConvWeightUpdate || expandDims || outChanFlattenDims ||
-      swapOperands != isMatmulOrFullyConnectedLayer || combineConvGroups ||
-      padInChannels || padPartialChannels;
+      isConvWeightUpdate || expandDims || outChanFlattenDims || swapOperands ||
+      combineConvGroups || padInChannels || padPartialChannels;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(params.inputType == poplar::FLOAT);
-  bool outputShouldBeSwapped =
-      isConvWeightUpdate || isMatmulOrFullyConnectedLayer;
-  bool rearrangeOutput = swapOperands != outputShouldBeSwapped ||
+  bool rearrangeOutput = (!isConvWeightUpdate && swapOperands) ||
+                         (isConvWeightUpdate && !swapOperands) ||
                          outChanFlattenDims || combineConvGroups ||
                          padPartialChannels ||
                          (options.pass == Pass::FC_TRAINING_WU && !isJointPlan);
+  ;
   // We assume the next layer uses an input channel grouping of
   // weightsPerConvUnit and apply a small cost if the output channel
   // grouping of this layer doesn't match.
@@ -1895,7 +1891,6 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     const unsigned partialChansPerGroup,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
-  assert(transforms[0].swapOperands);
   // for the backwards pass the output shape will be Ci x Co (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the backwards pass is a no-op and we can return zero.
@@ -1908,9 +1903,9 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     return {zero, zero, zero, zero};
   }
 
-  std::swap(bwdUntransformedParams.outputChannelsPerConvGroup,
-            bwdUntransformedParams.inputChannelsPerConvGroup);
   assert(!bwdTransformedOnceParams.inputFieldShape.empty());
+  std::swap(bwdUntransformedParams.inputFieldShape.back(),
+            bwdUntransformedParams.inputChannelsPerConvGroup);
   std::swap(bwdTransformedOnceParams.inputFieldShape.back(),
             bwdTransformedOnceParams.inputChannelsPerConvGroup);
   std::swap(bwdTransformedOnceUnpaddedParams.inputFieldShape.back(),
@@ -1966,8 +1961,8 @@ Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
   // Avoid outer product method if the padded input channels per group are not
   // 1. This is because the current implementation of createOuterProductVertex
   // only supports channel grouping of 1.
-  auto outChansAfterSwapping = fwdParams.batchSize;
-  if (outChansAfterSwapping == 1 && wuInChansPerGroup == 1) {
+  if (fwdParams.getNumOutputChansPerConvGroup() == 1 &&
+      wuInChansPerGroup == 1) {
     return Plan::Method::OUTER_PRODUCT;
   }
   const auto wuPartialChansPerGroup = fwdInChansPerGroup;
@@ -1999,7 +1994,6 @@ static Estimates<popsolver::Variable> addWuEstimates(
     const unsigned partialChansPerGroup,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
-  assert(transforms[0].swapOperands);
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the weight update pass is a no-op and we can return zero.
@@ -2015,7 +2009,7 @@ static Estimates<popsolver::Variable> addWuEstimates(
 
   auto wuUntransformedParams = untransformedParams;
   std::swap(wuUntransformedParams.inputChannelsPerConvGroup,
-            wuUntransformedParams.batchSize);
+            wuUntransformedParams.outputChannelsPerConvGroup);
   std::swap(wuTransformedOnceParams.inputChannelsPerConvGroup,
             wuTransformedOnceParams.outputChannelsPerConvGroup);
   std::swap(wuTransformedOnceUnpaddedParams.inputChannelsPerConvGroup,

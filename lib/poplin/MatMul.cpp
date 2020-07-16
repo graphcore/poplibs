@@ -167,7 +167,7 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
   convOptions.set("planConstraints", options.planConstraints);
   switch (options.fullyConnectedPass) {
   case FullyConnectedPass::NONE:
-    convOptions.set("pass", "NONE_MATMUL");
+    convOptions.set("pass", "NONE");
     break;
   case FullyConnectedPass::INFERENCE_FWD:
     convOptions.set("pass", "FC_INFERENCE_FWD");
@@ -196,10 +196,10 @@ static poplin::PlanningCache *getLinCache(matmul::PlanningCache *cache) {
 // Transform a conv activations tensor to a  grouped matrix tensor view
 static Tensor matrixFromConvActivations(const Tensor &A, unsigned numGroups) {
   assert(A.rank() == 3);
-  assert(A.dim(2) == 1);
+  assert(A.dim(0) == 1);
   assert(A.dim(1) % numGroups == 0);
-  return A.reshape({A.dim(0), numGroups, A.dim(1) / numGroups})
-      .dimShuffle({1, 0, 2});
+  return A.reshape({numGroups, A.dim(1) / numGroups, A.dim(2)})
+      .dimShuffle({0, 2, 1});
 }
 
 // Transpose a grouped matrix
@@ -218,24 +218,120 @@ static Tensor matrixFromConvWeights(const Tensor &A) {
   return A.squeeze({3});
 }
 
-// Transform a grouped matrix tensor to an activations tensor view
-static Tensor convActivationsFromMatrix(const Tensor &A) {
-  assert(A.rank() == 3);
-  return A.dimShuffle({1, 0, 2}).reshape({A.dim(1), A.dim(0) * A.dim(2), 1});
+// Transform a grouped matrix tensor to an activations tensor view with given
+//  3D shape containing {numGroups, inputWidth, inputChannels/group}
+static Tensor convActivationsFromMatrix(const Tensor &A,
+                                        const std::vector<std::size_t> &shape) {
+  assert(shape.size() == 3);
+  return A.dimShuffle({0, 2, 1}).reshape({1, shape[0] * shape[2], shape[1]});
 }
 
 // Transform a grouped matrix tensor to a weights tensor view with given
 // 3D shape containing {numGroups, outputChannels/group, inputChannels/group}
-static Tensor convWeightsFromMatrix(const Tensor &A) {
-  assert(A.rank() == 3);
+static Tensor convWeightsFromMatrix(const Tensor &A,
+                                    const std::vector<std::size_t> &shape) {
+  assert(shape.size() == 3);
   return A.expand({3});
 }
 
-// Maps shape of matmul to convolution parameters
+enum class SpecialOpHandling { MATMUL_RESULT, CREATE_LHS, CREATE_RHS };
+
+// Special handling is required to avoid a convolution being called with zero
+// field size. This function returns the result tensor if convolution cannot be
+// called to produce results
+static boost::optional<Tensor> specialMatrixOpHandling(
+    Graph &graph, poplar::Type dType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, SpecialOpHandling op) {
+  boost::optional<Tensor> resultTensor;
+  if (!bShape[2]) {
+    Tensor out;
+    if (op == SpecialOpHandling::MATMUL_RESULT) {
+      out = graph.addVariable(dType, {aShape[0], aShape[1], bShape[2]},
+                              VariableMappingMethod::LINEAR);
+    } else if (op == SpecialOpHandling::CREATE_LHS) {
+      out = graph.addVariable(dType, {aShape[0], aShape[1], aShape[2]},
+                              VariableMappingMethod::LINEAR);
+    } else if (op == SpecialOpHandling::CREATE_RHS) {
+      out = graph.addVariable(dType, {bShape[0], bShape[1], bShape[2]},
+                              VariableMappingMethod::LINEAR);
+    }
+    resultTensor = out;
+  }
+  return resultTensor;
+}
+
+// This gets the convolution parameters from the shape of the FORWARD PASS
+// matmul and the pass type
 static poplin::ConvParams
 getConvParams(const Type &inputType, const Type &outputType,
-              const std::vector<std::size_t> &aShape,
-              const std::vector<std::size_t> &bShape) {
+              const size_t inputSize, const size_t outputSize,
+              const size_t batchSize, const size_t numGroups,
+              FullyConnectedPass fullyConnectedPass) {
+
+  switch (fullyConnectedPass) {
+  case FullyConnectedPass::NONE:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
+    // A fully connected fwd pass is equivalent to a 1-d convolution with
+    // input channels = inputSize
+    // width = outputSize
+    // output channels = batchSize.
+    {
+      return poplin::ConvParams{
+          inputType,
+          outputType,
+          1,            // batch size
+          {outputSize}, // input field shape for each channel and batch
+          {1},          // kernel shape for each input and output channel
+          inputSize,    // input channels
+          batchSize,    // output channels
+          numGroups     // conv groups
+      };
+    }
+  case FullyConnectedPass::TRAINING_BWD:
+    // A fully connected bwd pass is equivalent to a 1-d convolution with
+    // input channels = outputSize
+    // width = inputSize
+    // output channels = batchSize.
+    {
+      return poplin::ConvParams{
+          inputType,   // input type
+          outputType,  // output type
+          1,           // batch size
+          {inputSize}, // input field shape for each channel and batch
+          {1},         // kernel shape for each input and output channel
+          outputSize,  // input channels
+          batchSize,   // output channels
+          numGroups    // conv groups
+      };
+    }
+  case FullyConnectedPass::TRAINING_WU:
+    // Implement the weight update as a convolutional layer with
+    // input channels = batch size
+    // width = outputSize
+    // output channels = inputSize
+    {
+      return poplin::ConvParams{
+          inputType,
+          outputType,
+          1,            // batch size
+          {outputSize}, // input field shape for each channel and batch
+          {1},          // kernel shape for each input and output channel
+          batchSize,    // input channels
+          inputSize,    // output channels
+          numGroups     // conv groups
+      };
+    }
+  }
+  POPLIB_UNREACHABLE();
+}
+
+// Maps shape of matmul and pass to matmul forward pass shape
+static poplin::ConvParams getConvParams(const Type &inputType,
+                                        const Type &outputType,
+                                        const std::vector<std::size_t> &aShape,
+                                        const std::vector<std::size_t> &bShape,
+                                        FullyConnectedPass pass) {
   if (aShape.size() != 3 || bShape.size() != 3) {
     throw poputil::poplibs_error("Operand to matrix multiplication is not a "
                                  "grouped matrix ");
@@ -251,24 +347,36 @@ getConvParams(const Type &inputType, const Type &outputType,
         "multiplication does not match second dimension "
         "of second operand.");
   }
-  const auto inputSize = bShape[1];
-  const auto outputSize = bShape[2];
-  const auto batchSize = aShape[1];
-  const auto numGroups = aShape[0];
 
-  // Matmul is equivalent to a 1-d convolution with
-  // input channels = inputSize
-  // output channels = outputSize
-  // batch = batchSize
-  return poplin::ConvParams{
-      inputType,  outputType,
-      batchSize,  // batch size
-      {1},        // input field shape
-      {1},        // kernel shape
-      inputSize,  // input channels
-      outputSize, // output channels
-      numGroups   // conv groups
-  };
+  switch (pass) {
+  case FullyConnectedPass::NONE:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD: {
+    const auto inputSize = bShape[1];
+    const auto outputSize = bShape[2];
+    const auto batchSize = aShape[1];
+    const auto numGroups = aShape[0];
+    return getConvParams(inputType, outputType, inputSize, outputSize,
+                         batchSize, numGroups, pass);
+  }
+  case FullyConnectedPass::TRAINING_BWD: {
+    const auto inputSize = bShape[2];
+    const auto outputSize = bShape[1];
+    const auto batchSize = aShape[1];
+    const auto numGroups = aShape[0];
+    return getConvParams(inputType, outputType, inputSize, outputSize,
+                         batchSize, numGroups, pass);
+  }
+  case FullyConnectedPass::TRAINING_WU: {
+    const auto inputSize = aShape[1];
+    const auto outputSize = bShape[2];
+    const auto batchSize = aShape[2];
+    const auto numGroups = aShape[0];
+    return getConvParams(inputType, outputType, inputSize, outputSize,
+                         batchSize, numGroups, pass);
+  }
+  }
+  POPLIB_UNREACHABLE();
 }
 
 MatMulParams toMatMulParams(const std::vector<size_t> &params,
@@ -328,9 +436,11 @@ bwdAndWuPassPermutations(std::pair<MatMulParams, poplar::OptionFlags> fwdPass) {
   return permutations;
 }
 
-static poplin::ConvParams getConvParams(poplin::MatMulParams params) {
+static poplin::ConvParams getConvParams(poplin::MatMulParams params,
+                                        const poplar::OptionFlags &options) {
+  const auto matMulOptions = parseMatMulOptions(options);
   return getConvParams(params.inputType, params.outputType, params.aShape,
-                       params.bShape);
+                       params.bShape, matMulOptions.fullyConnectedPass);
 }
 
 // Converts FullyConnectedPass -> Pass
@@ -359,7 +469,7 @@ void preplanMatMuls(const std::set<MatMulPlanParams> &matmuls,
       // Create the conv options and store them
       res.first->second = getConvOptionFlags(*matMulOpts);
     }
-    const auto convParams = getConvParams(matMulParams);
+    const auto convParams = getConvParams(matMulParams, *matMulOpts);
     // Safe to take pointer to the new option flags in the unordered_map as
     // future insertions don't invalidate this.
     convs.emplace(target, convParams, &res.first->second);
@@ -377,26 +487,90 @@ matMulImpl(poplar::Graph &graph, const poplar::Tensor &A,
   const auto inputType = A.elementType();
   const auto convOptions = getConvOptionFlags(options);
   poplin::PlanningCache *linCache = getLinCache(cache);
-  auto convParams = getConvParams(inputType, outputType, A.shape(), B.shape());
-  // A matmul is equivalent to a 1-d convolution with
-  // input channels = inputSize
-  // output channels = outputSize
-  // batch = batchSize
-  auto weights = B;
-  auto acts = A;
-  const auto numGroups = acts.dim(0);
-  auto actsView = convActivationsFromMatrix(acts);
-  auto weightsView = convWeightsFromMatrix(transpose(weights));
-  if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_BWD &&
-      !options.inputRHSIsPreArranged) {
-    weightsView = poplin::fullyConnectedWeightTranspose(
-        graph, weightsView.dimShuffle({0, 2, 1, 3}), convParams, prog, "",
-        convOptions, linCache);
+  const auto spOut =
+      specialMatrixOpHandling(graph, outputType, A.shape(), B.shape(),
+                              SpecialOpHandling::MATMUL_RESULT);
+  if (spOut)
+    return *spOut;
+  auto convParams = getConvParams(inputType, outputType, A.shape(), B.shape(),
+                                  options.fullyConnectedPass);
+  Tensor out;
+  switch (options.fullyConnectedPass) {
+  case FullyConnectedPass::NONE:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
+    // A fully connected fwd pass is equivalent to a convolution with
+    // input channels = inputSize
+    // width = outputSize
+    // height = 1
+    // output channels = batchSize.
+    {
+      auto weights = transpose(B);
+      auto acts = A;
+      const auto inputSize = weights.dim(2);
+      const auto outputSize = weights.dim(1);
+      const auto batchSize = acts.dim(1);
+      const auto numGroups = acts.dim(0);
+      auto weightsView = convActivationsFromMatrix(
+          weights, {numGroups, outputSize, inputSize});
+      auto actsView =
+          convWeightsFromMatrix(acts, {numGroups, batchSize, inputSize});
+      out = poplin::convolution(graph, weightsView, actsView, convParams, false,
+                                prog, debugPrefix, convOptions, linCache);
+      out = transpose(matrixFromConvActivations(out, numGroups));
+      break;
+    }
+  case FullyConnectedPass::TRAINING_BWD:
+    // A fully connected bwd pass is equivalent to a convolution with
+    // input channels = outputSize
+    // width = inputSize
+    // height = 1
+    // output channels = batchSize.
+    {
+      auto weights = B;
+      auto deltas = A;
+      const auto inputSize = weights.dim(2);
+      const auto outputSize = weights.dim(1);
+      const auto batchSize = deltas.dim(1);
+      const auto numGroups = weights.dim(0);
+      auto weightsView = convActivationsFromMatrix(
+          weights, {numGroups, outputSize, inputSize});
+      auto deltasView =
+          convWeightsFromMatrix(deltas, {numGroups, batchSize, outputSize});
+      auto weightsTransposed = weights;
+      if (!options.inputRHSIsPreArranged) {
+        weightsTransposed = poplin::fullyConnectedWeightTranspose(
+            graph, weightsView, convParams, prog, "", convOptions, linCache);
+      }
+      out =
+          poplin::convolution(graph, weightsTransposed, deltasView, convParams,
+                              false, prog, debugPrefix, convOptions, linCache);
+      out = transpose(matrixFromConvActivations(out, numGroups));
+      break;
+    }
+  case FullyConnectedPass::TRAINING_WU:
+    // Implement the weight update as a convolutional layer with
+    // input channels = batch size
+    // width = outputSize
+    // height = 1
+    // output channels = inputSize
+    {
+      auto deltas = B;
+      auto acts = A;
+      const auto inputSize = acts.dim(1);
+      const auto outputSize = deltas.dim(2);
+      const auto batchSize = acts.dim(2);
+      const auto numGroups = acts.dim(0);
+      auto deltasView = convActivationsFromMatrix(
+          transpose(deltas), {numGroups, outputSize, batchSize});
+      auto actsView =
+          convWeightsFromMatrix(acts, {numGroups, batchSize, inputSize});
+      out = poplin::convolution(graph, deltasView, actsView, convParams, false,
+                                prog, debugPrefix, convOptions, linCache);
+      out = transpose(matrixFromConvActivations(out, numGroups));
+      break;
+    }
   }
-  auto out =
-      poplin::convolution(graph, actsView, weightsView, convParams, false, prog,
-                          debugPrefix, convOptions, linCache);
-  out = matrixFromConvActivations(out, numGroups);
   assert(out.rank() == 3);
   assert(out.dim(0) == A.dim(0));
   assert(out.dim(1) == A.dim(1));
@@ -526,12 +700,38 @@ static poplar::Tensor createMatMulInputLHSImpl(
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, const std::string &name,
     const MatMulOptions &options, matmul::PlanningCache *cache) {
-  auto convParams = getConvParams(inputType, outputType, aShape, bShape);
+  if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_WU) {
+    auto fwdOptions = options;
+    fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
+    auto fwdLHS = createMatMulInputLHSImpl(
+        graph, inputType, outputType, {aShape[0], aShape[2], aShape[1]},
+        {aShape[0], aShape[1], bShape[2]}, name, fwdOptions, cache);
+    return transpose(fwdLHS);
+  }
+  const auto spOut = specialMatrixOpHandling(graph, inputType, aShape, bShape,
+                                             SpecialOpHandling::CREATE_LHS);
+  if (spOut)
+    return *spOut;
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   auto convOptions = getConvOptionFlags(options);
   auto linCache = getLinCache(cache);
-  auto convInput =
-      poplin::createInput(graph, convParams, name, convOptions, linCache);
-  return matrixFromConvActivations(convInput, convParams.numConvGroups);
+  switch (options.fullyConnectedPass) {
+  default:
+    assert(0 && "Unexpected pass");
+  case FullyConnectedPass::NONE:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD: {
+    auto convWeights =
+        poplin::createWeights(graph, convParams, name, convOptions, linCache);
+    return matrixFromConvWeights(convWeights);
+  }
+  case FullyConnectedPass::TRAINING_BWD: {
+    auto convWeights =
+        poplin::createWeights(graph, convParams, name, convOptions, linCache);
+    return matrixFromConvWeights(convWeights);
+  }
+  }
 }
 
 poplar::Tensor createMatMulInputRHSImpl(
@@ -539,13 +739,39 @@ poplar::Tensor createMatMulInputRHSImpl(
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, const std::string &name,
     const MatMulOptions &options, matmul::PlanningCache *cache) {
-  auto convParams = getConvParams(inputType, outputType, aShape, bShape);
+  if (options.fullyConnectedPass == FullyConnectedPass::TRAINING_BWD) {
+    auto fwdOptions = options;
+    fwdOptions.fullyConnectedPass = FullyConnectedPass::TRAINING_FWD;
+    auto fwdRHS = createMatMulInputRHSImpl(
+        graph, inputType, outputType, {aShape[0], aShape[1], bShape[2]},
+        {bShape[0], bShape[2], bShape[1]}, name, fwdOptions, cache);
+    return transpose(fwdRHS);
+  }
+  const auto spOut = specialMatrixOpHandling(graph, inputType, aShape, bShape,
+                                             SpecialOpHandling::CREATE_RHS);
+  if (spOut)
+    return *spOut;
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   const auto convOptions = getConvOptionFlags(options);
   const auto linCache = getLinCache(cache);
-
-  auto convWeights =
-      poplin::createWeights(graph, convParams, name, convOptions, linCache);
-  return transpose(matrixFromConvWeights(convWeights));
+  const auto numGroups = convParams.getNumConvGroups();
+  switch (options.fullyConnectedPass) {
+  default:
+    assert(0 && "Unexpected pass");
+  case FullyConnectedPass::NONE:
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD: {
+    auto convInput =
+        poplin::createInput(graph, convParams, name, convOptions, linCache);
+    return transpose(matrixFromConvActivations(convInput, numGroups));
+  }
+  case FullyConnectedPass::TRAINING_WU: {
+    auto convInput =
+        poplin::createInput(graph, convParams, name, convOptions, linCache);
+    return transpose(matrixFromConvActivations(convInput, numGroups));
+  }
+  }
 }
 
 poplar::Tensor createMatMulInputRHS(poplar::Graph &graph, const Type &inputType,
@@ -645,7 +871,8 @@ std::tuple<unsigned, unsigned, unsigned> groupedMatMulOutputSerialSplits(
     matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   auto convOptions = getConvOptionFlags(options);
-  auto convParams = getConvParams(inputType, outputType, aShape, bShape);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   poplin::PlanningCache *linCache = getLinCache(cache);
   return poplin::getMatMulSerialSplits(graph, convParams, convOptions,
                                        linCache);
@@ -673,7 +900,8 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
                              matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
   auto convOptions = getConvOptionFlags(options);
-  auto convParams = getConvParams(inputType, outputType, aShape, bShape);
+  auto convParams = getConvParams(inputType, outputType, aShape, bShape,
+                                  options.fullyConnectedPass);
   auto linCache = getLinCache(cache);
   if (!bShape[2]) {
     out << "Matrix multiplication result produced via special handling\n";
@@ -720,20 +948,40 @@ static poplar::Tensor preArrangeMatMulInputRHSImpl(
     const poplar::Tensor &B, poplar::program::Sequence &prog,
     const std::string &debugPrefix, const MatMulOptions &options,
     matmul::PlanningCache *cache, const Type &outputType) {
-  if (!options.inputRHSIsPreArranged ||
-      options.fullyConnectedPass != FullyConnectedPass::TRAINING_BWD) {
-    return B;
-  }
+  assert(aShape.size() == 3 && B.rank() == 3);
   const auto fPrefix = debugPrefix + "/PreArrangeMatMulInputRHS";
   const auto inputType = B.elementType();
   const auto convOptions = getConvOptionFlags(options);
   poplin::PlanningCache *linCache = getLinCache(cache);
-  auto convParams = getConvParams(inputType, outputType, aShape, B.shape());
-  auto weights = B;
-  auto fwdWeightsView = convWeightsFromMatrix(weights);
-  auto bwdWeights = poplin::fullyConnectedWeightTranspose(
-      graph, fwdWeightsView, convParams, prog, fPrefix, convOptions, linCache);
-  auto arranged = transpose(matrixFromConvWeights(bwdWeights));
+  auto convParams = getConvParams(inputType, outputType, aShape, B.shape(),
+                                  options.fullyConnectedPass);
+  Tensor arranged;
+  switch (options.fullyConnectedPass) {
+  case FullyConnectedPass::TRAINING_BWD:
+    if (options.inputRHSIsPreArranged) {
+      auto weights = B;
+      const auto inputSize = weights.dim(2);
+      const auto outputSize = weights.dim(1);
+      const auto numGroups = weights.dim(0);
+      auto weightsView = convActivationsFromMatrix(
+          weights, {numGroups, outputSize, inputSize});
+      auto weightsTransposed = poplin::fullyConnectedWeightTranspose(
+          graph, weightsView, convParams, prog, fPrefix, convOptions, linCache);
+      arranged =
+          transpose(matrixFromConvActivations(weightsTransposed, numGroups));
+      break;
+    }
+    // fallthrough
+  case FullyConnectedPass::INFERENCE_FWD:
+  case FullyConnectedPass::TRAINING_FWD:
+  case FullyConnectedPass::TRAINING_WU:
+    // No pre-arrangement
+    arranged = B;
+    break;
+  case FullyConnectedPass::NONE:
+    throw poputil::poplibs_error("preArrangeMatMulRHS only valid for fully "
+                                 "connected layers");
+  }
   assert(arranged.rank() == 3);
   assert(arranged.dim(0) == B.dim(0));
   assert(arranged.dim(1) == B.dim(1));

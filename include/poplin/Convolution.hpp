@@ -489,10 +489,10 @@ void reportWeightUpdatePlanInfo(std::ostream &out, const poplar::Graph &graph,
                                 const poplar::OptionFlags &fwdOptions = {},
                                 PlanningCache *cache = nullptr);
 
-// Arranges the weights such that they suited for the
+// Arranges the weights (activations) such that they suited for the
 // backwards pass in a fully connected layer.
 poplar::Tensor fullyConnectedWeightTranspose(
-    poplar::Graph &graph, poplar::Tensor weights, const ConvParams &params,
+    poplar::Graph &graph, poplar::Tensor activations, const ConvParams &params,
     poplar::program::Sequence &prog, const std::string &debugPrefix,
     const poplar::OptionFlags &options, PlanningCache *cache = nullptr);
 

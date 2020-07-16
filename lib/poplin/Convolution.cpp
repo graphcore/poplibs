@@ -3025,20 +3025,21 @@ void addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
   addInPlace(graph, acts, biases.expand(broadcastBiases), prog, debugPrefix);
 }
 
-static ConvParams
-getFullyConnectedFwdParamsFromBwdParams(const CanonicalConvParams &bwdParams) {
-  auto fwdParams = bwdParams.getParams();
-  std::swap(fwdParams.inputChannelsPerConvGroup,
-            fwdParams.outputChannelsPerConvGroup);
-  return fwdParams;
-}
-
-static ConvOptions
-getFullyConnectedFwdOptionsFromBwdOptions(const ConvOptions &bwdOptions) {
+static Plan getFullyConnectedFwdPlanFromBwdParams(
+    const Target &target, const CanonicalConvParams &bwdParams,
+    const ConvOptions &bwdOptions, PlanningCache *cache) {
   assert(bwdOptions.pass == Pass::FC_TRAINING_BWD);
+  auto fwdParams = bwdParams.getParams();
+  std::swap(fwdParams.inputFieldShape[0], fwdParams.inputChannelsPerConvGroup);
+  if (fwdParams.inputFieldShape[0] == 0) {
+    // Transformed input must be greater than or equal to the transformed kernel
+    // size.
+    fwdParams.inputTransform.paddingUpper[0] = 1;
+    fwdParams.outputTransform.truncationUpper[0] = 1;
+  }
   auto fwdOptions = bwdOptions;
   fwdOptions.pass = Pass::FC_TRAINING_FWD;
-  return fwdOptions;
+  return getPlan(target, fwdParams, fwdOptions, cache);
 }
 
 static bool planSwapsOperands(const Plan &plan) {
@@ -3096,26 +3097,27 @@ transposeOutputIsContiguous(const Tensor &outTensor,
   return outConnect.isContiguous();
 }
 
-static Tensor getGroupedFCWeightsView(const Tensor &splitWeights,
+static Tensor getGroupedFCWeightsView(const Tensor &splitActivations,
                                       const unsigned inChansPerGroup,
                                       const unsigned fieldElementsPerGroup) {
-  return splitWeights
-      .reshape({splitWeights.dim(0), splitWeights.dim(1),
-                splitWeights.dim(2) / inChansPerGroup, inChansPerGroup,
-                splitWeights.dim(3) / fieldElementsPerGroup,
+  return splitActivations
+      .reshape({splitActivations.dim(0), splitActivations.dim(1),
+                splitActivations.dim(2) / inChansPerGroup, inChansPerGroup,
+                splitActivations.dim(3) / fieldElementsPerGroup,
                 fieldElementsPerGroup})
       .dimShufflePartial({3}, {4});
 }
 
-static Tensor getFirstInGroup(Tensor &splitWeights, const unsigned bwdGroupSize,
+static Tensor getFirstInGroup(Tensor &splitActivations,
+                              const unsigned bwdGroupSize,
                               const unsigned fwdGroupSize) {
-  splitWeights =
-      getGroupedFCWeightsView(splitWeights, bwdGroupSize, fwdGroupSize);
+  splitActivations =
+      getGroupedFCWeightsView(splitActivations, bwdGroupSize, fwdGroupSize);
 
-  return splitWeights
+  return splitActivations
       .slice({0, 0, 0, 0, 0, 0},
-             {splitWeights.dim(0), splitWeights.dim(1), splitWeights.dim(2),
-              splitWeights.dim(3), 1, 1})
+             {splitActivations.dim(0), splitActivations.dim(1),
+              splitActivations.dim(2), splitActivations.dim(3), 1, 1})
       .squeeze({4, 5});
 }
 
@@ -3123,13 +3125,14 @@ static Tensor getFirstInGroup(Tensor &splitWeights, const unsigned bwdGroupSize,
 // Higher score means faster execution. This is an estimated score
 static double blockScore(const unsigned fwdGroupSize,
                          const unsigned bwdGroupSize, const Graph &graph,
-                         Tensor splitWeights, const Tensor &splitTransposed) {
+                         Tensor splitActivations,
+                         const Tensor &splitTransposed) {
   // Call getGroupedFCWeightsView with fwd and bwd switched compared to
-  // calculation to get first in group
+  // calcylation to get first in group
   auto outTensor =
       getGroupedFCWeightsView(splitTransposed, fwdGroupSize, bwdGroupSize);
   const auto firstInGroup =
-      getFirstInGroup(splitWeights, bwdGroupSize, fwdGroupSize);
+      getFirstInGroup(splitActivations, bwdGroupSize, fwdGroupSize);
   const auto mapping = graph.getTileMapping(firstInGroup);
 
   unsigned spread = 0;
@@ -3140,7 +3143,7 @@ static double blockScore(const unsigned fwdGroupSize,
       ++spread;
       const unsigned numTileTranspositions = accumSize(intervals);
       const bool fastTrans = popops::rearrange::canUseFastTranspose(
-          graph.getTarget(), splitWeights.elementType(), bwdGroupSize,
+          graph.getTarget(), splitActivations.elementType(), bwdGroupSize,
           fwdGroupSize, numTileTranspositions);
 
       const bool TOIC =
@@ -3169,7 +3172,7 @@ static double blockScore(const unsigned fwdGroupSize,
 static FCWTGroupSizes pickGroupSizes(const std::vector<unsigned> &fwdChoices,
                                      const std::vector<unsigned> &bwdChoices,
                                      const Graph &graph,
-                                     const Tensor &splitWeights,
+                                     const Tensor &splitActivations,
                                      const Tensor &splitTranspose,
                                      const bool isJointPlan) {
   unsigned bestFwdIndex = 0;
@@ -3184,7 +3187,7 @@ static FCWTGroupSizes pickGroupSizes(const std::vector<unsigned> &fwdChoices,
   for (unsigned fwdIndex = 0; fwdIndex < fwdChoices.size(); ++fwdIndex) {
     for (unsigned bwdIndex = 0; bwdIndex < bwdChoices.size(); ++bwdIndex) {
       const auto score = blockScore(fwdChoices[fwdIndex], bwdChoices[bwdIndex],
-                                    graph, splitWeights, splitTranspose);
+                                    graph, splitActivations, splitTranspose);
       if (score > bestScore) {
         bestFwdIndex = fwdIndex;
         bestBwdIndex = bwdIndex;
@@ -3197,64 +3200,70 @@ static FCWTGroupSizes pickGroupSizes(const std::vector<unsigned> &fwdChoices,
 
 static FCWTGroupSizes getGroupSizes(const Plan &fwdPlan, const Plan &bwdPlan,
                                     const Graph &graph,
-                                    const Tensor &splitWeights,
-                                    const Tensor &splitWeightsTranspose) {
+                                    const Tensor &splitActivations,
+                                    const Tensor &splitTranspose) {
 
   const auto possibleFwdGroupSizes = commonDivisors(
-      fwdPlan.inChansPerGroup, static_cast<unsigned>(splitWeights.dim(3)));
+      fwdPlan.inChansPerGroup, static_cast<unsigned>(splitActivations.dim(3)));
 
   const auto possibleBwdGroupSizes = commonDivisors(
-      bwdPlan.inChansPerGroup, static_cast<unsigned>(splitWeights.dim(2)));
+      bwdPlan.inChansPerGroup, static_cast<unsigned>(splitActivations.dim(2)));
 
   const auto isJointPlan = fwdPlan.isJointPlan && bwdPlan.isJointPlan;
 
   FCWTGroupSizes result =
       pickGroupSizes(possibleFwdGroupSizes, possibleBwdGroupSizes, graph,
-                     splitWeights, splitWeightsTranspose, isJointPlan);
+                     splitActivations, splitTranspose, isJointPlan);
 
   result.useCopyImpl = result.fwdGroupSize == 1 || result.bwdGroupSize == 1 ||
-                       !planSwapsOperands(fwdPlan) ||
-                       !planSwapsOperands(bwdPlan);
+                       planSwapsOperands(fwdPlan) || planSwapsOperands(bwdPlan);
   logging::trace("Transpose Group sizes fwd, bwd, useCopy = {} {} {}",
                  result.fwdGroupSize, result.bwdGroupSize, result.useCopyImpl);
   return result;
 }
 
-static Tensor fullyConnectedWeightTranspose(
-    Graph &graph, Tensor weights, const CanonicalConvParams &bwdParams,
-    Sequence &prog, const std::string &debugPrefix,
-    const ConvOptions &bwdOptions, PlanningCache *cache) {
-  if (bwdParams->getNumFieldDims() != 1) {
+static Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
+                                            const CanonicalConvParams &params,
+                                            Sequence &prog,
+                                            const std::string &debugPrefix,
+                                            const ConvOptions &options,
+                                            PlanningCache *cache) {
+
+  if (params->getNumFieldDims() != 1) {
     throw poputil::poplibs_error("fullyConnectedWeightTranspose() expects a 1-d"
                                  " convolution");
   }
-  auto fwdParams = getFullyConnectedFwdParamsFromBwdParams(bwdParams);
-  auto splitWeights = weightsToInternalShape(weights);
-  auto bwdPlan = getPlan(graph.getTarget(), bwdParams, bwdOptions, cache);
-  auto fwdOptions = getFullyConnectedFwdOptionsFromBwdOptions(bwdOptions);
-  auto fwdPlan = getPlan(graph.getTarget(), fwdParams, fwdOptions, cache);
+  auto bwdPlan = getPlan(graph.getTarget(), params, options, cache);
+  auto fwdPlan = getFullyConnectedFwdPlanFromBwdParams(graph.getTarget(),
+                                                       params, options, cache);
+  auto splitActivations = actsToInternalShape(
+      activations, params->getNumConvGroups(), params->inputFieldShape.back());
+
   Tensor transposed =
-      createWeights(graph, bwdPlan, bwdParams, "transposed", bwdOptions);
-  auto splitTransposed = weightsToInternalShape(transposed);
+      createInput(graph, bwdPlan, params, "transposed", options);
+  auto splitTransposed =
+      actsToInternalShape(transposed, params->getNumConvGroups(),
+                          params->inputChannelsPerConvGroup);
 
   const auto groupSizes =
-      getGroupSizes(fwdPlan, bwdPlan, graph, splitWeights, splitTransposed);
+      getGroupSizes(fwdPlan, bwdPlan, graph, splitActivations, splitTransposed);
   const auto fwdGroupSize = groupSizes.fwdGroupSize;
   const auto bwdGroupSize = groupSizes.bwdGroupSize;
 
   if (groupSizes.useCopyImpl) {
     // In this case there is no benefit to using transpose vertices to
     // rearrange.
-    return weightsToExternalShape(splitWeights.dimShuffle({0, 1, 3, 2}));
+    return actsToExternalShape(splitActivations.dimShuffle({0, 1, 3, 2}));
   }
 
   auto splitTransposedUngroupedShape = splitTransposed.shape();
-  const auto dType = weights.elementType();
+  const auto dType = activations.elementType();
 
   splitTransposed =
       getGroupedFCWeightsView(splitTransposed, fwdGroupSize, bwdGroupSize);
 
-  auto firstInGroup = getFirstInGroup(splitWeights, bwdGroupSize, fwdGroupSize);
+  auto firstInGroup =
+      getFirstInGroup(splitActivations, bwdGroupSize, fwdGroupSize);
 
   auto blockTileMapping = graph.getTileMapping(firstInGroup);
   auto transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
@@ -3264,9 +3273,9 @@ static Tensor fullyConnectedWeightTranspose(
       [&](size_t index) {
         auto blockIndices =
             poputil::unflattenIndex(firstInGroup.shape(), index);
-        return std::make_pair(splitWeights[blockIndices[0]][blockIndices[1]]
-                                          [blockIndices[2]][blockIndices[3]]
-                                              .flatten(),
+        return std::make_pair(splitActivations[blockIndices[0]][blockIndices[1]]
+                                              [blockIndices[2]][blockIndices[3]]
+                                                  .flatten(),
                               splitTransposed[blockIndices[0]][blockIndices[1]]
                                              [blockIndices[3]][blockIndices[2]]
                                                  .flatten());
@@ -3274,16 +3283,16 @@ static Tensor fullyConnectedWeightTranspose(
   prog.add(Execute(transposeCS));
   auto transposedWeights = splitTransposed.dimShufflePartial({3}, {4}).reshape(
       splitTransposedUngroupedShape);
-  return weightsToExternalShape(transposedWeights);
+  return actsToExternalShape(transposedWeights);
 }
 
-Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor weights,
+Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
                                      const ConvParams &params_, Sequence &prog,
                                      const std::string &debugPrefix,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
   const ConvOptions options(graph.getTarget(), options_);
-  return fullyConnectedWeightTranspose(graph, weights, params_, prog,
+  return fullyConnectedWeightTranspose(graph, activations, params_, prog,
                                        debugPrefix, options, cache);
 }
 
