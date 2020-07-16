@@ -2,8 +2,6 @@ include(GNUInstallDirs)
 
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
-find_package(Boost 1.65.1 REQUIRED)
-
 add_library(popsparse SHARED
   codelets.cpp
   BlockSparseMatMul.cpp
@@ -27,7 +25,7 @@ add_library(popsparse SHARED
   FullyConnectedOptions.cpp
   FullyConnectedParams.cpp
   FullyConnectedPlan.cpp
-  FullyConnectedPlan.hpp  
+  FullyConnectedPlan.hpp
   FullyConnectedPNMapping.cpp
   FullyConnectedPNMapping.hpp
   FullyConnectedTensorMetaData.hpp
@@ -63,8 +61,8 @@ add_library(popsparse SHARED
   ${CMAKE_SOURCE_DIR}/include/popsparse/PlanningCache.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/SparseTensor.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/SparsityParams.hpp
-  ${CMAKE_SOURCE_DIR}/include/popsparse/SparseStorageFormats.hpp  
-  ${CMAKE_SOURCE_DIR}/include/popsparse/SparsePartitioner.hpp  
+  ${CMAKE_SOURCE_DIR}/include/popsparse/SparseStorageFormats.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsparse/SparsePartitioner.hpp
   )
 
 target_link_libraries(popsparse
