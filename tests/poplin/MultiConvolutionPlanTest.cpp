@@ -89,37 +89,6 @@ BOOST_AUTO_TEST_CASE(DividesTilesUnevenlyOnFLOPs) {
   BOOST_CHECK_LE(std::accumulate(tiles.begin(), tiles.end(), 0), tilesOnIPU);
 }
 
-BOOST_AUTO_TEST_CASE(StartTilesAreContiguous) {
-  // Given
-  const auto device = createTestDevice(DeviceType::IpuModel, 1, 100);
-  const auto params = getGenericOctConvParams();
-  const auto options = getGenericOctConvOptions(device.getTarget());
-  poplin::PlanningCache cache;
-
-  // Note: plan.totalTiles() may not use all tiles provided in virtual
-  // hierarchy so we check independantly to this
-  // it's hardcoded because currently the splitting of tiles is internal to
-  // ConvPlan, if this breaks then it's because the allocation method of tiles
-  // has changed (or FLOP estimation has?!).
-  const std::vector<unsigned> expectedStartTiles{0, 28, 20, 24};
-
-  // When
-  const auto concurrentPlans =
-      boost::get<poplin::ParallelPlan>(getMultiPlan(device.getTarget(), params,
-                                                    options, &cache,
-                                                    multiConvOptions))
-          .plans;
-
-  BOOST_TEST(expectedStartTiles.size() == concurrentPlans.size());
-
-  // Then
-  for (size_t i = 0; i < concurrentPlans.size(); i++) {
-    // Note: implicit ordering for this to work isn't necessarily part of this
-    // test, it's just the easiest thing to do for now
-    BOOST_CHECK_EQUAL(expectedStartTiles[i], concurrentPlans[i].startTile);
-  }
-}
-
 std::vector<poplin::CanonicalConvParams> getLargeOctConvParams() {
   const auto genericParams = getGenericOctConvParams();
   std::vector<poplin::CanonicalConvParams> largeParams;
