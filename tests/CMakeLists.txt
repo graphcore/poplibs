@@ -118,18 +118,24 @@ function(extract_targets variants targets)
   set(${targets} ${extracted_targets} PARENT_SCOPE)
 endfunction()
 
-# Append the parent directory as a label, e.g tests/poplin/ConvPlanTest.cpp
-# gets an additional label of poplin. However if a test is not in a sub-
-# directory then don't add the label, e.g. tests/Foo.cpp does not get a label.
-function (add_parent_dir_label labels_name)
+# Append the parent directories as labels, e.g tests/popops/codelet/StdOpTest.cpp
+# gets two additional labels of popops and codelet. However if a test is not in a
+# sub-directory then don't add the label, e.g. tests/Foo.cpp does not get a label.
+function (add_parent_dir_labels labels_name)
+
   set(labels ${${labels_name}})
-  get_filename_component(parent_dir ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-  if (NOT ${parent_dir} STREQUAL tests)
-    if (NOT DEFINED labels)
-      set(labels "")
-    endif()
+  set(directory ${CMAKE_CURRENT_SOURCE_DIR})
+  get_filename_component(parent_dir ${directory} NAME)
+
+  while (NOT ${parent_dir} STREQUAL tests)
+
     list(APPEND labels ${parent_dir})
-  endif()
+
+    get_filename_component(directory ${directory} DIRECTORY)
+    get_filename_component(parent_dir ${directory} NAME)
+
+  endwhile()
+
   set(${labels_name} "${labels}" PARENT_SCOPE)
 endfunction()
 
@@ -168,7 +174,8 @@ function(add_unit_test name)
   endif()
   add_test_executable(${name} ${FILES})
 
-  add_parent_dir_label(add_unit_test_LABELS)
+  add_parent_dir_labels(add_unit_test_LABELS)
+  list(APPEND add_unit_test_LABELS unit_test)
 
   foreach(VARIANT ${add_unit_test_VARIANTS})
     extract_target(VARIANT TEST_TARGET)
@@ -254,7 +261,7 @@ function(add_multitarget_test)
       "variants: ${add_multitarget_test_VARIANTS}")
   endif()
 
-  add_parent_dir_label(add_multitarget_test_LABELS)
+  add_parent_dir_labels(add_multitarget_test_LABELS)
 
   # Also append the name of the tool to the labels.
   list(GET add_multitarget_test_COMMAND 0 tool)
