@@ -121,20 +121,42 @@ endfunction()
 # Append the parent directories as labels, e.g tests/popops/codelet/StdOpTest.cpp
 # gets two additional labels of popops and codelet. However if a test is not in a
 # sub-directory then don't add the label, e.g. tests/Foo.cpp does not get a label.
+# This function also appends the concatenation of all the labels.
 function (add_parent_dir_labels labels_name)
 
-  set(labels ${${labels_name}})
+  # Build the list of labels from the directories in `CMAKE_CURRENT_SOURCE_DIR`,
+  # e.g: tests/popops/codelet/StdOpTest.cpp --> codelet;popops
+  set(new_labels "")
   set(directory ${CMAKE_CURRENT_SOURCE_DIR})
   get_filename_component(parent_dir ${directory} NAME)
 
   while (NOT ${parent_dir} STREQUAL tests)
 
-    list(APPEND labels ${parent_dir})
+    list(APPEND new_labels ${parent_dir})
 
     get_filename_component(directory ${directory} DIRECTORY)
     get_filename_component(parent_dir ${directory} NAME)
 
   endwhile()
+
+  # Reorder the labels so they match the order in the path,
+  # e.g: codelet;popops --> popops;codelet
+  list(REVERSE new_labels)
+
+  # Append the new labels to the existing labels,
+  # e.g: FooLabel --> FooLabel;popops;codelet
+  set(labels ${${labels_name}})
+  list(APPEND labels ${new_labels})
+
+  # Append all the labels concatenated together so that it's possible to filter
+  # on the logical AND of all the labels. E.g. `-L popops&codelets` to just run
+  # the codelets in popops, and not everything labelled by popops or codelets,
+  # e.g: FooLabel;popops;codelet --> FooLabel;popops;codelet;popops&codelet
+  list(LENGTH new_labels new_labels_length)
+  if (${new_labels_length} GREATER 1)
+    string(REPLACE ";" "&" new_labels "${new_labels}")
+    list(APPEND labels ${new_labels})
+  endif()
 
   set(${labels_name} "${labels}" PARENT_SCOPE)
 endfunction()
