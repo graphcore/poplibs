@@ -1,3 +1,5 @@
+add_subdirectory(codelets)
+
 add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 # TODO: T22622: Re-enable/refine these tests. Disabled due to planner timeout but not essential.
 #add_unit_test(PopsparseFullyConnectedPlan PopsparseFullyConnectedPlan.cpp VARIANTS ${IPUMODEL_VARIANTS})

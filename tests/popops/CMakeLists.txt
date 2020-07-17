@@ -1,3 +1,5 @@
+add_subdirectory(codelets)
+
 add_unit_test(AllTrueTest AllTrueTest.cpp)
 
 # Binary Operator tests - currently not used.

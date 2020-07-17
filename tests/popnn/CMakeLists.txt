@@ -1,3 +1,5 @@
+add_subdirectory(codelets)
+
 add_unit_test(BigNLVertices BigNLVertices.cpp)
 add_unit_test(GraphProgLocationTest GraphProgLocationTest.cpp)
 add_unit_test(LossTest LossTest.cpp

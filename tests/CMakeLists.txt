@@ -424,7 +424,6 @@ set(TimesOutOnSim "${IPUMODEL_VARIANTS};Hw")
 set(TimesOutOnSimCpp "${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
 
 # Tests
-add_subdirectory(codelets)
 add_subdirectory(popfloat)
 add_subdirectory(poplibs_support)
 add_subdirectory(poplin)

@@ -1,37 +1,65 @@
-get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
-
-# NonLinearity{Supervisor,2D}<dataType, nlType>
-foreach(NL_VERTEX Supervisor 2D)
-  set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
-  set(TEST_SRC "${TEST_EXECUTABLE}.cpp")
-  add_multi_target_test_executable(${TEST_EXECUTABLE} ${TEST_SRC})
-  foreach(DATA_TYPE half float)
-    foreach(NL_TYPE sigmoid relu gelu tanh)
-      set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
-      add_multitarget_test(NAME ${VARIANT_NAME}
-                           COMMAND ${TEST_EXECUTABLE}
-                             --data-type=${DATA_TYPE}
-                             --nl-type=${NL_TYPE}
-                            LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
-
-# Loss(LT_TYPE)Transform<dataType>
-foreach(DATA_TYPE half float)
-  foreach(LT_TYPE SumSquared Softmax)
-    foreach(OUTPUT_SCALE 1 32768 65504)
-      set(VARIANT_NAME "Loss${LT_TYPE}Transform_${DATA_TYPE}_Scale_${OUTPUT_SCALE}")
-      set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
-      string(TOUPPER "${DATA_TYPE}" DATA_TYPE_UPPER)
-      string(TOUPPER "${LT_TYPE}_LOSS" LT_TYPE_UPPER)
-      string(TOUPPER "${OUTPUT_SCALE}" OUTPUT_SCALE_UPPER)
-      configure_file(LossTransform.cpp.in ${VARIANT_SRC})
-      add_unit_test(${VARIANT_NAME} ${VARIANT_SRC}
-                      LABELS codelet)
-    endforeach()
-  endforeach()
-endforeach()
+add_unit_test(AddToChannel
+              AddToChannel.cpp
+              LABELS codelet)
+add_unit_test(AddToChannel2D
+              AddToChannel2D.cpp
+              LABELS codelet)
+add_unit_test(ChannelMul
+              ChannelMul.cpp
+              LABELS codelet)
+add_unit_test(ChannelMul2D
+              ChannelMul2D.cpp
+              LABELS codelet)
+add_unit_test(ScaledAdd2D_fp
+              ScaledAdd2D_fp.cpp
+              SUITES ScaledAdd2DHalfConst ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
+                     ScaledAdd2DFloatConst ScaledAdd2DFloatTensor ScaledAdd2DHalfHalfFloatConst
+                     ScaledAdd2DFloatHalfHalf ScaledAdd2DFloatHalfFloat
+                     ScaledAdd2DHalfHalfFloatTensorHighTol ScaledAdd2DHalfHalfFloatTensorLowTol
+                     ScaledSubtract2DFloatTensor aXPlusbYHalfConst aXPlusbYHalfTensor
+                     aXPlusbYMixedConst aXPlusbYMixedTensor
+                     XMinusaXPlusbYHalfConst XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
+              LABELS codelet)
+add_unit_test(ScaledAdd2D_integral
+              ScaledAdd2D_integral.cpp
+              SUITES ScaledAdd2DIntConst ScaledAdd2DUnsignedIntConst ScaledAdd2DIntTensor
+                     ScaledAdd2DUnsignedIntTensor ScaledSubtract2DIntTensor ScaledSubtract2DUnsignedIntTensor
+              LABELS codelet)
+add_unit_test(ScaledAddSupervisor_fp
+              ScaledAddSupervisor_fp.cpp
+              SUITES ScaledAddSupervisorHalfConst ScaledAddSupervisorFloatConst
+                     ScaledAddSupervisorFloatHalfHalf ScaledAddSupervisorFloatHalfFloat
+                     ScaledAddSupervisorHalfFloatHalfConst ScaledAddSupervisorHalfHalfFloatConst
+                     ScaledAddSupervisorHalfHalfFloatTensorHighTol ScaledAddSupervisorHalfHalfFloatTensorLowTol
+                     ScaledAddSupervisorHalfTensor ScaledAddSupervisorFloatTensor
+                     ScaledAddSupervisorFloatHalfTensor ScaledSubtractSupervisorHalfTensor
+                     ScaledSubtractSupervisorFloatTensor ScaledSubtractSupervisorFloatHalfTensor
+                     aXPlusbYSupervisorHalfConst aXPlusbYSupervisorHalfTensor
+                     aXPlusbYSupervisorMixedConst aXPlusbYSupervisorMixedTensor
+                     XMinusaXPlusbYSupervisorHalfConst XMinusaXPlusbYSupervisorHalfTensor
+                     aXMinusbYSupervisorHalfTensor
+              LABELS codelet)
+add_unit_test(ScaledAddSupervisor_integral
+              ScaledAddSupervisor_integral.cpp
+              SUITES ScaledAddSupervisorIntConstant ScaledAddSupervisorUnsignedIntConstant
+                     ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
+                     ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
+              LABELS codelet)
+add_unit_test(TransposeTest
+              TransposeTest.cpp
+              LABELS codelet)
+add_unit_test(FillAndZeroTest
+              FillAndZeroTest.cpp
+              LABELS codelet)
+add_unit_test(DynamicSliceCodeletTest
+              DynamicSliceCodeletTest.cpp
+              LABELS codelet)
+add_unit_test(DynamicSliceSupervisorCodeletTest
+              DynamicSliceSupervisorCodeletTest.cpp
+              LABELS codelet)
+add_unit_test(MultiSliceCodeletTest
+              MultiSliceCodeletTest.cpp
+              LABELS codelet)
 
 #Clamp<InType>
 foreach(DATA_TYPE half float int)
@@ -716,350 +744,3 @@ foreach(IN_TYPE half float)
                         LABELS codelet)
   endforeach()
 endforeach()
-
-add_unit_test(AddToChannel
-              AddToChannel.cpp
-              LABELS codelet)
-add_unit_test(AddToChannel2D
-              AddToChannel2D.cpp
-              LABELS codelet)
-add_unit_test(ChannelMul
-              ChannelMul.cpp
-              LABELS codelet)
-add_unit_test(ChannelMul2D
-              ChannelMul2D.cpp
-              LABELS codelet)
-add_unit_test(ConvPartial1x1Out
-              ConvPartial1x1Out.cpp
-              LABELS codelet)
-add_unit_test(OuterProductTest
-              OuterProductTest.cpp
-              LABELS codelet)
-add_unit_test(ScaledAdd2D_fp
-              ScaledAdd2D_fp.cpp
-              SUITES ScaledAdd2DHalfConst ScaledAdd2DHalfTensor ScaledSubtract2DHalfTensor
-                     ScaledAdd2DFloatConst ScaledAdd2DFloatTensor ScaledAdd2DHalfHalfFloatConst
-                     ScaledAdd2DFloatHalfHalf ScaledAdd2DFloatHalfFloat
-                     ScaledAdd2DHalfHalfFloatTensorHighTol ScaledAdd2DHalfHalfFloatTensorLowTol
-                     ScaledSubtract2DFloatTensor aXPlusbYHalfConst aXPlusbYHalfTensor
-                     aXPlusbYMixedConst aXPlusbYMixedTensor
-                     XMinusaXPlusbYHalfConst XMinusaXPlusbYHalfTensor aXMinusbYHalfTensor
-              LABELS codelet)
-add_unit_test(ScaledAdd2D_integral
-              ScaledAdd2D_integral.cpp
-              SUITES ScaledAdd2DIntConst ScaledAdd2DUnsignedIntConst ScaledAdd2DIntTensor
-                     ScaledAdd2DUnsignedIntTensor ScaledSubtract2DIntTensor ScaledSubtract2DUnsignedIntTensor
-              LABELS codelet)
-add_unit_test(ScaledAddSupervisor_fp
-              ScaledAddSupervisor_fp.cpp
-              SUITES ScaledAddSupervisorHalfConst ScaledAddSupervisorFloatConst
-                     ScaledAddSupervisorFloatHalfHalf ScaledAddSupervisorFloatHalfFloat
-                     ScaledAddSupervisorHalfFloatHalfConst ScaledAddSupervisorHalfHalfFloatConst
-                     ScaledAddSupervisorHalfHalfFloatTensorHighTol ScaledAddSupervisorHalfHalfFloatTensorLowTol
-                     ScaledAddSupervisorHalfTensor ScaledAddSupervisorFloatTensor
-                     ScaledAddSupervisorFloatHalfTensor ScaledSubtractSupervisorHalfTensor
-                     ScaledSubtractSupervisorFloatTensor ScaledSubtractSupervisorFloatHalfTensor
-                     aXPlusbYSupervisorHalfConst aXPlusbYSupervisorHalfTensor
-                     aXPlusbYSupervisorMixedConst aXPlusbYSupervisorMixedTensor
-                     XMinusaXPlusbYSupervisorHalfConst XMinusaXPlusbYSupervisorHalfTensor
-                     aXMinusbYSupervisorHalfTensor
-              LABELS codelet)
-add_unit_test(ScaledAddSupervisor_integral
-              ScaledAddSupervisor_integral.cpp
-              SUITES ScaledAddSupervisorIntConstant ScaledAddSupervisorUnsignedIntConstant
-                     ScaledAddSupervisorIntTensor ScaledAddSupervisorUnsignedIntTensor
-                     ScaledSubtractSupervisorIntTensor ScaledSubtractSupervisorUnsignedIntTensor
-              LABELS codelet)
-add_unit_test(TransposeTest
-              TransposeTest.cpp
-              LABELS codelet)
-add_unit_test(FillAndZeroTest
-              FillAndZeroTest.cpp
-              LABELS codelet)
-add_unit_test(DynamicSliceCodeletTest
-              DynamicSliceCodeletTest.cpp
-              LABELS codelet)
-add_unit_test(DynamicSliceSupervisorCodeletTest
-              DynamicSliceSupervisorCodeletTest.cpp
-              LABELS codelet)
-add_unit_test(MultiSliceCodeletTest
-              MultiSliceCodeletTest.cpp
-              LABELS codelet)
-
-add_multi_target_test_executable(PoolingCodeletTest PoolingCodeletTest.cpp)
-foreach (FIELD 8 9 10 11 12)
-  foreach (KERNEL 2 3 4)
-    foreach (CHANNELS 4 8)
-      foreach (DATA_TYPE half float)
-        foreach(POOLING_TYPE max avg sum)
-          add_multitarget_test(NAME "PoolingCodelet_f${FIELD}_k${KERNEL}_c${CHANNELS}_${DATA_TYPE}_${POOLING_TYPE}"
-          COMMAND PoolingCodeletTest
-            --field=${FIELD}
-            --kernel=${KERNEL}
-            --channels=${CHANNELS}
-            --pooling-type=${POOLING_TYPE}
-            --data-type=${DATA_TYPE}
-          LABELS codelet
-          VARIANTS "Sim;IpuModel")
-        endforeach()
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
-add_multi_target_test_executable(ConvPartial1x4SLIC ConvPartial1x4SLIC.cpp)
-foreach(MODE 0 1 2)
-  if (${MODE} EQUAL 0)
-    set(CONV_GROUPS_PER_GROUP 4)
-    set(CHANS_PER_GROUP 1)
-  elseif(${MODE} EQUAL 1)
-    set(CONV_GROUPS_PER_GROUP 2)
-    set(CHANS_PER_GROUP 2)
-  else()
-    set(CONV_GROUPS_PER_GROUP 1)
-    set(CHANS_PER_GROUP 4)
-  endif()
-  foreach(OUT_STRIDE 1 2)
-    foreach(PARTIALS_TYPE half float)
-
-      if(${PARTIALS_TYPE} STREQUAL "half")
-        set(CONV_UNIT_VARIANTS "8;16")
-        set(SLIC_TEST_VARIANTS "Cpu;IpuModel2;Sim2")
-      else()
-        set(CONV_UNIT_VARIANTS "8")
-        set(SLIC_TEST_VARIANTS "Cpu;IpuModel;Sim;Hw")
-      endif()
-
-      foreach(CONV_UNITS ${CONV_UNIT_VARIANTS})
-        string(CONCAT TEST_NAME_PREFIX
-               "ConvPartial1x4SLIC" "_"
-               "cgpg${CONV_GROUPS_PER_GROUP}" "_"
-               "cpg${CHANS_PER_GROUP}" "_"
-               "st${OUT_STRIDE}" "_"
-               "par${PARTIALS_TYPE}" "_"
-               "conv${CONV_UNITS}")
-
-        add_multitarget_test(NAME "${TEST_NAME_PREFIX}_x4_y4_kx4_ky1"
-          COMMAND ConvPartial1x4SLIC
-            --input-type=half
-            --partials-type=${PARTIALS_TYPE}
-            --conv-units=${CONV_UNITS}
-            --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-            --chans-per-group=${CHANS_PER_GROUP}
-            --in-field-size={4,4}
-            --kernel-size={1,4}
-            --output-stride={1,${OUT_STRIDE}}
-            LABELS codelet
-          VARIANTS ${SLIC_TEST_VARIANTS})
-
-        add_multitarget_test(NAME "${TEST_NAME_PREFIX}_cgg4_x20_y4_kx4_ky4"
-          COMMAND ConvPartial1x4SLIC
-            --input-type=half
-            --partials-type=${PARTIALS_TYPE}
-            --conv-units=${CONV_UNITS}
-            --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-            --chans-per-group=${CHANS_PER_GROUP}
-            --conv-group-groups=4
-            --in-field-size={4,20}
-            --kernel-size={4,4}
-            --output-stride={1,${OUT_STRIDE}}
-            LABELS codelet
-          VARIANTS ${SLIC_TEST_VARIANTS})
-
-        # Intentionally even no. of 1x4 sub-kernels
-        add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs4_cgg4_x24_y24_kx8_ky8"
-          COMMAND ConvPartial1x4SLIC
-            --input-type=half
-            --partials-type=${PARTIALS_TYPE}
-            --conv-units=${CONV_UNITS}
-            --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-            --chans-per-group=${CHANS_PER_GROUP}
-            --conv-group-groups=4
-            --batch-size=4
-            --in-field-size={24,24}
-            --kernel-size={8,8}
-            --output-stride={1,${OUT_STRIDE}}
-          LABELS codelet
-        VARIANTS ${SLIC_TEST_VARIANTS})
-
-        # Intentionally odd no. of 1x4 sub-kernels
-        add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs4_cgg4_x24_y24_kx12_ky3"
-          COMMAND ConvPartial1x4SLIC
-            --input-type=half
-            --partials-type=${PARTIALS_TYPE}
-            --conv-units=${CONV_UNITS}
-            --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-            --chans-per-group=${CHANS_PER_GROUP}
-            --conv-group-groups=4
-            --batch-size=4
-            --in-field-size={24,24}
-            --kernel-size={3,12}
-            --output-stride={1,${OUT_STRIDE}}
-          LABELS codelet
-          VARIANTS ${SLIC_TEST_VARIANTS})
-
-        # Output padding
-        add_multitarget_test(NAME "${TEST_NAME_PREFIX}_output_padding"
-          COMMAND ConvPartial1x4SLIC
-            --input-type=half
-            --partials-type=${PARTIALS_TYPE}
-            --conv-units=${CONV_UNITS}
-            --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-            --chans-per-group=${CHANS_PER_GROUP}
-            --conv-group-groups=1
-            --batch-size=1
-            --in-field-size={3,2,5}
-            --kernel-size={2,1,4}
-            --output-padding-lower={1,1,1}
-            --output-padding-upper={1,1,2}
-            --output-stride={1,1,${OUT_STRIDE}}
-          LABELS codelet
-          VARIANTS ${SLIC_TEST_VARIANTS})
-
-        # T18510 - Try and catch overreads with NaNs
-        add_multitarget_test(NAME "${TEST_NAME_PREFIX}_bs1_cgg1_x70_kx4"
-          COMMAND ConvPartial1x4SLIC
-            --input-type=half
-            --partials-type=${PARTIALS_TYPE}
-            --conv-units=${CONV_UNITS}
-            --conv-groups-per-group=${CONV_GROUPS_PER_GROUP}
-            --chans-per-group=${CHANS_PER_GROUP}
-            --conv-group-groups=1
-            --batch-size=1
-            --in-field-size={3,2,5}
-            --kernel-size={2,1,4}
-            --output-padding-lower={1,1,1}
-            --output-padding-upper={1,1,2}
-            --output-stride={1,1,${OUT_STRIDE}}
-          LABELS codelet
-          VARIANTS ${SLIC_TEST_VARIANTS})
-        endforeach() # CONV_UNIT_VARIANTS
-    endforeach() # PARTIALS_TYPE
-  endforeach() # OUT_STRIDE
-endforeach() # MODE
-
-foreach(OUT_STRIDE 2 3 4)
-  add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_1_${OUT_STRIDE}_1"
-    COMMAND ConvPartial1x4SLIC
-      --input-type=half
-      --partials-type=float
-      --conv-groups-per-group=4
-      --chans-per-group=1
-      --conv-group-groups=1
-      --batch-size=1
-      --in-field-size={10,8,11}
-      --kernel-size={1,1,4}
-      --output-stride={1,${OUT_STRIDE},1}
-    LABELS codelet
-    VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
-
-  add_multitarget_test(NAME "ConvPartial1x4SLIC_stride_${OUT_STRIDE}_${OUT_STRIDE}_2"
-    COMMAND ConvPartial1x4SLIC
-      --input-type=half
-      --partials-type=float
-      --conv-groups-per-group=4
-      --chans-per-group=1
-      --conv-group-groups=1
-      --batch-size=1
-      --in-field-size={10,8,11}
-      --kernel-size={1,1,4}
-      --output-stride={${OUT_STRIDE},${OUT_STRIDE},2}
-    LABELS codelet
-    VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
-endforeach() # OUT_STRIDE
-
-foreach(LOWER_TRUNCATION 0 1 2)
-  foreach(UPPER_TRUNCATION 0 1 3)
-    add_multitarget_test(NAME "ConvPartial1x4SLIC_truncation1_upper${UPPER_TRUNCATION}_lower${LOWER_TRUNCATION}"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=4
-        --chans-per-group=1
-        --conv-group-groups=1
-        --batch-size=1
-        --in-field-size={10,8,11}
-        --kernel-size={1,1,4}
-        --output-truncation-lower={0,0,${LOWER_TRUNCATION}}
-        --output-truncation-upper={0,0,${UPPER_TRUNCATION}}
-      LABELS codelet
-      VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
-
-    add_multitarget_test(NAME "ConvPartial1x4SLIC_truncation2_upper${UPPER_TRUNCATION}_lower${LOWER_TRUNCATION}"
-      COMMAND ConvPartial1x4SLIC
-        --input-type=half
-        --partials-type=float
-        --conv-groups-per-group=4
-        --chans-per-group=1
-        --conv-group-groups=1
-        --batch-size=1
-        --in-field-size={10,8,11}
-        --kernel-size={1,1,4}
-        --output-truncation-upper={0,1,${UPPER_TRUNCATION}}
-        --output-truncation-lower={1,${LOWER_TRUNCATION},0}
-      LABELS codelet
-      VARIANTS "Cpu;${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw")
-  endforeach() # UPPER_TRUNCATION
-endforeach() # LOWER_TRUNCATION
-
-if(TARGET popsparse)
-  add_multi_target_test_executable(SparseDenseMatMulElementWise
-                                   SparseDenseMatMulElementWise.cpp)
-  set(SPARSE_DENSE_VERTEX_TYPES Forward GradA GradW Transposed)
-  foreach(ZERO_PARTIALS "" "ZeroPartials")
-    set(ZERO_PARTIALS_OPT)
-    if (ZERO_PARTIALS STREQUAL "ZeroPartials")
-      set(ZERO_PARTIALS_OPT "--zero-partials")
-    endif()
-    foreach(VERTEX_TYPE ${SPARSE_DENSE_VERTEX_TYPES})
-      foreach(NUM_BUCKETS 1 2)
-        foreach(NUM_SPLITS 1 2)
-          if (NOT (VERTEX_TYPE STREQUAL "GradW" AND NUM_BUCKETS GREATER 1))
-            foreach(X 2 20)
-              foreach(Y 20)
-                # Test different batch size paths for input data types
-                foreach(Z 2 4 12)
-                  add_multitarget_test(NAME SparseDenseMatMulElementWise_m${Z}_k${Y}_n${X}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_float_in_${VERTEX_TYPE}${ZERO_PARTIALS}
-                    COMMAND SparseDenseMatMulElementWise
-                      ${ZERO_PARTIALS_OPT}
-                      --input-type=float
-                      --partials-type=float
-                      --a-shape={${X},${Y}}
-                      --b-shape={${Y},${Z}}
-                      --sparsity-level=0.5
-                      --num-buckets=${NUM_BUCKETS}
-                      --num-splits-per-bucket=${NUM_SPLITS}
-                      --vertex-type=${VERTEX_TYPE})
-                endforeach()
-                foreach(Z 4 8 28)
-                  add_multitarget_test(NAME SparseDenseMatMulElementWise_m${Z}_k${Y}_n${X}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_half_in_${VERTEX_TYPE}${ZERO_PARTIALS}
-                    COMMAND SparseDenseMatMulElementWise
-                      ${ZERO_PARTIALS_OPT}
-                      --input-type=half
-                      --partials-type=float
-                      --a-shape={${X},${Y}}
-                      --b-shape={${Y},${Z}}
-                      --sparsity-level=0.5
-                      --num-buckets=${NUM_BUCKETS}
-                      --num-splits=${NUM_SPLITS}
-                      --vertex-type=${VERTEX_TYPE})
-                endforeach()
-              endforeach()
-            endforeach()
-          endif()
-        endforeach()
-      endforeach()
-    endforeach()
-  endforeach()
-
-  add_multi_target_test_executable(SparseGatherTest
-                                   SparseGatherTest.cpp)
-  foreach(M 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 40 100)
-    foreach(TYPE half float)
-      add_multitarget_test(NAME SparseGather_Elemwise_${M}_in_${TYPE}
-      COMMAND SparseGatherTest
-              --data-type=${TYPE}
-              --num-indices=${M})
-    endforeach()
-  endforeach()
-endif()
