@@ -19,7 +19,7 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
                                   poplar::ComputeSet &mulCS,
                                   const std::string &debugPrefix) {
   const unsigned convInChannels = (inDataType == poplar::FLOAT ? 8 : 16);
-  assert(convInChannels == static_cast<unsigned int>(matB.getBlockRow()));
+  assert(static_cast<unsigned int>(matB.getBlockRow()) % convInChannels == 0);
 
   const auto convOutChannels = matB.getBlockCol();
   const auto outElementTypeSize = partialDataType == poplar::HALF ? 2 : 4;
