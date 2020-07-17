@@ -803,8 +803,8 @@ int main(int argc, char **argv) try {
                     [product(outFieldSize)]);
   std::mt19937 randomEngine;
   if (useUniformRandomData) {
-    writeRandomValues(target, inputType, hostPrevAct, -1.0, +5.0, randomEngine);
-    writeRandomValues(target, inputType, hostWeights, -1.0, +7.0, randomEngine);
+    writeRandomValues(target, inputType, hostPrevAct, -2.0, 2.0, randomEngine);
+    writeRandomValues(target, inputType, hostWeights, -1.0, +1.0, randomEngine);
   } else {
     writeRandomBinaryValues(target, inputType, hostPrevAct, -1.0, 1.0,
                             randomEngine);
@@ -842,7 +842,7 @@ int main(int argc, char **argv) try {
       boost::extents[batchSize * replicationFactor]
                     [bwdParams.getNumInputChans()][product(outFieldSize)]);
   if (useUniformRandomData) {
-    writeRandomValues(target, inputType, hostZDeltas, -3.0, 7.0, randomEngine);
+    writeRandomValues(target, inputType, hostZDeltas, -3.0, 3.0, randomEngine);
   } else {
     writeRandomBinaryValues(target, inputType, hostZDeltas, -1.0, 1.0,
                             randomEngine);
