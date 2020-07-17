@@ -58,7 +58,8 @@ void populateSparseBlocks(unsigned blockRow, unsigned blockCol,
                           const std::vector<unsigned> &nzBlocksByRow,
                           bool needTranspose,
                           std::vector<float> &valuesRowMjSparse,
-                          std::vector<float> &valuesBlockSparse) {
+                          std::vector<float> &valuesBlockSparse,
+                          float multiplier = 1.0f) {
   const unsigned blockArea = blockRow * blockCol;
 #if USE_RANDOM_VALUES
 #if 0
@@ -74,7 +75,7 @@ void populateSparseBlocks(unsigned blockRow, unsigned blockCol,
 #if USE_RANDOM_VALUES
   for (unsigned i = 0; i < valuesRowMjSparse.size(); ++i) {
     valuesRowMjSparse[i] = static_cast<float>(randomEngine()) /
-                           static_cast<float>(randomEngine.max());
+                           static_cast<float>(randomEngine.max()) * multiplier;
   }
 #endif
   for (unsigned br = 0, idxBlock = 0, idxBlockComplete = 0; br < blockRows;
@@ -212,7 +213,8 @@ BOOST_AUTO_TEST_CASE(slice_test) {
 
 void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                  unsigned blockCols, const std::vector<unsigned char> &sparsity,
-                 const Type &dataType, bool filterUpperTriangle, bool inPlace) {
+                 const Type &dataType, bool filterUpperTriangle, bool inPlace,
+                 float multiplier = 1.0f) {
   IPUModel ipuModel;
   auto device =
       createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
@@ -233,7 +235,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   std::vector<float> valuesBlockSparse;
   populateSparseBlocks(blockRow, blockCol, blockRows, blockCols, nz,
                        nzBlocksByRow, false, valuesRowMjSparse,
-                       valuesBlockSparse);
+                       valuesBlockSparse, multiplier);
 
   std::vector<std::vector<float>> valuesRowSparse(rows);
   for (unsigned br = 0, r = 0, idxElem = 0; br < blockRows; ++br) {
@@ -283,9 +285,9 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
 
   std::vector<Tensor> nnSoftmaxs(rows);
   for (unsigned int r = 0; r < rows; ++r) {
-    nnSoftmaxs[r] =
-        nonLinearity(graph, NonLinearityType::SOFTMAX, packedDenseTensors[r],
-                     softmaxProg, std::string("nNsoftmax") + std::to_string(r));
+    nnSoftmaxs[r] = nonLinearity(graph, NonLinearityType::SOFTMAX_STABLE,
+                                 packedDenseTensors[r], softmaxProg,
+                                 std::string("nNsoftmax") + std::to_string(r));
   }
 
   Sequence uploadProg, downloadProg;
@@ -395,6 +397,21 @@ BOOST_AUTO_TEST_CASE(softmax_testF32) {
               false);
 }
 
+BOOST_AUTO_TEST_CASE(softmax_testF32_largeValues) {
+  const unsigned blockRow = 2;
+  const unsigned blockCol = 2;
+  const unsigned blockRows = 3;
+  const unsigned blockCols = 3;
+  std::vector<unsigned char> sparsity(blockRows * blockCols, 0);
+  sparsity[0 * blockCols + 0] = 1; // 0,0
+  sparsity[1 * blockCols + 0] = 1; // 1,0
+  sparsity[1 * blockCols + 1] = 1; // 1,1
+  sparsity[2 * blockCols + 1] = 1; // 2,1
+
+  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, FLOAT, false,
+              false, 1000.0f);
+}
+
 BOOST_AUTO_TEST_CASE(softmax_testF32inPlace) {
   const unsigned blockRow = 2;
   const unsigned blockCol = 2;
@@ -491,6 +508,21 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16) {
               false);
 }
 
+BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16_largeValues) {
+  const unsigned blockRow = 2;
+  const unsigned blockCol = 3;
+  const unsigned blockRows = 4;
+  const unsigned blockCols = 3;
+  std::vector<unsigned char> sparsity(blockRows * blockCols, 0);
+  sparsity[0 * blockCols + 0] = 1; // 0,0
+  sparsity[1 * blockCols + 1] = 1; // 1,1
+  sparsity[2 * blockCols + 0] = 1; // 2,0
+  sparsity[3 * blockCols + 2] = 1; // 3,2
+
+  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true,
+              false, 30000.0f);
+}
+
 void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                      unsigned blockCols,
                      const std::vector<unsigned char> &sparsity,
@@ -570,8 +602,9 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   std::vector<Tensor> nnSoftmaxGrads(rows);
   for (unsigned int r = 0; r < rows; ++r) {
     nnSoftmaxGrads[r] = nonLinearityInputGradient(
-        graph, NonLinearityType::SOFTMAX, nnOutTensors[r], nnOutGradTensors[r],
-        softmaxProg, std::string("nnSoftmaxGrad") + std::to_string(r));
+        graph, NonLinearityType::SOFTMAX_STABLE, nnOutTensors[r],
+        nnOutGradTensors[r], softmaxProg,
+        std::string("nnSoftmaxGrad") + std::to_string(r));
     BOOST_TEST(nnSoftmaxGrads[r].elementType() == outType);
   }
 

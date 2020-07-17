@@ -24,23 +24,28 @@ using namespace popsparse::experimental;
 
 namespace logging = poplibs_support::logging;
 
+#define MIN_HALF_VALUE -65504.0
+#define MIN_FLOAT_VALUE -3.4028235e+38
+
 namespace popsparse {
 namespace experimental {
 
-static Tensor sliceAndPad(Graph &graph, poplar::Tensor sparseTensor,
-                          unsigned blockRow, unsigned blockCol,
-                          unsigned blockRows, unsigned blockCols,
-                          const unsigned char *sparsity,
-                          std::vector<bool> &emptyRowsMask, Sequence &prog,
+static Tensor sliceAndPad(Graph &graph, Tensor sparseTensor, unsigned blockRow,
+                          unsigned blockCol, unsigned blockRows,
+                          unsigned blockCols, const unsigned char *sparsity,
+                          float padValue,
+                          const std::vector<bool> &emptyRowsMaskIn,
+                          std::vector<bool> &emptyRowsMaskOut, Sequence &prog,
                           const std::string &debugStr) {
   const unsigned rows = blockRow * blockRows;
   const auto dataType = sparseTensor.elementType();
+  emptyRowsMaskOut.resize(rows, false);
 
   std::vector<std::size_t> slicesLen;
   std::vector<Tensor> slicesPadded;
   std::size_t maxSliceLen = 0;
   for (unsigned r = 0; r < rows; ++r) {
-    if (!emptyRowsMask[r]) {
+    if (!emptyRowsMaskIn[r]) {
       Tensor curSlice = slice(sparseTensor, r, 0, blockRow, blockCol, blockRows,
                               blockCols, false, sparsity);
       assert(curSlice.rank() == 1);
@@ -49,7 +54,7 @@ static Tensor sliceAndPad(Graph &graph, poplar::Tensor sparseTensor,
         slicesLen.push_back(curSlice.dim(0));
         maxSliceLen = std::max(maxSliceLen, curSlice.dim(0));
       } else {
-        emptyRowsMask[r] = true;
+        emptyRowsMaskOut[r] = true;
       }
     }
   }
@@ -67,10 +72,22 @@ static Tensor sliceAndPad(Graph &graph, poplar::Tensor sparseTensor,
   }
   logging::debug("Total pad length = {}", totalPadLength);
   if (totalPadLength > 0) {
+    // TODO:
+    // After moving to SDK 1.2
+    // of all dependent projects, use new fill() operation
+    // to eliminate extra add()
     Tensor padSpace =
         graph.addVariable(dataType, {totalPadLength}, debugStr + "/zero_pad");
     mapTensorLinearly(graph, padSpace);
     popops::zero(graph, padSpace, prog, debugStr + "/zero");
+
+    if (padValue != 0.0f) {
+      Tensor padValueConst = graph.addConstant(
+          dataType, {totalPadLength}, padValue, debugStr + "/zero_pad");
+      mapTensorLinearly(graph, padValueConst);
+      popops::addInPlace(graph, padSpace, padValueConst, prog,
+                         debugStr + "/value_pad");
+    }
 
     std::size_t padStart = 0;
     for (std::size_t i = 0; i < slicesPadded.size(); ++i) {
@@ -93,8 +110,8 @@ static Tensor sliceAndPad(Graph &graph, poplar::Tensor sparseTensor,
   return slicesAsRect;
 }
 
-Tensor bsSoftmaxInternal(Graph &graph, poplar::Tensor sparseTensor,
-                         bool inPlace, unsigned blockRow, unsigned blockCol,
+Tensor bsSoftmaxInternal(Graph &graph, Tensor sparseTensor, bool inPlace,
+                         unsigned blockRow, unsigned blockCol,
                          unsigned blockRows, unsigned blockCols,
                          const unsigned char *sparsity,
                          SubBlockMask subBlockMaskType, Sequence &prog,
@@ -128,63 +145,121 @@ Tensor bsSoftmaxInternal(Graph &graph, poplar::Tensor sparseTensor,
                         "have shape [non-zero blocks x block area]");
   }
 
-  Tensor sourceTensor = sparseTensor;
+  Tensor source = sparseTensor;
   bool needsCopy = !inPlace;
 
-  Tensor softmaxTensor = sparseTensor;
   if (needsCopy) {
-    softmaxTensor = popops::exp(graph, sourceTensor, prog, debugStr1);
-  } else {
-    popops::expInPlace(graph, softmaxTensor, prog, debugStr1);
+    source = graph.addVariable(dataType, sparseTensor.shape(),
+                               debugStr1 + "/source_copy");
+    mapTensorLinearly(graph, source);
+    prog.add(Copy(sparseTensor, source));
   }
-  assert(dataType == softmaxTensor.elementType());
 
-  std::vector<bool> emptyRowsMask(rows, false);
+  const float minValue = dataType == FLOAT ? MIN_FLOAT_VALUE : MIN_HALF_VALUE;
+
+  // 1. Apply sub-block mask if any
+  std::vector<bool> noEmptyRowsMask(rows, false);
+  std::vector<bool> emptyRowsMask = noEmptyRowsMask;
+  std::vector<bool> ignoreEmptyRowsMask;
+  bool areEmptyRows = false;
   if (subBlockMaskType != SubBlockMask::None) {
-    std::vector<Tensor> maskBlocks;
+    std::vector<Tensor> maskAsZeroBlocks;
+    std::vector<Tensor> maskAsMinValueBlocks;
     std::vector<unsigned> diagBlockIdxs;
     bsCreateMaskTensor(graph, blockRow, blockCol, blockRows, blockCols,
                        sparsity, subBlockMaskType, 0.0f, 1.0f, dataType,
-                       maskBlocks, diagBlockIdxs, emptyRowsMask, debugStr1);
-    assert(maskBlocks.size() == diagBlockIdxs.size());
+                       maskAsZeroBlocks, diagBlockIdxs, emptyRowsMask,
+                       debugStr1);
+    assert(maskAsZeroBlocks.size() == diagBlockIdxs.size());
+    std::vector<unsigned> ignorediagBlockIdxs;
+    bsCreateMaskTensor(graph, blockRow, blockCol, blockRows, blockCols,
+                       sparsity, subBlockMaskType, minValue, 0.0f, dataType,
+                       maskAsMinValueBlocks, ignorediagBlockIdxs,
+                       ignoreEmptyRowsMask, debugStr1);
     if (diagBlockIdxs.size() > 0) {
       std::vector<Tensor> diagBlocksArr;
       for (std::size_t idx = 0; idx < diagBlockIdxs.size(); ++idx) {
-        diagBlocksArr.push_back(softmaxTensor[diagBlockIdxs[idx]].expand({0}));
+        diagBlocksArr.push_back(source[diagBlockIdxs[idx]].expand({0}));
       }
       Tensor diagSoftmaxTensor = concat(diagBlocksArr);
-      Tensor maskTensor = concat(maskBlocks);
-      popops::mulInPlace(graph, diagSoftmaxTensor, maskTensor, prog,
-                         debugStr1 + "/subBlockMasked");
+      Tensor maskAsZeroTensor = concat(maskAsZeroBlocks);
+      // unchanged_element = unchanged_element * 1.0f = unchanged_element
+      // changed_element = changed_element * 0.0f = 0.0
+      popops::mulInPlace(graph, diagSoftmaxTensor, maskAsZeroTensor, prog,
+                         debugStr1 + "/subBlockZeroMasked");
+      Tensor maskAsMinValueTensor = concat(maskAsMinValueBlocks);
+      // unchanged_element = unchanged_element + 0.0f = unchanged_element
+      // changed_element = 0.0f + minValue = minValue
+      popops::addInPlace(graph, diagSoftmaxTensor, maskAsMinValueTensor, prog,
+                         debugStr1 + "/subBlockMinValueMasked");
+    }
+    for (bool emptyRow : emptyRowsMask) {
+      if (emptyRow) {
+        areEmptyRows = true;
+        break;
+      }
     }
   }
 
-  Tensor slicesAsRect =
-      sliceAndPad(graph, softmaxTensor, blockRow, blockCol, blockRows,
-                  blockCols, sparsity, emptyRowsMask, prog, debugStr1);
+  // Fully empty rows will contain minValue.
+  // All we need to do on them is exp().
+  // They will contain 0 after it and that is what we want.
+  Tensor slicesAsRect = sliceAndPad(
+      graph, source, blockRow, blockCol, blockRows, blockCols, sparsity,
+      minValue, noEmptyRowsMask, ignoreEmptyRowsMask, prog, debugStr1);
+  Tensor slicesAsRectFiltered = slicesAsRect;
+  if (areEmptyRows) {
+    std::vector<Tensor> slicesVec;
+    for (std::size_t i = 0; i < slicesAsRect.dim(0); ++i) {
+      if (!emptyRowsMask[i]) {
+        slicesVec.push_back(slicesAsRect[i].expand({0}));
+      }
+    }
+    slicesAsRectFiltered = concat(slicesVec);
+  }
 
-  Tensor sumF = popops::reduce(graph, slicesAsRect, poplar::FLOAT, {1},
-                               popops::Operation::ADD, prog, debugStr1);
-  assert(sumF.shape() == std::vector<std::size_t>({slicesAsRect.shape()[0]}));
+  // 2. Subtract maximum element from each row
+  Tensor maxRowValues = popops::reduce(graph, slicesAsRectFiltered, {1},
+                                       popops::Operation::MAX, prog, debugStr1);
+  assert(maxRowValues.shape() ==
+         std::vector<std::size_t>({slicesAsRectFiltered.shape()[0]}));
+  Tensor maxRowValuesBcast =
+      maxRowValues.expand({1}).broadcast(slicesAsRectFiltered.shape()[1], 1);
+  assert(maxRowValuesBcast.shape() ==
+         std::vector<std::size_t>({slicesAsRectFiltered.shape()}));
+  popops::subInPlace(graph, slicesAsRectFiltered, maxRowValuesBcast, prog,
+                     debugStr1);
 
-  popops::invInPlace(graph, sumF, prog, debugStr1);
-  Tensor sum = (dataType == poplar::HALF)
-                   ? popops::cast(graph, sumF, poplar::HALF, prog, debugStr1)
-                   : sumF;
+  // 3. exp
+  // No filtering !
+  popops::expInPlace(graph, slicesAsRect, prog, debugStr1);
 
-  Tensor oneOverSum = sum.expand({1}).broadcast(slicesAsRect.shape()[1], 1);
-  assert(oneOverSum.shape() == slicesAsRect.shape());
+  // 4. Divide by sum for each row
+  Tensor sumByRow = popops::reduce(graph, slicesAsRectFiltered, FLOAT, {1},
+                                   popops::Operation::ADD, prog, debugStr1);
+  assert(sumByRow.shape() ==
+         std::vector<std::size_t>({slicesAsRectFiltered.shape()[0]}));
 
-  popops::mulInPlace(graph, slicesAsRect, oneOverSum, prog, debugStr1);
+  popops::invInPlace(graph, sumByRow, prog, debugStr1);
+  Tensor sum = (dataType == HALF)
+                   ? popops::cast(graph, sumByRow, HALF, prog, debugStr1)
+                   : sumByRow;
 
-  return softmaxTensor;
+  Tensor oneOverSum =
+      sum.expand({1}).broadcast(slicesAsRectFiltered.shape()[1], 1);
+  assert(oneOverSum.shape() == slicesAsRectFiltered.shape());
+
+  popops::mulInPlace(graph, slicesAsRectFiltered, oneOverSum, prog, debugStr1);
+
+  return source;
 }
 
-poplar::Tensor bsSoftmaxGradInternal(
-    poplar::Graph &graph, poplar::Tensor sparseOut,
-    poplar::Tensor sparseOutGrad, unsigned blockRow, unsigned blockCol,
-    unsigned blockRows, unsigned blockCols, const unsigned char *sparsity,
-    poplar::program::Sequence &prog, const std::string &debugStr) {
+Tensor bsSoftmaxGradInternal(Graph &graph, Tensor sparseOut,
+                             Tensor sparseOutGrad, unsigned blockRow,
+                             unsigned blockCol, unsigned blockRows,
+                             unsigned blockCols, const unsigned char *sparsity,
+                             poplar::program::Sequence &prog,
+                             const std::string &debugStr) {
 
   const auto debugStr1 = debugStr + "/BSSoftMaxGrad";
 
@@ -230,10 +305,11 @@ poplar::Tensor bsSoftmaxGradInternal(
   Tensor sparseOutMulOutGrad =
       popops::mul(graph, sparseOut, sparseOutGrad, prog, debugStr1);
 
-  std::vector<bool> emptyRowsMask(rows, false);
-  Tensor slicedOutMulOutGrad =
-      sliceAndPad(graph, sparseOutMulOutGrad, blockRow, blockCol, blockRows,
-                  blockCols, sparsity, emptyRowsMask, prog, debugStr1);
+  std::vector<bool> emptyRowsMaskIn(rows, false);
+  std::vector<bool> emptyRowsMaskOut;
+  Tensor slicedOutMulOutGrad = sliceAndPad(
+      graph, sparseOutMulOutGrad, blockRow, blockCol, blockRows, blockCols,
+      sparsity, 0.0f, emptyRowsMaskIn, emptyRowsMaskOut, prog, debugStr1);
   assert(slicedOutMulOutGrad.rank() == 2);
 #ifndef NDEBUG
   std::size_t numSumRows = slicedOutMulOutGrad.shape()[0];
@@ -247,7 +323,7 @@ poplar::Tensor bsSoftmaxGradInternal(
   std::vector<int> filteredRowsIdxs(rows, -1);
   int rf = -1;
   for (unsigned r = 0; r < rows; ++r) {
-    if (!emptyRowsMask[r]) {
+    if (!emptyRowsMaskOut[r]) {
       ++rf;
     }
     filteredRowsIdxs[r] = rf;
@@ -285,13 +361,12 @@ poplar::Tensor bsSoftmaxGradInternal(
   return sparseInGrad;
 }
 
-poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
-                         const std::array<int, 2> &dim,
-                         const std::array<int, 2> &blockSize,
-                         const std::vector<unsigned char> &sparsity,
-                         SubBlockMask subBlockMaskType,
-                         poplar::program::Sequence &prog,
-                         const std::string &debugStr) {
+Tensor bsSoftmax(Graph &graph, Tensor sparseTensor,
+                 const std::array<int, 2> &dim,
+                 const std::array<int, 2> &blockSize,
+                 const std::vector<unsigned char> &sparsity,
+                 SubBlockMask subBlockMaskType, program::Sequence &prog,
+                 const std::string &debugStr) {
 
   for (int iDim = 0; iDim < 2; ++iDim) {
     if (dim[iDim] % blockSize[iDim] != 0) {
@@ -311,7 +386,7 @@ poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
                            sparsity.data(), subBlockMaskType, prog, debugStr);
 }
 
-void bsSoftmaxInPlace(poplar::Graph &graph, poplar::Tensor sparseTensor,
+void bsSoftmaxInPlace(Graph &graph, Tensor sparseTensor,
                       const std::array<int, 2> &dim,
                       const std::array<int, 2> &blockSize,
                       const std::vector<unsigned char> &sparsity,
@@ -337,13 +412,12 @@ void bsSoftmaxInPlace(poplar::Graph &graph, poplar::Tensor sparseTensor,
                     sparsity.data(), subBlockMaskType, prog, debugStr);
 }
 
-poplar::Tensor bsSoftmaxGrad(poplar::Graph &graph, poplar::Tensor sparseOut,
-                             poplar::Tensor sparseOutGrad,
-                             const std::array<int, 2> &dim,
-                             const std::array<int, 2> &blockSize,
-                             const std::vector<unsigned char> &sparsity,
-                             poplar::program::Sequence &prog,
-                             const std::string &debugStr) {
+Tensor bsSoftmaxGrad(Graph &graph, Tensor sparseOut, Tensor sparseOutGrad,
+                     const std::array<int, 2> &dim,
+                     const std::array<int, 2> &blockSize,
+                     const std::vector<unsigned char> &sparsity,
+                     poplar::program::Sequence &prog,
+                     const std::string &debugStr) {
   for (int iDim = 0; iDim < 2; ++iDim) {
     if (dim[iDim] % blockSize[iDim] != 0) {
       throw poputil::poplibs_error(
