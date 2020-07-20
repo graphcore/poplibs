@@ -3,8 +3,10 @@
 #ifndef popsparse_SparsityParams_hpp
 #define popsparse_SparsityParams_hpp
 
+#include <array>
 #include <ostream>
 #include <tuple>
+#include <utility>
 
 namespace popsparse {
 namespace dynamic {
@@ -12,7 +14,11 @@ namespace dynamic {
 /// Sparsity type.
 enum class SparsityType {
   /// Sparsity is defined at an element level.
-  Element
+  Element,
+
+  /// Sparsity is defined at a block level. The matrix is made up of blocks
+  /// with each of these block are either all zero or not.
+  Block,
 };
 
 std::ostream &operator<<(std::ostream &os, const SparsityType &t);
@@ -30,9 +36,18 @@ struct SparsityParams {
   /// sparsity structure.
   SparsityStructure structure;
 
-  SparsityParams(SparsityType type = SparsityType::Element,
-                 SparsityStructure structure = SparsityStructure::Unstructured)
-      : type(type), structure(structure){};
+  /// Block dimensions
+  std::array<std::size_t, 2> blockDimensions;
+
+  SparsityParams(SparsityType type_ = SparsityType::Element,
+                 SparsityStructure structure_ = SparsityStructure::Unstructured,
+                 std::array<std::size_t, 2> blockDimensions_ = {1, 1}) {
+    type = blockDimensions_[0] * blockDimensions_[1] == 1
+               ? SparsityType::Element
+               : SparsityType::Block;
+    structure = structure_;
+    blockDimensions = std::move(blockDimensions_);
+  }
 
   SparsityParams(const SparsityParams &) = default;
 

@@ -13,6 +13,9 @@ std::ostream &operator<<(std::ostream &os, const SparsityType &t) {
   case SparsityType::Element:
     os << "Element";
     break;
+  case SparsityType::Block:
+    os << "Block";
+    break;
   default:
     throw poputil::poplibs_error("Unrecognised SparsityType");
   }
@@ -31,12 +34,18 @@ std::ostream &operator<<(std::ostream &os, const SparsityStructure &s) {
 }
 
 std::ostream &operator<<(std::ostream &os, const SparsityParams &p) {
-  os << "{type: " << p.type << ", structure: " << p.structure << "}";
+  os << "{type: " << p.type << ", structure: " << p.structure;
+  if (p.type == SparsityType::Block) {
+    os << ", block dimensions: [" << p.blockDimensions[0] << ",";
+    os << p.blockDimensions[1] << "] ";
+  }
+  os << "}";
   return os;
 }
 
 static constexpr auto comparisonHelper = poplibs_support::makeStructHelper(
-    &SparsityParams::type, &SparsityParams::structure);
+    &SparsityParams::type, &SparsityParams::structure,
+    &SparsityParams::blockDimensions);
 
 bool operator<(const SparsityParams &a, const SparsityParams &b) {
   return comparisonHelper.lt(a, b);
