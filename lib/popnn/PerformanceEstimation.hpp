@@ -102,13 +102,14 @@ inline uint64_t getPoolingCycles(
 
     // calculate how much initialisation each worker does.
     const auto initElems = [&] {
-      const unsigned numElems = initInfo * chansPerGroupD;
+      const unsigned numElems = initInfo * chansPerGroupD / numWorkers;
       const unsigned extra = wId < (initInfo - numElems * numWorkers);
 
-      return (numElems + extra) * 8;
+      return (numElems + extra);
     }();
+
     // init loop overhead, number of rpt loop cycles, number of brnzdec cycles.
-    cycles += (2 + initElems) * numChanGroupsM1;
+    cycles += (4 + initElems) * (numChanGroupsM1 + 1);
 
     cycles += 5   // load startPosPtr, numRows and startPos
               + 1 // bnz numRows
