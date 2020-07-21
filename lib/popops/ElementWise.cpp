@@ -1356,6 +1356,9 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     if (outGrouping.empty()) {
       return;
     }
+    if (!operand.containsAliases()) {
+      return;
+    }
     const auto outInnerDim = outGrouping[0].first;
     const auto unbroadcastOperand = graph.findUnbroadcastTensor(operand);
     assert(out.rank() == unbroadcastOperand.rank());
