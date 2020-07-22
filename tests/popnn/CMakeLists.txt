@@ -356,9 +356,7 @@ foreach(OPTIMIZE_FOR_SPEED true false)
                    --data-type=float
                    --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
                    VARIANTS ${TimesOutOnSim})
-# TODO - This test fails (for debug builds only) if we actually use optimize-for-speed=true
-# thought to be an exchange problem, so re-enable once T22069 is done
-  if(${OPTIMIZE_FOR_SPEED} STREQUAL  "false")
+
     add_multitarget_test(NAME avg_pool_layer_2ipu_${OPTIMIZE_FOR_SPEED}
            COMMAND pooling_layer
                    --channels 64
@@ -371,7 +369,7 @@ foreach(OPTIMIZE_FOR_SPEED true false)
                    --ipus 2
                    --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
                    VARIANTS ${TimesOutOnSim})
-  endif()
+
   add_multitarget_test(NAME avg_pool_layer_1x4_${OPTIMIZE_FOR_SPEED}
            COMMAND pooling_layer
                    --channels 16
