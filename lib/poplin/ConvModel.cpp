@@ -188,12 +188,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     transformedOutputStride[dim] = 1;
   }
 
-  auto convUnitInputLoadElemsPerCycle =
-      target.getConvUnitInputLoadElemsPerCycle(floatActivations);
-  if (!options.use128BitConvUnitLoad) {
-    convUnitInputLoadElemsPerCycle /= 2;
-  }
-
   const std::string debugName = "partialCalcCycleEstimate";
   switch (method) {
   default: {
@@ -206,6 +200,15 @@ static popsolver::Variable addPartialCalcCycleEstimate(
            0);
 
     auto weightsPerConvUnit = target.getWeightsPerConvUnit(floatActivations);
+
+    const auto weightBytesPerConvUnit =
+        weightsPerConvUnit * target.getTypeSize(params.inputType);
+
+    auto convUnitCoeffLoadBytesPerCycle =
+        target.getConvUnitCoeffLoadBytesPerCycle();
+    if (!options.use128BitConvUnitLoad) {
+      convUnitCoeffLoadBytesPerCycle /= 2;
+    }
 
     assert(numConvUnitsRequired != 0);
     if (inChansPerGroup != weightsPerConvUnit) {
@@ -222,8 +225,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         [&target, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, partialType, params, transformedDims,
          transformedInputDilation, transformedOutputStride,
-         convUnitWeightHeight, cache, floatActivations,
-         convUnitInputLoadElemsPerCycle, numConvUnitsRequired](
+         convUnitWeightHeight, cache, floatActivations, weightBytesPerConvUnit,
+         convUnitCoeffLoadBytesPerCycle, numConvUnitsRequired](
             const std::vector<unsigned> &values) -> popsolver::DataType {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -262,9 +265,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                 getConvPartial1x1SupervisorOuterLoopCycleEstimate(
                     innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing,
                     tileNumConvGroups, tileNumInGroups, tileNumOutGroups,
-                    outChansPerGroup, convUnitInputLoadElemsPerCycle,
-                    numConvUnitsRequired,
-                    target.getConvUnitCoeffLoadBytesPerCycle(),
+                    outChansPerGroup, weightBytesPerConvUnit,
+                    numConvUnitsRequired, convUnitCoeffLoadBytesPerCycle,
                     floatActivations, floatPartials,
                     target.getNumWorkerContexts())};
           }
@@ -277,13 +279,12 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               cache->mGetConvPartialnx1InnerLoopCycleEstimate(
                   convSize.batchSize, convSize.fieldSize, convSize.kernelSize,
                   convUnitWeightHeight, outChansPerGroup,
-                  convUnitInputLoadElemsPerCycle, numConvUnitsRequired,
-                  target.getConvUnitCoeffLoadBytesPerCycle(),
-                  target.getNumWorkerContexts(), floatActivations,
-                  floatPartials, transformedInputDilation,
+                  weightBytesPerConvUnit, numConvUnitsRequired,
+                  convUnitCoeffLoadBytesPerCycle, target.getNumWorkerContexts(),
+                  floatActivations, floatPartials, transformedInputDilation,
                   transformedOutputStride);
           return popsolver::DataType{
-              getConvPartialnx1SupervisorCycleOuterLoopEstimate(
+              getConvPartialnx1SupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, tileNumConvGroups, tileNumOutGroups,
                   tileNumInGroups, outChansPerGroup, numConvUnitsRequired,
                   target.getNumWorkerContexts(), floatActivations,
@@ -346,11 +347,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   numConvUnitsRequired, slicWindowWidth, floatActivations,
                   floatPartials);
           const auto weightLoadCycles =
-              getConvPartialSlicSupervisorCycleWeightLoadEstimate(
+              getConvPartialSlicSupervisorWeightLoadCycleEstimate(
                   convGroupsPerGroup, inChansPerGroup,
                   target.getNumWorkerContexts(), slicWindowWidth);
           return popsolver::DataType{
-              cache->mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
+              cache->mGetConvPartialSlicSupervisorOuterLoopCycleEstimate(
                   implicitZeroInnerLoopCycles, innerLoopCycles,
                   weightLoadCycles, tileNumConvGroups, numWeightBlocks,
                   numConvUnitsRequired, slicWindowWidth, floatActivations,
@@ -908,13 +909,6 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     inputsPerLevel.push_back(numberOfInputElements);
     weightsPerLevel.push_back(numberOfWeights);
 
-    const auto tilesUsedByWeights =
-        m.product({m.product(partitionVars[level].fieldSplit),
-                   partitionVars[level].batchSplit});
-
-    const auto tilesUsedByInputElements =
-        partitionVars[level].outChanSplit.parallel;
-
     // because we distribute the weights evenly across all tiles that require
     // them we can deduce that 1/Nth of the weights are already on the correct
     // tile. this needs to be calculated because each serial split will
@@ -923,8 +917,15 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     // example, if the weights are split over a single tile we would expect a
     // zero exchange cost. we do this for both weights and inputs because of the
     // swap operands transformation.
+
+    const auto tilesUsedByWeights =
+        m.product({m.product(partitionVars[level].fieldSplit),
+                   partitionVars[level].batchSplit});
     numberOfWeights =
         m.sub(numberOfWeights, m.floordiv(numberOfWeights, tilesUsedByWeights));
+
+    const auto tilesUsedByInputElements =
+        partitionVars[level].outChanSplit.parallel;
     numberOfInputElements =
         m.sub(numberOfInputElements,
               m.floordiv(numberOfInputElements, tilesUsedByInputElements));
