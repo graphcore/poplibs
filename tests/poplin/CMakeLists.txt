@@ -3191,6 +3191,22 @@ add_multitarget_test(NAME conv5x200_1_in_100_out_swap_operands
                  --fwd-plan-constraints={\"0\":{\"transform\":{\"swapOperands\":true,\"expandDims\":[1]}}}
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
+# Test the --use-create-input option
+foreach(USE_CREATE_INPUT "0" "1")
+    add_multitarget_test(
+            NAME conv_use_create_input_${USE_CREATE_INPUT}
+            COMMAND single_conv_layer
+                    --input-channels=16
+                    --output-channels=16
+                    --field={7,7}
+                    --padding=1
+                    --kernel-size=3
+                    --conv-groups=2
+                    --data-type=half
+                    --tiles-per-ipu=2
+                    --use-create-input=${USE_CREATE_INPUT})
+endforeach()
+
 # Fully connected layer tests
 
 add_multitarget_test(
@@ -3484,6 +3500,20 @@ add_multitarget_test(
                  --output-size=4
                  --data-type=half
                  VARIANTS ${TimesOutOnSim})
+
+# Test the --use-create-input option
+foreach(USE_CREATE_INPUT "0" "1")
+    add_multitarget_test(
+          NAME fully_connected_use_create_input_${USE_CREATE_INPUT}
+          COMMAND fully_connected_layer
+                  --batch-size=8
+                  --input-size=64
+                  --output-size=32
+                  --num-groups=2
+                  --tiles-per-ipu=2
+                  --data-type=half
+                  --use-create-input=${USE_CREATE_INPUT})
+endforeach()
 
 foreach(PLAN_TYPE parallel serial)
   add_multitarget_test(NAME octconv_basic_${PLAN_TYPE}

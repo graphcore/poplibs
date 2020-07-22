@@ -67,6 +67,14 @@ static void overloadConstraintsFromFile(const std::string &path,
   }
 }
 
+static Tensor createGenericConvInput(Graph &graph,
+                                     const poplin::ConvParams &params,
+                                     const std::string &name = "") {
+  return poplibs_test::util::createGenericConvInput(
+      graph, params.inputType, params.getBatchSize(), params.getNumConvGroups(),
+      params.getNumInputChansPerConvGroup(), params.getInputFieldShape(), name);
+}
+
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
@@ -105,6 +113,7 @@ int main(int argc, char **argv) try {
   unsigned numDeterminismChecks;
   bool enableConvolutionReuse;
   bool remapOutputTensor;
+  bool useCreateInput;
 
   Pass pass = Pass::ALL;
   std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
@@ -311,6 +320,12 @@ int main(int argc, char **argv) try {
     ("convolution-options", po::value<std::string>(&convOptionsString),
     "Options to use for the convolution, specified as a JSON string, "
     "e.g. {\"key\":\"value\"}")
+    ("use-create-input",
+     po::value<bool>(&useCreateInput)->default_value(true),
+     "Use the input allocation function to create an input tensor with a "
+     "layout optimised for the plan. If set to false use a generic layout that "
+     "is independent of the plan and representative of a typical layout in a "
+     "neural network")
     ("num-determinism-checks",
      po::value<unsigned>(&numDeterminismChecks)->default_value(0),
      "The amount of additional identical executions (results are compared to check determinism)."
@@ -636,15 +651,23 @@ int main(int argc, char **argv) try {
   }
 
   // Create tensors.
-  Tensor prevAct =
-      poplin::createInput(graph, params, "prevAct", fwdOptions, &cache);
+  Tensor prevAct;
+  if (useCreateInput) {
+    prevAct = poplin::createInput(graph, params, "prevAct", fwdOptions, &cache);
+  } else {
+    prevAct = createGenericConvInput(graph, params, "prevAct");
+  }
   Tensor weights =
       poplin::createWeights(graph, params, "weights", fwdOptions, &cache);
 
   Tensor prevDeltas, zDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas =
-        poplin::createInput(graph, bwdParams, "zDeltas", bwdOptions, &cache);
+    if (useCreateInput) {
+      zDeltas =
+          poplin::createInput(graph, bwdParams, "zDeltas", bwdOptions, &cache);
+    } else {
+      zDeltas = createGenericConvInput(graph, bwdParams, "zDeltas");
+    }
   }
 
   // Always generate the fwd program as it maps the weights and biases. Only

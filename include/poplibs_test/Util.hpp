@@ -22,6 +22,8 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace poplibs_test {
 namespace util {
@@ -426,6 +428,19 @@ void addGlobalExchangeConstraints(poplar::IPUModel &ipuModel);
 // Add a default global sync latency based on the number of IPUs in the model.
 // The number of IPUs should be set before calling this function.
 void setGlobalSyncLatency(poplar::IPUModel &ipuModel);
+
+// Create an input tensor for a convolution with a generic layout that
+// is representative of a typical layout in a neural network.
+poplar::Tensor createGenericConvInput(
+    poplar::Graph &graph, const poplar::Type &type, std::size_t batchSize,
+    std::size_t numConvGroups, std::size_t chansPerConvGroup,
+    const std::vector<std::size_t> &fieldShape, const std::string &name = "");
+
+// Create an input tensor for a fully connected layer with a generic
+// layout that is representative of a typical layout in a neural network.
+poplar::Tensor createGenericFullyConnectedInput(
+    poplar::Graph &graph, const poplar::Type &type, std::size_t numGroups,
+    std::size_t batchSize, std::size_t inputSize, const std::string &name = "");
 
 } // namespace util
 } // namespace poplibs_test

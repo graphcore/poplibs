@@ -70,6 +70,7 @@ int main(int argc, char **argv) {
   boost::optional<std::string> jsonProfileOut;
   bool remapOutputTensor;
   bool mapBiasesByUse;
+  bool useCreateInput;
 
   po::options_description desc("Options");
   // clang-format off
@@ -133,6 +134,12 @@ int main(int argc, char **argv) {
     ("remap-output-tensor",
      po::value<bool>(&remapOutputTensor)->default_value(false),
      "Remap output tensor if layout is detected to be poor")
+    ("use-create-input",
+     po::value<bool>(&useCreateInput)->default_value(true),
+     "Use the input allocation function to create an input tensor with a "
+     "layout optimised for the plan. If set to false use a generic layout that "
+     "is independent of the plan and representative of a typical layout in a "
+     "neural network")
     ("report-plan", po::value<bool>(&reportPlan)->default_value(false),
      "Display plan")
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
@@ -234,9 +241,15 @@ int main(int argc, char **argv) {
                  inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
 
   matmul::PlanningCache cache;
-  Tensor prevAct = createMatMulGroupedInputLHS(
-      graph, inputType, outputType, {numGroups, batchSize, inputSize},
-      {numGroups, inputSize, outputSize}, "prevAct", fwdOptions, &cache);
+  Tensor prevAct;
+  if (useCreateInput) {
+    prevAct = createMatMulGroupedInputLHS(
+        graph, inputType, outputType, {numGroups, batchSize, inputSize},
+        {numGroups, inputSize, outputSize}, "prevAct", fwdOptions, &cache);
+  } else {
+    prevAct = createGenericFullyConnectedInput(graph, inputType, numGroups,
+                                               batchSize, inputSize, "prevAct");
+  }
   Tensor weights = createMatMulGroupedInputRHS(
       graph, inputType, outputType, {numGroups, batchSize, inputSize},
       {numGroups, inputSize, outputSize}, "weights", fwdOptions, &cache);
@@ -299,9 +312,14 @@ int main(int argc, char **argv) {
   Tensor zDeltas;
   std::unique_ptr<char[]> rawHostZDeltas;
   if (doBwdPass || doWuPass) {
-    zDeltas = poplin::createMatMulGroupedInputLHS(
-        graph, inputType, outputType, {numGroups, batchSize, outputSize},
-        {numGroups, outputSize, inputSize}, "zDeltas", bwdOptions, &cache);
+    if (useCreateInput) {
+      zDeltas = poplin::createMatMulGroupedInputLHS(
+          graph, inputType, outputType, {numGroups, batchSize, outputSize},
+          {numGroups, outputSize, inputSize}, "zDeltas", bwdOptions, &cache);
+    } else {
+      zDeltas = createGenericFullyConnectedInput(
+          graph, outputType, numGroups, batchSize, outputSize, "zDeltas");
+    }
     rawHostZDeltas = allocateHostMemoryForTensor(
         zDeltas, "zDeltas", graph, uploadProg, downloadProg, tmap);
   }
