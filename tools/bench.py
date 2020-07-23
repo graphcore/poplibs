@@ -124,27 +124,33 @@ def main():
         )
 
     expected_dict = read_results_file(args.expected_csv)
-    expected = expected_dict.get(TestKey(
+    key = TestKey(
         target = args.device_type,
         config = args.config,
         name = args.name
-    ), NONE)
+    )
+    if key in expected_dict:
+        expected = expected_dict[key]
 
-    def check_value(name, actual_value, expected_value):
-        if expected_value != actual_value:
-            pc_diff = actual_value / expected_value * 100 - 100
-            print(
-                f"ERROR: {name} usage ({actual_value:,}) differs by "
-                f"{pc_diff:.1f}% from the expected value ({expected_value:,})"
-            )
-            return [False, pc_diff]
-        return [True, float(0)]
+        def check_value(name, actual_value, expected_value):
+            if expected_value != actual_value:
+                pc_diff = actual_value / expected_value * 100 - 100
+                print(
+                    f"ERROR: {name} usage ({actual_value:,}) differs by "
+                    f"{pc_diff:.1f}% from the expected value ({expected_value:,})"
+                )
+                return [False, pc_diff]
+            return [True, float(0)]
 
-    [mem_passed, mem_diff] = check_value(
-        "Total memory", memory, expected.total_memory)
-    [tile_mem_passed, tile_mem_diff] = check_value(
-        "Max tile memory", max_tile_mem, expected.max_tile_memory)
-    [cycles_passed, cycles_diff] = check_value("Cycles", cycles, expected.cycles)
+        [mem_passed, mem_diff] = check_value(
+            "Total memory", memory, expected.total_memory)
+        [tile_mem_passed, tile_mem_diff] = check_value(
+            "Max tile memory", max_tile_mem, expected.max_tile_memory)
+        [cycles_passed, cycles_diff] = check_value("Cycles", cycles, expected.cycles)
+    else:
+        [mem_passed, mem_diff] = [False, 0]
+        [tile_mem_passed, tile_mem_diff] = [False, 0]
+        [cycles_passed, cycles_diff] = [False, 0]
 
     if not (mem_passed and tile_mem_passed and cycles_passed):
         out_line = (
