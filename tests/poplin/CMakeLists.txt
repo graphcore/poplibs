@@ -3615,3 +3615,11 @@ add_multitarget_test(
                  --conv ${DEPTHWISE_CONV}
                  --conv ${POINTWISE_CONV}
          VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME multi_conv_different_types_single_tile
+         COMMAND multi_conv_layer
+                 --tiles-per-ipu 1
+                 --conv ${DEPTHWISE_CONV}
+                 --conv ${DEPTHWISE_CONV}
+         VARIANTS ${TimesOutOnSim})

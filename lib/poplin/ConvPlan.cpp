@@ -2269,7 +2269,7 @@ getParallelMultiPlan(const poplar::Target &target,
   unsigned perConvReservedTiles = options.perConvReservedTiles;
   if (target.getNumTiles() < idx.size() * perConvReservedTiles) {
     logging::warn("Not enough tiles to reserve any for the multi-convolution.");
-    perConvReservedTiles = target.getNumTiles() / idx.size();
+    perConvReservedTiles = std::max(1ul, target.getNumTiles() / idx.size());
   }
 
   // don't include first conv.
@@ -2283,8 +2283,11 @@ getParallelMultiPlan(const poplar::Target &target,
     const auto largestPlanIdx = idx.back();
 
     // step 1
-    assert(convOptions[largestPlanIdx].tilesPerIPU > reservedTiles);
+    assert(convOptions[largestPlanIdx].tilesPerIPU >= reservedTiles);
     convOptions[largestPlanIdx].tilesPerIPU -= reservedTiles;
+    if (convOptions[largestPlanIdx].tilesPerIPU == 0) {
+      throw poputil::poplibs_error("Not enough tiles for multi-conv");
+    }
 
     logging::debug("Planning largest convolution, optimising for speed");
     auto planAndCost = cachedRunPlanner(
