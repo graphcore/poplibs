@@ -1,6 +1,8 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include <algorithm>
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 #include <cassert>
@@ -75,6 +77,7 @@ int main(int argc, char **argv) {
   unsigned runs = 1;
   std::string profileDir = ".";
   double availableMemoryProportion;
+  boost::optional<std::string> jsonProfileOut;
 
   po::options_description desc("Options");
   // clang-format off
@@ -87,6 +90,10 @@ int main(int argc, char **argv) {
     ("profile-dir",
       po::value<std::string>(&profileDir)->default_value(profileDir),
       "The directory to output profiling report")
+    ("profile-json",
+     po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
+      ->default_value(boost::none),
+     "Write the profile report as JSON to the specified file.")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
@@ -305,7 +312,7 @@ int main(int argc, char **argv) {
   }
 
   auto engineOptions = defaultEngineOptions;
-  if (vm.count("profile")) {
+  if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
@@ -377,13 +384,21 @@ int main(int argc, char **argv) {
     }
   });
 
-  if (deviceType != DeviceType::Cpu && vm.count("profile")) {
-    engine.printProfileSummary(std::cout, OptionFlags{
-                                              //{ "showExecutionSteps", "true" }
-                                              //{ "showVarStorage",     "true" }
-                                          });
-    if (vm.count("profile-dir"))
-      savePoplarReport(engine, profileDir);
+  if (deviceType != DeviceType::Cpu) {
+    if (jsonProfileOut) {
+      const auto pr = engine.getProfile();
+      std::ofstream os(*jsonProfileOut);
+      poplar::serializeToJSON(os, pr);
+    }
+    if (vm.count("profile")) {
+      engine.printProfileSummary(std::cout,
+                                 OptionFlags{
+                                     //{ "showExecutionSteps", "true" }
+                                     //{ "showVarStorage",     "true" }
+                                 });
+      if (vm.count("profile-dir"))
+        savePoplarReport(engine, profileDir);
+    }
   }
 
   bool matchesModel = true;
