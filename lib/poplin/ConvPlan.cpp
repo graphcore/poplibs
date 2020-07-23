@@ -1001,7 +1001,8 @@ getExpandDimsCandidates(unsigned ipuLevel, const ConvParams &params,
   } else {
     std::vector<unsigned> candidateDims;
     for (unsigned i = 0; i != params.getNumFieldDims(); ++i) {
-      if (!expandingDimChangesParams(params, i)) {
+      if (!expandingDimChangesParams(params, i) ||
+          options.disableTransformations) {
         continue;
       }
       // Don't expand this dimension if the number of non zero kernel entries
@@ -1050,7 +1051,7 @@ getOutChanFlattenDimsCandidates(unsigned ipuLevel, const ConvParams &params,
     for (unsigned i = 0; i != swappedParams.getNumFieldDims(); ++i) {
       // Don't flatten this dimension into the output channel dimension if it
       // wouldn't increase the number of output channels.
-      if (params.getOutputSize(i) == 1)
+      if (params.getOutputSize(i) == 1 || options.disableTransformations)
         continue;
       // Don't flatten this dimension into the output channel dimension if the
       // number of non zero input entries is larger than the number of non zero
@@ -1095,7 +1096,7 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
                                                   const ConvOptions &options,
                                                   bool isJointPlan) {
   std::vector<bool> validValues;
-  if (isJointPlan) {
+  if (isJointPlan || options.disableTransformations) {
     // The joint planning logic doesn't yet handle swapped operands.
     // TODO: T12885 Lift this restriction.
     validValues = {false};
@@ -1153,9 +1154,14 @@ static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
   return types;
 }
 
-static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params) {
+static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params,
+                                                   const ConvOptions &options) {
   const auto numFieldDims = params.getNumFieldDims();
   std::vector<unsigned> dilateAfterConv;
+  if (options.disableTransformations) {
+    return dilateAfterConv;
+  }
+
   for (std::size_t dim = 0; dim != numFieldDims; ++dim) {
     if (params.inputTransform.dilation[dim] != 1 &&
         canDeferDilation(params, dim)) {
@@ -1192,7 +1198,8 @@ static std::vector<unsigned> getCombineConvGroupCandidates(
     // the input channels with the batch size and the batch size does not
     // satisfy the constraint above. TODO: T12886 With a more advanced check
     // here we could support cases like this.
-    if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan) {
+    if (validInputChannelSize && params.numConvGroups > 1 && !isJointPlan &&
+        !options.disableTransformations) {
       const auto baseLoadElements =
           params.inputType == poplar::HALF
               ? target.getFp16ConvUnitInputLoadElemsPerCycle()
@@ -1450,7 +1457,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
     numFieldDims = 2;
   }
   transforms[0].extraFieldDims = addedFieldDims;
-  transforms[0].dilatePostConv = getDilatePostConvDims(paramsWithExtraDims);
+  transforms[0].dilatePostConv =
+      getDilatePostConvDims(paramsWithExtraDims, options);
   const auto paramsWithDeferredDilation = calculateParamsWithDeferredDilation(
       paramsWithExtraDims, transforms[0].dilatePostConv);
 

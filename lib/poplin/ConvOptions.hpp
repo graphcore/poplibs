@@ -59,6 +59,8 @@ public:
   // Use the ConvParams to pseudo-randomly select a start tile and direction
   // to lay out the convolution across the tiles.
   bool enableConvDithering = false;
+  // Disable transformations.
+  bool disableTransformations = false;
 
   void parseConvOptions(const poplar::OptionFlags &options);
 
@@ -72,7 +74,7 @@ private:
       &ConvOptions::enableAmpHalfEnginesPlan,
       &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
       &ConvOptions::enableSingleInputReduce, &ConvOptions::remapOutputTensor,
-      &ConvOptions::enableConvDithering);
+      &ConvOptions::enableConvDithering, &ConvOptions::disableTransformations);
 
 public:
   bool operator<(const ConvOptions &other) const {

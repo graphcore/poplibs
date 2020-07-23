@@ -81,6 +81,8 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << opts.remapOutputTensor;
   os << "        enableConvDithering           ";
   os << opts.enableConvDithering;
+  os << "        disableTransformations        ";
+  os << opts.disableTransformations;
   return os;
 }
 
@@ -119,7 +121,9 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
        OptionHandler::createWithBool(enableSingleInputReduce)},
       {"remapOutputTensor", OptionHandler::createWithBool(remapOutputTensor)},
       {"enableConvDithering",
-       OptionHandler::createWithBool(enableConvDithering)}};
+       OptionHandler::createWithBool(enableConvDithering)},
+      {"disableTransformations",
+       OptionHandler::createWithBool(disableTransformations)}};
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
   }
