@@ -2379,9 +2379,7 @@ ExprAndType optimise(const expr::Expr &expr,
         return {std::unique_ptr<expr::Expr>(
                     new expr::Cast(*infoLhs.expression, infoLhs.type)),
                 infoLhs.type};
-      } // Disabled because of failure with MAP expressions using inverse
-        // see TT23800
-      else if (value == -1 && false) {
+      } else if (value == -1) {
         return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
                     UnaryOpType::INVERSE, *infoLhs.expression)),
                 infoLhs.type};

@@ -333,7 +333,8 @@ std::string handleSpecialCase(UnaryOpType op, const std::string &param) {
   case UnaryOpType::SIGNUM:
     return "(0 < " + param + ") - (" + param + " < 0)";
   case UnaryOpType::INVERSE:
-    return "Traits<decltype(" + param + ")>::ONE() /" + param;
+    return "Traits<typename std::remove_const<decltype(" + param +
+           ")>::type>::ONE() /" + param;
   case UnaryOpType::IS_FINITE:
     return "std::isfinite(static_cast<float>(" + param + "))";
   default:
