@@ -132,6 +132,18 @@ struct PNBucket {
   }
 };
 
+static inline void validateBlockSizes(std::size_t numRows,
+                                      std::size_t numColumns,
+                                      std::size_t rowBlockSize,
+                                      std::size_t columnBlockSize) {
+  if (numRows % rowBlockSize || rowBlockSize > numRows) {
+    throw poputil::poplibs_error("Invalid row block size");
+  }
+  if (numColumns % columnBlockSize || columnBlockSize > numColumns) {
+    throw poputil::poplibs_error("Invalid row block size");
+  }
+}
+
 // Convert from a CSR representation of a matrix of dimension
 // [numRows x numColumns] to a CSC representation.
 //
@@ -145,47 +157,67 @@ template <class T>
 CSCMatrix<T> csrToCSC(std::size_t numRows, std::size_t numColumns,
                       const CSRMatrix<T> &csr) {
 
-  // number of NZ values are always equal to the number of column indices.
-  const std::size_t numNZValues = csr.columnIndices.size();
+  // number of NZ blocks are always equal to the number of column indices.
+  const std::size_t numNZBlocks = csr.columnIndices.size();
+  const auto blockSize = csr.getBlockSize();
+  const auto numNZValues = numNZBlocks * blockSize;
 
+  validateBlockSizes(numRows, numColumns, csr.getNumRowsInBlock(),
+                     csr.getNumColumnsInBlock());
   if (csr.rowIndices.back() != numNZValues) {
     throw poputil::poplibs_error("Number of non-zero values do not match last "
                                  "entry on rowIndices");
   }
-
-  std::vector<std::size_t> columnIndices(numColumns + 1);
-  for (std::size_t nz = 0; nz != numNZValues; ++nz) {
-    columnIndices[csr.columnIndices[nz] + 1]++;
+  const auto numColumnBlocks = numColumns / csr.getNumColumnsInBlock();
+  std::vector<std::size_t> columnIndices(numColumnBlocks + 1);
+  for (std::size_t nz = 0; nz != numNZBlocks; ++nz) {
+    columnIndices[csr.columnIndices[nz] / csr.getNumColumnsInBlock() + 1]++;
   }
   std::partial_sum(columnIndices.begin(), columnIndices.end(),
                    columnIndices.begin());
   // The last entry in the CSC columns is always the number of non zero entries
-  columnIndices[numColumns] = numNZValues;
+  columnIndices[numColumnBlocks] = numNZBlocks;
 
   std::vector<std::size_t> rowIndices;
-  rowIndices.resize(numNZValues);
+  rowIndices.resize(numNZBlocks);
   std::vector<T> nzValues;
   nzValues.resize(numNZValues);
 
   // Fill in the non zero entries and the row indices
-  for (std::size_t row = 0; row != numRows; ++row) {
-    for (std::size_t csrRow = csr.rowIndices[row];
-         csrRow != csr.rowIndices[row + 1]; ++csrRow) {
-      auto column = csr.columnIndices[csrRow];
+  for (std::size_t row = 0; row != numRows / csr.getNumRowsInBlock(); ++row) {
+    for (std::size_t csrRow = csr.rowIndices[row] / blockSize;
+         csrRow != csr.rowIndices[row + 1] / blockSize; ++csrRow) {
+      auto column = csr.columnIndices[csrRow] / csr.getNumColumnsInBlock();
       auto dstRow = columnIndices[column];
       rowIndices[dstRow] = row;
-      nzValues[dstRow] = csr.nzValues[csrRow];
+      // transpose block and store
+      for (std::size_t r = 0; r != csr.getNumRowsInBlock(); ++r) {
+        for (std::size_t c = 0; c != csr.getNumColumnsInBlock(); ++c) {
+          const auto srcIndex =
+              dstRow * blockSize + c * csr.getNumRowsInBlock() + r;
+          const auto dstIndex =
+              csrRow * blockSize + r * csr.getNumColumnsInBlock() + c;
+          nzValues[srcIndex] = csr.nzValues[dstIndex];
+        }
+      }
       ++columnIndices[column];
     }
   }
 
   std::size_t startIndex = 0;
-  for (std::size_t column = 0; column != numColumns; ++column) {
+  for (std::size_t column = 0; column != numColumnBlocks; ++column) {
     std::swap(columnIndices[column], startIndex);
   }
 
+  // scale to block dimensions
+  std::for_each(rowIndices.begin(), rowIndices.end(),
+                [=](std::size_t &x) { x *= csr.getNumRowsInBlock(); });
+  std::for_each(columnIndices.begin(), columnIndices.end(),
+                [=](std::size_t &x) { x *= blockSize; });
+
   return CSCMatrix<T>(std::move(nzValues), std::move(columnIndices),
-                      std::move(rowIndices));
+                      std::move(rowIndices),
+                      {csr.getNumColumnsInBlock(), csr.getNumRowsInBlock()});
 }
 
 // Sort the columns of a CSR matrix in a given row to be in increasing order.
@@ -193,28 +225,43 @@ CSCMatrix<T> csrToCSC(std::size_t numRows, std::size_t numColumns,
 //
 // \param  csr  The matrix in csr representation to be canonicalized
 template <class T> void canonicalizeCSR(CSRMatrix<T> &matrix) {
-  const auto numRows = matrix.rowIndices.size() - 1;
-  using TP = std::pair<std::size_t, T>;
-  std::vector<TP> columns;
+  const auto numRowBlocks = matrix.rowIndices.size() - 1;
+  const auto blockSize = matrix.getBlockSize();
 
-  for (std::size_t row = 0; row != numRows; ++row) {
-    const auto startIndex = matrix.rowIndices[row];
-    const auto endIndex = matrix.rowIndices[row + 1];
+  for (std::size_t row = 0; row != numRowBlocks; ++row) {
+    const auto startIndex = matrix.rowIndices[row] / blockSize;
+    const auto endIndex = matrix.rowIndices[row + 1] / blockSize;
     const auto numElems = endIndex - startIndex;
 
-    columns.resize(numElems);
+    std::vector<std::vector<T>> columnNzValues;
+    std::vector<std::size_t> columnIndices;
+    columnNzValues.resize(numElems);
+    columnIndices.resize(numElems);
 
     for (std::size_t index = startIndex; index != endIndex; ++index) {
-      columns[index - startIndex] =
-          std::make_pair(matrix.columnIndices[index], matrix.nzValues[index]);
+      std::vector<T> nzBlock;
+      columnNzValues[index - startIndex].resize(blockSize);
+      std::copy(matrix.nzValues.begin() + index * blockSize,
+                matrix.nzValues.begin() + (index + 1) * blockSize,
+                columnNzValues[index - startIndex].begin());
+      columnIndices[index - startIndex] = matrix.columnIndices[index];
     }
 
-    std::sort(columns.begin(), columns.end(),
-              [](const TP &a, const TP &b) { return a.first < b.first; });
+    std::vector<std::size_t> columnOrder;
+    columnOrder.resize(numElems);
+    std::iota(columnOrder.begin(), columnOrder.end(), 0);
+
+    std::sort(columnOrder.begin(), columnOrder.end(),
+              [&](std::size_t a, std::size_t b) {
+                return columnIndices[a] < columnIndices[b];
+              });
 
     for (std::size_t index = startIndex; index != endIndex; ++index) {
-      matrix.columnIndices[index] = columns[index - startIndex].first;
-      matrix.nzValues[index] = columns[index - startIndex].second;
+      auto thisIndex = columnOrder[index - startIndex];
+      matrix.columnIndices[index] = columnIndices[thisIndex];
+      std::move(columnNzValues[thisIndex].begin(),
+                columnNzValues[thisIndex].end(),
+                matrix.nzValues.begin() + index * blockSize);
     }
   }
 }
@@ -224,15 +271,14 @@ template <class T> void canonicalizeCSR(CSRMatrix<T> &matrix) {
 template <class T>
 CSRMatrix<T> cscToCSR(std::size_t numRows, std::size_t numColumns,
                       const CSCMatrix<T> &input) {
-
   auto csrMatrix =
-      CSRMatrix<T>(input.nzValues, input.rowIndices, input.columnIndices);
-
+      CSRMatrix<T>(input.nzValues, input.rowIndices, input.columnIndices,
+                   {input.getNumColumnsInBlock(), input.getNumRowsInBlock()});
   auto cscMatrix = csrToCSC<T>(numColumns, numRows, csrMatrix);
-
-  return CSRMatrix<T>(std::move(cscMatrix.nzValues),
-                      std::move(cscMatrix.rowIndices),
-                      std::move(cscMatrix.columnIndices));
+  return CSRMatrix<T>(
+      std::move(cscMatrix.nzValues), std::move(cscMatrix.rowIndices),
+      std::move(cscMatrix.columnIndices),
+      {cscMatrix.getNumRowsInBlock(), cscMatrix.getNumColumnsInBlock()});
 }
 
 // Transpose a CSR representation of a matrix of dimension
@@ -246,7 +292,9 @@ CSRMatrix<T> csrTranspose(std::size_t numRows, std::size_t numColumns,
                           const CSRMatrix<T> &input) {
   auto output = csrToCSC(numRows, numColumns, input);
   // convert to CSC matrix
-  return CSRMatrix<T>(output.nzValues, output.rowIndices, output.columnIndices);
+  return CSRMatrix<T>(
+      output.nzValues, output.rowIndices, output.columnIndices,
+      {output.getNumRowsInBlock(), output.getNumColumnsInBlock()});
 }
 
 // Given a tile, return the information for every row containing non-zero values
@@ -276,47 +324,53 @@ CSRMatrix<T> cooToCSR(std::size_t numRows, std::size_t numColumns,
 
   // number of NZ values are always equal to the number of column indices.
   const std::size_t numNZValues = coo.nzValues.size();
+  const auto numNZBlocks = numNZValues / coo.getBlockSize();
+  const auto blockSize = coo.getBlockSize();
+  const auto numRowBlocks = numRows / coo.getNumRowsInBlock();
 
   if (numNZValues > numRows * numColumns) {
-    throw poputil::poplibs_error("Number of non-zero values in COO exceed the "
+    throw poputil::poplibs_error("Number of non-zero blocks in COO exceed the "
                                  "size of the matrix");
   }
 
-  if (coo.rowIndices.size() != numNZValues) {
-    throw poputil::poplibs_error("Number of non-zero values does not match "
+  if (coo.rowIndices.size() != numNZBlocks) {
+    throw poputil::poplibs_error("Number of non-zero blocks does not match "
                                  "number of row elements in the COO");
   }
 
-  if (coo.columnIndices.size() != numNZValues) {
-    throw poputil::poplibs_error("Number of non-zero values does not match "
+  if (coo.columnIndices.size() != numNZBlocks) {
+    throw poputil::poplibs_error("Number of non-zero blocks does not match "
                                  "number of column elements in the COO");
   }
 
-  std::vector<std::size_t> rowIndices(numRows + 1);
+  std::vector<std::size_t> rowIndices(numRowBlocks + 1);
   for (const auto &row : coo.rowIndices) {
-    ++rowIndices.at(row + 1);
+    ++rowIndices.at(row / coo.getNumRowsInBlock() + 1);
   }
 
   std::partial_sum(std::next(rowIndices.begin()), rowIndices.end(),
                    std::next(rowIndices.begin()));
 
-  std::vector<std::size_t> countPerRow(numRows);
+  std::vector<std::size_t> countPerRowBlock(numRowBlocks);
 
   std::vector<std::size_t> columnIndices;
-  columnIndices.resize(numNZValues);
+  columnIndices.resize(numNZBlocks);
   std::vector<T> nzValues;
   nzValues.resize(numNZValues);
 
-  for (std::size_t elem = 0; elem < numNZValues; ++elem) {
-    // The bounds on row elements is already done. Directly index into vector.
-    const auto row = coo.rowIndices[elem];
-    const auto dstIndex = rowIndices[row] + countPerRow[row];
-    columnIndices[dstIndex] = coo.columnIndices[elem];
-    nzValues[dstIndex] = coo.nzValues[elem];
-    ++countPerRow[row];
+  for (std::size_t block = 0; block < numNZBlocks; ++block) {
+    const auto row = coo.rowIndices[block];
+    const auto dstIndex = rowIndices[row] + countPerRowBlock[row];
+    columnIndices[dstIndex] = coo.columnIndices[block];
+    std::copy(coo.nzValues.begin() + block * blockSize,
+              coo.nzValues.begin() + (block + 1) * blockSize,
+              nzValues.begin() + dstIndex * blockSize);
+    ++countPerRowBlock[row];
   }
 
-  auto csrMatrix = CSRMatrix<T>(nzValues, columnIndices, rowIndices);
+  auto csrMatrix =
+      CSRMatrix<T>(nzValues, columnIndices, rowIndices,
+                   {coo.getNumRowsInBlock(), coo.getNumColumnsInBlock()});
   canonicalizeCSR(csrMatrix);
   return csrMatrix;
 }
