@@ -18,6 +18,71 @@ template <> void ExprType<UnaryOp>::loc() {}
 template <> void ExprType<BinaryOp>::loc() {}
 template <> void ExprType<TernaryOp>::loc() {}
 
+double Const::getDataAsDouble() const {
+  char *rawData = this->getData();
+  const auto constType = this->getType();
+  if (constType == poplar::BOOL) {
+    return static_cast<double>(*reinterpret_cast<bool *>(rawData));
+  }
+  if (constType == poplar::CHAR) {
+    return static_cast<double>(*reinterpret_cast<char *>(rawData));
+  }
+  if (constType == poplar::UNSIGNED_CHAR) {
+    return static_cast<double>(*reinterpret_cast<unsigned char *>(rawData));
+  }
+  if (constType == poplar::SIGNED_CHAR) {
+    return static_cast<double>(*reinterpret_cast<signed char *>(rawData));
+  }
+  if (constType == poplar::SIGNED_CHAR) {
+    return static_cast<double>(*reinterpret_cast<signed char *>(rawData));
+  }
+  if (constType == poplar::UNSIGNED_SHORT) {
+    return static_cast<double>(*reinterpret_cast<unsigned short *>(rawData));
+  }
+  if (constType == poplar::SHORT) {
+    return static_cast<double>(*reinterpret_cast<signed short *>(rawData));
+  }
+  if (constType == poplar::UNSIGNED_INT) {
+    return static_cast<double>(*reinterpret_cast<unsigned int *>(rawData));
+  }
+  if (constType == poplar::INT) {
+    return static_cast<double>(*reinterpret_cast<signed int *>(rawData));
+  }
+  if (constType == poplar::UNSIGNED_LONG) {
+    return static_cast<double>(*reinterpret_cast<unsigned long *>(rawData));
+  }
+  if (constType == poplar::LONG) {
+    return static_cast<double>(*reinterpret_cast<signed long *>(rawData));
+  }
+  if (constType == poplar::FLOAT) {
+    return static_cast<double>(*reinterpret_cast<float *>(rawData));
+  }
+  if (constType == poplar::HALF) {
+    // The actual type behind the half should be a float.
+    assert(this->getTypeTraits().isFloat == true &&
+           this->getTypeTraits().size == sizeof(float));
+    return static_cast<double>(*reinterpret_cast<float *>(rawData));
+  }
+  if (constType == poplar::UNSIGNED_LONGLONG) {
+    auto typeValue = *reinterpret_cast<unsigned long long *>(rawData);
+    auto doubleValue = static_cast<double>(typeValue);
+    if (static_cast<unsigned long long>(doubleValue) != typeValue) {
+      throw poputil::poplibs_error("Error in conversion of value to double");
+    }
+    return doubleValue;
+  }
+  if (constType == poplar::LONGLONG) {
+    auto typeValue = *reinterpret_cast<signed long long *>(rawData);
+    auto doubleValue = static_cast<double>(typeValue);
+    if (static_cast<signed long long>(doubleValue) != typeValue) {
+      throw poputil::poplibs_error("Error in conversion of value to double");
+    }
+    return doubleValue;
+  }
+  throw poputil::poplibs_error("Constant type is not supported: " +
+                               this->getType().toString());
+}
+
 std::string Const::printValue() const {
   char *rawData = this->getData();
 

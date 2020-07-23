@@ -117,6 +117,8 @@ public:
 
   std::string printValue() const;
 
+  double getDataAsDouble() const;
+
   std::unique_ptr<Expr> clone() const override {
     return std::unique_ptr<Expr>(new Const(typeTraits, type, data.get()));
   }

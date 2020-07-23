@@ -453,6 +453,7 @@ add_subdirectory(popnn)
 add_subdirectory(popops)
 add_subdirectory(poprand)
 add_subdirectory(popsolver)
+
 if(TARGET popsparse)
   add_subdirectory(popsparse)
 endif()

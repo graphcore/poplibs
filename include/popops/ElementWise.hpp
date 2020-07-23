@@ -99,6 +99,10 @@ poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
  *    * `forceGenerateCodelet` (true, false) [=false]
  *
  *      See `enableGenerateCodelet`. Intended for testing only.
+ *
+ *    * `enableExpressionOptimizations' (true, false_ [=true])
+ *
+ *      Optimize expressions to simplify them where possible.
  */
 /**
  *  \param graph   The graph to update.

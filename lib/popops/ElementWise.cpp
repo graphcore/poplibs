@@ -68,6 +68,9 @@ struct MapOptions {
   // By default if there is only a single operation we will not fuse. For tests
   // we will need to force it on.
   bool forceGenerateCodelet = false;
+
+  // optimise expressions where possible
+  bool enableExpressionOptimizations = true;
 };
 
 MapOptions parseOptionFlags(const OptionFlags &options) {
@@ -79,7 +82,10 @@ MapOptions parseOptionFlags(const OptionFlags &options) {
       {"enableGenerateCodelet",
        poplibs::OptionHandler::createWithBool(mapOpts.enableGenerateCodelet)},
       {"forceGenerateCodelet",
-       poplibs::OptionHandler::createWithBool(mapOpts.forceGenerateCodelet)}};
+       poplibs::OptionHandler::createWithBool(mapOpts.forceGenerateCodelet)},
+      {"enableExpressionOptimizations",
+       poplibs::OptionHandler::createWithBool(
+           mapOpts.enableExpressionOptimizations)}};
   for (const auto &entry : options) {
     mapSpec.parse(entry.first, entry.second);
   }
@@ -2330,6 +2336,78 @@ getConstTile(const Graph &graph, const expr::Expr &expr,
   return constTiles;
 }
 
+// Recursively walk up the expression tree and replace expressions with
+// simplified expressions where possible
+struct ExprAndType {
+  std::unique_ptr<expr::Expr> expression;
+  poplar::Type type;
+};
+
+ExprAndType optimise(const expr::Expr &expr,
+                     const std::vector<poplar::Tensor> &ts) {
+  if (const expr::Const *c = expr.getAs<expr::Const>()) {
+    return {c->clone(), c->getType()};
+  } else if (const expr::PlaceHolder *p = expr.getAs<expr::PlaceHolder>()) {
+    return {p->clone(), getTensorFromPlaceHolder(*p, ts).elementType()};
+  } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
+    auto info = optimise(c->getLHS(), ts);
+    return {std::unique_ptr<expr::Expr>(
+                new expr::Cast(*info.expression, c->getRHSType())),
+            c->getRHSType()};
+  } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
+    auto info = optimise(u->getArg(), ts);
+    return {std::unique_ptr<expr::Expr>(
+                new expr::UnaryOp(u->getOpType(), *info.expression)),
+            info.type};
+  } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
+    const expr::Const *c = b->getRHS().getAs<expr::Const>();
+    auto infoLhs = optimise(b->getLHS(), ts);
+    if (b->getOpType() == BinaryOpType::POWER && c &&
+        (c->getType() == FLOAT || c->getType() == HALF)) {
+      double value = c->getDataAsDouble();
+      if (value == 0.5) {
+        return {std::unique_ptr<expr::Expr>(
+                    new expr::UnaryOp(UnaryOpType::SQRT, *infoLhs.expression)),
+                infoLhs.type};
+      } else if (value == -0.5) {
+        return {std::unique_ptr<expr::Expr>(
+                    new expr::UnaryOp(UnaryOpType::RSQRT, *infoLhs.expression)),
+                infoLhs.type};
+      } else if (value == 1) {
+        // This cast has the same source and destination types and should be
+        // a copy that gets elided.
+        return {std::unique_ptr<expr::Expr>(
+                    new expr::Cast(*infoLhs.expression, infoLhs.type)),
+                infoLhs.type};
+      } // Disabled because of failure with MAP expressions using inverse
+        // see TT23800
+      else if (value == -1 && false) {
+        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
+                    UnaryOpType::INVERSE, *infoLhs.expression)),
+                infoLhs.type};
+      } else if (value == 2) {
+        return {std::unique_ptr<expr::Expr>(new expr::UnaryOp(
+                    UnaryOpType::SQUARE, *infoLhs.expression)),
+                infoLhs.type};
+      }
+    }
+    auto argRhs = optimise(b->getRHS(), ts);
+    return {std::unique_ptr<expr::Expr>(new expr::BinaryOp(
+                b->getOpType(), *infoLhs.expression, *argRhs.expression)),
+            infoLhs.type};
+  } else if (const expr::TernaryOp *t = expr.getAs<expr::TernaryOp>()) {
+    auto arg0Info = optimise(t->getArg0(), ts);
+    auto arg1Info = optimise(t->getArg1(), ts);
+    auto arg2Info = optimise(t->getArg2(), ts);
+    return {std::unique_ptr<expr::Expr>(new expr::TernaryOp(
+                t->getOpType(), *arg0Info.expression, *arg1Info.expression,
+                *arg2Info.expression)),
+            arg0Info.type};
+  } else {
+    throw poputil::poplibs_error("Unsupported expression");
+  }
+}
+
 } // end anonymous namespace
 
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
@@ -2337,22 +2415,28 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            const OptionFlags &options) {
   auto opts = parseOptionFlags(options);
 
-  auto constTypes = getConstType(expr, ts);
+  std::unique_ptr<expr::Expr> newExpr;
+  if (opts.enableExpressionOptimizations) {
+    newExpr = optimise(expr, ts).expression;
+  }
+  const auto &optExpr = opts.enableExpressionOptimizations ? *newExpr : expr;
+
+  auto constTypes = getConstType(optExpr, ts);
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
   const auto canGenerateCodelet =
-      analyseExpr(expr, ts, opts.forceGenerateCodelet);
+      analyseExpr(optExpr, ts, opts.forceGenerateCodelet);
   if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
     return generateAndExecuteMappedOperations(
-        graph, expr, ts, constTypes, prog, false,
+        graph, optExpr, ts, constTypes, prog, false,
         canGenerateCodelet.allInputsScalar, debugPrefix);
   }
 
-  auto constTiles = getConstTile(graph, expr, ts);
+  auto constTiles = getConstTile(graph, optExpr, ts);
   const expr::Expr *inplaceExpr = nullptr;
-  return map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true,
-             true, false, inplaceExpr, opts)
+  return map(graph, optExpr, ts, prog, debugPrefix, constTypes, constTiles,
+             true, true, false, inplaceExpr, opts)
       .first;
 }
 
@@ -2360,30 +2444,36 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
                 const std::string &debugPrefix, const OptionFlags &options) {
   auto opts = parseOptionFlags(options);
-  auto constTypes = getConstType(expr, ts);
+  std::unique_ptr<expr::Expr> newExpr;
+  if (opts.enableExpressionOptimizations) {
+    newExpr = optimise(expr, ts).expression;
+  }
+  const auto &optExpr = opts.enableExpressionOptimizations ? *newExpr : expr;
+
+  auto constTypes = getConstType(optExpr, ts);
   // If the user hasn't overridden 'enableGenerateCodelet' to be false and all
   // of the inputs don't alias and are the same size we can generate a codelet
   // to execute this map.
   const auto canGenerateCodelet =
-      analyseExpr(expr, ts, opts.forceGenerateCodelet);
+      analyseExpr(optExpr, ts, opts.forceGenerateCodelet);
   if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
-    generateAndExecuteMappedOperations(graph, expr, ts, constTypes, prog, true,
-                                       canGenerateCodelet.allInputsScalar,
+    generateAndExecuteMappedOperations(graph, optExpr, ts, constTypes, prog,
+                                       true, canGenerateCodelet.allInputsScalar,
                                        debugPrefix);
     return;
   }
 
-  auto constTiles = getConstTile(graph, expr, ts);
+  auto constTiles = getConstTile(graph, optExpr, ts);
   const expr::Expr *inPlaceExpr = nullptr;
   const bool doInPlace = !ts[0].containsAliases() && !ts[0].containsConstant();
   if (doInPlace) {
     // As the tree is traversed, find the last expression which uses the
     // tensor used for in-place operation as a placeholder
-    map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true, false,
-        false, inPlaceExpr, opts);
+    map(graph, optExpr, ts, prog, debugPrefix, constTypes, constTiles, true,
+        false, false, inPlaceExpr, opts);
   }
-  auto t = map(graph, expr, ts, prog, debugPrefix, constTypes, constTiles, true,
-               true, doInPlace, inPlaceExpr, opts);
+  auto t = map(graph, optExpr, ts, prog, debugPrefix, constTypes, constTiles,
+               true, true, doInPlace, inPlaceExpr, opts);
   // If in-place operations were not performed, then copy the final result
   // into the tensor supplied.
   // TODO T12943 Optimisation: If placeholder _1 is not used, a copy may be done
