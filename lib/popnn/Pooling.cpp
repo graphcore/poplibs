@@ -580,10 +580,18 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
   const auto poolOptions = parsePoolOptions(options);
   checkWindowParameters(poolParams);
 
-  logging::debug("Pool({}x({}x{}), kernel {}, name='{}'",
-                 poolParams.inputFieldShape, poolParams.batchSize,
-                 poolParams.numChannels, poolParams.kernelShape, debugPrefix);
-  logging::debug("Pool params:\n{}", poolParams);
+  logging::info("pool");
+  logging::info("  method={} type={} name=\"{}\"",
+                asString(poolParams.poolingType), poolParams.dType,
+                debugPrefix);
+  logging::info("  input={}x({}x{}) padding={}/{}", poolParams.inputFieldShape,
+                poolParams.batchSize, poolParams.numChannels,
+                poolParams.inputTruncationOrPaddingLower,
+                poolParams.inputTruncationOrPaddingUpper);
+  logging::info("  kernel={}", poolParams.kernelShape);
+  logging::info("  output={}x({}x{}) stride={}",
+                poolParams.getOutputFieldShape(), poolParams.batchSize,
+                poolParams.numChannels, poolParams.stride);
 
   const auto inputFieldShape = getInputFieldShape(in_);
 
