@@ -114,7 +114,8 @@ int main(int argc, char **argv) {
     std::string planConstraintsFile;
 
     Pass pass = Pass::BOTH;
-    bool ignoreData = false;
+    bool ignoreData;
+    bool useUnstableFormat;
   };
 
   Options opts;
@@ -130,6 +131,7 @@ int main(int argc, char **argv) {
      po::value<decltype(opts.jsonProfileOut)>(&opts.jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
+    ("use-unstable-format", "Use the unstable profile format")
     ("show-execution-steps",
      po::value<bool>(&opts.showExecutionSteps)
        ->default_value(opts.showExecutionSteps),
@@ -171,7 +173,6 @@ int main(int argc, char **argv) {
      po::value<Pass>(&opts.pass)->default_value(opts.pass),
      "Which pass of the embedding layer to perform: fwd | wu | both")
     ("ignore-data",
-     po::value<bool>(&opts.ignoreData)->default_value(opts.ignoreData),
      "Don't upload and download the results from the device. Note that this "
      "means the result is not validated against the model.")
     ("use-embedding-plan",
@@ -223,6 +224,9 @@ int main(int argc, char **argv) {
     throw std::logic_error("Both grain-size and use-embedding-plan specified "
                            "but are mutually exclusive");
   }
+
+  opts.ignoreData = vm.count("ignore-data");
+  opts.useUnstableFormat = vm.count("use-unstable-format");
 
   const std::vector<std::size_t> &numIndices = opts.numIndices;
 
@@ -350,6 +354,9 @@ int main(int argc, char **argv) {
   if (opts.profile || opts.jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
     engineOptions.set("debug.computeInstrumentationLevel", "device");
+    if (opts.useUnstableFormat) {
+      engineOptions.set("profiler.useUnstableFormat", "true");
+    }
   }
 
   logging::info("Create engine");

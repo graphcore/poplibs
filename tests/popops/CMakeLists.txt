@@ -775,7 +775,7 @@ add_multitarget_test(
                  --shape={100000,200}
                  --num-indices=1440
                  --use-embedding-plan=1
-                 --ignore-data=1
+                 --ignore-data
          VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 add_multitarget_test(
@@ -785,7 +785,7 @@ add_multitarget_test(
                  --shape={1000,200}
                  --num-indices=18000
                  --use-embedding-plan=1
-                 --ignore-data=1
+                 --ignore-data
          VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 # This test is too slow and fails on MACS
@@ -796,7 +796,7 @@ add_multitarget_test(
                  #--shape={1000,200}
                  #--num-indices=40001
                  #--use-embedding-plan=1
-                 #--ignore-data=1
+                 #--ignore-data
          #VARIANTS ${IPUMODEL_VARIANTS};Hw)
 
 # This will also split the unsliced dim
@@ -807,7 +807,7 @@ add_multitarget_test(
                  --shape={5000,100}
                  --num-indices=1440
                  --use-embedding-plan=1
-                 --ignore-data=1
+                 --ignore-data
                  --tiles-per-ipu=30
                  --plan-constraints={\"slicedDimSplit\":\"6\"})
 
@@ -819,7 +819,7 @@ add_multitarget_test(
                  --shape={100,200}
                  --num-indices=450
                  --use-embedding-plan=1
-                 --ignore-data=1
+                 --ignore-data
                  --tiles-per-ipu=30
                  --plan-constraints={\"lookupSplit\":\"3\"})
 
@@ -830,7 +830,7 @@ add_multitarget_test(
                  --shape={100,200}
                  --num-indices=450
                  --use-embedding-plan=1
-                 --ignore-data=1
+                 --ignore-data
                  --tiles-per-ipu=30
                  --plan-constraints={\"unslicedDimSplit\":\"10\"})
 

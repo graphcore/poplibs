@@ -329,17 +329,18 @@ function(add_benchmark)
 
   if (NOT DEFINED BENCHMARK_PARALLEL_LEVEL)
     set(BENCHMARK_LABEL "benchmarks")
-  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 2)
-    set(BENCHMARK_LABEL "benchmarks_j2")
   elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 4)
     set(BENCHMARK_LABEL "benchmarks_j4")
   elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 8)
     set(BENCHMARK_LABEL "benchmarks_j8")
   else()
-    message(FATAL_ERROR "Cannot set a parallel level that is not 2, 4 or 8 as "
+    message(FATAL_ERROR "Cannot set a parallel level that is not 4 or 8 as "
                         "buildbot is currently only configured to split the "
                         "tasks at that granularity.")
   endif()
+
+  # common args used by all the benchmarks
+  list(APPEND BENCHMARK_PARAMS --ignore-data --use-unstable-format)
 
   add_multitarget_test(
     NAME "${BENCHMARK_NAME}_benchmark"
@@ -357,7 +358,7 @@ function(add_conv_benchmark)
   cmake_parse_arguments(CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
 
   # common arguments for all conv benchmarks
-  list(APPEND CONV_BENCHMARK_PARAMS --bias 0 --ignore-data)
+  list(APPEND CONV_BENCHMARK_PARAMS --bias 0)
   add_benchmark(
       NAME ${CONV_BENCHMARK_NAME}
       PARALLEL_LEVEL ${CONV_BENCHMARK_PARALLEL_LEVEL}
@@ -369,7 +370,6 @@ function(add_oct_conv_benchmark)
   cmake_parse_arguments(OCT_CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
 
   # common arguments for all oct conv benchmarks
-  list(APPEND OCT_CONV_BENCHMARK_PARAMS --ignore-data )
   list(APPEND OCT_CONV_BENCHMARK_PARAMS --pool-optimize-for-speed=true)
   add_benchmark(
       NAME ${OCT_CONV_BENCHMARK_NAME}
@@ -382,7 +382,7 @@ function(add_fc_benchmark)
   cmake_parse_arguments(FC_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
 
   # common arguments for all fc benchmarks
-  list(APPEND FC_BENCHMARK_PARAMS --bias 0 --ignore-data)
+  list(APPEND FC_BENCHMARK_PARAMS --bias 0)
   add_benchmark(
       NAME ${FC_BENCHMARK_NAME}
       PARALLEL_LEVEL ${FC_BENCHMARK_PARALLEL_LEVEL}
@@ -393,8 +393,6 @@ endfunction()
 function(add_embedding_benchmark)
   cmake_parse_arguments(EMBED_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
 
-  # common arguments for all embedding benchmarks
-  list(APPEND EMBED_BENCHMARK_PARAMS --ignore-data 1)
   add_benchmark(
       NAME ${EMBED_BENCHMARK_NAME}
       PARALLEL_LEVEL ${EMBED_BENCHMARK_PARALLEL_LEVEL}
@@ -405,8 +403,6 @@ endfunction()
 function(add_gemm_benchmark)
   cmake_parse_arguments(GEMM_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
 
-  # common arguments for all gemm benchmarks
-  list(APPEND GEMM_BENCHMARK_PARAMS --ignore-data)
   add_benchmark(
       NAME ${GEMM_BENCHMARK_NAME}
       PARALLEL_LEVEL ${GEMM_BENCHMARK_PARALLEL_LEVEL}
@@ -417,7 +413,6 @@ endfunction()
 function(add_reduction_benchmark)
   cmake_parse_arguments(REDUCTION_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
 
-  list(APPEND REDUCTION_BENCHMARK_PARAMS --ignore-data)
   add_benchmark(
       NAME ${REDUCTION_BENCHMARK_NAME}
       PARALLEL_LEVEL ${REDUCTION_BENCHMARK_PARALLEL_LEVEL}
@@ -428,7 +423,6 @@ endfunction()
 function(add_pooling_benchmark)
   cmake_parse_arguments(POOLING_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
 
-  list(APPEND POOLING_BENCHMARK_PARAMS --ignore-data)
   add_benchmark(
       NAME ${POOLING_BENCHMARK_NAME}
       PARALLEL_LEVEL ${POOLING_BENCHMARK_PARALLEL_LEVEL}
@@ -483,12 +477,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
         set(NAME "gemm_${m}x${k}x${n}")
 
         unset(GEMM_EXTRA_ARGS)
-        if(NAME STREQUAL "gemm_600x256x30000" OR
-           NAME STREQUAL "gemm_600x512x20000" OR
-           NAME STREQUAL "gemm_600x512x30000" OR
-           NAME STREQUAL "gemm_1000x256x20000" OR
-           NAME STREQUAL "gemm_1000x256x30000" OR
-           NAME STREQUAL "gemm_1000x512x20000" OR
+        if(NAME STREQUAL "gemm_1000x256x30000" OR
            NAME STREQUAL "gemm_1000x512x30000")
           set(GEMM_EXTRA_ARGS PARALLEL_LEVEL 8)
         endif()
@@ -508,14 +497,13 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 4
                  --output-channels 64
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm64L0_projection
           PARAMS --field {56,56}
                  --kernel-size 1
                  --input-channels 64
                  --output-channels 256
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm64L0
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -534,24 +522,21 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --kernel-size 1
                  --input-channels 256
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0_projection
           PARAMS --field {56,56}
                  --kernel-size 1
                  --stride 2
                  --input-channels 256
                  --output-channels 512
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0A0
           PARAMS --field {56,56}
                  --kernel-size 1
                  --stride 2
                  --input-channels 256
                  --output-channels 128
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm128L0A1
           PARAMS --field {28,28}
                  --kernel-size 3
@@ -564,23 +549,20 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --kernel-size 1
                  --input-channels 128
                  --output-channels 512
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm128L1A0
           PARAMS --field {28,28}
                  --kernel-size 1
                  --input-channels 512
                  --output-channels 128
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm256L0_projection
           PARAMS --field {28,28}
                  --kernel-size 1
                  --stride 2
                  --input-channels 512
                  --output-channels 1024
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm256L0A0
           PARAMS --field {28,28}
                  --kernel-size 1
@@ -653,23 +635,21 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --batch-size 4
                  --alpha-in 0
                  --alpha-out 0.25
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0_projection_a25
           PARAMS --field {56,56}
                  --kernel-size 1
                  --input-channels 64
                  --output-channels 256
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 4)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0_a25
           PARAMS --field {56,56}
                  --kernel-size 1
                  --input-channels 64
                  --output-channels 64
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0A1_a25
           PARAMS --field {56,56}
                  --kernel-size 3
@@ -677,16 +657,14 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 64
                  --output-channels 64
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L1A0_a25
           PARAMS --field {56,56}
                  --kernel-size 1
                  --input-channels 256
                  --output-channels 64
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0_projection_a25
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -694,8 +672,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 256
                  --output-channels 512
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 4)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0A0_a25
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -703,8 +680,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 256
                  --output-channels 128
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0A1_a25
           PARAMS --field {28,28}
                  --kernel-size 3
@@ -712,24 +688,21 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 128
                  --output-channels 128
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 4)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L0A2_a25
           PARAMS --field {28,28}
                  --kernel-size 1
                  --input-channels 128
                  --output-channels 512
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm128L1A0_a25
           PARAMS --field {28,28}
                  --kernel-size 1
                  --input-channels 512
                  --output-channels 128
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0_projection_a25
           PARAMS --field {28,28}
                  --kernel-size 1
@@ -737,8 +710,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 512
                  --output-channels 1024
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0A0_a25
           PARAMS --field {28,28}
                  --kernel-size 1
@@ -746,8 +718,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 512
                  --output-channels 256
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0A1_a25
           PARAMS --field {16,16}
                  --kernel-size 3
@@ -755,16 +726,14 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 256
                  --output-channels 256
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L0A2_a25
           PARAMS --field {16,16}
                  --kernel-size 1
                  --input-channels 256
                  --output-channels 1024
                  --batch-size 4
-                 --alpha 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm256L1A0_a25
           PARAMS --field {16,16}
                  --kernel-size 1
@@ -827,7 +796,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 32
                  --output-channels 32
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME inception_tr_bs4_layer5
           PARAMS --field {147,147}
                  --kernel-size 3
@@ -842,14 +811,14 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 64
                  --output-channels 80
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME inception_tr_bs4_layer10
           PARAMS --field {73,73}
                  --kernel-size 3
                  --input-channels 80
                  --output-channels 192
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME inception_tr_bs4_i1_a1x1
           PARAMS --field {35,35}
                  --kernel-size 1
@@ -868,8 +837,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --padding 2
                  --input-channels 48
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_i1_db1x1
           PARAMS --field {35,35}
                  --kernel-size 1
@@ -920,8 +888,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --stride 2
                  --input-channels 288
                  --output-channels 384
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_i4_b3x3b
           PARAMS --field {35,35}
                  --kernel-size 3
@@ -1076,8 +1043,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --padding 1
                  --input-channels 448
                  --output-channels 384
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_i10_a1x1
           PARAMS --field {8,8}
                  --kernel-size 1
@@ -1129,7 +1095,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 64
                  --output-channels 128
                  --batch-size 4
-          PARALLEL_LEVEL 2)
+          PARALLEL_LEVEL 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v2L1
           PARAMS --field {112,112}
                  --kernel-size 3
@@ -1137,7 +1103,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 128
                  --output-channels 128
                  --batch-size 4
-          PARALLEL_LEVEL 2)
+          PARALLEL_LEVEL 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v3L0
           PARAMS --field {56,56}
                  --kernel-size 3
@@ -1145,7 +1111,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 128
                  --output-channels 256
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME vgg16_tr_bs4_v3L1
           PARAMS --field {56,56}
                  --kernel-size 3
@@ -1153,7 +1119,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 256
                  --output-channels 256
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME vgg16_tr_bs4_v4L0
           PARAMS --field {28,28}
                  --kernel-size 3
@@ -1161,7 +1127,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 256
                  --output-channels 512
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME vgg16_tr_bs4_v4L1
           PARAMS --field {28,28}
                  --kernel-size 3
@@ -1169,7 +1135,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 512
                  --output-channels 512
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME vgg16_tr_bs4_v5L0
           PARAMS --field {14,14}
                  --kernel-size 3
@@ -1189,15 +1155,14 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 4
                  --output-channels 64
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME alexnet_tr_bs4_layer4
           PARAMS --field {27,27}
                  --kernel-size 5
                  --padding 2
                  --input-channels 64
                  --output-channels 192
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME alexnet_tr_bs4_layer7
           PARAMS --field {13,13}
                  --kernel-size 3
@@ -1209,8 +1174,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --kernel-size 3
                  --input-channels 384
                  --output-channels 256
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME alexnet_tr_bs4_layer11
           PARAMS --field {13,13}
                  --kernel-size 3
@@ -1227,8 +1191,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --stride 2
                  --input-channels 4
                  --output-channels 32
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_depthwise
           PARAMS --field {112,112}
                  --kernel-size 3
@@ -1237,14 +1200,13 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --output-channels 1
                  --conv-groups 32
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME mobilenet_conv_pw_1_1
           PARAMS --field {112,112}
                  --kernel-size 1
                  --input-channels 32
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_depthwise_1
           PARAMS --field {112,112}
                  --kernel-size 3
@@ -1254,14 +1216,13 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --output-channels 1
                  --conv-groups 64
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME mobilenet_conv_pw_2_1
           PARAMS --field {56,56}
                  --kernel-size 1
                  --input-channels 64
                  --output-channels 128
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_depthwise_2
           PARAMS --field {56,56}
                  --kernel-size 3
@@ -1270,14 +1231,13 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --output-channels 1
                  --conv-groups 128
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
   add_conv_benchmark(NAME mobilenet_conv_pw_3_1
           PARAMS --field {56,56}
                  --kernel-size 1
                  --input-channels 128
                  --output-channels 128
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_depthwise_3
           PARAMS --field {56,56}
                  --kernel-size 3
@@ -1286,8 +1246,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1
                  --output-channels 1
                  --conv-groups 128
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_conv_pw_4_1
           PARAMS --field {28,28}
                  --kernel-size 1
@@ -1301,8 +1260,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1
                  --output-channels 1
                  --conv-groups 256
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_conv_pw_5_1
           PARAMS --field {28,28}
                  --kernel-size 1
@@ -1317,8 +1275,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1
                  --output-channels 1
                  --conv-groups 256
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_conv_pw_6_1
           PARAMS --field {14,14}
                  --kernel-size 1
@@ -1368,13 +1325,14 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1024
                  --output-channels 1024
                  --batch-size 4)
+
   add_conv_benchmark(NAME conv_5x200_1_in_100_out_bs1440
           PARAMS --field {15,200}
                  --kernel-size {5,200}
                  --input-channels 1
                  --output-channels 100
                  --batch-size 1440
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 8)
 
   # fc and embedding layer benchmarks (batch size 16). each name is derived from
   # the layer naming
@@ -1396,16 +1354,13 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --output-size 100)
   add_embedding_benchmark(NAME embedding_small
           PARAMS --shape {1000,200}
-                 --num-indices 21600
-          PARALLEL_LEVEL 8)
+                 --num-indices 21600)
   add_embedding_benchmark(NAME embedding_vlarge
           PARAMS --shape {100000,200}
-                 --num-indices 1440
-          PARALLEL_LEVEL 8)
+                 --num-indices 1440)
   add_embedding_benchmark(NAME embedding_vlarge_large_indices
           PARAMS --shape {100000,200}
-                 --num-indices 11520
-          PARALLEL_LEVEL 8)
+                 --num-indices 11520)
 
   # Small fully connected layers at low batch sizes (half and float).
   foreach(type half float)
@@ -1449,8 +1404,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
       add_fc_benchmark(NAME bert_kqv_${s}x${h}x${h3}
               PARAMS --input-size ${h}
                      --output-size ${h3}
-                     --batch-size ${s}
-              PARALLEL_LEVEL 8)
+                     --batch-size ${s})
       add_fc_benchmark(NAME bert_grouped_${k}x${s}x64x${s}
               PARAMS --input-size 64
                      --output-size ${s}
@@ -1459,18 +1413,15 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
       add_fc_benchmark(NAME bert_proj_${s}x${h}x${h}
               PARAMS --input-size ${h}
                      --output-size ${s}
-                     --batch-size ${h}
-              PARALLEL_LEVEL 8)
+                     --batch-size ${h})
       add_fc_benchmark(NAME bert_ffn1_${s}x${h}x${fx}
               PARAMS --input-size ${h}
                      --output-size ${fx}
-                     --batch-size ${s}
-              PARALLEL_LEVEL 8)
+                     --batch-size ${s})
       add_fc_benchmark(NAME bert_ffn2_${s}x${fx}x${h}
               PARAMS --input-size ${fx}
                      --output-size ${h}
-                     --batch-size ${s}
-              PARALLEL_LEVEL 8)
+                     --batch-size ${s})
     endforeach()
   endforeach()
 

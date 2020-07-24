@@ -114,6 +114,7 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
+    ("use-unstable-format", "Use the unstable profile format")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("channels", po::value<unsigned>(&chans)->required(),
@@ -189,8 +190,12 @@ int main(int argc, char **argv) {
       return 1;
     }
 
+    const bool useUnstableFormat = vm.count("use-unstable-format");
     if (vm.count("profile") || jsonProfileOut) {
       engineOptions.set("debug.instrumentCompute", "true");
+      if (useUnstableFormat) {
+        engineOptions.set("profiler.useUnstableFormat", "true");
+      }
     }
     if (isSimulator(deviceType) && numIPUs > 1) {
       engineOptions.set("debug.globalExchangeViaDebug", "true");

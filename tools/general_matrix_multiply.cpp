@@ -110,6 +110,7 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
+    ("use-unstable-format", "Use the unstable profile format")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("m", po::value<unsigned>(&m)->required(),
@@ -219,6 +220,7 @@ int main(int argc, char **argv) {
   const bool showExecutionSteps = vm.count("show-execution-steps");
   const bool showVarStorage = vm.count("show-var-storage");
   const bool ignoreData = vm.count("ignore-data");
+  const bool useUnstableFormat = vm.count("use-unstable-format");
 
   const bool compileIPUCode = true;
   auto device =
@@ -343,6 +345,9 @@ int main(int argc, char **argv) {
   auto engineOptions = defaultEngineOptions;
   if (profile || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
+    if (useUnstableFormat) {
+      engineOptions.set("profiler.useUnstableFormat", "true");
+    }
   }
 
   Sequence ctrlProg;
