@@ -1,22 +1,6 @@
 {
     "tests": [
         {
-            "name": "single conv layer - IpuModel",
-            "program": "${ROOT_DIR}/poplibs/tools/single_conv_layer_random.py",
-            "args": [
-                "--seed", "${TEST_SEED}",
-                "--device-type", "IpuModel",
-                "--binary", "${BUILD_DIR}/build/poplibs/tools/single_conv_layer"
-            ],
-            "testArgs": {
-                "timeout": 1200,
-                "skip": [77, 245],
-                "bailout": 10
-            },
-            "weight": 4.5,
-            "parallel": 40
-        },
-        {
             "name": "single conv layer - Sim",
             "program": "${ROOT_DIR}/poplibs/tools/single_conv_layer_random.py",
             "args": [
@@ -29,7 +13,7 @@
                 "skip": [77, 245],
                 "bailout": 10
             },
-            "weight": 4.5,
+            "weight": 9,
             "parallel": 40
         },
         {
