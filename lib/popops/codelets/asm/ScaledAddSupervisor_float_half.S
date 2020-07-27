@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "ScaledAddSupervisor.inc"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
@@ -52,49 +53,15 @@
   #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 16
 #endif
 
-// create a new vertex state on the supervisor stack that has the input values
-// preprocessed for all of the workers to use.
-#define SV_STATE_DATA_OFFSET 0
-#define SV_STATE_COUNT_OFFSET 4
-#define SV_STATE_REMM1_OFFSET 8
-#define SV_STATE_FINAL_OFFSET 12
-#define SV_STATE_SCALES_OFFSET 16
-#define SV_STATE_DATA_B_OFFSET 20
-#define SV_STATE_MEM_CONSTRAINTS 24 // Constraints unused here, but space allowed anyhow in shared code
-#define SV_STATE_SCALEB_OFFSET   28 // Unused here, space needed in shared code
-
-#define SV_STATE_SIZE 32
-
-// total space required on the stack
-#define STACK_SIZE (SV_STATE_SIZE)
 
 // constants
 #define SCALED_PTR32_SHL_BITS 2
 #define SCALED_PTR64_SHL_BITS 3
 
-// to avoid sub-word writes we must make sure that each worker processes
-// a number of elements so that we fall exactly into a 64-bit load. for floats
-// this is 8/sizeof(float) = 2 and 8/sizeof(half) = 4
-#define LOG2_FLOAT_ATOM_SIZE 1
-#define LOG2_HALF_ATOM_SIZE 2
-
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
-
 // supervisor variables
 #define vertexPtr m0
-#define countD2 m1
-#define final m2
-
-#define remM1 m3
 
 #define mscratch m4
-#define mscratch2 m5
-
-#define mworkerFunction m6
-
-#define log2AtomSize m7
-#define atomSizeMask m8
-#define mscratch3 m6
 
 
 //******************************************************************************
@@ -126,18 +93,18 @@ VERTEX(\LABEL):
 .endif
   // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(\WORKER_FUNCTION\()).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(\WORKER_FUNCTION\()).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 .if \TENSOR
   // load factor using its pointer - here to avoid pipeline hit
 .if \FLOAT_SCALE
-  ld32  $mscratch, $mzero, $mscratch, 0
+  ld32  $sv_scale, $mzero, $mscratch, 0
 .else
-  ldz16 $mscratch, $mzero, $mscratch, 0
+  ldz16 $sv_scale, $mzero, $mscratch, 0
 .endif
 .endif
   // Branch, divide work, store vertex state for the worker and then call the workers
@@ -157,12 +124,7 @@ SUPERVISOR_ENTRY float_half_float_true_false 1 0 float_scale
 
 // clear supervisor variables
 #undef vertexPtr
-#undef dataPtr
-#undef countD2
-#undef final
-#undef remM1
 #undef mscratch
-#undef mscratch2
 
 //******************************************************************************
 // worker variables

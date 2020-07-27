@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "ScaledAddSupervisor.inc"
 
 #define VERTEX_2D_ADD_SCALE_FLOAT_CONST_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_true_true
 #define VERTEX_2D_ADD_SCALE_FLOAT_TENSOR_FAST __runCodelet_popops__ScaledAdd2D___half_half_float_false_true
@@ -28,8 +29,6 @@
 //******************************************************************************
 // Common definitions and subroutines used by both the 2D and Supervisor cases
 //******************************************************************************
-
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
 
 #ifdef VECTOR_AVAIL_SHORT_SPAN
 #define SHORT_SPAN_PTR_SIZE 20
@@ -414,53 +413,22 @@ VERTEX_2D_SCALE_FLOAT_COMMON:
 #define VERTEX_TOLERANCE_OFFSET_SV 16
 #endif
 
-// create a new vertex state on the supervisor stack that has the input values
-// preprocessed for all of the workers to use.
-#define SV_STATE_DATA_OFFSET 0
-#define SV_STATE_COUNT_OFFSET 4
-#define SV_STATE_REMM1_OFFSET 8
-#define SV_STATE_FINAL_OFFSET 12
-#define SV_STATE_SCALES_OFFSET 16
-#define SV_STATE_DATA_B_OFFSET 20
-#define SV_STATE_MEM_CONSTRAINTS 24
-#define SV_STATE_SCALEB_OFFSET   28 // Not used in this file
-
-#define SV_STATE_SIZE 32
-
-// total space required on the stack
-#define STACK_SIZE (SV_STATE_SIZE)
-
-// to avoid sub-word writes we must make sure that each worker processes
-// a number of elements so that we fall exactly into a 64-bit load. for floats
-// this is 8/sizeof(float) = 2 and 8/sizeof(half) = 4
-#define LOG2_FLOAT_ATOM_SIZE 1
-#define LOG2_HALF_ATOM_SIZE 2
 
 // Integer variables.
 // Registers prefixed tmp_ indicate the same register being used but as a temp register - not
 // with the meaning that the name implies.
 #define vertexPtr m0
-#define countD2 m1
 #define tmp_countD2 m1
 #define final m2
 #define remM1 m3
 #define tmp_remM1 m3
 #define factorPtr m4
-#define factorPtr m4
-#define mworkerFunction m6
-#define log2AtomSize m7
 #define tmp_log2AtomSize m7
-#define atomSizeMask m8
-#define tmp_atomSizeMask m8
 #define tmp_atomSizeMask m8
 #define workerIdM1 m8
 
 // Float variables
 #define factor a7
-
-#define memConstraints m2
-// Flag for memConstraints
-#define MEM_CONSTRAINTS_MASK 0x1
 
 #define LC_SET 2
 #define LC_MASK 1
@@ -477,11 +445,11 @@ DEF_STACK_SIZE_OWN  STACK_SIZE  .text.VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 .align 4
 .supervisor
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW:
-   setzi $memConstraints, 0
+   setzi $sv_memConstraints, 0
    bri   1f
 
 VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // Use a worker to test if the float scale is accurate enough to use when cast
   // to a half. Don't stress too much about pipe hits as we would only pad it with
@@ -510,17 +478,17 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
 #else
   ld32 $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/4
 #endif
-  ld32  $factorPtr, $mzero, $factorPtr, 0
+  ld32  $sv_scale, $mzero, $factorPtr, 0
   // Based on the returned isHalfAccurate flag being zero, we could select the
   // path that casts everything to float or casts scale to half.
   // Load scale - the same in both cases
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 
   // Set up assuming that we'll do the all half version
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half_half_float_continue)
+  setzi $sv_workerFunction, VERTEX(half_half_float_continue)
 
 
   // Done all we can while the worker runs.  Now wait for it to complete
@@ -532,10 +500,10 @@ VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_FAST:
 
   brnz $tmp_remM1, VERTEX(supervisor)  // 6 Cycles if branch taken, 1 otherwise
 
-  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
+  setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_TENSOR, .-VERTEX_SV_ADD_SCALE_FLOAT_TENSOR_SLOW
 
@@ -550,15 +518,15 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 .worker
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW:
 VERTEX_SV_ADD_SCALE_FLOAT_CONST_FAST:
-  ld32  $factorPtr, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
+  ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
 
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_CONST
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX_SV_SCALE_FLOAT_COMMON_CONST
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX_SV_SCALE_CONST, .-VERTEX_SV_ADD_SCALE_FLOAT_CONST_SLOW
 
@@ -665,13 +633,9 @@ VERTEX_SV_SCALE_FLOAT_COMMON_CONST:
 
 // Undefine Supervisor register definitions
 #undef vertexPtr
-#undef countD2
 #undef final
 #undef remM1
 #undef factorPtr
-#undef mworkerFunction
-#undef log2AtomSize
-#undef atomSizeMask
 #undef workerIdM1
 
 

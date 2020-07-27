@@ -39,6 +39,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "ScaledAddSupervisor.inc"
 
 #define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS __runCodelet_popops__aXPlusbYSupervisor___half_float_false_false
 #define VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR __runCodelet_popops__aXPlusbYSupervisor___half_float_false_true
@@ -239,20 +240,6 @@ Constant or tensor scaleA & scaleB values:
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 
 
-// The 'VERTEX(supervisor)' code will create a record on the stack with this
-// structure, containig the parameters for all worker threads. So these
-// definitions must match those those in ScaledAddSupervisor_fp.S
-#define SV_STATE_DATA_OFFSET      0 // X ('A') data ptr
-#define SV_STATE_COUNT_OFFSET     4 // All workers do at least 'count' elements.
-#define SV_STATE_REMM1_OFFSET     8 // Workers [0..remM1] will do count+2 elems
-#define SV_STATE_FINAL_OFFSET    12 // Last worker adds this many elems (0 or 1)
-#define SV_STATE_SCALEA_OFFSET   16 // scaleA value
-#define SV_STATE_DATA_B_OFFSET   20 // Y ('B') data ptr
-#define SV_STATE_MEM_CONSTRAINTS 24 // used only if we call the HALF/HALF worker
-#define SV_STATE_SCALEB_OFFSET   28 // scaleB value
-
-#define SV_STATE_SIZE            32
-
 // The checkAccuracyWorker worker thread uses a record on the supervisor stack
 // with this format for in/out parameters
 #define CHECK_ACCURACY_SCALE_A_OFFSET    0
@@ -262,23 +249,12 @@ Constant or tensor scaleA & scaleB values:
 #define CHECK_ACCURACY_RESULT_OFFSET     0 // Result
 #define CHECK_ACCURACY_SCALE_AB_OFFSET   4 // Scale values converted to HALF
 
+// Note that this size must be less than STACK_SIZE (in ScaledAddSupervisor.inc)
 #define CHECK_STATE_SIZE                12
 
-// Total space required on the stack. Max of SV_STATE_SIZE, CHECK_STATE_SIZE
-#define STACK_SIZE (SV_STATE_SIZE)
 
 
-
-// REGISTER NAMING FOR THE SUPERVISOR THREAD
-// These registers are inputs for the 'VERTEX(supervisor)' code so they must
-// defined (m0, m1 etc) as the code there expects them.
 #define vertexPtr       m0 // Standard vertex state pointer
-#define count           m1 // Total count (countD2 in VERTEX(supervisor))
-#define memConstraints  m2 // used only if calling the HALF/HALF version
-#define scaleA          m4 // scaleA val (mscratch in VERTEX(supervisor))
-#define mworkerFunction m6 // pointer to our worker function
-#define log2AtomSize    m7 // To specify that 'atom' size=2 (2 halves) = 1
-#define atomSizeMask    m8 // To specify that 'atom' size=2 (2 halves) = 0x1
 
 //The scaleB value is not handled by 'VERTEX(supervisor)'
 #define scaleB          m3
@@ -297,19 +273,19 @@ Constant or tensor scaleA & scaleB values:
 DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ld32    $scaleA, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_CONST_OFFSET/4
+  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_CONST_OFFSET/4
   ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_CONST_OFFSET/4
-  ldz16   $count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
 #else
-  ld32    $scaleA, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
+  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
   ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/4
-  ldz16   $count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
 #endif
   add     $sp, $sp, -STACK_SIZE
-  setzi   $log2AtomSize, 1
-  setzi   $atomSizeMask, 1
-  setzi   $mworkerFunction, aXplusbY_half_float_worker
-  // Store the scaleB value, which is not handled by VERTEX(supervisor) in the
+  setzi   $sv_log2AtomSize, 1
+  setzi   $sv_atomSizeMask, 1
+  setzi   $sv_workerFunction, aXplusbY_half_float_worker
+  // Store the scaleB value, which is not handled by VERTEX(supervisor), in the
   // record on the stack for the worker
   st32    $scaleB, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
   bri     VERTEX(supervisor)
@@ -323,44 +299,44 @@ FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_CONST
 // Instructions are moved around and nops added to avoid pipeline stalls
 DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
 ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
-  setzi   $memConstraints, 1
+  setzi   $sv_memConstraints, MEM_CONSTRAINTS_MASK
   bri     1f
 FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS_MEMCONSTR
 
 DEF_STACK_USAGE  STACK_SIZE  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
 ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
-  setzi   $memConstraints, 0
+  setzi   $sv_memConstraints, 0
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
-  ldz16   $scaleA, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_TENS_OFFSET/2
+  ldz16   $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_TENS_OFFSET/2
   ldz16   $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_TENS_OFFSET/2
   ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
-  ldz16   $count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
   add     $sp, $sp, -STACK_SIZE
   nop
-  shl     $scaleA, $scaleA, SCALED_PTR64_SHIFTS
+  shl     $sv_scale, $sv_scale, SCALED_PTR64_SHIFTS
   shl     $scaleB, $scaleB, SCALED_PTR64_SHIFTS
   setzi   $memBase, TMEM_REGION0_BASE_ADDR
   nop
   nop
   nop
 #else
-  ld32    $scaleA, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
+  ld32    $sv_scale, $vertexPtr, $mzero, VERTEX_SV_SCALE_A_OFFSET/4
   ld32    $scaleB, $vertexPtr, $mzero, VERTEX_SV_SCALE_B_OFFSET/4
   ld32    $tolerance, $vertexPtr, $mzero, VERTEX_SV_TOLERANCE_OFFSET/4
   add     $sp, $sp, -STACK_SIZE
-  ldz16   $count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
+  ldz16   $sv_count, $vertexPtr, $mzero, VERTEX_SV_COUNT_OFFSET/2
   setzi   $memBase, TMEM_REGION0_BASE_ADDR
 #endif
-  ld32    $scaleA, $mzero, $scaleA, 0
+  ld32    $sv_scale, $mzero, $sv_scale, 0
   ld32    $scaleB, $mzero, $scaleB, 0
-  setzi   $mworkerFunction, checkAccuracyWhenCastFloatV2ToHalfWorker
+  setzi   $sv_workerFunction, checkAccuracyWhenCastFloatV2ToHalfWorker
   // Need to get the worker vertex base as offset from base of memory for 'run'
   sub     $workerVertexBase, $sp, $memBase
 
   st32    $tolerance, $sp, $mzero, CHECK_ACCURACY_TOLERANCE_OFFSET/4
   nop
-  st32    $scaleA, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
+  st32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_A_OFFSET/4
   st32    $scaleB, $sp, $mzero, CHECK_ACCURACY_SCALE_B_OFFSET/4
 
   // Store the scaleB value for the structure on stack used by the worker
@@ -368,15 +344,15 @@ ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
   st32    $scaleB, $sp, $mzero, SV_STATE_SCALEB_OFFSET/4
 
 
-  run     $mworkerFunction, $workerVertexBase, 0
+  run     $sv_workerFunction, $workerVertexBase, 0
   // wait for worker to terminate before checking result. We cannot do anything
   // while the worker runs as we have to wait for the result.
   sync    TEXCH_SYNCZONE_LOCAL
   ld32    $isAccurate, $sp, $mzero, CHECK_ACCURACY_RESULT_OFFSET/4
 
-  setzi   $mworkerFunction, aXplusbY_half_float_worker
-  setzi   $log2AtomSize, 1
-  setzi   $atomSizeMask, 1
+  setzi   $sv_workerFunction, aXplusbY_half_float_worker
+  setzi   $sv_log2AtomSize, 1
+  setzi   $sv_atomSizeMask, 1
   nop
   nop
 
@@ -387,22 +363,16 @@ ENTRY_POINT  VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
   // run the faster data=HALF/scales=HALF code
 
   // Get the combined scale A & B values, returned by the checkAccuracy thread
-  ld32    $scaleA, $sp, $mzero, CHECK_ACCURACY_SCALE_AB_OFFSET/4
-  setzi   $log2AtomSize, 2
-  setzi   $atomSizeMask, 0x3
+  ld32    $sv_scale, $sp, $mzero, CHECK_ACCURACY_SCALE_AB_OFFSET/4
+  setzi   $sv_log2AtomSize, 2
+  setzi   $sv_atomSizeMask, 0x3
 
-  setzi   $mworkerFunction, VERTEX(axplusby_half).kernel
+  setzi   $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri     VERTEX(supervisor)
 
 FN_SIZE VERTEX_AXPLUSBY_SUPERV_HALF_FLOAT_TENS
 
 #undef vertexPtr
-#undef count
-#undef memConstraints
-#undef scaleA
-#undef mworkerFunction
-#undef log2AtomSize
-#undef atomSizeMask
 #undef scaleB
 #undef memBase
 #undef workerVertexBase
@@ -552,7 +522,7 @@ aXplusbY_half_float_worker:
   get $workerIdM1, $WSR
   and $workerIdM1, $workerIdM1, CSR_W_WSR__CTXTID_M1__MASK
   // Get scaleA coefficient
-  ld32          $a, $mvertex_base, $mzero, SV_STATE_SCALEA_OFFSET/4
+  ld32          $a, $mvertex_base, $mzero, SV_STATE_SCALES_OFFSET/4
 {
   // ScaleB value is stored in the 'MEM_CONSTRAINTS' word (no memory
   // constraints for this vertex)

@@ -4,6 +4,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
+#include "ScaledAddSupervisor.inc"
 
 #define VERTEX(ty) __runCodelet_popops__ScaledAddSupervisor___ ## ty
 #define SUBTRACT_VERTEX(ty) __runCodelet_popops__ScaledSubtractSupervisor___ ## ty
@@ -59,56 +60,19 @@
   #define VERTEX_SCALE_B_OFFSET_FLOAT_CONST 16
 #endif
 
-// The VERTEX(supervisor) code will create a new vertex state on the supervisor
-// stack that has the input values preprocessed for all of the workers to use.
-#define SV_STATE_DATA_OFFSET 0
-#define SV_STATE_COUNT_OFFSET 4
-#define SV_STATE_REMM1_OFFSET 8
-#define SV_STATE_FINAL_OFFSET 12
-// Contains scaleA offset only (half or float), or both scaleA & scaleB for the
-// aX+bY vertex, when the scale values are halves
-#define SV_STATE_SCALES_OFFSET 16
-#define SV_STATE_DATA_B_OFFSET 20
-#define SV_STATE_MEM_CONSTRAINTS 24
-#define SV_STATE_SCALEB_OFFSET   28 // Unused here, space needed in shared code
-
-#define SV_STATE_SIZE 32
-
-// total space required on the stack
-#define STACK_SIZE (SV_STATE_SIZE)
 
 // constants
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
 #define SCALED_PTR64_SHL_BITS 3
 #endif
 
-// to avoid sub-word writes we must make sure that each worker processes
-// a number of elements so that we fall exactly into a 64-bit load. for floats
-// this is 8/sizeof(float) = 2 and 8/sizeof(half) = 4
-#define LOG2_FLOAT_ATOM_SIZE 1
-#define LOG2_HALF_ATOM_SIZE 2
-
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
-
-
-// These 6 registers cannot be changed willy-nilly, as they are the input
-// parameters of VERTEX(supervisor), which is called from other files beside
-// as this one.
-#define countD2 m1
-#define log2AtomSize m7
-#define atomSizeMask m8
-#define mworkerFunction m6
-#define memConstraints m2
-#define mscratch m4
-
 
 // supervisor variables
 #define vertexPtr m0
 #define final m2
-// Flag for memConstraints
-#define MEM_CONSTRAINTS_MASK 0x1
 
 #define remM1 m3
+#define mscratch  m4
 #define mscratch2 m5
 #define mscratch3 m6
 
@@ -126,10 +90,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_false)
 .align 4
 .supervisor
 VERTEX(float_float_float_false_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 VERTEX(float_float_float_false_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -139,14 +103,14 @@ VERTEX(float_float_float_false_true):
 #endif
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(float).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(float).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
-  ld32  $mscratch, $mzero, $mscratch, 0
+  ld32  $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor)
 .size VERTEX(float_float_float_false), .-VERTEX(float_float_float_false_false)
 
@@ -161,20 +125,20 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(float_float_float_true)
 .align 4
 .supervisor
 VERTEX(float_float_float_true_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 VERTEX(float_float_float_true_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
-  ld32  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
+  ld32  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET_FLOAT_CONST/4
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(float).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(float).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor)
 .size VERTEX(float_float_float_true), .-VERTEX(float_float_float_true_false)
 
@@ -189,10 +153,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(float_float)
 .align 4
 .supervisor
 SUBTRACT_VERTEX(float_float_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 SUBTRACT_VERTEX(float_float_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -204,15 +168,15 @@ SUBTRACT_VERTEX(float_float_true):
   or    $mscratch2, $mzero, NEGATE_FLOAT_BY_XOR
  // keeping this before the branch means it doesn't cause a stall later
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_FLOAT_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_FLOAT_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_FLOAT_ATOM_SIZE) - 1
 
   // pointer to the worker code to run, which needs to do a negate
-  setzi $mworkerFunction, VERTEX(float).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(float).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
-  ld32  $mscratch, $mzero, $mscratch, 0
-  xor   $mscratch, $mscratch, $mscratch2 // 6 cycles
+  ld32  $sv_scale, $mzero, $mscratch, 0
+  xor   $sv_scale, $sv_scale, $mscratch2 // 6 cycles
 
   bri   VERTEX(supervisor)
 .size SUBTRACT_VERTEX(float_float), .-SUBTRACT_VERTEX(float_float_false)
@@ -232,11 +196,11 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_false)
 .align 4
 .supervisor
 VERTEX(half_half_half_false_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 
 VERTEX(half_half_half_false_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -246,14 +210,14 @@ VERTEX(half_half_half_false_true):
 #endif
 
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(half).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
-  ldz16 $mscratch, $mzero, $mscratch, 0
+  ldz16 $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX(half_half_half_false), .-VERTEX(half_half_half_false_false)
 
@@ -267,20 +231,20 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_half_half_true)
 .align 4
 .supervisor
 VERTEX(half_half_half_true_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri 1f
 VERTEX(half_half_half_true_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
-  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  ldz16  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
 
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(half).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX(half_half_half_true), .-VERTEX(half_half_half_true_false)
 
@@ -295,10 +259,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_half)
 .align 4
 .supervisor
 SUBTRACT_VERTEX(half_half_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 SUBTRACT_VERTEX(half_half_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -309,15 +273,15 @@ SUBTRACT_VERTEX(half_half_true):
 
   setzi $mscratch2, NEGATE_HALF_BY_XOR
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(half).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
-  ldz16 $mscratch, $mzero, $mscratch, 0
-  xor   $mscratch, $mscratch, $mscratch2 // 6 cycles
+  ldz16 $sv_scale, $mzero, $mscratch, 0
+  xor   $sv_scale, $mscratch, $mscratch2 // 6 cycles
   bri   VERTEX(supervisor) // 6 cycles
 .size SUBTRACT_VERTEX(half_half), .-SUBTRACT_VERTEX(half_half_false)
 
@@ -332,25 +296,25 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_true)
 .align 4
 .supervisor
 AXPLUSBY_VERTEX(half_half_true_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 AXPLUSBY_VERTEX(half_half_true_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // 2x16 bit factors
-  ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
+  ldz16  $sv_scale, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   ldz16  $mscratch2, $vertexPtr, $mzero, VERTEX_SCALE_B_CONST_OFFSET/2
 
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(axplusby_half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 
   nop
-  sort4x16lo $mscratch, $mscratch, $mscratch2
+  sort4x16lo $sv_scale, $sv_scale, $mscratch2
   bri   VERTEX(supervisor) // 6 cycles
 .size AXPLUSBY_VERTEX(half_half_true), .-AXPLUSBY_VERTEX(half_half_true_false)
 
@@ -366,10 +330,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.AXPLUSBY_VERTEX(half_false)
 .align 4
 .supervisor
 AXPLUSBY_VERTEX(half_half_false_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 AXPLUSBY_VERTEX(half_half_false_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -383,10 +347,10 @@ AXPLUSBY_VERTEX(half_half_false_true):
   // by using $mscratch, $mscratch2 frequently it doesn't cost many cycles.
   call $remM1, AX_MINUS_PLUS_BY_COMMON  // 6 cycles
 
-  sort4x16lo $mscratch, $mscratch, $mscratch2
+  sort4x16lo $sv_scale, $mscratch, $mscratch2
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(axplusby_half).kernel
+  setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
 .size AXPLUSBY_VERTEX(half_false), .-AXPLUSBY_VERTEX(half_false_false)
 
@@ -405,10 +369,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_true)
   // The implementation is to be performed in 32-bit precision in the
   // accumulators.
 XMINUSAXPLUSBY_VERTEX(half_true_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 XMINUSAXPLUSBY_VERTEX(half_true_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   // 2x16 bit factors
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -423,15 +387,15 @@ XMINUSAXPLUSBY_VERTEX(half_true_true):
   xor $mscratch, $mscratch, $mscratch3
 
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(xminusaxplusby_half).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(xminusaxplusby_half).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 
   nop
-  sort4x16lo $mscratch, $mscratch, $mscratch2
+  sort4x16lo $sv_scale, $mscratch, $mscratch2
   bri   VERTEX(supervisor) // 6 cycles
 .size XMINUSAXPLUSBY_VERTEX(half_true), .-XMINUSAXPLUSBY_VERTEX(half_true_false)
 
@@ -450,10 +414,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.XMINUSAXPLUSBY_VERTEX(half_false)
   // The implementation is to be performed in 32-bit precision in the
   // accumulators.
 XMINUSAXPLUSBY_VERTEX(half_false_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 XMINUSAXPLUSBY_VERTEX(half_false_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #ifdef VECTOR_AVAIL_SCALED_PTR64
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -470,10 +434,10 @@ XMINUSAXPLUSBY_VERTEX(half_false_true):
   //negate scale_a
   xor $mscratch, $mscratch, $mscratch3
 
-  sort4x16lo $mscratch, $mscratch, $mscratch2
+  sort4x16lo $sv_scale, $mscratch, $mscratch2
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(xminusaxplusby_half).kernel
+  setzi $sv_workerFunction, VERTEX(xminusaxplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
 .size XMINUSAXPLUSBY_VERTEX(half_false), .-XMINUSAXPLUSBY_VERTEX(half_false_false)
 
@@ -488,10 +452,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.AX_MINUS_BY_VERTEX(half_false)
 .align 4
 .supervisor
 AX_MINUS_BY_VERTEX(half_false_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 AX_MINUS_BY_VERTEX(half_false_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -509,10 +473,10 @@ AX_MINUS_BY_VERTEX(half_false_true):
   //negate scale_b
   xor $mscratch2, $mscratch2, $mscratch3
 
-  sort4x16lo $mscratch, $mscratch, $mscratch2
+  sort4x16lo $sv_scale, $mscratch, $mscratch2
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(axplusby_half).kernel
+  setzi $sv_workerFunction, VERTEX(axplusby_half).kernel
   bri   VERTEX(supervisor) // 6 cycles
 .size AX_MINUS_BY_VERTEX(half_false), .-AX_MINUS_BY_VERTEX(half_false_false)
 
@@ -525,10 +489,10 @@ AX_MINUS_PLUS_BY_COMMON:
   shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
 #endif
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
 
   // load factors using pointers - here to avoid pipeline hit
   ldz16  $mscratch, $mzero, $mscratch, 0
@@ -549,10 +513,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_false)
 .align 4
 .supervisor
 VERTEX(half_float_half_false_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 VERTEX(half_float_half_false_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -562,14 +526,14 @@ VERTEX(half_float_half_false_true):
 #endif
 
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half_float).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(half_float).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
-  ldz16 $mscratch, $mzero, $mscratch, 0
+  ldz16 $sv_scale, $mzero, $mscratch, 0
   bri   VERTEX(supervisor) // 6 cycles
 
 .size VERTEX(half_float_half_false), .-VERTEX(half_float_half_false_false)
@@ -584,19 +548,19 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.VERTEX(half_float_half_true)
 .align 4
 .supervisor
 VERTEX(half_float_half_true_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 VERTEX(half_float_half_true_true):
-  setzi $memConstraints, MEM_CONSTRAINTS_MASK
+  setzi $sv_memConstraints, MEM_CONSTRAINTS_MASK
 1:
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half_float).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(half_float).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   bri   VERTEX(supervisor) // 6 cycles
 .size VERTEX(half_float_half_true), .-VERTEX(half_float_half_true_false)
 
@@ -611,10 +575,10 @@ DEF_STACK_SIZE_OWN STACK_SIZE .text.SUBTRACT_VERTEX(half_float)
 .align 4
 .supervisor
 SUBTRACT_VERTEX(half_float_false):
-  setzi $memConstraints, 0
+  setzi $sv_memConstraints, 0
   bri   1f
 SUBTRACT_VERTEX(half_float_true):
-  setzi $memConstraints, 1
+  setzi $sv_memConstraints, 1
 1:
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   ldz16  $mscratch, $vertexPtr, $mzero, VERTEX_SCALE_OFFSET/2
@@ -625,24 +589,23 @@ SUBTRACT_VERTEX(half_float_true):
 
   setzi $mscratch2, NEGATE_HALF_BY_XOR
   add   $sp, $sp, -STACK_SIZE
-  setzi $log2AtomSize, LOG2_HALF_ATOM_SIZE
-  setzi $atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
+  setzi $sv_log2AtomSize, LOG2_HALF_ATOM_SIZE
+  setzi $sv_atomSizeMask, (1 << LOG2_HALF_ATOM_SIZE) - 1
 
   // pointer to the worker code to run
-  setzi $mworkerFunction, VERTEX(half_float).kernel
-  ldz16  $countD2, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
+  setzi $sv_workerFunction, VERTEX(half_float).kernel
+  ldz16  $sv_count, $vertexPtr, $mzero, VERTEX_PACKED_COUNT_OFFSET/2
   // load factor using its pointer - here to avoid pipeline hit
-  ldz16 $mscratch, $mzero, $mscratch, 0
-  xor   $mscratch, $mscratch, $mscratch2 //6 cycles
+  ldz16 $sv_scale, $mzero, $mscratch, 0
+  xor   $sv_scale, $sv_scale, $mscratch2 //6 cycles
   bri   VERTEX(supervisor) // 6 cycles
 
 .size SUBTRACT_VERTEX(half_float), .-SUBTRACT_VERTEX(half_float_false)
 
 //*****************************************************************************
-// Common code for mixed precision, half and float supervisor vertices
-// (ScaledAdd, ScaledSubtract, aXplusbY, aXMinusby, etc.
-// Note that this code is called from other files as well so its specific
-// register usage cannot be modified indiscriminately.
+// Common code for half, float and mixed precision, supervisor vertices
+// (ScaledAdd, ScaledSubtract, aXplusbY, aXMinusbY, etc.)
+// Note that this code is called from other files as well.
 //
 // Divides the supervisor work among all workers and runs them.
 //
@@ -658,28 +621,30 @@ SUBTRACT_VERTEX(half_float_true):
 //
 // This code expects the following registers to have been set on entry:
 //
-//  $m1 ($countD2)         Total count (number of elements to process, among
-//                         all workers). Note: on entry is NOT count/2 as the
-//                         name might suggest.
+// $m1 ($sv_count)          Total count (number of elements to process, among
+//                          all workers).
 //
-//  $m7 ($log2AtomSize)    These two defines if we are processing 2 or 4
-//  $m8 ($atomSizeMask)    elements at a time in the main worker loop:
-//                         If atom=2 elements:
-//                             $log2AtomSize = 1,  $atomSizeMask= 0x1
-//                         If atom=4 elements:
-//                             $log2AtomSize = 2,  $atomSizeMask= 0x3
+// $m7 ($sv_log2AtomSize)   These two defines if we are processing 2 or 4
+// $m8 ($sv_atomSizeMask)   elements at a time in the main worker loop:
+//                          If atom=2 elements:
+//                              $log2AtomSize = 1,  $atomSizeMask= 0x1
+//                          If atom=4 elements:
+//                              $log2AtomSize = 2,  $atomSizeMask= 0x3
 //
-//  $m6 ($mworkerFunction) Pointer to the worker function to run.
+// $m6 ($sv_workerFunction) Pointer to the worker function to run.
 //
-//  $m2 ($memConstraints)  1 or 0 to indicate if the A and B data is guranteed
-//                         to be in different memory regions or not. It's not
-//                         used here, just passed through to the workers.
+// $m2 ($sv_memConstraints) 1 or 0 to indicate if the A and B data is guranteed
+//                          to be in different memory regions or not. It's not
+//                          used here, just passed through to the workers.
 //
-//  $m4 ($mscratch)        The scale value scaleA (half or float) for the
-//                         scaledAdd/Subtract vertices or both the scaleA and
-//                         scaleB for the aXplusbY/aXminusbY/XminuxaXplusbY
-//                         variants. It's not used here, just passed through
-//                         to the workers.
+// $m4 ($sv_scale)          The scale value scaleA (half or float) for the
+//                          scaledAdd/Subtract vertices or both the scaleA and
+//                          scaleB for the aXplusbY/aXminusbY/XminuxaXplusbY
+//                          variants. It's not used here, just passed through
+//                          to the workers.
+//
+// In addition to the above inputs, this code will read the pointers to the
+// A and B data, using the macros VERTEX_DATA_A_OFFSET/VERTEX_DATA_B_OFFSET
 //
 //*****************************************************************************
 .globl VERTEX(supervisor)
@@ -698,8 +663,8 @@ VERTEX(supervisor):
   ld32  $remM1, $vertexPtr, $mzero, VERTEX_DATA_B_OFFSET/4
 #endif
 
-  st32 $memConstraints, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
-  st32 $mscratch, $sp, $mzero, SV_STATE_SCALES_OFFSET/4
+  st32 $sv_memConstraints, $sp, $mzero, SV_STATE_MEM_CONSTRAINTS/4
+  st32 $sv_scale, $sp, $mzero, SV_STATE_SCALES_OFFSET/4
 
   // transform the total count into remM1, final and count/6:
   //  where remM1 is the amount of workers (minus 1) that are required to
@@ -715,8 +680,8 @@ VERTEX(supervisor):
   //   https://embeddedgurus.com/stack-overflow/2009/06/division-of-integers-by-constants/
   setzi $mscratch, 0xAAAB
   // final = count % atomSize
-  and   $final, $countD2, $atomSizeMask
-  shr $countD2, $countD2, $log2AtomSize
+  and   $final, $sv_count, $sv_atomSizeMask
+  shr $sv_count, $sv_count, $sv_log2AtomSize
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
   shl    $mscratch2, $mscratch2, SCALED_PTR64_SHL_BITS
@@ -724,7 +689,7 @@ VERTEX(supervisor):
 #endif
 
   // mscratch = n/6
-  mul $mscratch, $countD2, $mscratch // 6 cycles
+  mul $mscratch, $sv_count, $mscratch // 6 cycles
   shr $mscratch, $mscratch, 18 // 6 cycles
 
   st32  $mscratch2, $sp, $mzero, SV_STATE_DATA_OFFSET
@@ -732,19 +697,19 @@ VERTEX(supervisor):
 
   // rem = (count / atomSize) % numWorkers + ceil(final, atomSize)
   //  where ceil(x, y) = x / y + (x % y > 0);
-  shr $remM1, $final, $log2AtomSize
+  shr $remM1, $final, $sv_log2AtomSize
 
   // Avoid mscratch register bubble
   nop
   nop
   // mscratch2 = n%6
   mul $mscratch2, $mscratch, 6
-  sub $mscratch2, $countD2, $mscratch2 // 6 cycles
+  sub $mscratch2, $sv_count, $mscratch2 // 6 cycles
 
   // countPerWorker = (count / atomSize) / numWorkers * atomSize
-  shl $countD2, $mscratch, $log2AtomSize
+  shl $sv_count, $mscratch, $sv_log2AtomSize
 
-  and   $mscratch, $final, $atomSizeMask
+  and   $mscratch, $final, $sv_atomSizeMask
   cmpne $mscratch, $mscratch, $mzero // 6 cycles
 
   add $remM1, $remM1, $mscratch2
@@ -760,9 +725,9 @@ VERTEX(supervisor):
 
   st32 $remM1, $sp, $mzero, SV_STATE_REMM1_OFFSET/4 // 6 cycles if final != 0
   st32 $final, $sp, $mzero, SV_STATE_FINAL_OFFSET/4
-  st32 $countD2, $sp, $mzero, SV_STATE_COUNT_OFFSET/4
+  st32 $sv_count, $sp, $mzero, SV_STATE_COUNT_OFFSET/4
 
-  runall $mworkerFunction, $sp, 0 // 6 cycles
+  runall $sv_workerFunction, $sp, 0 // 6 cycles
   // restore the stack pointer that was changed in the supervisor common code.
   add  $sp, $sp, STACK_SIZE
   sync TEXCH_SYNCZONE_LOCAL // max(worker cycles) * 6
@@ -774,12 +739,10 @@ VERTEX(supervisor):
 // clear supervisor variables
 #undef vertexPtr
 #undef dataPtr
-#undef countD2
 #undef final
 #undef remM1
 #undef mscratch
 #undef mscratch2
-#undef memConstraints
 
 // worker variables
 
