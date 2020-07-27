@@ -170,7 +170,8 @@ static popsolver::Variable constructModel(
     const PoolConfig &poolCfg, const poplin::ConvParams &params,
     const unsigned minGrainsPerChanGroup, const unsigned maxGrainsPerChanGroup,
     const std::size_t chanGrainSize, const std::size_t numChannels,
-    const std::size_t detChansPerGroup, EstimateCache &cache) {
+    const std::size_t detChansPerGroup, const std::size_t minChannelsPerGroup,
+    EstimateCache &cache) {
 
   auto numTiles = target.getNumTiles();
   auto fieldShape = params.getOutputFieldShape();
@@ -204,6 +205,9 @@ static popsolver::Variable constructModel(
   splits.insert(splits.end(), vars.fieldSplit.begin(), vars.fieldSplit.end());
   auto usedTiles = m.product(splits);
   m.lessOrEqual(usedTiles, nTiles);
+
+  // Constrain channels to be >= minChannelsPerGroup
+  m.lessOrEqual(m.addConstant(minChannelsPerGroup), vars.chansPerGroup);
 
   // Work out the size of each partition after applying the split
   std::vector<popsolver::Variable> fieldVar;
@@ -411,14 +415,46 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   auto cycles =
       constructModel(m, graph.getTarget(), vars, poolCfg, transformedParams,
                      minGrainsPerChanGroup, maxGrainsPerChanGroup,
-                     chanGrainSize, numChannels, chansPerGroupDet, cache);
+                     chanGrainSize, numChannels, chansPerGroupDet, 1, cache);
 
   // Optimise within constraints
   auto s = m.minimize({cycles});
   assert(s.validSolution());
   plan.partition = makePartition(s, vars);
+  auto sResult = *s[cycles];
 
-  return {plan, *s[cycles]};
+  // Consider a second plan, constrained to a minimum number of channels, as
+  // operations that use the output can benefit from this.  Allow the pooling
+  // cycles to degrade by a fairly large percentage in order to achieve the
+  // minimum number of channels as pooling is a relatively cheap operation,
+  // and the other operations that it may affect are more expensive.
+  const auto minChannelsPerGroup =
+      (params.inputType == poplar::HALF ? 16u : 8u);
+
+  if (plan.partition.chansPerGroup < minChannelsPerGroup &&
+      numChannels >= minChannelsPerGroup) {
+    maxGrainsPerChanGroup =
+        (minChannelsPerGroup + chanGrainSize - 1) / chanGrainSize;
+    popsolver::Model mConstrained;
+    PartitionVariables varsConstrained;
+    auto cyclesConstrained =
+        constructModel(mConstrained, graph.getTarget(), varsConstrained,
+                       poolCfg, transformedParams, minGrainsPerChanGroup,
+                       maxGrainsPerChanGroup, chanGrainSize, numChannels,
+                       chansPerGroupDet, minChannelsPerGroup, cache);
+
+    // Optimise within constraints of minChannelsPerGroup.  There may not be a
+    // solution for all targets
+    auto sConstrained = mConstrained.minimize({cyclesConstrained});
+    if (sConstrained.validSolution()) {
+      auto sConstrainedResult = *sConstrained[cyclesConstrained];
+      if (sConstrainedResult < (sResult * 4) / 3) {
+        plan.partition = makePartition(sConstrained, varsConstrained);
+        return {plan, sConstrainedResult};
+      }
+    }
+  }
+  return {plan, sResult};
 }
 
 std::ostream &operator<<(std::ostream &os, const Partition &p) {
