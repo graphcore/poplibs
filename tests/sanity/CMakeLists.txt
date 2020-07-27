@@ -1,9 +1,17 @@
 # Compile the public headers using C++11.
-add_test(
-  NAME ApiCppVersionTest
-  COMMAND ${CMAKE_CXX_COMPILER} -std=c++11 ${TEST_CXXFLAGS}
-          ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -Werror -lpopops
-)
+# When possible use more than one compiler to get better conformance coverage.
+set(COMPILERS ${CMAKE_CXX_COMPILER})
+find_program(CLANGPP clang++)
+if(NOT CLANGPP STREQUAL CLANGPP-NOTFOUND)
+  list(APPEND COMPILERS ${CLANGPP})
+endif()
+foreach(compiler ${COMPILERS})
+  add_test(
+    NAME ApiCppVersionTest-${compiler}
+    COMMAND ${compiler} -std=c++11 -Wpedantic -Werror ${TEST_CXXFLAGS}
+            ${CMAKE_CURRENT_SOURCE_DIR}/ApiCppVersionTest.cpp -lpoplar -lpopops
+  )
+endforeach()
 
 # If running tests on Ipu hardware is enabled then add a test fixture that
 # checks if a physical IPU device is present. Hw tests will list this test as a
