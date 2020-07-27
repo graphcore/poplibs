@@ -1694,8 +1694,9 @@ createPlan(const ConvParams &params, const ConvOptions &options,
   auto isSet = [](const Cost &cost) { return cost != highestCost; };
 
   auto print = [&](const Pass &pass, bool isSeparate) {
-    const auto planDesc =
-        !isJointPlan ? "non-joint" : isSeparate ? "separate joint" : "joint";
+    const auto planDesc = !isJointPlan ? "non-joint"
+                          : isSeparate ? "separate joint"
+                                       : "joint";
     logging::debug("Creating {} plan ({} pass)...", planDesc, pass);
   };
 

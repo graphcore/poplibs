@@ -21,9 +21,8 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 namespace popops {
 
 template <expr::BroadcastOpType op, class FPType>
-class [
-    [poplar::constraint("elem(**data) != elem(**out)")]] BroadcastVectorInner2D
-    : public Vertex {
+class [[poplar::constraint(
+    "elem(**data) != elem(**out)")]] BroadcastVectorInner2D : public Vertex {
 public:
   BroadcastVectorInner2D();
 

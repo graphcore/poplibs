@@ -384,10 +384,9 @@ int main(int argc, char **argv) try {
         (params.getOutputChannelsPerGroup() - numWeightedOutputChannels) *
             remainingThreshold;
     const auto getOpsPerOutputElementEstimate = [&](const Pass &pass) -> int {
-      const auto numAccumulations =
-          pass == Pass::FWD
-              ? maxInputChannels
-              : pass == Pass::BWD ? maxOutputChannels : params.getBatchSize();
+      const auto numAccumulations = pass == Pass::FWD   ? maxInputChannels
+                                    : pass == Pass::BWD ? maxOutputChannels
+                                                        : params.getBatchSize();
       assert(numAccumulations < std::numeric_limits<int>::max());
       return numAccumulations;
     };

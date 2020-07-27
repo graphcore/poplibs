@@ -885,8 +885,9 @@ void createConvPartialSlicVertex(
   //  =0 -> 4 conv groups, 1 input channel, 1 output channel
   //  =1 -> 2 conv groups, 2 input channels, 2 output channels
   //  =2 -> 1 conv group, 4 input channels, 4 output channels
-  const unsigned char mode =
-      convGroupsPerGroup == 4u ? 0 : convGroupsPerGroup == 2 ? 1 : 2;
+  const unsigned char mode = convGroupsPerGroup == 4u  ? 0
+                             : convGroupsPerGroup == 2 ? 1
+                                                       : 2;
 
   auto kernelGroups = params.kernelShape;
   assert(kernelGroups.back() % slicWindowWidth == 0);

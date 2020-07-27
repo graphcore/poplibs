@@ -1,4 +1,3 @@
-
 function(add_popsolver_unit_test name)
   set(test_name "popsolver_${name}")
   add_executable(${test_name} ${ARGN})
