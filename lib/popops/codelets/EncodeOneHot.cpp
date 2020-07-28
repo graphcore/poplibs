@@ -31,22 +31,23 @@ public:
   // before zero'd memory for us)
   InOut<Vector<OutType, ONE_PTR, 8>> out;
 
-  // the output tensor has been flattened, so this field states how many
-  // elements to be processed for each index.
-  Input<Vector<unsigned, ONE_PTR>> sliceLength;
-  Input<Vector<unsigned, ONE_PTR>> offsets;
+  // slice length handled by this vertex
+  unsigned sliceLength;
+
+  // offset is the start index such that the range of indices
+  // handled by this vertex is [offset, offset + sliceLength)
+  unsigned offset;
 
   bool compute() {
     unsigned begin = 0;
     for (unsigned i = 0; i < indices.size(); ++i) {
-      if ((indices[i] >= offsets[i]) &&
-          (indices[i] < offsets[i] + sliceLength[i])) {
-        const auto index = begin + indices[i] - offsets[i];
+      if ((indices[i] >= offset) && (indices[i] < offset + sliceLength)) {
+        const auto index = begin + indices[i] - offset;
         if (index != MASKED_LABEL_CODE) {
           out[index] = 1;
         }
       }
-      begin += sliceLength[i];
+      begin += sliceLength;
     }
     return true;
   }
