@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
+    ("use-unstable-format", "Use the unstable profile format")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
@@ -176,6 +177,7 @@ int main(int argc, char **argv) {
   }
 
   bool ignoreData = vm.count("ignore-data");
+  const bool useUnstableFormat = vm.count("use-unstable-format");
 
   auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
@@ -318,6 +320,9 @@ int main(int argc, char **argv) {
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
+    if (useUnstableFormat) {
+      engineOptions.set("profiler.useUnstableFormat", "true");
+    }
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
   attachStreams(engine, tmap);

@@ -430,6 +430,28 @@ function(add_pooling_benchmark)
       PARAMS ${POOLING_BENCHMARK_PARAMS})
 endfunction()
 
+function(add_lstm_benchmark)
+  cmake_parse_arguments(LSTM_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+
+  list(APPEND LSTM_BENCHMARK)
+  add_benchmark(
+      NAME ${LSTM_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${LSTM_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:lstm_layer>
+      PARAMS ${LSTM_BENCHMARK_PARAMS})
+endfunction()
+
+function(add_gru_benchmark)
+  cmake_parse_arguments(GRU_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+
+  list(APPEND GRU_BENCHMARK_PARAMS)
+  add_benchmark(
+      NAME ${GRU_BENCHMARK_NAME}
+      PARALLEL_LEVEL ${GRU_BENCHMARK_PARALLEL_LEVEL}
+      BINARY $<TARGET_FILE:gru_layer>
+      PARAMS ${GRU_BENCHMARK_PARAMS})
+endfunction()
+
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
@@ -1519,6 +1541,36 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --fwd-chans-per-group 8
                  --padding-upper 1
                  --padding-lower 1)
+
+# LSTM synthetic benchmarks, not taken from any specific model
+add_lstm_benchmark(NAME lstm_16_25_1024_1024_half
+  PARAMS --batch-size 16
+         --sequence-size 25
+         --input-size=1024
+         --output-size=1024
+         --data-type half)
+
+add_lstm_benchmark(NAME lstm_8_25_1024_1024_float
+  PARAMS --batch-size 8
+         --sequence-size 25
+         --input-size=1024
+         --output-size=1024
+         --data-type float)
+
+# GRU synthetic benchmarks, not taken from any specific model
+add_gru_benchmark(NAME gru_16_25_1024_1024_half
+  PARAMS --batch-size 16
+         --sequence-size 25
+         --input-size=1024
+         --output-size=1024
+         --data-type half)
+
+add_gru_benchmark(NAME gru_8_25_1024_1024_float
+  PARAMS --batch-size 8
+         --sequence-size 25
+         --input-size=1024
+         --output-size=1024
+         --data-type float)
 
 else()
   message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")
