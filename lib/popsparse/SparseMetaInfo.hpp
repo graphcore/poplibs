@@ -68,4 +68,33 @@ template <typename T> struct MetaInfo {
   };
 };
 
+// Meta-info for block-sparse codelets only
+template <typename T> struct BlockMetaInfo {
+  constexpr static T endSubGroupId = 0;
+  struct SubGroupEntry {
+    // ID of the sub-group
+    T id;
+    // Offset in multiples of 64-bits to next sub-group's non-zero values from
+    // the end of the last sub-groups' non-zero values.
+    T offsetToNextSubGroupSparseEntries;
+    // Offset to next sub-group's entry in this bucket from the beginning
+    // of this structure.
+    T offsetToNextSubGroupMetaInfo;
+    // Number of blocks in X dimension in this sub-group (minus 1).
+    T numXm1;
+  };
+  struct OutputEntry {
+    // Offset to X index in Q in multiples of 64-bits.
+    // Q has layout {Z,X} in row major order.
+    T offsetXInQ;
+    // Number of blocks for this index in X.
+    T numY;
+  };
+  struct InputEntry {
+    // Offset to Y index in S in multiples of 64-bits.
+    // S has layout {Z,Y} in row major order.
+    T offsetYInS;
+  };
+};
+
 } // namespace popsparse
