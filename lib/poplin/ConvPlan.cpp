@@ -305,7 +305,8 @@ getStartTile(const poplar::Target &target,
   // need to stay on the same IPU.
   const auto tilesPerSuperTile = target.getTilesPerSharedExchangeBus();
 
-  const auto numSuperTiles = ceildiv(options.tilesPerIPU, tilesPerSuperTile);
+  const auto numSuperTiles =
+      ceildiv(target.getTilesPerIPU(), tilesPerSuperTile);
 
   unsigned startTile = (seed % numSuperTiles) * tilesPerSuperTile;
 
@@ -1402,10 +1403,6 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
   }
 }
 
-static std::vector<unsigned> getHierarchy(const ConvOptions &options) {
-  return poplibs::getTileHierarchy(options.numIPUs, options.tilesPerIPU);
-}
-
 static std::pair<Plan, Cost>
 createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
            const PlanningObjective &objective, const poplar::Target &target,
@@ -1432,8 +1429,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   // perLevelExchangeBytesPerCycle is indexed by hierarchy (not including the
   // tile level), lower indices to higher hierarchies.
   const auto perLevelExchangeBytesPerCycle =
-      poplibs::getPerLevelExchangeBytesPerCycle(target, options.numIPUs);
-  const auto hierarchy = getHierarchy(options);
+      poplibs::getPerLevelExchangeBytesPerCycle(target);
+  const auto hierarchy = poplibs::getTileHierarchy(target);
   const auto numLevels = hierarchy.size() + 1;
 
   validatePlanConstraints(params, options.planConstraints, numLevels);
@@ -1827,6 +1824,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     if (additionalPlansToCache) {
       PlanningCacheImpl::Key bwdKey{std::move(bwdParams),
                                     std::move(bwdOptions),
+                                    target,
                                     boost::none,
                                     boost::none,
                                     false,
@@ -1838,6 +1836,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
 
       PlanningCacheImpl::Key wuKey{std::move(wuParams),
                                    std::move(wuOptions),
+                                   target,
                                    boost::none,
                                    boost::none,
                                    false,
@@ -1936,15 +1935,11 @@ std::string getPlanConstraintsOutputFile(const ConvOptions &options) {
 // Planning a particular training pass (forward / backward / weight update) may
 // create plans for the other training passes as a side effect. These plans
 // are appended to the end of additionalPlansToCache if it is not null.
-static std::pair<Plan, Cost> runPlanner(
-    const CanonicalConvParams &ccParams, const ConvOptions &options,
-    const poplar::Target &target, const boost::optional<Plan> &referencePlan,
-    const boost::optional<Cost> &referenceCost, const bool minimizeForTiles,
-    const boost::optional<popsolver::DataType> &cycleLimit,
-    unsigned startTileIndicesForVirtualHierarchy,
-    PlanningCacheImpl::CycleEstimationImpl *cache,
-    std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
-        *additionalPlansToCache) {
+static std::pair<Plan, Cost>
+runPlanner(const ConvDescription &conv,
+           PlanningCacheImpl::CycleEstimationImpl *cache,
+           std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
+               *additionalPlansToCache) {
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
   // memory we will apply an architecturally relevent memory limit to this first
@@ -1952,6 +1947,16 @@ static std::pair<Plan, Cost> runPlanner(
   // `availableMemoryProportion` to state the proportion of memory which is
   // approximately available for this convolution. if the
   // `availableMemoryProportion` is 0 then we just optimise for memory.
+
+  const CanonicalConvParams &ccParams = conv.params;
+  const ConvOptions &options = conv.options;
+  const poplar::Target &target = conv.target;
+  const boost::optional<Plan> &referencePlan = conv.referencePlan;
+  const boost::optional<Cost> &referenceCost = conv.referenceCost;
+  const bool minimizeForTiles = conv.minimizeForTiles;
+  const boost::optional<popsolver::DataType> &cycleLimit = conv.cycleLimit;
+  unsigned startTileIndicesForVirtualHierarchy =
+      conv.startTileIdxForVirtualHierarchy;
 
   const auto availableTileMem =
       target.getBytesPerTile() * options.availableMemoryProportion;
@@ -1964,7 +1969,7 @@ static std::pair<Plan, Cost> runPlanner(
     } else {
       logging::debug("Planning convolution with a per-tile memory limit of {} "
                      "bytes across {} tiles.",
-                     availableTileMem, options.tilesPerIPU);
+                     availableTileMem, target.getTilesPerIPU());
       PlanningObjective objective;
       if (referenceCost) {
         logging::debug("  applying a reference cost: {}", *referenceCost);
@@ -2110,14 +2115,12 @@ void preplanConvolutionsImpl(const poplar::Target &target,
     const auto &options = jobs[i].input->second;
     Plan plan;
     Cost cost;
-    std::tie(plan, cost) = runPlanner(
-        params, options, target, boost::none, boost::none, false, boost::none,
-        0, &cache.impl->cycleEstimation, &jobs[i].output);
-    auto key =
-        PlanningCacheImpl::Key(jobs[i].input->first, jobs[i].input->second,
-                               boost::none, boost::none, false, boost::none, 0);
+    ConvDescription conv{params,      options, target,      boost::none,
+                         boost::none, false,   boost::none, 0};
+    std::tie(plan, cost) =
+        runPlanner(conv, &cache.impl->cycleEstimation, &jobs[i].output);
     jobs[i].output.emplace_back(
-        key, std::make_pair(std::move(plan), std::move(cost)));
+        conv, std::make_pair(std::move(plan), std::move(cost)));
   });
   // sequential insert into the cache
   for (std::size_t i = 0u; i != jobs.size(); ++i) {
@@ -2148,8 +2151,8 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
 
   auto temp = std::make_unique<PlanningCacheImpl>();
   auto &cacheImpl = cache ? cache->impl : temp;
-  PlanningCacheImpl::Key key(params, options, boost::none, boost::none, false,
-                             boost::none, 0);
+  PlanningCacheImpl::Key key(params, options, target, boost::none, boost::none,
+                             false, boost::none, 0);
   const auto cachedPlan = cacheImpl->getPlan(key);
   if (cachedPlan) {
     return cachedPlan->first;
@@ -2159,9 +2162,9 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
       plansToCache;
   Plan plan;
   Cost cost;
-  std::tie(plan, cost) =
-      runPlanner(params, options, target, boost::none, boost::none, false,
-                 boost::none, 0, &cacheImpl->cycleEstimation, &plansToCache);
+  std::tie(plan, cost) = runPlanner({params, options, target, boost::none,
+                                     boost::none, false, boost::none, 0},
+                                    &cacheImpl->cycleEstimation, &plansToCache);
   plansToCache.emplace_back(key, std::make_pair(plan, cost));
   for (const auto &entry : plansToCache) {
     cacheImpl->addPlanToCache({entry.first}, {entry.second});
@@ -2206,41 +2209,22 @@ getParallelMultiPlan(const poplar::Target &target,
                      const std::vector<CanonicalConvParams> &params,
                      std::vector<ConvOptions> convOptions, PlanningCache *cache,
                      const MultiPlanOptions &options) {
-  for (const auto &convOption : convOptions) {
-    if (convOption.numIPUs != 1) {
-      throw poputil::poplibs_error(
-          "Multi plan is unsupported for more than 1 IPU");
-    }
+  if (target.getNumIPUs() != 1) {
+    throw poputil::poplibs_error(
+        "Multi plan is unsupported for more than 1 IPU");
   }
   auto temp = std::make_unique<PlanningCacheImpl>();
   auto &cacheImpl = cache ? cache->impl : temp;
 
-  const auto cachedRunPlanner =
-      [&cacheImpl, &target](CanonicalConvParams params, ConvOptions convOptions,
-                            boost::optional<Plan> referencePlan,
-                            boost::optional<Cost> referenceCost,
-                            bool minimizeForTiles,
-                            boost::optional<popsolver::DataType> cycleLimit,
-                            unsigned startTileIdxForVirtualHierarchy) {
-        PlanningCacheImpl::Key key{std::move(params),
-                                   std::move(convOptions),
-                                   std::move(referencePlan),
-                                   std::move(referenceCost),
-                                   minimizeForTiles,
-                                   cycleLimit,
-                                   startTileIdxForVirtualHierarchy};
-        if (auto cachedPlan = cacheImpl->getPlan(key)) {
-          return *std::move(cachedPlan);
-        } else {
-          auto planAndCost =
-              runPlanner(key.params, key.options, target, key.referencePlan,
-                         key.referenceCost, key.minimizeForTiles,
-                         key.cycleLimit, key.startTileIdxForVirtualHierarchy,
-                         &cacheImpl->cycleEstimation, nullptr);
-          cacheImpl->addPlanToCache(std::move(key), planAndCost);
-          return planAndCost;
-        }
-      };
+  const auto cachedRunPlanner = [&cacheImpl](PlanningCacheImpl::Key key) {
+    if (auto cachedPlan = cacheImpl->getPlan(key)) {
+      return *std::move(cachedPlan);
+    } else {
+      auto planAndCost = runPlanner(key, &cacheImpl->cycleEstimation, nullptr);
+      cacheImpl->addPlanToCache(std::move(key), planAndCost);
+      return planAndCost;
+    }
+  };
 
   // current multi-conv planning algorithm:
   //  1. plan largest first across all tiles, optimising for speed.
@@ -2292,25 +2276,28 @@ getParallelMultiPlan(const poplar::Target &target,
     const auto largestPlanIdx = idx.back();
 
     // step 1
-    assert(convOptions[largestPlanIdx].tilesPerIPU >= reservedTiles);
-    convOptions[largestPlanIdx].tilesPerIPU -= reservedTiles;
-    if (convOptions[largestPlanIdx].tilesPerIPU == 0) {
+    assert(target.getTilesPerIPU() >= reservedTiles);
+    const auto referenceTarget = target.createVirtualTarget(
+        target.getNumIPUs(), target.getTilesPerIPU() - reservedTiles);
+    if (referenceTarget.getTilesPerIPU() == 0) {
       throw poputil::poplibs_error("Not enough tiles for multi-conv");
     }
 
     logging::debug("Planning largest convolution, optimising for speed");
-    auto planAndCost = cachedRunPlanner(
-        params[largestPlanIdx], convOptions[largestPlanIdx], boost::none,
-        boost::none, false, boost::none, startTileIdxForVirtualHierarchy);
+    auto planAndCost =
+        cachedRunPlanner({params[largestPlanIdx], convOptions[largestPlanIdx],
+                          referenceTarget, boost::none, boost::none, false,
+                          boost::none, startTileIdxForVirtualHierarchy});
 
     // step 2
     logging::debug("Re-planning largest convolution, optimising for tiles");
     const auto cycleLimit =
         planAndCost.second.totalCycles.getAs<double>() * cycleBackOff;
     const popsolver::DataType integerCycleLimit{cycleLimit};
-    planAndCost = cachedRunPlanner(
-        params[largestPlanIdx], convOptions[largestPlanIdx], boost::none,
-        boost::none, true, integerCycleLimit, startTileIdxForVirtualHierarchy);
+    planAndCost =
+        cachedRunPlanner({params[largestPlanIdx], convOptions[largestPlanIdx],
+                          referenceTarget, boost::none, boost::none, true,
+                          integerCycleLimit, startTileIdxForVirtualHierarchy});
     plans[largestPlanIdx] = planAndCost.first;
 
     startTileIdxForVirtualHierarchy += roundUp(
@@ -2329,21 +2316,23 @@ getParallelMultiPlan(const poplar::Target &target,
       assert(target.getTilesPerIPU() >= reservedTiles);
       assert(target.getTilesPerIPU() - reservedTiles >=
              startTileIdxForVirtualHierarchy);
-      convOptions[thisIdx].tilesPerIPU = target.getTilesPerIPU() -
-                                         startTileIdxForVirtualHierarchy -
-                                         reservedTiles;
+      const auto virtualTarget = target.createVirtualTarget(
+          target.getNumIPUs(), target.getTilesPerIPU() -
+                                   startTileIdxForVirtualHierarchy -
+                                   reservedTiles);
 
       logging::debug("Planning convolution {} across {} tiles, optimising for "
                      "per-step cycle difference and then tiles used",
-                     thisIdx, convOptions[thisIdx].tilesPerIPU);
-      if (convOptions[thisIdx].tilesPerIPU == 0) {
+                     thisIdx, virtualTarget.getTilesPerIPU());
+      if (virtualTarget.getTilesPerIPU() == 0) {
         throw poputil::poplibs_error("Not enough tiles for multi-conv");
       }
 
       // 3b.
       auto planAndCost = cachedRunPlanner(
-          params[thisIdx], convOptions[thisIdx], reference.first,
-          reference.second, true, boost::none, startTileIdxForVirtualHierarchy);
+          {params[thisIdx], convOptions[thisIdx], virtualTarget,
+           reference.first, reference.second, true, boost::none,
+           startTileIdxForVirtualHierarchy});
       plans[thisIdx] = planAndCost.first;
 
       assert(reservedTiles >= perConvReservedTiles);
@@ -2362,20 +2351,23 @@ getParallelMultiPlan(const poplar::Target &target,
 
     assert(reservedTiles == 0);
     assert(target.getTilesPerIPU() >= startTileIdxForVirtualHierarchy);
-    convOptions[penultimateIdx].tilesPerIPU =
-        target.getTilesPerIPU() - startTileIdxForVirtualHierarchy;
+
+    const auto virtualTarget = target.createVirtualTarget(
+        target.getNumIPUs(),
+        target.getTilesPerIPU() - startTileIdxForVirtualHierarchy);
 
     logging::debug(
         "Planning final convolution on the remaining {} tiles, optimising for "
         "per-step cycle difference and then temporary memory used",
-        convOptions[penultimateIdx].tilesPerIPU);
-    if (convOptions[penultimateIdx].tilesPerIPU == 0) {
+        virtualTarget.getTilesPerIPU());
+    if (virtualTarget.getTilesPerIPU() == 0) {
       throw poputil::poplibs_error("Not enough tiles for multi-conv");
     }
 
-    auto planAndCost = cachedRunPlanner(
-        params[penultimateIdx], convOptions[penultimateIdx], reference.first,
-        reference.second, false, boost::none, startTileIdxForVirtualHierarchy);
+    auto planAndCost =
+        cachedRunPlanner({params[penultimateIdx], convOptions[penultimateIdx],
+                          virtualTarget, reference.first, reference.second,
+                          false, boost::none, startTileIdxForVirtualHierarchy});
     plans[penultimateIdx] = planAndCost.first;
   }
 
@@ -2458,9 +2450,8 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
     cacheImpl = tempCache.get();
   }
   const auto perLevelExchangeBytesPerCycle =
-      poplibs::getPerLevelExchangeBytesPerCycle(target, options.numIPUs);
-  const auto hierarchy =
-      poplibs::getTileHierarchy(options.numIPUs, options.tilesPerIPU);
+      poplibs::getPerLevelExchangeBytesPerCycle(target);
+  const auto hierarchy = poplibs::getTileHierarchy(target);
   assert(perLevelExchangeBytesPerCycle.size() == plan.partitions.size());
   auto objective = PlanningObjective::minimizeCycles();
   ConvVertexType convVertexType(

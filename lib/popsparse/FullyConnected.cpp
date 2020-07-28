@@ -976,7 +976,7 @@ finalReduction(Graph &graph, ProgBuilder &progBuilder,
       // TODO: Make ConvReduce just take bool args or its own
       // options structure rather than having to grab this unrelated
       // convolution options type.
-      poplin::ConvOptions convOpts(graph.getTarget());
+      poplin::ConvOptions convOpts{};
       convOpts.enableMultiStageReduce = false;
       result = poplin::multiStageGroupedReduce(
           graph, result.dimRoll(2, 0), resultType,
@@ -1668,8 +1668,7 @@ SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
   std::tie(plan, cost) =
       getPlan(graph.getTarget(), inputType, params, optionFlags, cache);
   const auto &target = graph.getTarget();
-  const auto hierarchy =
-      poplibs::getTileHierarchy(target.getNumIPUs(), target.getTilesPerIPU());
+  const auto hierarchy = poplibs::getTileHierarchy(target);
 
   const auto fwdPlan = getFwdPlan(plan);
 
@@ -1725,8 +1724,7 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
   std::tie(plan, cost) =
       getPlan(graph.getTarget(), inputType, params, optionFlags, cache);
   const auto &target = graph.getTarget();
-  const auto hierarchy =
-      poplibs::getTileHierarchy(target.getNumIPUs(), target.getTilesPerIPU());
+  const auto hierarchy = poplibs::getTileHierarchy(target);
 
   const std::vector<size_t> inputShape = {params.getNumGroups(),
                                           params.getInputChannelsPerGroup(),
@@ -1785,8 +1783,7 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
 
-  const auto hierarchy =
-      poplibs::getTileHierarchy(target.getNumIPUs(), target.getTilesPerIPU());
+  const auto hierarchy = poplibs::getTileHierarchy(target);
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),
@@ -1836,8 +1833,7 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
 
-  const auto hierarchy =
-      poplibs::getTileHierarchy(target.getNumIPUs(), target.getTilesPerIPU());
+  const auto hierarchy = poplibs::getTileHierarchy(target);
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),
@@ -1908,8 +1904,7 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
 
-  const auto hierarchy =
-      poplibs::getTileHierarchy(target.getNumIPUs(), target.getTilesPerIPU());
+  const auto hierarchy = poplibs::getTileHierarchy(target);
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),

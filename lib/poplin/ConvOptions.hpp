@@ -27,8 +27,6 @@ std::ostream &operator<<(std::ostream &, Pass p);
 /** Options to control the implementation of a convolution */
 class ConvOptions {
 public:
-  unsigned numIPUs;
-  unsigned tilesPerIPU;
   // proportion of tile memory available for this convolution.
   double availableMemoryProportion = .6;
   /// The pass this layer corresponds to.
@@ -66,10 +64,10 @@ public:
 
 private:
   static constexpr auto helper = poplibs_support::makeStructHelper(
-      &ConvOptions::availableMemoryProportion, &ConvOptions::numIPUs,
-      &ConvOptions::tilesPerIPU, &ConvOptions::pass, &ConvOptions::partialsType,
-      &ConvOptions::interTilePartialsType, &ConvOptions::interIpuPartialsType,
-      &ConvOptions::use128BitConvUnitLoad, &ConvOptions::planConstraints,
+      &ConvOptions::availableMemoryProportion, &ConvOptions::pass,
+      &ConvOptions::partialsType, &ConvOptions::interTilePartialsType,
+      &ConvOptions::interIpuPartialsType, &ConvOptions::use128BitConvUnitLoad,
+      &ConvOptions::planConstraints,
       &ConvOptions::planConstraintsOutputFilename,
       &ConvOptions::enableAmpHalfEnginesPlan,
       &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
@@ -85,16 +83,9 @@ public:
     return helper.eq(*this, other);
   }
 
-  ConvOptions(unsigned numIPUs, unsigned tilesPerIPU,
-              const poplar::OptionFlags &options)
-      : numIPUs(numIPUs), tilesPerIPU(tilesPerIPU) {
-    parseConvOptions(options);
-  }
+  ConvOptions() = default;
 
-  ConvOptions(const poplar::Target &target, const poplar::OptionFlags &options)
-      : ConvOptions(target.getNumIPUs(), target.getTilesPerIPU(), options) {}
-
-  ConvOptions(const poplar::Target &target) : ConvOptions(target, {}) {}
+  ConvOptions(const poplar::OptionFlags &options) { parseConvOptions(options); }
 
   friend std::ostream &operator<<(std::ostream &os, const ConvOptions &opts);
 };

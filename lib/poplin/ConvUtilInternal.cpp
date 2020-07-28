@@ -508,7 +508,7 @@ convertToConvOptions(poplar::Graph &graph,
   std::vector<multiconv::internal::CreateTensorArgs> v;
   v.reserve(args.size());
   for (const auto &arg : args) {
-    const ConvOptions options(graph.getTarget(), arg.options);
+    const ConvOptions options(arg.options);
     v.push_back({arg.params, options, arg.name});
   }
   return v;
@@ -520,7 +520,7 @@ convertToConvOptions(poplar::Graph &graph,
   std::vector<multiconv::internal::ConvolutionArgs> v;
   v.reserve(args.size());
   for (const auto &arg : args) {
-    const ConvOptions options(graph.getTarget(), arg.options);
+    const ConvOptions options(arg.options);
     v.push_back({arg.inputs, arg.weights, arg.params, options});
   }
   return v;
@@ -533,7 +533,7 @@ convertToConvOptions(
   std::vector<multiconv::internal::CalculateWeightDeltasArgs> v;
   v.reserve(args.size());
   for (const auto &arg : args) {
-    const ConvOptions options(graph.getTarget(), arg.options);
+    const ConvOptions options(arg.options);
     v.push_back({arg.zDeltas, arg.activations, arg.params, options});
   }
   return v;
@@ -548,7 +548,7 @@ convertToConvOptionsImpl(poplar::Graph &graph, const std::vector<T> &args) {
   std::vector<multiconv::internal::ConvWeightUpdateArgs<ScaleType>> v;
   v.reserve(args.size());
   for (const auto &arg : args) {
-    const ConvOptions options(graph.getTarget(), arg.options);
+    const ConvOptions options(arg.options);
     v.push_back({arg.zDeltas, arg.weights, arg.activations, arg.scale,
                  arg.params, options});
   }

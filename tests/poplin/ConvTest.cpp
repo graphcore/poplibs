@@ -453,7 +453,7 @@ BOOST_AUTO_TEST_CASE(CombineCreateTensorArgs) {
   };
 
   auto device = createTestDevice(TEST_TARGET);
-  ConvOptions options(device.getTarget());
+  ConvOptions options{};
   options.pass = Pass::FC_TRAINING_WU;
 
   std::vector<multiconv::internal::CreateTensorArgs> args{
@@ -496,7 +496,7 @@ BOOST_AUTO_TEST_CASE(CombineConvolutionArgs) {
     return t;
   };
 
-  ConvOptions options(device.getTarget());
+  ConvOptions options{};
   options.pass = Pass::FC_TRAINING_WU;
 
   std::vector<multiconv::internal::ConvolutionArgs> args{
@@ -543,7 +543,7 @@ BOOST_AUTO_TEST_CASE(CombineCalculateWeightDeltasArgs) {
     return t;
   };
 
-  ConvOptions options(device.getTarget());
+  ConvOptions options{};
   options.pass = Pass::FC_TRAINING_WU;
 
   std::vector<multiconv::internal::CalculateWeightDeltasArgs> args{
@@ -602,7 +602,7 @@ BOOST_AUTO_TEST_CASE(CombineConvWeightUpdateArgs) {
     return t;
   };
 
-  ConvOptions options(device.getTarget());
+  ConvOptions options{};
   options.pass = Pass::FC_TRAINING_WU;
 
   std::vector<multiconv::internal::ConvWeightUpdateArgs<float>> args{

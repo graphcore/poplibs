@@ -471,7 +471,7 @@ static ExpandDimsPlan getExpandDimsPlan(/*TODO: const*/ Graph &graph,
         poplin::ConvParams noPaddingParams;
         poplin::ConvParams paddingParams;
         { // Without padding
-          ConvOptions options{graph.getTarget()};
+          ConvOptions options{};
           std::vector<Split<ConvIndices>> indices;
           auto noPaddingPlan = convPlan;
           noPaddingParams =
@@ -480,7 +480,7 @@ static ExpandDimsPlan getExpandDimsPlan(/*TODO: const*/ Graph &graph,
                   .getParams();
         }
         { // With padding
-          ConvOptions options{graph.getTarget()};
+          ConvOptions options{};
           std::vector<Split<ConvIndices>> indices;
           auto paddingPlan = convPlan;
           auto tmp = params;

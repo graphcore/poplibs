@@ -5,7 +5,11 @@
 #include "CanonicalConvParams.hpp"
 #include "ConvOptions.hpp"
 #include "ConvPlan.hpp"
+
+#include <poplar/Target.hpp>
+
 #include <popsolver/Model.hpp>
+
 #include <vector>
 
 namespace poplin {
@@ -216,14 +220,9 @@ inline std::ostream &operator<<(std::ostream &os, const Cost &c) {
 }
 
 struct ConvDescription {
-  // TODO pass only ConvDescriptions into the planner as the only source of
-  // information to use, this will make sure the cache and planner are in
-  // lockstep and we don't introduce more information accidently outside the
-  // cache, e.g. target
-  // TODO: derive information from target and include in the key.
-  // Currently it's assumed to always have the same target universally.
   CanonicalConvParams params;
   ConvOptions options;
+  poplar::Target target;
   boost::optional<Plan> referencePlan;
   boost::optional<Cost> referenceCost;
   bool minimizeForTiles;
@@ -231,13 +230,14 @@ struct ConvDescription {
   unsigned startTileIdxForVirtualHierarchy;
 
   ConvDescription(CanonicalConvParams params, ConvOptions options,
-                  boost::optional<Plan> referencePlan,
+                  poplar::Target target, boost::optional<Plan> referencePlan,
                   boost::optional<Cost> referenceCost, bool minimizeForTiles,
                   boost::optional<popsolver::DataType> cycleLimit,
                   unsigned startTileIdxForVirtualHierarchy)
       : params{std::move(params)},
-        options({std::move(options)}), referencePlan{std::move(referencePlan)},
-        referenceCost{std::move(referenceCost)},
+        options({std::move(options)}), target{std::move(target)},
+        referencePlan{std::move(referencePlan)}, referenceCost{std::move(
+                                                     referenceCost)},
         minimizeForTiles{minimizeForTiles}, cycleLimit{std::move(cycleLimit)},
         startTileIdxForVirtualHierarchy{startTileIdxForVirtualHierarchy} {}
 
@@ -246,9 +246,10 @@ struct ConvDescription {
 
   bool operator<(const ConvDescription &other) const {
     constexpr static auto helper = poplibs_support::makeStructHelper(
-        &ConvDescription::params, &ConvDescription::options,
-        &ConvDescription::referenceCost, &ConvDescription::referencePlan,
-        &ConvDescription::minimizeForTiles, &ConvDescription::cycleLimit,
+        &ConvDescription::target, &ConvDescription::params,
+        &ConvDescription::options, &ConvDescription::referenceCost,
+        &ConvDescription::referencePlan, &ConvDescription::minimizeForTiles,
+        &ConvDescription::cycleLimit,
         &ConvDescription::startTileIdxForVirtualHierarchy);
 
     return helper.lt(*this, other);

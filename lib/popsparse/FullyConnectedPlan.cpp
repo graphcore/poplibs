@@ -994,11 +994,9 @@ createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
            const Options &options) {
 
-  const auto numIPUs = target.getNumIPUs();
-  const auto hierarchy =
-      poplibs::getTileHierarchy(numIPUs, target.getTilesPerIPU());
+  const auto hierarchy = poplibs::getTileHierarchy(target);
   const auto perLevelExchangeBytesPerCycle =
-      poplibs::getPerLevelExchangeBytesPerCycle(target, numIPUs);
+      poplibs::getPerLevelExchangeBytesPerCycle(target);
 
   // For now we just handle single-IPU for simplicity. Handling further
   // levels should not be significantly harder functionally however.

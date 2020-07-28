@@ -45,11 +45,10 @@ std::vector<poplin::CanonicalConvParams> getGenericOctConvParams() {
 
   return {HH, HL, LH, LL};
 }
-std::vector<poplin::ConvOptions>
-getGenericOctConvOptions(const poplar::Target &target) {
+std::vector<poplin::ConvOptions> getGenericOctConvOptions() {
   poplar::OptionFlags po;
   po.set("pass", "INFERENCE_FWD");
-  const poplin::ConvOptions options(target, po);
+  const poplin::ConvOptions options(po);
   return {options, options, options, options};
 }
 
@@ -58,7 +57,7 @@ BOOST_AUTO_TEST_CASE(DividesTilesUnevenlyOnFLOPs) {
   const auto tilesOnIPU = 100;
   const auto device = createTestDevice(TEST_TARGET, 1, tilesOnIPU);
   const auto params = getGenericOctConvParams();
-  const auto options = getGenericOctConvOptions(device.getTarget());
+  const auto options = getGenericOctConvOptions();
   poplin::PlanningCache cache;
 
   // When
@@ -114,7 +113,7 @@ BOOST_AUTO_TEST_CASE(ConsistentNumberOfSerialSplitsAcrossPlans) {
   // Given
   const auto device = createTestDevice(TEST_TARGET, 1, 100);
   const auto params = getLargeOctConvParams();
-  auto options = getGenericOctConvOptions(device.getTarget());
+  auto options = getGenericOctConvOptions();
 
   poplin::PlanningCache cache;
 
@@ -155,7 +154,7 @@ BOOST_AUTO_TEST_CASE(FallsBackToSerialPlanningIfCannotFit) {
   const auto device = createTestDevice(TEST_TARGET, 1, totalTilesOnIPU);
   // Warning: Brittle choice of plan to fit serial and not parallel.
   const auto params = getLargeOctConvParams();
-  auto options = getGenericOctConvOptions(device.getTarget());
+  auto options = getGenericOctConvOptions();
 
   poplin::PlanningCache cache;
 
@@ -182,7 +181,7 @@ BOOST_AUTO_TEST_CASE(ChoosesBetterPlanWhenGivenReference) {
   const auto tilesOnIPU = 100;
   const auto device = createTestDevice(TEST_TARGET, 1, tilesOnIPU);
   const auto params = getGenericOctConvParams();
-  const auto options = getGenericOctConvOptions(device.getTarget());
+  const auto options = getGenericOctConvOptions();
   poplin::PlanningCache cache;
 
 // TODO: automate this test
@@ -246,7 +245,7 @@ BOOST_AUTO_TEST_CASE(FindsMultiPlanInCache) {
   // Given
   const auto device = createTestDevice(TEST_TARGET, 1, 8);
   const auto params = getGenericOctConvParams();
-  const auto options = getGenericOctConvOptions(device.getTarget());
+  const auto options = getGenericOctConvOptions();
   poplin::PlanningCache cache;
 
   // When

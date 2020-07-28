@@ -195,8 +195,7 @@ static unsigned
 linearizeTileIndices(const Target &target, const ConvOptions &opts,
                      const std::vector<Split<ConvIndices>> &indices,
                      const Plan &plan) {
-  const auto hierarchy =
-      poplibs::getTileHierarchy(opts.numIPUs, opts.tilesPerIPU);
+  const auto hierarchy = poplibs::getTileHierarchy(target);
   const auto numLevels = hierarchy.size();
   assert(indices.size() == numLevels);
   assert(plan.partitions.size() == numLevels);
@@ -1434,7 +1433,7 @@ Tensor createInput(Graph &graph, const ConvParams &params_,
                    const std::string &name, const poplar::OptionFlags &options_,
                    PlanningCache *cache) {
   const CanonicalConvParams params(params_);
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
 
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
   return createInput(graph, plan, params, name, options);
@@ -1576,7 +1575,7 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
                      const poplar::OptionFlags &options_,
                      PlanningCache *cache) {
   const CanonicalConvParams params(params_);
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
 
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
   return createWeights(graph, plan, params, name, options);
@@ -2494,7 +2493,7 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
     return;
 
   for (auto &conv : convs) {
-    const ConvOptions options(*std::get<0>(conv), *std::get<2>(conv));
+    const ConvOptions options(*std::get<2>(conv));
     convsImpl.emplace(std::get<1>(conv), options);
   }
   auto &commonTarget = *std::get<0>(*convs.cbegin());
@@ -2613,7 +2612,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const std::string &debugPrefix,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   const CanonicalConvParams params(params_);
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
 
   const auto layerName = debugPrefix + "/Conv_" + convSuffix(params);
   const auto plan = getPlan(graph.getTarget(), params, options, cache);
@@ -2886,8 +2885,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
   const CanonicalConvParams wuParams = getWeightUpdateParams(fwdParams_);
-  const auto wuOptions =
-      getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
+  const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   const auto layerName = debugPrefix + "/Conv_" + convSuffix(wuParams);
@@ -2927,8 +2925,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 
   const CanonicalConvParams wuParams =
       getWeightUpdateParams(std::move(fwdParams));
-  const auto wuOptions =
-      getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
+  const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   ConvProgramTree cpt(graph, wuPlan, debugPrefix);
@@ -2971,8 +2968,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 
   const CanonicalConvParams wuParams =
       getWeightUpdateParams(std::move(fwdParams));
-  const auto wuOptions =
-      getWeightUpdateOptions({graph.getTarget(), fwdOptions_});
+  const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
 
   ConvProgramTree cpt(graph, wuPlan, debugPrefix);
@@ -2989,7 +2985,7 @@ void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, const Tensor &scale,
                            const poplar::OptionFlags &options_, Sequence &prog,
                            const std::string &debugPrefix) {
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
   if (zDeltasUngrouped.rank() < 2)
     throw poplibs_error("convolutionBiasUpdate with rank " +
                         std::to_string(zDeltasUngrouped.rank()) +
@@ -3291,7 +3287,7 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor activations,
                                      const std::string &debugPrefix,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
   return fullyConnectedWeightTranspose(graph, activations, params_, prog,
                                        debugPrefix, options, cache);
 }
@@ -3300,7 +3296,7 @@ std::tuple<unsigned, unsigned, unsigned>
 getMatMulSerialSplits(const poplar::Graph &graph, const ConvParams &params,
                       const poplar::OptionFlags &options_,
                       PlanningCache *cache) {
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   auto partitionIt = plan.partitions.begin();
   auto transformIt = std::begin(plan.transforms);
@@ -3320,7 +3316,7 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
                                    const ConvParams &params,
                                    const poplar::OptionFlags &options_,
                                    PlanningCache *cache) {
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   std::size_t cycles, memory;
   std::tie(cycles, memory) =
@@ -3332,7 +3328,7 @@ PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const ConvParams &params,
                     const poplar::OptionFlags &options_, PlanningCache *cache) {
-  const ConvOptions options(graph.getTarget(), options_);
+  const ConvOptions options(options_);
   auto plan = getPlan(graph.getTarget(), params, options, cache);
   if (options.pass != Pass::FC_TRAINING_WU &&
       options.pass != Pass::FC_TRAINING_BWD) {
