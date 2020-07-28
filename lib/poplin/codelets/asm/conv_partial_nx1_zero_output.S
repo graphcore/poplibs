@@ -2,20 +2,16 @@
 // Zero  out partials before Nx1 workers start
 // Uses same vertex state as the convolution workers
 //
-// Performance: 14 + num_samples / 2
+// Performance: 14 + (partials == HALF ? 1 : 0) + num_samples / 2
 //
 #ifdef __IPU__
 
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
-#include "conv_partial_nx1_supervisor.S" // Required for stack definitions
+#include "conv_partial_zero_output_stack.h"
 
 // =============================================================================
-// Zero output/partials
-// Uses same vertex state as the convolution
-//
-// Performance: 14 + num_samples / 2
 
 .macro CONV_Nx1_ZERO_OUT_WORKER PARTIALS_TYPE
 

@@ -11,6 +11,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "conv_partial_zero_output_stack.h"
 
 // =============================================================================
 
@@ -68,15 +69,14 @@
 // =============================================================================
 // Vertex state shared between workers
 // The supervisor sets up a common state for workers to use
-#define WKR_INOUTSTRIDES1               0      // word
-#define WKR_INOUTSTRIDES2               4      // word
-#define WKR_INCHAN_PTR                  8      // word
-#define WKR_OUTCHAN_PTR                 12     // word
-#define WKR_PARTITION_PTR               16     // word
-#define WKR_ZERO_INFO                   20     // word
-#define WKR_PARTITION_BASE              24     // word
-#define WKR_STATE_SIZE                  (WKR_PARTITION_BASE + 4) // bytes
-
+// Allocate codelet specific worker stack after zero output worker (WKR_ZERO_OUTPUT_STACK)
+#define WKR_INOUTSTRIDES1               WKR_ZERO_OUTPUT_STACK       // word
+#define WKR_INOUTSTRIDES2               (WKR_INOUTSTRIDES1 + 4)     // word
+#define WKR_INOUTSTRIDES3               (WKR_INOUTSTRIDES2 + 4)     // word
+#define WKR_INCHAN_PTR                  (WKR_INOUTSTRIDES3 + 4)     // word
+#define WKR_PARTITION_PTR               (WKR_INCHAN_PTR + 4)        // word
+#define WKR_PARTITION_BASE              (WKR_PARTITION_PTR + 4)     // word
+#define WKR_STATE_SIZE                  (WKR_PARTITION_BASE + 4)    // bytes
 
 // =============================================================================
 // Performance:
@@ -116,49 +116,56 @@
 // registers
 #define sup_base                        m0
 #define kx_count_s                      m0
+
 #define weights_ptr_h_incr              m1
 #define temp_5_s                        m1
 #define convgroup_count_s               m1
+#define outchan_vectors_z_s             m1 // for zeroing partials
+
 #define temp_1_s                        m2
 #define inchan_count_s                  m2
 #define partition_ptr_s                 m2
 #define strides_s                       m2
+#define outchan_count_z_s               m2 // for zeroing partials
+
+
 #define inchan_ptr_s                    m3
 #define jmp_addr_s                      m3
 #define temp_4_s                        m3
+#define zero_info_s_z                   m3 // for zeroing partials
+
 #define amp_out_subgroup_count_s        m4
 #define ky_count_s                      m4
 #define temp_7_s                        m4
+#define wkr_function_s_z                m4 // for zeroing partials
+
 #define wkr_function_s                  m5
 #define weights_ptr_s_h                 m5
+#define outchan_ptr_z_s                 m5 // for zeroing partials
+
 #define outchan_count_s                 m5
 #define amp_height_jump_s               m5
 #define temp_3_s                        m5
+
 #define outchan_ptr_s                   m6
 #define partition_ptr_b_s               m6
+
 #define weights_ptr_s                   m7
 #define temp_2_s                        m7
 #define outstride_s                     m7
+#define convgroup_count_s_z             m7 // for zeroing partials
+
 #define inchan_vectors_s                m8
 #define in_row_stride_s                 m8
 #define temp_6_s                        m8
+
 #define outchan_vectors_s               m9
 #define inchans_per_group_s             m9
 #define amp_kernel_height_s             m9
+
 #define outchans_per_group_s            m10
 #define weights_vectors_s               m10
 #define wkr_base                        sp
-
-
-// for zeroing partials
-#define outchan_vectors_z_s             m1
-#define outchan_count_z_s               m2
-#define zero_info_s_z                   m3
-#define outchan_ptr_z_s                 m5
-#define wkr_function_s_z                m4
-#define convgroup_count_s_z             m7
-
-
 
 .macro CONV_Nx1_SUPERVISOR ACTIVATIONS_TYPE PARTIALS_TYPE LD128 AMP_OUTPUTS COMMAND
 
@@ -213,63 +220,84 @@ ld32          $partition_ptr_b_s, $sup_base, SUP_PARTITION_TABLES/4
 add           $sp, $sp, -TOT_STACK_SIZE
 lds16         $in_row_stride_s, $sup_base, SUP_IN_ROW_STRIDE/2
 ld32          $zero_info_s_z, $sup_base, SUP_ZERO_INFO/4
+
 //-----------------------------------------------------------------------------
 setzi         $wkr_function_s, convPartialNx1Flattened_\COMMAND\()
-and           $temp_1_s, $temp_1_s, 0x3FF
-ldz16         $temp_5_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
-ldz16         $temp_7_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
-st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
-st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
-st32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-
 // in-stride and out-stride are packed in one register. Out-stride
 // must be scaled by atom size because 64 bit writes are used
 // bits
 // inoutstrides = [0][in-stride][out-stride]
 shr           $outstride_s, $outstride_s, OUTSTRIDE_TO_LOADS
-//-----------------------------------------------------------------------------
-shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
+ldz16         $temp_5_s, $sup_base, SUP_NUM_OUTCHAN_M1/2
+ldz16         $temp_7_s, $sup_base, SUP_NUM_KERNEL_Y_M1/2
+and           $temp_1_s, $temp_1_s, 0x3FF
+st32          $m9, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 0
 
+//-----------------------------------------------------------------------------
+st32          $m10, $sp, (WKR_STATE_SIZE + STACK_SIZE)/4 + 1
+st32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
 st32          $temp_5_s, $sp, (STACK_BASE + STACK_NUM_OUTCHAN_M1)/4
 st32          $temp_7_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_Y_M1)/4
-
+shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 st32          $zero_info_s_z, $wkr_base, WKR_ZERO_INFO/4
-shl           $temp_1_s, $temp_1_s, 10
-and           $outstride_s, $outstride_s, 0x3FF
+
 //-----------------------------------------------------------------------------
+shl           $temp_1_s, $temp_1_s, 10 //too early
+and           $outstride_s, $outstride_s, 0x3FF
+mul           $temp_7_s, $in_row_stride_s, -2
 and           $in_row_stride_s, $in_row_stride_s, 0x3FF
 ldz16         $temp_5_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 ldz16         $inchans_per_group_s, $sup_base, SUP_NUM_INCHANS_PER_GROUP/2
+
+//-----------------------------------------------------------------------------
 ldz16         $outchans_per_group_s, $sup_base, SUP_NUM_OUTCHANS_PER_GROUP/2
 shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 or            $temp_4_s, $outstride_s, $temp_1_s
-//-----------------------------------------------------------------------------
 shl           $in_row_stride_s, $in_row_stride_s, 20
 
 // A second input strides registers has packed strides
 // [in-row-stride1][in-row-stride0][out-stride]
-// in-row-stride0 = in-row-stride for kernel height = 4
+// in-row-stride0 = 2*in-row-stride for kernel height = 4
+//                = 1 for other heights
+// A third input strides registers has packed strides
+// [0][in-row-stride2][out-stride]
+// in-row-stride2 = -2*in-row-stride for kernel height = 4
 //                = 1 for other heights
 cmpult        $temp_1_s, $temp_5_s, 3
 brz           $temp_1_s, SetInStridesHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
-setzi         $strides_s, 0x400
-bri           StridesSet_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
-SetInStridesHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
-shr           $strides_s, $in_row_stride_s, 10
 //-----------------------------------------------------------------------------
+// Set inRowStride0 and inRowStride2 to 1 for AMP height eqeal 1 and 2
+or            $strides_s, $mzero, (1 << 22)
+or            $temp_7_s,  $mzero, (1 << 22)
+bri           StridesSet_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\()
+
+SetInStridesHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
+// For AMP height 4 need to build inRowStride0 = 2x and inRowStride2 = -2x 
+shl           $strides_s, $in_row_stride_s, 3 // creates 2x. clears msb side
+shl           $temp_7_s, $temp_7_s, 22        // creates -2x. clears msb side
+
+//-----------------------------------------------------------------------------
+// By this point pipeline fill be flushed so restart 6 cycles alignment 
 StridesSet_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 st32          $partition_ptr_b_s, $wkr_base, WKR_PARTITION_BASE/4
+
 #if defined(VECTORLIST_AVAIL_DELTAN)
 ldz16         $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/2
 #else
 ld32          $partition_ptr_b_s, $sup_base, (SUP_PARTITION_TABLES + 4)/4
 #endif
+
 st32          $temp_4_s, $wkr_base, WKR_INOUTSTRIDES1/4
-mul           $temp_5_s, $inchans_per_group_s, SIZEOF_IN_ATOM
 mul           $temp_4_s, $outchans_per_group_s, SIZEOF_OUT_ATOM
-or            $strides_s, $strides_s, $outstride_s
+shr           $strides_s, $strides_s, 12      // creates 2x. moves back to mid 10bits
+
+// Scale output and input channels per group to scale input and output offsets.
+// Scaling depends on sizeof(input) and sizeof(output)
+ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
+
 //-----------------------------------------------------------------------------
-shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS
+shr           $temp_7_s, $temp_7_s, 12        // creates 2x. moves back to mid 10bits
+nop           // keep nop for 6 instructions pipeline
 
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
@@ -277,23 +305,8 @@ shl           $partition_ptr_b_s, $partition_ptr_b_s, (SCALED_PTR32_SHL + 13)
 shl           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
 
-setzi         $wkr_function_s_z, convNx1ZeroOutField_\PARTIALS_TYPE\()
-
-// Scale output and input channels per group to scale input and output offsets.
-// Scaling depends on sizeof(input) and sizeof(output)
-ld32          $outchan_vectors_z_s,$sup_base, SUP_OUTCHAN_VECTORS/4
-or            $strides_s, $strides_s, $in_row_stride_s
-ldz16         $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
-//-----------------------------------------------------------------------------
-add           $temp_4_s, $temp_2_s, -1
-
-#if defined(VECTORLIST_AVAIL_DELTAN)
-or            $partition_ptr_b_s, $partition_ptr_b_s, (TMEM_REGION0_BASE_ADDR << 13)
-#else
 nop           // keep nop for 6 instructions pipeline
-#endif
-
-ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
+or            $strides_s, $strides_s, $outstride_s
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
 ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
@@ -301,15 +314,37 @@ ldz16step     $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 ld32step      $outchan_ptr_z_s, $mzero, $outchan_vectors_z_s+=, 1
 #endif
 
-st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
-st32          $temp_6_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
 //-----------------------------------------------------------------------------
-add           $temp_6_s, $temp_6_s, 1
+or            $temp_7_s, $temp_7_s, $outstride_s
+shr           $temp_2_s, $outchans_per_group_s, LOG2_AMP_OUTPUTS
+
+#if defined(VECTORLIST_AVAIL_DELTAN)
+or            $partition_ptr_b_s, $partition_ptr_b_s, (TMEM_REGION0_BASE_ADDR << 13)
+#else
+nop           // keep nop for 6 instructions pipeline
+#endif
+
+nop           // keep nop for 6 instructions pipeline
+or            $strides_s, $strides_s, $in_row_stride_s
+ldz16         $temp_6_s, $sup_base, SUP_NUM_KERNEL_X_M1/2
+
+//-----------------------------------------------------------------------------
+st32          $temp_7_s, $wkr_base, WKR_INOUTSTRIDES3/4
+setzi         $wkr_function_s_z, convNx1ZeroOutField_\PARTIALS_TYPE\()
+add           $temp_4_s, $temp_2_s, -1
+
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shr           $partition_ptr_b_s, $partition_ptr_b_s, 13
 #else
 shr           $partition_ptr_b_s, $partition_ptr_b_s, DELTAN_DELTAS_COUNT_BITS
 #endif
+
+ldz16         $convgroup_count_s_z, $sup_base, SUP_NUM_CONVGROUPS_M1/2
+st32          $temp_6_s, $sp, (STACK_BASE + STACK_NUM_KERNEL_X_M1)/4
+
+//-----------------------------------------------------------------------------
+st32          $strides_s, $wkr_base, WKR_INOUTSTRIDES2/4
+add           $temp_6_s, $temp_6_s, 1
 ldz16         $amp_kernel_height_s, $sup_base, SUP_NUM_FILTER_HEIGHT_M1/2
 
 ZeroConvGroup_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
@@ -503,6 +538,7 @@ bri           AmpHeightRun_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP
 AmpHeightEq4_\ACTIVATIONS_TYPE\()_\PARTIALS_TYPE\()_\LD128\()_\AMP_OUTPUTS\():
 // we reuse $inchan_ptr_s as it has already been saved to vertex
 // state
+
 setzi         $inchan_ptr_s, convPartialNx1FlattenedStateRetained_\COMMAND\()
 
 .if \AMP_OUTPUTS == 8
@@ -516,6 +552,18 @@ ld64putcs     16
 ld64putcs     20
 ld64putcs     24
 ld64putcs     28
+
+put           $CCCSLOAD, $weights_ptr_s_h
+add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr
+ld64putcs     3
+ld64putcs     7
+ld64putcs     11
+ld64putcs     15
+ld64putcs     19
+ld64putcs     23
+ld64putcs     27
+ld64putcs     31
+
 put           $CCCSLOAD, $weights_ptr_s_h
 add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr
 ld64putcs     1
@@ -526,8 +574,11 @@ ld64putcs     17
 ld64putcs     21
 ld64putcs     25
 ld64putcs     29
+
 put           $CCCSLOAD, $weights_ptr_s_h
-add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr
+ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 ld64putcs     2
 ld64putcs     6
 ld64putcs     10
@@ -536,18 +587,7 @@ ld64putcs     18
 ld64putcs     22
 ld64putcs     26
 ld64putcs     30
-put           $CCCSLOAD, $weights_ptr_s_h
-ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-ld64putcs     3
-ld64putcs     7
-ld64putcs     11
-ld64putcs     15
-ld64putcs     19
-ld64putcs     23
-ld64putcs     27
-ld64putcs     31
+
 
 .elseif \AMP_OUTPUTS == 16
 put           $CCCSLOAD, $weights_ptr_s
@@ -568,6 +608,26 @@ ld64putcs     24
 ld64putcs     28
 ld64putcs     56
 ld64putcs     60
+
+put           $CCCSLOAD, $weights_ptr_s_h
+add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr
+ld64putcs     3
+ld64putcs     7
+ld64putcs     35
+ld64putcs     39
+ld64putcs     11
+ld64putcs     15
+ld64putcs     43
+ld64putcs     47
+ld64putcs     19
+ld64putcs     23
+ld64putcs     51
+ld64putcs     55
+ld64putcs     27
+ld64putcs     31
+ld64putcs     59
+ld64putcs     63
+
 put           $CCCSLOAD, $weights_ptr_s_h
 add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr
 ld64putcs     1
@@ -586,8 +646,11 @@ ld64putcs     25
 ld64putcs     29
 ld64putcs     57
 ld64putcs     61
+
 put           $CCCSLOAD, $weights_ptr_s_h
-add           $weights_ptr_s_h, $weights_ptr_s_h, $weights_ptr_h_incr
+ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
+ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
 ld64putcs     2
 ld64putcs     6
 ld64putcs     34
@@ -604,26 +667,7 @@ ld64putcs     26
 ld64putcs     30
 ld64putcs     58
 ld64putcs     62
-put           $CCCSLOAD, $weights_ptr_s_h
-ld32          $wkr_function_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-st32          $inchan_ptr_s, $sp, (STACK_BASE + STACK_WKR_FUNCTION)/4
-ld32          $inchan_ptr_s, $wkr_base, WKR_INCHAN_PTR/4
-ld64putcs     3
-ld64putcs     7
-ld64putcs     35
-ld64putcs     39
-ld64putcs     11
-ld64putcs     15
-ld64putcs     43
-ld64putcs     47
-ld64putcs     19
-ld64putcs     23
-ld64putcs     51
-ld64putcs     55
-ld64putcs     27
-ld64putcs     31
-ld64putcs     59
-ld64putcs     63
+
 .else
 .error "Number of outputs are not supported"
 .endif

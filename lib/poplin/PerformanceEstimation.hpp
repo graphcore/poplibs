@@ -22,7 +22,7 @@ inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
   return floatActivations ? 58 : 63;
 }
 
-inline static std::uint64_t convNx1Overhead() { return 101; }
+inline static std::uint64_t convNx1Overhead() { return 103; }
 
 // Number of worker cycle savings if state retention is used.
 // The first entry is the total savings and the second is
@@ -39,7 +39,7 @@ conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials) {
 inline static std::uint64_t
 convnx1WorkerRetentionSavings(bool /*floatActivations */,
                               bool /*floatPartials */) {
-  return 4;
+  return 6;
 }
 
 inline static std::uint64_t zeroPartialsRetentionSavings(bool floatPartials) {
@@ -172,10 +172,11 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
 inline std::uint64_t
 getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCycles, unsigned numConvGroups, unsigned numInGroups,
-    unsigned numOutGroups, unsigned numWorkers, bool floatActivations) {
+    unsigned numOutGroups, unsigned numWorkers, bool floatActivations,
+    bool floatPartials) {
   uint64_t cycles = innerLoopCycles;
   return convHorizontalMacOverhead(floatActivations) +
-         numWorkers * zeroPartialsRetentionSavings(/* floatPartials */ true) +
+         numWorkers * zeroPartialsRetentionSavings(floatPartials) +
          numConvGroups *
              (23 + numInGroups * (15 + numOutGroups * (10 + cycles)));
 }
@@ -191,7 +192,7 @@ inline std::uint64_t getConvPartialHorizontalMacSupervisorCycleEstimate(
       numWorkerContexts, floatActivations, floatPartials);
   return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
       cycles, numConvGroups, numInGroups, numOutGroups, numWorkerContexts,
-      floatActivations);
+      floatActivations, floatPartials);
 }
 
 inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(

@@ -7,6 +7,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "conv_partial_zero_output_stack.h"
 
 #define conv_hzmac_sup_half_half __runCodelet_poplin__ConvPartialHorizontalMac___half_half_true
 
@@ -79,23 +80,20 @@
 
 // =============================================================================
 
-
 // Vertex state shared between workers
 // The supervisor sets up a common state for workers to use
-#define WKR_INSTRIDE                    0      // word
-#define WKR_OUTSTRIDE                   4      // word
-#define WKR_INCHAN_PTR                  8      // word
-#define WKR_OUTCHAN_PTR                 12     // word
-#define WKR_PARTITION_PTR               16     // word
-#define WKR_ZERO_INFO                   20     // word
-#define WKR_OUTCHANS_PER_GROUP_IN_BYTES 24     // word
-#define WKR_PARTITION_BASE              28     // word
-#define WKR_INCHANS_PER_GROUP_IN_BYTES  32     // word
-#define WKR_OCG_COUNT                   36
-#define WKR_ICG_COUNT                   40
-#define WKR_WEIGHTS_PTR                 44
+// Allocate codelet specific worker stack after zero output worker (WKR_ZERO_OUTPUT_STACK)
+#define WKR_INSTRIDE                    WKR_ZERO_OUTPUT_STACK
+#define WKR_OUTSTRIDE                   (WKR_INSTRIDE + 4)
+#define WKR_INCHAN_PTR                  (WKR_OUTSTRIDE + 4)
+#define WKR_PARTITION_PTR               (WKR_INCHAN_PTR + 4)
+#define WKR_OUTCHANS_PER_GROUP_IN_BYTES (WKR_PARTITION_PTR + 4)
+#define WKR_PARTITION_BASE              (WKR_OUTCHANS_PER_GROUP_IN_BYTES + 4)
+#define WKR_INCHANS_PER_GROUP_IN_BYTES  (WKR_PARTITION_BASE + 4)
+#define WKR_OCG_COUNT                   (WKR_INCHANS_PER_GROUP_IN_BYTES + 4)
+#define WKR_ICG_COUNT                   (WKR_OCG_COUNT + 4)
+#define WKR_WEIGHTS_PTR                 (WKR_ICG_COUNT + 4)
 #define WKR_STATE_SIZE                  (WKR_WEIGHTS_PTR + 4) // bytes
-
 
 // =============================================================================
 

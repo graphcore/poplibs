@@ -407,7 +407,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, tileNumConvGroups, tileNumInGroups,
                   tileNumOutGroups, target.getNumWorkerContexts(),
-                  floatActivations) +
+                  floatActivations, floatPartials) +
               zeroCycles};
         },
         debugName);

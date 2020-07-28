@@ -386,6 +386,16 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
   return in;
 }
 
+static int getTransformedInStride(unsigned convUnitWeightHeight,
+                                  unsigned inStrideX, int inRowStride,
+                                  unsigned numInputLoads) {
+  if ((convUnitWeightHeight == 2) || (convUnitWeightHeight == 4)) {
+    return (static_cast<int>(inStrideX) - 1 - inRowStride) * numInputLoads + 1;
+  } else {
+    return (static_cast<int>(inStrideX) - 1) * numInputLoads + 1;
+  }
+}
+
 static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        unsigned tile,
                                        const CanonicalConvParams &params,
@@ -563,11 +573,10 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
           (inputBatchAndFieldShape[0] * inputBatchAndFieldShape[1]),
       useConvPartial1x1OutVertex, convUnitWeightHeight);
 
-  int transformedInStride =
-      (static_cast<int>(inStrideX) - 1 -
-       static_cast<int>(convUnitWeightHeight - 1) * inRowStride) *
-          static_cast<int>(inChansPerGroup / convInputLoadElems) +
-      1;
+  auto numInputLoads = static_cast<int>(inChansPerGroup / convInputLoadElems);
+  int transformedInStride = getTransformedInStride(
+      convUnitWeightHeight, inStrideX, inRowStride, numInputLoads);
+
   // fill in worklist
   unsigned outStrideToUse = useConvPartial1x1OutVertex ? 1 : outStrideX;
   int scaledOutStride = static_cast<int>(outStrideToUse * outChansPerGroup);
@@ -584,10 +593,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                                       : halfStrideAdj) +
       (flipOut ? -scaledOutStride : scaledOutStride);
 
-  int transformedInRowStride =
-      (inRowStride - 1) *
-          static_cast<int>(inChansPerGroup / convInputLoadElems) +
-      1;
+  int transformedInRowStride = (inRowStride - 1) * numInputLoads + 1;
 
   // Limits for field and worklist elements
   const auto unsignedMax = std::numeric_limits<unsigned short>::max();
@@ -773,15 +779,20 @@ static void createConvPartialAmpVertices(
       useConvPartial1x1OutVertex, convUnitWeightHeight);
   const auto convInputLoadElems =
       target.getConvUnitInputLoadElemsPerCycle(in.elementType() == FLOAT);
-  int transformedInStrideBeforeSplit =
-      (static_cast<int>(inStrideX) - 1 -
-       static_cast<int>(convUnitWeightHeight - 1) * inRowStrideBeforeSplit) *
-          static_cast<int>(inChansPerGroup / convInputLoadElems) +
-      1;
+  auto numInputLoads = static_cast<int>(inChansPerGroup / convInputLoadElems);
+  int transformedInStrideBeforeSplit = getTransformedInStride(
+      convUnitWeightHeight, inStrideX, inRowStrideBeforeSplit, numInputLoads);
+
   int transformedInRowStrideBeforeSplit =
-      (inRowStrideBeforeSplit - 1) *
-          static_cast<int>(inChansPerGroup / convInputLoadElems) +
-      1;
+      (inRowStrideBeforeSplit - 1) * numInputLoads + 1;
+
+  if (convUnitWeightHeight == 4) {
+    // Increase inRowStride here by 2 to get a correct split. That essential
+    // cause we pass inRowStride to supervisor that will build a stride
+    // register to create next pattern:
+    // [2*inRowStride, inRowStride, -2*inRowStride, -inStride+1, ...]
+    transformedInRowStrideBeforeSplit *= 2;
+  }
 
   // Find field split that satisfies machine stride bit-widths
   // Only use input striding to decide to split field as it is most likely to

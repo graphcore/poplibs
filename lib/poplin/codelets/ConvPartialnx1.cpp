@@ -98,9 +98,11 @@ public:
     int inRowStride =
         (transformedInRowStride - 1) * convInputLoadElems / inChansPerGroup + 1;
 
-    const int inStride =
-        (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1 +
-        (ampKernelHeight - 1) * inRowStride;
+    int inStride =
+        (transformedInStride - 1) * convInputLoadElems / inChansPerGroup + 1;
+    if ((ampKernelHeight == 2 || ampKernelHeight == 4)) {
+      inStride += inRowStride;
+    }
 
     const auto usedContexts =
         worklists.size() / (kernelOuterSize * kernelInnerElements);

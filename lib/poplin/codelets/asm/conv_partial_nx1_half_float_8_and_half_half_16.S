@@ -64,9 +64,10 @@ convPartialNx1Flattened_\COMMAND\():
 #define partition_v                    m1
 #define num_partitions_v               m2
 #define num_fp_v                       m3
-#define partition_base_v               m3
 #define inoutstrides1_v                m4
 #define inoutstrides2_v                m5
+#define inoutstrides3_v                m6
+#define partition_base_v               m7
 #define tripacked_addr                 m8:9
 #define in_addr_v                      m8
 #define in_offset_v                    m8
@@ -82,9 +83,12 @@ and           $wkr_id_v, $wkr_id_v, CSR_W_WSR__CTXTID_M1__MASK
 ld32          $inoutstrides1_v, $mvertex_base, WKR_INOUTSTRIDES1/4
 // inoutstrides2_v = [in-row-stride1][in-row-stride0][out-stride]
 ld32          $inoutstrides2_v, $mvertex_base, WKR_INOUTSTRIDES2/4
+// inoutstrides3_v = [0][in-row-stride2][out-stride]
+ld32          $inoutstrides3_v, $mvertex_base, WKR_INOUTSTRIDES3/4
+
+ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 
 convPartialNx1FlattenedStateRetained_\COMMAND\():
-
 ld32          $partition_table_v, $mvertex_base, WKR_PARTITION_PTR/4
 ld32          $partition_struct_v, $partition_table_v, $wkr_id_v
 
@@ -99,7 +103,6 @@ shl           $partition_v, $partition_struct_v, DELTAN_COUNT_BITS
 // Offset needs to be converted from elements to bytes.
 // Hence shift rigth is less by ELEM_TO_BYTES_CONV
 shr           $partition_v, $partition_v, (DELTAN_COUNT_BITS - ELEM_TO_BYTES_CONV)
-ld32          $partition_base_v, $mvertex_base, WKR_PARTITION_BASE/4
 add           $partition_v, $partition_v, $partition_base_v
 
 ld32          $inchan_ptr_v, $mvertex_base, WKR_INCHAN_PTR/4
@@ -172,11 +175,10 @@ PartitionLoop_\COMMAND\():
     \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
   }
   {
-    // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    // *input-ptr += in-row-stride2; *partials-ptr += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides3_v, 0b0010
     \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
-
   {
     // *input-ptr += in-stride; *partials_ptr += out-stride
     ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0110
@@ -193,11 +195,14 @@ PartitionLoop_\COMMAND\():
     \COMMAND      $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
   }
   {
-    // *input-ptr += in-row-stride0; *partials += 1
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+    // *input-ptr += in-row-stride2; *partials += 1
+    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides3_v, 0b0010
     \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
   }
-  rpt $num_fp_v, (Loop_end_Amp_\COMMAND\()-Loop_start_Amp_\COMMAND\())/8-1
+  {
+    rpt $num_fp_v, (Loop_end_Amp_\COMMAND\()-Loop_start_Amp_\COMMAND\())/8-1
+    fnop
+  }
 Loop_start_Amp_\COMMAND\():
     {
       // *input-ptr += in-stride; *partials-ptr += out-stride; *out-ptr += 1
@@ -215,8 +220,8 @@ Loop_start_Amp_\COMMAND\():
       \COMMAND      $a4:5, $a0:1, $a2:3, TAMP_F16V4_E4_P0
     }
     {
-      // *input-ptr += in-row-stride0; *partials-ptr += 1; *out-ptr += out-stride
-      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b010010
+      // *input-ptr += in-row-stride2; *partials-ptr += 1; *out-ptr += out-stride
+      ld2xst64pace  $a0:3, $a6:7, $tripacked_addr+=, $inoutstrides3_v, 0b010010
       \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
     }
 Loop_end_Amp_\COMMAND\():
@@ -236,13 +241,13 @@ Loop_end_Amp_\COMMAND\():
     \COMMAND      $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
   }
   {
-    // input-ptr += in-row-stride0; partials-ptr += 1; out-ptr += out-stride
-    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $inoutstrides2_v, 0b0110
+    // input-ptr += in-row-stride2; partials-ptr += 1; out-ptr += out-stride
+    ldst64pace    $a0:1, $a6:7, $tripacked_addr+=, $inoutstrides3_v, 0b0110
     \COMMAND      $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
   }
 StoreFinalAmpOutputs2_\COMMAND\():
   {
-    // *input-ptr += in-stride; *out-ptr += 1
+    // *input-ptr += 1; *out-ptr += 1
     ldst64pace    $a0:1, $a4:5, $tripacked_addr+=, $mzero, 0b0000
     \COMMAND      $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P2
   }
@@ -312,8 +317,8 @@ brneg         $num_fp_v, L_Partition_end_\COMMAND\()
   \COMMAND      $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P0
 }
 {
-  // *input-ptr += in-row-stride0; *partials-ptr += 1
-  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+  // *input-ptr += in-row-stride2; *partials-ptr += 1
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides3_v, 0b0010
   \COMMAND      $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
 {
@@ -340,48 +345,46 @@ brneg         $num_fp_v, L_Partition_end_\COMMAND\()
 // clear output stride to allow post increment by 0 in the dummy loads of
 // partials
 ConvNumFpEq2_\COMMAND\():
-  {
-    // *input-ptr += 0; *partials-ptr += out-stride
-    ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111
-    \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
-  }
-  {
-    // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
-  }
-  {
-    // *input-ptr += in-row-stride1; partials-ptr += 1
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011
-    \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
-  }
-  {
-    // *input-ptr += in-row-stride0; *partials-ptr += 1
-    ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
-    \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
-  }
-
+{
+  // *input-ptr += 0; *partials-ptr += out-stride
+  ld2x64pace    $azeros, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b0111
+  \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P2
+}
+{
+  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0010
+  \COMMAND      $a6:7, $azeros, $a2:3, TAMP_F16V4_E4_P3
+}
+{
+  // *input-ptr += in-row-stride1; partials-ptr += 1
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides2_v, 0b0011
+  \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P0
+}
+{
+  // *input-ptr += in-row-stride2; *partials-ptr += 1
+  ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides3_v, 0b0010
+  \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P1
+}
 #define inoutstrides2_eq2_v   num_fp_v
-andc          $inoutstrides2_eq2_v, $inoutstrides2_v, 0x3ff
-
+andc    $inoutstrides2_eq2_v, $inoutstrides2_v, 0x3ff
 {
   // *input-ptr += in-stride; *partials_ptr += 0
   ld2x64pace    $a0:1, $a2:3, $tripacked_addr+=, $inoutstrides1_v, 0b1110
   \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P2
 }
 {
-  // *input-ptr += in-row-stride0; *partials-ptr += 1
+  // *input-ptr += in-row-stride0; *partials-ptr += 0
   ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0110
   \COMMAND      $a6:7, $a0:1, $a2:3, TAMP_F16V4_E4_P3
 }
 {
-  // input-ptr += in-row-stride1; partials-ptr += 1
+  // input-ptr += in-row-stride1; *partials-ptr += 0
   ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0111
   \COMMAND      $a4:5, $a0:1, $azeros, TAMP_F16V4_E4_P0
 }
 {
-  // input-ptr += in-row-stride0; partials += 1
-  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides2_eq2_v, 0b0110
+  // input-ptr += in-row-stride2; *partials-ptr += 0
+  ld2x64pace    $a0:1, $azeros, $tripacked_addr+=, $inoutstrides3_v, 0b1110
   \COMMAND      $a6:7, $a0:1, $azeros, TAMP_F16V4_E4_P1
 }
 bri           StoreFinalAmpOutputs2_\COMMAND\()

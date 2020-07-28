@@ -7,6 +7,7 @@
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
+#include "conv_partial_zero_output_stack.h"
 
 #define conv_hzmac_sup_float_float __runCodelet_poplin__ConvPartialHorizontalMac___float_float_true
 
@@ -82,18 +83,17 @@
 
 // Vertex state shared between workers
 // The supervisor sets up a common state for workers to use
-#define WKR_INSTRIDE                    0      // word
-#define WKR_OUTSTRIDE                   4      // word
-#define WKR_INCHAN_PTR                  8      // word
-#define WKR_OUTCHAN_PTR                 12     // word
-#define WKR_PARTITION_PTR               16     // word
-#define WKR_ZERO_INFO                   20     // word
-#define WKR_OUTCHANS_PER_GROUP_X4       24     // word
-#define WKR_PARTITION_BASE              28     // word
-#define WKR_INCHANS_PER_GROUP_X4        32     // word
-#define WKR_OCG_COUNT                   36
-#define WKR_ICG_COUNT                   40
-#define WKR_WEIGHTS_PTR                 44
+// Allocate codelet specific worker stack after zero output worker (WKR_ZERO_OUTPUT_STACK)
+#define WKR_INSTRIDE                    WKR_ZERO_OUTPUT_STACK
+#define WKR_OUTSTRIDE                   (WKR_INSTRIDE + 4)
+#define WKR_INCHAN_PTR                  (WKR_OUTSTRIDE + 4)
+#define WKR_PARTITION_PTR               (WKR_INCHAN_PTR + 4)
+#define WKR_OUTCHANS_PER_GROUP_IN_BYTES (WKR_PARTITION_PTR + 4)
+#define WKR_PARTITION_BASE              (WKR_OUTCHANS_PER_GROUP_IN_BYTES + 4)
+#define WKR_INCHANS_PER_GROUP_IN_BYTES  (WKR_PARTITION_BASE + 4)
+#define WKR_OCG_COUNT                   (WKR_INCHANS_PER_GROUP_IN_BYTES + 4)
+#define WKR_ICG_COUNT                   (WKR_OCG_COUNT + 4)
+#define WKR_WEIGHTS_PTR                 (WKR_ICG_COUNT + 4)
 #define WKR_STATE_SIZE                  (WKR_WEIGHTS_PTR + 4) // bytes
 
 // =============================================================================
@@ -187,8 +187,8 @@ ld32          $outstride_v, $mvertex_base, WKR_OUTSTRIDE/4
 PartitionLoop_float_float:
   ldz16         $num_fp_v, $partition_v, PARTITION_NUM_ELEMS/2
 
-  ld32          $in_chans_per_group_x4, $mvertex_base, WKR_INCHANS_PER_GROUP_X4/4
-  ld32          $out_chans_per_group_x4, $mvertex_base, WKR_OUTCHANS_PER_GROUP_X4/4
+  ld32          $in_chans_per_group_x4, $mvertex_base, WKR_INCHANS_PER_GROUP_IN_BYTES/4
+  ld32          $out_chans_per_group_x4, $mvertex_base, WKR_OUTCHANS_PER_GROUP_IN_BYTES/4
 
   // form input address
   ldz16         $in_offset_v, $partition_v, PARTITION_INOFFSET/2
@@ -465,9 +465,9 @@ nop           // keep nop for 6 instructions pipeline
 #endif
 st32          $instride_s, $wkr_base, WKR_INSTRIDE/4
 st32          $icg_count_s, $wkr_base, WKR_ICG_COUNT/4
-st32          $inchans_per_group_s, $wkr_base, WKR_INCHANS_PER_GROUP_X4/4
+st32          $inchans_per_group_s, $wkr_base, WKR_INCHANS_PER_GROUP_IN_BYTES/4
 st32          $ocg_count_s, $mzero, $wkr_base, WKR_OCG_COUNT/4
-st32          $outchans_per_group_s, $mzero, $wkr_base, WKR_OUTCHANS_PER_GROUP_X4/4
+st32          $outchans_per_group_s, $mzero, $wkr_base, WKR_OUTCHANS_PER_GROUP_IN_BYTES/4
 #if defined(VECTORLIST_AVAIL_DELTAN)
 shr           $partition_ptr_s, $partition_ptr_s, 13
 #else
