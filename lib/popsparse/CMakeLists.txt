@@ -92,6 +92,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulElementWiseTranspose.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulGradWElementWise.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulGradAElementWise.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulBlock.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseGather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Utils.cpp
 
