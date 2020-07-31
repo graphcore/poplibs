@@ -134,6 +134,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE} -fno-omit-frame-pointer -g3")
+
 # Add some warning flags. check_cxx_compiler_flag isn't very good at detecting
 # unsupported flags that don't cause an error, so it is simpler to switch based
 # on the compiler ID.
