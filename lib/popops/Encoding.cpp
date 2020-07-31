@@ -1,6 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "popops/Encoding.hpp"
-
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Rearrange.hpp"
 #include "popops/Zero.hpp"
@@ -12,8 +12,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
-
-namespace logging = poplibs_support::logging;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -63,17 +62,16 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
                         debugPrefix + "/encodedOut");
 
   const auto grainSize = target.getVectorWidth(encoded.elementType());
-  // Have a minimum grains per tile in order for the overhead not to dominate
-  // compute
-  const auto minGrainsPerTile = 4UL;
-  auto numBatchGrains = (elemsPerBatch + grainSize - 1) / grainSize;
-  auto grainsPerTile = std::max(numBatchGrains, minGrainsPerTile);
+  auto numBatchGrains = ceildiv(elemsPerBatch, grainSize);
+  auto grainsPerTile = ceildiv(numBatchGrains, numTiles);
 
+  auto cs = graph.addComputeSet(layerPrefix + "/OneHotEncode");
+  const bool nonCustomValues = !on || !off;
+
+  // When batch size is very large this may have to change to form groups of
+  // batches and spread it over tiles.
   unsigned encElem = 0;
   unsigned tile = 0U;
-  auto cs = graph.addComputeSet(layerPrefix + "/OneHotEncode");
-
-  const bool nonCustomValues = !on || !off;
 
   while (encElem != elemsPerBatch) {
     auto tileEncElemStart = encElem;
@@ -119,8 +117,10 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
     popops::zero(graph, oneHotOutput, prog, layerPrefix + "/zero");
   }
   prog.add(Execute(cs));
+
   auto oneHotOutputRegrouped = popops::rearrange::regroupIfBeneficial(
       graph, oneHotOutput, encoded, prog, debugPrefix + "/postRegroup");
+
   prog.add(Copy(oneHotOutputRegrouped, encoded));
 }
 
