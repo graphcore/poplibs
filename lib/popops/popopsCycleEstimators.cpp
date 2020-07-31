@@ -2122,7 +2122,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(
     // additional 12 cycles for comparing ignore indices
     // as we can't tell which branch the code will take, assume the worst case
     // every iteration.
-    cycles += (62 + 12) * indices.size();
+    cycles += (64 + 12) * indices.size();
     return cycles;
   } else {
     // C++ vertex

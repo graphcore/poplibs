@@ -37,14 +37,13 @@ getRandomIndices(std::size_t numIndices, std::size_t length,
 }
 
 static inline boost::multi_array<double, 2>
-getEncodedModel(const std::vector<std::uint64_t> &indices, std::size_t length,
-                double off, double on) {
+getEncodedModel(const std::vector<std::uint64_t> &indices, std::size_t length) {
   const auto numIndices = indices.size();
   boost::multi_array<double, 2> encoded(boost::extents[numIndices][length]);
   for (std::size_t i = 0; i < numIndices; ++i) {
-    std::fill_n(&encoded[i][0], encoded[i].size(), off);
+    std::fill_n(&encoded[i][0], encoded[i].size(), 0);
     if (indices[i] != MASKED_LABEL_CODE) {
-      encoded[i][indices[i]] = on;
+      encoded[i][indices[i]] = 1;
     }
   }
   return encoded;
@@ -76,14 +75,9 @@ static inline void copyIndices(const std::vector<std::uint64_t> &indices,
 
 static bool encodeTest(std::size_t numIndices, std::size_t length,
                        bool insertIgnoreIndices, const Type &indicesType,
-                       const Type &encodedType, bool custom) {
+                       const Type &encodedType) {
   auto device = createTestDevice(TEST_TARGET, 1, 4);
   const auto &target = device.getTarget();
-
-  if (custom && insertIgnoreIndices) {
-    std::cerr << "Error::Indices cannot be ignored with custom levels \n";
-    return 1;
-  }
 
   Graph graph(target);
   popops::addCodelets(graph);
@@ -96,24 +90,13 @@ static bool encodeTest(std::size_t numIndices, std::size_t length,
       indices, "indices", graph, uploadProg, downloadProg, tmap);
 
   auto randIndices = getRandomIndices(numIndices, length, insertIgnoreIndices);
-  const float off = custom ? 2 : 0;
-  const float on = custom ? 4 : 1;
-  auto modelEncoded = getEncodedModel(randIndices, length, off, on);
+  auto modelEncoded = getEncodedModel(randIndices, length);
   copyIndices(randIndices, indicesType, rawHostIndices.get());
 
   auto prog = Sequence();
   auto encoded = graph.addVariable(encodedType, {numIndices, length},
                                    VariableMappingMethod::LINEAR, "encoded");
-  if (custom) {
-    auto onTensor = graph.addConstant(encodedType, {}, on);
-    auto offTensor = graph.addConstant(encodedType, {}, off);
-    graph.setTileMapping(onTensor, 0);
-    graph.setTileMapping(offTensor, 0);
-    encodeOneHot(graph, indices, encoded, prog, onTensor, offTensor,
-                 "/OneHotEncodeTestCustom");
-  } else {
-    encodeOneHot(graph, indices, encoded, prog, "/OneHotEncodeTest");
-  }
+  encodeOneHot(graph, indices, encoded, prog, "/OneHotEncodeTest");
   auto rawHostEncoded = allocateHostMemoryForTensor(
       encoded, "encoded", graph, uploadProg, downloadProg, tmap);
 
@@ -208,26 +191,24 @@ BOOST_AUTO_TEST_CASE(UnsignedIotaTestEven) {
 
 BOOST_AUTO_TEST_CASE(IntIotaTest) { BOOST_CHECK(iotaTest(-3, 121, INT)); }
 
-#define TEST_NAME(name, n, l, ign, iType, eType, custom)                       \
-  name##_##n##x##l##_##ign##_##iType##_##eType##_##custom
+#define TEST_NAME(name, n, l, ign, iType, eType)                               \
+  name##_##n##x##l##_##ign##_##iType##_##eType
 
-#define TEST_TYPE(name, n, l, ign, iType, eType, custom)                       \
-  BOOST_AUTO_TEST_CASE(TEST_NAME(name, n, l, ign, iType, eType, custom)) {     \
-    auto matchesModel = encodeTest(n, l, ign, iType, eType, custom);           \
+#define TEST_TYPE(name, n, l, ign, iType, eType)                               \
+  BOOST_AUTO_TEST_CASE(TEST_NAME(name, n, l, ign, iType, eType)) {             \
+    auto matchesModel = encodeTest(n, l, ign, iType, eType);                   \
     BOOST_CHECK(matchesModel);                                                 \
   }
 
-#define ENUMERATE_VALID_TYPE_TESTS(name, n, l, ign, custom)                    \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, FLOAT, custom)                      \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, HALF, custom)                       \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, UNSIGNED_INT, custom)               \
-  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, INT, custom)                        \
-  TEST_TYPE(name, n, l, ign, INT, FLOAT, custom)                               \
-  TEST_TYPE(name, n, l, ign, INT, HALF, custom)                                \
-  TEST_TYPE(name, n, l, ign, INT, UNSIGNED_INT, custom)                        \
-  TEST_TYPE(name, n, l, ign, INT, INT, custom)
+#define ENUMERATE_VALID_TYPE_TESTS(name, n, l, ign)                            \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, FLOAT)                              \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, HALF)                               \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, UNSIGNED_INT)                       \
+  TEST_TYPE(name, n, l, ign, UNSIGNED_INT, INT)                                \
+  TEST_TYPE(name, n, l, ign, INT, FLOAT)                                       \
+  TEST_TYPE(name, n, l, ign, INT, HALF)                                        \
+  TEST_TYPE(name, n, l, ign, INT, UNSIGNED_INT)                                \
+  TEST_TYPE(name, n, l, ign, INT, INT)
 
-ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 1, 1, false, false)
-ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 20, 5, true, false)
-ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 5, 21, true, false)
-ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 5, 21, false, true)
+ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 1, 1, false)
+ENUMERATE_VALID_TYPE_TESTS(EncodeOneHot, 20, 5, true)
