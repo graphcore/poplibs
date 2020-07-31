@@ -87,7 +87,7 @@ static std::vector<unsigned int> getForwardWorkerPartition(const Target &target,
       worklist.push_back(interval.size());
     }
   }
-  assert(worklist.size() <= target.getNumWorkerContexts());
+  assert(worklist.size() <= 2 * target.getNumWorkerContexts());
   return worklist;
 }
 
