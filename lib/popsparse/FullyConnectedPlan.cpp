@@ -907,7 +907,7 @@ addEstimates(const Target &target, const Type &inputType,
 
   CostVariables cost(
       m.sum({mDistributionExchangeCost.cycles, mInitialComputeCost.cycles,
-             mPropagatingExchangeCost.tempBytes, mReductionExchangeCost.cycles,
+             mPropagatingExchangeCost.cycles, mReductionExchangeCost.cycles,
              mReductionComputeCost.cycles}),
       m.max({mDistributionExchangeCost.tempBytes, mInitialComputeCost.tempBytes,
              mPropagatingExchangeCost.tempBytes,
