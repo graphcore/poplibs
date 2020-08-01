@@ -18,10 +18,6 @@
 #define VERTEX_SLICE_OFFSET 3
 #define VERTEX_OFFSETS_OFFSET 4
 
-// Stack
-#define STACK_CALLER_SAVE_OFFSET 0 // 4 Bytes
-#define STACK_SIZE 8 // 4 (+4 to align to 8 Bytes)
-
 // constants
 #define HALF_1_0 0x3C00
 
@@ -30,16 +26,15 @@
 #define indexPtr m1
 #define numIndices m2
 #define outPtr m3
-#define slicePtr m4
-#define offsetsPtr m5
 
 #define outPtr_cpy m0
 #define offset m6
 #define slice m7
 #define mscratch m8
-#define mscratch2 m9
+#define mscratch2 m5
 
-DEF_STACK_USAGE STACK_SIZE VERTEX
+
+DEF_STACK_USAGE 0 VERTEX
 
 .section .text.VERTEX
 .align 4
@@ -52,39 +47,36 @@ VERTEX:
   // followed by:
   //
   //  for (unsigned i = 0; i < indices.size(); ++i) {
-  //    if ((indices[i] >= offsets[i]) &&
-  //         (offsets[i] < indices[i] + sliceLength[i])) {
-  //      out[idx + indices[i] - offsets[i]] = 1;
+  //    if ((indices[i] >= offsets) &&
+  //         (offsets < indices[i] + sliceLength)) {
+  //      out[idx + indices[i] - offsets = 1;
   //    }
-  //    idx += sliceLength[i];
+  //    idx += sliceLength;
   //  }
   //
   // We memset in the compute set before this one and offsets is
   // In/Out allowing partial writes to the output vector
 
-  add  $sp, $sp, -STACK_SIZE
-
   // Load Vertex state
   ld32 $numIndices, $vertexPtr, $mzero, VERTEX_INDEX_SIZE_OFFSET
-  ld32 $slicePtr, $vertexPtr, $mzero, VERTEX_SLICE_OFFSET
   ld32 $outPtr, $vertexPtr, $mzero, VERTEX_OUT_OFFSET
+  ld32 $slice, $vertexPtr, $mzero, VERTEX_SLICE_OFFSET
   ld32 $indexPtr, $vertexPtr, $mzero, VERTEX_INDEX_BEGIN_OFFSET
-  ld32 $offsetsPtr, $vertexPtr, $mzero, VERTEX_OFFSETS_OFFSET
+  ld32 $offset, $vertexPtr, $mzero, VERTEX_OFFSETS_OFFSET
 
-  st32 $m9, $sp, STACK_CALLER_SAVE_OFFSET/4
 
+  nop
   // minus 1 for brnzdec
   add $numIndices, $numIndices, -1
 
 .Lencode_loop:
-    ld32step $slice, $mzero, $slicePtr+=, 1
 
     // use a separate copy as we need to check alignment of write address
     mov $outPtr_cpy, $outPtr
 
     // move out pointer to next slice before check on whether this index
     // lies within this slice
-    ldz16step $mzero, $mzero, $outPtr+=, $slice // 6 cycles
+    ldz16step $mzero, $mzero, $outPtr+=, $slice
 
     ld32step $mscratch, $mzero, $indexPtr+=, 1
 
@@ -99,8 +91,6 @@ VERTEX:
     cmpne    $mscratch2, $mscratch2, $mscratch
  #endif
 
-    ld32step $offset, $mzero, $offsetsPtr+=, 1
-
     // ignore if invalid code
     brz      $mscratch2, .Lskip_index
 
@@ -110,7 +100,7 @@ VERTEX:
     // index - offset
     sub $mscratch, $mscratch, $offset
 
-    brneg $mscratch, .Lskip_index // take this branch: 27
+    brneg $mscratch, .Lskip_index // take this branch : 27
 
     // there is a 6 cycle penalty when index is larger than out.size().
     cmpult $mscratch2, $mscratch, $slice
@@ -139,7 +129,6 @@ VERTEX:
     brnzdec $numIndices, .Lencode_loop
 
 .Lepilogue:
-  ld32step $m9, $mzero, $sp+=, STACK_SIZE/4
   br $lr // 6 cycles
 
 .size VERTEX, . - VERTEX

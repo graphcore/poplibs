@@ -1,7 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "popops/Encoding.hpp"
-
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/logging.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/Zero.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -11,8 +12,7 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
-
-namespace logging = poplibs_support::logging;
+using namespace poplibs_support;
 
 namespace popops {
 
@@ -34,6 +34,11 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
     throw poputil::poplibs_error("Tensor taking one-hot encoded output must be "
                                  "2 dimensional");
   }
+
+  if (indices.rank() != 1) {
+    throw poputil::poplibs_error("Tensor of one-hot indices must have rank 1");
+  }
+
   const auto inputShape = indices.shape();
   if (encodedShape[0] != inputShape[0]) {
     throw poputil::poplibs_error("Tensor taking one-hot encoded output must "
@@ -46,97 +51,122 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
   }
 
   const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
+  const std::size_t numTiles = target.getNumTiles();
 
   // how many elements in the encoded tensor refer to each index.
   const auto elemsPerBatch = encodedShape[1];
   const auto numIndices = encodedShape[0];
 
-  const auto grainSize = target.getVectorWidth(encoded.elementType());
-  // Have a minimum grains per tile in order for the overhead not to dominate
-  // compute
-  const auto minGrainsPerTile = 4UL;
-  auto numBatchGrains = (elemsPerBatch + grainSize - 1) / grainSize;
-  auto grainsPerTile =
-      std::max((numBatchGrains * numIndices + numTiles - 1) / numTiles,
-               minGrainsPerTile);
+  auto oneHotOutput =
+      graph.addVariable(encoded.elementType(), {numIndices, elemsPerBatch},
+                        debugPrefix + "/encodedOut");
 
-  unsigned encElem = 0;
-  unsigned tile = 0U;
+  // We want to maximise the innermost dimension sizes for one hot encoding
+  // as we don't divide indices amongst workers on a tile. We form grains
+  // for both the dimension to allow nice groupings to be formed if the
+  // sizes in each dimension allow to do so. We could use a planning system
+  // and use cost estimates but is not done here to avoid costs based on
+  // introspection.
+  std::size_t minGrainsPerTile = 4UL;
+  std::size_t grainSize = target.getVectorWidth(encoded.elementType());
+
+  // number of grains of indices
+  const auto numIndicesGrains = ceildiv(numIndices, grainSize);
+
+  // Form groups containing grains of indices. Spread these over as many
+  // tiles as possible.
+  const auto indicesGrainsPerGroup = ceildiv(numIndicesGrains, numTiles);
+
+  // Number of indices groups that can be formed given the grain size
+  const auto numIndicesGroups =
+      ceildiv(numIndicesGrains, indicesGrainsPerGroup);
+
+  // Use the unused tile factor to allocate per batch groups. We do a factored
+  // allocation to keep the vertex simple as otherwise we would have to provide
+  // more information on start of indices.
+  const auto numPerBatchGroups = std::max(numTiles / numIndicesGroups, 1UL);
+
+  // Number of per batch grains that can be formed
+  const auto numPerBatchGrains = ceildiv(elemsPerBatch, grainSize);
+  const auto perBatchGrainsPerGroup =
+      std::max(ceildiv(numPerBatchGrains, numPerBatchGroups), minGrainsPerTile);
+
   auto cs = graph.addComputeSet(layerPrefix + "/OneHotEncode");
+  const bool nonCustomValues = !on || !off;
 
-  while (encElem != encoded.numElements()) {
-    auto tileEncElemStart = encElem;
-    auto tileEncElemEnd = std::min(tileEncElemStart + grainsPerTile * grainSize,
-                                   encoded.numElements());
+  logging::debug("encodeOneHot: Indices : grains {}, groups {}, per group {}",
+                 numIndicesGrains, numIndicesGroups, indicesGrainsPerGroup);
+  logging::debug("            : per-batch : grains {}, groups {} per group {}",
+                 numPerBatchGrains, numPerBatchGroups, perBatchGrainsPerGroup);
 
-    std::vector<Tensor> encThisTile;
-    std::vector<Tensor> indicesThisTile;
-    std::vector<unsigned> offsets;
-    std::vector<unsigned> sliceLen;
-    auto elemsThisTile = tileEncElemEnd - tileEncElemStart;
-    // Elements in each slice must belong to the same index
-    while (elemsThisTile) {
-      const auto thisBatchStart = encElem % elemsPerBatch;
-      const auto thisBatchEnd =
-          std::min(thisBatchStart + elemsThisTile, elemsPerBatch);
-      const auto thisIndex = encElem / elemsPerBatch;
-      encThisTile.push_back(
-          encoded[thisIndex].slice({thisBatchStart, thisBatchEnd}));
-      indicesThisTile.push_back(indices[thisIndex].expand({0}));
-      offsets.push_back(thisBatchStart);
-      const auto elemsThisEntry = thisBatchEnd - thisBatchStart;
-      sliceLen.push_back(elemsThisEntry);
-      assert(elemsThisTile >= elemsThisEntry);
-      elemsThisTile -= elemsThisEntry;
-      encElem += elemsThisEntry;
+  unsigned tile = 0U;
+  for (unsigned group = 0; group != numIndicesGroups; ++group) {
+    unsigned encElem = 0;
+    const auto indicesStart =
+        std::min(group * indicesGrainsPerGroup * grainSize, numIndices);
+    const auto indicesEnd =
+        std::min((group + 1) * indicesGrainsPerGroup * grainSize, numIndices);
+
+    const auto numIndicesThisTile = indicesEnd - indicesStart;
+    if (numIndicesThisTile == 0) {
+      continue;
     }
 
-    auto offsetTensor =
-        graph.addConstant(UNSIGNED_INT, {offsets.size()}, offsets.data(),
-                          debugPrefix + "/offset");
-    graph.setTileMapping(offsetTensor, 0);
-    auto sliceLenTensor =
-        graph.addConstant(UNSIGNED_INT, {sliceLen.size()}, sliceLen.data(),
-                          debugPrefix + "/sliceLen");
-    graph.setTileMapping(sliceLenTensor, 0);
-    auto outFlattened = concat(encThisTile);
+    while (encElem != elemsPerBatch) {
+      auto tileEncElemStart = encElem;
+      auto tileEncElemEnd = std::min(
+          tileEncElemStart + perBatchGrainsPerGroup * grainSize, elemsPerBatch);
+      auto elemsThisTile = tileEncElemEnd - tileEncElemStart;
+      logging::debug("  tile : {}, indices [{}:{}), per-batch [{}:{})", tile,
+                     indicesStart, indicesEnd, tileEncElemStart,
+                     tileEncElemEnd);
+      auto tileOutput = oneHotOutput
+                            .slice({indicesStart, tileEncElemStart},
+                                   {indicesEnd, tileEncElemEnd})
+                            .flatten();
+      auto tileIndices = indices.slice(indicesStart, indicesEnd).flatten();
 
-    poplar::VertexRef v;
+      poplar::VertexRef v;
 
-    if (!on || !off) {
-      // Normal path with On/Off hardcoded as 1/0.
-      v = graph.addVertex(cs,
-                          templateVertex("popops::EncodeOneHot", indexType,
-                                         encoded.elementType()),
-                          {{"indices", concat(indicesThisTile)},
-                           {"out", outFlattened},
-                           {"offsets", offsetTensor},
-                           {"sliceLength", sliceLenTensor}});
-    } else {
-      // "Slow" path which loads On/Off first then assigns them.
-      v = graph.addVertex(cs,
-                          templateVertex("popops::EncodeOneHotCustomValues",
-                                         indexType, encoded.elementType()),
-                          {{"indices", concat(indicesThisTile)},
-                           {"out", outFlattened},
-                           {"offsets", offsetTensor},
-                           {"sliceLength", sliceLenTensor},
-                           {"On", *on},
-                           {"Off", *off}});
-      // TODO: T12944 Note that outLength is the sum of the elements of vector
-      // sliceLength and as an optimisation maybe removed.
-      graph.setInitialValue(v["outLength"], outFlattened.numElements());
+      if (nonCustomValues) {
+        // Normal path with On/Off hardcoded as 1/0.
+        v = graph.addVertex(cs,
+                            templateVertex("popops::EncodeOneHot", indexType,
+                                           encoded.elementType()),
+                            {{"indices", tileIndices}, {"out", tileOutput}});
+      } else {
+        // "Slow" path which loads On/Off first then assigns them.
+        v = graph.addVertex(cs,
+                            templateVertex("popops::EncodeOneHotCustomValues",
+                                           indexType, encoded.elementType()),
+                            {{"indices", tileIndices},
+                             {"out", tileOutput},
+                             {"On", *on},
+                             {"Off", *off}});
+        // TODO: T12944 Note that outLength is the sum of the elements of vector
+        // sliceLength and as an optimisation maybe removed.
+        graph.setInitialValue(v["outLength"], tileOutput.numElements());
+      }
+      graph.setInitialValue(v["offset"], tileEncElemStart);
+      graph.setInitialValue(v["sliceLength"], elemsThisTile);
+      graph.setTileMapping(v, tile);
+      graph.setTileMapping(tileOutput, tile);
+
+      if (++tile >= numTiles) {
+        tile = 0;
+      }
+      encElem += elemsThisTile;
     }
-    graph.setTileMapping(v, tile);
-
-    if (++tile >= numTiles)
-      tile = 0;
   }
   if (!on || !off) { // Only zero out memory if we are using 0/1 encoding schema
-    popops::zero(graph, encoded, prog, layerPrefix + "/zero");
+    popops::zero(graph, oneHotOutput, prog, layerPrefix + "/zero");
   }
   prog.add(Execute(cs));
+
+  auto oneHotOutputRegrouped = popops::rearrange::regroupIfBeneficial(
+      graph, oneHotOutput, encoded, prog, debugPrefix + "/postRegroup");
+
+  prog.add(Copy(oneHotOutputRegrouped, encoded));
 }
 
 } // Namespace

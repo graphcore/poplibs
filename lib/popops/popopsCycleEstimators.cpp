@@ -1091,6 +1091,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Fill)(const VertexIntrospector &vertex,
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Fill2d)(const VertexIntrospector &vertex,
                                   const Target &target, const Type &type) {
+  // UNSIGNED_INT and INT use the same cycle estimator as FLOAT
+  // see: T24721
   const auto out = vertex.getFieldInfo("out");
   std::uint64_t cycles = 5 + (type != HALF);
   for (unsigned i = 0; i < out.size(); ++i)
@@ -2122,7 +2124,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(
     // additional 12 cycles for comparing ignore indices
     // as we can't tell which branch the code will take, assume the worst case
     // every iteration.
-    cycles += (64 + 12) * indices.size();
+    cycles += (62 + 12) * indices.size();
     return cycles;
   } else {
     // C++ vertex
@@ -2681,6 +2683,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, UNSIGNED_INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Fill2d, INT),
 
       CAST_CYCLE_ESTIM_ENTRIES(Cast),
       CAST_CYCLE_ESTIM_ENTRIES(Cast2d),
