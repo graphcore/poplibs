@@ -444,10 +444,6 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
   const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
   const auto numIPUs = numTiles / tilesPerIPU;
 
-  std::vector<std::vector<unsigned>> mappedTilesByIPU(numIPUs);
-  for (unsigned ipu = 0; ipu < numIPUs; ++ipu) {
-    mappedTilesByIPU.reserve(tilesPerIPU);
-  }
   using IntervalMap = boost::icl::interval_map<std::size_t, unsigned,
                                                boost::icl::partial_enricher>;
   using Interval = boost::icl::interval<std::size_t>;
@@ -456,7 +452,6 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
     auto ipu = tile / tilesPerIPU;
     const auto &mapping = tMapping[tile];
     if (!mapping.empty()) {
-      mappedTilesByIPU[ipu].push_back(tile);
       for (const auto &i : mapping) {
         intervalsToIPU.insert(
             std::make_pair(Interval::right_open(i.begin(), i.end()), ipu));
@@ -493,14 +488,15 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
   // on which it should actually reside. T6427 is required for this as a
   // primary usage of these regrouping functions.
   for (unsigned ipu = 0; ipu < numIPUs; ++ipu) {
-    const auto &mappedTiles = mappedTilesByIPU[ipu];
     const auto &transpositions = ipuTranspositions[ipu];
-    auto numTiles = mappedTiles.size();
     auto numTranspositions = std::accumulate(
         transpositions.begin(), transpositions.end(), std::size_t(0),
         [](std::size_t t, const poplar::Interval &i) { return t + i.size(); });
     if (!numTranspositions)
       continue;
+
+    // spread across all tiles
+    auto numTiles = tilesPerIPU;
 
     // Map transpositions on this IPU evenly across the tiles on which
     // elements of the source tensor reside.
@@ -515,7 +511,7 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
         auto slice =
             preRegroupFlat.slice(interval->begin() + intervalOffset,
                                  interval->begin() + intervalOffset + n, 0);
-        graph.setTileMapping(slice, mappedTiles[i]);
+        graph.setTileMapping(slice, i);
         remaining -= n;
         intervalOffset += n;
         if (interval->begin() + intervalOffset == interval->end()) {
