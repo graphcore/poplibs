@@ -2500,8 +2500,9 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
   preplanConvolutionsImpl(commonTarget, convsImpl, cache);
 }
 
-static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
-                                Sequence &prog, const ConvParams &params,
+static Tensor remapOutputTensor(Graph &graph, const Plan &plan,
+                                const poplar::Tensor &output, Sequence &prog,
+                                const ConvParams &params,
                                 const std::string &debugPrefix);
 
 static Tensor convolutionInternal(
@@ -2547,7 +2548,7 @@ static Tensor convolutionInternal(
   if (options.remapOutputTensor) {
     const auto dimGroupings = detectDimGroupings(graph, output);
     if (dimGroupings.empty()) {
-      return remapOutputTensor(graph, output, cpt.finalizeProg, *params,
+      return remapOutputTensor(graph, plan, output, cpt.finalizeProg, *params,
                                debugPrefix);
     }
   }
@@ -2555,25 +2556,39 @@ static Tensor convolutionInternal(
   return output;
 }
 
-Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
-                         Sequence &prog, const ConvParams &params,
+Tensor remapOutputTensor(Graph &graph, const Plan &plan,
+                         const poplar::Tensor &output, Sequence &prog,
+                         const ConvParams &params,
                          const std::string &debugPrefix) {
-  const auto grainSize = 8U;
-  const auto minElementsPerTile = 8U;
-  std::size_t chansPerGroup, numChanGroups;
-  if (params.getNumOutputChansPerConvGroup() % grainSize) {
+  const auto outChans = params.getNumOutputChansPerConvGroup();
+
+  // prefer a grouping of 16 if possible, if not then fallback to either 8 or 4.
+  const auto grainSize = [&] {
+    if (outChans % 16u == 0) {
+      return 16u;
+    } else if (outChans % 8u == 0) {
+      return 8u;
+    } else {
+      return 4u;
+    }
+  }();
+  const auto minElementsPerTile = grainSize;
+
+  if (outChans % grainSize) {
     // do not remap if the output channels is not a multiple of grain size.
     // We could find a grain size in other dimensions and map but keep it
     // simple for now.
     return output;
-  } else {
-    chansPerGroup = grainSize;
-    numChanGroups = params.getNumOutputChansPerConvGroup() / chansPerGroup;
   }
+
+  const std::size_t chansPerGroup = grainSize;
+  const std::size_t numChanGroups = outChans / chansPerGroup;
+
   std::vector<std::size_t> remapShape = {params.getNumConvGroups(),
                                          numChanGroups, params.getBatchSize()};
-  for (const auto &e : params.getOutputFieldShape())
+  for (const auto &e : params.getOutputFieldShape()) {
     remapShape.push_back(e);
+  }
   remapShape.push_back(chansPerGroup);
 
   // Keep the created tensor contiguous in the channel dimension. We
