@@ -56,6 +56,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Fill.hpp
 
   reduction/ComputeSetList.cpp

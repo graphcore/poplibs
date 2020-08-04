@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "ConvModel.hpp"
 #include "ExchangeEstimator.hpp"
+#include "poplibs_support/popopsPerformanceEstimation.hpp"
 #include <poputil/exceptions.hpp>
 
 namespace poplin {
@@ -1403,55 +1404,33 @@ addTransformCycleEstimate(
 }
 
 // estimation function for both dynamic slice and update.
-template <typename F>
 popsolver::Variable
-addDynamicSliceEstimate(popsolver::Model &m, const unsigned numWorkers,
+addDynamicSliceEstimate(popsolver::Model &m, const poplar::Target &target,
                         const popsolver::Variable &elementsPerTile,
                         const popsolver::Variable &serialSplit,
-                        const F &getElementsPerWord) {
+                        const poplar::Type &inType) {
   // assume we have to slice an even amount of weights on each tile for each
   // each split.
   const auto sliceSize = m.ceildiv(elementsPerTile, serialSplit);
-  const auto elementsPerWord = getElementsPerWord();
 
   const std::vector<popsolver::Variable> vars = {serialSplit, sliceSize};
   return m.call<unsigned>(
       vars,
-      [elementsPerWord,
-       numWorkers](const std::vector<unsigned> &vars) -> popsolver::DataType {
+      [target,
+       inType](const std::vector<unsigned> &vars) -> popsolver::DataType {
         const auto serialSplit = vars[0];
         const auto sliceSize = vars[1];
-
         assert(serialSplit != 0);
+
         // when not splitting serially we require no dynamic slicing or
         // updating.
         if (serialSplit == 1) {
           return popsolver::DataType{0};
         }
-
-        const auto elementsPerWorker =
-            ceildiv(sliceSize / elementsPerWord, numWorkers);
-
-        // rough estimate of vertex overhead plus assuming inner loop of 2
-        // cycles per word (one load, one store).
-        const auto innerLoopCycles = 2 * elementsPerWorker;
-        return popsolver::DataType{(30u + innerLoopCycles) * numWorkers};
+        auto cycles =
+            popops::getDynamicSlice1dEstimate(target, inType, sliceSize, 1);
+        return popsolver::DataType{cycles};
       });
-}
-
-static popsolver::Variable
-addDynamicSliceEstimate(popsolver::Model &m, const poplar::Target &target,
-                        const popsolver::Variable &weightsPerTile,
-                        const popsolver::Variable &serialSplit,
-                        const ConvParams &params) {
-  const auto workers = target.getNumWorkerContexts();
-  return addDynamicSliceEstimate(m, workers, weightsPerTile, serialSplit, [&] {
-    // the weights type is always the same as the input type.
-    const auto weightsType = params.inputType;
-
-    // weights per word
-    return target.getVectorWidth(weightsType) / 2;
-  });
 }
 
 static popsolver::Variable
@@ -1460,50 +1439,10 @@ addDynamicUpdateEstimate(popsolver::Model &m, const poplar::Target &target,
                          const PartitionVariables &tileSplits,
                          const std::vector<ConvTypes> &types) {
   const auto &outChanSerialSplit = tileSplits.outChanSplit.serial;
-  const auto workers = target.getNumWorkerContexts();
-  return addDynamicSliceEstimate(
-      m, workers, outputsPerTile, outChanSerialSplit, [&] {
-        // currently the output channels are serially split only in the
-        // intra-IPU level. TODO: T12878 Assert that this is the case.
-        assert(types.size() > 0);
-        const unsigned intraTileLevel = types.size() - 1;
-
-        const auto outputsType = types[intraTileLevel].resultType;
-        const auto outputsPerWord = target.getVectorWidth(outputsType) / 2;
-
-        return outputsPerWord;
-      });
-}
-
-static popsolver::Variable outputOperationInPlaceEstimate(
-    popsolver::Model &m, const unsigned cyclesPerVector,
-    const unsigned loopOverhead, const unsigned numWorkers,
-    const unsigned vectorWidth, const popsolver::Variable &outputsPerTile,
-    const PartitionVariables &tileSplits) {
-  // Input channels serial splits do not cause a corresponding split in the
-  // outputs. Hence the operation must be performed on the whole output
-  const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
-  const std::vector<popsolver::Variable> vars = {inChanSerialSplit,
-                                                 outputsPerTile};
-  return m.call<unsigned>(
-      vars,
-      [vectorWidth, numWorkers, cyclesPerVector,
-       loopOverhead](const std::vector<unsigned> &vars) -> popsolver::DataType {
-        const auto inChanSerialSplit = vars[0];
-        const auto outputsPerTile = vars[1];
-
-        assert(inChanSerialSplit != 0);
-        // when not splitting serially we require no inplace addition
-        if (inChanSerialSplit == 1) {
-          return popsolver::DataType{0};
-        }
-
-        // rough cycles estimate of vertex overhead plus inner loop
-        const auto innerLoopCycles =
-            cyclesPerVector * ceildiv(outputsPerTile, numWorkers * vectorWidth);
-        return popsolver::DataType{(loopOverhead + innerLoopCycles) *
-                                   numWorkers};
-      });
+  const unsigned intraTileLevel = types.size() - 1;
+  const auto outputsType = types[intraTileLevel].resultType;
+  return addDynamicSliceEstimate(m, target, outputsPerTile, outChanSerialSplit,
+                                 outputsType);
 }
 
 popsolver::Variable addCastEstimate(popsolver::Model &m,
@@ -1545,17 +1484,34 @@ addInPlaceEstimate(popsolver::Model &m, const poplar::Target &target,
   // currently the input channels are serially split only in the
   // intra-IPU level. TODO: T12878 Assert that this is the case.
   assert(types.size() > 0);
-  const auto numWorkers = target.getNumWorkerContexts();
   const unsigned intraTileLevel = types.size() - 1;
-  const auto partialType = types[intraTileLevel].resultType;
-  const auto vectorWidth = target.getVectorWidth(partialType);
-  const unsigned cyclesPerVector = 3;
-  const unsigned cyclesLoopOverhead = 20;
-  auto cycles = outputOperationInPlaceEstimate(
-      m, cyclesPerVector, cyclesLoopOverhead, numWorkers, vectorWidth,
-      outputsPerTile, tileSplits);
+  const auto outputsType = types[intraTileLevel].resultType;
 
+  // Input channels serial splits do not cause a corresponding split in the
+  // outputs. Hence the operation must be performed on the whole output
   const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
+  const std::vector<popsolver::Variable> vars = {inChanSerialSplit,
+                                                 outputsPerTile};
+  auto cycles = m.call<unsigned>(
+      vars,
+      [target,
+       outputsType](const std::vector<unsigned> &vars) -> popsolver::DataType {
+        const auto &inChanSerialSplit = vars[0];
+        const auto &outputsPerTile = vars[1];
+        assert(inChanSerialSplit != 0);
+
+        // when not splitting serially we require no inplace addition
+        if (inChanSerialSplit == 1) {
+          return popsolver::DataType{0};
+        }
+        return popsolver::DataType{
+            popops::getBinaryOp1DInPlaceSupervisorEstimate(
+                target, outputsType, popops::expr::BinaryOpType::ADD,
+                outputsPerTile)};
+      });
+
+  // Estimate temp memory usage
+  const auto partialType = types[intraTileLevel].resultType;
   const auto one = m.addConstant(1);
   const auto two = m.addConstant(2);
   auto isInChanSeriallySplit =
@@ -1581,11 +1537,33 @@ memsetZeroEstimate(popsolver::Model &m, const poplar::Target &target,
   const auto intraTileLevel = types.size() - 1;
   const auto partialType = types[intraTileLevel].resultType;
   const auto vectorWidth = target.getVectorWidth(partialType);
-  const unsigned cyclesPerVector = 1;
-  const unsigned cyclesLoopOverhead = 0;
-  return outputOperationInPlaceEstimate(m, cyclesPerVector, cyclesLoopOverhead,
-                                        numWorkers, vectorWidth, outputsPerTile,
-                                        tileSplits);
+
+  // Input channels serial splits do not cause a corresponding split in the
+  // outputs. Hence the operation must be performed on the whole output
+  const auto &inChanSerialSplit = tileSplits.inChanSplit.serial;
+  const std::vector<popsolver::Variable> vars = {inChanSerialSplit,
+                                                 outputsPerTile};
+  return m.call<unsigned>(
+      vars,
+      [vectorWidth,
+       numWorkers](const std::vector<unsigned> &vars) -> popsolver::DataType {
+        const auto &inChanSerialSplit = vars[0];
+        const auto &outputsPerTile = vars[1];
+
+        assert(inChanSerialSplit != 0);
+        // when not splitting serially we require no inplace addition
+        if (inChanSerialSplit == 1) {
+          return popsolver::DataType{0};
+        }
+
+        // rough cycles estimate of vertex overhead plus inner loop
+        const unsigned cyclesPerVector = 1;
+        const unsigned cyclesLoopOverhead = 0;
+        const auto innerLoopCycles =
+            cyclesPerVector * ceildiv(outputsPerTile, numWorkers * vectorWidth);
+        return popsolver::DataType{(cyclesLoopOverhead + innerLoopCycles) *
+                                   numWorkers};
+      });
 }
 
 // cycles, temp persistent bytes for rearranged version of weights,
@@ -1787,9 +1765,9 @@ static Estimates<popsolver::Variable> addEstimates(
   // total by the amount of times we plan to execute this convolution.
   auto inputsDynamicSliceCycles = addDynamicSliceEstimate(
       m, target, inputsPerTile, intraTileSplits.inChanSplit.serial,
-      transformedOnceParams);
+      transformedOnceParams.inputType);
   auto weightsDynamicSliceCycles = addDynamicSliceEstimate(
-      m, target, weightsPerTile, serialSplits, transformedOnceParams);
+      m, target, weightsPerTile, serialSplits, transformedOnceParams.inputType);
   e.dynamicSliceCycles =
       m.sum({inputsDynamicSliceCycles, weightsDynamicSliceCycles});
 

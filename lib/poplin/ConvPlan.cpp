@@ -16,6 +16,7 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poplibs_support/popopsPerformanceEstimation.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poplin/Convolution.hpp"
