@@ -12,6 +12,21 @@
 namespace popnn {
 namespace pooling {
 
+// The preferred channel grouping is one which is beneficial to other operations
+// we will pick pooling plans with this grouping if the cost to the pooling
+// operation is not excessive.
+inline unsigned getPreferredChannelGrouping(poplar::Type type) {
+  return type == poplar::HALF ? 16 : 8;
+}
+
+// Captures details of the transformed pooling input Tensor and parameters
+struct TransformedInput {
+  poplar::Tensor in;
+  poplin::ConvParams params;
+  unsigned channelGrouping;
+  bool channelsWereTransformed = false;
+};
+
 // Gives the pass the pooling operation is performed for
 enum class PoolPass {
   // Forward pooling operation
@@ -121,9 +136,11 @@ void applyTransformInverse(const poplin::ConvParams &params,
 struct PlanResult {
   Plan plan;
   std::size_t cycles;
+  bool useGroupedWidth;
 };
 PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
-                   const poplin::ConvParams &params, const poplar::Tensor &in);
+                   const TransformedInput &input,
+                   const TransformedInput &inputGrouped);
 
 } // namespace pooling
 } // namespace popnn

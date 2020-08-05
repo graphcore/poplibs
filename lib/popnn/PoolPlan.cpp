@@ -378,24 +378,25 @@ void applyTransformInverse(const poplin::ConvParams &params,
 // Fwd and Bwd plans are kept separate as there is possibly no benefit for
 // doing a joint one.
 PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
-                   const poplin::ConvParams &params,
-                   const poplar::Tensor &in_) {
+                   const TransformedInput &input,
+                   const TransformedInput &inputGrouped) {
   Plan plan;
 
   // Don't use getTypeSize here because IpuModel will report something
   // different to what it actually uses.
   // We can change this once T6380 is fixed.
-  const auto typeSize = (params.inputType == poplar::HALF ? 2 : 4);
+  const auto typeSize = (input.params.inputType == poplar::HALF ? 2 : 4);
   const auto chanGrainSize = 8UL / typeSize;
 
-  plan.transform = getTransform(graph, params, in_, chanGrainSize);
+  plan.transform = getTransform(graph, input.params, input.in, chanGrainSize);
 
   // Apply any transform to the parameters and input then work
   // out partitioning.
-  poplar::Tensor in = in_;
-  const auto transformedParams = applyTransform(params, plan.transform, {&in});
+  poplar::Tensor in = input.in;
+  const auto transformedParams =
+      applyTransform(input.params, plan.transform, {&in});
   const auto inShape = in.shape();
-  const auto chansPerGroupDet = detectInnermostGrouping(graph, in);
+  auto chansPerGroupDet = detectInnermostGrouping(graph, in);
   auto numChannels = inShape[inShape.size() - 1];
 
   // Do not allow a large number of grains as memory cost of exchanging and
@@ -428,19 +429,30 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   // cycles to degrade by a fairly large percentage in order to achieve the
   // minimum number of channels as pooling is a relatively cheap operation,
   // and the other operations that it may affect are more expensive.
-  const auto minChannelsPerGroup =
-      (params.inputType == poplar::HALF ? 16u : 8u);
 
+  // Use the grouped input for this plan, as the input may have been transformed
+  // so that channels were combined into the spatial dimensions no longer
+  // giving enough channels to meet the preferred channel grouping.
+  const auto minChannelsPerGroup =
+      getPreferredChannelGrouping(inputGrouped.params.inputType);
+  auto numChannelsGrouped = inputGrouped.in.shape().back();
   if (plan.partition.chansPerGroup < minChannelsPerGroup &&
-      numChannels >= minChannelsPerGroup) {
+      numChannelsGrouped >= minChannelsPerGroup) {
     maxGrainsPerChanGroup =
         (minChannelsPerGroup + chanGrainSize - 1) / chanGrainSize;
+    Plan plan;
+    plan.transform = getTransform(graph, inputGrouped.params, inputGrouped.in,
+                                  chanGrainSize);
+    const auto transformedParams =
+        applyTransform(inputGrouped.params, plan.transform, {&in});
+    auto chansPerGroupDet = detectInnermostGrouping(graph, inputGrouped.in);
+
     popsolver::Model mConstrained;
     PartitionVariables varsConstrained;
     auto cyclesConstrained =
         constructModel(mConstrained, graph.getTarget(), varsConstrained,
                        poolCfg, transformedParams, minGrainsPerChanGroup,
-                       maxGrainsPerChanGroup, chanGrainSize, numChannels,
+                       maxGrainsPerChanGroup, chanGrainSize, numChannelsGrouped,
                        chansPerGroupDet, minChannelsPerGroup, cache);
 
     // Optimise within constraints of minChannelsPerGroup.  There may not be a
@@ -450,11 +462,11 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
       auto sConstrainedResult = *sConstrained[cyclesConstrained];
       if (sConstrainedResult < (sResult * 4) / 3) {
         plan.partition = makePartition(sConstrained, varsConstrained);
-        return {plan, sConstrainedResult};
+        return {plan, sConstrainedResult, true};
       }
     }
   }
-  return {plan, sResult};
+  return {plan, sResult, false};
 }
 
 std::ostream &operator<<(std::ostream &os, const Partition &p) {

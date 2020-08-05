@@ -263,6 +263,11 @@ double getBwdPerfectCycleCount(const Graph &graph, const PoolParams &params) {
 static Tensor actsToInternalShape(const Tensor &act) {
   return act.dimShufflePartial({1}, {act.rank() - 1});
 }
+// Reshape the activations tensor from  [N][H][W][C] shape to [N][C][H][W]
+// shape.
+static Tensor actsToExternalShape(const Tensor &act) {
+  return act.dimShufflePartial({act.rank() - 1}, {1});
+}
 
 // Get the shape of the field in a tensor at the interface of pooling functions.
 // The shape of the tensor at the interface is [N][C][...]
@@ -279,7 +284,118 @@ static std::vector<std::size_t> getInputFieldShape(const Tensor &in) {
   }
   return inputFieldShape;
 }
+// The activations tensor has a shape [N][H][W][C]
+// We benefit most by increasing the [W] dimension as the vertex inner loop
+// operates over this dimension. Here we try to do that and also combine the
+// [N] and [C] to simplify work division
+TransformedInput gatherDimsTransformIn(const poplar::Tensor &in_,
+                                       const ConvParams &params_,
+                                       unsigned minChannelGrouping) {
 
+  // In implementing pooling, as every channel is independent there is no reason
+  // internally to ever treat batches any differently to "just more channels"
+  // so combine them which simplifies work division
+  auto params = params_;
+  const auto allChannels = params.batchSize * params.inputChannelsPerConvGroup;
+
+  // Reshape so that we have [N][C][H][W] as we will start by manipulating
+  // batches, channels
+  auto in = actsToExternalShape(in_);
+  in = in.reshapePartial(0, 2, {1, allChannels});
+
+  params.batchSize = 1;
+  params.inputChannelsPerConvGroup = allChannels;
+  const auto spatialDims = params.inputFieldShape;
+
+  // Under some conditions we can treat every row the same internally.
+  // This is possible if each field dim can be cleanly divided into
+  // independent pooling calculations.  "Cleanly" implies that each field dim is
+  // exactly divisible by the stride, and that the stride >= kernel
+  // This includes (but isn't limited to) the frequent use case of an
+  // {n,n} kernel with a stride of {n, n} and a
+  // field with dimension {m * n, m * n}.
+  const bool canCombineIntoSpatialDims = [&]() {
+    for (unsigned i = 0; i < spatialDims.size(); i++) {
+      if (params.inputTransform.truncationLower[i] != 0 ||
+          params.inputTransform.truncationUpper[i] != 0 ||
+          params.inputTransform.paddingLower[i] != 0 ||
+          params.inputTransform.paddingUpper[i] != 0) {
+        return false;
+      }
+      if (params.outputTransform.stride[i] < params.kernelShape[i]) {
+        return false;
+      }
+      if (spatialDims[i] % params.outputTransform.stride[i] != 0) {
+        return false;
+      }
+    }
+    return true;
+  }();
+
+  const bool canCombineChannelsIntoSpatialDims =
+      !(allChannels % minChannelGrouping);
+
+  if (canCombineIntoSpatialDims) {
+    // Combine other spatial dimensions (if they exist) into the innermost dim
+    // Create [B][Ch][heightStride][W *(H / HeightStride)]
+    auto inRank = in.rank();
+    if (inRank >= 4) {
+      auto strideHeight = params.outputTransform
+                              .stride[params.outputTransform.stride.size() - 2];
+      auto transformedRows = in.shape()[in.rank() - 2] / strideHeight;
+      auto innerDim = in.shape().back() * transformedRows;
+
+      in = in.reshapePartial(inRank - 2, inRank - 1,
+                             {transformedRows, strideHeight});
+      in = in.dimShufflePartial({inRank - 1}, {inRank - 2});
+      in =
+          in.reshapePartial(in.rank() - 3, in.rank(), {strideHeight, innerDim});
+      params.inputFieldShape[params.inputFieldShape.size() - 2] = strideHeight;
+      params.inputFieldShape.back() = innerDim;
+    }
+
+    // Shuffle and combine channels into the innermost dimension giving
+    // the opportunity to have a larger inner loop in the vertex execution
+    // Create: [B=1][Ch=minChannelGrouping][H][W*channelGroups]
+    if (canCombineChannelsIntoSpatialDims) {
+      const auto channelGroups = allChannels / minChannelGrouping;
+      in = in.reshapePartial(1, 2, {channelGroups, minChannelGrouping});
+      in = in.dimShufflePartial({1}, {in.rank() - 2});
+      in = in.flatten(in.rank() - 2, in.rank());
+      params.inputFieldShape.back() *= channelGroups;
+      params.inputChannelsPerConvGroup = minChannelGrouping;
+    }
+  }
+  params.outputChannelsPerConvGroup = params.inputChannelsPerConvGroup;
+
+  // Return the shape to [N][C][H][W]
+  in = actsToInternalShape(in);
+  return {in, params, minChannelGrouping,
+          (canCombineIntoSpatialDims && canCombineChannelsIntoSpatialDims)};
+}
+
+// Reverse the transformation created by transformInput.
+Tensor gatherDimsTransformOut(const Tensor &result_, const ConvParams &params,
+                              const TransformedInput &transform) {
+  auto result = result_;
+  if (transform.channelsWereTransformed) {
+    auto allChannels = params.batchSize * params.inputChannelsPerConvGroup;
+    const auto channelGroups = allChannels / transform.channelGrouping;
+    // Reverse the transform that combined channels into the innerMost dim
+    result = result.reshapePartial(
+        result.rank() - 1, result.rank(),
+        {channelGroups, result.shape().back() / channelGroups});
+    result = result.dimShufflePartial({result.rank() - 2}, {1});
+  }
+
+  // A simple reshape can split channels, batches back out and reverse the
+  // transformation that combined the 2 innermost dimensions
+  auto resultShape = params.getOutputFieldShape();
+  resultShape.insert(resultShape.begin(),
+                     {params.batchSize, params.inputChannelsPerConvGroup});
+
+  return result.reshape(resultShape);
+}
 // Creates an output tensor and pre-process the input tensor and parameters
 // according to the plan for implementing this pooling operation.
 // The input and output tensors may be padded to match the planning
@@ -385,7 +501,6 @@ static void postProcess(const ConvParams &params, const Plan &plan,
   // dim shuffle back to expected output shape
   out = out.dimRoll(out.rank() - 1, 1);
 }
-
 static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
                           const Tensor &in_, const Tensor *fwdInputActs_,
                           const Tensor *fwdOutputActs_,
@@ -403,7 +518,30 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     assert(in_.shape() == fwdOutputActs_->shape());
   }
 
-  auto poolMethodResult = getPlan(graph, poolCfg, params, in_);
+  // Attempt to transform the input to achieve a faster implementation.
+  // Do this twice, once leaving a minimum number of channels = the vector
+  // width of the data type, and also leaving a preferred channel grouping.
+  // The preferred channel grouping can be chosen by the planner if the cost
+  // of implementation is not much more than the optimum
+  TransformedInput transformVectorWidth;
+  TransformedInput transformGroupedWidth;
+  bool isFwdPass =
+      (poolCfg.pass == PoolPass::POOL_FWD) && !poolCfg.scaledGradient;
+  if (isFwdPass) {
+    const unsigned vectorWidth = (in_.elementType() == HALF ? 4 : 2);
+    const auto groupedWidth = getPreferredChannelGrouping(in_.elementType());
+    transformVectorWidth = gatherDimsTransformIn(in_, params, vectorWidth);
+    transformGroupedWidth = gatherDimsTransformIn(in_, params, groupedWidth);
+  } else {
+    transformVectorWidth.in = in_;
+    transformVectorWidth.params = params;
+    transformGroupedWidth = transformVectorWidth;
+  }
+  auto poolMethodResult =
+      getPlan(graph, poolCfg, transformVectorWidth, transformGroupedWidth);
+  auto &chosenTransform = poolMethodResult.useGroupedWidth
+                              ? transformGroupedWidth
+                              : transformVectorWidth;
 
   const auto poolingHasConvolutionEquivalent = [&poolCfg, &params]() {
     if (poolCfg.type == PoolingType::MAX) {
@@ -492,19 +630,22 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   if (fwdOutputActs_) {
     fwdOutputActs = *fwdOutputActs_;
   }
-  auto in = in_;
-  auto preprocessedParams = params;
+  auto preprocessedParams = chosenTransform.params;
   // preprocessing may create new tensors
   auto out = createOutputAndPreprocess(
-      graph, preprocessedParams, poolMethodResult.plan, in,
+      graph, preprocessedParams, poolMethodResult.plan, chosenTransform.in,
       fwdInputActs_ ? &fwdInputActs : nullptr,
       fwdOutputActs_ ? &fwdOutputActs : nullptr, debugPrefix);
-  tilePartitions(graph, poolCfg, in, out,
+  tilePartitions(graph, poolCfg, chosenTransform.in, out,
                  fwdInputActs_ ? &fwdInputActs : nullptr,
                  fwdOutputActs_ ? &fwdOutputActs : nullptr, preprocessedParams,
                  prog, poolMethodResult.plan, debugPrefix, poolOptions);
-  postProcess(params, poolMethodResult.plan, out);
-  return out;
+  postProcess(chosenTransform.params, poolMethodResult.plan, out);
+  if (isFwdPass) {
+    return gatherDimsTransformOut(out, params, chosenTransform);
+  } else {
+    return out;
+  }
 }
 
 static Tensor poolingFwd(Graph &graph, const Tensor &in_,
@@ -593,14 +734,10 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
                 poolParams.getOutputFieldShape(), poolParams.batchSize,
                 poolParams.numChannels, poolParams.stride);
 
-  const auto inputFieldShape = getInputFieldShape(in_);
-
   const auto poolingType = poolParams.poolingType;
   assert(in_.dim(0) == poolParams.batchSize);
   assert(in_.dim(1) == poolParams.numChannels);
 
-  // convert activations to internal shape
-  auto in = actsToInternalShape(in_);
   const auto dType = in_.elementType();
   ConvParams convParams = makeConvParams(poolParams);
 
@@ -635,7 +772,8 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
     }
     return t;
   }
-
+  // Convert activations to internal shape
+  auto in = actsToInternalShape(in_);
   return poolingFwd(graph, in, convParams, poolingType, prog, layerName,
                     poolOptions);
 }
