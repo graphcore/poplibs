@@ -78,7 +78,7 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
               math(EXPR NUM_ROWS "${X} * ${BLOCKSIZE}")
               math(EXPR NUM_COLS "${Y} * ${BLOCKSIZE}")
 
-              foreach(Z 2 4 8)
+              foreach(Z 2 4 12 16 32)
                 add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_block${BLOCKSIZE}_n${X}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_float_in_${VERTEX_TYPE}${ZERO_PARTIALS}
                 COMMAND SparseDenseMatMulBlock
                   ${ZERO_PARTIALS_OPT}

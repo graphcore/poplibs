@@ -15,14 +15,15 @@ static constexpr auto SHORT_SPAN = VectorLayout::SHORT_SPAN;
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
-  return false;
+  return std::is_same<FPType, float>() && std::is_same<AccumType, float>() &&
+         BlockRows == 4 && BlockCols == 4;
 }
 
 namespace popsparse {
 
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
-class SparseDenseMatMulBlock
+class [[poplar::constraint("elem(*q) != elem(*s)")]] SparseDenseMatMulBlock
     : public SupervisorVertexIf<
           hasAssemblyVersion<FPType, AccumType, BlockRows, BlockCols>() &&
           ASM_CODELETS_ENABLED> {
@@ -53,16 +54,14 @@ public:
   // Number of elements in q to zero. Set to zero if no zeroing required.
   const unsigned short zeroInfo;
 
-  // Some extra info for block-sparsity that does not change dependent on
-  // meta-info.
-  const unsigned short numWorkers;
-  // Stride in multiples of 64-bits between elements of Z in Q
-  const unsigned short zStrideInQ;
-  // Stride in multiples of 64-bits between elements of Z in S
-  const unsigned short zStrideInS;
-  // TODO: The above 2 fields can be packed into a single register for use
-  // with stride instructions.
+  // NOTE! This entry must be at this position relative to the ones above
+  // as the ASM codelets assume this for zeroing partials
   Input<Vector<unsigned short, ONE_PTR>> offsetAndNumZByWorker;
+
+  // zStrideInQ : Stride in multiples of 64-bits between elements of Z in Q
+  unsigned short zStrideInQ;
+  // zStrideInS : Stride in multiples of 64-bits between elements of Z in S
+  unsigned short zStrideInS;
 
   IS_EXTERNAL_CODELET(
       (hasAssemblyVersion<FPType, AccumType, BlockRows, BlockCols>()));
@@ -71,11 +70,10 @@ public:
   static constexpr auto accumTypeSize =
       std::is_same<AccumType, float>::value ? 4 : 2;
 
-  static void workerCompute(unsigned wid, unsigned zStrideInQ,
-                            unsigned zStrideInS, unsigned offsetZ,
-                            unsigned numZ, unsigned offsetXInQ,
-                            unsigned offsetYInS, AccumType *q, const FPType *r,
-                            const FPType *s) {
+  static void workerCompute(
+      unsigned wid, unsigned zStrideInQ, unsigned zStrideInS, unsigned offsetZ,
+      unsigned numZ, unsigned offsetXInQ, unsigned offsetYInS, AccumType *q,
+      const FPType *r, const FPType *s) {
     // The following pointers could be calculated once and retained for each
     // worker
     q += (zStrideInQ * (8 / accumTypeSize) * offsetZ);
@@ -122,12 +120,9 @@ public:
                ++xBlock) {
             const auto *inputEntry =
                 reinterpret_cast<const MetaInfo::InputEntry *>(outputEntry + 1);
-            for (std::size_t yBlock = 0; yBlock < outputEntry->numY; ++yBlock) {
-              // NOTE: In reality we will probably launch all workers and rely
-              // on those above 'numWorkers' to not do any work. Also the line
-              // between supervisor and worker is more blurred as we can use
-              // worker state retention to good effect.
-              for (unsigned wid = 0; wid < numWorkers; ++wid) {
+            for (std::size_t yBlock = 0; yBlock < outputEntry->numYm1 + 1;
+                 ++yBlock) {
+              for (unsigned wid = 0; wid < NUM_WORKERS; ++wid) {
                 const auto offsetZ = offsetAndNumZByWorker[wid * 2];
                 const auto numZ = offsetAndNumZByWorker[wid * 2 + 1];
                 workerCompute(wid, zStrideInQ, zStrideInS, offsetZ, numZ,

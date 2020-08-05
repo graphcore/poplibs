@@ -160,6 +160,71 @@ static inline std::uint64_t sparseDenseGradWElementwiseMultiply(
 // Should be called such that numY has one entry for many X where numY is
 // an average. If the effect of different sizes of Y has to be taken into
 // account, numX should be 1.
+static inline std::uint64_t
+sparseDenseBlockMultiply(unsigned numBuckets, unsigned numBucketsWithInfoForPN,
+                         unsigned averageSubgroupsPerBucket, unsigned numX,
+                         unsigned numZ, unsigned numBlockRows,
+                         unsigned numBlockCols,
+                         const std::vector<unsigned> &numY, bool floatInput,
+                         bool /* floatPartials */, unsigned numWorkerContexts) {
+
+  // logging::trace("sparseDenseElementwiseMultiply: numBuckets={},
+  // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
+  // numY[0]={}, numWorkers={}", numBuckets, numBucketsWithInfoForPN,
+  // averageSubgroupsPerBucket, numX, numZ, numY[0], numWorkerContexts);
+
+  // we use 64-bit coefficient loading per Block
+  uint64_t numCoeffLoadCyclesPerBlock =
+      numBlockRows * numBlockCols / (floatInput ? 2 : 4);
+
+  std::uint64_t supervisorOverhead = 40;
+  std::uint64_t supervisorCyclesWithBucketsNotForPN =
+      32 * (numBuckets - numBucketsWithInfoForPN) * averageSubgroupsPerBucket;
+
+  // assume uniform distribution of location. For the initial distribution this
+  // can be set such that subgroup found if the very first.
+  double avgSubgroupsForFirstMatch =
+      static_cast<double>(averageSubgroupsPerBucket - 1) / 2;
+
+  std::uint64_t supervisorCyclesWithBucketsForPN =
+      (avgSubgroupsForFirstMatch + 1) * 46 + 48;
+
+  std::uint64_t totalSupervisorCycles =
+      supervisorOverhead + supervisorCyclesWithBucketsNotForPN +
+      supervisorCyclesWithBucketsForPN * numBucketsWithInfoForPN;
+
+  // The overhead is the cycles for retention and depends on numZ.
+  // We just take the worst case as the difference is small
+  std::uint64_t workerCyclesOverhead = 26;
+  std::uint64_t workerLoopCycles = 0;
+  std::uint64_t supervisorBlockLoadCycles = 0;
+
+  if (floatInput) {
+    std::uint64_t innerCycles = 0;
+    if (numZ == 1) {
+      innerCycles += 18;
+    } else if (numZ == 2) {
+      innerCycles += 22;
+    } else {
+      innerCycles += 22 + (numZ - 2) * 4;
+    }
+    for (const auto &y : numY) {
+      supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 15);
+      workerLoopCycles += y * innerCycles;
+    }
+    supervisorBlockLoadCycles *= numX + 2;
+    workerLoopCycles *= numX;
+  } else {
+  }
+
+  uint64_t totalWorkerCycles = workerCyclesOverhead + workerLoopCycles;
+  totalSupervisorCycles += supervisorBlockLoadCycles;
+  return totalWorkerCycles * numWorkerContexts + totalSupervisorCycles;
+}
+
+// Should be called such that numY has one entry for many X where numY is
+// an average. If the effect of different sizes of Y has to be taken into
+// account, numX should be 1.
 static inline std::uint64_t sparseDenseElementwiseMultiply(
     unsigned numBuckets, unsigned numBucketsWithInfoForPN,
     unsigned averageSubgroupsPerBucket, unsigned numX, unsigned numZ,

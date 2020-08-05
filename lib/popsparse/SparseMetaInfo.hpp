@@ -84,14 +84,14 @@ template <typename T> struct BlockMetaInfo {
     T numXm1;
   };
   struct OutputEntry {
-    // Offset to X index in Q in multiples of 64-bits.
+    // Offset to X index in Q in elements of Q
     // Q has layout {Z,X} in row major order.
     T offsetXInQ;
-    // Number of blocks for this index in X.
-    T numY;
+    // Number of blocks for this index in X (minus 1).
+    T numYm1;
   };
   struct InputEntry {
-    // Offset to Y index in S in multiples of 64-bits.
+    // Offset to Y index in elements of S.
     // S has layout {Z,Y} in row major order.
     T offsetYInS;
   };

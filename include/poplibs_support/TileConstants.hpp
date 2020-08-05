@@ -20,6 +20,7 @@
 
 #define CSR_W_FP_CTL__INDEX (258)
 
+#define NUM_STRIDE_BITS (10)
 // end namespace poplibs
 
 #endif // poplibs_support_TileConstants_hpp

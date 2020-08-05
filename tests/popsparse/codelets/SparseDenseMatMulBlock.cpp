@@ -77,17 +77,16 @@ static std::vector<std::array<unsigned, 2>> generateBlockSparseIndices(
 static std::vector<unsigned int> getForwardWorkerPartition(const Target &target,
                                                            unsigned bColumns) {
   auto splits = poputil::splitRegionsBetweenWorkers(target, {{0, bColumns}}, 1);
-  std::vector<unsigned int> worklist;
-  if (bColumns == 0) {
-    return worklist;
-  }
+  std::vector<unsigned int> worklist(target.getNumWorkerContexts() * 2);
+
+  unsigned index = 0;
   for (const auto split : splits) {
     for (const auto interval : split) {
-      worklist.push_back(interval.begin());
-      worklist.push_back(interval.size());
+      worklist.at(index) = interval.begin();
+      worklist.at(index + 1) = interval.size();
+      index += 2;
     }
   }
-  assert(worklist.size() <= 2 * target.getNumWorkerContexts());
   return worklist;
 }
 
@@ -157,8 +156,7 @@ static std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
           const auto aRowOffsetInC = aRow;
           outputEntryMetaInfoIndices[r] = metaInfo[bucket].size();
           metaInfo[bucket].push_back(aRowOffsetInC);
-          // Use 1 less for float input type
-          metaInfo[bucket].push_back(rowColumnCounts[r]);
+          metaInfo[bucket].push_back(rowColumnCounts[r] - 1);
           for (unsigned c = 0; c < rowColumnCounts[r]; ++c) {
             metaInfo[bucket].push_back(indices.at(nzOffset)[1]);
             ++nzOffset;
@@ -411,6 +409,12 @@ int main(int argc, char **argv) try {
                      blockSize.val[1]);
   const auto v = graph.addVertex(cs, vertexClass);
 
+  const unsigned zStrideInQ = aShape.val[0] * partialsTypeSize / 8;
+  const unsigned zStrideInS = aShape.val[1] * inputTypeSize / 8;
+  const unsigned maxPositiveStride = (1 << (target.getNumStrideBits() - 1)) - 1;
+  if (zStrideInQ > maxPositiveStride || zStrideInS > maxPositiveStride) {
+    throw poplibs_error("Strides exceed machine limits");
+  }
   graph.connect(v["q"], c.flatten());
   graph.connect(v["r"], aBuckets);
   graph.connect(v["s"], b.flatten());
@@ -418,12 +422,11 @@ int main(int argc, char **argv) try {
   graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
   const auto numPartials = c.numElements();
   graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
-  graph.setInitialValue(v["zStrideInQ"], aShape.val[0] * partialsTypeSize / 8);
-  graph.setInitialValue(v["zStrideInS"], aShape.val[1] * inputTypeSize / 8);
+  graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
+  graph.setInitialValue(v["zStrideInS"], zStrideInS);
   auto worklist = getForwardWorkerPartition(target, bShape.val[1]);
   auto worklistTensor = graph.addConstant(UNSIGNED_SHORT, {worklist.size()},
                                           worklist.data(), "/worklists");
-  graph.setInitialValue(v["numWorkers"], worklist.size() / 2);
   graph.setTileMapping(worklistTensor, 0);
   graph.connect(v["offsetAndNumZByWorker"], worklistTensor);
   graph.setTileMapping(v, 0);
