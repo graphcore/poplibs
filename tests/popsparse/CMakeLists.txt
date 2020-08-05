@@ -194,20 +194,23 @@ add_multitarget_test(
 add_test_executable(SparsePartitionerTest SparsePartitionerTests.cpp)
 foreach(ROWS 100 1200 2400)
   foreach(COLS 100 1200 2400)
-    foreach(BATCH 4 12 64)
-      foreach(XSPLIT 2 4 7)
-        foreach(YSPLIT 2 4 7)
-          foreach(ZSPLIT 1 2 4)
-            foreach(SPARSITY 0.1 .05)
-              foreach(EXCESS .1 .01 .001)
-                add_test(
-                    NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}
-                    COMMAND SparsePartitionerTest
-                      --matmul-shape={${ROWS},${COLS},${BATCH}}
-                      --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
-                      --sparsity-level=${SPARSITY}
-                      --excess=${EXCESS}
-                  )
+    foreach(BLOCK_XY 1 4)
+      foreach(BATCH 4 12 64)
+        foreach(XSPLIT 2 4 7)
+          foreach(YSPLIT 2 4 7)
+            foreach(ZSPLIT 1 2 4)
+              foreach(SPARSITY 0.1 .05)
+                foreach(EXCESS .1 .01 .001)
+                  add_test(
+                    NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}
+                      COMMAND SparsePartitionerTest
+                        --matmul-shape={${ROWS},${COLS},${BATCH}}
+                        --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
+                        --block-shape={${BLOCK_XY},${BLOCK_XY}}
+                        --sparsity-level=${SPARSITY}
+                        --excess=${EXCESS}
+                    )
+                endforeach()
               endforeach()
             endforeach()
           endforeach()

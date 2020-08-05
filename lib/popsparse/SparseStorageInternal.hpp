@@ -304,13 +304,18 @@ CSRMatrix<T> csrTranspose(std::size_t numRows, std::size_t numColumns,
 // the tile and their absolute positions can be obtained from the tile
 // information stored as part of the partition.
 //
-// \param  csr       The CSR representation of the sparse matrix
-// \param  tile      The row and column intervals for the tile
+// \param  csr        The internal CSR representation of the sparse matrix.
+// \param  blockSizeX The block size in the X dimension for the matrix the
+//                    internal CSR representation refers to.
+// \param  blockSizeY The block size in the Y dimension for the matrix the
+//                    internal CSR representation refers to.
+// \param  tile       The row and column intervals for the tile
 //
 // A vector for each row in the row interval range containing (column, value)
 // pairs.
 std::vector<RowPositionValues>
-getPositionValuePairsPerRow(const CSRInternal &csr, const Tile &tile);
+getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
+                            std::size_t blockSizeY, const Tile &tile);
 
 // Convert from a COO representation of a matrix of dimension
 // [numRows x numColumns] to a CSR representation. Duplicate entries are not

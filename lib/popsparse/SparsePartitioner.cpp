@@ -24,6 +24,10 @@ Partitioner<T>::Partitioner(const FullyConnectedParams &params,
   const auto partitionIndices = getPartitionStartIndices(params, plan);
   const auto options = fullyconnected::parseOptionFlags(optionFlags);
 
+  // TODO: False until somehow reported by the planner. Perhaps we should
+  // represent the meta-info format more explicitly in both partitioner and
+  // plan.
+  const bool useBlockMetaInfoFormat = false;
   impl.reset(new PartitionerImpl(
       {params.getOutputChannelsPerGroup(), params.getInputChannelsPerGroup(),
        params.getBatchSize()},
@@ -31,8 +35,9 @@ Partitioner<T>::Partitioner(const FullyConnectedParams &params,
       partitionIndices.at(0), partitionIndices.at(1), partitionIndices.at(2),
       plan.fwdMetaInfoElemsPerBucket, plan.gradAMetaInfoElemsPerBucket,
       plan.nzElemsPerBucket, target.getNumWorkerContexts(), 1,
-      options.doGradAPass, options.doGradWPass, options.sharedBuckets, dataType,
-      options.partialsType, options.partitioner));
+      useBlockMetaInfoFormat, options.doGradAPass, options.doGradWPass,
+      options.sharedBuckets, dataType, options.partialsType,
+      options.partitioner));
 }
 
 template <typename T>

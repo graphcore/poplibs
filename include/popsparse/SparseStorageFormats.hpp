@@ -76,7 +76,7 @@ template <typename T> struct COOMatrix : Block {
 
 /// Sparse matrix stored in compressed sparse columns (CSC) format for a matrix
 /// of size [M x N]. There is no explicit encoding of M in the storage. The
-/// number of column indices is equal to N/block size + 1.
+/// number of column indices is equal to (N/number of columns in block) + 1.
 /// The case of element sparsity is treated as a special case with block size
 /// equal to {number of rows in block, number of columns in block} = {1, 1}.
 template <typename T> struct CSCMatrix : Block {
@@ -127,7 +127,7 @@ template <typename T> struct CSCMatrix : Block {
 
 /// Sparse matrix stored in compressed sparse rows (CSR) format for a matrix
 /// of size [M x N]. There is no explicit encoding of N in the storage. The
-/// number of row indices is equal to M + 1.
+/// number of row indices is equal to (M / number of rows in block) + 1.
 /// The case of element sparsity is treated as a special case with block size
 /// equal to  {number of rows in block, number of columns in block} = {1, 1}.
 template <typename T> struct CSRMatrix : Block {

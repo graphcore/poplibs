@@ -69,6 +69,10 @@ class PartitionerImpl {
   // enabled
   std::size_t metaInfoBucketElementsGradA;
 
+  // If set use meta-info format for block-sparsity otherwise uses
+  // element-wise format.
+  bool useBlockMetaInfoFormat;
+
   // If set uses actual worker split every time costs for a partition are
   // evaluated. This will give exact cost as the final "real" allocation, but
   // is expensive to compute. If not set, then all workers are assumed to be
@@ -100,15 +104,10 @@ class PartitionerImpl {
   poplar::Type dataType{poplar::HALF};
   poplar::Type accumType{poplar::FLOAT};
 
-  // creates a partition for each PN for a CSC representation.
-  std::vector<TilePartition> getTilePartitions(const CSCInternal &matrix,
-                                               bool transposed) const;
-
   // creates a partition for each PN for a CSR representation.
-  std::vector<TilePartition> getTilePartitions(const CSRInternal &matrix,
-                                               bool transposed) const;
+  std::vector<TilePartition> getTilePartitions(const CSRInternal &matrix) const;
 
-  void balanceBuckets(std::vector<PNBucket> &pnBuckets, bool transposed) const;
+  void balanceBuckets(std::vector<PNBucket> &pnBuckets) const;
 
 public:
   PartitionerImpl(const std::vector<std::size_t> &dimensions,
@@ -120,7 +119,8 @@ public:
                   std::size_t metaInfoBucketElementsGradA_,
                   std::size_t nzElementsBucketElements_,
                   std::size_t numWorkerContexts_, std::size_t bucketsPerZ_,
-                  bool includeGradA_, bool includeGradW_, bool sharedBuckets_,
+                  bool useBlockMetaInfoFormat, bool includeGradA_,
+                  bool includeGradW_, bool sharedBuckets_,
                   const poplar::Type &dataType_, const poplar::Type &accumType_,
                   const PartitionerOptions &options);
 

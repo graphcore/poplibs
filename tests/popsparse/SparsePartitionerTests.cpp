@@ -16,11 +16,15 @@ using namespace poplibs_support;
 using namespace poplibs_test::util;
 
 // Build CSR matrix
-popsparse::CSRMatrix<double>
-buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor) {
+static popsparse::CSRMatrix<double>
+buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor,
+               const std::array<std::size_t, 2> &blockDimensions = {1, 1}) {
   boost::multi_array<double, 2> matrix(
       boost::extents[dimensions[0]][dimensions[1]]);
   logging::debug("Dimension in CSR Matrix generation {}", dimensions);
+
+  assert(dimensions[0] % blockDimensions[0] == 0 &&
+         dimensions[1] % blockDimensions[1] == 0);
 
   std::vector<double> nzValues;
   std::vector<std::size_t> columnIndices;
@@ -32,13 +36,15 @@ buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor) {
 
   std::size_t numNzRowElements = 0;
   rowIndices.push_back(0);
-  for (std::size_t row = 0; row != dimensions[0]; ++row) {
-    for (std::size_t col = 0; col != dimensions[1]; ++col) {
-      auto x = randNormal(rng);
+  for (std::size_t row = 0; row != dimensions[0]; row += blockDimensions[0]) {
+    for (std::size_t col = 0; col != dimensions[1]; col += blockDimensions[1]) {
       if (randUniform(rng) < sparsityFactor) {
-        nzValues.push_back(x);
+        for (std::size_t i = 0; i < blockDimensions[0] * blockDimensions[1];
+             ++i) {
+          nzValues.push_back(randNormal(rng));
+        }
+        numNzRowElements += blockDimensions[0] * blockDimensions[1];
         columnIndices.push_back(col);
-        ++numNzRowElements;
       }
     }
     rowIndices.push_back(numNzRowElements);
@@ -49,7 +55,8 @@ buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor) {
                  columnIndices);
   logging::debug("Row Indices {} : {}", rowIndices.size(), rowIndices);
 
-  return popsparse::CSRMatrix<double>(nzValues, columnIndices, rowIndices);
+  return popsparse::CSRMatrix<double>(nzValues, columnIndices, rowIndices,
+                                      blockDimensions);
 }
 
 static bool validatePartition(const std::vector<std::size_t> &dimensions,
@@ -60,12 +67,17 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
                               double sparsityFactor,
                               std::size_t metaInfoBucketSize,
                               std::size_t nzElementsBucketSize,
-                              std::size_t bucketsPerZ, bool transposed,
-                              bool includeGradA, bool includeGradW) {
+                              std::size_t bucketsPerZ, bool useBlockMetaInfo,
+                              bool transposed, bool includeGradA,
+                              bool includeGradW) {
 
-  const auto numRows = dimensions[0];
+  const auto blockSizeX = grainSizes.at(0);
+  const auto blockSizeY = grainSizes.at(1);
+  const auto blockSize = blockSizeX * blockSizeY;
+  const auto numRowBlocks = dimensions[0] / blockSizeX;
 
-  auto csrMatrix = buildCSRMatrix(dimensions, sparsityFactor);
+  auto csrMatrix =
+      buildCSRMatrix(dimensions, sparsityFactor, {blockSizeX, blockSizeY});
 
   // Create partitioner object with plan information
   //
@@ -80,10 +92,12 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   popsparse::PartitionerImpl partitioner(
       dimensions, grainSizes, xSplits, ySplits, zSplits, metaInfoBucketSize,
       metaInfoBucketSizeGradA, nzElementsBucketSize, 6, bucketsPerZ,
-      includeGradA, includeGradW, sharedBuckets, dataType, accumType, options);
+      useBlockMetaInfo, includeGradA, includeGradW, sharedBuckets, dataType,
+      accumType, options);
 
   auto pnBucketsImpl = partitioner.createBuckets(csrMatrix);
   auto pnBuckets = pnBucketsImpl.pnBuckets;
+  const auto &nzValues = pnBucketsImpl.nzValues;
 
   partitioner.overflowInfoForFwd(pnBuckets);
 
@@ -100,9 +114,9 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   }
 
   // convert bucket information back to a CSR format
-  std::vector<std::vector<std::pair<std::size_t, double>>> nzValuesByRow(
-      numRows);
-  std::size_t totalNzValues = 0;
+  std::vector<std::vector<std::pair<std::size_t, std::size_t>>>
+      perRowPositionNzIndexPairs(numRowBlocks);
+  std::size_t totalNzBlocks = 0;
   for (const auto &pn : pnBuckets) {
     for (const auto &p : pn.subGroups) {
       const auto &rowInterval = p.tile.getRows();
@@ -112,9 +126,10 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
         const auto row = r.rowNumber + rowInterval.begin();
         for (const auto &c : r.positionValues) {
           const auto col = c.first + colInterval.begin();
-          nzValuesByRow.at(row).emplace_back(col, c.second);
+          perRowPositionNzIndexPairs.at(row / blockSizeX)
+              .emplace_back(col, c.second);
         }
-        totalNzValues += r.positionValues.size();
+        totalNzBlocks += r.positionValues.size();
       }
     }
   }
@@ -122,27 +137,29 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   std::vector<std::size_t> colIndicesActual;
   std::vector<double> nzValuesActual;
   std::vector<std::size_t> rowIndicesActual;
-  colIndicesActual.reserve(totalNzValues);
-  nzValuesActual.reserve(totalNzValues);
-  rowIndicesActual.reserve(numRows + 1);
+  colIndicesActual.reserve(totalNzBlocks);
+  nzValuesActual.reserve(totalNzBlocks * blockSize);
+  rowIndicesActual.reserve(numRowBlocks + 1);
 
-  totalNzValues = 0;
-  for (std::size_t row = 0; row < numRows; ++row) {
-    rowIndicesActual.push_back(totalNzValues);
+  std::size_t totalNzElems = 0;
+  for (std::size_t rowBlock = 0; rowBlock < numRowBlocks; ++rowBlock) {
+    rowIndicesActual.push_back(totalNzElems);
 
-    auto &nzValues = nzValuesByRow.at(row);
+    auto &nzPositionAndIndex = perRowPositionNzIndexPairs.at(rowBlock);
 
     // Sort by column index. Column index should be unique
     // and so the default std::pair sort should be sufficient.
-    std::sort(nzValues.begin(), nzValues.end());
-    for (const auto &entry : nzValues) {
+    std::sort(nzPositionAndIndex.begin(), nzPositionAndIndex.end());
+    for (const auto &entry : nzPositionAndIndex) {
       colIndicesActual.push_back(entry.first);
-      nzValuesActual.push_back(pnBucketsImpl.nzValues.at(entry.second));
+      assert((entry.second + 1) * blockSize <= nzValues.size());
+      nzValuesActual.insert(nzValuesActual.end(),
+                            nzValues.begin() + entry.second * blockSize,
+                            nzValues.begin() + (entry.second + 1) * blockSize);
+      totalNzElems += blockSize;
     }
-    totalNzValues += nzValues.size();
   }
-
-  rowIndicesActual.push_back(totalNzValues);
+  rowIndicesActual.push_back(totalNzElems);
 
   logging::debug(" Actual nz values: {} ", nzValuesActual);
   logging::debug(" expect nz values: {} ", csrMatrix.nzValues);
@@ -185,6 +202,8 @@ int main(int argc, char **argv) {
 
   ShapeOption<std::size_t> matShape;
   ShapeOption<std::size_t> splitShape;
+  ShapeOption<std::size_t> blockShape;
+  blockShape.val = {1, 1};
   std::size_t grainSizeZ = 1;
   std::size_t numBucketsZ = 1;
   bool includeGradW = true;
@@ -204,6 +223,9 @@ int main(int argc, char **argv) {
     ("sparsity-level",
      po::value<double>(&sparsityLevel)->default_value(sparsityLevel),
      "Level of sparsity")
+    ("block-shape",
+     po::value<ShapeOption<std::size_t>>(&blockShape)->default_value(blockShape),
+     "Pair representing block-size of sparse elements {BlockRows, BlockColumns}")
     ("batch-grain-size",
      po::value<std::size_t>(&grainSizeZ)->default_value(grainSizeZ),
      "Number of grains in batch dimension")
@@ -213,6 +235,7 @@ int main(int argc, char **argv) {
     ("num-buckets-z",
      po::value<std::size_t>(&numBucketsZ)->default_value(numBucketsZ),
      "Number of buckets per Z")
+    ("use-block-meta-info", "Use block meta-info format in buckets")
     ("include-gradw",
      po::value<bool>(&includeGradW)->default_value(includeGradW),
      "Include GradW")
@@ -242,6 +265,13 @@ int main(int argc, char **argv) {
     throw poputil::poplibs_error("shape of splits must be 3-dimensional");
   }
 
+  if (matShape[0] % blockShape[0] != 0 || matShape[1] % blockShape[1] != 0) {
+    throw poputil::poplibs_error(
+        "sparse matrix dimensions (" + std::to_string(matShape[0]) + "," +
+        std::to_string(matShape[1]) + ") are not divisible by block size (" +
+        std::to_string(blockShape[0]) + "," + std::to_string(blockShape[1]));
+  }
+
   if (matShape[2] % grainSizeZ) {
     throw poputil::poplibs_error("Batch must be a multiple of grain size");
   }
@@ -257,11 +287,15 @@ int main(int argc, char **argv) {
                                    " must be less than size");
     }
   }
+
+  bool useBlockMetaInfoFormat = vm.count("use-block-meta-info");
+
   const unsigned numWorkers = 6;
-  auto nzBucketSize = sparsityLevel * matShape[0] * matShape[1] * (1 + excess);
+  auto nzBucketSize = sparsityLevel * (matShape[0] / blockShape[0]) *
+                      (matShape[1] / blockShape[1]) * (1 + excess);
   auto metaInfoBucketSize =
       popsparse::fixedMetaInfoCost(numWorkers, includeGradW) * 3.0 +
-      matShape[0] * 2.0 + nzBucketSize;
+      (matShape[0] / blockShape[0]) * 2.0 + nzBucketSize;
 
   auto createSplit = [](unsigned size, unsigned partitionSize,
                         unsigned grainSize) {
@@ -275,7 +309,8 @@ int main(int argc, char **argv) {
     return split;
   };
 
-  const std::vector<std::size_t> grainSizes = {1, 1, numBucketsZ};
+  const std::vector<std::size_t> grainSizes = {blockShape[0], blockShape[1],
+                                               numBucketsZ};
   std::vector<std::vector<std::size_t>> splits(3);
   for (unsigned i = 0; i != 3; ++i) {
     splits[i] = createSplit(matShape[i], splitShape[i], grainSizes[i]);
@@ -283,6 +318,6 @@ int main(int argc, char **argv) {
 
   return !validatePartition(matShape.val, grainSizes, splits[0], splits[1],
                             splits[2], sparsityLevel, metaInfoBucketSize,
-                            nzBucketSize, numBucketsZ, false, includeGradA,
-                            includeGradW);
+                            nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
+                            false, includeGradA, includeGradW);
 }

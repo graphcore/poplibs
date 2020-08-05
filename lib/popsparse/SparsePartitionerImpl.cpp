@@ -20,34 +20,47 @@ using namespace dynamic;
 using namespace fullyconnected;
 
 std::vector<RowPositionValues>
-getPositionValuePairsPerRow(const CSRInternal &csr, const Tile &tile) {
+getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
+                            std::size_t blockSizeY, const Tile &tile) {
   const auto startRow = tile.getRows().begin();
   const auto endRow = tile.getRows().end();
   const auto startColumn = tile.getColumns().begin();
   const auto endColumn = tile.getColumns().end();
 
-  if (startRow >= csr.rowIndices.size()) {
+  if (startRow % blockSizeX) {
+    throw poputil::poplibs_error(
+        "Start row in tile is not divisible by the row block size");
+  }
+
+  if (endRow % blockSizeX) {
+    throw poputil::poplibs_error(
+        "End row in tile is not divisible by the row block size");
+  }
+
+  if (startRow >= (csr.rowIndices.size() - 1) * blockSizeX) {
     throw poputil::poplibs_error("Start row in tile doesn't match information "
                                  "in CSR");
   }
 
-  if (endRow >= csr.rowIndices.size()) {
+  if (endRow > (csr.rowIndices.size() - 1) * blockSizeX) {
     throw poputil::poplibs_error("End row in tile doesn't match information "
                                  "in CSR");
   }
 
   std::vector<RowPositionValues> rowValuePairs;
-
-  for (auto row = startRow; row != endRow; ++row) {
+  const auto blockSize = blockSizeX * blockSizeY;
+  for (auto row = startRow; row != endRow; row += blockSizeX) {
     std::vector<std::pair<std::size_t, ValueType>> valuePairs;
-    for (auto column = csr.rowIndices[row]; column != csr.rowIndices[row + 1];
-         ++column) {
+    const auto rowIdx = row / blockSizeX;
+    for (auto internalNzIdx = csr.rowIndices[rowIdx] / blockSize;
+         internalNzIdx != csr.rowIndices[rowIdx + 1] / blockSize;
+         ++internalNzIdx) {
       // This can be optimised if the columns are always sorted in increasing
       // order.
-      if (csr.columnIndices[column] >= startColumn &&
-          csr.columnIndices[column] < endColumn) {
-        valuePairs.emplace_back(csr.columnIndices[column] - startColumn,
-                                csr.nzValues[column]);
+      if (csr.columnIndices[internalNzIdx] >= startColumn &&
+          csr.columnIndices[internalNzIdx] < endColumn) {
+        valuePairs.emplace_back(csr.columnIndices[internalNzIdx] - startColumn,
+                                csr.nzValues[internalNzIdx]);
       }
     }
     if (!valuePairs.empty()) {
@@ -76,24 +89,23 @@ getTileIndexFromPnId(std::size_t pnId, const std::vector<std::size_t> &numXYZ) {
 // Here only to account for sizes
 using MetaInfoType = unsigned short;
 using MI = popsparse::MetaInfo<MetaInfoType>;
+using BMI = popsparse::BlockMetaInfo<MetaInfoType>;
 
 // to compute number of elements
 #define miElems(x) (sizeof(x) / sizeof(MetaInfoType))
 
-PartitionerImpl::PartitionerImpl(const std::vector<std::size_t> &dimensions,
-                                 const std::vector<std::size_t> &grainSizes,
-                                 const std::vector<std::size_t> &xSplits_,
-                                 const std::vector<std::size_t> &ySplits_,
-                                 const std::vector<std::size_t> &zSplits_,
-                                 std::size_t metaInfoBucketElements_,
-                                 std::size_t metaInfoBucketElementsGradA_,
-                                 std::size_t nzElementsBucketElements_,
-                                 std::size_t numWorkerContexts_,
-                                 std::size_t bucketsPerZ_, bool includeGradA_,
-                                 bool includeGradW_, bool sharedBuckets_,
-                                 const poplar::Type &dataType_,
-                                 const poplar::Type &accumType_,
-                                 const PartitionerOptions &options) {
+PartitionerImpl::PartitionerImpl(
+    const std::vector<std::size_t> &dimensions,
+    const std::vector<std::size_t> &grainSizes,
+    const std::vector<std::size_t> &xSplits_,
+    const std::vector<std::size_t> &ySplits_,
+    const std::vector<std::size_t> &zSplits_,
+    std::size_t metaInfoBucketElements_,
+    std::size_t metaInfoBucketElementsGradA_,
+    std::size_t nzElementsBucketElements_, std::size_t numWorkerContexts_,
+    std::size_t bucketsPerZ_, bool useBlockMetaInfoFormat_, bool includeGradA_,
+    bool includeGradW_, bool sharedBuckets_, const poplar::Type &dataType_,
+    const poplar::Type &accumType_, const PartitionerOptions &options) {
 
   auto verifySplit = [](std::size_t dimension, const std::vector<size_t> &split,
                         const std::string &str) {
@@ -138,6 +150,7 @@ PartitionerImpl::PartitionerImpl(const std::vector<std::size_t> &dimensions,
   nzElementsBucketElements = nzElementsBucketElements_;
   numWorkerContexts = numWorkerContexts_;
   bucketsPerZ = bucketsPerZ_;
+  useBlockMetaInfoFormat = useBlockMetaInfoFormat_;
   gradWEnabled = includeGradW_;
   gradAEnabled = includeGradA_;
   sharedBuckets = sharedBuckets_;
@@ -223,11 +236,11 @@ TilePartition csrMatrixToTilePartition(const CSRInternal &csrMatrix,
 
 std::vector<TilePartition> static getTilePartition(
     const CSRInternal matrix, std::size_t numX, std::size_t numY,
-    std::size_t numZ, const std::vector<std::size_t> &xSplits,
+    std::size_t numZ, std::size_t blockSizeX, std::size_t blockSizeY,
+    const std::vector<std::size_t> &xSplits,
     const std::vector<std::size_t> &ySplits,
-    const std::vector<std::size_t> &zSplits, std::size_t bucketsPerZ,
-    bool transposed) {
-  const auto &csr = transposed ? csrTranspose(numX, numY, matrix) : matrix;
+    const std::vector<std::size_t> &zSplits, std::size_t bucketsPerZ) {
+  const auto &csr = matrix;
 
   const std::vector<std::size_t> numXYZ = {xSplits.size(), ySplits.size(),
                                            zSplits.size() * bucketsPerZ};
@@ -236,8 +249,7 @@ std::vector<TilePartition> static getTilePartition(
   // grain size
   std::size_t numPNs = std::accumulate(numXYZ.begin(), numXYZ.end(), 1,
                                        std::multiplies<std::size_t>());
-  logging::trace("  Creating tile partitions for {} PNs : transpose ? {}",
-                 numPNs, transposed);
+  logging::trace("  Creating tile partitions for {} PNs", numPNs);
 
   std::vector<TilePartition> tilePartitions(numPNs);
 
@@ -253,13 +265,8 @@ std::vector<TilePartition> static getTilePartition(
       poplar::Interval columnInterval(columnStart, columnEnd);
       std::size_t rowIndex = row, columnIndex = column;
 
-      if (transposed) {
-        std::swap(rowInterval, columnInterval);
-        std::swap(rowIndex, columnIndex);
-      }
-
       Tile tile(rowInterval, columnInterval);
-      auto tp = getPositionValuePairsPerRow(csr, tile);
+      auto tp = getPositionValuePairsPerRow(csr, blockSizeX, blockSizeY, tile);
       logging::trace("    Tile X={} Y={} number of rows {} ", tile.getRows(),
                      tile.getColumns(), tp.size());
 
@@ -313,46 +320,9 @@ std::vector<TilePartition> static getTilePartition(
 // creates tile partitions based purely on tiling of the matrix. The tiling is
 // done given the splits the planner decides to split the matrix.
 std::vector<TilePartition>
-PartitionerImpl::getTilePartitions(const CSRInternal &matrix_,
-                                   bool transposed) const {
-  if (matrix_.rowIndices.size() != numX + 1) {
-    throw poputil::poplibs_error("Column indices must match matrix colums");
-  }
-
-  if (matrix_.nzValues.size() != matrix_.columnIndices.size()) {
-    throw poputil::poplibs_error("Size of row indices must match number of non "
-                                 "zero values");
-  }
-
-  logging::trace("Partitioner called with CSR representation");
-
-  // TODO: remove this copy
-  auto matrix = matrix_;
-  canonicalizeCSR<ValueType>(matrix);
-
-  return getTilePartition(matrix, numX, numY, numZ, xSplits, ySplits, zSplits,
-                          bucketsPerZ, transposed);
-}
-
-// creates tile partitions based purely on tiling of the matrix. The tiling is
-// done given the splits the planner decides to split the matrix.
-std::vector<TilePartition>
-PartitionerImpl::getTilePartitions(const CSCInternal &matrix_,
-                                   bool transposed) const {
-
-  if (matrix_.columnIndices.size() != numY + 1) {
-    throw poputil::poplibs_error("Column indices must match matrix colums");
-  }
-
-  if (matrix_.nzValues.size() != matrix_.rowIndices.size()) {
-    throw poputil::poplibs_error("Size of row indices must match number of non "
-                                 "zero values");
-  }
-  logging::trace("Partitioner called with CSC representation");
-
-  auto matrix = cscToCSR<ValueType>(numX, numY, matrix_);
-  return getTilePartition(matrix, numX, numY, numZ, xSplits, ySplits, zSplits,
-                          bucketsPerZ, transposed);
+PartitionerImpl::getTilePartitions(const CSRInternal &matrix) const {
+  return getTilePartition(matrix, numX, numY, numZ, grainX, grainY, xSplits,
+                          ySplits, zSplits, bucketsPerZ);
 }
 
 // find amount of information kept on tile which is a sub-tile of the
@@ -387,48 +357,58 @@ std::size_t fixedMetaInfoCost(std::size_t numWorkers, bool gradWEnabled) {
 
 std::pair<std::size_t, std::size_t>
 sizesForTilePartition(const TilePartition &partition, std::size_t numZGrains,
-                      std::size_t numWorkers, bool useWorkerSplits,
-                      bool includeGradW) {
+                      std::size_t numWorkers, bool useBlockMetaInfoFormat,
+                      bool useWorkerSplits, bool includeGradW) {
 
   // We don't duplicate rows
   auto numNZElements = numNonZeroValues(partition);
   std::size_t metaInfoElements = 0;
 
-  if (useWorkerSplits) {
-    // we split the rows on the tile to be split. The partition is only
-    // on the output rows and columns. We could also account for the number
-    // of columns in each of the sparse rows, bu that is an optimisation.
-    auto workers = splitTileBetweenWorkers(partition.tileInfo.size(),
-                                           numZGrains, numWorkers);
-
-    for (const auto &worker : workers) {
-      metaInfoElements +=
-          numMetaInfoElementsForWorker(partition, worker, includeGradW);
-    }
+  if (useBlockMetaInfoFormat) {
+    const auto outputEntriesElements =
+        partition.tileInfo.size() * miElems(BMI::OutputEntry);
+    const auto nzOffsetEntries = numNZElements;
+    metaInfoElements +=
+        outputEntriesElements + nzOffsetEntries + miElems(BMI::SubGroupEntry);
   } else {
-    metaInfoElements += miElems(MI::WorkerEntry) * numWorkers;
-    logging::trace("        --WI : {}", metaInfoElements);
-    if (includeGradW) {
-      metaInfoElements += miElems(MI::GradWWorkerEntry) * numWorkers + 1;
+    if (useWorkerSplits) {
+      // we split the rows on the tile to be split. The partition is only
+      // on the output rows and columns. We could also account for the number
+      // of columns in each of the sparse rows, but that is an optimisation.
+      auto workers = splitTileBetweenWorkers(partition.tileInfo.size(),
+                                             numZGrains, numWorkers);
+
+      for (const auto &worker : workers) {
+        metaInfoElements +=
+            numMetaInfoElementsForWorker(partition, worker, includeGradW);
+      }
+    } else {
+      metaInfoElements += miElems(MI::WorkerEntry) * numWorkers;
+      logging::trace("        --WI : {}", metaInfoElements);
+      if (includeGradW) {
+        metaInfoElements += miElems(MI::GradWWorkerEntry) * numWorkers + 1;
+      }
+      logging::trace("        --WI : {}", metaInfoElements);
     }
-    logging::trace("        --WI : {}", metaInfoElements);
+
+    std::size_t outputEntriesElements =
+        partition.tileInfo.size() * miElems(MI::OutputEntry);
+
+    std::size_t nzOffsetEntries = numNZElements;
+
+    if (outputEntriesElements) {
+      logging::trace("        --Output entries : {}", outputEntriesElements);
+    }
+
+    if (nzOffsetEntries) {
+      logging::trace("        --offset entries : {}", nzOffsetEntries);
+    }
+
+    // include output entries in  meta info
+    metaInfoElements +=
+        outputEntriesElements + nzOffsetEntries + miElems(MI::SubGroupEntry);
   }
 
-  std::size_t outputEntriesElements =
-      partition.tileInfo.size() * miElems(MI::OutputEntry);
-
-  std::size_t nzOffsetEntries = numNZElements;
-
-  if (outputEntriesElements) {
-    logging::trace("        --Output entries : {}", outputEntriesElements);
-  }
-
-  if (nzOffsetEntries) {
-    logging::trace("        --offset entries : {}", nzOffsetEntries);
-  }
-
-  // include output entries in  meta info
-  metaInfoElements += outputEntriesElements + nzOffsetEntries;
   return std::make_pair(metaInfoElements, numNZElements);
 }
 
@@ -451,7 +431,8 @@ static void fillBucketSizes(PNBucket &bucket,
                             const std::size_t numZ,
                             const std::size_t grainSizeZ, bool useWorkerSplits,
                             std::size_t numWorkers, std::size_t bucketsPerZ,
-                            bool includeGradW, const std::string &str) {
+                            bool useBlockMetaInfoFormat, bool includeGradW,
+                            const std::string &str) {
   logging::trace("      Determining sizes for PN bucket " + str);
   std::size_t nzElements = 0;
   std::size_t metaInfoElements = 0;
@@ -464,11 +445,12 @@ static void fillBucketSizes(PNBucket &bucket,
       const auto numGrains = getNumZGrains(subgroup.tileIndex, zSplits, numZ,
                                            bucketsPerZ, grainSizeZ);
       auto bucketSizes = sizesForTilePartition(subgroup, numGrains, numWorkers,
+                                               useBlockMetaInfoFormat,
                                                useWorkerSplits, includeGradW);
       logging::trace("        Bucket group size : metainfo {}   nz elements {}",
                      bucketSizes.first, bucketSizes.second);
       nzElements += bucketSizes.second;
-      metaInfoElements += bucketSizes.first + miElems(MI::SubGroupEntry);
+      metaInfoElements += bucketSizes.first;
     }
   }
   bucket.numNzElements = nzElements;
@@ -521,7 +503,8 @@ static TilePartition
 removeRows(PNBucket &bucket, const std::vector<std::size_t> &zSplits,
            std::size_t numZ, std::size_t grainSizeZ, std::size_t numWorkers,
            std::size_t metaInfoElementsTarget, std::size_t nzElementsTarget,
-           std::size_t bucketsPerZ, bool useWorkerSplits, bool includeGradW) {
+           std::size_t bucketsPerZ, bool useBlockMetaInfoFormat,
+           bool useWorkerSplits, bool includeGradW) {
   TilePartition removedPartition;
 
   if (bucket.metaInfoElements <= metaInfoElementsTarget &&
@@ -543,8 +526,8 @@ removeRows(PNBucket &bucket, const std::vector<std::size_t> &zSplits,
                                        index);
 
     fillBucketSizes(bucket, zSplits, numZ, grainSizeZ, useWorkerSplits,
-                    numWorkers, bucketsPerZ, includeGradW,
-                    ": after removing row");
+                    numWorkers, bucketsPerZ, useBlockMetaInfoFormat,
+                    includeGradW, ": after removing row");
     logging::trace("  --removed index {}, size of bucket after {}, {}", index,
                    bucket.metaInfoElements, bucket.numNzElements);
     if (bucket.metaInfoElements <= metaInfoElementsTarget &&
@@ -598,11 +581,11 @@ removeIntervals(TilePartition &tilePartition,
 }
 
 static std::vector<PNBucket>
-createBucketsForPN(std::vector<TilePartition> &tilePartitions,
+createBucketsForPN(const std::vector<TilePartition> &tilePartitions,
                    const std::vector<std::size_t> &zSplits, std::size_t numZ,
                    std::size_t grainSizeZ, bool useWorkerSplits,
                    std::size_t numWorkers, std::size_t bucketsPerZ,
-                   bool includeGradW) {
+                   bool useBlockMetaInfoFormat, bool includeGradW) {
   const auto numPNs = tilePartitions.size();
   std::vector<PNBucket> buckets(tilePartitions.size());
   // The initial buckets contain one tile partition
@@ -611,8 +594,8 @@ createBucketsForPN(std::vector<TilePartition> &tilePartitions,
       buckets[p].subGroups.push_back(tilePartitions[p]);
       // fill in size information
       fillBucketSizes(buckets[p], zSplits, numZ, grainSizeZ, useWorkerSplits,
-                      numWorkers, bucketsPerZ, includeGradW,
-                      "create-" + std::to_string(p));
+                      numWorkers, bucketsPerZ, useBlockMetaInfoFormat,
+                      includeGradW, "create-" + std::to_string(p));
     }
   }
   return buckets;
@@ -669,8 +652,7 @@ static void logBucket(const PNBucket &b, const std::string &str) {
   }
 }
 
-void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
-                                     bool transposed) const {
+void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
 
   const auto numBuckets = pnBuckets.size();
 
@@ -700,11 +682,12 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
 
       auto tp = removeRows(bucket, zSplits, numZ, grainZ, numWorkerContexts,
                            metaInfoElems, nzInfoElems, bucketsPerZ,
-                           useActualWorkerSplitCosts, gradWEnabled);
+                           useBlockMetaInfoFormat, useActualWorkerSplitCosts,
+                           gradWEnabled);
       overflowBuckets[p].subGroups.push_back(tp);
       fillBucketSizes(overflowBuckets[p], zSplits, numZ, grainZ,
                       useActualWorkerSplitCosts, numWorkerContexts, bucketsPerZ,
-                      gradWEnabled,
+                      useBlockMetaInfoFormat, gradWEnabled,
                       " : overflow bucket for pn " + std::to_string(p));
     }
   }
@@ -719,10 +702,6 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
            (target.numNzElements + cand.numNzElements <=
             nzElementsBucketElements);
   };
-
-  // the splits change depending on whether a transpose is done or not
-  const auto &xSplits_ = transposed ? ySplits : xSplits;
-  const auto ySplits_ = transposed ? xSplits_ : ySplits;
 
   auto rebalance = [&](std::size_t pnRange, bool splitColumns) {
     if (std::all_of(overflowBuckets.begin(), overflowBuckets.end(),
@@ -745,8 +724,8 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
     }
 
     // Go through candidates list to fill
-    for (std::size_t x = 0; x != xSplits_.size(); ++x) {
-      for (std::size_t y = 0; y != ySplits_.size(); ++y) {
+    for (std::size_t x = 0; x != xSplits.size(); ++x) {
+      for (std::size_t y = 0; y != ySplits.size(); ++y) {
         for (std::size_t z = 0; z != zSplits.size() * bucketsPerZ; ++z) {
           std::size_t ovfPN = getPNId(
               {
@@ -754,7 +733,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
                   y,
                   z,
               },
-              {xSplits_.size(), ySplits_.size(), zSplits.size() * bucketsPerZ});
+              {xSplits.size(), ySplits.size(), zSplits.size() * bucketsPerZ});
           std::size_t pnStart = ovfPN / pnRange * pnRange;
           std::size_t pnEnd = pnStart + pnRange;
 
@@ -835,11 +814,11 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
             }
             fillBucketSizes(bucket, zSplits, numZ, grainZ,
                             useActualWorkerSplitCosts, numWorkerContexts,
-                            bucketsPerZ, gradWEnabled,
+                            bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
                             " : add to pn bucket" + std::to_string(pn));
             fillBucketSizes(overflowBuckets[thisPN], zSplits, numZ, grainZ,
                             useActualWorkerSplitCosts, numWorkerContexts,
-                            bucketsPerZ, gradWEnabled,
+                            bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
                             " : after overflow rows removed " +
                                 std::to_string(thisPN));
             logging::trace("   *+* : rows PNs {} -> {}", thisPN, pn);
@@ -858,8 +837,8 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets,
 
   std::vector<std::size_t> pnRanges = {
       zSplits.size() * bucketsPerZ,
-      zSplits.size() * bucketsPerZ * ySplits_.size(),
-      zSplits.size() * bucketsPerZ * ySplits_.size() * xSplits_.size()};
+      zSplits.size() * bucketsPerZ * ySplits.size(),
+      zSplits.size() * bucketsPerZ * ySplits.size() * xSplits.size()};
   if (forceBucketSpills) {
     std::swap(pnRanges[1], pnRanges[2]);
   }
@@ -1006,58 +985,86 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
 
 template <typename T>
 PNBucketsImpl<T>
-PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
-  // Convert CSR to matrix to std::size_t
+PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
+  logging::trace("Partitioner called with CSR representation");
+
+  if (matrix_.getNumRowsInBlock() != grainX ||
+      matrix_.getNumColumnsInBlock() != grainY) {
+    throw poputil::poplibs_error(
+        "Number of rows/columns in block does not match grain sizes "
+        "partitioner was created with");
+  }
+  if (matrix_.rowIndices.size() != (numX / grainX) + 1) {
+    throw poputil::poplibs_error(
+        "Number of row indices must match number of matrix rows");
+  }
+
+  if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
+      matrix_.columnIndices.size()) {
+    throw poputil::poplibs_error(
+        "Number of column indices must match number of non zero values");
+  }
+
+  // TODO: Avoid this copy, or at least do it in the internal format.
+  auto matrix = matrix_;
+  canonicalizeCSR(matrix);
+
+  // Translate original matrix with typed data to a generic matrix with
+  // std::size_t indices into actual data.
   std::vector<ValueType> nzOffsets;
-  nzOffsets.resize(matrix_.nzValues.size());
+  nzOffsets.resize(matrix.columnIndices.size());
   std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
-  auto cscInternal = CSCInternal(std::move(nzOffsets), matrix_.columnIndices,
-                                 matrix_.rowIndices);
-  const bool transposed = false;
-  auto tilePartitions = getTilePartitions(cscInternal, transposed);
+  auto csrInternal = CSRInternal(std::move(nzOffsets), matrix.columnIndices,
+                                 matrix.rowIndices);
+  auto tilePartitions = getTilePartitions(std::move(csrInternal));
   auto pnBuckets = createBucketsForPN(
       tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
-      numWorkerContexts, bucketsPerZ, gradWEnabled);
-  balanceBuckets(pnBuckets, transposed);
-  return {pnBuckets, matrix_.nzValues};
+      numWorkerContexts, bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled);
+  balanceBuckets(pnBuckets);
+  return {pnBuckets, matrix.nzValues};
 }
 
 template <typename T>
 PNBucketsImpl<T>
-PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
-  const bool transposed = false;
-  // Convert CSR to matrix to std::size_t
-  std::vector<ValueType> nzOffsets;
-  nzOffsets.resize(matrix_.nzValues.size());
-  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
-  auto csrInternal = CSRInternal(std::move(nzOffsets), matrix_.columnIndices,
-                                 matrix_.rowIndices);
+PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
+  logging::trace("Partitioner called with CSC representation");
 
-  auto tilePartitions = getTilePartitions(std::move(csrInternal), transposed);
-  auto pnBuckets = createBucketsForPN(
-      tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
-      numWorkerContexts, bucketsPerZ, gradWEnabled);
-  balanceBuckets(pnBuckets, transposed);
-  return {pnBuckets, matrix_.nzValues};
+  if (matrix_.getNumRowsInBlock() != grainX ||
+      matrix_.getNumColumnsInBlock() != grainY) {
+    throw poputil::poplibs_error(
+        "Number of rows/columns in block does not match grain sizes "
+        "partitioner was created with");
+  }
+  if (matrix_.columnIndices.size() != (numY / grainY) + 1) {
+    throw poputil::poplibs_error(
+        "Number of column indices must match number of matrix columns");
+  }
+
+  if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
+      matrix_.rowIndices.size()) {
+    throw poputil::poplibs_error(
+        "Number of row indices must match number of non zero values");
+  }
+
+  // TODO: Transposing this full typed matrix with block size is
+  // not as efficient as creating an internal CSC matrix and
+  // bucketing this. This is just convenient for the timebeing.
+  return createBuckets(cscToCSR(numX, numY, matrix_));
 }
 
 template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
-  const bool transposed = false;
-  auto csrMatrix = cooToCSR(numX, numY, matrix_);
-  std::vector<ValueType> nzOffsets;
-  nzOffsets.resize(csrMatrix.nzValues.size());
-  std::iota(nzOffsets.begin(), nzOffsets.end(), 0);
-  auto csrInternal =
-      CSRInternal(std::move(nzOffsets), std::move(csrMatrix.columnIndices),
-                  std::move(csrMatrix.rowIndices));
-  auto tilePartitions = getTilePartitions(std::move(csrInternal), transposed);
-  auto pnBuckets = createBucketsForPN(
-      tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
-      numWorkerContexts, bucketsPerZ, gradWEnabled);
-  balanceBuckets(pnBuckets, transposed);
-  return {pnBuckets, csrMatrix.nzValues};
+  logging::trace("Partitioner called with COO representation");
+
+  if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
+          matrix_.rowIndices.size() ||
+      matrix_.nzValues.size() / matrix_.getBlockSize() !=
+          matrix_.columnIndices.size()) {
+    throw poputil::poplibs_error("Number of non-zero values, row indices, and "
+                                 "column indices must be equal");
+  }
+  return createBuckets(cooToCSR(numX, numY, matrix_));
 }
 
 std::vector<PNBucket>
@@ -1081,8 +1088,8 @@ PartitionerImpl::transposedBuckets(const std::vector<PNBucket> &in) const {
       out[b].subGroups.push_back(tp);
     }
     fillBucketSizes(out[b], zSplits, numZ, grainZ, useActualWorkerSplitCosts,
-                    numWorkerContexts, bucketsPerZ, gradWEnabled,
-                    "transposed -" + std::to_string(b));
+                    numWorkerContexts, bucketsPerZ, useBlockMetaInfoFormat,
+                    gradWEnabled, "transposed -" + std::to_string(b));
   }
 
   logging::trace("After transposition");
