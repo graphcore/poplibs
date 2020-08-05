@@ -3,12 +3,15 @@
 #include "poputil/exceptions.hpp"
 
 #include <spdlog/fmt/fmt.h>
+#include <spdlog/fmt/ostr.h>
+#include <spdlog/sinks/file_sinks.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <iostream>
 #include <string>
+#include <unordered_map>
 
 namespace poplibs_support {
 namespace logging {
@@ -30,16 +33,21 @@ spdlog::level::level_enum translate(Level l) {
 
 // Stores the logging object needed by spdlog.
 struct LoggingContext {
-  LoggingContext();
-  std::shared_ptr<spdlog::logger> logger;
-};
+public:
+  static std::shared_ptr<spdlog::logger> getLogger(Module m);
 
-LoggingContext &context() {
-  // This avoids the static initialisation order fiasco, but doesn't solve the
-  // deinitialisation order. Who logs in destructors anyway?
-  static LoggingContext loggingContext;
-  return loggingContext;
-}
+private:
+  LoggingContext();
+  static LoggingContext &instance() {
+    // This avoids the static initialisation order fiasco, but doesn't solve the
+    // deinitialisation order. Who logs in destructors anyway?
+    static LoggingContext loggingContext;
+    return loggingContext;
+  }
+
+  std::shared_ptr<spdlog::sinks::sink> sink;
+  std::unordered_map<Module, std::shared_ptr<spdlog::logger>> loggers;
+};
 
 Level logLevelFromString(const std::string &level) {
 
@@ -56,9 +64,44 @@ Level logLevelFromString(const std::string &level) {
   if (level == "OFF" || level == "")
     return Level::Off;
 
-  throw poputil::poplibs_error(
+  throw ::poputil::poplibs_error(
       "Unknown POPLIBS_LOG_LEVEL '" + level +
       "'. Valid values are TRACE, DEBUG, INFO, WARN, ERR and OFF.");
+}
+
+std::string moduleName(Module m) {
+  switch (m) {
+  case Module::popfloat:
+    return "POPFLOAT";
+  case Module::poplin:
+    return "POPLIN";
+  case Module::popnn:
+    return "POPNN";
+  case Module::popops:
+    return "POPOPS";
+  case Module::poprand:
+    return "POPRAND";
+  case Module::popsolver:
+    return "POPSOLVER";
+  case Module::popsparse:
+    return "POPSPARSE";
+  case Module::poputil:
+    return "POPUTIL";
+  default:
+    return "POPLIBS"; // TODO: change to UNKNOWN
+  }
+}
+
+static std::string getPaddingForModule(Module m) {
+  constexpr std::array modules = {
+      Module::popfloat,  Module::poplin,  Module::popnn,
+      Module::popops,    Module::poprand, Module::popsolver,
+      Module::popsparse, Module::poputil, Module::poplibs};
+  std::size_t maxLength = 0;
+  for (const auto module : modules) {
+    maxLength = std::max(maxLength, moduleName(module).length());
+  }
+  return std::string(maxLength - moduleName(m).length(), ' ');
 }
 
 template <typename Mutex>
@@ -82,42 +125,86 @@ LoggingContext::LoggingContext() {
   // of those it is treated as a filename. The default is stderr.
   std::string logDest = POPLIBS_LOG_DEST ? POPLIBS_LOG_DEST : "stderr";
 
-  // Get logging level from OS ENV. The default level is off.
-  Level defaultLevel =
-      logLevelFromString(POPLIBS_LOG_LEVEL ? POPLIBS_LOG_LEVEL : "OFF");
-
   if (logDest == "stdout") {
-    auto sink = std::make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
-    setColours(*sink);
-    logger = std::make_shared<spdlog::logger>("graphcore", sink);
+    auto colouredSink =
+        std::make_shared<spdlog::sinks::ansicolor_stdout_sink_mt>();
+    setColours(*colouredSink);
+    sink = colouredSink;
   } else if (logDest == "stderr") {
-    auto sink = std::make_shared<spdlog::sinks::ansicolor_stderr_sink_mt>();
-    setColours(*sink);
-    logger = std::make_shared<spdlog::logger>("graphcore", sink);
+    auto colouredSink =
+        std::make_shared<spdlog::sinks::ansicolor_stderr_sink_mt>();
+    setColours(*colouredSink);
+    sink = colouredSink;
   } else {
     try {
-      logger = spdlog::basic_logger_mt("graphcore", logDest, true);
+      sink =
+          std::make_shared<spdlog::sinks::simple_file_sink_mt>(logDest, true);
     } catch (const spdlog::spdlog_ex &e) {
       std::cerr << "Error opening log file: " << e.what() << std::endl;
       throw;
     }
   }
 
-  logger->set_pattern("%T.%e %t PL [%L] %v");
-  logger->set_level(translate(defaultLevel));
+  // Get logging level from OS ENV. The default level is off.
+  const auto defaultLevel =
+      logLevelFromString(POPLIBS_LOG_LEVEL ? POPLIBS_LOG_LEVEL : "OFF");
+
+  const auto createLogger = [&](Module m) {
+    const auto getLogLevelForModule = [&](Module m) {
+      const auto envVar = "POPLIBS_" + moduleName(m) + "_LOG_LEVEL";
+      const auto value = std::getenv(envVar.c_str());
+      if (value) {
+        return logLevelFromString(value);
+      } else {
+        return defaultLevel;
+      }
+    };
+
+    auto logger = std::make_shared<spdlog::logger>(moduleName(m), sink);
+    logger->set_level(translate(getLogLevelForModule(m)));
+    logger->set_pattern("%T.%e %t PL:%n" + getPaddingForModule(m) + " [%L] %v");
+    loggers[m] = logger;
+  };
+
+  createLogger(Module::popfloat);
+  createLogger(Module::poplin);
+  createLogger(Module::popnn);
+  createLogger(Module::popops);
+  createLogger(Module::poprand);
+  createLogger(Module::popsolver);
+  createLogger(Module::popsparse);
+  createLogger(Module::poputil);
+  createLogger(Module::poplibs);
+}
+
+std::shared_ptr<spdlog::logger> LoggingContext::getLogger(Module m) {
+  return LoggingContext::instance().loggers.at(m);
 }
 
 } // namespace
 
-void log(Level l, std::string &&msg) {
-  context().logger->log(translate(l), msg);
+void log(Module m, Level l, std::string &&msg) {
+  LoggingContext::getLogger(m)->log(translate(l), std::move(msg));
 }
 
-bool shouldLog(Level l) { return context().logger->should_log(translate(l)); }
+bool shouldLog(Module m, Level l) {
+  return LoggingContext::getLogger(m)->should_log(translate(l));
+}
 
-void setLogLevel(Level l) { context().logger->set_level(translate(l)); }
+void setLogLevel(Module m, Level l) {
+  LoggingContext::getLogger(m)->set_level(translate(l));
+}
 
-void flush() { context().logger->flush(); }
+void flush(Module m) { LoggingContext::getLogger(m)->flush(); }
+
+// Deprecated
+void log(Level l, std::string &&msg) {
+  LoggingContext::getLogger(Module::poplibs)->log(translate(l), std::move(msg));
+}
+bool shouldLog(Level l) {
+  return LoggingContext::getLogger(Module::poplibs)->should_log(translate(l));
+}
+// End deprecated
 
 } // namespace logging
 } // namespace poplibs_support
