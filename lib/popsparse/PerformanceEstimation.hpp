@@ -215,6 +215,20 @@ sparseDenseBlockMultiply(unsigned numBuckets, unsigned numBucketsWithInfoForPN,
     supervisorBlockLoadCycles *= numX + 2;
     workerLoopCycles *= numX;
   } else {
+    std::uint64_t innerCycles = 0;
+    if (numZ == 1) {
+      innerCycles += 19;
+    } else if (numZ == 2) {
+      innerCycles += 22;
+    } else {
+      innerCycles += 23 + (numZ - 2) * 2;
+    }
+    for (const auto &y : numY) {
+      supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 16);
+      workerLoopCycles += y * innerCycles;
+    }
+    supervisorBlockLoadCycles *= numX + 2;
+    workerLoopCycles *= numX;
   }
 
   uint64_t totalWorkerCycles = workerCyclesOverhead + workerLoopCycles;

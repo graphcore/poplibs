@@ -163,6 +163,7 @@ Ls_XLoop_\TYPE\():
 
 Ls_YLoop_\TYPE\():
       ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+.ifc \TYPE, float
       ld64putcs              0x0 // CCCS_CWEI_0_0
       ld64putcs              0x1 // CCCS_CWEI_0_1
       ld64putcs              0x4 // CCCS_CWEI_1_0
@@ -172,6 +173,14 @@ Ls_YLoop_\TYPE\():
       ld64putcs              0x9 // CCCS_CWEI_2_1
       ld64putcs              0xC // CCCS_CWEI_3_0
       ld64putcs              0xD // CCCS_CWEI_3_1
+.else
+      ld64putcs              0x0 // CCCS_CWEI_0_0
+      ld64putcs              0x4 // CCCS_CWEI_1_0
+      ld64putcs              0x8 // CCCS_CWEI_2_0
+      ld64putcs              0xC // CCCS_CWEI_3_0
+      nop
+      st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       runall                 $s_wkrFunction, $sp, 0
 
       setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained   

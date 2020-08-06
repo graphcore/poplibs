@@ -15,8 +15,7 @@ static constexpr auto SHORT_SPAN = VectorLayout::SHORT_SPAN;
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
-  return std::is_same<FPType, float>() && std::is_same<AccumType, float>() &&
-         BlockRows == 4 && BlockCols == 4;
+  return std::is_same<AccumType, float>() && BlockRows == 4 && BlockCols == 4;
 }
 
 namespace popsparse {
@@ -33,6 +32,7 @@ class [[poplar::constraint("elem(*q) != elem(*s)")]] SparseDenseMatMulBlock
   // TODO: Dependent on the block size specialisations, this alignment needs
   // increasing.
   constexpr static std::size_t rAlignmentRequirement = alignof(FPType);
+  constexpr static bool qInInterleavedMem = std::is_same<FPType, half>();
 
 public:
   SparseDenseMatMulBlock();
@@ -48,7 +48,7 @@ public:
   // Single pointer to dense output q. Layout of elements in memory expected to
   // be {X,Z}.
   // We may use this in multiple passes so this needs to be an InOut edge.
-  InOut<Vector<AccumType, ONE_PTR, 8>> q;
+  InOut<Vector<AccumType, ONE_PTR, 8, qInInterleavedMem>> q;
   // The sub-group id that should be processed by this vertex.
   const MetaInfoType subGroupIdToProcess;
   // Number of elements in q to zero. Set to zero if no zeroing required.
