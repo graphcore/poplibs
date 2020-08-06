@@ -136,11 +136,6 @@ public:
   template <typename T>
   PNBucketsImpl<T> createBuckets(const COOMatrix<T> &matrix_) const;
 
-  // keeeps the nz values exactly as passed in the input bucket and creates
-  // meta information for the transposed form
-  std::vector<PNBucket>
-  transposedBuckets(const std::vector<PNBucket> &in) const;
-
   // Build real metainformation and NZ value buckets from a single PN bucket
   // for Forward pass.
   template <typename T>

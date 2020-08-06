@@ -68,8 +68,8 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
                               std::size_t metaInfoBucketSize,
                               std::size_t nzElementsBucketSize,
                               std::size_t bucketsPerZ, bool useBlockMetaInfo,
-                              bool checkTranspose, bool includeGradA,
-                              bool includeGradW, bool checkSparsityDataImpl) {
+                              bool includeGradA, bool includeGradW,
+                              bool checkSparsityDataImpl) {
 
   const auto blockSizeX = grainSizes.at(0);
   const auto blockSizeY = grainSizes.at(1);
@@ -102,11 +102,6 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   const auto &nzValues = pnBucketsImpl.nzValues;
 
   partitioner.overflowInfoForFwd(pnBuckets);
-
-  if (checkTranspose) {
-    auto pnBucketsTransposed = partitioner.transposedBuckets(pnBuckets);
-    pnBuckets = partitioner.transposedBuckets(pnBucketsTransposed);
-  }
 
   if (checkSparsityDataImpl) {
     auto impl = partitioner.bucketImplAllPasses(pnBucketsImpl);
@@ -335,10 +330,9 @@ int main(int argc, char **argv) {
     splits[i] = createSplit(matShape[i], splitShape[i], grainSizes[i]);
   }
 
-  constexpr bool checkTranspose = false;
   const bool checkSparsityDataImpl = !disableSparsityDataImplCheck;
-  return !validatePartition(
-      matShape.val, grainSizes, splits[0], splits[1], splits[2], sparsityLevel,
-      metaInfoBucketSize, nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
-      checkTranspose, includeGradA, includeGradW, checkSparsityDataImpl);
+  return !validatePartition(matShape.val, grainSizes, splits[0], splits[1],
+                            splits[2], sparsityLevel, metaInfoBucketSize,
+                            nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
+                            includeGradA, includeGradW, checkSparsityDataImpl);
 }

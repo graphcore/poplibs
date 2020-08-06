@@ -1078,36 +1078,6 @@ PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
   return createBuckets(cooToCSR(numX, numY, matrix_));
 }
 
-std::vector<PNBucket>
-PartitionerImpl::transposedBuckets(const std::vector<PNBucket> &in) const {
-  const auto numBuckets = in.size();
-  std::vector<PNBucket> out;
-  out.resize(numBuckets);
-
-  for (std::size_t b = 0; b != numBuckets; ++b) {
-    for (std::size_t sg = 0; sg != in[b].subGroups.size(); ++sg) {
-      const auto &subGroup = in[b].subGroups[sg];
-      auto csr = tilePartitionToCsrMatrix(subGroup);
-      auto transpose =
-          csrTranspose<ValueType>(subGroup.tile.getRows().size(),
-                                  subGroup.tile.getColumns().size(), csr);
-      Tile tile(subGroup.tile.getColumns(), subGroup.tile.getRows());
-      TileIndex tileIndex = std::make_tuple(std::get<1>(subGroup.tileIndex),
-                                            std::get<0>(subGroup.tileIndex),
-                                            std::get<2>(subGroup.tileIndex));
-      auto tp = csrMatrixToTilePartition(transpose, tile, tileIndex);
-      out[b].subGroups.push_back(tp);
-    }
-    fillBucketSizes(out[b], zSplits, numZ, grainZ, useActualWorkerSplitCosts,
-                    numWorkerContexts, bucketsPerZ, useBlockMetaInfoFormat,
-                    gradWEnabled, "transposed -" + std::to_string(b));
-  }
-
-  logging::trace("After transposition");
-  dumpBucketStatus(out);
-  return out;
-}
-
 template <typename T>
 static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
     const PNBucket &bucket, const std::vector<T> &nzValues,

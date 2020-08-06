@@ -454,13 +454,6 @@ int main(int argc, char **argv) try {
   std::cerr << "Logging Forward pass bucket statistics: ";
   logBucketStatistics(pnBucketsImpl.pnBuckets, csrMatrix);
 
-  if (doBwdPass) {
-    auto transposed =
-        partitioner.getImpl().transposedBuckets(pnBucketsImpl.pnBuckets);
-    std::cerr << "Logging Backward pass bucket statistics: ";
-    logBucketStatistics(transposed, csrMatrix);
-  }
-
   if (planOnly) {
     return 0;
   }
