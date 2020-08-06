@@ -235,7 +235,8 @@ public:
 };
 
 // Fixed metainfo overhead in number of elements
-std::size_t fixedMetaInfoCost(std::size_t numWorkers, bool gradWEnabled);
+std::size_t fixedMetaInfoCost(bool useBlockMetaInfoFormat,
+                              std::size_t numWorkers, bool gradWEnabled);
 
 } // namespace popsparse
 #endif // _poplibs_popsparse_SparsePartitionerImpl_hpp_

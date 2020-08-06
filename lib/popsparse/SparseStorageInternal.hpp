@@ -329,9 +329,10 @@ CSRMatrix<T> cooToCSR(std::size_t numRows, std::size_t numColumns,
 
   // number of NZ values are always equal to the number of column indices.
   const std::size_t numNZValues = coo.nzValues.size();
-  const auto numNZBlocks = numNZValues / coo.getBlockSize();
   const auto blockSize = coo.getBlockSize();
-  const auto numRowBlocks = numRows / coo.getNumRowsInBlock();
+  const auto rowBlockSize = coo.getNumRowsInBlock();
+  const auto numNZBlocks = numNZValues / blockSize;
+  const auto numRowBlocks = numRows / rowBlockSize;
 
   if (numNZValues > numRows * numColumns) {
     throw poputil::poplibs_error("Number of non-zero blocks in COO exceed the "
@@ -350,27 +351,25 @@ CSRMatrix<T> cooToCSR(std::size_t numRows, std::size_t numColumns,
 
   std::vector<std::size_t> rowIndices(numRowBlocks + 1);
   for (const auto &row : coo.rowIndices) {
-    ++rowIndices.at(row / coo.getNumRowsInBlock() + 1);
+    const auto rowBlock = row / rowBlockSize;
+    rowIndices.at(rowBlock + 1) += blockSize;
   }
-
   std::partial_sum(std::next(rowIndices.begin()), rowIndices.end(),
                    std::next(rowIndices.begin()));
 
-  std::vector<std::size_t> countPerRowBlock(numRowBlocks);
-
-  std::vector<std::size_t> columnIndices;
-  columnIndices.resize(numNZBlocks);
-  std::vector<T> nzValues;
-  nzValues.resize(numNZValues);
+  std::vector<std::size_t> perRowBlockIndex(numRowBlocks);
+  std::vector<std::size_t> columnIndices(numNZBlocks);
+  std::vector<T> nzValues(numNZValues);
 
   for (std::size_t block = 0; block < numNZBlocks; ++block) {
-    const auto row = coo.rowIndices[block];
-    const auto dstIndex = rowIndices[row] + countPerRowBlock[row];
+    const auto rowBlock = coo.rowIndices[block] / rowBlockSize;
+    const auto dstIndex =
+        rowIndices[rowBlock] / blockSize + perRowBlockIndex[rowBlock];
     columnIndices[dstIndex] = coo.columnIndices[block];
     std::copy(coo.nzValues.begin() + block * blockSize,
               coo.nzValues.begin() + (block + 1) * blockSize,
               nzValues.begin() + dstIndex * blockSize);
-    ++countPerRowBlock[row];
+    ++perRowBlockIndex[rowBlock];
   }
 
   auto csrMatrix =

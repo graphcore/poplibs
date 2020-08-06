@@ -68,8 +68,8 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
                               std::size_t metaInfoBucketSize,
                               std::size_t nzElementsBucketSize,
                               std::size_t bucketsPerZ, bool useBlockMetaInfo,
-                              bool transposed, bool includeGradA,
-                              bool includeGradW) {
+                              bool checkTranspose, bool includeGradA,
+                              bool includeGradW, bool checkSparsityDataImpl) {
 
   const auto blockSizeX = grainSizes.at(0);
   const auto blockSizeY = grainSizes.at(1);
@@ -84,7 +84,9 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   // The following doesn't actually affect partition generation so just
   // set them to some value.
   const std::size_t metaInfoBucketSizeGradA = 0;
-  const bool sharedBuckets = false;
+  // Set shared buckets so we don't have to deal with size of gradA impl
+  // buckets.
+  const bool sharedBuckets = true;
   const poplar::Type dataType = poplar::FLOAT;
   const poplar::Type accumType = poplar::FLOAT;
   // TODO: Test partitioner options
@@ -101,10 +103,20 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
 
   partitioner.overflowInfoForFwd(pnBuckets);
 
-  // If transposed implementation, we do a transpose followed by a transpose
-  if (transposed) {
+  if (checkTranspose) {
     auto pnBucketsTransposed = partitioner.transposedBuckets(pnBuckets);
     pnBuckets = partitioner.transposedBuckets(pnBucketsTransposed);
+  }
+
+  if (checkSparsityDataImpl) {
+    auto impl = partitioner.bucketImplAllPasses(pnBucketsImpl);
+    auto csrMatrixRecovered =
+        partitioner.bucketsToCSRMatrix(impl.first, impl.second);
+    if (csrMatrix.nzValues != csrMatrixRecovered.nzValues ||
+        csrMatrix.columnIndices != csrMatrixRecovered.columnIndices ||
+        csrMatrix.rowIndices != csrMatrixRecovered.rowIndices) {
+      return false;
+    }
   }
 
   // tile partitions must be less than the number of splits
@@ -235,7 +247,7 @@ int main(int argc, char **argv) {
     ("num-buckets-z",
      po::value<std::size_t>(&numBucketsZ)->default_value(numBucketsZ),
      "Number of buckets per Z")
-    ("use-block-meta-info", "Use block meta-info format in buckets")
+    ("disable-sparsity-data-impl-checks", "Don't run checks that generate on-device sparsity data implementation")
     ("include-gradw",
      po::value<bool>(&includeGradW)->default_value(includeGradW),
      "Include GradW")
@@ -288,14 +300,21 @@ int main(int argc, char **argv) {
     }
   }
 
-  bool useBlockMetaInfoFormat = vm.count("use-block-meta-info");
-
+  const bool useBlockMetaInfoFormat = blockShape[0] * blockShape[1] > 1;
   const unsigned numWorkers = 6;
-  auto nzBucketSize = sparsityLevel * (matShape[0] / blockShape[0]) *
-                      (matShape[1] / blockShape[1]) * (1 + excess);
+  auto nzBlocksPerfectlyUniform = sparsityLevel *
+                                  (matShape[0] / blockShape[0]) *
+                                  (matShape[1] / blockShape[1]);
+  auto nzBucketSize = nzBlocksPerfectlyUniform * (1 + excess);
   auto metaInfoBucketSize =
-      popsparse::fixedMetaInfoCost(numWorkers, includeGradW) * 3.0 +
-      (matShape[0] / blockShape[0]) * 2.0 + nzBucketSize;
+      (popsparse::fixedMetaInfoCost(useBlockMetaInfoFormat, numWorkers,
+                                    includeGradW) *
+           3.0 +
+       (matShape[0] / blockShape[0]) * 2.0 + nzBlocksPerfectlyUniform) *
+      (1 + excess);
+
+  const bool disableSparsityDataImplCheck =
+      vm.count("disable-sparsity-data-impl-checks");
 
   auto createSplit = [](unsigned size, unsigned partitionSize,
                         unsigned grainSize) {
@@ -316,8 +335,10 @@ int main(int argc, char **argv) {
     splits[i] = createSplit(matShape[i], splitShape[i], grainSizes[i]);
   }
 
-  return !validatePartition(matShape.val, grainSizes, splits[0], splits[1],
-                            splits[2], sparsityLevel, metaInfoBucketSize,
-                            nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
-                            false, includeGradA, includeGradW);
+  constexpr bool checkTranspose = false;
+  const bool checkSparsityDataImpl = !disableSparsityDataImplCheck;
+  return !validatePartition(
+      matShape.val, grainSizes, splits[0], splits[1], splits[2], sparsityLevel,
+      metaInfoBucketSize, nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
+      checkTranspose, includeGradA, includeGradW, checkSparsityDataImpl);
 }
