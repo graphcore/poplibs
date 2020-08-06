@@ -61,6 +61,41 @@ add_unit_test(MultiSliceCodeletTest
               MultiSliceCodeletTest.cpp
               LABELS codelet)
 
+#Histogram
+add_multi_target_test_executable(histogramCodeletTest histogramCodeletTest.cpp)
+foreach(DATA_SIZE  1 2 3 4 99)
+  foreach(DATA_TYPE half float)
+    foreach(LIMITS_SIZE 1 5 6 13)
+      add_multitarget_test(NAME histogramSupervisor_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}
+                           COMMAND histogramCodeletTest
+                           --data-size=${DATA_SIZE}
+                           --limits-size=${LIMITS_SIZE}
+                           --type=${DATA_TYPE}
+                           --absolute=false
+                           --supervisor=true
+                           LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(DATA_SIZE  3 4 99)
+  foreach(DATA_TYPE half float)
+    foreach(LIMITS_SIZE 1 10)
+      foreach(ROWS 1 2)
+        add_multitarget_test(NAME histogram2D_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}_r${ROWS}
+                             COMMAND histogramCodeletTest
+                             --data-size=${DATA_SIZE}
+                             --limits-size=${LIMITS_SIZE}
+                             --type=${DATA_TYPE}
+                             --absolute=true
+                             --supervisor=false
+                             --data-rows=${ROWS}
+                             LABELS codelet)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 #Clamp<InType>
 foreach(DATA_TYPE half float int)
   foreach(FUNC_TYPE Clamp BroadcastClamp ClampInPlace BroadcastClampInPlace)

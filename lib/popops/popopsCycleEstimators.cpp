@@ -1842,6 +1842,102 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
                                        rowSizes);
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
+                                       const Target &target, const Type &type,
+                                       const bool isAbsolute) {
+  CODELET_FIELD(data);
+  CODELET_FIELD(histogram);
+  CODELET_FIELD(limits);
+  CODELET_SCALAR_VAL(histogramCount, unsigned);
+  const auto unpackCostHistogram =
+      poplibs::getUnpackCost(histogram.getProfilerVectorLayout(0));
+  const auto unpackCostLimits =
+      poplibs::getUnpackCost(limits.getProfilerVectorLayout(0));
+
+  const auto vectorWidth =
+      target.getDataPathWidth() / (type == FLOAT ? 32 : 16);
+
+  uint64_t cycles = 7 + unpackCostHistogram + unpackCostLimits;
+  if (type == HALF) {
+    cycles += 5;                  // Pre-loop overhead
+    uint64_t dataLoopCycles = 16; // Data-loop overhead
+    for (unsigned i = 0; i < data.size(); i++) {
+      unsigned elements = data[i].size();
+      if (elements & 1) {
+        dataLoopCycles += 3 + isAbsolute;
+      }
+      if (elements & 2) {
+        dataLoopCycles += 3 + isAbsolute;
+      }
+      dataLoopCycles += (3 + isAbsolute) * (elements / vectorWidth);
+    }
+
+    cycles += (dataLoopCycles + 6) * (histogramCount - 1);
+  } else {
+    cycles += 3;                  // Pre-loop overhead
+    uint64_t dataLoopCycles = 10; // Data-loop overhead
+    for (unsigned i = 0; i < data.size(); i++) {
+      unsigned elements = data[i].size();
+      if (elements & 1) {
+        dataLoopCycles += 2 + isAbsolute;
+      }
+      dataLoopCycles += (3 + isAbsolute) * (elements / vectorWidth);
+    }
+    cycles += (dataLoopCycles + 5) * (histogramCount - 1);
+  }
+  // post process
+  cycles += 3 + (3 * (data.size() - 1));
+  cycles += 10 + (histogramCount - 1) * 2;
+  return cycles;
+}
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(HistogramSupervisor)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type,
+    const bool isAbsolute) {
+  CODELET_FIELD(data);
+  CODELET_FIELD(histogram);
+  CODELET_FIELD(limits);
+  CODELET_SCALAR_VAL(histogramCount, unsigned);
+  const auto unpackCostHistogram =
+      poplibs::getUnpackCost(histogram.getProfilerVectorLayout(0));
+  const auto unpackCostLimits =
+      poplibs::getUnpackCost(limits.getProfilerVectorLayout(0));
+
+  const auto vectorWidth =
+      target.getDataPathWidth() / (type == FLOAT ? 32 : 16);
+  auto numWorkers = target.getNumWorkerContexts();
+  const auto remainder = ((histogramCount - 1) % numWorkers) != 0;
+  const auto maxLimits = remainder + (histogramCount - 1) / numWorkers;
+  uint64_t workerCycles = 19 + unpackCostHistogram + unpackCostLimits;
+  if (type == HALF) {
+    workerCycles += 3; // Pre-loop overhead
+    uint64_t dataLoopCycles = 17;
+    auto elements = data.size();
+    if (elements & 1) {
+      dataLoopCycles += 3 + isAbsolute;
+    }
+    if (elements & 2) {
+      dataLoopCycles += 3 + isAbsolute;
+    }
+    dataLoopCycles += (3 + isAbsolute) * (elements / vectorWidth);
+
+    workerCycles += dataLoopCycles * maxLimits;
+  } else {
+    workerCycles += 3; // Pre-loop overhead
+    uint64_t dataLoopCycles = 11;
+    auto elements = data.size();
+    if (elements & 1) {
+      dataLoopCycles += 2 + isAbsolute;
+    }
+    dataLoopCycles += (3 + isAbsolute) * (elements / vectorWidth);
+
+    workerCycles += dataLoopCycles * maxLimits;
+  }
+  // post process
+  workerCycles += 8 + (histogramCount - 1) * 2;
+
+  return workerCycles * numWorkers;
+}
 static std::uint64_t clampCycles(const Target &target, const Type &type,
                                  unsigned numElems) {
   unsigned cyclesPerVector = 1;
@@ -2734,6 +2830,16 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, INT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, BOOL),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, HALF, false),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(popops, HistogramSupervisor, HALF, false),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Clamp, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Clamp, HALF),

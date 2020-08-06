@@ -143,6 +143,8 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterSupervisorOps.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
 )
 
 add_gp_library(
@@ -185,6 +187,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/broadcastCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseMiscCodelets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseScaledAddCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
