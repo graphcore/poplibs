@@ -946,17 +946,24 @@ static void update(Graph &graph, const Tensor &t, const Tensor &s,
                    debugPrefix + "/update");
 }
 
-// If we are slicing up a tensor with the given `shape` in the dimensions
-// `dims`, and the slice size in each dimension is `sizes`, then what is
-// the best order to do the slices? The returned vector contains
-// indexes into `dims` (and `sizes`).
+/// If we are slicing up a tensor with the given `shape` in the dimensions
+/// `dims`, and the slice size in each dimension is `sizes`, this determines
+/// what is the best order to do the slices that reduces the elements in the
+/// resulting slice fastest. The returned vector contains indexes into
+/// `dims` (and `sizes`).
+/// Example 1:
+///  shape = {10, 20, 30}; dims = {1,2}; sizes = {1, 1}.
+///  return order is {1, 0}, which means slice along dim 2 then dim 1.
+/// Example 2:
+///  shape = {10, 20, 30}; dims = {1,2}; sizes = {2, 5}.
+///  return order is {0, 1}, i.e. slice along dim 1 then dim 2.
 static std::vector<size_t>
 bestSliceOrder(const std::vector<std::size_t> &shape,
                const std::vector<std::size_t> &dims,
                const std::vector<std::size_t> &sizes) {
 
-  assert(dims.size() == sizes.size());
   assert(dims.size() <= shape.size());
+  assert(dims.size() == sizes.size());
 
   // Process the dimensions in an order that slices out the most elements
   // first. That dimension is the one that reduces the size of the tensor
@@ -1063,23 +1070,33 @@ static void validateParams(std::string name, const SlicePlan &plan,
 // Create and map a tensor so that dynamic slicing of it will not require
 // exchange.
 // The underlying variables will be [U/N][S0]..[Sn][N] where
-// N is the number of contiguous unsliced elements per tile
-// U is the product of the unsliced dimensions
+// N is the number of contiguous unsliced elements per tile and
+// U is the product of the unsliced dimensions.
 // This distributes the input/output slice across U/N tiles.
-// S0-Sn are the sliced dimensions, sorted to optimise the number of copies
+// S0-Sn are the sliced dimensions, sorted to optimise the number of copies.
 // Typically two variables are used; the second variable for the final
 // tile, which may have a different N.
 // If U/N << numTiles an outer stage can be added to convert part of an
 // S dimension to an extra U dimensions
+//
+// \param shape    Shape of the tensor to create and return.
+// \param dims     Dimensions to slice in.
+// \param idxOrder Order in which to slice the dimensions dim.
+// \returns tensor requiring no exchange on slicing.
+// Example:
+//   shape = {10, 20, 30, 40}; dims = {1, 2}; idxOrder = {1, 0}
+//   Then createShape = {30, 20, 400}, and nPartitions = {1, 1, 400}
 static Tensor createSliceableTensorGivenOrder(
     poplar::Graph &graph, const poplar::Type &type,
     const std::vector<std::size_t> &shape, const std::vector<std::size_t> &dims,
     const std::vector<std::size_t> &idxOrder, std::size_t minGrainSize,
     const std::string &debugPrefix) {
+
+  // Return a linearly mapped tensor if no slice dim is specified.
+  // Or return an EmptyTensor if shape has a zero dimension.
   bool noOutputElements = std::any_of(shape.begin(), shape.end(),
                                       [](std::size_t n) { return n == 0; });
   if (dims.size() == 0 || noOutputElements) {
-    // no slicing specified
     auto t = graph.addVariable(type, shape);
     mapTensorLinearly(graph, t);
     return t;
@@ -1089,6 +1106,8 @@ static Tensor createSliceableTensorGivenOrder(
   std::vector<unsigned> inversePermutation(shape.size());
   std::vector<std::size_t> createShape;
   createShape.reserve(dims.size() + 1);
+
+  // First, put together createShape for the sliced dimensions.
   for (const auto i : idxOrder) {
     const auto d = dims[i];
     if (d >= shape.size()) {
@@ -1103,8 +1122,11 @@ static Tensor createSliceableTensorGivenOrder(
     }
     dimIsSliced[d] = true;
     inversePermutation[d] = createShape.size();
-    createShape.push_back(shape[dims[i]]);
+    createShape.push_back(shape[d]);
   }
+
+  // Second, add a last dimension to createShape which contains
+  // sum of all elements in unsliced dimensions.
   std::size_t numUnslicedElems = 1;
   std::vector<std::size_t> unslicedShape;
   unslicedShape.reserve(shape.size() - dims.size());
@@ -1125,17 +1147,17 @@ static Tensor createSliceableTensorGivenOrder(
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto unslicedElemsPerSplit =
       std::max(ceildiv(numUnslicedElems, numTiles), minGrainSize);
-  const auto unslicedSplit = ceildiv(numUnslicedElems, unslicedElemsPerSplit);
-  std::vector<std::size_t> dimSplits(createShape.size(), 1);
-  dimSplits.back() = unslicedSplit;
+  const auto tilesUsed = ceildiv(numUnslicedElems, unslicedElemsPerSplit);
+  std::vector<std::size_t> nPartitions(createShape.size(), 1);
+  nPartitions.back() = tilesUsed;
 
-  auto t = createPartitionableTensor(graph, type, createShape, dimSplits,
+  auto t = createPartitionableTensor(graph, type, createShape, nPartitions,
                                      debugPrefix + "/sliceable");
 
   // Distribute over tiles starting from 0.
   unsigned tile = 0;
   iterateTensorPartitions(
-      t, dimSplits, [&](const std::vector<std::size_t> &, const Tensor &s) {
+      t, nPartitions, [&](const std::vector<std::size_t> &, const Tensor &s) {
         graph.setTileMapping(s, tile++);
       });
 
@@ -1146,7 +1168,7 @@ static Tensor createSliceableTensorGivenOrder(
                  "used tiles {}, "
                  "{} tiles with {} elems, "
                  "{} tiles with {} elems",
-                 t.shape(), minGrainSize, dims, unslicedSplit,
+                 t.shape(), minGrainSize, dims, tilesUsed,
                  // Tiles with ceildiv(numElems, numSplits) elements
                  numUnslicedElems / unslicedElemsPerSplit,
                  unslicedElemsPerSplit,
@@ -1162,14 +1184,17 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
                                     const SlicePlanInternal &plan,
                                     const OptionFlags &options,
                                     const std::string &debugName) {
-  std::vector<bool> dimIsSliced(shape.size());
+  assert(!shape.empty() && "cannot createSliceableTensor from empty shape");
+  assert(slicedDim < shape.size() && "slice dim cannot exceed rank of tensor");
+  std::vector<bool> dimIsSliced(shape.size(), false);
   dimIsSliced[slicedDim] = true;
 
-  assert(!shape.empty());
   std::vector<unsigned> unslicedDims;
   std::vector<std::size_t> unslicedShape;
   unslicedDims.reserve(shape.size() - 1);
-  unslicedShape.reserve(unslicedDims.size());
+  unslicedShape.reserve(shape.size() - 1);
+
+  // Get and store unslicedDims, unslicedShape info.
   for (unsigned d = 0; d < shape.size(); ++d) {
     if (!dimIsSliced[d]) {
       unslicedDims.push_back(d);
@@ -1177,15 +1202,17 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
     }
   }
 
-  // Product of unsliced dimensions
-  const auto totalUnslicedElems = std::accumulate(
-      unslicedDims.begin(), unslicedDims.end(), std::size_t(1),
-      [&](std::size_t total, unsigned d) { return total * shape[d]; });
+  // Product of size of each unsliced dimension.
+  const auto totalUnslicedElems =
+      std::accumulate(unslicedShape.begin(), unslicedShape.end(),
+                      std::size_t(1), std::multiplies<std::size_t>());
 
   std::vector<std::size_t> createShape = {shape[slicedDim], totalUnslicedElems};
   std::vector<std::size_t> createSplits = {plan.partition.slicedDimSplit,
                                            plan.partition.unslicedDimSplit};
 
+  // Get 't' such that slice of 't' corresponding to each partition
+  // in 'createSplits' is a single contiguous region.
   auto t = createPartitionableTensor(graph, type, createShape, createSplits,
                                      debugName);
 
@@ -1227,17 +1254,15 @@ static Tensor createSliceableTensor(Graph &graph, const Type &type,
   inversePermutation[slicedDim] = 0;
 
   // Unsliced dimensions (starting from dims.size() which is always 1).
-  for (std::size_t i = 0; i < unslicedDims.size(); ++i) {
-    inversePermutation[unslicedDims[i]] = 1 + i;
+  for (std::size_t d = 0; d < unslicedDims.size(); ++d) {
+    inversePermutation[unslicedDims[d]] = 1 + d;
   }
-
-  t = t.reshapePartial(1, 2, unslicedShape).dimShuffle(inversePermutation);
-
-  return t;
+  // Give expected shape and order of dimensions to the returned tensor.
+  return t.reshapePartial(1, 2, unslicedShape).dimShuffle(inversePermutation);
 }
 
 // Create and map a tensor so that dynamic slicing of it will not require
-// exchange
+// exchange.
 // The underlying layout will be [U/N][S0]..[Sn][N] where
 // N is the number of contiguous unsliced elements per tile
 // U is the product of the unsliced dimensions
@@ -1279,7 +1304,7 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
   }
   validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes, false,
                  true);
-  // We don't plan anything which slices more than one dimension for now or
+  // For now we don't plan anything which slices more than one dimension or
   // more than a single slice.
   assert(dims.size() == 1);
   assert(sizes.size() == 1 && sizes[0] == 1);
