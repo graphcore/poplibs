@@ -73,7 +73,7 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
       foreach(NUM_SPLITS 1)
         foreach(X 2 3)
           foreach(Y 2 3)
-            foreach(BLOCKSIZE 4 16)
+            foreach(BLOCKSIZE 4 8 16)
               # Test different batch size paths for input data types
               math(EXPR NUM_ROWS "${X} * ${BLOCKSIZE}")
               math(EXPR NUM_COLS "${Y} * ${BLOCKSIZE}")

@@ -46,7 +46,7 @@
 #define STACK_SIZE                      (W_RBASELIST + 4)
 
 
-.macro BLOCK_SPARSE_MATMUL CNAME, TYPE, POSTFIX
+.macro BLOCK_SPARSE_MATMUL CNAME, TYPE, POSTFIX, BLOCKSIZE
 
 // Registers allocation
 #define s_vertexBase                 m0
@@ -162,8 +162,10 @@ Ls_XLoop_\TYPE\():
     ldz16step              $s_numYm1, $mzero, $s_wTemp+=, 1
 
 Ls_YLoop_\TYPE\():
-      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+.ifc \BLOCKSIZE, 4
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1      
 .ifc \TYPE, float
+      // For IPU2 this could be in interleaved memory with 128 bit loads.
       ld64putcs              0x0 // CCCS_CWEI_0_0
       ld64putcs              0x1 // CCCS_CWEI_0_1
       ld64putcs              0x4 // CCCS_CWEI_1_0
@@ -181,8 +183,67 @@ Ls_YLoop_\TYPE\():
       nop
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
 .endif
-      runall                 $s_wkrFunction, $sp, 0
+.endif
 
+.ifc \BLOCKSIZE, 8
+// TODO: For IPU2 this could in interleaved memory and use ld128
+.ifc \TYPE, float
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              2
+      ld64putcs              3
+      ld64putcs              4
+      ld64putcs              5
+      st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+      ld64putcs              6
+      ld64putcs              7
+      ld64putcs              8
+      ld64putcs              9
+      ld64putcs              10
+      ld64putcs              11
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              14
+      ld64putcs              15
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              18
+      ld64putcs              19
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              22
+      ld64putcs              23
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              26
+      ld64putcs              27
+      ld64putcs              28
+      ld64putcs              29
+      ld64putcs              30
+      ld64putcs              31
+.else
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              4
+      ld64putcs              5
+      ld64putcs              8
+      st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+      ld64putcs              9
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              28
+      ld64putcs              29
+.endif
+.endif
+      runall                 $s_wkrFunction, $sp, 0
       setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained   
       sync                   TEXCH_SYNCZONE_LOCAL
       brnzdec                $s_numYm1, Ls_YLoop_\TYPE\()

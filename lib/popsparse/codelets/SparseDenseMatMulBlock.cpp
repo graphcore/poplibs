@@ -15,7 +15,9 @@ static constexpr auto SHORT_SPAN = VectorLayout::SHORT_SPAN;
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
-  return std::is_same<AccumType, float>() && BlockRows == 4 && BlockCols == 4;
+  return std::is_same<AccumType, float>() &&
+         ((BlockRows == 4 && BlockCols == 4) ||
+          (BlockRows == 8 && BlockCols == 8));
 }
 
 namespace popsparse {
@@ -146,6 +148,8 @@ public:
 
 template class SparseDenseMatMulBlock<half, float, 4, 4>;
 template class SparseDenseMatMulBlock<float, float, 4, 4>;
+template class SparseDenseMatMulBlock<half, float, 8, 8>;
+template class SparseDenseMatMulBlock<float, float, 8, 8>;
 template class SparseDenseMatMulBlock<half, float, 16, 16>;
 template class SparseDenseMatMulBlock<float, float, 16, 16>;
 

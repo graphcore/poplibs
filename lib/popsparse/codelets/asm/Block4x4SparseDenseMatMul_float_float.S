@@ -15,8 +15,6 @@
 
 // =============================================================================
 
-.extern zeroDenseOutFloat
-
 // =============================================================================
 
 //// Vertex state shared between workers (Worker vertex state is allocated
@@ -310,7 +308,7 @@ exitz                 $mzero
 // match the PNs subgroup id. 
 
 // Instantiate supervisor codelet
-BLOCK_SPARSE_MATMUL CODELET_NAME float ff4x4 
+BLOCK_SPARSE_MATMUL CODELET_NAME float ff4x4 4
 
 // =============================================================================
 #endif // #ifdef __IPU__

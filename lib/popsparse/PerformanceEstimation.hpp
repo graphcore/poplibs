@@ -198,39 +198,43 @@ sparseDenseBlockMultiply(unsigned numBuckets, unsigned numBucketsWithInfoForPN,
   std::uint64_t workerCyclesOverhead = 26;
   std::uint64_t workerLoopCycles = 0;
   std::uint64_t supervisorBlockLoadCycles = 0;
-
-  if (floatInput) {
-    std::uint64_t innerCycles = 0;
+  std::uint64_t innerOverhead = 0;
+  std::uint64_t cyclesPerZ = 0;
+  assert(numBlockRows == numBlockRows);
+  switch (numBlockRows) {
+  case 4:
+    cyclesPerZ = floatInput ? 4 : 2;
+    workerCyclesOverhead = 26;
     if (numZ == 1) {
-      innerCycles += 18;
+      innerOverhead = floatInput ? 14 : 17;
     } else if (numZ == 2) {
-      innerCycles += 22;
+      innerOverhead = floatInput ? 14 : 18;
     } else {
-      innerCycles += 22 + (numZ - 2) * 4;
+      innerOverhead = floatInput ? 14 : 19;
     }
-    for (const auto &y : numY) {
-      supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 15);
-      workerLoopCycles += y * innerCycles;
-    }
-    supervisorBlockLoadCycles *= numX + 2;
-    workerLoopCycles *= numX;
-  } else {
-    std::uint64_t innerCycles = 0;
+    break;
+  case 8:
+    cyclesPerZ = floatInput ? 8 : 4;
+    workerCyclesOverhead = floatInput ? 23 : 20;
     if (numZ == 1) {
-      innerCycles += 19;
+      innerOverhead = 22;
     } else if (numZ == 2) {
-      innerCycles += 22;
+      innerOverhead = floatInput ? 22 : 23;
     } else {
-      innerCycles += 23 + (numZ - 2) * 2;
+      innerOverhead = floatInput ? 23 : 23;
     }
-    for (const auto &y : numY) {
-      supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 16);
-      workerLoopCycles += y * innerCycles;
-    }
-    supervisorBlockLoadCycles *= numX + 2;
-    workerLoopCycles *= numX;
+    break;
+  case 16:
+    break;
   }
 
+  auto innerCycles = innerOverhead + numZ * cyclesPerZ;
+  for (const auto &y : numY) {
+    supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 15);
+    workerLoopCycles += y * innerCycles;
+  }
+  supervisorBlockLoadCycles *= numX + 2;
+  workerLoopCycles *= numX;
   uint64_t totalWorkerCycles = workerCyclesOverhead + workerLoopCycles;
   totalSupervisorCycles += supervisorBlockLoadCycles;
   return totalWorkerCycles * numWorkerContexts + totalSupervisorCycles;
