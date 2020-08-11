@@ -1333,6 +1333,8 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
       return;
     }
     const auto outInnerDim = outGrouping[0].first;
+    logging::debug("regroupOperandIfBeneficial: outGrouping=({},{})",
+                   outGrouping[0].first, outGrouping[0].second);
     const auto unbroadcastOperand = graph.findUnbroadcastTensor(operand);
     assert(out.rank() == unbroadcastOperand.rank());
     if (unbroadcastOperand.dim(outInnerDim) == 1 ||
@@ -1340,49 +1342,46 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
       return;
     }
 
-    unsigned operandGrouping = 1;
-    for (const auto &grouping :
-         poputil::detectDimGroupings(graph, unbroadcastOperand)) {
-      if (grouping.first == outInnerDim) {
-        operandGrouping = grouping.second;
-        break;
-      }
-    }
-
+    // See if there is a grouping in the operand.
+    unsigned operandGrouping = detectInnermostGrouping(
+        graph, unbroadcastOperand.dimRoll(outInnerDim, out.rank() - 1));
+    // If the grouping in the operand is incompatible with that of the output,
+    // we copy to a better laid out tensor of the same (unbroadcasted) shape
+    // for the upcoming broadcast operation.
     if (gcd(outGrouping[0].second, operandGrouping) == 1) {
-      std::vector<std::size_t> dims;
-      for (std::size_t i = 0; i < out.rank(); ++i) {
-        if (out.dim(i) == unbroadcastOperand.dim(i)) {
-          dims.push_back(i);
-        }
-      }
+      // Factor unbroadcasted dimensions out of output
+      const auto unbroadcastShape = unbroadcastOperand.shape();
+      auto outFactored = factorDims(out, unbroadcastShape);
 
-      if (dims.size() > 0) {
-        const auto nBroadcastDims = out.rank() - dims.size();
-        auto newOut = out;
+      // createBroadcastOperand works with a flattened view of the
+      // dimensions of the input tensor which are to be broadcast, with
+      // all other dimensions being 1. Work out the shape we want to recover
+      // the shape of the broadcasted dimensions.
+      auto newOperandShape = std::vector<std::size_t>(out.rank(), 1);
+      newOperandShape.insert(newOperandShape.end(), unbroadcastShape.begin(),
+                             unbroadcastShape.end());
+      auto newUnbroadcastOperandFactored =
+          poputil::createBroadcastOperand(
+              graph, outFactored.flatten(out.rank(), out.rank() * 2), dType,
+              out.rank())
+              .reshape(newOperandShape);
+      assert(newUnbroadcastOperandFactored.rank() == outFactored.rank());
 
-        // Roll all broadcast dims to the end
-        for (std::size_t i = 0; i < dims.size(); ++i) {
-          newOut = newOut.dimRoll(dims[i] - i, out.rank() - 1);
-        }
-        // Shape for un-flattening later (with all non-broadcast dims set to 1)
-        auto rolledShape = newOut.shape();
-        std::fill_n(rolledShape.begin(), nBroadcastDims, 1);
+      // Reshape to copy between unbroadcast tensor and newly created tensor.
+      const auto newUnbroadcastOperand =
+          unfactorDims(newUnbroadcastOperandFactored, out.rank());
+      prog.add(Copy(unbroadcastOperand, newUnbroadcastOperand));
 
-        // Flatten combined broadcast dim and use for creating new operand
-        newOut = newOut.flatten(nBroadcastDims, out.rank());
-        auto newOperand = poputil::createBroadcastOperand(graph, newOut, dType,
-                                                          nBroadcastDims)
-                              .reshape(rolledShape);
-
-        // Roll broadcast dims back to their original positions
-        for (std::size_t i = 0; i < dims.size(); ++i) {
-          newOperand = newOperand.dimRoll(nBroadcastDims + i, dims[i]);
-        }
-        prog.add(Copy(unbroadcastOperand, newOperand));
-        broadcastToMatch(operand, newOperand);
-        operand = std::move(newOperand);
-      }
+      // Use factored views of output and the newly created tensor to
+      // broadcastToMatch as this requires that the size of each dimension of
+      // the given tensors must either be equal or 1.
+      broadcastToMatch(outFactored, newUnbroadcastOperandFactored);
+      // Now unfactor new broadcasted to give the correct view matching the
+      // original operand.
+      const auto newOperand =
+          unfactorDims(newUnbroadcastOperandFactored, out.rank());
+      assert(newOperand.shape() == operand.shape());
+      operand = std::move(newOperand);
     }
   };
 

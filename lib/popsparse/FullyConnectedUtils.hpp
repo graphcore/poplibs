@@ -25,12 +25,6 @@ std::pair<std::size_t, std::size_t>
 distanceToSubGroup(unsigned srcId, unsigned dstId, unsigned numRowGroups,
                    unsigned numSubRowGroups);
 
-poplar::Tensor factorDims(const poplar::Tensor &t,
-                          const std::vector<std::size_t> &factors,
-                          unsigned startDim = 0);
-poplar::Tensor unfactorDims(const poplar::Tensor &t, unsigned numDims,
-                            unsigned startDim = 0);
-
 poplar::Tensor inputExternalToInternalShape(const poplar::Tensor &t,
                                             std::size_t numGroups);
 

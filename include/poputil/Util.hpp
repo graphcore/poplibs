@@ -131,6 +131,20 @@ std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
 bool checkAccuracyWhenCast(const poplar::Target &target, double input,
                            poplar::Type inputType, poplar::Type outputType,
                            double tolerance);
+
+/// Factors outer-most dimensions of tensor t by the factors given in `factors`
+/// into 2 parts and makes factors inner dimensions compared to the original
+/// dims. e.g. A given tensor with shape {4,6,4} and factors {1,2}, we first
+/// divide shape into {4/1,1,6/2,2,4} and then shuffle to {4/1,6/2,1,2,4}.
+poplar::Tensor factorDims(const poplar::Tensor &t,
+                          const std::vector<std::size_t> &factors,
+                          unsigned startDim = 0);
+
+/// Opposite of the above transformation. Does not need information per dim
+/// because it is present in the tensor. Just needs number of dims.
+poplar::Tensor unfactorDims(const poplar::Tensor &t, unsigned numDims,
+                            unsigned startDim = 0);
+
 } // end namespace poputil
 
 #endif // poputil_Util_hpp

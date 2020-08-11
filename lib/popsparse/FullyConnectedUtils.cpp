@@ -56,54 +56,6 @@ distanceToSubGroup(unsigned srcId, unsigned dstId, unsigned numRowGroups,
   return std::make_pair(rowGroupDist, subRowGroupDist);
 }
 
-// Factors outer-most dimensions of tensor t by the factors given in `factors`
-// into 2 parts and makes factors inner dimensions compared to the original
-// dims. e.g. A given tensor with shape {4,6,4} and factors {1,2}, we first
-// divide shape into {4/1,1,6/2,2,4} and then shuffle to {4/1,6/2,1,2,4}.
-Tensor factorDims(const Tensor &t, const std::vector<std::size_t> &fs,
-                  unsigned startDim) {
-  const auto numDims = fs.size();
-  std::vector<std::size_t> factoredShape(numDims * 2);
-  for (std::size_t d = 0; d < numDims; ++d) {
-    assert(t.dim(startDim + d) % fs[d] == 0);
-    factoredShape[d * 2 + 0] = t.dim(startDim + d) / fs[d];
-    factoredShape[d * 2 + 1] = fs[d];
-  }
-
-  std::vector<unsigned> unInterleaveDimsDest(numDims * 2);
-  std::iota(unInterleaveDimsDest.begin(), unInterleaveDimsDest.end(), startDim);
-  std::vector<unsigned> unInterleaveDimsSource(unInterleaveDimsDest.size());
-  // Shuffle source dims so they're interleaved
-  for (std::size_t d = 0; d < numDims; ++d) {
-    unInterleaveDimsSource[d] = unInterleaveDimsDest[d * 2 + 0];
-    unInterleaveDimsSource[numDims + d] = unInterleaveDimsDest[d * 2 + 1];
-  }
-  return t.reshapePartial(startDim, startDim + numDims, factoredShape)
-      .dimShufflePartial(unInterleaveDimsSource, unInterleaveDimsDest);
-}
-
-// Opposite of the above transformation. Does not need information per dim
-// because it is present in the tensor. Just needs number of dims.
-Tensor unfactorDims(const Tensor &t_, unsigned numDims, unsigned startDim) {
-  auto t = t_;
-  std::vector<unsigned> interleaveDimsSource(numDims * 2);
-  std::vector<unsigned> interleaveDimsDest(numDims * 2);
-  std::iota(interleaveDimsDest.begin(), interleaveDimsDest.end(), startDim);
-  // Shuffle dest dims so they're interleaved
-  for (std::size_t d = 0; d < numDims; ++d) {
-    interleaveDimsSource[d * 2 + 0] = interleaveDimsDest[d];
-    interleaveDimsSource[d * 2 + 1] = interleaveDimsDest[numDims + d];
-  }
-  t = t.dimShufflePartial(interleaveDimsSource, interleaveDimsDest);
-
-  std::vector<std::size_t> unfactoredShape(numDims);
-  for (std::size_t d = 0; d < numDims; ++d) {
-    unfactoredShape[d] =
-        t.dim(startDim + d * 2 + 0) * t.dim(startDim + d * 2 + 1);
-  }
-  return t.reshapePartial(startDim, startDim + numDims * 2, unfactoredShape);
-}
-
 Tensor inputExternalToInternalShape(const Tensor &t, std::size_t numGroups) {
   assert(t.rank() == 2);
   assert(t.dim(1) % numGroups == 0);

@@ -6,6 +6,7 @@
 #include "FullyConnectedPlan.hpp"
 #include "FullyConnectedUtils.hpp"
 
+#include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
