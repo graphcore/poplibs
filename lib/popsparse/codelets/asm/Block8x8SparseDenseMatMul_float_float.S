@@ -380,7 +380,7 @@ exitz                 $mzero
 // match the PNs subgroup id. 
 
 // Instantiate supervisor codelet
-BLOCK_SPARSE_MATMUL CODELET_NAME float ff8x8 8
+BLOCK_SPARSE_MATMUL CODELET_NAME float float ff8x8 8
 
 // =============================================================================
 #endif // #ifdef __IPU__

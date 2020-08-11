@@ -46,7 +46,7 @@
 #define STACK_SIZE                      (W_RBASELIST + 4)
 
 
-.macro BLOCK_SPARSE_MATMUL CNAME, TYPE, POSTFIX, BLOCKSIZE
+.macro BLOCK_SPARSE_MATMUL CNAME, INTYPE, PTYPE, POSTFIX, BLOCKSIZE
 
 // Registers allocation
 #define s_vertexBase                 m0
@@ -125,12 +125,12 @@ runall                 $s_zeroWkrFunction, $s_vertexBase, 0
 
 shr                    $s_metaInfoList, $s_metaInfoList, (32 - SHORT_SPAN_ADDRESS_BITS)
 
-LmetaInfoListLoop_\TYPE\():  
+LmetaInfoListLoop_\INTYPE\()_\PTYPE\():  
   st32                   $s_rBaseList, $sp, W_RBASELIST/4
   setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()   
   ld32step               $s_metaInfo, $mzero, $s_metaInfoList+=, 1
   st32                   $s_numBuckets, $sp, W_NUM_BUCKETS/4
-LsubgroupLoop_\TYPE\():  
+LsubgroupLoop_\INTYPE\()_\PTYPE\():  
   // This is the subgroup ID the PN has to process
   ldz16                  $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_PN_SUBGROUP_ID/2
   ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
@@ -143,11 +143,11 @@ LsubgroupLoop_\TYPE\():
   ldz16                  $s_subgroupSparseElems, $s_metaInfo, MetaInfoSubGroupEntry_offsetToNextSubGroupSparseEntries/2
   
   // If subgroup is 0 there is nothing to do
-  brz                    $s_subgroupId, LendMetaInfoList_\TYPE\()
+  brz                    $s_subgroupId, LendMetaInfoList_\INTYPE\()_\PTYPE\()
 
   // Check if any work to be done by the PN
   cmpeq                  $s_match, $s_subgroupId, $s_pnSubgroupId
-  brz                    $s_match, LnextSubgroup_\TYPE\()
+  brz                    $s_match, LnextSubgroup_\INTYPE\()_\PTYPE\()
   ldz16                  $s_numXm1, $mzero, $s_metaInfo, MetaInfoSubGroupEntry_numXm1/2
   add                    $s_wTemp, $s_metaInfo, sizeof_MetaInfoSubGroupEntry
   // We let CCCSLOAD to increment between blocks rather then tracking it using
@@ -156,15 +156,15 @@ LsubgroupLoop_\TYPE\():
   sync                   TEXCH_SYNCZONE_LOCAL
 
   // load entries from output
-Ls_XLoop_\TYPE\():
+Ls_XLoop_\INTYPE\()_\PTYPE\():
     ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
     st32                   $s_xOffsetInQ, $sp, W_XOFFSET/4
     ldz16step              $s_numYm1, $mzero, $s_wTemp+=, 1
 
-Ls_YLoop_\TYPE\():
+Ls_YLoop_\INTYPE\()_\PTYPE\():
 .ifc \BLOCKSIZE, 4
       ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1      
-.ifc \TYPE, float
+.ifc \INTYPE, float
       // For IPU2 this could be in interleaved memory with 128 bit loads.
       ld64putcs              0x0 // CCCS_CWEI_0_0
       ld64putcs              0x1 // CCCS_CWEI_0_1
@@ -187,7 +187,7 @@ Ls_YLoop_\TYPE\():
 
 .ifc \BLOCKSIZE, 8
 // TODO: For IPU2 this could in interleaved memory and use ld128
-.ifc \TYPE, float
+.ifc \INTYPE, float
       ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
       ld64putcs              0
       ld64putcs              1
@@ -246,25 +246,25 @@ Ls_YLoop_\TYPE\():
       runall                 $s_wkrFunction, $sp, 0
       setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained   
       sync                   TEXCH_SYNCZONE_LOCAL
-      brnzdec                $s_numYm1, Ls_YLoop_\TYPE\()
-    brnzdec                $s_numXm1, Ls_XLoop_\TYPE\()
+      brnzdec                $s_numYm1, Ls_YLoop_\INTYPE\()_\PTYPE\()
+    brnzdec                $s_numXm1, Ls_XLoop_\INTYPE\()_\PTYPE\()
   
-LnextSubgroup_\TYPE\():
+LnextSubgroup_\INTYPE\()_\PTYPE\():
   // dummy load to move pointer to next subgroup
-.ifc \TYPE, float
+.ifc \INTYPE, float
   ld32step               $mzero, $mzero, $s_rBase+=, $s_subgroupSparseElems
 .else
   ldz16step              $mzero, $mzero, $s_rBase+=, $s_subgroupSparseElems
 .endif
   ldz16step              $mzero, $mzero, $s_metaInfo+=, $s_offsetToNextSubgroup
-  bri                    LsubgroupLoop_\TYPE\()
+  bri                    LsubgroupLoop_\INTYPE\()_\PTYPE\()
   
-LendMetaInfoList_\TYPE\():
+LendMetaInfoList_\INTYPE\()_\PTYPE\():
   ld32                   $s_rBaseList, $sp, W_RBASELIST/4
   ld32                   $s_numBuckets, $sp, W_NUM_BUCKETS/4
   ld32step               $s_rBase, $mzero, $s_rBaseList+=, 1
-  brnzdec                $s_numBuckets, LmetaInfoListLoop_\TYPE\()
-LendMetaInfoLoop_\TYPE\():
+  brnzdec                $s_numBuckets, LmetaInfoListLoop_\INTYPE\()_\PTYPE\()
+LendMetaInfoLoop_\INTYPE\()_\PTYPE\():
 ld32                   $m9, $sp, STACK_SIZE/4
 ld32                   $m10, $sp, STACK_SIZE/4 + 1
 add                    $sp, $sp, STACK_SIZE + 8

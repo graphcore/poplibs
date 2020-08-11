@@ -118,7 +118,6 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulStructs.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockSparseDenseMatMul.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockSparseMatMulStructs.h.S
-
     ${CMAKE_CURRENT_SOURCE_DIR}/SparseMetaInfo.hpp
 )
 
