@@ -47,7 +47,7 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
   const auto partialType = partials.elementType();
   const auto bytesPerPartialsElement = target.getTypeSize(partialType);
   const auto partialsGrain = partialType == HALF ? 8 : 4;
-  const auto bytesPerTile = target.getBytesPerTile();
+  const auto memoryElementOffsets = target.getMemoryElementOffsets();
   const auto reducedType = reduced.elementType();
   const auto tilesPerInZGroup = partials.dim(0);
   if (tilesPerInZGroup > target.getRptCountMax()) {
@@ -76,11 +76,15 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
     const auto exchangedPartialsBytes = concatFlatReduced.numElements() *
                                         (tilesPerInZGroup - 1) *
                                         bytesPerPartialsElement;
-    bool useSingleInputReduce =
+    bool singleInputReduceIsPossible =
+        ((concatFlatReduced.numElements() % partialsGrain) == 0);
+    bool singleInputReducePartialsSize =
         enableSingleInputReduce &&
         checkPartialsSizeForSingleInputReduce(exchangedPartialsBytes,
-                                              bytesPerTile) &&
-        ((concatFlatReduced.numElements() % partialsGrain) == 0);
+                                              memoryElementOffsets);
+    bool useSingleInputReduce =
+        singleInputReduceIsPossible &&
+        (enableFastReduce || singleInputReducePartialsSize);
     const auto v = graph.addVertex(
         reduceCS, templateVertex(vertexName, reducedType, partialType,
                                  useSingleInputReduce, enableFastReduce));
@@ -98,7 +102,6 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
           concat(flatPartials.slices(exchangedIntervals, 0), 0);
       exchangedPartials =
           concat(exchangedPartials.slices(tileRegions, 1), 1).flatten();
-
       graph.connect(v["initialPartial"], thisTilePartial);
       graph.connect(v["partials"], exchangedPartials);
       // One less as we separated out a row

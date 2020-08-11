@@ -2,6 +2,7 @@
 #ifndef ConvReducePlan_hpp
 #define ConvReducePlan_hpp
 
+#include <cassert>
 #include <vector>
 
 namespace poplin {
@@ -12,12 +13,21 @@ namespace poplin {
 std::vector<unsigned> getMultiStageReducePlan(unsigned partialsDepth,
                                               bool enableMultiStageReduce);
 
-bool inline checkPartialsSizeForSingleInputReduce(unsigned partialsBytes,
-                                                  unsigned bytesPerTile) {
+bool inline checkPartialsSizeForSingleInputReduce(
+    unsigned partialsBytes, const std::vector<unsigned> &memoryElementOffsets) {
   // We don't want to allocate all the partials in one huge chunk if this
   // is going to cause problems due to its size.
-  // Use a heuristic of 1/32 of the total tile memory as a reasonable proportion
-  return partialsBytes <= bytesPerTile / 32;
+  // Use a heuristic of partialsBytes rounded up to the nearest memory element
+  // < 1/16 of the total tile memory
+  assert(memoryElementOffsets.size() >= 2);
+  const auto memoryElementSize =
+      memoryElementOffsets[1] - memoryElementOffsets[0];
+  const auto memorySize = memoryElementOffsets.back() - memoryElementOffsets[0];
+
+  const auto occupiedElements =
+      (partialsBytes + memoryElementSize - 1) / memoryElementSize;
+
+  return occupiedElements * memoryElementSize < memorySize / 16;
 }
 
 } // namespace poplin

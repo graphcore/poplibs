@@ -1037,20 +1037,20 @@ addReduceCycleEstimate(popsolver::Model &m,
         target.getVectorWidth(floatPartials ? poplar::FLOAT : poplar::HALF);
     const auto outputVectorWidth =
         target.getVectorWidth(floatOutput ? poplar::FLOAT : poplar::HALF);
-    const auto bytesPerTile = target.getBytesPerTile();
+    const auto memoryElementOffsets = target.getMemoryElementOffsets();
     const auto bytesPerPartialsElement =
         target.getTypeSize(floatPartials ? poplar::FLOAT : poplar::HALF);
     const auto cycleEstimate = m.call<unsigned>(
         {outputsPerLevel.back(), reductionDepth,
          partitionVars[level].inChanSplit.serial},
         [floatOutput, floatPartials, numWorkers, dataPathWidth,
-         partialsVectorWidth, outputVectorWidth, bytesPerTile,
+         partialsVectorWidth, outputVectorWidth, memoryElementOffsets,
          bytesPerPartialsElement, &options,
          cache](const std::vector<unsigned> &vars) -> popsolver::DataType {
           return popsolver::DataType{cache->mEstimateConvReduceCycles(
               vars[0], vars[1], vars[2], floatOutput, floatPartials, numWorkers,
               dataPathWidth, partialsVectorWidth, outputVectorWidth,
-              bytesPerTile, bytesPerPartialsElement,
+              memoryElementOffsets, bytesPerPartialsElement,
               options.enableMultiStageReduce, options.enableFastReduce,
               options.enableSingleInputReduce)};
         });

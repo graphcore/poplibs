@@ -1028,7 +1028,8 @@ inline std::uint64_t estimateConvReduceCycles(
     unsigned outputSize, unsigned reductionDepth, unsigned inChanSerialSplit,
     bool floatOutput, bool floatPartials, unsigned numWorkers,
     unsigned dataPathWidth, unsigned partialsVectorWidth,
-    unsigned outputVectorWidth, unsigned bytesPerTile,
+    unsigned outputVectorWidth,
+    const std::vector<unsigned> &memoryElementOffsets,
     unsigned bytesPerPartialsElement, bool enableMultiStageReduce,
     bool enableFastReduce, bool enableSingleInputReduce) {
   using poplibs_support::ceildiv;
@@ -1065,10 +1066,15 @@ inline std::uint64_t estimateConvReduceCycles(
 
     const auto exchangedPartialsBytes =
         (depthThisStage - 1) * outputSizeThisStage * bytesPerPartialsElement;
-    bool useSingleInputReduce = enableSingleInputReduce &&
-                                checkPartialsSizeForSingleInputReduce(
-                                    exchangedPartialsBytes, bytesPerTile) &&
-                                (outputSizeThisStage % widthForFastReduce) == 0;
+    bool singleInputReduceIsPossible =
+        (outputSizeThisStage % widthForFastReduce) == 0;
+    bool singleInputReducePartialsSize =
+        enableSingleInputReduce &&
+        checkPartialsSizeForSingleInputReduce(exchangedPartialsBytes,
+                                              memoryElementOffsets);
+    bool useSingleInputReduce =
+        singleInputReduceIsPossible &&
+        (enableFastReduce || singleInputReducePartialsSize);
     const auto depthForEstimate = depthThisStage - useSingleInputReduce;
 
     cycles += getReduceCycleEstimate(outputSizeThisStage, depthForEstimate,
@@ -1082,10 +1088,15 @@ inline std::uint64_t estimateConvReduceCycles(
         (outputSizeThisStage + remainingDepth - 1) / remainingDepth;
     const auto exchangedPartialsBytes =
         (remainingDepth - 1) * outputSizeThisStage * bytesPerPartialsElement;
-    bool useSingleInputReduce = enableSingleInputReduce &&
-                                checkPartialsSizeForSingleInputReduce(
-                                    exchangedPartialsBytes, bytesPerTile) &&
-                                (outputSizeThisStage % widthForFastReduce) == 0;
+    bool singleInputReduceIsPossible =
+        (outputSizeThisStage % widthForFastReduce) == 0;
+    bool singleInputReducePartialsSize =
+        enableSingleInputReduce &&
+        checkPartialsSizeForSingleInputReduce(exchangedPartialsBytes,
+                                              memoryElementOffsets);
+    bool useSingleInputReduce =
+        singleInputReduceIsPossible &&
+        (enableFastReduce || singleInputReducePartialsSize);
     const auto depthForEstimate = remainingDepth - useSingleInputReduce;
 
     cycles += getReduceCycleEstimate(
