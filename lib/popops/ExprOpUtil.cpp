@@ -123,24 +123,6 @@ std::string binaryOpTypeToString(BinaryOpType op) {
   throw poputil::poplibs_error("Op not supported");
 }
 
-std::string broadcastOpTypeToString(BroadcastOpType op) {
-  switch (op) {
-  case BroadcastOpType::ADD:
-    return "ADD";
-  case BroadcastOpType::SCALED_ADD:
-    return "SCALED_ADD";
-  case BroadcastOpType::INV_STD_DEV_TO_VARIANCE:
-    return "INV_STD_DEV_TO_VARIANCE";
-  case BroadcastOpType::MULTIPLY:
-    return "MULTIPLY";
-  case BroadcastOpType::SUBTRACT:
-    return "SUBTRACT";
-  case BroadcastOpType::VARIANCE_TO_INV_STD_DEV:
-    return "VARIANCE_TO_INV_STD_DEV";
-  }
-  throw poputil::poplibs_error("Op not supported");
-}
-
 bool isSpecialCase(BinaryOpType op) {
   return op == BinaryOpType::VARIANCE_TO_INV_STD_DEV ||
          op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||

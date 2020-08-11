@@ -20,7 +20,7 @@ static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
 namespace popops {
 
-template <expr::BroadcastOpType op, class FPType>
+template <expr::BinaryOpType op, class FPType>
 class BroadcastVectorInner2DInPlace : public Vertex {
 public:
   BroadcastVectorInner2DInPlace();
@@ -58,51 +58,17 @@ public:
   }
 };
 
-// Partial specialization for SCALED_ADD
-template <class FPType>
-class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::SCALED_ADD, FPType>
-    : public Vertex {
-public:
-  BroadcastVectorInner2DInPlace();
-
-  static const bool needsInterleave = std::is_same<FPType, half>::value;
-
-  // n is equal to B.size(), BLen.size(), data.size()
-  // and dataBlockCount.size()
-  const uint32_t n;
-  Vector<Input<Vector<FPType, ONE_PTR, 8>>, ONE_PTR> B;
-  Vector<uint16_t, ONE_PTR> BLen;
-  Vector<InOut<Vector<FPType, ONE_PTR, 8, needsInterleave>>, ONE_PTR> data;
-  Vector<uint16_t, ONE_PTR> dataBlockCount;
-  const FPType scale;
-
-  IS_EXTERNAL_CODELET(true);
-
-  bool compute() {
-    for (unsigned i = 0; i != n; ++i) {
-      unsigned blockCount = dataBlockCount[i];
-      unsigned len = BLen[i];
-
-      for (unsigned b = 0; b != blockCount; ++b) {
-        for (unsigned a = 0; a != len; ++a) {
-          data[i][b * len + a] += B[i][a] * scale;
-        }
-      }
-    }
-
-    return true;
-  }
-};
-
-template class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::ADD, float>;
-template class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::ADD, half>;
-template class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::MULTIPLY,
+// See the comment before the template specializations in
+// BroadcastVectorInner2D.cpp, about the old SCALED_ADD operation type.
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::ADD, float>;
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::ADD, half>;
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::MULTIPLY,
                                              float>;
-template class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::MULTIPLY,
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::MULTIPLY,
                                              half>;
-template class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::SCALED_ADD,
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::SUBTRACT,
                                              float>;
-template class BroadcastVectorInner2DInPlace<expr::BroadcastOpType::SCALED_ADD,
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::SUBTRACT,
                                              half>;
 
 } // namespace popops

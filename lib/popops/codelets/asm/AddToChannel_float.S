@@ -4,7 +4,7 @@
 // # Overview
 //
 // This file contains the assembly for BroadcastVectorInner<ADD> and
-// BroadcastVectorInner<SCALED_ADD> codelets, originally named 'AddToChannel'
+// BroadcastVectorInner<SUBTRACT> codelets, originally named 'AddToChannel'
 // and 'ScaledAddToChannel' (created for a specific function).
 // Because of that, the input vectors were called:
 //   'acts' (activations), this is the 'data' vertex state field.
@@ -12,17 +12,20 @@
 //
 // The task is, given two vectors:
 //
-// Acts: [0 1 2 3 4 5 6 7 8 9 10 11]
+// Acts:   [0 1 2 3 4 5 6 7 8 9 10 11]
 // Addend: [0 1 2]
 //
-// Repeat addend, and add it to acts (after scaling it in the case of
-// Scaled_Add).
+// Repeat addend, and add it to acts (or subtract).
 //
 // Acts = [0 1 2  3 4 5  6 7 8  9 10 11] +
 //        [0 1 2][0 1 2][0 1 2][0  1  2]
 //
 // The f32 case is a lot simpler than f16 because we have no subword accesses
 // and there are fewer paths.
+//
+//
+// ADD and SUBTRACT use the same inner loop where the addendhas been pre-
+// multiplied by 1.0 or -1.0 respectively.
 //
 // ## Fast Paths
 //
@@ -51,9 +54,8 @@
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
 // TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
-// OPERATION needs to be ADD or SCALED___ADD (with three underscores, because of
-// C++ name mangling rules)
-#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BroadcastOpType__ ## OPERATION ## _float
+// OPERATION needs to be ADD or SUBTRACT
+#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__ ## OPERATION ## _float
 
 // Another similar macro to name the sections where each function is contained
 #define FUNC_SECTION(TYPE, OPERATION) .section .text.VectorInner_ ## TYPE ## _ ## OPERATION ## _float
@@ -61,13 +63,13 @@
 
 # In this file we have 8 externally visible functions
 EXPORT_FN   CPP_FUNCNAME(Supervisor,ADD)
-EXPORT_FN   CPP_FUNCNAME(Supervisor,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(Supervisor,SUBTRACT)
 EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,ADD)
-EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
 EXPORT_FN   CPP_FUNCNAME(2D,ADD)
-EXPORT_FN   CPP_FUNCNAME(2D,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(2D,SUBTRACT)
 EXPORT_FN   CPP_FUNCNAME(2DInPlace,ADD)
-EXPORT_FN   CPP_FUNCNAME(2DInPlace,SCALED___ADD)
+EXPORT_FN   CPP_FUNCNAME(2DInPlace,SUBTRACT)
 
 
 
@@ -90,6 +92,8 @@ EXPORT_FN   CPP_FUNCNAME(2DInPlace,SCALED___ADD)
 #define tmp1 a6
 #define current_addend a7
 
+// Main processing. ADD and SUBTRACT are performed by mulipying the elements
+// of 'addend' ('B' vector) by 1 or -1 (the value in $scale)
 .section .text.VectorInnerAdd_core_float
 .align 8
 VectorInnerAdd_core_float:
@@ -174,12 +178,9 @@ FN_SIZE VectorInnerAdd_core_float
 #define VERTEX_DATA_ADDEND_END_OFFSET 1        // In 32-bits
 #define VERTEX_DATA_ACTS_OFFSET 2              // In 32-bits
 #define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6  // In 16-bits
-// Additional state for SCALED_ADD version
-#define VERTEX_DATA_SCALE_OFFSET 4             // In 32-bits
 
-// Additional state for non-in place, Scaled
+// Additional state for non-in place
 #define VERTEX_DATA_OUT_OFFSET  4              // In 32-bits
-#define VERTEX_DATA_SCALED_OUT_OFFSET  5       // In 32-bits
 
 
 // The following supervisor variables are used. The vertex base is
@@ -188,16 +189,16 @@ FN_SIZE VectorInnerAdd_core_float
 #define worker_entry m1
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SCALED___ADD)
-FUNC_SECTION(Supervisor,SCALED___ADD)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SUBTRACT)
+FUNC_SECTION(Supervisor,SUBTRACT)
 .align 4
-CPP_FUNCNAME(Supervisor,SCALED___ADD):
+CPP_FUNCNAME(Supervisor,SUBTRACT):
   // Set the entry point for the workers.
-  setzi        $worker_entry, .LvectorInnerScaledAdd_worker
+  setzi        $worker_entry, .LvectorInnerSubtract_worker
   // Run the workers.
   bri .Lrun_workers
 
-FN_SIZE CPP_FUNCNAME(Supervisor,SCALED___ADD)
+FN_SIZE CPP_FUNCNAME(Supervisor,SUBTRACT)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,ADD)
@@ -212,16 +213,16 @@ CPP_FUNCNAME(Supervisor,ADD):
 FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
-FUNC_SECTION(InPlaceSupervisor,SCALED___ADD)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
+FUNC_SECTION(InPlaceSupervisor,SUBTRACT)
 .align 4
-CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD):
+CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT):
   // Set the entry point for the workers.
-  setzi        $worker_entry, .LvectorInnerScaledAdd_inplace_worker
+  setzi        $worker_entry, .LvectorInnerSubtract_inplace_worker
   // Run the workers.
   bri .Lrun_workers
 
-FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
+FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,ADD)
@@ -256,16 +257,18 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
 #define mscratch0 m8
 
 
-FUNC_SECTION(Worker,SCALED___ADD)
+FUNC_SECTION(Worker,SUBTRACT)
 .align 4
 .worker
-.LvectorInnerScaledAdd_worker:
+.LvectorInnerSubtract_worker:
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
-  ld32 $out,   $mvertex_base, $mzero, VERTEX_DATA_SCALED_OUT_OFFSET
-  // Load the scale.
-  ld32 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
+{
+  ld32 $out,   $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
+  f32exp $scale, $azero}  // set scale to 1.0
   // Jump to the shared worker code.
+{
   bri .Lworker
+  f32sub $scale,$azero, $scale}// set scale to -1.0
 
 
 FUNC_SECTION(Worker,ADD)
@@ -278,13 +281,17 @@ FUNC_SECTION(Worker,ADD)
   f32exp $scale, $azero}
 
 
-FUNC_SECTION(WorkerInPlace,SCALED__ADD)
+FUNC_SECTION(WorkerInPlace,SUBTRACT)
 .align 4
-.LvectorInnerScaledAdd_inplace_worker:
+.LvectorInnerSubtract_inplace_worker:
+{
   ld32 $acts,  $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  // Set the scale to 1.0.
+  f32exp $scale, $azero}
+{
   mov  $out, $acts
-  // Load the scale.
-  ld32 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
+  // Set the scale to -1.0.
+  f32sub $scale, $azero, $scale}
   // Jump to the shared worker code.
   bri .Lworker
 
@@ -349,8 +356,6 @@ FUNC_SECTION(WorkerInPlace,ADD)
 #define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 4     // In 32-bits
 // Additional state for non-inplace & scaled variants
 #define VERTEX2D_DATA_OUT_OFFSET 5                  // In 32-bits
-#define VERTEX2D_DATA_SCALE_OFFSET 5                // In 32-bits
-#define VERTEX2D_DATA_SCALED_OUT_OFFSET 6           // In 32-bits
 
 
 #define addend_iterator m6
@@ -364,18 +369,18 @@ FUNC_SECTION(WorkerInPlace,ADD)
 #define SCRATCH_OFFSET_OUT_ITERATOR   1
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,SCALED___ADD)
-FUNC_SECTION(2D,SCALED___ADD)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,SUBTRACT)
+FUNC_SECTION(2D,SUBTRACT)
 .align 4
-CPP_FUNCNAME(2D,SCALED___ADD):
+CPP_FUNCNAME(2D,SUBTRACT):
   ld32 $acts_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
-  ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_SCALED_OUT_OFFSET
-  // Load the scale.
-  ld32 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
+{ ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_OUT_OFFSET
+  f32exp $scale, $azero}   // set scale to 1.0
   // Jump to the shared worker code.
-  bri .Lworker2d
+{ bri .Lworker2d
+  f32sub $scale, $azero, $scale}   // set scale to -1.0
 
-FN_SIZE CPP_FUNCNAME(2D,SCALED___ADD)
+FN_SIZE CPP_FUNCNAME(2D,SUBTRACT)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,ADD)
@@ -391,18 +396,18 @@ CPP_FUNCNAME(2D,ADD):
 FN_SIZE CPP_FUNCNAME(2D,ADD)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,SCALED___ADD)
-FUNC_SECTION(2DInPlace,SCALED___ADD)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,SUBTRACT)
+FUNC_SECTION(2DInPlace,SUBTRACT)
 .align 4
-CPP_FUNCNAME(2DInPlace,SCALED___ADD):
+CPP_FUNCNAME(2DInPlace,SUBTRACT):
   ld32 $acts_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
-  mov $out_iterator, $acts_iterator
-  // Load the scale.
-  ld32 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
+{ mov $out_iterator, $acts_iterator
+  f32exp $scale, $azero}   // set scale to 1.0
   // Jump to the shared worker code.
-  bri .Lworker2d
+{ bri .Lworker2d
+  f32sub $scale, $azero, $scale}   // set scale to -1.0
 
-FN_SIZE CPP_FUNCNAME(2DInPlace,SCALED___ADD)
+FN_SIZE CPP_FUNCNAME(2DInPlace,SUBTRACT)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,ADD)

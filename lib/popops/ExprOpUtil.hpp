@@ -11,7 +11,6 @@ namespace expr {
 std::string unaryOpTypeToString(UnaryOpType op);
 std::string binaryOpTypeToString(BinaryOpType op);
 std::string ternaryOpTypeToString(TernaryOpType op);
-std::string broadcastOpTypeToString(BroadcastOpType op);
 
 // Is this binary op a special case. I.E doesn't conform to either function
 // semantics of OP(arg1, arg2) or the normal arg1 OP arg2, and as such should be
@@ -73,12 +72,6 @@ template <> struct VertexTemplateToString<popops::expr::TernaryOpType> {
   static std::string to_string(const popops::expr::TernaryOpType &op) {
     return "popops::expr::TernaryOpType::" +
            popops::expr::ternaryOpTypeToString(op);
-  }
-};
-template <> struct VertexTemplateToString<popops::expr::BroadcastOpType> {
-  static std::string to_string(const popops::expr::BroadcastOpType &op) {
-    return "popops::expr::BroadcastOpType::" +
-           popops::expr::broadcastOpTypeToString(op);
   }
 };
 

@@ -24,14 +24,7 @@ int iceil(int x, int y) { return x / y + (x % y > 0); }
 
 } // unnamed namespace
 
-using BroadcastOpType = popops::expr::BroadcastOpType;
-
-static bool hasExternalCodelet(expr::BroadcastOpType op, Type type) {
-  return (type == FLOAT || type == HALF) &&
-         (op == expr::BroadcastOpType::ADD ||
-          op == expr::BroadcastOpType::SUBTRACT ||
-          op == expr::BroadcastOpType::MULTIPLY);
-}
+using BinaryOpType = popops::expr::BinaryOpType;
 
 static bool hasExternalCodelet(expr::BinaryOpType op, Type type) {
   return (type == FLOAT || type == HALF) &&
@@ -49,24 +42,23 @@ struct OpPerformanceInfo {
       : OpPerformanceInfo(cyclesPerVector, false) {}
 };
 
-static const std::map<std::pair<BroadcastOpType, poplar::Type>,
-                      OpPerformanceInfo>
+static const std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
     broadcastOpPerfInfo = {
-        {{BroadcastOpType::ADD, FLOAT}, {1, true}},
-        {{BroadcastOpType::ADD, HALF}, {1, true}},
-        {{BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {4, true}},
-        {{BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF}, {8, true}},
-        {{BroadcastOpType::MULTIPLY, FLOAT}, {1, true}},
-        {{BroadcastOpType::MULTIPLY, HALF}, {1, true}},
-        {{BroadcastOpType::SUBTRACT, FLOAT}, {1, true}},
-        {{BroadcastOpType::SUBTRACT, HALF}, {1, true}},
-        {{BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {5, true}},
-        {{BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {7, true}},
+        {{BinaryOpType::ADD, FLOAT}, {1, true}},
+        {{BinaryOpType::ADD, HALF}, {1, true}},
+        {{BinaryOpType::INV_STD_DEV_TO_VARIANCE, FLOAT}, {4, true}},
+        {{BinaryOpType::INV_STD_DEV_TO_VARIANCE, HALF}, {8, true}},
+        {{BinaryOpType::MULTIPLY, FLOAT}, {1, true}},
+        {{BinaryOpType::MULTIPLY, HALF}, {1, true}},
+        {{BinaryOpType::SUBTRACT, FLOAT}, {1, true}},
+        {{BinaryOpType::SUBTRACT, HALF}, {1, true}},
+        {{BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {5, true}},
+        {{BinaryOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {7, true}},
 
 };
 
 static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, std::uint64_t overheadPerLoop) {
   CODELET_FIELD(data);
   assert(type == HALF || type == FLOAT);
@@ -87,19 +79,19 @@ static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   return broadcastArithmeticSupervisorCycleEstimate(
       vertex, target, op, type, hasExternalCodelet(op, type) ? 1 : 4);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   return broadcastArithmeticSupervisorCycleEstimate(
       vertex, target, op, type, hasExternalCodelet(op, type) ? 1 : 4);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const Type &outType) {
   // For vectorisation purposes, treat this as if it always processes float,
   // as it casts internally.  An extra cycle to cast to half output
@@ -108,7 +100,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
 }
 
 static std::uint64_t BroadcastVectorOuterCycleEstimate(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, std::uint64_t overheadPerInnerLoop,
     std::uint64_t overheadPerOuterLoop, bool byRow) {
   CODELET_SCALAR_VAL(columns, uint16_t);
@@ -136,14 +128,14 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, false);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
@@ -152,14 +144,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, true);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
@@ -167,7 +159,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
 }
 
 static std::uint64_t broadcastArithmeticCycleEstimate(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, std::uint64_t overheadPerLoop) {
   CODELET_FIELD(data);
   assert(type == HALF || type == FLOAT);
@@ -189,19 +181,19 @@ static std::uint64_t broadcastArithmeticCycleEstimate(
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   return broadcastArithmeticCycleEstimate(vertex, target, op, type,
                                           hasExternalCodelet(op, type) ? 1 : 4);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DData)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   return broadcastArithmeticCycleEstimate(vertex, target, op, type,
                                           hasExternalCodelet(op, type) ? 1 : 4);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const Type &outType) {
   // For vectorisation purposes, treat this as if it always processes float
   // as casting makes this so. An extra cycle to cast the output to half
@@ -210,12 +202,12 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DInPlace)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   return broadcastArithmeticCycleEstimate(vertex, target, op, type, 4);
 }
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2D)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   return broadcastArithmeticCycleEstimate(vertex, target, op, type, 4);
 }
@@ -687,7 +679,7 @@ std::uint64_t vectorInnerAddCoreCycles_half(unsigned addendLen,
 }
 
 // Cycle count for the common part of all the VectorInner2D ADD and
-// SCALED_ADD codelets (from the .Lworker2d label)
+// SUBTRACT codelets (from the .Lworker2d label)
 std::uint64_t
 vectorInner2DAddCycles(uint32_t n, const std::vector<uint32_t> &BLen,
                        const std::vector<uint32_t> &dataBlockCount,
@@ -722,7 +714,7 @@ vectorInner2DAddCycles(uint32_t n, const std::vector<uint32_t> &BLen,
 }
 
 // Cycle count for the common part of all the VectorInnerSupervisor ADD and
-// SCALED_ADD codelets
+// SUBTRACT codelets
 std::uint64_t vectorInnerSupervisorAddCycles(unsigned numWorkerContexts,
                                              uint32_t BLen,
                                              uint16_t dataBlockCountPacked,
@@ -894,7 +886,7 @@ std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_FIELD(B);
   CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
@@ -905,26 +897,26 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
   // Additional branch in the supervisor, and preamble instructions in the
   // worker part.
   switch (op) {
-  case BroadcastOpType::ADD:
+  case BinaryOpType::ADD:
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            1 + 3;
-  case BroadcastOpType::SCALED_ADD:
+  case BinaryOpType::SUBTRACT:
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            1 + 4;
-  case BroadcastOpType::MULTIPLY:
+  case BinaryOpType::MULTIPLY:
     return vectorInnerSupervisorMulCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            2;
   default:
-    throw poputil::poplibs_error("BroadcastOpType not implemented");
+    throw poputil::poplibs_error("BinaryOpType not implemented");
   }
   return 0;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_FIELD(B);
   CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
@@ -933,63 +925,63 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
   unsigned numWorkerContexts = target.getNumWorkerContexts();
 
   switch (op) {
-  case BroadcastOpType::ADD:
+  case BinaryOpType::ADD:
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            2;
-  case BroadcastOpType::SCALED_ADD:
+  case BinaryOpType::SUBTRACT:
     // Additional branches in the supervisor and worker part.
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            1 + 4;
-  case BroadcastOpType::MULTIPLY:
+  case BinaryOpType::MULTIPLY:
     return vectorInnerSupervisorMulCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            3;
   default:
-    throw poputil::poplibs_error("BroadcastOpType not implemented");
+    throw poputil::poplibs_error("BinaryOpType not implemented");
   }
   return 0;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_SCALAR_VAL(n, uint32_t);
   CODELET_VECTOR_VALS(BLen, uint32_t);
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   switch (op) {
-  case BroadcastOpType::SCALED_ADD:
+  case BinaryOpType::SUBTRACT:
     return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 4;
-  case BroadcastOpType::ADD:
+  case BinaryOpType::ADD:
     // an additional branch at the start.
     return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 3;
-  case BroadcastOpType::MULTIPLY:
+  case BinaryOpType::MULTIPLY:
     return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 2;
   default:
-    throw poputil::poplibs_error("BroadcastOpType not implemented");
+    throw poputil::poplibs_error("BinaryOpType not implemented");
   }
   return 0;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
-    const VertexIntrospector &vertex, const Target &target, BroadcastOpType op,
+    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_SCALAR_VAL(n, uint32_t);
   CODELET_VECTOR_VALS(BLen, uint32_t);
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   switch (op) {
-  case BroadcastOpType::SCALED_ADD:
+  case BinaryOpType::SUBTRACT:
     return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 4;
-  case BroadcastOpType::ADD:
+  case BinaryOpType::ADD:
     // an additional branch at the start.
     return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 2;
-  case BroadcastOpType::MULTIPLY:
+  case BinaryOpType::MULTIPLY:
     return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 3;
   default:
-    throw poputil::poplibs_error("BroadcastOpType not implemented");
+    throw poputil::poplibs_error("BinaryOpType not implemented");
   }
   return 0;
 }
@@ -2514,63 +2506,60 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
 
 // Entries for broadcast vertices covering also additional operations
 #define BROADCAST_CYCLE_ESTIM_ENTRIES_BASIC(vertexName)                        \
-  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT),      \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, HALF),   \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT,     \
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::ADD, FLOAT),         \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::ADD, HALF),      \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::SUBTRACT,        \
                             FLOAT),                                            \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT,     \
-                            HALF),                                             \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY,     \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::SUBTRACT, HALF), \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::MULTIPLY,        \
                             FLOAT),                                            \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY,     \
-                            HALF)
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::MULTIPLY, HALF)
 
 // Not every vertex exists for the variance conversions
 #define BROADCAST_CYCLE_ESTIM_ENTRIES(vertexName)                              \
   BROADCAST_CYCLE_ESTIM_ENTRIES_BASIC(vertexName),                             \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
-                            BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT),  \
+                            BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT),     \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
-                            BroadcastOpType::VARIANCE_TO_INV_STD_DEV, HALF),   \
+                            BinaryOpType::VARIANCE_TO_INV_STD_DEV, HALF),      \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
-                            BroadcastOpType::INV_STD_DEV_TO_VARIANCE, FLOAT),  \
+                            BinaryOpType::INV_STD_DEV_TO_VARIANCE, FLOAT),     \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
-                            BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF)
+                            BinaryOpType::INV_STD_DEV_TO_VARIANCE, HALF)
 
 // Entries for broadcast vertices covering also additional operations
 #define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                    \
-                        BroadcastOpType::VARIANCE_TO_INV_STD_DEV, FLOAT,       \
-                        HALF),                                                 \
+                        BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT, HALF),   \
       CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                \
-                            BroadcastOpType::INV_STD_DEV_TO_VARIANCE, HALF,    \
+                            BinaryOpType::INV_STD_DEV_TO_VARIANCE, HALF,       \
                             FLOAT)
 
 // Entries for broadcast outer vertices covering only the 3 basic operations,
 // each with an alwaysAligned template parameter
 #define BROADCAST_VECTOR_OUTER_CYCLE_ESTIM_ENTRIES(vertexName,                 \
                                                    allowMisaligned)            \
-  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, FLOAT,       \
+  CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::ADD, FLOAT,          \
                         allowMisaligned),                                      \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::ADD, HALF,    \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::ADD, HALF,       \
                             allowMisaligned),                                  \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT,     \
-                            FLOAT, allowMisaligned),                           \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::SUBTRACT,     \
-                            HALF, allowMisaligned),                            \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY,     \
-                            FLOAT, allowMisaligned),                           \
-      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BroadcastOpType::MULTIPLY,     \
-                            HALF, allowMisaligned)
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::SUBTRACT, FLOAT, \
+                            allowMisaligned),                                  \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::SUBTRACT, HALF,  \
+                            allowMisaligned),                                  \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::MULTIPLY, FLOAT, \
+                            allowMisaligned),                                  \
+      CYCLE_ESTIMATOR_ENTRY(popops, vertexName, BinaryOpType::MULTIPLY, HALF,  \
+                            allowMisaligned)
 
 // Entries for VectorInner vertices
 #define VECTOR_INNER_CYCLE_ESTIM_ENTRIES(name)                                 \
-  CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::ADD, FLOAT),            \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::ADD, HALF),         \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::SCALED_ADD, FLOAT), \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::SCALED_ADD, HALF),  \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::MULTIPLY, FLOAT),   \
-      CYCLE_ESTIMATOR_ENTRY(popops, name, BroadcastOpType::MULTIPLY, HALF)
+  CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::ADD, FLOAT),               \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::ADD, HALF),            \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::SUBTRACT, FLOAT),      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::SUBTRACT, HALF),       \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::MULTIPLY, FLOAT),      \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::MULTIPLY, HALF)
 
 #define SCALED_ADD_CYCLE_ESTIM_ENTRIES(NAME, TYPE1, TYPE2, TYPE3)              \
   CYCLE_ESTIMATOR_ENTRY(popops, NAME, TYPE1, TYPE2, TYPE3, true, true),        \

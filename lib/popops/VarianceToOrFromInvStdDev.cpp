@@ -19,7 +19,7 @@ namespace logging = poplibs_support::logging;
 namespace popops {
 
 Program convertVariance(Graph &graph, Tensor src, Tensor dst,
-                        const Tensor &epsilon, expr::BroadcastOpType op,
+                        const Tensor &epsilon, expr::BinaryOpType op,
                         const std::string &debugPrefix) {
   auto cs = graph.addComputeSet(debugPrefix);
   src = src.flatten();
@@ -27,7 +27,7 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
 
   logging::info("convertVariance src={}, dst={}, epsilon={}, op={}, name={}",
                 src.shape(), dst.shape(), epsilon.shape(),
-                expr::broadcastOpTypeToString(op), debugPrefix);
+                expr::binaryOpTypeToString(op), debugPrefix);
 
   if (epsilon.numElements() != 1) {
     throw poputil::poplibs_error("Epsilon must be a tensor with a single "
@@ -91,7 +91,7 @@ Tensor varianceToInvStdDev(Graph &graph, const Tensor &src,
   }
   auto dst = graph.clone(dstType, src, debugPrefix + "/varianceToInvStdDev");
   prog.add(convertVariance(graph, src, dst, epsilon,
-                           expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
+                           expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
                            debugPrefix + "/varianceToInvStdDev"));
   return dst;
 }
@@ -106,7 +106,7 @@ Tensor invStdDevToVariance(Graph &graph, const Tensor &src,
   }
   auto dst = graph.clone(dstType, src, debugPrefix + "/invStdDevToVariance");
   prog.add(convertVariance(graph, src, dst, epsilon,
-                           expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
+                           expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
                            debugPrefix + "/invStdDevToVariance"));
   return dst;
 }
