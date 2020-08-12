@@ -428,6 +428,7 @@ int main(int argc, char **argv) try {
   assert(partialsType == FLOAT || c.numElements() % 2 == 0);
   const auto numPartials =
       (partialsType == FLOAT) ? c.numElements() : c.numElements() / 2;
+
   graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
   graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
   graph.setInitialValue(v["zStrideInS"], zStrideInS);

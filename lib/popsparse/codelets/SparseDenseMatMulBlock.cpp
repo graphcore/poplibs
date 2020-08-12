@@ -19,8 +19,7 @@ static constexpr inline bool hasAssemblyVersion() {
   constexpr bool is8x8 = BlockRows == 8 && BlockCols == 8;
   constexpr bool is16x16 = BlockRows == 16 && BlockCols == 16;
   constexpr bool floatInputs = std::is_same<FPType, float>();
-  constexpr bool floatPartials = std::is_same<AccumType, float>();
-  return (floatPartials && (is4x4 || is8x8)) || (!floatInputs && is16x16);
+  return is4x4 || is8x8 || (!floatInputs && is16x16);
 }
 
 namespace popsparse {
@@ -151,8 +150,10 @@ public:
 };
 
 template class SparseDenseMatMulBlock<half, float, 4, 4>;
+template class SparseDenseMatMulBlock<half, half, 4, 4>;
 template class SparseDenseMatMulBlock<float, float, 4, 4>;
 template class SparseDenseMatMulBlock<half, float, 8, 8>;
+template class SparseDenseMatMulBlock<half, half, 8, 8>;
 template class SparseDenseMatMulBlock<float, float, 8, 8>;
 template class SparseDenseMatMulBlock<half, half, 16, 16>;
 template class SparseDenseMatMulBlock<half, float, 16, 16>;

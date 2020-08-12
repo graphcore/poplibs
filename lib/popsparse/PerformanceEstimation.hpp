@@ -206,23 +206,43 @@ static inline std::uint64_t sparseDenseBlockMultiply(
   case 4:
     cyclesPerZ = floatInput ? 4 : 2;
     workerCyclesOverhead = 26;
-    if (numZ == 1) {
-      innerOverhead = floatInput ? 14 : 17;
-    } else if (numZ == 2) {
-      innerOverhead = floatInput ? 14 : 18;
+    if (floatPartials) {
+      if (numZ == 1) {
+        innerOverhead = floatInput ? 14 : 17;
+      } else if (numZ == 2) {
+        innerOverhead = floatInput ? 14 : 18;
+      } else {
+        innerOverhead = floatInput ? 14 : 19;
+      }
     } else {
-      innerOverhead = floatInput ? 14 : 19;
+      if (numZ == 1) {
+        innerOverhead = 15;
+      } else if (numZ == 2) {
+        innerOverhead = 16;
+      } else {
+        innerOverhead = 17;
+      }
     }
     break;
   case 8:
     cyclesPerZ = floatInput ? 8 : 4;
-    workerCyclesOverhead = floatInput ? 23 : 20;
-    if (numZ == 1) {
-      innerOverhead = 22;
-    } else if (numZ == 2) {
-      innerOverhead = floatInput ? 22 : 23;
+    workerCyclesOverhead = floatInput ? 23 : (floatPartials ? 20 : 23);
+    if (floatPartials) {
+      if (numZ == 1) {
+        innerOverhead = 22;
+      } else if (numZ == 2) {
+        innerOverhead = floatInput ? 22 : 23;
+      } else {
+        innerOverhead = floatInput ? 23 : 23;
+      }
     } else {
-      innerOverhead = floatInput ? 23 : 23;
+      if (numZ == 1) {
+        innerOverhead = 19;
+      } else if (numZ == 2) {
+        innerOverhead = 20;
+      } else {
+        innerOverhead = 20;
+      }
     }
     break;
   case 16:

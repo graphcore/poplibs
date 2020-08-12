@@ -79,7 +79,7 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
               math(EXPR NUM_COLS "${Y} * ${BLOCKSIZE}")
 
               foreach(Z 2 4 12 16 32)
-                add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_block${BLOCKSIZE}_n${X}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_float_in_${VERTEX_TYPE}${ZERO_PARTIALS}
+                add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_block${BLOCKSIZE}_n${X}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_float_in_float_out_${VERTEX_TYPE}${ZERO_PARTIALS}
                 COMMAND SparseDenseMatMulBlock
                   ${ZERO_PARTIALS_OPT}
                   --input-type=float
@@ -92,12 +92,8 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
                   --num-splits-per-bucket=${NUM_SPLITS}
                   --vertex-type=${VERTEX_TYPE})
               endforeach()
-              foreach(Z 4 8 28)
-                set(PARTIALS_TYPES float)
-                if (BLOCKSIZE EQUAL 16)
-                  list(APPEND PARTIALS_TYPES half)
-                endif()
-                foreach(PARTIALS_TYPE ${PARTIALS_TYPES})
+              foreach(Z 4 8 16 28)
+                foreach(PARTIALS_TYPE half float)
                   add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_n${X}_block${BLOCKSIZE}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_half_in_${PARTIALS_TYPE}_out_${VERTEX_TYPE}${ZERO_PARTIALS}
                     COMMAND SparseDenseMatMulBlock
                       ${ZERO_PARTIALS_OPT}
