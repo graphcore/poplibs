@@ -266,7 +266,8 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
                            : x.slice({0, an - 1 - idx, 0},
                                      {totalBatches, an - idx, bn})));
             }
-          }));
+          },
+          false));
     }
 
     auto dst = params.x.slice({0, bTopPos, bLeftPos},

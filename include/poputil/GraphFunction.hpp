@@ -49,14 +49,17 @@ using Signature = std::vector<ArgSig>;
 class VoidFunction {
   poplar::Graph &graph;
   Signature sig;
+  bool inlined;
   poplar::program::Sequence prog;
+  poplar::Function func;
   std::vector<poplar::Tensor> params;
 
 public:
   VoidFunction(poplar::Graph &graph, Signature sig,
                std::function<void(std::vector<poplar::Tensor> &,
                                   poplar::program::Sequence &)>
-                   f);
+                   f,
+               bool inlined = true);
   void operator()(std::vector<poplar::Tensor> &args,
                   poplar::program::Sequence &seq);
 };
@@ -67,7 +70,8 @@ class ProgramFunction {
 public:
   ProgramFunction(
       poplar::Graph &graph, Signature sig,
-      std::function<poplar::program::Program(std::vector<poplar::Tensor> &)> f);
+      std::function<poplar::program::Program(std::vector<poplar::Tensor> &)> f,
+      bool inlined = true);
   poplar::program::Program operator()(std::vector<poplar::Tensor> &args);
 };
 
@@ -78,7 +82,8 @@ public:
   TensorFunction(poplar::Graph &graph, Signature sig,
                  std::function<poplar::Tensor(std::vector<poplar::Tensor> &,
                                               poplar::program::Sequence &)>
-                     f);
+                     f,
+                 bool inlined = true);
   poplar::Tensor operator()(std::vector<poplar::Tensor> &args,
                             poplar::program::Sequence &prog);
 };

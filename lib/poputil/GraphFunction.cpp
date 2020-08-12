@@ -9,8 +9,8 @@ namespace graphfn {
 
 VoidFunction::VoidFunction(
     Graph &graph, Signature sig_,
-    std::function<void(std::vector<Tensor> &, Sequence &)> f)
-    : graph(graph), sig(std::move(sig_)) {
+    std::function<void(std::vector<Tensor> &, Sequence &)> f, bool inlined)
+    : graph(graph), sig(std::move(sig_)), inlined(inlined) {
   for (const auto &s : sig) {
     if (s.type == CreatedArg) {
       params.push_back(Tensor());
@@ -20,6 +20,9 @@ VoidFunction::VoidFunction(
     params.push_back(std::move(t));
   }
   f(params, prog);
+  if (!inlined) {
+    func = graph.addFunction(prog);
+  }
 }
 
 void VoidFunction::operator()(std::vector<poplar::Tensor> &args,
@@ -29,7 +32,11 @@ void VoidFunction::operator()(std::vector<poplar::Tensor> &args,
       seq.add(Copy(args[i], params[i]));
     }
   }
-  seq.add(prog);
+  if (inlined) {
+    seq.add(prog);
+  } else {
+    seq.add(poplar::program::Call(func));
+  }
   for (unsigned i = 0; i < sig.size(); ++i) {
     if (sig[i].type == CreatedArg) {
       args[i] = graph.clone(params[i], sig[i].debugName);
@@ -43,11 +50,11 @@ void VoidFunction::operator()(std::vector<poplar::Tensor> &args,
 
 ProgramFunction::ProgramFunction(
     Graph &graph, Signature sig,
-    std::function<Program(std::vector<Tensor> &)> f)
-    : voidFunc(graph, std::move(sig),
-               [&](std::vector<Tensor> &args, Sequence &seq) {
-                 seq.add(f(args));
-               }) {}
+    std::function<Program(std::vector<Tensor> &)> f, bool inlined)
+    : voidFunc(
+          graph, std::move(sig),
+          [&](std::vector<Tensor> &args, Sequence &seq) { seq.add(f(args)); },
+          inlined) {}
 
 Program ProgramFunction::operator()(std::vector<poplar::Tensor> &args) {
   Sequence seq;
@@ -62,11 +69,13 @@ static inline Signature extendWithCreated(Signature s) {
 
 TensorFunction::TensorFunction(
     Graph &graph, Signature sig,
-    std::function<Tensor(std::vector<Tensor> &, Sequence &seq)> f)
-    : voidFunc(graph, extendWithCreated(std::move(sig)),
-               [&](std::vector<Tensor> &args, Sequence &seq) {
-                 args.back() = f(args, seq);
-               }) {}
+    std::function<Tensor(std::vector<Tensor> &, Sequence &seq)> f, bool inlined)
+    : voidFunc(
+          graph, extendWithCreated(std::move(sig)),
+          [&](std::vector<Tensor> &args, Sequence &seq) {
+            args.back() = f(args, seq);
+          },
+          inlined) {}
 
 Tensor TensorFunction::operator()(std::vector<poplar::Tensor> &args,
                                   Sequence &seq) {
