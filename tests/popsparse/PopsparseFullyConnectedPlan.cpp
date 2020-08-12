@@ -1,8 +1,8 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#include <poplibs_support/TestDevice.hpp>
 
 #define BOOST_TEST_MODULE PopsparseFullyConnectedPlan
 #include <boost/test/unit_test.hpp>
+#include <poplibs_support/TestDevice.hpp>
 
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
@@ -65,7 +65,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase1) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 1024;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -83,7 +86,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase1BS8) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 1024;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -101,7 +107,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase1Float) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 1024;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -119,7 +128,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase1FloatBS8) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 1024;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -137,7 +149,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase2) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 32768;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -155,7 +170,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase2BS8) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 32768;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -173,7 +191,10 @@ BOOST_AUTO_TEST_CASE(InterestingCase2Float) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 32768;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
@@ -191,11 +212,86 @@ BOOST_AUTO_TEST_CASE(InterestingCase2FloatBS8) {
   constexpr std::size_t numGroups = 1;
   constexpr std::size_t inputChannels = 32768;
   constexpr std::size_t outputChannels = 32768;
-  poplar::OptionFlags options{{"availableMemoryProportion", "100"}};
+  poplar::OptionFlags options{
+      {"doGradAPass", "true"},
+      {"doGradWPass", "true"},
+  };
   SparsityParams sparsityParams(SparsityType::Element,
                                 SparsityStructure::Unstructured);
   const auto params = FullyConnectedParams::createWithNzRatio(
       std::move(sparsityParams), 0.01, batchSize, numGroups, inputChannels,
       outputChannels);
   getPlan(target, FLOAT, params, options);
+}
+
+BOOST_AUTO_TEST_CASE(InterestingCase4x4BS1FwdOnly) {
+  auto device = createTestDevice(TEST_TARGET, 1, IPUModel("ipu1").tilesPerIPU);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  constexpr std::size_t batchSize = 1;
+  constexpr std::size_t numGroups = 1;
+  constexpr std::size_t blockSizeX = 4, blockSizeY = 4;
+  constexpr std::size_t inputChannels = 32768;
+  constexpr std::size_t outputChannels = 32768;
+
+  poplar::OptionFlags options{
+      {"doGradAPass", "false"},
+      {"doGradWPass", "false"},
+  };
+  SparsityParams sparsityParams(SparsityType::Block,
+                                SparsityStructure::Unstructured,
+                                {blockSizeX, blockSizeY});
+  const auto params = FullyConnectedParams::createWithNzRatio(
+      std::move(sparsityParams), 0.01, batchSize, numGroups, inputChannels,
+      outputChannels);
+  getPlan(target, FLOAT, params, options);
+}
+
+BOOST_AUTO_TEST_CASE(InterestingCase4x4BS512FwdOnly) {
+  auto device = createTestDevice(TEST_TARGET, 1, IPUModel("ipu1").tilesPerIPU);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  constexpr std::size_t batchSize = 512;
+  constexpr std::size_t numGroups = 1;
+  constexpr std::size_t blockSizeX = 4, blockSizeY = 4;
+  constexpr std::size_t inputChannels = 32768;
+  constexpr std::size_t outputChannels = 32768;
+
+  poplar::OptionFlags options{
+      {"doGradAPass", "false"},
+      {"doGradWPass", "false"},
+  };
+  SparsityParams sparsityParams(SparsityType::Block,
+                                SparsityStructure::Unstructured,
+                                {blockSizeX, blockSizeY});
+  const auto params = FullyConnectedParams::createWithNzRatio(
+      std::move(sparsityParams), 0.01, batchSize, numGroups, inputChannels,
+      outputChannels);
+  getPlan(target, FLOAT, params, options);
+}
+
+BOOST_AUTO_TEST_CASE(InterestingCase16x16BS8FwdOnly) {
+  auto device = createTestDevice(TEST_TARGET, 1, IPUModel("ipu1").tilesPerIPU);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+
+  constexpr std::size_t batchSize = 1;
+  constexpr std::size_t numGroups = 1;
+  constexpr std::size_t blockSizeX = 16, blockSizeY = 16;
+  constexpr std::size_t inputChannels = 32768;
+  constexpr std::size_t outputChannels = 32768;
+
+  poplar::OptionFlags options{
+      {"doGradAPass", "false"},
+      {"doGradWPass", "false"},
+  };
+  SparsityParams sparsityParams(SparsityType::Block,
+                                SparsityStructure::Unstructured,
+                                {blockSizeX, blockSizeY});
+  const auto params = FullyConnectedParams::createWithNzRatio(
+      std::move(sparsityParams), 0.01, batchSize, numGroups, inputChannels,
+      outputChannels);
+  getPlan(target, HALF, params, options);
 }

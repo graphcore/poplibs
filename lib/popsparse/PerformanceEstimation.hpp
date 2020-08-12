@@ -160,13 +160,12 @@ static inline std::uint64_t sparseDenseGradWElementwiseMultiply(
 // Should be called such that numY has one entry for many X where numY is
 // an average. If the effect of different sizes of Y has to be taken into
 // account, numX should be 1.
-static inline std::uint64_t
-sparseDenseBlockMultiply(unsigned numBuckets, unsigned numBucketsWithInfoForPN,
-                         unsigned averageSubgroupsPerBucket, unsigned numX,
-                         unsigned numZ, unsigned numBlockRows,
-                         unsigned numBlockCols,
-                         const std::vector<unsigned> &numY, bool floatInput,
-                         bool /* floatPartials */, unsigned numWorkerContexts) {
+static inline std::uint64_t sparseDenseBlockMultiply(
+    unsigned numBuckets, unsigned numBucketsWithInfoForPN,
+    unsigned averageSubgroupsPerBucket, unsigned numXBlocks, unsigned numZ,
+    unsigned numBlockRows, unsigned numBlockCols,
+    const std::vector<unsigned> &numYBlocks, bool floatInput,
+    bool /* floatPartials */, unsigned numWorkerContexts) {
 
   // logging::trace("sparseDenseElementwiseMultiply: numBuckets={},
   // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
@@ -175,7 +174,7 @@ sparseDenseBlockMultiply(unsigned numBuckets, unsigned numBucketsWithInfoForPN,
 
   // we use 64-bit coefficient loading per Block
   uint64_t numCoeffLoadCyclesPerBlock =
-      numBlockRows * numBlockCols / (floatInput ? 2 : 4);
+      (numBlockRows * numBlockCols) / (floatInput ? 2 : 4);
 
   std::uint64_t supervisorOverhead = 40;
   std::uint64_t supervisorCyclesWithBucketsNotForPN =
@@ -229,12 +228,12 @@ sparseDenseBlockMultiply(unsigned numBuckets, unsigned numBucketsWithInfoForPN,
   }
 
   auto innerCycles = innerOverhead + numZ * cyclesPerZ;
-  for (const auto &y : numY) {
+  for (const auto &y : numYBlocks) {
     supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 15);
     workerLoopCycles += y * innerCycles;
   }
-  supervisorBlockLoadCycles *= numX + 2;
-  workerLoopCycles *= numX;
+  supervisorBlockLoadCycles *= numXBlocks + 2;
+  workerLoopCycles *= numXBlocks;
   uint64_t totalWorkerCycles = workerCyclesOverhead + workerLoopCycles;
   totalSupervisorCycles += supervisorBlockLoadCycles;
   return totalWorkerCycles * numWorkerContexts + totalSupervisorCycles;

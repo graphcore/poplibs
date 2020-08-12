@@ -31,7 +31,7 @@ Partitioner<T>::Partitioner(const FullyConnectedParams &params,
   impl.reset(new PartitionerImpl(
       {params.getOutputChannelsPerGroup(), params.getInputChannelsPerGroup(),
        params.getBatchSize()},
-      {plan.grouping.x, plan.grouping.y, plan.grouping.z},
+      {plan.method.grouping.x, plan.method.grouping.y, plan.method.grouping.z},
       partitionIndices.at(0), partitionIndices.at(1), partitionIndices.at(2),
       plan.fwdMetaInfoElemsPerBucket, plan.gradAMetaInfoElemsPerBucket,
       plan.nzElemsPerBucket, target.getNumWorkerContexts(), 1,

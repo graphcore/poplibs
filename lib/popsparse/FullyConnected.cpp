@@ -409,14 +409,14 @@ template <typename T> struct MetaInfoAndValues {
 
 static SinglePassPlan getFwdPlan(const Plan &plan) {
   SinglePassPlan p;
-  p.grouping = plan.grouping;
+  p.grouping = plan.method.grouping;
   p.partition = plan.partition;
   p.initialDistributionBucketPartition =
       plan.initialDistributionBucketPartition;
   p.mappingOrder = plan.mappingOrder;
   p.nzElemsPerBucket = plan.nzElemsPerBucket;
   p.metaInfoElemsPerBucket = plan.fwdMetaInfoElemsPerBucket;
-  p.method = plan.fwdMethod;
+  p.method = plan.method.fwd;
   p.dimShuffleToFwd = {0, 1, 2, 3};
   return p;
 }
@@ -428,7 +428,7 @@ static SinglePassPlan getGradAPlan(const Plan &plan) {
   std::swap(p.initialDistributionBucketPartition.x,
             p.initialDistributionBucketPartition.y);
   p.metaInfoElemsPerBucket = plan.gradAMetaInfoElemsPerBucket;
-  p.method = plan.gradAMethod;
+  p.method = plan.method.gradA;
   p.dimShuffleToFwd = {0, 2, 1, 3};
   return p;
 }
@@ -442,7 +442,7 @@ static SinglePassPlan getGradWPlan(const Plan &plan) {
   std::swap(p.initialDistributionBucketPartition.y,
             p.initialDistributionBucketPartition.z);
   p.metaInfoElemsPerBucket = plan.fwdMetaInfoElemsPerBucket;
-  p.method = plan.gradWMethod;
+  p.method = plan.method.gradW;
   p.dimShuffleToFwd = {0, 1, 3, 2};
   return p;
 }

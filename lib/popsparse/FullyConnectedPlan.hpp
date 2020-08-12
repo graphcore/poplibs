@@ -45,24 +45,46 @@ std::ostream &operator<<(std::ostream &os, const Cost &c);
 
 // Method used on tile in the plan
 enum class OnTileMethod {
-  // Codelet for Forward pass with full meta-info
+  // Codelet for Forward pass with full meta-info for element-wise sparsity.
   Forward,
-  // Codelet for GradA pass with full meta-info
+  // Codelet for GradA pass with full meta-info for element-wise sparsity.
   GradA,
-  // Codelet for GradA pass reusing forward pass meta-info
+  // Codelet for GradA pass reusing forward pass meta-info for element-wise
+  // sparsity.
   Transpose,
-  // Codelet for GradW pass reusing forward pass meta-info
+  // Codelet for GradW pass reusing forward pass meta-info for element-wise
+  // sparsity.
   GradW,
+  // Codelet for Forward pass with full meta-info for block-sparsity utilising
+  // AMP.
+  ForwardAMPBlock,
+  // Codelet for GradA pass reusing forward pass meta-info for block-sparsity
+  // utilising AMP.
+  TransposeAMPBlock,
+  // Codelet for GradW pass reusing forward pass meta-info for block-sparsity
+  // utilising AMP.
+  GradWAMPBlock,
 };
 
 std::ostream &operator<<(std::ostream &os, const OnTileMethod &m);
 
+struct Method {
+  // The grain-size in terms of elements of each dimension which the
+  // vertex used can handle multiples of. The X/Y grouping will
+  // typically be the block-size.
+  Vector<unsigned> grouping;
+  // Method used on-tile for each pass.
+  OnTileMethod fwd;
+  OnTileMethod gradA;
+  OnTileMethod gradW;
+};
+
+std::ostream &operator<<(std::ostream &os, const Method &m);
+
 // This structure describes how to implement the passes of a fully
 // connected layer.
 struct Plan {
-  // The grain-size in terms of elements of each dimension which the
-  // vertex used can handle multiples of.
-  Vector<unsigned> grouping;
+  Method method;
   // This structure describes how different dimensions of a particular
   // sparse-dense matmul are partitioned to spread computational load
   // and memory usage across tiles.
@@ -82,13 +104,9 @@ struct Plan {
   unsigned fwdMetaInfoElemsPerBucket;
   // Number of meta-info elements per bucket (GradA pass).
   unsigned gradAMetaInfoElemsPerBucket;
-  // Method used on-tile for each pass.
-  OnTileMethod fwdMethod;
-  OnTileMethod gradAMethod;
-  OnTileMethod gradWMethod;
 
   // returns true if the same bucket is shared between passes
-  bool sharedBuckets() const { return gradAMethod == OnTileMethod::Transpose; }
+  bool sharedBuckets() const { return method.gradA == OnTileMethod::Transpose; }
 };
 
 std::ostream &operator<<(std::ostream &os, const Plan &p);

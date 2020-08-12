@@ -295,17 +295,9 @@ addDistributionExchangeCostSparseDense(
     const ExchangeEstimator &exchangeEstimator,
     const std::vector<Vector<popsolver::Variable>> &mGroups,
     const Vector<popsolver::Variable> &mGrouping,
-    const popsolver::Variable &mRElemsPerBucket,
-    const popsolver::Variable &mRMetaInfoElemsPerBucket,
-    const PartitionVariables &p) {
+    const popsolver::Variable &mRBytesPerBucket, const PartitionVariables &p) {
 
   const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
-  const auto mBytesPerMetaInfoElem =
-      m.addConstant(target.getTypeSize(metaInfoType));
-
-  const auto mRBytesPerBucket = m.product({mRElemsPerBucket, mBytesPerInput});
-  const auto mRMetaInfoBytesPerBucket =
-      m.product({mRMetaInfoElemsPerBucket, mBytesPerMetaInfoElem});
 
   std::vector<popsolver::Variable> mRBytesPerTile(hierarchy.size() + 1),
       mSBytesPerTile(hierarchy.size() + 1);
@@ -325,8 +317,7 @@ addDistributionExchangeCostSparseDense(
     // product will not introduce any error in the calculation moving up
     // levels of the hierarchy.
     mRBytesPerTile[level] =
-        m.product({p.cumulative[level].z,
-                   m.sum({mRBytesPerBucket, mRMetaInfoBytesPerBucket})});
+        m.product({p.cumulative[level].z, mRBytesPerBucket});
   }
 
   // Estimate exchange for the initial distribution. We exchange input
@@ -544,14 +535,32 @@ addInitialComputeCostSparseDense(
         std::tie(xNonZeroGroups, yNonZeroGroups) =
             getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroups, yGroups);
 
-        const auto workerTiles =
-            splitTileBetweenWorkers(xNonZeroGroups, zGroups, numWorkers);
+        std::vector<Tile> workerTiles;
+        switch (method) {
+        case OnTileMethod::Forward:
+        case OnTileMethod::GradA:
+          assert(xGrouping * yGrouping == 1);
+          workerTiles =
+              splitTileBetweenWorkers(xNonZeroGroups, zGroups, numWorkers);
+          break;
+        case OnTileMethod::Transpose:
+          assert(xGrouping * yGrouping == 1);
+          // Transpose vertex does its work split at runtime
+          workerTiles = splitTileBetweenWorkers(1, 1, numWorkers);
+        case OnTileMethod::ForwardAMPBlock:
+          // We may only split Z for forward AMP
+          workerTiles = splitTileBetweenWorkers(1, zGroups, numWorkers);
+          break;
+        default:
+          throw poputil::poplibs_error("Unhandled OnTileMethod");
+        }
 
         std::uint64_t maxMulCycles = 0;
         for (const auto &workerTile : workerTiles) {
-          const auto numXPerWorker = workerTile.getRows().size() * xGrouping;
-          const auto numZPerWorker = workerTile.getColumns().size() * zGrouping;
-          const auto numY = yNonZeroGroups * yGrouping;
+          const unsigned workerXGroups = workerTile.getRows().size();
+          const unsigned workerZGroups = workerTile.getColumns().size();
+          const unsigned workerZElems = workerZGroups * zGrouping;
+          const unsigned numY = yNonZeroGroups * yGrouping;
 
           // Because we are assuming best case with perfectly uniform
           // distribution of sparsity over the dense sparse of R, there should
@@ -563,24 +572,30 @@ addInitialComputeCostSparseDense(
           switch (method) {
           case OnTileMethod::Forward:
             mulCycles = sparseDenseElementwiseMultiply(
-                numBuckets, numBuckets, numSubGroupsPerBucket, numXPerWorker,
-                numZPerWorker,
+                numBuckets, numBuckets, numSubGroupsPerBucket, workerXGroups,
+                workerZElems,
                 std::vector<unsigned>({static_cast<unsigned>(numY)}),
                 inputType == FLOAT, partialsType == FLOAT, numWorkers);
             break;
           case OnTileMethod::GradA:
             mulCycles = sparseDenseGradAElementwiseMultiply(
-                numBuckets, numBuckets, numSubGroupsPerBucket, numXPerWorker,
-                numZPerWorker,
+                numBuckets, numBuckets, numSubGroupsPerBucket, workerXGroups,
+                workerZElems,
                 std::vector<unsigned>({static_cast<unsigned>(numY)}),
                 inputType == FLOAT, partialsType == FLOAT, numWorkers);
             break;
           case OnTileMethod::Transpose:
             // The transpose method divides the work along the X-dimension.
             mulCycles = sparseDenseTransposeElementwiseMultiply(
-                numBuckets, numBuckets, numSubGroupsPerBucket, numY, zGroups,
-                std::vector<unsigned>({xNonZeroGroups}), inputType == FLOAT,
-                partialsType == FLOAT, numWorkers);
+                numBuckets, numBuckets, numSubGroupsPerBucket, numY,
+                zGroups * zGrouping, std::vector<unsigned>({xGroups}),
+                inputType == FLOAT, partialsType == FLOAT, numWorkers);
+            break;
+          case OnTileMethod::ForwardAMPBlock:
+            mulCycles = sparseDenseBlockMultiply(
+                numBuckets, numBuckets, numSubGroupsPerBucket, xGroups,
+                workerZElems, xGrouping, yGrouping, {yNonZeroGroups},
+                inputType == FLOAT, partialsType == FLOAT, numWorkers);
             break;
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
@@ -615,10 +630,11 @@ addInitialComputeCostDenseDense(
     const Vector<popsolver::Variable> &mGroups,
     const Vector<popsolver::Variable> &mGrouping,
     const Vector<popsolver::Variable> &mCumulativePartitions,
-    const popsolver::Variable &mSparseElems,
+    const popsolver::Variable &mSparseGroups,
     const popsolver::Variable &mQGradTempBytes,
     const popsolver::Variable &mSTempBytes) {
-  const auto mPartialsPerTile = mSparseElems;
+  // TODO: Handle groups for vertex cycle estimates properly
+  const auto mPartialsPerTile = mSparseGroups;
 
   const auto numWorkers = target.getNumWorkerContexts();
   const auto &partialsType = options.partialsType;
@@ -844,11 +860,22 @@ addEstimates(const Target &target, const Type &inputType,
              const PartitionVariables &p,
              const std::vector<Vector<popsolver::Variable>> &mGroups,
              const Vector<popsolver::Variable> &mGrouping,
-             const popsolver::Variable &mRElemsPerBucket,
+             const popsolver::Variable &mRGroupsPerBucket,
+             const popsolver::Variable &mRElemsPerGroup,
              const popsolver::Variable &mRMetaInfoElemsPerBucket,
              const Options &options) {
 
   CostBreakdownVariables costBreakdown;
+
+  const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
+  const auto mBytesPerMetaInfoElem =
+      m.addConstant(target.getTypeSize(metaInfoType));
+  const auto &mRNonZeroBytesPerBucket =
+      m.product({mRGroupsPerBucket, mRElemsPerGroup, mBytesPerInput});
+  const auto &mRMetaInfoBytesPerBucket =
+      m.product({mRMetaInfoElemsPerBucket, mBytesPerMetaInfoElem});
+  const auto mRBytesPerBucket =
+      m.sum({mRNonZeroBytesPerBucket, mRMetaInfoBytesPerBucket});
 
   CostVariables mDistributionExchangeCost;
   popsolver::Variable mSTempBytesAfterExchange, mRTempBytesAfterExchange;
@@ -856,8 +883,7 @@ addEstimates(const Target &target, const Type &inputType,
            mRTempBytesAfterExchange) =
       addDistributionExchangeCostSparseDense(
           m, target, inputType, metaInfoType, options, hierarchy,
-          exchangeEstimator, mGroups, mGrouping, mRElemsPerBucket,
-          mRMetaInfoElemsPerBucket, p);
+          exchangeEstimator, mGroups, mGrouping, mRBytesPerBucket, p);
   costBreakdown.emplace_back("Initial distribution exchange",
                              mDistributionExchangeCost);
 
@@ -871,10 +897,6 @@ addEstimates(const Target &target, const Type &inputType,
   costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
 
   CostVariables mPropagatingExchangeCost;
-  const auto mBytesPerMetaInfoElem =
-      m.addConstant(target.getTypeSize(metaInfoType));
-  const auto mRBytesPerBucket =
-      m.product({mRElemsPerBucket, mBytesPerMetaInfoElem});
   std::tie(mPropagatingExchangeCost, mRTempBytesAfterExchange) =
       addPropagatingExchangeCost(m, target, inputType, hierarchy, options,
                                  exchangeEstimator, mRBytesPerBucket, p);
@@ -926,7 +948,9 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
     const PartitionVariables &p,
     const std::vector<Vector<popsolver::Variable>> &mGroups,
     const Vector<popsolver::Variable> &mGrouping,
-    const popsolver::Variable &mRElemsPerBucket, const Options &options) {
+    const popsolver::Variable &mRGroupsPerBucket,
+    const popsolver::Variable &mRElemsPerGroup, const Options &options) {
+
   CostBreakdownVariables costBreakdown;
 
   CostVariables mInitialExchangeCost;
@@ -946,7 +970,7 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   std::tie(mInitialComputeCost, mRGradTempBytesAfterCompute) =
       addInitialComputeCostDenseDense(
           m, target, inputType, nzRatio, options, method, mGroups.back(),
-          mGrouping, p.cumulative.back(), mRElemsPerBucket,
+          mGrouping, p.cumulative.back(), mRGroupsPerBucket,
           mQGradTempBytesAfterExchange, mSTempBytesAfterExchange);
   costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
 
@@ -964,7 +988,8 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   costBreakdown.emplace_back("Propagating exchange (per-iteration)",
                              mPropagatingExchangeCost);
 
-  const popsolver::Variable mPartialsPerTileToReduce = mRElemsPerBucket;
+  const auto mPartialsPerTileToReduce =
+      m.product({mRGroupsPerBucket, mRElemsPerGroup});
   std::vector<popsolver::Variable> mReductionDepth(hierarchy.size(), m.one()),
       mReductionDepthCumulative(hierarchy.size() + 1, m.one());
   CostVariables mReductionExchangeCost, mReductionComputeCost;
@@ -989,10 +1014,175 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   return std::make_tuple(cost, costBreakdown);
 }
 
+// TODO: We could actually get this straight from the parameters. Until
+// we've decided how blocks should be represented in FullyConnectedParams
+// we'll calculate exactly what we want here.
+static popsolver::Variable
+addNumNonZeroGroups(popsolver::Model &m, const FullyConnectedParams &params) {
+  const auto &sparsityParams = params.getSparsityParams();
+  const auto outputBlocks =
+      params.getOutputChannelsPerGroup() / sparsityParams.blockDimensions.at(0);
+  const auto inputBlocks =
+      params.getInputChannelsPerGroup() / sparsityParams.blockDimensions.at(1);
+  const auto rGroups =
+      params.getNumGroups() *
+      unsigned(std::ceil(inputBlocks * outputBlocks * params.getNzRatio()));
+  return m.addConstant(rGroups);
+}
+
+static popsolver::Variable addNumNonZeroGroupsPerBucket(
+    popsolver::Model &m, const Target &target, const Type &inputType,
+    const popsolver::Variable &mNonZeroGroups, unsigned nonZeroElemsPerGroup,
+    const PartitionVariables &p, const Options &options) {
+  // Find the number of groups per bucket when uniformly distributed.
+  const auto mPerfectlyUniformGroupsPerBucket =
+      m.ceildiv(mNonZeroGroups, p.tile.at(0));
+  // Ensure the number of elements guarantees the size in bytes of the bucket
+  // is a multiple of the exchange atom size.
+  const unsigned bytesPerNonZeroElem = target.getTypeSize(inputType);
+  const auto bytesPerGroup = nonZeroElemsPerGroup * bytesPerNonZeroElem;
+  const unsigned exchangeAtomSize = target.getExchangeBytesPerCycle();
+  const auto grainSizeInGroups =
+      lcm(bytesPerGroup, exchangeAtomSize) / bytesPerGroup;
+  return m.call<unsigned>(
+      {mPerfectlyUniformGroupsPerBucket},
+      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
+        // Number of groups when perfectly distributed is multiplied by some
+        // factor given as an option to allow room for imbalance.
+        const unsigned groups = std::round(
+            values[0] * (1.0 + options.metaInfoBucketOversizeProportion));
+        return popsolver::DataType{roundUp(groups, grainSizeInGroups)};
+      });
+}
+
+// Given the meta-info is often shared between passes in some way, these
+// are calculated and returned jointly.
+static popsolver::Variable addMetaInfoElemsPerBucket(
+    popsolver::Model &m, const Target &target, const Type &metaInfoType,
+    const double &nzRatio, const OnTileMethod &method,
+    const Vector<popsolver::Variable> &mGroupsPerTile, const Options &options) {
+  const unsigned bytesPerMetaInfoElem = target.getTypeSize(metaInfoType);
+  const unsigned exchangeAtomSize = target.getExchangeBytesPerCycle();
+  const auto atomSizeInMetaInfoElems =
+      lcm(bytesPerMetaInfoElem, exchangeAtomSize);
+
+  // A chosen number of sub-groups per bucket just for memory planning.
+  constexpr unsigned numSubgroupsPerBucket = 2U;
+
+  auto calcFwdBucketSizeElemwise =
+      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
+    const auto xGroups = values[0];
+    const auto yGroups = values[1];
+    unsigned xNonZeroGroups, yNonZeroGroups;
+    std::tie(xNonZeroGroups, yNonZeroGroups) =
+        getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroups, yGroups);
+
+    // Knowing that we use a CSR based format we can calculate the
+    // number of elements of meta-info that would be required to
+    // store this in a perfect world.
+    const auto outputEntryElems =
+        sizeof(MetaInfo<MetaInfoType>::OutputEntry) / sizeof(MetaInfoType);
+    const auto subGroupElems =
+        sizeof(MetaInfo<MetaInfoType>::SubGroupEntry) / sizeof(MetaInfoType);
+    const auto workerEntryElems =
+        sizeof(MetaInfo<MetaInfoType>::WorkerEntry) / sizeof(MetaInfoType);
+    const auto numElemsPerfectlyUniform =
+        xNonZeroGroups * (outputEntryElems + yNonZeroGroups);
+    const auto gradWWorkerEntryElems =
+        options.doGradWPass
+            ? (1 + sizeof(MetaInfo<MetaInfoType>::GradWWorkerEntry) /
+                       sizeof(MetaInfoType))
+            : 0;
+
+    const unsigned elems =
+        (subGroupElems + target.getNumWorkerContexts() *
+                             (workerEntryElems + gradWWorkerEntryElems)) *
+            numSubgroupsPerBucket +
+        std::ceil(numElemsPerfectlyUniform *
+                  (1.0 + options.metaInfoBucketOversizeProportion));
+    return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
+  };
+
+  const auto calcFwdBucketSizeAMPBlock =
+      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
+    const auto xGroups = values[0];
+    const auto yGroups = values[1];
+    unsigned xNonZeroGroups, yNonZeroGroups;
+    std::tie(xNonZeroGroups, yNonZeroGroups) =
+        getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroups, yGroups);
+
+    const auto outputEntryElems =
+        sizeof(BlockMetaInfo<MetaInfoType>::OutputEntry) / sizeof(MetaInfoType);
+    const auto subGroupElems =
+        sizeof(BlockMetaInfo<MetaInfoType>::SubGroupEntry) /
+        sizeof(MetaInfoType);
+    const auto numElemsPerfectlyUniform =
+        xNonZeroGroups * (outputEntryElems + yNonZeroGroups);
+    const unsigned elems =
+        (subGroupElems * numSubgroupsPerBucket +
+         std::ceil(numElemsPerfectlyUniform *
+                   (1.0 + options.metaInfoBucketOversizeProportion)));
+    return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
+  };
+
+  switch (method) {
+  case OnTileMethod::Forward: {
+    return m.call<unsigned>({mGroupsPerTile.x, mGroupsPerTile.y},
+                            calcFwdBucketSizeElemwise);
+  }
+  case OnTileMethod::GradA: {
+    auto calcGradABucketSizeElemwise =
+        [=](const std::vector<unsigned> &values) -> popsolver::DataType {
+      const auto xGroups = values[0];
+      const auto yGroups = values[1];
+      unsigned xNonZeroGroups, yNonZeroGroups;
+      std::tie(xNonZeroGroups, yNonZeroGroups) =
+          getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroups, yGroups);
+
+      // Knowing that we use a CSR based format we can calculate the
+      // number of elements of meta-info that would be required to
+      // store this in a perfect world.
+      const auto outputEntryElems =
+          sizeof(MetaInfo<MetaInfoType>::OutputEntry) / sizeof(MetaInfoType);
+      const auto subGroupElems =
+          sizeof(MetaInfo<MetaInfoType>::SubGroupEntry) / sizeof(MetaInfoType);
+      const auto workerEntryElems =
+          sizeof(MetaInfo<MetaInfoType>::WorkerEntry) / sizeof(MetaInfoType);
+      // yNonZeroGroups * 2 because we encode information to transpose
+      // weights along with offsets for inputs if GradA method is selected
+      // other wise the same bucket as forward is used
+      constexpr unsigned elementsPerY = 2;
+      const auto numElemsPerfectlyUniform =
+          xNonZeroGroups * (outputEntryElems + yNonZeroGroups * elementsPerY);
+      const unsigned elems =
+          (subGroupElems + target.getNumWorkerContexts() * workerEntryElems) *
+              numSubgroupsPerBucket +
+          std::ceil(numElemsPerfectlyUniform *
+                    (1.0 + options.metaInfoBucketOversizeProportion));
+      return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
+    };
+    return m.call<unsigned>({mGroupsPerTile.x, mGroupsPerTile.y},
+                            calcGradABucketSizeElemwise);
+  }
+  case OnTileMethod::Transpose: {
+    // We actually use the same buckets as forward and for a joint plan
+    // the split should just be the tranpose of the forward.
+    return m.call<unsigned>({mGroupsPerTile.y, mGroupsPerTile.x},
+                            calcFwdBucketSizeElemwise);
+  }
+  case OnTileMethod::ForwardAMPBlock: {
+    return m.call<unsigned>({mGroupsPerTile.x, mGroupsPerTile.y},
+                            calcFwdBucketSizeAMPBlock);
+  }
+  default:
+    throw poputil::poplibs_error("Unhandled OnTileMethod");
+  }
+}
+
 static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
-           const Options &options) {
+           const Method &method, const Cost &bestCost, const Options &options) {
 
   const auto hierarchy = poplibs::getTileHierarchy(target);
   const auto perLevelExchangeBytesPerCycle =
@@ -1002,16 +1192,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
   // levels should not be significantly harder functionally however.
   assert(hierarchy.size() == 1);
 
-  // TODO: This should be based on the vertex we are going to use but also
-  // the operand which is sparse. We only have an element-wise MAC vertex
-  // currently and no sparse weight update vertex so it's unclear what the
-  // requirements are yet.
-  Vector<unsigned> grouping = {
-      1,                                // groups
-      1,                                // x
-      1,                                // y
-      target.getVectorWidth(inputType), // z
-  };
   Vector<unsigned> size = {
       static_cast<unsigned>(params.getNumGroups()),              // groups
       static_cast<unsigned>(params.getOutputChannelsPerGroup()), // x
@@ -1019,7 +1199,7 @@ createPlan(const PlanningObjective &objective, const Target &target,
       static_cast<unsigned>(params.getBatchSize()),              // z
   };
   Vector<unsigned> groups =
-      size.binaryOp(grouping, [&](const auto size, const auto grouping) {
+      size.binaryOp(method.grouping, [&](const auto size, const auto grouping) {
         return ceildiv(size, grouping);
       });
 
@@ -1056,71 +1236,18 @@ createPlan(const PlanningObjective &objective, const Target &target,
     }
   }
 
-  // Number of subgroups per bucket for memory planning
-  constexpr unsigned numSubgroupsPerBucket = 2U;
-
   // Calculate size of buckets.
-  const unsigned bytesPerMetaInfoElem = target.getTypeSize(metaInfoType);
-  const unsigned bytesPerInputElem = target.getTypeSize(inputType);
-  const unsigned exchangeAtomSize = target.getExchangeBytesPerCycle();
-  const auto metaInfoElemsPerExchangeAtom =
-      lcm(bytesPerMetaInfoElem, exchangeAtomSize) / bytesPerMetaInfoElem;
-  const auto inputElemsPerExchangeAtom =
-      lcm(bytesPerInputElem, exchangeAtomSize) / bytesPerInputElem;
-  const auto rElems = params.getNumGroups() *
-                      unsigned(std::ceil(params.getInputChannelsPerGroup() *
-                                         params.getOutputChannelsPerGroup() *
-                                         params.getNzRatio()));
-  const auto mRElems = m.addConstant(rElems);
-  const auto mRElemsPerBucket = [&] {
-    auto mElems = m.ceildiv(mRElems, fwdPartition.tile.at(0));
-    return m.call<unsigned>(
-        {mElems},
-        [=](const std::vector<unsigned> &values) -> popsolver::DataType {
-          const unsigned elems = std::round(
-              values[0] * (1.0 + options.metaInfoBucketOversizeProportion));
-          return popsolver::DataType{roundUp(elems, inputElemsPerExchangeAtom)};
-        });
-  }();
+  const auto mRGroups = addNumNonZeroGroups(m, params);
+  const auto rElemsPerGroup =
+      method.grouping.groups * method.grouping.x * method.grouping.y;
+  const auto mRGroupsPerBucket = addNumNonZeroGroupsPerBucket(
+      m, target, inputType, mRGroups, rElemsPerGroup, fwdPartition, options);
+  const auto mRElemsPerGroup = m.addConstant(rElemsPerGroup);
+  const auto mRFwdMetaInfoElemsPerBucket =
+      addMetaInfoElemsPerBucket(m, target, metaInfoType, params.getNzRatio(),
+                                method.fwd, mFwdGroups.back(), options);
 
-  auto calcFwdBucketSize =
-      [=](const std::vector<unsigned> &values) -> popsolver::DataType {
-    const auto xGroups = values[0];
-    const auto yGroups = values[1];
-    unsigned xNonZeroGroups, yNonZeroGroups;
-    std::tie(xNonZeroGroups, yNonZeroGroups) =
-        getNumGroupsGivenUniformSparsityPattern(params.getNzRatio(), xGroups,
-                                                yGroups);
-
-    // Knowing that we use a CSR based format we can calculate the
-    // number of elements of meta-info that would be required to
-    // store this in a perfect world.
-    const auto outputEntryElems =
-        sizeof(MetaInfo<MetaInfoType>::OutputEntry) / sizeof(MetaInfoType);
-    const auto subGroupElems =
-        sizeof(MetaInfo<MetaInfoType>::SubGroupEntry) / sizeof(MetaInfoType);
-    const auto workerEntryElems =
-        sizeof(MetaInfo<MetaInfoType>::WorkerEntry) / sizeof(MetaInfoType);
-    const auto numElemsPerfectlyUniform =
-        xNonZeroGroups * (outputEntryElems + yNonZeroGroups);
-    const auto gradWWorkerEntryElems =
-        options.doGradWPass
-            ? (1 + sizeof(MetaInfo<MetaInfoType>::GradWWorkerEntry) /
-                       sizeof(MetaInfoType))
-            : 0;
-
-    const unsigned elems =
-        (subGroupElems + target.getNumWorkerContexts() *
-                             (workerEntryElems + gradWWorkerEntryElems)) *
-            numSubgroupsPerBucket +
-        std::ceil(numElemsPerfectlyUniform *
-                  (1.0 + options.metaInfoBucketOversizeProportion));
-    return popsolver::DataType{roundUp(elems, metaInfoElemsPerExchangeAtom)};
-  };
-  const auto mRFwdMetaInfoElemsPerBucket = m.call<unsigned>(
-      {mFwdGroups.back().x, mFwdGroups.back().y}, calcFwdBucketSize);
-
-  const auto mFwdGrouping = grouping.transform<popsolver::Variable>(
+  const auto mFwdGrouping = method.grouping.transform<popsolver::Variable>(
       [&](const auto grouping) { return m.addConstant(grouping); });
 
   CostVariables fwdCost;
@@ -1133,16 +1260,12 @@ createPlan(const PlanningObjective &objective, const Target &target,
   };
   const ExchangeEstimator exchangeEstimator(m, target, hierarchy,
                                             perLevelExchangeBytesPerCycle);
-  const auto fwdMethod = OnTileMethod::Forward;
-  std::tie(fwdCost, fwdCostBreakdown) =
-      addEstimates(target, inputType, fwdShape, params.getSparsityParams(),
-                   params.getNzRatio(), fwdMethod, hierarchy, exchangeEstimator,
-                   m, fwdPartition, mFwdGroups, mFwdGrouping, mRElemsPerBucket,
-                   mRFwdMetaInfoElemsPerBucket, options);
+  std::tie(fwdCost, fwdCostBreakdown) = addEstimates(
+      target, inputType, fwdShape, params.getSparsityParams(),
+      params.getNzRatio(), method.fwd, hierarchy, exchangeEstimator, m,
+      fwdPartition, mFwdGroups, mFwdGrouping, mRGroupsPerBucket,
+      mRElemsPerGroup, mRFwdMetaInfoElemsPerBucket, options);
 
-  // TODO: This could eventually be based on a memory/cycle tradeoff
-  const auto gradAMethod =
-      options.sharedBuckets ? OnTileMethod::Transpose : OnTileMethod::GradA;
   CostVariables gradACost(m.zero(), m.zero());
   CostBreakdownVariables gradACostBreakdown;
   popsolver::Variable mRGradAMetaInfoElemsPerBucket = m.zero();
@@ -1178,91 +1301,55 @@ createPlan(const PlanningObjective &objective, const Target &target,
       return v;
     }();
     const auto mGradAGrouping = toGradA(mFwdGrouping);
-
-    auto calcGradABucketSize =
-        [=](const std::vector<unsigned> &values) -> popsolver::DataType {
-      const auto xGroups = values[0];
-      const auto yGroups = values[1];
-      unsigned xNonZeroGroups, yNonZeroGroups;
-      std::tie(xNonZeroGroups, yNonZeroGroups) =
-          getNumGroupsGivenUniformSparsityPattern(params.getNzRatio(), xGroups,
-                                                  yGroups);
-
-      // Knowing that we use a CSR based format we can calculate the
-      // number of elements of meta-info that would be required to
-      // store this in a perfect world.
-      const auto outputEntryElems =
-          sizeof(MetaInfo<MetaInfoType>::OutputEntry) / sizeof(MetaInfoType);
-      const auto subGroupElems =
-          sizeof(MetaInfo<MetaInfoType>::SubGroupEntry) / sizeof(MetaInfoType);
-      const auto workerEntryElems =
-          sizeof(MetaInfo<MetaInfoType>::WorkerEntry) / sizeof(MetaInfoType);
-      // yNonZeroGroups * 2 because we encode information to transpose
-      // weights along with offsets for inputs if GradA method is selected
-      // other wise the same bucket as forward is used
-      const auto elementsPerY = gradAMethod == OnTileMethod::GradA ? 2 : 1;
-      const auto numElemsPerfectlyUniform =
-          xNonZeroGroups * (outputEntryElems + yNonZeroGroups * elementsPerY);
-      const unsigned elems =
-          (subGroupElems + target.getNumWorkerContexts() * workerEntryElems) *
-              numSubgroupsPerBucket +
-          std::ceil(numElemsPerfectlyUniform *
-                    (1.0 + options.metaInfoBucketOversizeProportion));
-      return popsolver::DataType{roundUp(elems, metaInfoElemsPerExchangeAtom)};
-    };
-    if (gradAMethod == OnTileMethod::Transpose) {
-      // We actually use the same buckets as forward and for a joint plan
-      // the split should just be the tranpose of the forward.
-      mRGradAMetaInfoElemsPerBucket = m.call<unsigned>(
-          {mGradAGroups.back().y, mGradAGroups.back().x}, calcFwdBucketSize);
-    } else {
-      mRGradAMetaInfoElemsPerBucket = m.call<unsigned>(
-          {mGradAGroups.back().x, mGradAGroups.back().y}, calcGradABucketSize);
-    }
+    mRGradAMetaInfoElemsPerBucket =
+        addMetaInfoElemsPerBucket(m, target, metaInfoType, params.getNzRatio(),
+                                  method.gradA, mGradAGroups.back(), options);
 
     std::tie(gradACost, gradACostBreakdown) = addEstimates(
         target, inputType, gradAShape, params.getSparsityParams(),
-        params.getNzRatio(), gradAMethod, hierarchy, exchangeEstimator, m,
-        gradAPartition, mGradAGroups, mGradAGrouping, mRElemsPerBucket,
-        mRGradAMetaInfoElemsPerBucket, options);
+        params.getNzRatio(), method.gradA, hierarchy, exchangeEstimator, m,
+        gradAPartition, mGradAGroups, mGradAGrouping, mRGroupsPerBucket,
+        mRElemsPerGroup, mRGradAMetaInfoElemsPerBucket, options);
   }
 
-  const auto gradWMethod = OnTileMethod::GradW;
   CostVariables gradWCost(m.zero(), m.zero());
   CostBreakdownVariables gradWCostBreakdown;
   if (options.doGradWPass) {
     std::tie(gradWCost, gradWCostBreakdown) = addEstimatesGradW(
         target, inputType, fwdShape, params.getSparsityParams(),
-        params.getNzRatio(), gradWMethod, hierarchy, exchangeEstimator, m,
-        fwdPartition, mFwdGroups, mFwdGrouping, mRElemsPerBucket, options);
+        params.getNzRatio(), method.gradW, hierarchy, exchangeEstimator, m,
+        fwdPartition, mFwdGroups, mFwdGrouping, mRGroupsPerBucket,
+        mRElemsPerGroup, options);
   }
 
-  const CostVariables cost(
+  const CostVariables mCost(
       m.sum({fwdCost.cycles, gradACost.cycles, gradWCost.cycles}),
       m.max({fwdCost.tempBytes, gradACost.tempBytes, gradWCost.tempBytes}));
-  CostBreakdownVariables costBreakdown;
+  CostBreakdownVariables mCostBreakdown;
   for (auto &entry : fwdCostBreakdown) {
-    costBreakdown.emplace_back("Fwd: " + std::move(entry.first),
-                               std::move(entry.second));
+    mCostBreakdown.emplace_back("Fwd: " + std::move(entry.first),
+                                std::move(entry.second));
   }
   for (auto &entry : gradACostBreakdown) {
-    costBreakdown.emplace_back("GradA: " + std::move(entry.first),
-                               std::move(entry.second));
+    mCostBreakdown.emplace_back("GradA: " + std::move(entry.first),
+                                std::move(entry.second));
   }
   for (auto &entry : gradWCostBreakdown) {
-    costBreakdown.emplace_back("GradW: " + std::move(entry.first),
-                               std::move(entry.second));
+    mCostBreakdown.emplace_back("GradW: " + std::move(entry.first),
+                                std::move(entry.second));
   }
 
   popsolver::Solution solution;
   switch (objective.getType()) {
   case PlanningObjective::MINIMIZE_CYCLES:
-    m.lessOrEqual(cost.tempBytes, objective.getTileTempMemoryBound());
-    solution = m.minimize({cost.cycles, cost.tempBytes});
+    m.lessOrEqual(mCost.cycles, bestCost.cycles);
+    m.lessOrEqual(mCost.tempBytes, objective.getTileTempMemoryBound());
+    solution = m.minimize({mCost.cycles, mCost.tempBytes});
     break;
   case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
-    m.lessOrEqual(cost.cycles, objective.getCyclesBound());
-    solution = m.minimize({cost.tempBytes, cost.cycles});
+    m.lessOrEqual(mCost.tempBytes, bestCost.tempBytes);
+    m.lessOrEqual(mCost.cycles, objective.getCyclesBound());
+    solution = m.minimize({mCost.tempBytes, mCost.cycles});
     break;
   }
 
@@ -1271,7 +1358,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
   }
 
   Plan plan;
-  plan.grouping = grouping;
   plan.partition = fwdPartition.partition[0].transform<unsigned>(
       [&](popsolver::Variable partitionVar) {
         return solution[partitionVar].getAs<unsigned>();
@@ -1280,30 +1366,101 @@ createPlan(const PlanningObjective &objective, const Target &target,
   // down the road if temporary memory did not allow this
   plan.initialDistributionBucketPartition = plan.partition;
   plan.initialDistributionBucketPartition.z = 1;
-  plan.nzElemsPerBucket = solution[mRElemsPerBucket].getAs<unsigned>();
+  plan.nzElemsPerBucket = solution[mRGroupsPerBucket].getAs<unsigned>();
   plan.fwdMetaInfoElemsPerBucket =
       solution[mRFwdMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.gradAMetaInfoElemsPerBucket =
       solution[mRGradAMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.mappingOrder = PartitionToPNMappingOrder::FwdLinearGYZX;
-  plan.fwdMethod = fwdMethod;
-  plan.gradAMethod = gradAMethod;
-  plan.gradWMethod = gradWMethod;
+  plan.method = method;
 
-  Cost bestCost;
-  bestCost.cycles = solution[cost.cycles];
-  bestCost.tempBytes = solution[cost.tempBytes];
+  Cost cost;
+  cost.cycles = solution[mCost.cycles];
+  cost.tempBytes = solution[mCost.tempBytes];
 
-  CostBreakdown bestCostBreakdown;
-  bestCostBreakdown.reserve(costBreakdown.size());
-  for (const auto &entry : costBreakdown) {
-    bestCostBreakdown.emplace_back(
+  CostBreakdown costBreakdown;
+  costBreakdown.reserve(mCostBreakdown.size());
+  for (const auto &entry : mCostBreakdown) {
+    costBreakdown.emplace_back(
         std::move(entry.first),
         Cost(solution[entry.second.cycles], solution[entry.second.tempBytes]));
   }
 
-  return std::make_tuple(std::move(plan), std::move(bestCost),
-                         std::move(bestCostBreakdown));
+  return std::make_tuple(std::move(plan), std::move(cost),
+                         std::move(costBreakdown));
+}
+
+static std::vector<Method>
+getCandidateMethods(const Target &target, const Type &inputType,
+                    const FullyConnectedParams &params,
+                    const Options &options) {
+  std::vector<Method> methods;
+
+  const auto &sparsityParams = params.getSparsityParams();
+
+  const unsigned xElemsPerBlock = sparsityParams.blockDimensions.at(0);
+  const unsigned yElemsPerBlock = sparsityParams.blockDimensions.at(1);
+  const unsigned elemsPerBlock = xElemsPerBlock * yElemsPerBlock;
+
+  if (elemsPerBlock == 1) {
+    // Element-wise methods
+    Vector<unsigned> grouping = {
+        1,                                // groups
+        1,                                // x
+        1,                                // y
+        target.getVectorWidth(inputType), // z
+    };
+    methods.emplace_back(Method{
+        grouping, OnTileMethod::Forward,
+        // TODO: This could eventually be based on a memory/cycle tradeoff
+        options.sharedBuckets ? OnTileMethod::Transpose : OnTileMethod::GradA,
+        OnTileMethod::GradW});
+  } else {
+    // AMP-based block methods
+    Vector<unsigned> grouping = {
+        1,
+        xElemsPerBlock,
+        yElemsPerBlock,
+        1,
+    };
+    methods.emplace_back(Method{grouping, OnTileMethod::ForwardAMPBlock,
+                                OnTileMethod::TransposeAMPBlock,
+                                OnTileMethod::GradWAMPBlock});
+  }
+  return methods;
+}
+
+static std::tuple<Plan, Cost, CostBreakdown>
+createPlan(const PlanningObjective &objective, const Target &target,
+           const Type &inputType, const FullyConnectedParams &params,
+           const Options &options) {
+  const auto candidateMethods =
+      getCandidateMethods(target, inputType, params, options);
+  assert(!candidateMethods.empty());
+
+  Plan best;
+  Cost bestCost = highestCost;
+  CostBreakdown bestCostBreakdown;
+  for (const auto &candidateMethod : candidateMethods) {
+    Plan candidate;
+    Cost candidateCost;
+    CostBreakdown candidateCostBreakdown;
+
+    std::tie(candidate, candidateCost, candidateCostBreakdown) =
+        createPlan(objective, target, inputType, params, candidateMethod,
+                   bestCost, options);
+
+    if (candidateCost == highestCost) {
+      continue;
+    }
+
+    if (objective.lowerCost(candidateCost, bestCost)) {
+      best = std::move(candidate);
+      bestCost = std::move(candidateCost);
+      bestCostBreakdown = std::move(candidateCostBreakdown);
+    }
+  }
+  return std::make_tuple(best, bestCost, bestCostBreakdown);
 }
 
 static std::tuple<Plan, Cost> runPlanner(const Target &target,
@@ -1318,36 +1475,35 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
       target.getBytesPerTile() * options.availableMemoryProportion;
 
   if (availableTileMem != 0) {
-    logging::debug(
-        "Planning sparse-dense matrix multiply with a per-tile memory "
-        "limit of {} bytes.",
-        availableTileMem);
     auto objective = PlanningObjective::minimizeCycles();
-    objective.setTileTempMemoryBound(popsolver::DataType{availableTileMem});
+    auto stepMemBound = availableTileMem;
+    objective.setTileTempMemoryBound(popsolver::DataType{stepMemBound});
+    logging::debug("Planning sparse-dense matrix multiply with a per-tile "
+                   "memory limit of {} bytes.",
+                   stepMemBound);
 
+    do {
+      std::tie(plan, cost, costBreakdown) =
+          createPlan(objective, target, inputType, params, options);
+      if (cost != highestCost) {
+        break;
+      }
+      stepMemBound *= 2;
+      logging::warn("Unable to meet memory target. Retrying with a per-tile "
+                    "memory limit of {} bytes.",
+                    stepMemBound);
+      objective.setTileTempMemoryBound(popsolver::DataType{stepMemBound});
+    } while (stepMemBound < target.getBytesPerTile() * 2);
+
+    // Now try without a limit
+    objective = PlanningObjective::minimizeCycles();
+    logging::warn("Unable to meet memory target. Retrying with no per-tile "
+                  "memory limit.");
     std::tie(plan, cost, costBreakdown) =
         createPlan(objective, target, inputType, params, options);
   } else {
     logging::debug(
         "Planning sparse-dense matrix multiply with unlimited memory usage.");
-  }
-
-  if (cost == highestCost) {
-    if (availableTileMem != 0) {
-      logging::warn("Warning: sparse-dense matmul planner unable to meet "
-                    "memory target; retrying while targeting minimum memory.");
-    } else {
-      logging::debug("Planning sparse-dense matmul that uses the least amount "
-                     "of temporary memory");
-    }
-
-    auto objective = PlanningObjective::minimizeTileTempMemory();
-    std::tie(plan, cost, costBreakdown) =
-        createPlan(objective, target, inputType, params, options);
-
-    if (cost == highestCost) {
-      throw poputil::poplibs_error("No plan found for sparse-dense matmul");
-    }
   }
 
   logging::debug("Found best plan: {}.", cost);
@@ -1385,14 +1541,29 @@ std::ostream &operator<<(std::ostream &os, const OnTileMethod &m) {
   case OnTileMethod::Transpose:
     os << "Transpose";
     break;
+  case OnTileMethod::ForwardAMPBlock:
+    os << "ForwardAMPBlock";
+    break;
+  case OnTileMethod::TransposeAMPBlock:
+    os << "TransposeAMPBlock";
+    break;
+  case OnTileMethod::GradWAMPBlock:
+    os << "GradWAMPBlock";
+    break;
   default:
     throw poputil::poplibs_error("Unrecognised on-tile method");
   }
   return os;
 }
 
+std::ostream &operator<<(std::ostream &os, const Method &m) {
+  os << "{ grouping: " << m.grouping << ", forward pass: " << m.fwd
+     << ", grad-a pass: " << m.gradA << ", grad-w pass: " << m.gradW << " }";
+  return os;
+}
+
 std::ostream &operator<<(std::ostream &os, const Plan &p) {
-  os << "Plan:\n  grouping: " << p.grouping << "\n  partition: " << p.partition
+  os << "Plan:\n  method: " << p.method << "\n  partition: " << p.partition
      << "\n  initial distribution bucket partition: "
      << p.initialDistributionBucketPartition
      << "\n  used tiles: " << product(p.partition.asStdVector())
@@ -1401,10 +1572,7 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
      << "\n  no. of meta-info elements per bucket (forward): "
      << p.fwdMetaInfoElemsPerBucket
      << "\n  no. of meta-info elements per bucket (grad-a): "
-     << p.gradAMetaInfoElemsPerBucket
-     << "\n  forward pass on-tile method: " << p.fwdMethod
-     << "\n  grad-a pass on-tile method: " << p.gradAMethod
-     << "\n  grad-w pass on-tile method: " << p.gradWMethod << "\n";
+     << p.gradAMetaInfoElemsPerBucket << "\n";
   return os;
 }
 
@@ -1423,11 +1591,11 @@ getPartitionStartIndices(const popsparse::dynamic::FullyConnectedParams &params,
     return split;
   };
   auto xSplits = createSplit(params.getOutputChannelsPerGroup(),
-                             plan.partition.x, plan.grouping.x);
+                             plan.partition.x, plan.method.grouping.x);
   auto ySplits = createSplit(params.getInputChannelsPerGroup(),
-                             plan.partition.y, plan.grouping.y);
-  auto zSplits =
-      createSplit(params.getBatchSize(), plan.partition.z, plan.grouping.z);
+                             plan.partition.y, plan.method.grouping.y);
+  auto zSplits = createSplit(params.getBatchSize(), plan.partition.z,
+                             plan.method.grouping.z);
 
   return {xSplits, ySplits, zSplits};
 }
