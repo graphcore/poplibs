@@ -182,11 +182,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              0xC // CCCS_CWEI_3_0
       nop
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
-.endif
-.endif
+.endif // \INTYPE float
+.endif // \BLOCKSIZE, 4
 
 .ifc \BLOCKSIZE, 8
-// TODO: For IPU2 this could in interleaved memory and use ld128
+// TODO: For IPU2 this could be in interleaved memory and use ld128
 .ifc \INTYPE, float
       ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
       ld64putcs              0
@@ -241,11 +241,231 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              25
       ld64putcs              28
       ld64putcs              29
-.endif
-.endif
+.endif // \INTYPE, float
+.endif // \BLOCKSIZE, 8
+
+.ifc \BLOCKSIZE, 16
+.ifc \PTYPE, float
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              2
+      ld64putcs              3
+      ld64putcs              4
+      st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+      ld64putcs              5
+      ld64putcs              6
+      ld64putcs              7
+      ld64putcs              8
+      ld64putcs              9
+      ld64putcs              10
+      ld64putcs              11
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              14
+      ld64putcs              15
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              18
+      ld64putcs              19
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              22
+      ld64putcs              23
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              26
+      ld64putcs              27
+      ld64putcs              28
+      ld64putcs              29
+      ld64putcs              30
+      ld64putcs              31
+.else
+// TODO: For IPU2 this could be in interleaved memory and use ld128
+#if __IPU_ARCH_VERSION__ < 2
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              2
+      ld64putcs              3
+      ld64putcs              4
+      st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+      ld64putcs              5
+      ld64putcs              6
+      ld64putcs              7
+      ld64putcs              8
+      ld64putcs              9
+      ld64putcs              10
+      ld64putcs              11
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              14
+      ld64putcs              15
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              18
+      ld64putcs              19
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              22
+      ld64putcs              23
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              26
+      ld64putcs              27
+      ld64putcs              28
+      ld64putcs              29
+      ld64putcs              30
+      ld64putcs              31
+#else
+      // Assumes 16 AMP engines
+      ldz16step              $s_yOffsetInS, $mzero, $s_wTemp+=, 1
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              2
+      ld64putcs              3
+      ld64putcs              4
+      st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+      ld64putcs              5
+      ld64putcs              6
+      ld64putcs              7
+      ld64putcs              32
+      ld64putcs              33
+      ld64putcs              34
+      ld64putcs              35
+      ld64putcs              36
+      ld64putcs              37
+      ld64putcs              38
+      ld64putcs              39
+      ld64putcs              8
+      ld64putcs              9
+      ld64putcs              10
+      ld64putcs              11
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              14
+      ld64putcs              15
+      ld64putcs              40
+      ld64putcs              41
+      ld64putcs              42
+      ld64putcs              43
+      ld64putcs              44
+      ld64putcs              45
+      ld64putcs              46
+      ld64putcs              47
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              18
+      ld64putcs              19
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              22
+      ld64putcs              23
+      ld64putcs              48
+      ld64putcs              49
+      ld64putcs              50
+      ld64putcs              51
+      ld64putcs              52
+      ld64putcs              53
+      ld64putcs              54
+      ld64putcs              55
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              26
+      ld64putcs              27
+      ld64putcs              28
+      ld64putcs              29
+      ld64putcs              30
+      ld64putcs              31
+      ld64putcs              56
+      ld64putcs              57
+      ld64putcs              58
+      ld64putcs              59
+      ld64putcs              60
+      ld64putcs              61
+      ld64putcs              62
+      ld64putcs              63
+#endif // __IPU_ARCH_VERSION__ < 2
+.endif // \PTYPE, float
+.endif // \BLOCKSIZE, 16
       runall                 $s_wkrFunction, $sp, 0
       setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained   
       sync                   TEXCH_SYNCZONE_LOCAL
+.ifc \BLOCKSIZE, 16
+.ifc \PTYPE, float
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              2
+      ld64putcs              3
+      ld64putcs              4
+      ld64putcs              5
+      ld64putcs              6
+      ld64putcs              7
+      ld64putcs              8
+      ld64putcs              9
+      ld64putcs              10
+      ld64putcs              11
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              14
+      ld64putcs              15
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              18
+      ld64putcs              19
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              22
+      ld64putcs              23
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              26
+      ld64putcs              27
+      ld64putcs              28
+      ld64putcs              29
+      ld64putcs              30
+      ld64putcs              31
+      runall                 $s_wkrFunction, $sp, 0
+      sync                   TEXCH_SYNCZONE_LOCAL
+.else
+#if __IPU_ARCH_VERSION__ < 2
+      ld64putcs              0
+      ld64putcs              1
+      ld64putcs              2
+      ld64putcs              3
+      ld64putcs              4
+      ld64putcs              5
+      ld64putcs              6
+      ld64putcs              7
+      ld64putcs              8
+      ld64putcs              9
+      ld64putcs              10
+      ld64putcs              11
+      ld64putcs              12
+      ld64putcs              13
+      ld64putcs              14
+      ld64putcs              15
+      ld64putcs              16
+      ld64putcs              17
+      ld64putcs              18
+      ld64putcs              19
+      ld64putcs              20
+      ld64putcs              21
+      ld64putcs              22
+      ld64putcs              23
+      ld64putcs              24
+      ld64putcs              25
+      ld64putcs              26
+      ld64putcs              27
+      ld64putcs              28
+      ld64putcs              29
+      ld64putcs              30
+      ld64putcs              31
+      runall                 $s_wkrFunction, $sp, 0
+      sync                   TEXCH_SYNCZONE_LOCAL
+#endif // __IPU_ARCH_VERSION__ < 2
+.endif // \PTYPE, float
+.endif // \BLOCKSIZE, 16
       brnzdec                $s_numYm1, Ls_YLoop_\INTYPE\()_\PTYPE\()
     brnzdec                $s_numXm1, Ls_XLoop_\INTYPE\()_\PTYPE\()
   

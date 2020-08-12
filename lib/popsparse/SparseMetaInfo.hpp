@@ -74,7 +74,7 @@ template <typename T> struct BlockMetaInfo {
   struct SubGroupEntry {
     // ID of the sub-group
     T id;
-    // Offset in multiples of 64-bits to next sub-group's non-zero values from
+    // Offset in elements to next sub-group's non-zero values from
     // the end of the last sub-groups' non-zero values.
     T offsetToNextSubGroupSparseEntries;
     // Offset to next sub-group's entry in this bucket from the beginning

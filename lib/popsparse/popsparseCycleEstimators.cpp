@@ -105,6 +105,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                             8),
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlock, FLOAT, FLOAT, 8,
                             8),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlock, HALF, HALF, 16,
+                            16),
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlock, HALF, FLOAT, 16,
                             16),
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlock, FLOAT, FLOAT, 16,

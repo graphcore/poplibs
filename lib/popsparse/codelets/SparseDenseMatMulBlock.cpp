@@ -15,9 +15,12 @@ static constexpr auto SHORT_SPAN = VectorLayout::SHORT_SPAN;
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
-  return std::is_same<AccumType, float>() &&
-         ((BlockRows == 4 && BlockCols == 4) ||
-          (BlockRows == 8 && BlockCols == 8));
+  constexpr bool is4x4 = BlockRows == 4 && BlockCols == 4;
+  constexpr bool is8x8 = BlockRows == 8 && BlockCols == 8;
+  constexpr bool is16x16 = BlockRows == 16 && BlockCols == 16;
+  constexpr bool floatInputs = std::is_same<FPType, float>();
+  constexpr bool floatPartials = std::is_same<AccumType, float>();
+  return (floatPartials && (is4x4 || is8x8)) || (!floatInputs && is16x16);
 }
 
 namespace popsparse {
@@ -31,9 +34,8 @@ class [[poplar::constraint("elem(*q) != elem(*s)")]] SparseDenseMatMulBlock
 
   using MetaInfoType = unsigned short;
   using MetaInfo = popsparse::BlockMetaInfo<MetaInfoType>;
-  // TODO: Dependent on the block size specialisations, this alignment needs
-  // increasing.
   constexpr static std::size_t rAlignmentRequirement = alignof(FPType);
+  constexpr static std::size_t qAlignmentRequirement = 8;
   constexpr static bool qInInterleavedMem = std::is_same<FPType, half>();
 
 public:
@@ -50,10 +52,10 @@ public:
   // Single pointer to dense output q. Layout of elements in memory expected to
   // be {X,Z}.
   // We may use this in multiple passes so this needs to be an InOut edge.
-  InOut<Vector<AccumType, ONE_PTR, 8, qInInterleavedMem>> q;
+  InOut<Vector<AccumType, ONE_PTR, qAlignmentRequirement, qInInterleavedMem>> q;
   // The sub-group id that should be processed by this vertex.
   const MetaInfoType subGroupIdToProcess;
-  // Number of elements in q to zero. Set to zero if no zeroing required.
+  // Multiple of 32-bits in q to zero. Set to zero if no zeroing required.
   const unsigned short zeroInfo;
 
   // NOTE! This entry must be at this position relative to the ones above
@@ -97,7 +99,9 @@ public:
 
   bool compute() {
     // Zero outputs if requested.
-    for (unsigned i = 0; i < zeroInfo; ++i) {
+    static_assert((accumTypeSize * BlockRows * BlockCols) % 4 == 0,
+                  "Size in bytes of q must be divisible by 4");
+    for (unsigned i = 0; i < zeroInfo * (4 / accumTypeSize); ++i) {
       q[i] = 0;
     }
 
@@ -150,6 +154,7 @@ template class SparseDenseMatMulBlock<half, float, 4, 4>;
 template class SparseDenseMatMulBlock<float, float, 4, 4>;
 template class SparseDenseMatMulBlock<half, float, 8, 8>;
 template class SparseDenseMatMulBlock<float, float, 8, 8>;
+template class SparseDenseMatMulBlock<half, half, 16, 16>;
 template class SparseDenseMatMulBlock<half, float, 16, 16>;
 template class SparseDenseMatMulBlock<float, float, 16, 16>;
 

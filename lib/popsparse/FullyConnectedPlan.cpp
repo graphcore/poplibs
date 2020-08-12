@@ -495,6 +495,17 @@ static std::tuple<unsigned, unsigned> getNumGroupsGivenUniformSparsityPattern(
   return std::make_tuple(xNonZeroGroups, yNonZeroGroups);
 }
 
+static inline unsigned getNumConvUnits(const Target &target,
+                                       bool floatActivations,
+                                       bool floatPartial) {
+  if (floatActivations) {
+    return target.getFp32InFp32OutConvUnitsPerTile();
+  } else {
+    return floatPartial ? target.getFp16InFp32OutConvUnitsPerTile()
+                        : target.getFp16InFp16OutConvUnitsPerTile();
+  }
+}
+
 static std::tuple<CostVariables, popsolver::Variable>
 addInitialComputeCostSparseDense(
     popsolver::Model &m, const Target &target, const Type &inputType,
@@ -513,6 +524,8 @@ addInitialComputeCostSparseDense(
 
   const auto numWorkers = target.getNumWorkerContexts();
   const auto partialsType = options.partialsType;
+  const unsigned numConvUnits =
+      getNumConvUnits(target, inputType == FLOAT, partialsType == FLOAT);
   const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialsType));
   const auto mNumBucketsPerTile = mCumulativePartitions.z;
   const auto mCycles = m.call<unsigned>(
@@ -595,7 +608,8 @@ addInitialComputeCostSparseDense(
             mulCycles = sparseDenseBlockMultiply(
                 numBuckets, numBuckets, numSubGroupsPerBucket, xGroups,
                 workerZElems, xGrouping, yGrouping, {yNonZeroGroups},
-                inputType == FLOAT, partialsType == FLOAT, numWorkers);
+                inputType == FLOAT, partialsType == FLOAT, numWorkers,
+                numConvUnits);
             break;
           default:
             throw poputil::poplibs_error("Unhandled method when planning");

@@ -93,22 +93,28 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
                   --vertex-type=${VERTEX_TYPE})
               endforeach()
               foreach(Z 4 8 28)
-                add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_n${X}_block${BLOCKSIZE}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_half_in_${VERTEX_TYPE}${ZERO_PARTIALS}
-                  COMMAND SparseDenseMatMulBlock
-                    ${ZERO_PARTIALS_OPT}
-                    --input-type=half
-                    --partials-type=float
-                    --a-shape={${NUM_ROWS},${NUM_COLS}}
-                    --b-shape={${NUM_COLS},${Z}}
-                    --block-size={${BLOCKSIZE},${BLOCKSIZE}}
-                    --sparsity-level=0.5
-                    --num-buckets=${NUM_BUCKETS}
-                    --num-splits=${NUM_SPLITS}
-                    --vertex-type=${VERTEX_TYPE})
+                set(PARTIALS_TYPES float)
+                if (BLOCKSIZE EQUAL 16)
+                  list(APPEND PARTIALS_TYPES half)
+                endif()
+                foreach(PARTIALS_TYPE ${PARTIALS_TYPES})
+                  add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_n${X}_block${BLOCKSIZE}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_half_in_${PARTIALS_TYPE}_out_${VERTEX_TYPE}${ZERO_PARTIALS}
+                    COMMAND SparseDenseMatMulBlock
+                      ${ZERO_PARTIALS_OPT}
+                      --input-type=half
+                      --partials-type=${PARTIALS_TYPE}
+                      --a-shape={${NUM_ROWS},${NUM_COLS}}
+                      --b-shape={${NUM_COLS},${Z}}
+                      --block-size={${BLOCKSIZE},${BLOCKSIZE}}
+                      --sparsity-level=0.5
+                      --num-buckets=${NUM_BUCKETS}
+                      --num-splits=${NUM_SPLITS}
+                      --vertex-type=${VERTEX_TYPE})
                 endforeach()
               endforeach()
             endforeach()
           endforeach()
+        endforeach()
       endforeach()
     endforeach()
   endforeach()

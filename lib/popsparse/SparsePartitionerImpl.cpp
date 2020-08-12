@@ -1095,7 +1095,6 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
   const std::size_t xOffsetTypeFactor =
       popsparse::getXOffsetTypeFactor(dataType == poplar::FLOAT);
 
-  const std::size_t inputElemBytes = dataType == poplar::FLOAT ? 4 : 2;
   const auto blockSize = grainX * grainY;
 
   std::vector<std::size_t> group;
@@ -1104,7 +1103,6 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
   nzBucket.reserve(nzElementsBucketElements * blockSize);
 
   if (useBlockMetaInfoFormat) {
-    assert((blockSize * inputElemBytes) % 8 == 0);
     for (const auto &sg : bucket.subGroups) {
       const auto sgId = formSubgroupId(
           sg.tileIndex, {xSplits.size(), ySplits.size(), zSplits.size()},
@@ -1118,8 +1116,7 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
       for (const auto &rowEntry : sg.tileInfo) {
         nzCount += rowEntry.positionValues.size();
       }
-      const auto offsetToNextSubGroupSparseEntries =
-          (nzCount * blockSize * inputElemBytes) / 8;
+      const auto offsetToNextSubGroupSparseEntries = nzCount * blockSize;
       const auto offsetToNextSubGroupMetaInfo =
           (sizeof(BlockMetaInfo<std::size_t>::SubGroupEntry) +
            sizeof(BlockMetaInfo<std::size_t>::OutputEntry) * numRows +

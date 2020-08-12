@@ -314,11 +314,16 @@ int main(int argc, char **argv) try {
     throw poplibs_error("GradW vertex can only handle --num-buckets=1");
   }
 
-  std::size_t modForCheck = inputType == HALF ? 4 : 2;
-
-  if (bShape[1] % modForCheck) {
-    throw poplibs_error("sizes of second dimension of b must be multiple of " +
+  const std::size_t modForCheck = inputType == HALF ? 4 : 2;
+  if (blockSize[0] % modForCheck) {
+    throw poplibs_error("First dimension of block size must be a multiple of " +
                         std::to_string(modForCheck));
+  }
+
+  if (blockSize[1] % modForCheck) {
+    throw poplibs_error(
+        "Second dimension of block size must be a multiple of " +
+        std::to_string(modForCheck));
   }
 
   const std::vector<std::size_t> cShape = {aShape[0], bShape[1]};
@@ -420,7 +425,9 @@ int main(int argc, char **argv) try {
   graph.connect(v["s"], b.flatten());
   graph.connect(v["metaInfo"], metaInfoBuckets);
   graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
-  const auto numPartials = c.numElements();
+  assert(partialsType == FLOAT || c.numElements() % 2 == 0);
+  const auto numPartials =
+      (partialsType == FLOAT) ? c.numElements() : c.numElements() / 2;
   graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
   graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
   graph.setInitialValue(v["zStrideInS"], zStrideInS);

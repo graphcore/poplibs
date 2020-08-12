@@ -165,7 +165,7 @@ static inline std::uint64_t sparseDenseBlockMultiply(
     unsigned averageSubgroupsPerBucket, unsigned numXBlocks, unsigned numZ,
     unsigned numBlockRows, unsigned numBlockCols,
     const std::vector<unsigned> &numYBlocks, bool floatInput,
-    bool /* floatPartials */, unsigned numWorkerContexts) {
+    bool floatPartials, unsigned numWorkerContexts, unsigned numConvUnits) {
 
   // logging::trace("sparseDenseElementwiseMultiply: numBuckets={},
   // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
@@ -175,6 +175,8 @@ static inline std::uint64_t sparseDenseBlockMultiply(
   // we use 64-bit coefficient loading per Block
   uint64_t numCoeffLoadCyclesPerBlock =
       (numBlockRows * numBlockCols) / (floatInput ? 2 : 4);
+
+  uint64_t numWeightLoadsPerBlock = 1;
 
   std::uint64_t supervisorOverhead = 40;
   std::uint64_t supervisorCyclesWithBucketsNotForPN =
@@ -224,13 +226,49 @@ static inline std::uint64_t sparseDenseBlockMultiply(
     }
     break;
   case 16:
+    numWeightLoadsPerBlock = numConvUnits == 8 ? 2 : 1;
+    cyclesPerZ = 4;
+    assert(!floatInput);
+    if (floatPartials) {
+      workerCyclesOverhead = 23;
+      if (numZ == 1) {
+        innerOverhead = 24;
+      } else if (numZ == 2) {
+        innerOverhead = 25;
+      } else {
+        innerOverhead = 24;
+      }
+    } else {
+      if (numConvUnits == 16) {
+        workerCyclesOverhead = 22;
+        if (numZ == 1) {
+          innerOverhead = 22;
+        } else if (numZ == 2) {
+          innerOverhead = 23;
+        } else {
+          innerOverhead = 22;
+        }
+      } else if (numConvUnits == 8) {
+        workerCyclesOverhead = 23;
+        if (numZ == 1) {
+          innerOverhead = 24;
+        } else if (numZ == 2) {
+          innerOverhead = 25;
+        } else {
+          innerOverhead = 24;
+        }
+      } else {
+        assert(0 && "Unhandled no. of conv units");
+      }
+    }
     break;
   }
 
   auto innerCycles = innerOverhead + numZ * cyclesPerZ;
   for (const auto &y : numYBlocks) {
-    supervisorBlockLoadCycles += y * (numCoeffLoadCyclesPerBlock + 15);
-    workerLoopCycles += y * innerCycles;
+    supervisorBlockLoadCycles +=
+        y * (numCoeffLoadCyclesPerBlock + 3 + (12 * numWeightLoadsPerBlock));
+    workerLoopCycles += y * (numWeightLoadsPerBlock * innerCycles);
   }
   supervisorBlockLoadCycles *= numXBlocks + 2;
   workerLoopCycles *= numXBlocks;
