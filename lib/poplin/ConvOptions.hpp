@@ -12,6 +12,11 @@ namespace poplin {
 
 enum class Pass {
   NONE,
+  /// Unspecified matrix multiplication, this pass type is undocumented and
+  /// exists so we compute exactly the same cost as we did before when the
+  /// operands to a matrix multiplication were swapped (see T16758).
+  /// TODO remove.
+  NONE_MATMUL,
   INFERENCE_FWD,
   TRAINING_FWD,
   TRAINING_BWD,

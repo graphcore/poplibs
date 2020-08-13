@@ -1386,7 +1386,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
 
   # Small fully connected layers at low batch sizes (half and float).
   foreach(type half float)
-    foreach(bs 1 4)
+    foreach(bs 1 4 8 16)
       add_fc_benchmark(NAME fc_layer_${bs}_1000_1000_${type}
                       PARAMS --batch-size ${bs}
                              --input-size 1000

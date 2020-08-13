@@ -23,8 +23,8 @@ static auto params = poplin::ConvParams{poplar::FLOAT, // Data type
                                         5};            // conv groups
 
 static auto fcParams = poplin::ConvParams{poplar::FLOAT, // Data type
-                                          1,             // batch size
-                                          {4},           // input field shape
+                                          4,             // batch size
+                                          {1},           // input field shape
                                           {1},           // kernel shape
                                           3,             // input channels
                                           4,             // output channels
@@ -79,6 +79,7 @@ BOOST_AUTO_TEST_CASE(StartTileIsPassOblivious) {
     // INFERENCE_FWD does not need to be invariant and so isn't guaranteed
     // to match.
     const auto expected = getPlanForPass(poplin::Pass::NONE, params);
+    checkStartTileAndDirection(poplin::Pass::NONE_MATMUL, params, expected);
     checkStartTileAndDirection(poplin::Pass::TRAINING_FWD, params, expected);
     checkStartTileAndDirection(poplin::Pass::TRAINING_BWD,
                                poplin::getGradientParams(params), expected);
@@ -94,15 +95,11 @@ BOOST_AUTO_TEST_CASE(StartTileIsPassOblivious) {
     const auto expected =
         getPlanForPass(poplin::Pass::FC_TRAINING_FWD, fcParams);
 
-    auto bwdParams = fcParams;
-    std::swap(bwdParams.inputFieldShape.front(),
-              bwdParams.outputChannelsPerConvGroup);
+    auto bwdParams = poplin::getGradientParams(fcParams);
     checkStartTileAndDirection(poplin::Pass::FC_TRAINING_BWD, bwdParams,
                                expected);
 
-    auto wuParams = fcParams;
-    std::swap(wuParams.inputChannelsPerConvGroup,
-              wuParams.outputChannelsPerConvGroup);
+    auto wuParams = poplin::getWeightUpdateParams(fcParams);
     checkStartTileAndDirection(poplin::Pass::FC_TRAINING_WU, wuParams,
                                expected);
   }
