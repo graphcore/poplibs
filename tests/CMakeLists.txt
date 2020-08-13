@@ -22,7 +22,7 @@ endfunction()
 # Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
 # If no variants were requested filtered ${DEFAULT_TEST_VARIANTS} are returned.
 # Raise a fatal error if any of the variants are not in ${ALL_POSSIBLE_TEST_VARIANTS}.
-function(sanitise_variants variant_name)
+function(sanitise_variants variant_name test_ipumodel_always labels)
   set(variants ${${variant_name}})
   set(old_variants "${variants}")
   if (NOT old_variants)
@@ -36,6 +36,30 @@ function(sanitise_variants variant_name)
     endif()
   endforeach()
 
+  set(codelet_label "false")
+  foreach(label ${labels})
+    if(${label} STREQUAL "codelet")
+      set(codelet_label "true")
+    endif()
+  endforeach()
+
+  # If a Sim or Sim2 variant exists, exclude the IpuModel or IpuModel2 variant
+  # to reduce test time. This can be overridden if required for testing
+  SET(test_ipumodel "true")
+  SET(test_ipumodel2 "true")
+  if(${codelet_label} STREQUAL "true")
+    if(NOT ${test_ipumodel_always})
+      foreach(variant ${old_variants})
+        if(${variant} STREQUAL "Sim")
+          SET(test_ipumodel "false")
+        endif()
+        if(${variant} STREQUAL "Sim2")
+          SET(test_ipumodel2 "false")
+        endif()
+      endforeach()
+    endif()
+  endif()
+
   set(new_variants "")
   # Only allow each variant if it is enabled:
   # Tests labelled with VARIANT Hw1 or Hw2 are included if ENABLED_TEST_VARIANTS contains Hw
@@ -46,8 +70,17 @@ function(sanitise_variants variant_name)
     else()
       set(variant_to_match ${variant})
     endif()
-    if (${variant_to_match} IN_LIST ENABLED_TEST_VARIANTS)
-      list(APPEND new_variants ${variant})
+    set(add_variant "true")
+    if(${variant} STREQUAL "IpuModel" AND ${test_ipumodel} STREQUAL "false")
+      set(add_variant "false")
+    endif()
+    if(${variant} STREQUAL "IpuModel2" AND ${test_ipumodel2} STREQUAL "false")
+      set(add_variant "false")
+    endif()
+    if(${add_variant} STREQUAL "true")
+      if (${variant_to_match} IN_LIST ENABLED_TEST_VARIANTS)
+        list(APPEND new_variants ${variant})
+      endif()
     endif()
   endforeach()
   list(REMOVE_DUPLICATES new_variants)
@@ -177,8 +210,8 @@ endfunction()
 # Note that the Cpu target does not support multi-tile tests
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_unit_test name)
-  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES;LABELS" "FILES;${ARGN}")
-  sanitise_variants(add_unit_test_VARIANTS)
+  cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES;LABELS;TEST_IPUMODEL;" "FILES;${ARGN}")
+  sanitise_variants(add_unit_test_VARIANTS add_unit_test_TEST_IPUMODEL add_unit_test_LABELS)
   if (NOT add_unit_test_VARIANTS)
     # When all variants are disabled don't even generate the test exe as
     # we don't know whether it needs a target
@@ -269,9 +302,9 @@ endfunction()
 # add a test to run on the specified VARIANTS
 function(add_multitarget_test)
   cmake_parse_arguments(add_multitarget_test "ALLOW_SKIP" "NAME"
-                        "VARIANTS;COMMAND;LABELS"
+                        "VARIANTS;COMMAND;LABELS;TEST_IPUMODEL;"
                         "${ARGN}")
-  sanitise_variants(add_multitarget_test_VARIANTS)
+  sanitise_variants(add_multitarget_test_VARIANTS add_multitarget_test_TEST_IPUMODEL add_multitarget_test_LABELS)
   set(name ${add_multitarget_test_NAME})
   if (NOT add_multitarget_test_NAME)
     message(FATAL_ERROR "add_multitarget_test requires a NAME to be specified")

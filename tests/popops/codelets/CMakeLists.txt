@@ -1,6 +1,25 @@
+# Excercise the "TEST_IPUMODEL" option to force IpuModel, IpuModel2 tests
+
+add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
+add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_b_length_small"
+  COMMAND BroadcastOpTest
+    --data-type half
+    --rows=80
+    --columns=8
+    --operation=ADD
+    --supervisor=true
+    --b-length=2
+    --in-place=true
+    LABELS codelet
+    TEST_IPUMODEL "true")
+
+# Excercise the "TEST_IPUMODEL" option to force IpuModel, IpuModel2 tests
+
 add_unit_test(AddToChannel
               AddToChannel.cpp
-              LABELS codelet)
+              LABELS codelet
+              TEST_IPUMODEL "true")
+
 add_unit_test(AddToChannel2D
               AddToChannel2D.cpp
               LABELS codelet)
@@ -517,7 +536,6 @@ foreach(ROWS 1 2)
   endforeach()
 
 #Broadcasting Operations
-add_multi_target_test_executable(BroadcastOpTest BroadcastOpTest.cpp)
 foreach(ROWS 1 2)
   foreach(COLUMNS 1 2 3 4 8 12 24 25 26 27 28)
     foreach(TYPE half float)
@@ -726,17 +744,6 @@ foreach(SUPER true false)
     endforeach()
   endforeach()
 endforeach()
-
-add_multitarget_test(NAME  "BroadcastOpTest_add_supervisor_vector_b_length_small"
-  COMMAND BroadcastOpTest
-    --data-type half
-    --rows=80
-    --columns=8
-    --operation=ADD
-    --supervisor=true
-    --b-length=2
-    --in-place=true
-    LABELS codelet)
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
