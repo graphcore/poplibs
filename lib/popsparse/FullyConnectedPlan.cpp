@@ -1502,6 +1502,7 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
       if (cost != highestCost) {
         break;
       }
+
       stepMemBound *= 2;
       logging::warn("Unable to meet memory target. Retrying with a per-tile "
                     "memory limit of {} bytes.",
@@ -1509,12 +1510,15 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
       objective.setTileTempMemoryBound(popsolver::DataType{stepMemBound});
     } while (stepMemBound < target.getBytesPerTile() * 2);
 
-    // Now try without a limit
-    objective = PlanningObjective::minimizeCycles();
-    logging::warn("Unable to meet memory target. Retrying with no per-tile "
-                  "memory limit.");
-    std::tie(plan, cost, costBreakdown) =
-        createPlan(objective, target, inputType, params, options);
+    // If the above did not succeed, try again without any memory limit to
+    // get a valid plan of some sort.
+    if (cost == highestCost) {
+      objective = PlanningObjective::minimizeCycles();
+      logging::warn("Unable to meet memory target. Retrying with no per-tile "
+                    "memory limit.");
+      std::tie(plan, cost, costBreakdown) =
+          createPlan(objective, target, inputType, params, options);
+    }
   } else {
     logging::debug(
         "Planning sparse-dense matrix multiply with unlimited memory usage.");
