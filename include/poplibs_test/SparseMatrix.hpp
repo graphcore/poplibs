@@ -19,20 +19,29 @@ boost::multi_array<double, 2>
 csrToDenseMatrix(const ValueType *nzValues, const IndexType *columnIndices,
                  const IndexType *rowIndices,
                  const std::size_t numNonZeroValues, const std::size_t numRows,
-                 const std::size_t numColumns) {
+                 const std::size_t numColumns, const std::size_t blockRows,
+                 const std::size_t blockCols) {
   boost::multi_array<double, 2> mat(boost::extents[numRows][numColumns]);
-
+  const auto blockArea = blockRows * blockCols;
   std::size_t i = 0;
-  for (std::size_t row = 0; row != numRows; ++row) {
-    std::size_t numColEntries = rowIndices[row + 1] - rowIndices[row];
+  for (std::size_t row = 0; row != numRows; row += blockRows) {
+    const auto bRow = row / blockRows;
+    std::size_t numColEntries =
+        (rowIndices[bRow + 1] - rowIndices[bRow]) / blockArea;
     assert(numColEntries <= numColumns);
     for (std::size_t col = 0; col != numColEntries; ++col) {
       assert(columnIndices[i] < numColumns);
-      mat[row][columnIndices[i]] = nzValues[i];
+      // nzValues kept in row major order
+      for (std::size_t r = 0; r != blockRows; ++r) {
+        for (std::size_t c = 0; c != blockCols; ++c) {
+          mat[row + r][columnIndices[i] + c] =
+              nzValues[i * blockArea + r * blockCols + c];
+        }
+      }
       ++i;
     }
   }
-  assert(i == numNonZeroValues);
+  assert(i * blockArea == numNonZeroValues);
   return mat;
 }
 
@@ -80,7 +89,7 @@ template <typename ValueType, typename IndexType, typename RandomEngine>
 std::tuple<std::vector<ValueType>, std::vector<IndexType>,
            std::vector<IndexType>>
 buildCSRMatrix(RandomEngine &rng, const std::vector<size_t> &dimensions,
-               double sparsityFactor,
+               const std::vector<std::size_t> &blockSize, double sparsityFactor,
                const std::vector<std::size_t> &weightedAreaBegin,
                const std::vector<std::size_t> &weightedAreaEnd,
                // Specified as a weight to make it easy to default
@@ -88,16 +97,20 @@ buildCSRMatrix(RandomEngine &rng, const std::vector<size_t> &dimensions,
                double weightedAreaSparsityWeight,
                bool useBipolarValueDistribution) {
 
+  const std::size_t blockRows = blockSize.at(0);
+  const std::size_t blockCols = blockSize.at(1);
+  const auto blockArea = blockRows * blockCols;
   std::vector<ValueType> nzValues;
   std::vector<IndexType> columnIndices;
   std::vector<IndexType> rowIndices;
 
-  std::size_t capacityEstimate = product(dimensions) * sparsityFactor * 1.25;
+  std::size_t capacityEstimate =
+      product(dimensions) / blockArea * sparsityFactor * 1.25;
 
   // reserve sufficient data
-  rowIndices.reserve(dimensions[0]);
+  rowIndices.reserve(dimensions[0] / blockRows);
   columnIndices.reserve(capacityEstimate);
-  nzValues.reserve(capacityEstimate);
+  nzValues.reserve(capacityEstimate * (blockArea));
 
   auto randUniform =
       boost::random::uniform_real_distribution<ValueType>(0, 1.0);
@@ -107,7 +120,9 @@ buildCSRMatrix(RandomEngine &rng, const std::vector<size_t> &dimensions,
   double weightedThreshold, remainingThreshold;
   std::tie(weightedThreshold, remainingThreshold) =
       calculateWeightedVsRemainingSparsityFactor(
-          dimensions, sparsityFactor, weightedAreaBegin, weightedAreaEnd,
+          dimensions, sparsityFactor,
+          {weightedAreaBegin[0] / blockRows, weightedAreaBegin[1] / blockCols},
+          {weightedAreaEnd[0] / blockRows, weightedAreaEnd[1] / blockCols},
           weightedAreaSparsityWeight);
 
   // generating two random numbers takes time and hence if the numbers
@@ -116,35 +131,31 @@ buildCSRMatrix(RandomEngine &rng, const std::vector<size_t> &dimensions,
 
   IndexType numNzRowElements = 0;
   rowIndices.push_back(0);
-  // A pool of weight vals to use rather than generating new ones
-  // when !useNormal.
-  std::queue<ValueType> weightVals;
-  for (std::size_t row = 0; row != dimensions[0]; ++row) {
-    for (ValueType col = 0; col != dimensions[1]; ++col) {
+
+  for (std::size_t row = 0; row != dimensions[0]; row += blockRows) {
+    for (ValueType col = 0; col != dimensions[1]; col += blockCols) {
       const bool inWeightedArea =
           (row >= weightedAreaBegin.at(0) && row < weightedAreaEnd.at(0) &&
            col >= weightedAreaBegin.at(1) && col < weightedAreaEnd.at(1));
       auto u = randUniform(rng);
-      if (!useNormal && !useBipolarValueDistribution) {
-        weightVals.emplace(u);
-      }
       const auto threshold =
           inWeightedArea ? weightedThreshold : remainingThreshold;
       if (u < threshold) {
-        float y;
-        if (useBipolarValueDistribution) {
-          y = randBernoulli(rng) ? 1.0 : -1.0;
-        } else {
-          if (useNormal) {
-            y = randNormal(rng);
+        for (std::size_t bElem = 0; bElem != blockArea; ++bElem) {
+          float y;
+          if (useBipolarValueDistribution) {
+            y = randBernoulli(rng) ? 1.0 : -1.0;
           } else {
-            y = weightVals.front() * 2 - 1;
-            weightVals.pop();
+            if (useNormal) {
+              y = randNormal(rng);
+            } else {
+              y = randUniform(rng) * 2 - 1;
+            }
           }
+          nzValues.push_back(y);
         }
-        nzValues.push_back(y);
         columnIndices.push_back(col);
-        ++numNzRowElements;
+        numNzRowElements += blockArea;
       }
     }
     rowIndices.push_back(numNzRowElements);

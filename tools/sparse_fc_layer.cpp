@@ -97,76 +97,6 @@ static void logBucketStatistics(std::vector<PNBucket> &buckets,
   std::cerr << "\n";
 }
 
-// TODO: Move this to a shared source file with SparsePartitionerTest which
-// does the same exact validation.
-template <typename T>
-void validateBuckets(const PNBucketsImpl<T> &pnBucketsImpl,
-                     const CSRMatrix<T> &csrMatrix, std::size_t numRows,
-                     std::size_t numColumns) {
-  // piece together information per row into a CSR format
-  std::vector<std::size_t> colIndicesActual;
-  std::vector<double> nzValuesActual;
-  std::vector<std::size_t> rowIndicesActual;
-
-  auto inInterval = [](const poplar::Interval range, std::size_t val) {
-    return (val >= range.begin() && val < range.end());
-  };
-
-  std::cerr << "\nValidating partition ... ";
-  std::size_t numValues = 0;
-  for (std::size_t row = 0; row != numRows; ++row) {
-    rowIndicesActual.push_back(numValues);
-    for (std::size_t col = 0; col != numColumns; ++col) {
-      // find tile partition that matched
-      for (const auto &pn : pnBucketsImpl.pnBuckets) {
-
-        for (const auto &p : pn.subGroups) {
-          auto rowInterval = p.tile.getRows();
-          auto colInterval = p.tile.getColumns();
-
-          if (inInterval(rowInterval, row) && inInterval(colInterval, col)) {
-            for (const auto &r : p.tileInfo) {
-              if (r.rowNumber + rowInterval.begin() == row) {
-                for (const auto &c : r.positionValues) {
-                  if (c.first + colInterval.begin() == col) {
-                    colIndicesActual.push_back(c.first + colInterval.begin());
-                    nzValuesActual.push_back(
-                        pnBucketsImpl.nzValues.at(c.second));
-                    ++numValues;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  rowIndicesActual.push_back(numValues);
-  bool success = true;
-
-  for (std::size_t row = 0; row != csrMatrix.rowIndices.size(); ++row) {
-    if (csrMatrix.rowIndices.at(row) != rowIndicesActual.at(row)) {
-      std::cerr << "\n row indices at " << row << " incorrect";
-      success = false;
-    }
-  }
-
-  for (std::size_t col = 0; col != csrMatrix.columnIndices.size(); ++col) {
-    if (csrMatrix.columnIndices.at(col) != colIndicesActual.at(col)) {
-      std::cerr << "\n col indices at " << col << " incorrect";
-      success = false;
-    }
-    if (csrMatrix.nzValues.at(col) != nzValuesActual.at(col)) {
-      std::cerr << "\n nz values at " << col << " incorrect : ";
-      std::cerr << csrMatrix.nzValues.at(col) << " " << nzValuesActual.at(col);
-      success = false;
-    }
-  }
-  std::cerr << " validation of partition completed : ";
-  std::cerr << (success ? "true" : "false") << "\n";
-}
-
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
@@ -186,6 +116,7 @@ int main(int argc, char **argv) try {
   const auto partialsType = FLOAT;
   ShapeOption<std::size_t> weightedAreaBegin;
   ShapeOption<std::size_t> weightedAreaEnd;
+  ShapeOption<std::size_t> blockSize;
   weightedAreaBegin.val = weightedAreaEnd.val = {0, 0};
   double weightedAreaWeighting = 1.0;
   bool denseGradWSerialSplits = false;
@@ -213,12 +144,14 @@ int main(int argc, char **argv) try {
     ("batch-size",
      po::value<unsigned>(&batchSize)->default_value(1),
      "Batch size")
+    ("block-size",
+     po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(1),
+     "Block size as rows and columns (only square blocks are supported)")     
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")
     ("ignore-data", "When set, no upload/download or verification of "
      "results is performed")
-    ("validate-partition", "validate partition created by partitioner ")
     ("plan-only", "Whether to perform planning only and skip creation "
      "and running of the program")
     ("profile", "Enable profiling and print profiling report")
@@ -271,12 +204,30 @@ int main(int argc, char **argv) try {
   bool ignoreData = vm.count("ignore-data");
   bool planOnly = vm.count("plan-only");
   bool variableSeed = vm.count("variable-seed");
-  bool validatePartition = vm.count("validate-partition");
 
   if (reportTotalCycleCounts && profilingEnabled) {
     throw poputil::poplibs_error(
         "--report-total-cycle-counts and --profile or --profile-json specified "
         "at the same time. This is not allowed as one affects the other");
+  }
+
+  if (blockSize.val.size() > 2) {
+    throw poputil::poplibs_error("Block size must be of dimension 2");
+  }
+
+  const std::size_t blockRows = blockSize[0];
+  const std::size_t blockCols =
+      blockSize.val.size() == 1 ? blockRows : blockSize[1];
+  const auto blockArea = blockRows * blockCols;
+
+  if (inputSize % blockRows) {
+    throw poputil::poplibs_error("Input size must be an integer multiple of "
+                                 "rows in a block");
+  }
+
+  if (outputSize % blockCols) {
+    throw poputil::poplibs_error("output size must be an integer multiple of "
+                                 "columns in a block");
   }
 
   if (weightedAreaBegin[0] > weightedAreaEnd[0] ||
@@ -294,6 +245,12 @@ int main(int argc, char **argv) try {
        << " out of bounds {" << outputSize << "," << inputSize << "}";
     throw poputil::poplibs_error(ss.str());
   }
+
+  // align weighted area to a block size grid
+  weightedAreaBegin.val[0] = roundDown(weightedAreaBegin.val[0], blockRows);
+  weightedAreaBegin.val[1] = roundDown(weightedAreaBegin.val[1], blockCols);
+  weightedAreaEnd.val[0] = roundDown(weightedAreaEnd.val[0], blockRows);
+  weightedAreaEnd.val[1] = roundDown(weightedAreaEnd.val[1], blockCols);
 
   PlanningCache cache;
 
@@ -314,8 +271,11 @@ int main(int argc, char **argv) try {
                     : createTestDeviceFullSize(deviceType, numIPUs, true);
   const auto &target = device.getTarget();
 
-  SparsityParams sparsityParams(SparsityType::Element,
-                                SparsityStructure::Unstructured);
+  const auto sparsityType =
+      blockArea == 1 ? SparsityType::Element : SparsityType::Block;
+
+  SparsityParams sparsityParams(sparsityType, SparsityStructure::Unstructured,
+                                {blockRows, blockCols});
 
   const auto params = FullyConnectedParams::createWithNzRatio(
       std::move(sparsityParams), sparsityFactor, batchSize, numGroups,
@@ -369,20 +329,25 @@ int main(int argc, char **argv) try {
     double weightedThreshold, remainingThreshold;
     std::tie(weightedThreshold, remainingThreshold) =
         poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
-            {outputSize, inputSize}, sparsityFactor, weightedAreaBegin,
-            weightedAreaEnd, weightedAreaWeighting);
+            {outputSize / blockRows, inputSize / blockCols}, sparsityFactor,
+            {weightedAreaBegin[0] / blockRows,
+             weightedAreaBegin[1] / blockCols},
+            {weightedAreaEnd[0] / blockRows, weightedAreaEnd[1] / blockCols},
+            weightedAreaWeighting);
     const auto numWeightedInputChannels =
         (weightedAreaEnd[1] - weightedAreaBegin[1]);
     const auto numWeightedOutputChannels =
         (weightedAreaEnd[0] - weightedAreaBegin[0]);
-    const auto maxInputChannels =
+    std::size_t maxInputChannels =
         numWeightedInputChannels * weightedThreshold +
         (params.getInputChannelsPerGroup() - numWeightedInputChannels) *
             remainingThreshold;
-    const auto maxOutputChannels =
+    std::size_t maxOutputChannels =
         numWeightedOutputChannels * weightedThreshold +
         (params.getOutputChannelsPerGroup() - numWeightedOutputChannels) *
             remainingThreshold;
+    maxInputChannels = roundDown(maxInputChannels, blockCols);
+    maxOutputChannels = roundDown(maxOutputChannels, blockRows);
     const auto getOpsPerOutputElementEstimate = [&](const Pass &pass) -> int {
       const auto numAccumulations = pass == Pass::FWD   ? maxInputChannels
                                     : pass == Pass::BWD ? maxOutputChannels
@@ -414,12 +379,13 @@ int main(int argc, char **argv) try {
 
   // create CSR matrix for the given sparsity factor
   const bool useBipolarDistribution = floatingPointCouldRepresentMaxAccum;
-  CSRMatrix<EType> csrMatrix;
+  std::array<std::size_t, 2> blockDims = {blockRows, blockCols};
+  CSRMatrix<EType> csrMatrix(blockDims);
   std::tie(csrMatrix.nzValues, csrMatrix.columnIndices, csrMatrix.rowIndices) =
       poplibs_test::sparse::buildCSRMatrix<EType, std::size_t>(
-          randomEngine, {outputSize, inputSize}, sparsityFactor,
-          weightedAreaBegin, weightedAreaEnd, weightedAreaWeighting,
-          useBipolarDistribution);
+          randomEngine, {outputSize, inputSize}, {blockRows, blockCols},
+          sparsityFactor, weightedAreaBegin, weightedAreaEnd,
+          weightedAreaWeighting, useBipolarDistribution);
 
   // Forward
   boost::multi_array<double, 2> hostInput(boost::extents[batchSize][inputSize]);
@@ -447,15 +413,16 @@ int main(int argc, char **argv) try {
 
   auto pnBucketsImpl = partitioner.getImpl().createBuckets(csrMatrix);
 
-  if (validatePartition) {
-    validateBuckets(pnBucketsImpl, csrMatrix, outputSize, inputSize);
-  }
-
   std::cerr << "Logging Forward pass bucket statistics: ";
   logBucketStatistics(pnBucketsImpl.pnBuckets, csrMatrix);
 
   if (planOnly) {
     return 0;
+  }
+
+  if (blockArea != 1) {
+    throw poplibs_error("Blocks are supported only by the planner. Use "
+                        "--plan-only option");
   }
 
   Graph graph(target);
@@ -600,7 +567,7 @@ int main(int argc, char **argv) try {
     hostDenseWeights = poplibs_test::sparse::csrToDenseMatrix(
         csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
         csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), outputSize,
-        inputSize);
+        inputSize, blockRows, blockCols);
     poplibs_test::gemm::generalMatrixMultiply(hostInput, hostDenseWeights,
                                               modelOutputActs, false, true);
     matchesModel &= checkIsClose("outputActs", hostOutputActs, modelOutputActs,

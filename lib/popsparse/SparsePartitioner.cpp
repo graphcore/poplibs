@@ -24,10 +24,10 @@ Partitioner<T>::Partitioner(const FullyConnectedParams &params,
   const auto partitionIndices = getPartitionStartIndices(params, plan);
   const auto options = fullyconnected::parseOptionFlags(optionFlags);
 
-  // TODO: False until somehow reported by the planner. Perhaps we should
-  // represent the meta-info format more explicitly in both partitioner and
-  // plan.
-  const bool useBlockMetaInfoFormat = false;
+  // TODO: Perhaps we should represent the meta-info format more explicitly in
+  // both partitioner and plan. For now base it purely on sparsity type.
+  const bool useBlockMetaInfoFormat =
+      params.getSparsityParams().type == SparsityType::Block;
   impl.reset(new PartitionerImpl(
       {params.getOutputChannelsPerGroup(), params.getInputChannelsPerGroup(),
        params.getBatchSize()},

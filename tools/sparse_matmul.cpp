@@ -9,10 +9,11 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 
+#include "poputil/exceptions.hpp"
+#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/SparseMatrix.hpp>
 #include <poplibs_test/Util.hpp>
-
 #include <poputil/TileMapping.hpp>
 
 #include "poplin/codelets.hpp"
@@ -36,6 +37,7 @@ using namespace poplibs_support;
 
 using namespace popsparse;
 using namespace popsparse::dynamic;
+using namespace poputil;
 
 // Tolerances used when data is not ignored
 #define FLOAT_REL_TOL 0.01
@@ -54,6 +56,8 @@ int main(int argc, char **argv) try {
   Type partialsType = FLOAT;
   ShapeOption<std::size_t> weightedAreaBegin;
   ShapeOption<std::size_t> weightedAreaEnd;
+  ShapeOption<std::size_t> blockSize;
+
   weightedAreaBegin.val = weightedAreaEnd.val = {0, 0};
   double weightedAreaWeighting = 1.0;
   bool transposeLHS = false;
@@ -78,6 +82,9 @@ int main(int argc, char **argv) try {
     ("n", po::value(&n)->required(), "Columns in right-hand operand")
     ("sparsity-factor", po::value(&sparsityFactor)->required(),
      "Proportion of elements of left-hand operand which are non-zero")
+    ("block-size",
+     po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(1),
+     "Block size as rows and columns (only square blocks are supported)")     
     ("transpose-lhs", po::value(&transposeLHS),
      "Transpose the left-hand operand of the matmul such that the matmul "
      "becomes {k, m} * {m, n} = {k, n}")
@@ -119,6 +126,27 @@ int main(int argc, char **argv) try {
   bool profilingEnabled = profile || !profileJsonPath.empty();
   bool ignoreData = vm.count("ignore-data");
 
+  const std::size_t blockRows = blockSize[0];
+  const std::size_t blockCols =
+      blockSize.val.size() == 1 ? blockRows : blockSize[1];
+  const auto blockArea = blockRows * blockCols;
+
+  if (m % blockRows) {
+    throw poputil::poplibs_error("Input size must be an integer multiple of "
+                                 "rows in a block");
+  }
+
+  if (k % blockCols) {
+    throw poputil::poplibs_error("output size must be an integer multiple of "
+                                 "columns in a block");
+  }
+
+  // align weighted area to a block size grid
+  weightedAreaBegin.val[0] = roundDown(weightedAreaBegin.val[0], blockRows);
+  weightedAreaBegin.val[1] = roundDown(weightedAreaBegin.val[1], blockCols);
+  weightedAreaEnd.val[0] = roundDown(weightedAreaEnd.val[0], blockRows);
+  weightedAreaEnd.val[1] = roundDown(weightedAreaEnd.val[1], blockCols);
+
   PlanningCache cache;
 
   OptionFlags matmulOptions;
@@ -137,7 +165,10 @@ int main(int argc, char **argv) try {
   popsparse::addCodelets(graph);
   Sequence uploadProg, prog, downloadProg;
 
-  auto sparsityParams = SparsityParams();
+  const auto sparsityType =
+      blockArea == 1 ? SparsityType::Element : SparsityType::Block;
+  SparsityParams sparsityParams(sparsityType, SparsityStructure::Unstructured,
+                                {blockRows, blockCols});
   const auto params = MatMulParams::createWithNzRatio(
       std::move(sparsityParams), sparsityFactor, groups, m, k, n);
   // No support for groups yet
@@ -204,14 +235,20 @@ int main(int argc, char **argv) try {
     double weightedThreshold, remainingThreshold;
     std::tie(weightedThreshold, remainingThreshold) =
         poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
-            {params.getM(), params.getK()}, sparsityFactor, weightedAreaBegin,
-            weightedAreaEnd, weightedAreaWeighting);
+            {params.getM() / blockRows, params.getK() / blockCols},
+            sparsityFactor,
+            {weightedAreaBegin[0] / blockRows,
+             weightedAreaBegin[1] / blockCols},
+            {weightedAreaEnd[0] / blockRows, weightedAreaEnd[1] / blockCols},
+            weightedAreaWeighting);
     const auto numWeightedK = (weightedAreaEnd[1] - weightedAreaBegin[1]);
     const auto numWeightedM = (weightedAreaEnd[0] - weightedAreaBegin[0]);
-    const auto maxK = numWeightedK * weightedThreshold +
-                      (params.getK() - numWeightedK) * remainingThreshold;
-    const auto maxM = numWeightedM * weightedThreshold +
-                      (params.getM() - numWeightedM) * remainingThreshold;
+    std::size_t maxK = numWeightedK * weightedThreshold +
+                       (params.getK() - numWeightedK) * remainingThreshold;
+    std::size_t maxM = numWeightedM * weightedThreshold +
+                       (params.getM() - numWeightedM) * remainingThreshold;
+    maxM = roundDown(maxM, blockRows);
+    maxK = roundDown(maxK, blockCols);
     const auto getOpsPerOutputElementEstimate =
         [&](const bool lhsTransposed) -> int {
       const auto numAccumulations = lhsTransposed ? maxM : maxK;
@@ -232,11 +269,13 @@ int main(int argc, char **argv) try {
     return true;
   }();
   bool useBipolarDistribution = floatingPointCouldRepresentMaxAccum;
-  CSRMatrix<EType> csrMatrix;
+  std::array<std::size_t, 2> blockDims = {blockRows, blockCols};
+  CSRMatrix<EType> csrMatrix(blockDims);
   std::tie(csrMatrix.nzValues, csrMatrix.columnIndices, csrMatrix.rowIndices) =
       poplibs_test::sparse::buildCSRMatrix<EType, std::size_t>(
-          randomEngine, {m, k}, sparsityFactor, weightedAreaBegin,
-          weightedAreaEnd, weightedAreaWeighting, useBipolarDistribution);
+          randomEngine, {m, k}, {blockRows, blockCols}, sparsityFactor,
+          weightedAreaBegin, weightedAreaEnd, weightedAreaWeighting,
+          useBipolarDistribution);
   boost::multi_array<double, 2> hostRHS(boost::extents[rhs.dim(1)][rhs.dim(2)]);
   if (useBipolarDistribution) {
     writeRandomBinaryValues(target, dataType, hostRHS, -1.0, 1.0, randomEngine);
@@ -261,7 +300,8 @@ int main(int argc, char **argv) try {
         boost::extents[out.dim(1)][out.dim(2)]);
     hostDenseLHS = poplibs_test::sparse::csrToDenseMatrix(
         csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
-        csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), m, k);
+        csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), m, k, blockRows,
+        blockCols);
     poplibs_test::gemm::generalMatrixMultiply(hostDenseLHS, hostRHS, modelOut,
                                               transposeLHS, transposeRHS);
     matchesModel &= checkIsClose("out", hostOut, modelOut, relTolerance);
