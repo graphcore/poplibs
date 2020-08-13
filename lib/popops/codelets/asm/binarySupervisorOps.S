@@ -649,39 +649,39 @@ broadcast_op_process_1_half_\OPERATION\():
 
 // add half
 INSTANTIATE_BINARY_OP_HALF add in_place BinaryOp1DInPlace BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_HALF add in_place BroadcastScalar1DInPlace BinaryOp ADD
+INSTANTIATE_BROADCAST_OP_HALF add in_place BroadcastScalar1DInPlace BroadcastOp ADD
 INSTANTIATE_BINARY_OP_HALF add non_in_place BinaryOp1D BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_HALF add non_in_place BroadcastScalar1D BinaryOp ADD
+INSTANTIATE_BROADCAST_OP_HALF add non_in_place BroadcastScalar1D BroadcastOp ADD
 
 // sub half
 INSTANTIATE_BINARY_OP_HALF sub in_place BinaryOp1DInPlace BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_HALF sub in_place BroadcastScalar1DInPlace BinaryOp SUBTRACT
+INSTANTIATE_BROADCAST_OP_HALF sub in_place BroadcastScalar1DInPlace BroadcastOp SUBTRACT
 INSTANTIATE_BINARY_OP_HALF sub non_in_place BinaryOp1D BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_HALF sub non_in_place BroadcastScalar1D BinaryOp SUBTRACT
+INSTANTIATE_BROADCAST_OP_HALF sub non_in_place BroadcastScalar1D BroadcastOp SUBTRACT
 
 // mul half
 INSTANTIATE_BINARY_OP_HALF mul in_place BinaryOp1DInPlace BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_HALF mul in_place BroadcastScalar1DInPlace BinaryOp MULTIPLY
+INSTANTIATE_BROADCAST_OP_HALF mul in_place BroadcastScalar1DInPlace BroadcastOp MULTIPLY
 INSTANTIATE_BINARY_OP_HALF mul non_in_place BinaryOp1D BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_HALF mul non_in_place BroadcastScalar1D BinaryOp MULTIPLY
+INSTANTIATE_BROADCAST_OP_HALF mul non_in_place BroadcastScalar1D BroadcastOp MULTIPLY
 
 // add float
 INSTANTIATE_BINARY_OP_FLOAT add in_place BinaryOp1DInPlace BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_FLOAT add in_place BroadcastScalar1DInPlace BinaryOp ADD
+INSTANTIATE_BROADCAST_OP_FLOAT add in_place BroadcastScalar1DInPlace BroadcastOp ADD
 INSTANTIATE_BINARY_OP_FLOAT add non_in_place BinaryOp1D BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_FLOAT add non_in_place BroadcastScalar1D BinaryOp ADD
+INSTANTIATE_BROADCAST_OP_FLOAT add non_in_place BroadcastScalar1D BroadcastOp ADD
 
 // sub float
 INSTANTIATE_BINARY_OP_FLOAT sub in_place BinaryOp1DInPlace BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_FLOAT sub in_place BroadcastScalar1DInPlace BinaryOp SUBTRACT
+INSTANTIATE_BROADCAST_OP_FLOAT sub in_place BroadcastScalar1DInPlace BroadcastOp SUBTRACT
 INSTANTIATE_BINARY_OP_FLOAT sub non_in_place BinaryOp1D BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_FLOAT sub non_in_place BroadcastScalar1D BinaryOp SUBTRACT
+INSTANTIATE_BROADCAST_OP_FLOAT sub non_in_place BroadcastScalar1D BroadcastOp SUBTRACT
 
 // mul float
 INSTANTIATE_BINARY_OP_FLOAT mul in_place BinaryOp1DInPlace BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_FLOAT mul in_place BroadcastScalar1DInPlace BinaryOp MULTIPLY
+INSTANTIATE_BROADCAST_OP_FLOAT mul in_place BroadcastScalar1DInPlace BroadcastOp MULTIPLY
 INSTANTIATE_BINARY_OP_FLOAT mul non_in_place BinaryOp1D BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_FLOAT mul non_in_place BroadcastScalar1D BinaryOp MULTIPLY
+INSTANTIATE_BROADCAST_OP_FLOAT mul non_in_place BroadcastScalar1D BroadcastOp MULTIPLY
 
 //******************************************************************************
 // Use the macros above to create shared code

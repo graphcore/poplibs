@@ -40,30 +40,30 @@ using namespace popops;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 static constexpr auto SPAN = poplar::VectorLayout::SPAN;
 
-template <expr::BinaryOpType op, typename T> struct BroadcastOpFn {};
+template <expr::BroadcastOpType op, typename T> struct BroadcastOpFn {};
 
 #define DEFINE_BROADCAST_OP_FN(op, body)                                       \
   template <typename T> struct BroadcastOpFn<op, T> {                          \
     static T fn(T x, T K) { body }                                             \
   };
 
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::ADD, return x + K;)
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::MULTIPLY, return x * K;)
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::SUBTRACT, return x - K;)
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::ADD, return x + K;)
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::SUBTRACT, return x - K;)
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::MULTIPLY, return x * K;)
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
                        return (1 / (x * x)) - K;)
 #ifdef __IPU__
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
                        return ipu::rsqrt(x + K);)
 #else
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
+DEFINE_BROADCAST_OP_FN(expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV,
                        return 1 / (std::sqrt(x + K));)
 #endif
 //******************************************************************************
 // Dispatch functions for the broadcast codelets
 //******************************************************************************
 
-template <typename T, expr::BinaryOpType op,
+template <typename T, expr::BroadcastOpType op,
           bool allowUnaligned, // Allow input/output that isn't 64-bit aligned
           bool allowRemainder>
 struct BroadcastOpDispatch {
@@ -78,7 +78,7 @@ struct BroadcastOpDispatch {
   }
 };
 
-template <typename T, expr::BinaryOpType op,
+template <typename T, expr::BroadcastOpType op,
           bool allowUnaligned, // Allow input/output that isn't 64-bit aligned.
           bool allowRemainder>
 struct BroadcastOpDispatchSupervisor {
@@ -93,7 +93,7 @@ public:
 
 #ifdef __IPU__
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
 struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -173,7 +173,7 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
   }
 };
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
 struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -217,7 +217,7 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
   }
 };
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
 class BroadcastOpDispatchSupervisor<float, op, allowUnaligned, allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
@@ -263,7 +263,7 @@ public:
   }
 };
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+template <expr::BroadcastOpType op, bool allowUnaligned, bool allowRemainder>
 struct BroadcastOpDispatchSupervisor<half, op, allowUnaligned, allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
@@ -361,12 +361,12 @@ namespace popops {
   template class name<opType, half>
 
 #define INSTANTIATE_SCALAR_BASIC(name)                                         \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::ADD);                            \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::MULTIPLY);                       \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::SUBTRACT)
+  INSTANTIATE_TYPES(name, expr::BroadcastOpType::ADD);                         \
+  INSTANTIATE_TYPES(name, expr::BroadcastOpType::SUBTRACT);                    \
+  INSTANTIATE_TYPES(name, expr::BroadcastOpType::MULTIPLY)
 
 #define INSTANTIATE_SCALAR(name)                                               \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV);        \
+  INSTANTIATE_TYPES(name, expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV);     \
   INSTANTIATE_SCALAR_BASIC(name)
 
 #define INSTANTIATE_VECTOR_OUTER_TYPES(name, opType)                           \
@@ -376,9 +376,9 @@ namespace popops {
   template class name<opType, half, false>
 
 #define INSTANTIATE_VECTOR_OUTER(name)                                         \
-  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BinaryOpType::ADD);               \
-  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BinaryOpType::SUBTRACT);          \
-  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BinaryOpType::MULTIPLY)
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BroadcastOpType::ADD);            \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BroadcastOpType::SUBTRACT);       \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BroadcastOpType::MULTIPLY)
 
 // The not-in-place broadcast vertices have an 'out' member for the output of
 // the operation.
@@ -393,15 +393,15 @@ namespace popops {
 #define OUT_2D_DEF_HALF Vector<Output<Vector<half, ONE_PTR, 8>>, ONE_PTR> out;
 
 #define DEF_BROADCAST_2D_DATA_VERTEX(vertexName, inOutType, outDef, outName)   \
-  template <expr::BinaryOpType op, typename dType>                             \
+  template <expr::BroadcastOpType op, typename dType>                          \
   class vertexName : public Vertex {                                           \
   public:                                                                      \
     constexpr static bool isExternal() {                                       \
       return (std::is_same<dType, float>::value ||                             \
               std::is_same<dType, half>::value) &&                             \
-             (op == expr::BinaryOpType::ADD ||                                 \
-              op == expr::BinaryOpType::SUBTRACT ||                            \
-              op == expr::BinaryOpType::MULTIPLY);                             \
+             (op == expr::BroadcastOpType::ADD ||                              \
+              op == expr::BroadcastOpType::SUBTRACT ||                         \
+              op == expr::BroadcastOpType::MULTIPLY);                          \
     }                                                                          \
     Vector<inOutType<Vector<dType, SPAN, 8>>> data;                            \
     outDef Input<dType> B;                                                     \
@@ -424,7 +424,7 @@ DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
 #define DEF_BROADCAST_2D_DATA_VERTEX_FP(vertexName, inOutType, outDef,         \
                                         outName)                               \
   template <>                                                                  \
-  class vertexName<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>          \
+  class vertexName<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>       \
       : public Vertex {                                                        \
   public:                                                                      \
     Vector<inOutType<Vector<half, SPAN, 8>>> data;                             \
@@ -435,7 +435,7 @@ DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
       for (unsigned i = 0; i < limI; i++) {                                    \
         for (unsigned j = 0; j < data[i].size(); j++) {                        \
           outName[i][j] = static_cast<half>(                                   \
-              BroadcastOpFn<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,       \
+              BroadcastOpFn<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,    \
                             float>::fn(static_cast<float>(data[i][j]),         \
                                        static_cast<float>(*B)));               \
         }                                                                      \
@@ -449,15 +449,15 @@ DEF_BROADCAST_2D_DATA_VERTEX_FP(BroadcastScalar2DData, Input, OUT_2D_DEF_HALF,
 DEF_BROADCAST_2D_DATA_VERTEX_FP(BroadcastScalar2DDataInPlace, InOut, , data)
 
 template class BroadcastScalar2DDataInPlace<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
 template class BroadcastScalar2DData<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
 
 INSTANTIATE_SCALAR(BroadcastScalar2DData);
 INSTANTIATE_SCALAR(BroadcastScalar2DDataInPlace);
 
 #define DEF_BROADCAST_2D_VERTEX(vertexName, inOutType, outDef, outName)        \
-  template <expr::BinaryOpType op, typename dType>                             \
+  template <expr::BroadcastOpType op, typename dType>                          \
   class vertexName : public Vertex {                                           \
   public:                                                                      \
     Vector<inOutType<Vector<dType, SPAN, 8>>> data;                            \
@@ -480,7 +480,7 @@ INSTANTIATE_SCALAR_BASIC(BroadcastScalar2DInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,       \
                                                   outDef, outName, isInPlace)  \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>    \
   class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
@@ -519,7 +519,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,  \
                                                outName, isInPlace)             \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>    \
   class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
@@ -557,7 +557,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowSupervisor);
 INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlaceSupervisor);
 
 #define DEF_BROADCAST_1D_VERTEX(vertexName, inOutType, outDef, outName)        \
-  template <expr::BinaryOpType op, typename dType>                             \
+  template <expr::BroadcastOpType op, typename dType>                          \
   class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
   public:                                                                      \
     inOutType<Vector<dType, SPAN, 8>> data;                                    \
@@ -577,7 +577,7 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
 // INV_STD_DEV_TO_VARIANCE
 #define DEF_BROADCAST_1D_VERTEX_FP(vertexName, inOutType, outDef, outName)     \
   template <>                                                                  \
-  class vertexName<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>          \
+  class vertexName<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half>       \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
   public:                                                                      \
     inOutType<Vector<half, SPAN, 8>> data;                                     \
@@ -587,7 +587,7 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
       unsigned limI = data.size();                                             \
       for (unsigned i = 0; i < limI; i++) {                                    \
         outName[i] = static_cast<half>(                                        \
-            BroadcastOpFn<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,         \
+            BroadcastOpFn<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,      \
                           float>::fn(static_cast<float>(data[i]),              \
                                      static_cast<float>(*B)));                 \
       }                                                                        \
@@ -600,9 +600,9 @@ DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DSupervisor, Input, OUT_1D_DEF_HALF,
 DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
 
 template class BroadcastScalar1DInPlaceSupervisor<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
 template class BroadcastScalar1DSupervisor<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
 
 INSTANTIATE_SCALAR(BroadcastScalar1DSupervisor);
 INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
@@ -614,15 +614,15 @@ INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
 // assembly stub.
 
 #define DEF_BROADCAST_1D_WK_VERTEX(vertexName, inOutType, outDef, outName)     \
-  template <expr::BinaryOpType op, typename dType>                             \
+  template <expr::BroadcastOpType op, typename dType>                          \
   class vertexName : public Vertex {                                           \
   public:                                                                      \
     constexpr static bool isExternal() {                                       \
       return (std::is_same<dType, float>::value ||                             \
               std::is_same<dType, half>::value) &&                             \
-             (op == expr::BinaryOpType::ADD ||                                 \
-              op == expr::BinaryOpType::SUBTRACT ||                            \
-              op == expr::BinaryOpType::MULTIPLY);                             \
+             (op == expr::BroadcastOpType::ADD ||                              \
+              op == expr::BroadcastOpType::SUBTRACT ||                         \
+              op == expr::BroadcastOpType::MULTIPLY);                          \
     }                                                                          \
     inOutType<Vector<dType, SPAN, 8>> data;                                    \
     outDef Input<dType> B;                                                     \
@@ -637,17 +637,17 @@ INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
 DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1D, Input, OUT_1D_DEF, out)
 DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
 
-template class BroadcastScalar1D<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+template class BroadcastScalar1D<expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE,
                                  float>;
 template class BroadcastScalar1DInPlace<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, float>;
 
 INSTANTIATE_SCALAR(BroadcastScalar1D);
 INSTANTIATE_SCALAR(BroadcastScalar1DInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(                          \
     vertexName, inOutType, outDef, outName, isInPlace)                         \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>    \
   class vertexName : public Vertex {                                           \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
@@ -694,7 +694,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(vertexName, inOutType,       \
                                                   outDef, outName, isInPlace)  \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <expr::BroadcastOpType op, typename dType, bool allowMisaligned>    \
   class vertexName : public Vertex {                                           \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? 4 : 8;                                \
@@ -748,7 +748,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlace);
 // VARIANCE_TO_INV_STD_DEV and INV_STD_DEV_TO_VARIANCE have the option of a
 // different output type to input type, and all arithmetic is to be carried out
 // in single precision.  Variance will be float, ISD, half
-template <expr::BinaryOpType op, typename inType, typename outType>
+template <expr::BroadcastOpType op, typename inType, typename outType>
 class BroadcastScalar2Types2DData : public Vertex {
 public:
   Vector<Input<Vector<inType, SPAN, 8>>> data;
@@ -768,11 +768,11 @@ public:
 };
 
 template class BroadcastScalar2Types2DData<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
 template class BroadcastScalar2Types2DData<
-    expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
+    expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 
-template <expr::BinaryOpType op, typename inType, typename outType>
+template <expr::BroadcastOpType op, typename inType, typename outType>
 class BroadcastScalar2Types1DSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
@@ -789,7 +789,7 @@ public:
   }
 };
 template class BroadcastScalar2Types1DSupervisor<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+    expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
 template class BroadcastScalar2Types1DSupervisor<
-    expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
+    expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 } // namespace popops

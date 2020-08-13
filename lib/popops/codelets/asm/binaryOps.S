@@ -57,8 +57,8 @@
 #define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_float
 #define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_half
 
-#define MANGLE_STR_BROADCAST_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_float
-#define MANGLE_STR_BROADCAST_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_half
+#define MANGLE_STR_BROADCAST_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BroadcastOpType__\NAME_STR\()_float
+#define MANGLE_STR_BROADCAST_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BroadcastOpType__\NAME_STR\()_half
 
 
 

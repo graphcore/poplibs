@@ -37,6 +37,7 @@ using namespace poplar::program;
 using namespace poplibs_support;
 
 using popops::expr::BinaryOpType;
+using popops::expr::BroadcastOpType;
 using popops::expr::TernaryOpType;
 using popops::expr::UnaryOpType;
 
@@ -249,6 +250,23 @@ std::string debugName(TernaryOpType op) {
     return "Select";
   }
   throw poputil::poplibs_error("Op not supported");
+}
+
+BroadcastOpType binaryOpToBroadcastOp(BinaryOpType op) {
+  switch (op) {
+  case BinaryOpType::ADD:
+    return BroadcastOpType::ADD;
+  case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
+    return BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
+  case BinaryOpType::MULTIPLY:
+    return BroadcastOpType::MULTIPLY;
+  case BinaryOpType::SUBTRACT:
+    return BroadcastOpType::SUBTRACT;
+  case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
+    return BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
+  default:
+    throw poputil::poplibs_error("Op not supported");
+  }
 }
 
 // Describes a pattern of broadcast that we can detect and
@@ -722,7 +740,8 @@ bool binaryOpBroadcastScalar(
     const std::string vertexName =
         inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
                 : "popops::BroadcastScalar1DSupervisor";
-    const auto vertexClass = templateVertex(vertexName, op, dType);
+    const auto vertexClass =
+        templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
     logging::trace("  Tile: {} Producing: {} {} vertices", tile,
                    intervals.size(), vertexClass);
     for (const auto &regions : intervals) {
@@ -743,7 +762,8 @@ bool binaryOpBroadcastScalar(
     if (inPlace) {
       vertexName += "InPlace";
     }
-    const auto vertexClass = templateVertex(vertexName, op, dType);
+    const auto vertexClass =
+        templateVertex(vertexName, binaryOpToBroadcastOp(op), dType);
     if (vertexRegions.size()) {
       logging::trace("  Tile: {} Producing: {} {} vertices", tile,
                      vertexRegions.size(), vertexClass);
@@ -858,6 +878,11 @@ bool binaryOpBroadcastInnerVector(
     return ((blockCount / 6) << 3) | blockCount % 6;
   };
 
+  // SUBTRACT is done as a SCALED_ADD with scale of -1
+  BroadcastOpType broadcastOp = (op == BinaryOpType::SUBTRACT)
+                                    ? BroadcastOpType::SCALED_ADD
+                                    : binaryOpToBroadcastOp(op);
+
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
   if (intervals.size() == 1 &&
@@ -872,7 +897,7 @@ bool binaryOpBroadcastInnerVector(
       std::string vertexName =
           inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
                   : "popops::BroadcastVectorInnerSupervisor";
-      auto vertexClass = templateVertex(vertexName, op, dType);
+      auto vertexClass = templateVertex(vertexName, broadcastOp, dType);
       logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
       std::uint16_t dataBlockCountPacked =
           packCount(outRegion.numElements(), in2Region.numElements());
@@ -883,6 +908,10 @@ bool binaryOpBroadcastInnerVector(
         graph.connect(v["out"], outRegion);
       }
       graph.setInitialValue(v["dataBlockCountPacked"], dataBlockCountPacked);
+      // SUBTRACT is done as a SCALED_ADD with scale of -1
+      if (op == BinaryOpType::SUBTRACT) {
+        graph.setInitialValue(v["scale"], -1.0f);
+      }
       graph.setTileMapping(v, tile);
       return true;
     }
@@ -891,7 +920,7 @@ bool binaryOpBroadcastInnerVector(
   // Cannot use supervisor, split work based on the size of the pattern.
   std::string vertexName = inPlace ? "popops::BroadcastVectorInner2DInPlace"
                                    : "popops::BroadcastVectorInner2D";
-  auto vertexClass = templateVertex(vertexName, op, dType);
+  auto vertexClass = templateVertex(vertexName, broadcastOp, dType);
   const auto maxAddendLen = graph.getMaxVertexFieldValue(vertexClass, "BLen");
   // If numPatternElems were some ludicrous number that doesn't
   // actually fit in numPatternElems then we could handle it and still
@@ -931,6 +960,10 @@ bool binaryOpBroadcastInnerVector(
       }
       graph.setInitialValue(v["BLen"], std::move(BLen));
       graph.setInitialValue(v["dataBlockCount"], std::move(dataBlockCount));
+      // SUBTRACT is done as a SCALED_ADD with scale of -1
+      if (op == BinaryOpType::SUBTRACT) {
+        graph.setInitialValue(v["scale"], -1.0f);
+      }
       graph.setTileMapping(v, tile);
     }
     return true;
@@ -1050,7 +1083,7 @@ bool binaryOpBroadcastOuterVector(
     std::vector<std::string> vertexClass(patterns.size());
     for (unsigned int i = 0; i < patterns.size(); i++) {
       vertexClass[i] =
-          templateVertex(vertexName, op, dType,
+          templateVertex(vertexName, binaryOpToBroadcastOp(op), dType,
                          patterns[i].innerFactor % vectorWidth ? true : false);
       auto maxC = graph.getMaxVertexFieldValue(vertexClass[i], "columns");
       auto maxR = graph.getMaxVertexFieldValue(vertexClass[i], "rows");

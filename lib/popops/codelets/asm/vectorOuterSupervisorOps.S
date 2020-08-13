@@ -51,8 +51,8 @@
 // Strings for mangled version of the entry points - presently only the version
 // that divides work by row, and does not deal with misaligned data.
 
-#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_float_false
-#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_half_false
+#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BroadcastOpType__\NAME_STR\()_float_false
+#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BroadcastOpType__\NAME_STR\()_half_false
 
 //******************************************************************************
 // Macros for float/binary entry - inplace, non inplace

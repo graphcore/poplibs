@@ -81,7 +81,7 @@ static bool channelMulTests(const std::vector<TestCase> &cases) {
 
     std::string templateVertexName =
         templateVertex("popops::BroadcastVectorInnerSupervisor",
-                       popops::expr::BinaryOpType::MULTIPLY, tc.type);
+                       popops::expr::BroadcastOpType::MULTIPLY, tc.type);
 
     auto v =
         graph.addVertex(cs, templateVertexName,

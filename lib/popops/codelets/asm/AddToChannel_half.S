@@ -4,7 +4,7 @@
 // # Overview
 //
 // This file contains the assembly for BroadcastVectorInner<ADD> and
-// BroadcastVectorInner<SUBTRACT> codelets, originally named 'AddToChannel'
+// BroadcastVectorInner<SCALED_ADD> codelets, originally named 'AddToChannel'
 // and 'ScaledAddToChannel' (created for a specific function).
 // Because of that, the input vectors were called:
 //   'acts' (activations), this is the 'data' vertex state field.
@@ -12,7 +12,7 @@
 //
 // The task is, given two vectors:
 //
-// Acts:   [0 1 2 3 4 5 6 7 8 9 10 11]
+// Acts: [0 1 2 3 4 5 6 7 8 9 10 11]
 // Addend: [0 1 2]
 //
 // Repeat addend, and add it to acts (after scaling it in the case of
@@ -20,10 +20,6 @@
 //
 // Acts = [0 1 2  3 4 5  6 7 8  9 10 11] +
 //        [0 1 2][0 1 2][0 1 2][0  1  2]
-//
-// ADD and SUBTRACT use the same inner loop where the addend is multiplied by
-// 1.0 or -1.0 respectively (for the fast paths, this is done using the
-// f16v4mix instruction with $TAS register).
 //
 // ## Fast Paths
 //
@@ -135,9 +131,9 @@
 // Let's create a macro to shorten the name for the entry points, which are
 // very long, as required by C++ name mangling.
 // TYPE needs to be 'Supervisor', 'InPlaceSupervisor', '2D' or '2DInPlace'.
-// OPERATION needs to be ADD or SUBTRACT (with three underscores, because of
+// OPERATION needs to be ADD or SCALED___ADD (with three underscores, because of
 // C++ name mangling rules)
-#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BinaryOpType__ ## OPERATION ## _half
+#define CPP_FUNCNAME(TYPE, OPERATION) __runCodelet_popops__BroadcastVectorInner ## TYPE ## ___popops__expr__BroadcastOpType__ ## OPERATION ## _half
 
 // Another similar macro to name the sections where each function is contained
 #define FUNC_SECTION(TYPE, OPERATION) .section .text.VectorInner_ ## TYPE ## _ ## OPERATION ## _half
@@ -145,13 +141,13 @@
 
 # In this file we have 8 externally visible functions
 EXPORT_FN   CPP_FUNCNAME(Supervisor,ADD)
-EXPORT_FN   CPP_FUNCNAME(Supervisor,SUBTRACT)
+EXPORT_FN   CPP_FUNCNAME(Supervisor,SCALED___ADD)
 EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,ADD)
-EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
+EXPORT_FN   CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
 EXPORT_FN   CPP_FUNCNAME(2D,ADD)
-EXPORT_FN   CPP_FUNCNAME(2D,SUBTRACT)
+EXPORT_FN   CPP_FUNCNAME(2D,SCALED___ADD)
 EXPORT_FN   CPP_FUNCNAME(2DInPlace,ADD)
-EXPORT_FN   CPP_FUNCNAME(2DInPlace,SUBTRACT)
+EXPORT_FN   CPP_FUNCNAME(2DInPlace,SCALED___ADD)
 
 
 // This is the main function that does the actual work. It takes the following
@@ -577,6 +573,8 @@ FN_SIZE VectorInnerAdd_core_half
 #define VERTEX_DATA_ADDEND_SIZE_OFFSET 1         // In 32-bits
 #define VERTEX_DATA_ACTS_OFFSET 2                // In 32-bits
 #define VERTEX_DATA_ACTS_BLOCK_COUNT_OFFSET 6    // In 16-bits
+// Additional state for SCALED_ADD version
+#define VERTEX_DATA_SCALE_OFFSET 7               // In 16-bits
 
 // Additional state for non-in place, Scaled
 #define VERTEX_DATA_OUT_OFFSET  4               // In 32-bits
@@ -587,17 +585,17 @@ FN_SIZE VectorInnerAdd_core_half
 #define supervisor_vertex_base m0
 #define worker_entry m1
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SUBTRACT)
-FUNC_SECTION(Supervisor,SUBTRACT)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,SCALED___ADD)
+FUNC_SECTION(Supervisor,SCALED___ADD)
 .align 4
 .supervisor
-CPP_FUNCNAME(Supervisor,SUBTRACT):
+CPP_FUNCNAME(Supervisor,SCALED___ADD):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerSubtract_worker
+  setzi $worker_entry, .LvectorInnerScaledAdd_worker
   // Run the workers.
   bri .Lrun_workers
 
-FN_SIZE CPP_FUNCNAME(Supervisor,SUBTRACT)
+FN_SIZE CPP_FUNCNAME(Supervisor,SCALED___ADD)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(Supervisor,ADD)
@@ -613,17 +611,17 @@ CPP_FUNCNAME(Supervisor,ADD):
 FN_SIZE CPP_FUNCNAME(Supervisor,ADD)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
-FUNC_SECTION(InPlaceSupervisor,SUBTRACT)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
+FUNC_SECTION(InPlaceSupervisor,SCALED___ADD)
 .align 4
 .supervisor
-CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT):
+CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD):
   // Set the entry point for the workers.
-  setzi $worker_entry, .LvectorInnerSubtract_inplace_worker
+  setzi $worker_entry, .LvectorInnerScaledAdd_inplace_worker
   // Run the workers.
   bri .Lrun_workers
 
-FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SUBTRACT)
+FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,SCALED___ADD)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(InPlaceSupervisor,ADD)
@@ -660,14 +658,14 @@ FN_SIZE CPP_FUNCNAME(InPlaceSupervisor,ADD)
 #define ascratch0 a1
 
 
-FUNC_SECTION(Worker,SUBTRACT)
+FUNC_SECTION(Worker,SCALED___ADD)
 .align 4
 .worker
-.LvectorInnerSubtract_worker:
-// Load -1.0 into the lower half of $scale, and 1.0 into the upper half.
-{ ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
-  setzi $scale, -1.0h}
-{ ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
+.LvectorInnerScaledAdd_worker:
+  ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  ld32 $out, $mvertex_base, $mzero, VERTEX_DATA_OUT_OFFSET
+  // Load the scale into the lower half of $scale, and 1.0 into the upper half.
+{ ldb16 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
 { // Jump to the shared worker code.
   bri .Lworker
@@ -687,14 +685,14 @@ FUNC_SECTION(Worker,ADD)
   f16v2exp $scale, $azero}
 
 
-FUNC_SECTION(WorkerInPlace,SUBTRACT)
+FUNC_SECTION(WorkerInPlace,SCALED__ADD)
 .align 4
 .worker
-.LvectorInnerSubtract_inplace_worker:
-// Load -1.0 into the lower half of $scale, and 1.0 into the upper half.
-{ ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
-  setzi $scale, -1.0h}
-{ mov $out, $acts
+.LvectorInnerScaledAdd_inplace_worker:
+  ld32 $acts, $mvertex_base, $mzero, VERTEX_DATA_ACTS_OFFSET
+  mov $out, $acts
+  // Load the scale into the lower half of $scale, and 1.0 into the upper half.
+{ ldb16 $scale, $mvertex_base, $mzero, VERTEX_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
 { // Jump to the shared worker code.
   bri .Lworker
@@ -798,8 +796,10 @@ update_acts_ptrs:
 #define VERTEX2D_DATA_ADDEND_LEN_OFFSET 2           // In 32-bits
 #define VERTEX2D_DATA_ACTS_OFFSET 3                 // In 32-bits
 #define VERTEX2D_DATA_ACTS_BLOCK_COUNT_OFFSET 4     // In 32-bits
-// Additional state for non-inplace variant
+// Additional state for non-inplace & scaled variants
 #define VERTEX2D_DATA_OUT_OFFSET 5                  // In 32-bits
+#define VERTEX2D_DATA_SCALE_OFFSET 10               // In 16-bits
+#define VERTEX2D_DATA_SCALED_OUT_OFFSET 6           // In 32-bits
 
 
 #define scale a0
@@ -818,20 +818,20 @@ update_acts_ptrs:
 #define SCRATCH_OFFSET_ACTS_ITERATOR   4
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,SUBTRACT)
-FUNC_SECTION(2D,SUBTRACT)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,SCALED___ADD)
+FUNC_SECTION(2D,SCALED___ADD)
 .align 4
-CPP_FUNCNAME(2D,SUBTRACT):
-  // Load -1.0 into the lower half of $scale, and 1.0 into the upper half.
-{ ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
-  setzi $scale, -1.0h}
-{ ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_OUT_OFFSET
+CPP_FUNCNAME(2D,SCALED___ADD):
+  ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+  ld32 $out_iterator, $mvertex_base, $mzero, VERTEX2D_DATA_SCALED_OUT_OFFSET
+  // Load the scale into the lower half of $scale, and 1.0 into the upper half.
+{ ldb16 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
 { // Jump to the shared worker code.
   bri .Lworker2d
   sort4x16lo $scale, $scale, $ascratch0 }
 
-FN_SIZE CPP_FUNCNAME(2D,SUBTRACT)
+FN_SIZE CPP_FUNCNAME(2D,SCALED___ADD)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(2D,ADD)
@@ -849,20 +849,20 @@ CPP_FUNCNAME(2D,ADD):
 FN_SIZE CPP_FUNCNAME(2D,ADD)
 
 
-DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,SUBTRACT)
-FUNC_SECTION(2DInPlace,SUBTRACT)
+DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,SCALED___ADD)
+FUNC_SECTION(2DInPlace,SCALED___ADD)
 .align 4
-CPP_FUNCNAME(2DInPlace,SUBTRACT):
-  // Load -1.0 into the lower half of $scale, and 1.0 into the upper half.
-{ ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
-  setzi $scale, -1.0h}
-{ mov $out_iterator, $acts_iterator
+CPP_FUNCNAME(2DInPlace,SCALED___ADD):
+  ld32 $acts_iterator,  $mvertex_base, $mzero, VERTEX2D_DATA_ACTS_OFFSET
+  mov $out_iterator, $acts_iterator
+  // Load the scale into the lower half of $scale, and 1.0 into the upper half.
+{ ldb16 $scale, $mvertex_base, $mzero, VERTEX2D_DATA_SCALE_OFFSET
   setzi $ascratch0, 1.0h }
 { // Jump to the shared worker code.
   bri .Lworker2d
   sort4x16lo $scale, $scale, $ascratch0 }
 
-FN_SIZE CPP_FUNCNAME(2DInPlace,SUBTRACT)
+FN_SIZE CPP_FUNCNAME(2DInPlace,SCALED___ADD)
 
 
 DEF_STACK_USAGE 0 CPP_FUNCNAME(2DInPlace,ADD)

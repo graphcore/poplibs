@@ -69,6 +69,15 @@ enum class UnaryOpType {
   RSQRT
 };
 
+enum class BroadcastOpType {
+  ADD,
+  INV_STD_DEV_TO_VARIANCE,
+  MULTIPLY,
+  SUBTRACT,
+  VARIANCE_TO_INV_STD_DEV,
+  SCALED_ADD
+};
+
 } // namespace expr
 } // namespace popops
 

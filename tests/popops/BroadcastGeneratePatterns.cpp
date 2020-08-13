@@ -217,7 +217,7 @@ const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 bool doBroadcastVectorOptimiseTest(
     const DeviceType &deviceType, const unsigned tiles, const Type &dataType,
     const unsigned innerFactor, unsigned motifLength, unsigned outerFactor,
-    const unsigned regionsPerTile, expr::BinaryOpType operation,
+    const unsigned regionsPerTile, expr::BroadcastOpType operation,
     const bool inPlace, const std::function<double(double, double)> &hostFn,
     const bool doReport, const bool doPrintTensors, const bool ignoreData,
     bool enableOptimisations) {
@@ -285,13 +285,13 @@ bool doBroadcastVectorOptimiseTest(
   Tensor out;
   if (inPlace) {
     switch (operation) {
-    case expr::BinaryOpType::ADD:
+    case expr::BroadcastOpType::ADD:
       addInPlace(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BinaryOpType::MULTIPLY:
+    case expr::BroadcastOpType::MULTIPLY:
       mulInPlace(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BinaryOpType::SUBTRACT:
+    case expr::BroadcastOpType::SUBTRACT:
       subInPlace(graph, in, in2, prog, "", opOpts);
       break;
     default:
@@ -300,13 +300,13 @@ bool doBroadcastVectorOptimiseTest(
     out = in;
   } else {
     switch (operation) {
-    case expr::BinaryOpType::ADD:
+    case expr::BroadcastOpType::ADD:
       out = add(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BinaryOpType::MULTIPLY:
+    case expr::BroadcastOpType::MULTIPLY:
       out = mul(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BinaryOpType::SUBTRACT:
+    case expr::BroadcastOpType::SUBTRACT:
       out = sub(graph, in, in2, prog, "", opOpts);
       break;
     default:
@@ -464,18 +464,18 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-  expr::BinaryOpType broadcastOperation;
+  expr::BroadcastOpType broadcastOperation;
   std::function<double(double, double)> broadcastHostFn;
 
   // Operations
   if (operation == "ADD") {
-    broadcastOperation = expr::BinaryOpType::ADD;
+    broadcastOperation = expr::BroadcastOpType::ADD;
     broadcastHostFn = [](double x, double y) -> double { return x + y; };
   } else if ((operation == "MULTIPLY") || (operation == "MUL")) {
-    broadcastOperation = expr::BinaryOpType::MULTIPLY;
+    broadcastOperation = expr::BroadcastOpType::MULTIPLY;
     broadcastHostFn = [](double x, double y) -> double { return x * y; };
   } else if ((operation == "SUBTRACT") || (operation == "SUB")) {
-    broadcastOperation = expr::BinaryOpType::SUBTRACT;
+    broadcastOperation = expr::BroadcastOpType::SUBTRACT;
     broadcastHostFn = [](double x, double y) -> double { return x - y; };
   } else {
     std::cerr << " Error: Operation " << operation << " not recognised\n";

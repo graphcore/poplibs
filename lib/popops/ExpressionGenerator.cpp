@@ -29,6 +29,7 @@ using namespace poplar;
 using namespace poplar::program;
 
 using popops::expr::BinaryOpType;
+using popops::expr::BroadcastOpType;
 using popops::expr::TernaryOpType;
 using popops::expr::UnaryOpType;
 using namespace poplibs_support;

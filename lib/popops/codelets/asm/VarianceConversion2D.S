@@ -39,8 +39,8 @@
 #define outPair a4:5
 
 // Name mangling for use in macros
-#define VERTEX __runCodelet_popops__BroadcastScalar\EXT\()___popops__expr__BinaryOpType__\OP_TYPES
-#define VERTEX_INPLACE __runCodelet_popops__BroadcastScalar\EXT\()InPlace___popops__expr__BinaryOpType__\OP_TYPES
+#define VERTEX __runCodelet_popops__BroadcastScalar\EXT\()___popops__expr__BroadcastOpType__\OP_TYPES
+#define VERTEX_INPLACE __runCodelet_popops__BroadcastScalar\EXT\()InPlace___popops__expr__BroadcastOpType__\OP_TYPES
 
 //******************************************************************************
 // Macro to read half, compute INV_STD_DEV_TO_VARAINCE and output as either

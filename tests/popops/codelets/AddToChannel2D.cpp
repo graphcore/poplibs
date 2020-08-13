@@ -31,7 +31,7 @@ struct TestCase {
   poplar::Type type;
   std::vector<std::size_t> addendLen;
   std::vector<std::size_t> actsLen;
-  bool subtract;
+  float scale;
 };
 
 struct TestCaseData {
@@ -81,9 +81,8 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
               << " addendLen.size(): " << tc.addendLen.size()
               << " actsLen.size(): " << tc.actsLen.size()
               << " totalAddendLen: " << totalAddendLen
-              << " totalActsLen: " << totalActsLen
-              << " subtract: " << tc.subtract << " type: " << tc.type.toString()
-              << "\n";
+              << " totalActsLen: " << totalActsLen << " scale: " << tc.scale
+              << " type: " << tc.type.toString() << "\n";
 
     std::string suffix = "_" + std::to_string(i);
 
@@ -94,9 +93,9 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
                                      "allActs" + suffix);
     graph.setTileMapping(allActs, 0);
 
-    popops::expr::BinaryOpType op = tc.subtract
-                                        ? popops::expr::BinaryOpType::SUBTRACT
-                                        : popops::expr::BinaryOpType::ADD;
+    popops::expr::BroadcastOpType op =
+        tc.scale == 1.0f ? popops::expr::BroadcastOpType::ADD
+                         : popops::expr::BroadcastOpType::SCALED_ADD;
     auto templateVertexName =
         templateVertex("popops::BroadcastVectorInner2DInPlace", op, tc.type);
     auto v = graph.addVertex(cs, templateVertexName);
@@ -129,6 +128,9 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
       graph.setInitialValue(v["BLen"][a], tc.addendLen[a]);
       graph.setInitialValue(v["dataBlockCount"][a], actsBlockCount16);
     }
+
+    if (tc.scale != 1.0f)
+      graph.setInitialValue(v["scale"], tc.scale);
 
     graph.setTileMapping(v, 0);
 
@@ -191,8 +193,7 @@ static bool addToChannel2DTests(const std::vector<TestCase> &cases) {
     for (unsigned a = 0; a < tc.actsLen.size(); ++a) {
       for (std::size_t k = 0; k < tc.actsLen[a]; ++k) {
         allActsRef[actsPos + k] +=
-            tcData[i].allAddends[addendPos + (k % tc.addendLen[a])] *
-            (tc.subtract ? -1 : 1);
+            tcData[i].allAddends[addendPos + (k % tc.addendLen[a])] * tc.scale;
       }
       actsPos += tc.actsLen[a];
       addendPos += tc.addendLen[a];
@@ -219,7 +220,7 @@ void runAddToChannel2DTests(std::vector<TestCase> cases) {
 
   // Test AddToChannel
   for (auto &tc : cases)
-    tc.subtract = false;
+    tc.scale = 1.0f;
   BOOST_TEST(addToChannel2DTests(cases));
 }
 
@@ -227,10 +228,8 @@ const bool isNotSim = !isSimulator(TEST_TARGET);
 
 BOOST_AUTO_TEST_CASE(AddToChannel2DTiny) {
   std::vector<TestCase> cases = {
-      {HALF, {1, 4, 8, 5}, {15, 12, 32, 15}, true},
-      {HALF, {1, 4, 8, 5}, {15, 12, 32, 15}, false},
-      {FLOAT, {1, 4, 8, 5}, {15, 12, 32, 15}, true},
-      {FLOAT, {1, 4, 8, 5}, {15, 12, 32, 15}, false},
+      {HALF, {1, 4, 8, 5}, {15, 12, 32, 15}, 3.0f},
+      {FLOAT, {1, 4, 8, 5}, {15, 12, 32, 15}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
@@ -238,10 +237,10 @@ BOOST_AUTO_TEST_CASE(AddToChannel2DTiny) {
 BOOST_AUTO_TEST_CASE(AddToChannel2DSmall,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {HALF, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}, true},
-      {HALF, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}, false},
-      {FLOAT, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}, false},
-      {FLOAT, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}, true},
+      {HALF, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}, 3.0f},
+      {HALF, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}, 3.0f},
+      {FLOAT, {1, 4, 8, 12, 16}, {480, 480, 480, 480, 480}, 3.0f},
+      {FLOAT, {1, 4, 8, 5, 8}, {15, 12, 40, 15, 168}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
@@ -254,7 +253,7 @@ std::size_t maxBlockCount() {
 BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_half,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {HALF, {1, 1}, {maxBlockCount(), 80}, false},
+      {HALF, {1, 1}, {maxBlockCount(), 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
@@ -262,7 +261,7 @@ BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_half,
 BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_half,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {HALF, {8, 8}, {8000, 80}, true},
+      {HALF, {8, 8}, {8000, 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
@@ -270,7 +269,7 @@ BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_half,
 BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_float,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {FLOAT, {1, 1}, {maxBlockCount(), 80}, true},
+      {FLOAT, {1, 1}, {maxBlockCount(), 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }
@@ -278,7 +277,7 @@ BOOST_AUTO_TEST_CASE(AddToChannel2DLarge1_float,
 BOOST_AUTO_TEST_CASE(AddToChannel2DLarge8_float,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {FLOAT, {8, 8}, {8000, 80}, false},
+      {FLOAT, {8, 8}, {8000, 80}, 3.0f},
   };
   runAddToChannel2DTests(cases);
 }

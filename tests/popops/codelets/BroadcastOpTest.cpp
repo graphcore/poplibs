@@ -34,7 +34,7 @@ const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 //*************************************************
 bool doBroadcastOpTest(const DeviceType &deviceType, const Type &dataType,
                        unsigned rows, unsigned columns,
-                       expr::BinaryOpType operation, bool testSupervisor,
+                       expr::BroadcastOpType operation, bool testSupervisor,
                        unsigned bElems, bool inPlace, bool divideByRow,
                        const std::function<double(double, double)> &hostFn,
                        bool doCheck, bool doReport, int in1Offset,
@@ -269,14 +269,14 @@ bool doBroadcastOpTest(const DeviceType &deviceType, const Type &dataType,
 
 bool doBroadcastOpTestCastOutput(
     const DeviceType &deviceType, const Type &dataType, unsigned rows,
-    unsigned columns, expr::BinaryOpType operation, bool testSupervisor,
+    unsigned columns, expr::BroadcastOpType operation, bool testSupervisor,
     unsigned bElems, const std::function<double(double, double)> &hostFn,
     bool doCheck, bool doReport) {
   Type outputType;
-  if (operation == expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE) {
+  if (operation == expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE) {
     outputType = FLOAT;
   }
-  if (operation == expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV) {
+  if (operation == expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV) {
     outputType = HALF;
   }
   auto total_elems = rows * columns;
@@ -498,26 +498,26 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-  expr::BinaryOpType broadcastOperation;
+  expr::BroadcastOpType broadcastOperation;
   std::function<double(double, double)> broadcastHostFn;
 
   // Operations
   if (operation == "ADD") {
-    broadcastOperation = expr::BinaryOpType::ADD;
+    broadcastOperation = expr::BroadcastOpType::ADD;
     broadcastHostFn = [](double x, double y) -> double { return x + y; };
   } else if (operation == "MULTIPLY") {
-    broadcastOperation = expr::BinaryOpType::MULTIPLY;
+    broadcastOperation = expr::BroadcastOpType::MULTIPLY;
     broadcastHostFn = [](double x, double y) -> double { return x * y; };
   } else if (operation == "SUBTRACT") {
-    broadcastOperation = expr::BinaryOpType::SUBTRACT;
+    broadcastOperation = expr::BroadcastOpType::SUBTRACT;
     broadcastHostFn = [](double x, double y) -> double { return x - y; };
   } else if (operation == "INV_STD_DEV_TO_VARIANCE") {
-    broadcastOperation = expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE;
+    broadcastOperation = expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE;
     broadcastHostFn = [](double x, double y) -> double {
       return (1 / (x * x)) - y;
     };
   } else if (operation == "VARIANCE_TO_INV_STD_DEV") {
-    broadcastOperation = expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV;
+    broadcastOperation = expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV;
     broadcastHostFn = [](double x, double y) -> double {
       return 1 / sqrt(x + y);
     };
@@ -526,8 +526,8 @@ int main(int argc, char **argv) {
     return 1;
   }
   if (castOutput) {
-    if (broadcastOperation != expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE &&
-        broadcastOperation != expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV) {
+    if (broadcastOperation != expr::BroadcastOpType::INV_STD_DEV_TO_VARIANCE &&
+        broadcastOperation != expr::BroadcastOpType::VARIANCE_TO_INV_STD_DEV) {
       std::cerr << " Error: Casting the output is not supported for "
                 << operation << "\n";
       return 0;
