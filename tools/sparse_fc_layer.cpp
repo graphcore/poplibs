@@ -56,18 +56,6 @@ using namespace popsparse::dynamic;
 // TODO: This could be a program option if at all needed
 using EType = float;
 
-void print(const boost::multi_array_ref<double, 2> &matA) {
-  std::cerr.precision(8);
-  const auto numRows = matA.shape()[0];
-  const auto numColumns = matA.shape()[1];
-  for (std::size_t row = 0; row != numRows; ++row) {
-    std::cerr << "\n";
-    for (std::size_t col = 0; col != numColumns; ++col) {
-      std::cerr << "   " << matA[row][col];
-    }
-  }
-}
-
 template <typename T>
 static void logBucketStatistics(std::vector<PNBucket> &buckets,
                                 const CSRMatrix<T> &csrMatrix) {
@@ -595,14 +583,22 @@ int main(int argc, char **argv) try {
            rowIt != csrMatrix.rowIndices.end(); ++rowIt) {
         const auto nnzThisRow = *rowIt - *std::prev(rowIt);
         const auto rowIdx =
-            std::distance(csrMatrix.rowIndices.begin(), rowIt) - 1;
-        for (std::size_t i = 0; i < nnzThisRow; ++i) {
+            (std::distance(csrMatrix.rowIndices.begin(), rowIt) - 1) *
+            blockRows;
+        for (std::size_t i = 0; i < nnzThisRow / blockArea; ++i) {
           const auto columnIdx = *columnIdxIt++;
-          modelNzValuesCSR.emplace_back(modelWeightGrad[rowIdx][columnIdx]);
+          for (std::size_t r = 0; r != blockRows; ++r) {
+            for (std::size_t c = 0; c != blockCols; ++c) {
+              // row major order within a block
+              modelNzValuesCSR.emplace_back(
+                  modelWeightGrad[rowIdx + r][columnIdx + c]);
+            }
+          }
         }
       }
 
-      assert(modelNzValuesCSR.size() == csrMatrix.columnIndices.size());
+      assert(modelNzValuesCSR.size() ==
+             csrMatrix.columnIndices.size() * blockArea);
 
       SparsityDataImpl<EType> actualBuckets;
       std::vector<EType> actualWeightGrads;
