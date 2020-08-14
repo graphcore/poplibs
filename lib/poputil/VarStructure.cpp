@@ -15,6 +15,38 @@ using namespace poputil;
 
 namespace poputil {
 
+// Given a vector 'indices', generate into it all possible
+// values in the interval [0, limits).
+/// E.g. if 'limits' = {2,3}, then 'indices[2] will sequence
+/// through the following values:
+///    {1, 0}, {0, 1}, {1, 1}, {0, 2}, {1, 2}, {0, 0}
+/// The algorithm behaves like binary addition, carrying the
+/// increment into the next when the possibilities
+/// for the current dimension have been exhausted.
+template <typename T> struct GenerateIndices {
+  GenerateIndices(T &i, const T &l) : indices(i), limits(l) {
+    assert(indices.size() == limits.size() &&
+           "indices and indices' limits dimension must match");
+  }
+  // generate next sequence value into 'indices'
+  void next() {
+    carryDim = 0;
+    while (carryDim < indices.size()) {
+      ++indices[carryDim];
+      if (indices[carryDim] < limits[carryDim]) {
+        break;
+      }
+      indices[carryDim] = 0;
+      carryDim++;
+    }
+  }
+  bool complete() { return carryDim >= indices.size(); }
+
+  T &indices;
+  const T &limits;
+  std::size_t carryDim;
+};
+
 // The order in which different parameters are permuted
 enum class PermutationOrder {
   // The possible values of the first parameter in the list
@@ -39,28 +71,19 @@ static inline void permute(const std::vector<std::vector<std::size_t>> &params,
   assert(order == PermutationOrder::Forward);
   std::vector<std::size_t> permutation(params.size());
   std::vector<std::size_t> indices(params.size());
-  std::size_t carryDim;
+
+  std::vector<std::size_t> indicesLimits;
+  for (const auto &p : params)
+    indicesLimits.push_back(p.size());
+  GenerateIndices genI(indices, indicesLimits);
+
   do {
     for (std::size_t i = 0; i < params.size(); ++i) {
       permutation[i] = params[i][indices[i]];
     }
     f(indices, permutation);
-    // Like binary addition, we carry the increment into the next
-    // parameter's set of possible values when the possibilities
-    // for the current parameter have been exhausted.
-    carryDim = 0;
-    while (carryDim < indices.size()) {
-      ++indices[carryDim];
-      if (indices[carryDim] < params[carryDim].size()) {
-        break;
-      }
-      indices[carryDim] = 0;
-      carryDim++;
-    }
-
-    // When we have reached the end of every set of possible
-    // values for all parameters we are done
-  } while (carryDim < indices.size());
+    genI.next();
+  } while (!genI.complete());
 }
 
 Tensor createPartitionableTensor(Graph &graph, const Type &type,
@@ -141,10 +164,10 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
   std::vector<std::vector<std::size_t>> varDimSizes(shape.size());
   std::vector<std::vector<std::size_t>> varElemsPerSplit(shape.size());
   for (std::size_t d = 0; d < shape.size(); ++d) {
-    const auto ceil = ceildiv(shape[d], nPartitions[d]);
-    const auto rem = shape[d] % ceil;
+    const auto elemsPerSplit = ceildiv(shape[d], nPartitions[d]);
+    const auto rem = shape[d] % elemsPerSplit;
     varDimSizes[d].push_back(shape[d] - rem);
-    varElemsPerSplit[d].push_back(ceil);
+    varElemsPerSplit[d].push_back(elemsPerSplit);
     // Add the remainder if there is any (i.e. this dimension cannot be evenly
     // split into the desired number of partitions).
     if (rem != 0) {
@@ -181,7 +204,7 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
               const auto nSplits = permutedShape[d] / elemsPerSplit;
               splitPermutedShape[d] = nSplits;
               inversePermutation[d * 2] = d;
-              splitPermutedShape[nDims + d] = permutedShape[d] / nSplits;
+              splitPermutedShape[nDims + d] = elemsPerSplit;
               inversePermutation[d * 2 + 1] = nDims + d;
             }
             // Shuffle then flatten the number of partitions in each dimension
@@ -248,7 +271,7 @@ void iterateTensorPartitions(
 
   const auto shape = t.shape();
   std::vector<std::size_t> i(shape.size(), 0);
-  std::size_t carryDim;
+  GenerateIndices genI(i, nPartitions);
   do {
     Tensor slice = t;
     for (std::size_t d = 0; d < shape.size(); ++d) {
@@ -257,19 +280,8 @@ void iterateTensorPartitions(
                           std::min((i[d] + 1) * ceil, shape[d]), d);
     }
     f(i, slice);
-    // Like binary addition, we carry the increment into the next
-    // dimension's partitions when the partitions for the current
-    // dimension have been exhausted.
-    carryDim = 0;
-    while (carryDim < i.size()) {
-      ++i[carryDim];
-      if (i[carryDim] < nPartitions[carryDim]) {
-        break;
-      }
-      i[carryDim] = 0;
-      carryDim++;
-    }
-  } while (carryDim < i.size());
+    genI.next();
+  } while (!genI.complete());
 }
 
 unsigned detectInnermostGrouping(const Graph &graph, const Tensor &t0) {
