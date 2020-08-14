@@ -57,7 +57,7 @@ bool doBroadcastVectorOptimiseTest(
     const std::vector<unsigned> &shuffleShape,
     const std::vector<unsigned> &sliceMap1,
     const std::vector<unsigned> &sliceMap2, const unsigned dim,
-    expr::BroadcastOpType operation, const bool inPlace,
+    expr::BinaryOpType operation, const bool inPlace,
     const std::function<double(double, double)> &hostFn, const bool doReport,
     const bool doPrintTensors, const bool ignoreData,
     bool enableOptimisations) {
@@ -143,13 +143,13 @@ bool doBroadcastVectorOptimiseTest(
   Tensor out;
   if (inPlace) {
     switch (operation) {
-    case expr::BroadcastOpType::ADD:
+    case expr::BinaryOpType::ADD:
       addInPlace(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BroadcastOpType::MULTIPLY:
+    case expr::BinaryOpType::MULTIPLY:
       mulInPlace(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BroadcastOpType::SUBTRACT:
+    case expr::BinaryOpType::SUBTRACT:
       subInPlace(graph, in, in2, prog, "", opOpts);
       break;
     default:
@@ -158,13 +158,13 @@ bool doBroadcastVectorOptimiseTest(
     out = in;
   } else {
     switch (operation) {
-    case expr::BroadcastOpType::ADD:
+    case expr::BinaryOpType::ADD:
       out = add(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BroadcastOpType::MULTIPLY:
+    case expr::BinaryOpType::MULTIPLY:
       out = mul(graph, in, in2, prog, "", opOpts);
       break;
-    case expr::BroadcastOpType::SUBTRACT:
+    case expr::BinaryOpType::SUBTRACT:
       out = sub(graph, in, in2, prog, "", opOpts);
       break;
     default:
@@ -321,18 +321,18 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-  expr::BroadcastOpType broadcastOperation;
+  expr::BinaryOpType broadcastOperation;
   std::function<double(double, double)> broadcastHostFn;
 
   // Operations
   if (operation == "ADD") {
-    broadcastOperation = expr::BroadcastOpType::ADD;
+    broadcastOperation = expr::BinaryOpType::ADD;
     broadcastHostFn = [](double x, double y) -> double { return x + y; };
   } else if ((operation == "MULTIPLY") || (operation == "MUL")) {
-    broadcastOperation = expr::BroadcastOpType::MULTIPLY;
+    broadcastOperation = expr::BinaryOpType::MULTIPLY;
     broadcastHostFn = [](double x, double y) -> double { return x * y; };
   } else if ((operation == "SUBTRACT") || (operation == "SUB")) {
-    broadcastOperation = expr::BroadcastOpType::SUBTRACT;
+    broadcastOperation = expr::BinaryOpType::SUBTRACT;
     broadcastHostFn = [](double x, double y) -> double { return x - y; };
   } else {
     std::cerr << " Error: Operation " << operation << " not recognised\n";

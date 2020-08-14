@@ -99,7 +99,7 @@ static bool channelMul2DTests(const std::vector<TestCase> &cases) {
 
     std::string templateVertexName =
         templateVertex("popops::BroadcastVectorInner2D",
-                       popops::expr::BroadcastOpType::MULTIPLY, tc.type);
+                       popops::expr::BinaryOpType::MULTIPLY, tc.type);
 
     auto v = graph.addVertex(cs, templateVertexName);
 

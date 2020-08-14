@@ -46,8 +46,8 @@
 #define outPair a4:5
 
 // Name mangling for use in macros
-#define VERTEX __runCodelet_popops__BroadcastScalar\EXT\()Supervisor___popops__expr__BroadcastOpType__\OP_TYPES
-#define VERTEX_INPLACE __runCodelet_popops__BroadcastScalar\EXT\()InPlaceSupervisor___popops__expr__BroadcastOpType__\OP_TYPES
+#define VERTEX __runCodelet_popops__BroadcastScalar\EXT\()Supervisor___popops__expr__BinaryOpType__\OP_TYPES
+#define VERTEX_INPLACE __runCodelet_popops__BroadcastScalar\EXT\()InPlaceSupervisor___popops__expr__BinaryOpType__\OP_TYPES
 
 //******************************************************************************
 // Compute macro for inverse standard deviation to variance, with half in,

@@ -11,22 +11,22 @@
 // macro to create mangled names as an entry label into the supervior vertex code,
 // and to reference the worker code entry point.
 //************************************************
-.macro MAKE_ONE_OP NAME FULLNAME OPERATION TYPE
+.macro MAKE_ONE_OP OPTYPE FULLNAME OPERATION DATATYPE
 
-DEF_STACK_SIZE_OWN 0 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
-.section .text.popops__\FULLNAME\()_\OPERATION\()_\TYPE
+DEF_STACK_SIZE_OWN 0 __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE
+.section .text.popops__\FULLNAME\()_\OPERATION\()_\DATATYPE
 .align 4
- .global __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
- .type __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE @function
+ .global __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE
+ .type __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE @function
  .supervisor
-__runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE:
-  setzi        $WORKER_ENTRY, __runCodelet_popops__\FULLNAME\()___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
+__runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE:
+  setzi        $WORKER_ENTRY, __runCodelet_popops__\FULLNAME\()___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE
   runall       $WORKER_ENTRY, $SUP_VERTEX_BASE, 0
   sync         TEXCH_SYNCZONE_LOCAL
   br           $lr
 
-  .size popops__\FULLNAME\()_\OPERATION\()_\TYPE,\
-   .-__runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\NAME\()Type__\OPERATION\()_\TYPE
+  .size __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE,\
+    .-__runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPERATION\()_\DATATYPE
 .endm
 
 //************************************************
@@ -163,36 +163,36 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_
 
 // Broadcasting 2nd operand without producing copies to memory
 
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, SUBTRACT, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, ADD, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, MULTIPLY, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SUBTRACT, half, float
 
 // Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1D, VARIANCE___TO___INV___STD___DEV, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, VARIANCE___TO___INV___STD___DEV, half, float
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, ADD, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, MULTIPLY, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumn, SUBTRACT, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByColumn, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByColumn, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByColumn, SUBTRACT, half_true, float_true, half_false, float_false
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, ADD, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, MULTIPLY, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRow, SUBTRACT, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRow, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRow, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRow, SUBTRACT, half_true, float_true, half_false, float_false
 
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, ADD, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, ADD, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
 
 // Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, float
-INSTANTIATE_OP BroadcastOp, BroadcastScalar1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, VARIANCE___TO___INV___STD___DEV, half, float
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, ADD, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, MULTIPLY, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByColumnInPlace, SUBTRACT, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByColumnInPlace, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByColumnInPlace, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByColumnInPlace, SUBTRACT, half_true, float_true, half_false, float_false
 
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, ADD, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, MULTIPLY, half_true, float_true, half_false, float_false
-INSTANTIATE_OP BroadcastOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, ADD, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, MULTIPLY, half_true, float_true, half_false, float_false
+INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half_true, float_true, half_false, float_false
 
 #endif

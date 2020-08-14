@@ -31,7 +31,7 @@ struct TestCase {
   poplar::Type type;
   std::size_t addendLen;
   std::size_t actsLen;
-  float scale;
+  bool subtract;
 };
 
 struct TestCaseData {
@@ -67,7 +67,7 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
 
     std::cout << "Test case [" << i << "]: "
               << " addendLen: " << tc.addendLen << " actsLen: " << tc.actsLen
-              << " scale: " << tc.scale << " type: " << tc.type.toString()
+              << " subtract: " << tc.subtract << " type: " << tc.type.toString()
               << "\n";
 
     std::string suffix = "_" + std::to_string(i);
@@ -78,9 +78,9 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
                                   "acts" + suffix);
     graph.setTileMapping(acts, 0);
 
-    popops::expr::BroadcastOpType op =
-        tc.scale == 1.0f ? popops::expr::BroadcastOpType::ADD
-                         : popops::expr::BroadcastOpType::SCALED_ADD;
+    popops::expr::BinaryOpType op = tc.subtract
+                                        ? popops::expr::BinaryOpType::SUBTRACT
+                                        : popops::expr::BinaryOpType::ADD;
     std::string templateVertexName = templateVertex(
         "popops::BroadcastVectorInnerInPlaceSupervisor", op, tc.type);
 
@@ -96,9 +96,6 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
       return false;
 
     graph.setInitialValue(v["dataBlockCountPacked"], actsBlockCountPacked16);
-
-    if (tc.scale != 1.0f)
-      graph.setInitialValue(v["scale"], tc.scale);
 
     graph.setTileMapping(v, 0);
 
@@ -155,7 +152,7 @@ static bool addToChannelTests(const std::vector<TestCase> &cases) {
 
     auto actsRef = tcData[i].acts;
     for (std::size_t k = 0; k < tc.actsLen; ++k)
-      actsRef[k] += tcData[i].addend[k % tc.addendLen] * tc.scale;
+      actsRef[k] += tcData[i].addend[k % tc.addendLen] * (tc.subtract ? -1 : 1);
 
     const double absoluteTolerance =
         tc.type == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
@@ -178,7 +175,7 @@ void runAddToChannelTests(std::vector<TestCase> cases) {
 
   // Test AddToChannel
   for (auto &tc : cases)
-    tc.scale = 1.0f;
+    tc.subtract = false;
   BOOST_TEST(addToChannelTests(cases));
 }
 
@@ -186,9 +183,9 @@ const bool isNotSim = !isSimulator(TEST_TARGET);
 
 BOOST_AUTO_TEST_CASE(AddToChannelTiny) {
   std::vector<TestCase> cases = {
-      {HALF, 1, 8, 3.0f},   {HALF, 4, 16, 3.0f},  {HALF, 8, 32, 3.0f},
-      {HALF, 5, 15, 3.0f},  {FLOAT, 1, 8, 3.0f},  {FLOAT, 4, 16, 3.0f},
-      {FLOAT, 8, 32, 3.0f}, {FLOAT, 5, 15, 3.0f},
+      {HALF, 1, 8, false},   {HALF, 4, 16, false},  {HALF, 8, 32, false},
+      {HALF, 5, 15, false},  {FLOAT, 1, 8, false},  {FLOAT, 4, 16, false},
+      {FLOAT, 8, 32, false}, {FLOAT, 5, 15, false},
   };
   runAddToChannelTests(cases);
 }
@@ -196,15 +193,15 @@ BOOST_AUTO_TEST_CASE(AddToChannelTiny) {
 BOOST_AUTO_TEST_CASE(AddToChannelSmall,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {HALF, 1, 480, 3.0f},   {HALF, 4, 480, 3.0f},   {HALF, 8, 480, 3.0f},
-      {HALF, 12, 480, 3.0f},  {HALF, 16, 480, 3.0f},  {HALF, 1, 15, 3.0f},
-      {HALF, 4, 12, 3.0f},    {HALF, 8, 40, 3.0f},    {HALF, 5, 15, 3.0f},
-      {HALF, 8, 168, 3.0f},
+      {HALF, 1, 480, false},   {HALF, 4, 480, false},   {HALF, 8, 480, false},
+      {HALF, 12, 480, false},  {HALF, 16, 480, false},  {HALF, 1, 15, false},
+      {HALF, 4, 12, false},    {HALF, 8, 40, false},    {HALF, 5, 15, false},
+      {HALF, 8, 168, false},
 
-      {FLOAT, 1, 480, 3.0f},  {FLOAT, 4, 480, 3.0f},  {FLOAT, 8, 480, 3.0f},
-      {FLOAT, 12, 480, 3.0f}, {FLOAT, 16, 480, 3.0f}, {FLOAT, 1, 15, 3.0f},
-      {FLOAT, 4, 12, 3.0f},   {FLOAT, 8, 40, 3.0f},   {FLOAT, 5, 15, 3.0f},
-      {FLOAT, 8, 168, 3.0f},
+      {FLOAT, 1, 480, false},  {FLOAT, 4, 480, false},  {FLOAT, 8, 480, false},
+      {FLOAT, 12, 480, false}, {FLOAT, 16, 480, false}, {FLOAT, 1, 15, false},
+      {FLOAT, 4, 12, false},   {FLOAT, 8, 40, false},   {FLOAT, 5, 15, false},
+      {FLOAT, 8, 168, false},
   };
   runAddToChannelTests(cases);
 }
@@ -219,7 +216,7 @@ std::size_t maxBlockCount() {
 BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {HALF, 1, maxBlockCount(), 3.0f},
+      {HALF, 1, maxBlockCount(), false},
   };
   runAddToChannelTests(cases);
 }
@@ -227,7 +224,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge1_half,
 BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {HALF, 8, 8000, 3.0f},
+      {HALF, 8, 8000, false},
   };
   runAddToChannelTests(cases);
 }
@@ -235,7 +232,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge8_half,
 BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {FLOAT, 1, maxBlockCount(), 3.0f},
+      {FLOAT, 1, maxBlockCount(), false},
   };
   runAddToChannelTests(cases);
 }
@@ -243,7 +240,7 @@ BOOST_AUTO_TEST_CASE(AddToChannelLarge1_float,
 BOOST_AUTO_TEST_CASE(AddToChannelLarge8_float,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   std::vector<TestCase> cases = {
-      {FLOAT, 8, 8000, 3.0f},
+      {FLOAT, 8, 8000, false},
   };
   runAddToChannelTests(cases);
 }
@@ -253,7 +250,7 @@ BOOST_AUTO_TEST_CASE(AddToChannel_MaxChannels_MultipleOfFour_half,
                      *boost::unit_test::precondition(enableIfNotSim())) {
   for (std::size_t addendLen = 2044; addendLen <= 2056; addendLen += 4) {
     std::vector<TestCase> cases = {
-        {HALF, addendLen, addendLen * 4, 3.0f},
+        {HALF, addendLen, addendLen * 4, false},
     };
     runAddToChannelTests(cases);
   }
