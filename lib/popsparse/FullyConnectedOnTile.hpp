@@ -9,6 +9,7 @@
 
 #include "FullyConnectedVector.hpp"
 
+#include <array>
 #include <boost/variant.hpp>
 
 namespace popsparse {
@@ -25,7 +26,21 @@ void onTileImpl(
     const boost::variant<unsigned, poplar::Tensor> &subGroupIdToProcess,
     const Vector<std::size_t> &shape, const poplar::Tensor &metaInfoBuckets,
     const poplar::Tensor &weights, const poplar::Tensor &acts,
-    const poplar::Tensor &partials, const std::string &debugPrefix);
+    const poplar::Tensor &partials,
+    const std::array<std::size_t, 2> &blockDimensions,
+    const std::string &debugPrefix);
+
+// Describes the desired ordering in memory of activations given to onTileImpl
+// dependent on the method. For the time being this is the only information
+// needed to lay out operands optimally for the operation.
+//
+// Assumes internal shape of activations
+std::vector<unsigned> getOnTileActsOrdering(const OnTileMethod &method);
+
+// Describes the desired ordering in memory of partials given to onTileImpl
+// dependent on the method. For the time being this is the only information
+// needed to lay out operands optimally for the operation.
+std::vector<unsigned> getOnTilePartialsOrdering(const OnTileMethod &method);
 
 } // end namespace fullyconnected
 } // end namespace popsparse

@@ -83,6 +83,59 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
 endforeach()
 
 foreach(DATA_TYPE half float)
+  # Tests specifically covering block-sparsity
+  set(PARTIALS_TYPE_CANDIDATES float)
+  if (${DATA_TYPE} STREQUAL half)
+    list(APPEND PARTIALS_TYPE_CANDIDATES half)
+  endif()
+  foreach(PARTIALS_TYPE ${PARTIALS_TYPE_CANDIDATES})
+    foreach(PASS_TYPE fwd)
+      foreach(BLOCK_SIZE 4 8 16)
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --partials-type=${PARTIALS_TYPE}
+            --input-size=1024
+            --output-size=1024
+            --batch-size=4
+            --block-size=${BLOCK_SIZE}
+            --sparsity-factor=0.1
+            --tiles-per-ipu=24
+            --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+            --single-phase=${PASS_TYPE})
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_8b_block${BLOCK_SIZE}_0.1sl
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --partials-type=${PARTIALS_TYPE}
+            --input-size=1024
+            --output-size=1024
+            --batch-size=8
+            --block-size=${BLOCK_SIZE}
+            --sparsity-factor=0.1
+            --tiles-per-ipu=24
+            --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+            --single-phase=${PASS_TYPE}
+          VARIANTS ${TimesOutOnSim})
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_256in_256out_64b_block${BLOCK_SIZE}_0.1sl
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --partials-type=${PARTIALS_TYPE}
+            --input-size=256
+            --output-size=256
+            --batch-size=64
+            --block-size=${BLOCK_SIZE}
+            --sparsity-factor=0.01
+            --tiles-per-ipu=24
+            --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+            --single-phase=${PASS_TYPE})
+      endforeach()
+    endforeach()
+  endforeach()
+
+  # Tests specifically covering element-wise sparsity
   foreach(SHARED_BUCKETS true false)
     foreach(PASS_TYPE fwd bwd wu all)
 

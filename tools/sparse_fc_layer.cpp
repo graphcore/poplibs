@@ -96,12 +96,12 @@ int main(int argc, char **argv) try {
   bool reportPlan;
   std::string profileJsonPath;
   Type dataType;
+  Type partialsType;
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
   Pass pass = Pass::FWD;
   std::string matmulOptionsString;
   double sparsityFactor;
-  const auto partialsType = FLOAT;
   ShapeOption<std::size_t> weightedAreaBegin;
   ShapeOption<std::size_t> weightedAreaEnd;
   ShapeOption<std::size_t> blockSize;
@@ -126,6 +126,9 @@ int main(int argc, char **argv) try {
     ("data-type",
      po::value<Type>(&dataType)->default_value(HALF),
      "Type of the input and output data")
+    ("partials-type",
+     po::value<Type>(&partialsType)->default_value(FLOAT),
+     "Type of partials used during the operation")
     ("tiles-per-ipu",
      po::value(&tilesPerIPU),
      "Number of tiles per IPU")
@@ -248,6 +251,7 @@ int main(int argc, char **argv) try {
   options.set("availableMemoryProportion", "1.0");
   options.set("doGradAPass", doBwdPass ? "true" : "false");
   options.set("doGradWPass", doWuPass ? "true" : "false");
+  options.set("partialsType", partialsType.toString());
 
   // User options specified via --matmul-options override defaults
   if (!matmulOptionsString.empty()) {
@@ -406,11 +410,6 @@ int main(int argc, char **argv) try {
 
   if (planOnly) {
     return 0;
-  }
-
-  if (blockArea != 1) {
-    throw poplibs_error("Blocks are supported only by the planner. Use "
-                        "--plan-only option");
   }
 
   Graph graph(target);

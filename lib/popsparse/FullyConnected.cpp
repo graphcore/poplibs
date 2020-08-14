@@ -756,8 +756,22 @@ static void createPartialsDense(Graph &graph, const Vector<unsigned> &shape,
                                 const std::string &debugName) {
   const auto &grouping = plan.grouping;
   const std::vector<std::size_t> partialsShape = {
-      shape.groups, shape.x, shape.z, grouping.groups, grouping.x, grouping.z};
-  partials = graph.addVariable(options.partialsType, partialsShape, debugName);
+      shape.groups * grouping.groups, shape.x * grouping.x,
+      shape.z * grouping.z};
+  const auto partialsMemOrdering = getOnTilePartialsOrdering(plan.method);
+  std::vector<std::size_t> partialsShapeAllocation(partialsShape.size());
+  for (std::size_t i = 0; i < partialsMemOrdering.size(); ++i) {
+    partialsShapeAllocation[i] = partialsShape[partialsMemOrdering[i]];
+  }
+
+  partials =
+      graph
+          .addVariable(options.partialsType, partialsShapeAllocation, debugName)
+          .dimShuffle(inversePermutation(partialsMemOrdering));
+
+  const std::vector<std::size_t> partialsGrouping = {
+      plan.grouping.groups, plan.grouping.x, plan.grouping.z};
+  partials = factorDims(partials, partialsGrouping);
   const auto tile = getPartitionTile(hierarchy, plan, indices);
   graph.setTileMapping(partials, tile);
 }
@@ -878,9 +892,11 @@ static void compute(Graph &graph, const ComputeSet &cs,
                     const std::string &debugPrefix) {
   const std::string levelPrefix = debugPrefix + "/l" + std::to_string(level);
   const auto tile = getPartitionTile(hierarchy, plan, indices);
+  const std::array<std::size_t, 2> blockDimensions = {plan.grouping.x,
+                                                      plan.grouping.y};
   onTileImpl(graph, cs, tile, plan.method, zeroPartials, subGroupId,
              shape.asStdVector<std::size_t>(), metaInfo, weights, acts,
-             partials, levelPrefix);
+             partials, blockDimensions, levelPrefix);
 }
 
 template <typename NextLevelInput, typename NextLevelWeights,
@@ -1619,7 +1635,9 @@ static void mapInput(Graph &graph, const std::vector<unsigned> &hierarchy,
   iterateInputTensorUsage(graph, shape, {}, plan, hierarchy, 0, nextLevelInputs,
                           usage);
 
-  const unsigned grainSize = product(plan.grouping.asStdVector());
+  const std::vector<std::size_t> actGrouping = {
+      plan.grouping.groups, plan.grouping.y, plan.grouping.z};
+  const unsigned grainSize = product(actGrouping);
   // Reduce exchange code especially for smaller fc layers by mapping inputs
   // to fewer tiles when there aren't enough elements to go around.
   const unsigned minBytesPerTile = 128;
@@ -1726,17 +1744,27 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
   const auto &target = graph.getTarget();
   const auto hierarchy = poplibs::getTileHierarchy(target);
 
-  const std::vector<size_t> inputShape = {params.getNumGroups(),
-                                          params.getInputChannelsPerGroup(),
-                                          params.getBatchSize()};
-  const auto input = graph.addVariable(inputType, inputShape, debugName);
+  const auto fwdPlan = getFwdPlan(plan);
+
+  const auto inputMemOrdering = getOnTileActsOrdering(fwdPlan.method);
+  const std::vector<std::size_t> inputShapeInternal = {
+      params.getNumGroups(), params.getInputChannelsPerGroup(),
+      params.getBatchSize()};
+  std::vector<std::size_t> inputShapeAllocation(inputMemOrdering.size());
+  for (std::size_t i = 0; i < inputMemOrdering.size(); ++i) {
+    inputShapeAllocation[i] = inputShapeInternal[inputMemOrdering[i]];
+  }
+
+  const auto input =
+      graph.addVariable(inputType, inputShapeAllocation, debugName)
+          .dimShuffle(inversePermutation(inputMemOrdering));
 
   const Vector<unsigned> shape = {
       static_cast<unsigned>(params.getNumGroups()),
       static_cast<unsigned>(params.getOutputChannelsPerGroup()),
       static_cast<unsigned>(params.getInputChannelsPerGroup()),
       static_cast<unsigned>(params.getBatchSize())};
-  mapInput(graph, hierarchy, shape, getFwdPlan(plan), input);
+  mapInput(graph, hierarchy, shape, fwdPlan, input);
 
   return inputInternalToExternalShape(input, params.getNumGroups());
 }

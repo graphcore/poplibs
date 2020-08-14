@@ -1380,7 +1380,8 @@ createPlan(const PlanningObjective &objective, const Target &target,
   // down the road if temporary memory did not allow this
   plan.initialDistributionBucketPartition = plan.partition;
   plan.initialDistributionBucketPartition.z = 1;
-  plan.nzElemsPerBucket = solution[mRGroupsPerBucket].getAs<unsigned>();
+  plan.nzElemsPerBucket =
+      solution[mRGroupsPerBucket].getAs<unsigned>() * rElemsPerGroup;
   plan.fwdMetaInfoElemsPerBucket =
       solution[mRFwdMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.gradAMetaInfoElemsPerBucket =

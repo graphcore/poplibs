@@ -89,8 +89,8 @@ class PartitionerImpl {
   // Number of workers per PN
   std::size_t numWorkerContexts;
 
-  // Number of non-zero elements
-  std::size_t nzElementsBucketElements;
+  // Number of non-zero blocks per bucket.
+  std::size_t nzElemsBucketBlocks;
 
   // Number of buckets per Z split. This is used in the case when we want
   // multiple buckets/tile. We can have only bucket per PN although on a

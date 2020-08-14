@@ -295,12 +295,13 @@ int main(int argc, char **argv) {
     }
   }
 
-  const bool useBlockMetaInfoFormat = blockShape[0] * blockShape[1] > 1;
+  const auto blockSize = blockShape[0] * blockShape[1];
+  const bool useBlockMetaInfoFormat = blockSize > 1;
   const unsigned numWorkers = 6;
   auto nzBlocksPerfectlyUniform = sparsityLevel *
                                   (matShape[0] / blockShape[0]) *
                                   (matShape[1] / blockShape[1]);
-  auto nzBucketSize = nzBlocksPerfectlyUniform * (1 + excess);
+  auto nzBucketSize = nzBlocksPerfectlyUniform * blockSize * (1 + excess);
   auto metaInfoBucketSize =
       (popsparse::fixedMetaInfoCost(useBlockMetaInfoFormat, numWorkers,
                                     includeGradW) *

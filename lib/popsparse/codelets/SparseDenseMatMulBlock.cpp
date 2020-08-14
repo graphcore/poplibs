@@ -33,7 +33,7 @@ class [[poplar::constraint("elem(*q) != elem(*s)")]] SparseDenseMatMulBlock
 
   using MetaInfoType = unsigned short;
   using MetaInfo = popsparse::BlockMetaInfo<MetaInfoType>;
-  constexpr static std::size_t rAlignmentRequirement = alignof(FPType);
+  constexpr static std::size_t rAlignmentRequirement = 8;
   constexpr static std::size_t qAlignmentRequirement = 8;
   constexpr static bool qInInterleavedMem = std::is_same<FPType, half>();
 

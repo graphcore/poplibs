@@ -248,7 +248,6 @@ static inline std::uint64_t sparseDenseBlockMultiply(
   case 16:
     numWeightLoadsPerBlock = numConvUnits == 8 ? 2 : 1;
     cyclesPerZ = 4;
-    assert(!floatInput);
     if (floatPartials) {
       workerCyclesOverhead = 23;
       if (numZ == 1) {

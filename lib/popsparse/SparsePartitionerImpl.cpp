@@ -147,7 +147,7 @@ PartitionerImpl::PartitionerImpl(
   // keep meta info size in elements
   metaInfoBucketElements = metaInfoBucketElements_;
   metaInfoBucketElementsGradA = metaInfoBucketElementsGradA_;
-  nzElementsBucketElements = nzElementsBucketElements_;
+  nzElemsBucketBlocks = nzElementsBucketElements_ / (grainX * grainY);
   numWorkerContexts = numWorkerContexts_;
   bucketsPerZ = bucketsPerZ_;
   useBlockMetaInfoFormat = useBlockMetaInfoFormat_;
@@ -175,7 +175,7 @@ PartitionerImpl::PartitionerImpl(
   logging::debug("  --Meta-info bucket size in elems (grad-a) : {}",
                  metaInfoBucketElementsGradA);
   logging::debug("  --NZ bucket size in elements : {}",
-                 nzElementsBucketElements);
+                 nzElementsBucketElements_);
 }
 
 // Number of non-zero values in a partition
@@ -673,7 +673,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
 
   auto overflown = [&](const PNBucket &bucket) {
     return (bucket.metaInfoElements > metaInfoBucketElements - 1 ||
-            bucket.numNzElements > nzElementsBucketElements);
+            bucket.numNzElements > nzElemsBucketBlocks);
   };
 
   // The overflow is kept in this
@@ -689,7 +689,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
                      bucket.metaInfoElements, bucket.numNzElements);
       const auto metaInfoElems =
           forceBucketSpills ? 0 : metaInfoBucketElements - 1;
-      const auto nzInfoElems = forceBucketSpills ? 0 : nzElementsBucketElements;
+      const auto nzInfoElems = forceBucketSpills ? 0 : nzElemsBucketBlocks;
 
       auto tp = removeRows(bucket, zSplits, numZ, grainZ, numWorkerContexts,
                            metaInfoElems, nzInfoElems, bucketsPerZ,
@@ -710,8 +710,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
   auto fits = [&](const PNBucket &target, const PNBucket &cand) {
     return (target.metaInfoElements + cand.metaInfoElements <=
             metaInfoBucketElements - 1) &&
-           (target.numNzElements + cand.numNzElements <=
-            nzElementsBucketElements);
+           (target.numNzElements + cand.numNzElements <= nzElemsBucketBlocks);
   };
 
   auto rebalance = [&](std::size_t pnRange, bool splitColumns) {
@@ -804,7 +803,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
             } else {
               const auto available = std::make_pair(
                   metaInfoBucketElements - 1 - bucket.metaInfoElements,
-                  nzElementsBucketElements - bucket.numNzElements);
+                  nzElemsBucketBlocks - bucket.numNzElements);
               std::vector<std::pair<std::size_t, std::size_t>> intervals;
               std::size_t rowsInSg = ovfBucket.subGroups[0].tileInfo.size();
               std::vector<std::size_t> rowWeights;
@@ -881,8 +880,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
                     maxNzValues = std::max(maxNzValues, b.numNzElements);
                   });
     logging::warn("overflow metainfo {}/{}, nz values {}/{}", maxMetaInfo,
-                  metaInfoBucketElements, maxNzValues,
-                  nzElementsBucketElements);
+                  metaInfoBucketElements, maxNzValues, nzElemsBucketBlocks);
     throw poputil::poplibs_error("Overflow in buckets");
   }
 }
@@ -1079,17 +1077,18 @@ PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
 }
 
 template <typename T>
-static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
-    const PNBucket &bucket, const std::vector<T> &nzValues,
-    const std::vector<std::size_t> &xSplits,
-    const std::vector<std::size_t> &ySplits,
-    const std::vector<std::size_t> &zSplits, std::size_t numZ,
-    std::size_t grainX, std::size_t grainY, std::size_t grainZ,
-    bool useBlockMetaInfoFormat, bool includeGradW, bool genForGradA,
-    const poplar::Type &dataType, const poplar::Type &accumType,
-    std::size_t metaInfoBucketElements, std::size_t nzElementsBucketElements,
-    std::size_t numWorkers, std::size_t bucketsPerZ,
-    const std::string &debugStr = "") {
+static std::pair<std::vector<std::size_t>, std::vector<T>>
+bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
+                    const std::vector<std::size_t> &xSplits,
+                    const std::vector<std::size_t> &ySplits,
+                    const std::vector<std::size_t> &zSplits, std::size_t numZ,
+                    std::size_t grainX, std::size_t grainY, std::size_t grainZ,
+                    bool useBlockMetaInfoFormat, bool includeGradW,
+                    bool genForGradA, const poplar::Type &dataType,
+                    const poplar::Type &accumType,
+                    std::size_t metaInfoBucketElements,
+                    std::size_t nzElemsBucketBlocks, std::size_t numWorkers,
+                    std::size_t bucketsPerZ, const std::string &debugStr = "") {
   const std::size_t yOffsetTypeFactor =
       popsparse::getYOffsetTypeFactor(dataType == poplar::FLOAT);
   const std::size_t xOffsetTypeFactor =
@@ -1100,7 +1099,7 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
   std::vector<std::size_t> group;
   std::vector<T> nzBucket;
   group.reserve(metaInfoBucketElements);
-  nzBucket.reserve(nzElementsBucketElements * blockSize);
+  nzBucket.reserve(nzElemsBucketBlocks * blockSize);
 
   if (useBlockMetaInfoFormat) {
     for (const auto &sg : bucket.subGroups) {
@@ -1328,7 +1327,7 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
   if (group.size() > metaInfoBucketElements) {
     throw poputil::poplibs_error("Meta info exceeds specified bucket size}");
   }
-  if (nzBucket.size() > nzElementsBucketElements * blockSize) {
+  if (nzBucket.size() > nzElemsBucketBlocks * blockSize) {
     throw poputil::poplibs_error("NZ elements exceeds specified bucket size");
   }
 
@@ -1342,7 +1341,7 @@ static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
         "Metainfo bucket element exceeds type bound");
   }
   group.resize(metaInfoBucketElements);
-  nzBucket.resize(nzElementsBucketElements * blockSize);
+  nzBucket.resize(nzElemsBucketBlocks * blockSize);
   return std::make_pair(group, nzBucket);
 }
 
@@ -1354,7 +1353,7 @@ PartitionerImpl::bucketForForward(const PNBucket &pnBucket,
   return bucketsImplInternal<T>(
       pnBucket, nzValues, xSplits, ySplits, zSplits, numZ, grainX, grainY,
       grainZ, useBlockMetaInfoFormat, gradWEnabled, false, dataType, accumType,
-      metaInfoBucketElements, nzElementsBucketElements, numWorkerContexts,
+      metaInfoBucketElements, nzElemsBucketBlocks, numWorkerContexts,
       bucketsPerZ, debugStr);
 }
 
@@ -1393,7 +1392,7 @@ PartitionerImpl::bucketForGradA(const PNBucket &pnBucket,
   return bucketsImplInternal<T>(
              indicesBucket, nzValues, ySplits, xSplits, zSplits, numZ, grainX,
              grainY, grainZ, useBlockMetaInfoFormat, false, true, dataType,
-             accumType, metaInfoBucketElementsGradA, nzElementsBucketElements,
+             accumType, metaInfoBucketElementsGradA, nzElemsBucketBlocks,
              numWorkerContexts, bucketsPerZ, debugStr)
       .first;
 }
@@ -1521,7 +1520,7 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
     throw poputil::poplibs_error("Metainfo flattened buckets size does not "
                                  "match partitioner in COO conversion");
   }
-  if (nzValues.size() != numBuckets * nzElementsBucketElements * blockSize) {
+  if (nzValues.size() != numBuckets * nzElemsBucketBlocks * blockSize) {
     throw poputil::poplibs_error("NZ flattened buckets size does not match "
                                  "partitioner in COO conversion");
   }
@@ -1532,9 +1531,8 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
   std::vector<std::size_t> flattenedIndex;
 
   if (useBlockMetaInfoFormat) {
-    for (std::size_t b = 0, nzIndex = 0; b != numBuckets; ++b,
-                     miIndex += miBucketElemsPerPN,
-                     nzIndex += nzElementsBucketElements) {
+    for (std::size_t b = 0, nzIndex = 0; b != numBuckets;
+         ++b, miIndex += miBucketElemsPerPN, nzIndex += nzElemsBucketBlocks) {
       std::size_t miIndexThisPN = miIndex;
       std::size_t nzIndexThisPN = nzIndex;
 
@@ -1624,9 +1622,8 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
     const std::size_t xOffsetTypeFactor =
         popsparse::getXOffsetTypeFactor(dataType == poplar::FLOAT);
 
-    for (std::size_t b = 0, nzIndex = 0; b != numBuckets; ++b,
-                     miIndex += miBucketElemsPerPN,
-                     nzIndex += nzElementsBucketElements) {
+    for (std::size_t b = 0, nzIndex = 0; b != numBuckets;
+         ++b, miIndex += miBucketElemsPerPN, nzIndex += nzElemsBucketBlocks) {
       std::size_t miIndexThisPN = miIndex;
       std::size_t nzIndexThisPN = nzIndex;
 
