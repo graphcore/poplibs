@@ -1,4 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Support performing convolutions in parallel.
+ *
+ */
 
 #ifndef poplin_MultiConvolution_hpp
 #define poplin_MultiConvolution_hpp
@@ -167,7 +172,7 @@ std::vector<poplar::Tensor> calculateWeightDeltas(
  * \param weights       Weights tensor.
  * \param activations   Tensor containing the inputs of the convolution in the
  *                      forward pass.
- * \param scale         Scale to apply to the zDeltas.
+ * \param scale         Scale to apply to the \p zDeltas.
  * \param params        Parameters specifying the convolution.
  * \param options       Options controlling the implementation.
  */
@@ -205,7 +210,7 @@ void convolutionWeightUpdate(poplar::Graph &graph,
  * \param weights       Weights tensor.
  * \param activations   Tensor containing the inputs of the convolution in the
  *                      forward pass.
- * \param scale         Scale to apply to the zDeltas.
+ * \param scale         Scale to apply to the \p zDeltas.
  * \param params        Parameters specifying the convolution.
  * \param options       Options controlling the implementation.
  */

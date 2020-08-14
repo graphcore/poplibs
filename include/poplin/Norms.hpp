@@ -1,4 +1,9 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Functions to support normalising values in a tensor.
+ *
+ */
 
 #ifndef poplin_Norms_hpp
 #define poplin_Norms_hpp
@@ -13,11 +18,11 @@ namespace poplin {
 // optimised for tensors produced by convolutions/matrix multiplications.
 // (see T6054)
 
-/// Create and map the per channel multiplicative gamma parameter tensor used
+/// Create and map the per-channel multiplicative gamma parameter tensor used
 /// for normalisation in convolution layers.
 /// \param graph           The graph with the activations and gamma tensor.
 /// \param acts            The activations tensor has shape `[N][C][..F..]`
-///                        where\n
+///                        where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field.
@@ -26,11 +31,11 @@ namespace poplin {
 poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
                                const poplar::Type &type);
 
-/// Create and map the per channel multiplicative gamma parameter tensor used
+/// Create and map the per-channel multiplicative gamma parameter tensor used
 /// for normalisation in convolution layers.
 /// \param graph           The graph with the activations and gamma tensor.
 /// \param acts            The activations tensor has shape `[N][C][..F..]`
-///                        where\n
+///                        where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field.
@@ -38,11 +43,11 @@ poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
 poplar::Tensor createNormGamma(poplar::Graph &graph,
                                const poplar::Tensor &acts);
 
-/// Create and map the per channel additive beta parameter tensor used for
+/// Create and map the per-channel additive beta parameter tensor used for
 /// normalisation in convolution layers.
 /// \param graph           The graph with the activations and beta tensor.
 /// \param acts            The activations tensor has shape `[N][C][..F..]`
-///                        where\n
+///                        where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field
@@ -51,11 +56,11 @@ poplar::Tensor createNormGamma(poplar::Graph &graph,
 poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts,
                               const poplar::Type &type);
 
-/// Create and map the per channel additive beta parameter tensor used for
+/// Create and map the per-channel additive beta parameter tensor used for
 /// normalisation in convolution layers.
 /// \param graph           The graph with the activations and beta tensor.
 /// \param acts            The activations tensor has shape `[N][C][..F..]`
-///                        where\n
+///                        where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field
@@ -66,7 +71,7 @@ poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
 /// \param graph           The graph with the activations and beta/gamma
 ///                        tensors.
 /// \param acts            The activations tensor has shape `[N][C][..F..]`
-///                        where\n
+///                        where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field
@@ -77,21 +82,21 @@ createNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
 /// Compute the normalisation statistics from the activations tensor. The
 /// activations tensor is of shape `[N][C][..F..]`. The mean and inverse
 /// standard
-/// deviation is computed over dimensions `{[N] [..F..]|` and vectors of
+/// deviation is computed over dimensions `{[N] [..F..]}` and vectors of
 /// length `C` are returned as estimates.
 ///
 /// The input activations tensor must be rearranged such that statistics are
 /// computed for `C` channels.
 /// \param graph          The graph in which the computation is performed.
 /// \param actsUngrouped  The activation with shape `[N][C][..F..]`
-///                       where\n
+///                       where:
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field.
 /// \param eps            The epsilon added to the variance to avoid divide by
 ///                       zero.
-/// \param prog           A reference to the a program sequence which will be
-///                       appended with the code to perform the normalisation.
+/// \param prog           A program sequence that the code to
+///                       perform the normalisation will be appended to.
 /// \param unbiasedVarEstimate
 ///                       Compute unbiased variance estimate.
 /// \param stableAlgo     If true, computes the mean first and subtracts
@@ -113,13 +118,13 @@ normStatistics(poplar::Graph &graph, const poplar::Tensor &actsUngrouped,
 /// standard deviation.
 ///
 /// The input activations undergo a prior rearrangement such that `C`
-/// is the size of the statistics mean and iStdDev.
+/// is the size of the statistics \p mean and \p iStdDev tensors.
 /// \param graph          The graph which the computation is in.
 /// \param acts           The activations tensor of shape [N][C][..F..].
 /// \param mean           Mean of the activations with dimension C.
 /// \param iStdDev        Inverse standard deviation with dimension C.
-/// \param prog           A reference to the a program sequence which will be
-///                       appended with the code to perform the normalisation.
+/// \param prog           A program sequence that the code to
+///                       perform the normalisation will be appended to.
 /// \param debugPrefix    A debug prefix added to compute set and tensor names.
 ///
 /// \returns              Whitened activations.
@@ -129,13 +134,13 @@ poplar::Tensor normWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                           poplar::program::Sequence &prog,
                           const std::string &debugPrefix);
 
-/// Computes the normalised output given whitened activations.
+/// Computes the normalised output from whitened activations.
 /// \param graph         The graph to which the normalisaton operation is added.
 /// \param actsWhitened  Whitened activations.
-/// \param gamma         Per channel multiplicative normalisation parameter.
-/// \param beta          Per channel additive normalisation parameter.
-/// \param prog          A reference to the a program sequence which will be
-///                      appended with the code to perform the normalisation.
+/// \param gamma         Per-channel multiplicative normalisation parameter.
+/// \param beta          Per-channel additive normalisation parameter.
+/// \param prog          A program sequence that the code to
+///                      perform the normalisation will be appended to.
 /// \param debugPrefix   A debug prefix added to compute set and tensor names.
 poplar::Tensor
 normalise(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
@@ -146,8 +151,8 @@ normalise(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
 /// \param graph         The graph to which the normalisaton operation is added.
 /// \param actsWhitened  Whitened activations.
 /// \param gradsIn       Input gradients to the normalisation layer.
-/// \param prog          A reference to the a program sequence which will be
-///                      appended with the code to perform the normalisation.
+/// \param prog          A program sequence that the code to
+///                      perform the normalisation will be appended to.
 /// \param partialsType  The intermediate type kept in the computation.
 /// \param debugPrefix   A debug prefix added to compute set and tensor names.
 std::pair<poplar::Tensor, poplar::Tensor>
@@ -161,8 +166,8 @@ normParamGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
 /// \param graph         The graph to which the normalisaton operation is added.
 /// \param gradsIn       Input gradients to the normalisation layer.
 /// \param gamma         Multiplicative parameter used in the normalisation.
-/// \param prog          A reference to the a program sequence which will be
-///                      appended with the code to perform the normalisation.
+/// \param prog          A program sequence that the code to
+///                      perform the normalisation will be appended to.
 /// \param debugPrefix   A debug prefix added to compute set and tensor names.
 poplar::Tensor normGradients(poplar::Graph &graph,
                              const poplar::Tensor &gradsIn,
@@ -179,8 +184,8 @@ poplar::Tensor normGradients(poplar::Graph &graph,
 /// \param actsWhitened Forward whitened activations.
 /// \param gradsIn      Input gradients to the normalisation layer.
 /// \param invStdDev    Inverse standard deviation from norm statistics.
-/// \param prog         A reference to the a program sequence which will be
-///                     appended with the code to perform the normalisation.
+/// \param prog         A program sequence that the code to
+///                     perform the normalisation will be appended to.
 /// \param debugPrefix  A debug prefix added to compute set and tensor names.
 poplar::Tensor normStatisticsGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,

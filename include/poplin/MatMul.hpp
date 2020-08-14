@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Functions and data types for performing matrix multiplies on the IPU.
+ *
+ */
 
 #ifndef poplin_MatMul_hpp
 #define poplin_MatMul_hpp
@@ -27,7 +32,7 @@ class PlanningCache;
 
 /** Multiply two matrices.
  *
- *  Calculates C = A * B where A and B are matrices.
+ *  Calculates `C = A * B` where \p A and \p B are matrices.
  *
  * **Matmul options**
  *
@@ -106,6 +111,7 @@ class PlanningCache;
  *                         This tensor will be created, added to the graph and
  *                         mapped to tiles.
  */
+/// @{
 poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
                       const poplar::Type &outputType,
@@ -126,11 +132,13 @@ void matMulReportPlan(std::ostream &out, const poplar::Graph &graph,
                       const std::vector<std::size_t> &bShape,
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
+/// @}
 
 /** Multiply two grouped matrices.
  *
- *  Calculates C[g] = A[g] * B[g] where A[g] and B[g] are matrices for
- *  each element in the group. g is element of the set {0, 1, ..., G-1}
+ *  Calculates `C[g] = A[g] * B[g]` where `A[g]` and `B[g]` are matrices for
+ *  each element in the group, and `g` is an element of the set {0, 1, ...,
+ *  `G`-1}.
  *
  *  The multiplication is done for every element in the group. The first
  *  dimension of the matrices is the group dimension with value equal to G.
@@ -155,6 +163,7 @@ void matMulReportPlan(std::ostream &out, const poplar::Graph &graph,
  *                         multiplication. This tensor will be created, added to
  *                         the graph and mapped to tiles.
  */
+/// @{
 poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Tensor &B,
                              poplar::program::Sequence &prog,
@@ -170,11 +179,12 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
                              const std::vector<std::size_t> &bShape,
                              const poplar::OptionFlags &options = {},
                              matmul::PlanningCache *cache = nullptr);
+/// @}
 
 /** Multiply two matrices and add to a third (with a scaling factor).
  *
- *  Calculates C += k * A * B where A, B are matrices and k is a constant
- *  scalar.
+ *  Calculates `C += k * A * B` where \p A, \p B are matrices and \p k is a
+ *  constant scalar.
  *
  *  \param graph           The Poplar graph.
  *  \param C               The matrix to add to. This
@@ -195,6 +205,7 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
  *                         multiplication should be implemented. See matMul().
  *  \param cache           Optional pointer to a planning cache to use.
  */
+/// @{
 void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                const poplar::Tensor &A, const poplar::Tensor &B,
                poplar::program::Sequence &prog,
@@ -208,14 +219,15 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
                const std::string &debugPrefix = "",
                const poplar::OptionFlags &options = {},
                matmul::PlanningCache *cache = nullptr);
+/// @}
 
 /** Multiply two grouped matrices and add to a third (with a scaling factor).
  *
- *  Calculates C[g] += k * A[g] * B[g] where A[g], B[g] are matrices and k is a
- *  constant scalar. g is element of the set g = {0, 1, ..., G-1}
+ *  Calculates `C[g] += k * A[g] * B[g]` where `A[g]`, `B[g]` are matrices and
+ *  \p k is a constant scalar. g is element of the set g = {0, 1, ..., G-1}
  *
  *  The multiplication is done for every element in the group. The first
- *  dimension of the matrices is the group dimension with value equal to G
+ *  dimension of the matrices is the group dimension with value equal to G.
  *
  *  \param graph           The Poplar graph.
  *  \param C               The matrix to add to. This
@@ -236,6 +248,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
  *                         multiplication should be implemented. See matMul().
  *  \param cache           Optional pointer to planning cache to use.
  */
+/// @{
 void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                       const poplar::Tensor &A, const poplar::Tensor &B,
                       poplar::program::Sequence &prog,
@@ -249,9 +262,10 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
+/// @}
 
 /**
- * Create an tensor that is used as the left operand of matrix multiplication.
+ * Create a tensor that is used as the left operand of matrix multiplication.
  *
  * This will create a 2D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a matrix multiplication with this
@@ -271,6 +285,7 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
  * \returns               A matrix of type \p type and shape \p aShape. The
  *                        tensor will have been mapped to tiles.
  */
+/// @{
 poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const poplar::Type &inputType,
                                     const poplar::Type &outputType,
@@ -291,9 +306,10 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const std::string &name,
                                     const poplar::OptionFlags &options = {},
                                     matmul::PlanningCache *cache = nullptr);
+/// @}
 
 /**
- * Create an tensor that is used as the left operand of a grouped matrix
+ * Create a tensor that is used as the left operand of a grouped matrix
  * multiplication.
  *
  * This will create a 3D tensor in the graph. The ordering and tile mapping of
@@ -305,8 +321,8 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
  *
  * \param graph           The Poplar graph.
  * \param type            The data type of the required matrix.
- * \param aShape          The grouped shape {g, r, c} of the required matrix.
- * \param bShape          The grouped shape {g, r, c} of the matrix that the
+ * \param aShape          The grouped shape [g, r, c] of the required matrix.
+ * \param bShape          The grouped shape [g, r, c] of the matrix that the
  *                        required matrix will be multiplied by.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication. See
@@ -324,7 +340,7 @@ poplar::Tensor createMatMulGroupedInputLHS(
     matmul::PlanningCache *cache = nullptr);
 
 /**
- * Create an tensor that is used as the right operand of matrix multiplication.
+ * Create a tensor that is used as the right operand of matrix multiplication.
  *
  * This will create a 2D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a matrix multiplication with this
@@ -366,7 +382,7 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
                                     matmul::PlanningCache *cache = nullptr);
 
 /**
- * Create an tensor that is used as the right operand of grouped matrix
+ * Create a tensor that is used as the right operand of grouped matrix
  * multiplication.
  *
  * This will create a 3D tensor in the graph. The ordering and tile mapping of
@@ -378,9 +394,9 @@ poplar::Tensor createMatMulInputRHS(poplar::Graph &graph,
  *
  * \param graph           The Poplar graph.
  * \param type            The data type of the required matrix.
- * \param aShape          The grouped shape {g, r, c} of the matrix that the
+ * \param aShape          The grouped shape [g, r, c] of the matrix that the
  *                        required matrix will be multiplied by.
- * \param bShape          The grouped shape {g, r, c} of the required matrix.
+ * \param bShape          The grouped shape [g, r, c] of the required matrix.
  * \param name            The debug name of the required matrix.
  * \param options         The implementation options of the multiplication. See
  *                        matMul().
@@ -400,7 +416,7 @@ poplar::Tensor createMatMulGroupedInputRHS(
  *  This allows the rearrangement of the memory of a tensor that would
  *  otherwise be rearranged as part of the matmul operation for efficiency.
  *
- *  Use this function and the matMul* functions with the
+ *  Use this function and the matMul*() functions with the
  *  `inputRHSIsPreArranged` option flag to do any re-arrangement necessary
  *  once and then re-use that input multiple times.
  *
@@ -425,6 +441,7 @@ poplar::Tensor createMatMulGroupedInputRHS(
  *  \returns              New tensor holding the rearranged input. This tensor
  *                        has the same shape as the given tensor.
  */
+/// @{
 poplar::Tensor preArrangeMatMulInputRHS(poplar::Graph &graph,
                                         const std::vector<std::size_t> &aShape,
                                         const poplar::Tensor &B,
@@ -448,6 +465,7 @@ poplar::Tensor preArrangeMatMulGroupedInputRHS(
     const poplar::Type &outputType, const std::string &debugPrefix = "",
     const poplar::OptionFlags &options = {},
     matmul::PlanningCache *cache = nullptr);
+/// @}
 
 /**
  * Transposes a grouped matrix tensor
@@ -481,7 +499,8 @@ struct MatMulParams {
  *       - matmul-specific target for tile / IPU sizing
  *       - matmul parameters
  *       - implementation options (see matMul() above)
- *     All entries must have matching machine parameters.
+ *
+ * All entries must have matching machine parameters.
  */
 using MatMulPlanParams = std::tuple<const poplar::Target *, const MatMulParams,
                                     const poplar::OptionFlags *>;

@@ -1,4 +1,9 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Functions and data types to support performing convolutions.
+ *
+ */
 
 #ifndef poplin_Convolution_hpp
 #define poplin_Convolution_hpp
@@ -15,14 +20,14 @@ namespace poplin {
  */
 class PlanningCache;
 
-/// Calculate minimum number of floating point operations required to
-/// perform the forward pass convolution given a set of \p params
+/// Calculate the minimum number of floating point operations required to
+/// perform the forward pass convolution given a set of \p params.
 uint64_t getFwdFlops(const ConvParams &params);
-/// Calculate minimum number of floating point operations required to
-/// perform the backward pass convolution given a set of \p params
+/// Calculate the minimum number of floating point operations required to
+/// perform the backward pass convolution given a set of \p params.
 uint64_t getBwdFlops(const ConvParams &params);
 /// Calculate minimum number of floating point operations required to
-/// perform the weight update pass convolution given a set of \p params
+/// perform the weight update pass convolution given a set of \p params.
 uint64_t getWuFlops(const ConvParams &params);
 
 /** Calculate the number of cycles to perform the forward pass assuming maximal
@@ -30,31 +35,33 @@ uint64_t getWuFlops(const ConvParams &params);
  * point operations. This takes into account the number of tiles available and
  * vectorization support on the target.
  *
- * This is an optimistic number useful for estimating efficiency.
- *      cycleCount = getFwdFlops() / maximumHardwareVectorization
+ * This is an optimistic number useful for estimating efficiency:
+ *      `cycleCount =` getFwdFlops() `/ maximumHardwareVectorization`.
  *
  * \param graph     Provides target the convolution will run on.
  * \param params    Description of convolution.
+ * \return Estimated number of cycles to perform the forward pass.
  */
 double getFwdPerfectCycleCount(const poplar::Graph &graph,
                                const ConvParams &params);
 
 /** Calculate the number of cycles to perform the backward pass assuming maximal
- * utilisation of target hardware performing the minimum number of floating
+ * utilisation of the target hardware, performing the minimum number of floating
  * point operations. This takes into account the number of tiles available and
  * vectorization support on the target.
  *
- * This is an optimistic number useful for estimating efficiency.
- *      cycleCount = getBwdFlops() / maximumHardwareVectorization
+ * This is an optimistic number useful for estimating efficiency:
+ *      `cycleCount = getBwdFlops() / maximumHardwareVectorization`.
  *
  * \param graph     Provides target the convolution will run on.
  * \param params    Description of convolution.
+ * \return Estimated number of cycles to perform the backward pass.
  */
 double getBwdPerfectCycleCount(const poplar::Graph &graph,
                                const ConvParams &params);
 
 /** Calculate the number of cycles to perform the weight update pass assuming
- * maximal utilisation of target hardware performing the minimum number of
+ * maximal utilisation of the target hardware, performing the minimum number of
  * floating point operations. This takes into account the number of tiles
  * available and vectorization support on the target.
  *
@@ -63,6 +70,7 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
  *
  * \param graph     Provides target the convolution will run on.
  * \param params    Description of convolution.
+ * \return Estimated number of cycles to perform the weight update pass.
  */
 double getWuPerfectCycleCount(const poplar::Graph &graph,
                               const ConvParams &params);
@@ -87,7 +95,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *      **Note**: We recommend using a value greater than 0.05. Below this value
  *      the volume of always live memory quickly increases and can result in
- *      OOM errors.
+ *      out of memory errors.
  *
  *    * `partialsType` (half, float) [=float]
  *
@@ -211,7 +219,7 @@ poplar::Tensor createBiases(poplar::Graph &graph,
 
 /** Create an input tensor for a convolution.
  *
- * Use this when required to create an input data tensor for a convolution. The
+ * Use this when you need to create an input data tensor for a convolution. The
  * same set of parameters which will be passed to the convolution() should also
  * be passed to createInput().
  *
@@ -230,8 +238,6 @@ poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
                            PlanningCache *cache = nullptr);
 
 /** Convolve an input with a set of weights.
- *
- * This is for a 2D convolution.
  *
  * The input tensor is in the form [B x inChans x H x W], and can be allocated
  * using createInput().  The weights tensor is in the form
@@ -269,10 +275,11 @@ using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
 /**
  * Plan the specified convolutions.
  *
- * \param convs   A set of tuples of
+ * \param convs   A set of tuples of:
  *                  - conv-specific target for tile / IPU sizing
  *                  - convolution parameters
  *                  - implementation options. See createWeights().
+ *
  *                All entries must have matching machine parameters.
  * \param cache   The planning cache to update.
  */
@@ -283,7 +290,7 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
  * each element of the kernel is transposed with respect to the input and
  * output channels and flip each spatial dimension of the kernel.
  *
- * See `transposeAndFlipWeights` parameter in convolution().
+ * See the `transposeAndFlipWeights` parameter in convolution().
  *
  * \param graph         The graph that the operation will be added to.
  * \param weightsIn     The input weights tensor.
@@ -301,10 +308,10 @@ void weightsTransposeChansFlipXY(poplar::Graph &graph,
  * each element of the kernel is transposed with respect to the input and
  * output channels and flip each spatial dimension of the kernel.
  *
- * Overload that takes vectors of Copy programs and a ComputeSet instead of
- * a Sequence.
+ * Overload that takes vectors of poplar::Program::Copy programs and
+ * a poplar::ComputeSet instead of a poplar::Program::Sequence.
  *
- * See `transposeAndFlipWeights` parameter in convolution().
+ * See the `transposeAndFlipWeights` parameter in convolution().
  *
  * \param graph         The graph that the operation will be added to.
  * \param weightsIn     The input weights tensor.
@@ -320,7 +327,8 @@ void weightsTransposeChansFlipXY(
     std::vector<poplar::program::Copy> &postTranspose,
     const std::string &debugPrefix = "");
 
-/** Append an operation to generate the tensor of weight deltas onto \p prog.
+/** Append an operation to a poplar::Program to generate the tensor of
+ *  weight deltas.
  *
  * \param graph         The tensor will be added to this graph.
  * \param zDeltas       Tensor containing the gradients with respect to the
@@ -331,6 +339,7 @@ void weightsTransposeChansFlipXY(
  * \param prog          Poplar program sequence to append the operation onto.
  * \param debugPrefix   Name of the operation, for debugging.
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  *
  * \return              The weight deltas are the gradients with respect to the
@@ -343,9 +352,10 @@ poplar::Tensor calculateWeightDeltas(
     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-/** Append operations to \prog to generate and apply the weight update.
+/** Append operations to a poplar::Program to generate and apply the
+ *  weight update.
  *
- * See calculateWeightDeltas().
+ * \see calculateWeightDeltas().
  *
  * \param graph         The graph that the operation will be added to.
  * \param zDeltas       Tensor containing the gradients with respect to the
@@ -354,10 +364,11 @@ poplar::Tensor calculateWeightDeltas(
  * \param activations   Tensor containing the inputs to the convolution in
  *                      the forward pass.
  * \param params        Parameters of the convolution.
- * \param scale         Scale to apply to the zDeltas.
+ * \param scale         Scale to apply to the \p zDeltas.
  * \param prog          Poplar program sequence to append the operations onto.
  * \param debugPrefix   Name of the operation, for debugging.
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  */
 void convolutionWeightUpdate(
@@ -367,9 +378,10 @@ void convolutionWeightUpdate(
     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
-/** Append operations to \prog to generate and apply the weight update.
+/** Append operations to a poplar::Program to generate and apply the
+ *  weight update.
  *
- * See calculateWeightDeltas().
+ * \see calculateWeightDeltas().
  *
  * \param graph         The graph that the operation will be added to.
  * \param zDeltas       Tensor containing the gradients with respect to the
@@ -382,6 +394,7 @@ void convolutionWeightUpdate(
  * \param prog          Poplar program sequence to append the operations onto.
  * \param debugPrefix   Name of the operation, for debugging.
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  */
 void convolutionWeightUpdate(
@@ -400,6 +413,7 @@ void convolutionWeightUpdate(
  * \param biases        Biases tensor to update.
  * \param scale         Scale to apply to to zDeltas tensor.
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param prog          Poplar program sequence to append the operation onto.
  * \param debugPrefix   Name of the operation, for debugging.
  */
@@ -417,8 +431,9 @@ void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
  * \param zDeltas       Tensor containing the gradients with respect to the
  *                      output of the convolution.
  * \param biases        Biases tensor to update.
- * \param scale         Scale to apply to to zDeltas tensor.
+ * \param scale         Scale to apply to to \p zDeltas tensor.
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param prog          Poplar program sequence to append the operation onto.
  * \param debugPrefix   Name of the operation, for debugging.
  */
@@ -443,10 +458,11 @@ void addBias(poplar::Graph &graph, const poplar::Tensor &in,
 /** Report the convolution plan corresponding to the \p params and \p options
  * provided.
  *
- * \param out           ostream to report the plan to.
+ * \param out           Output stream to report the plan to.
  * \param graph         The graph that the convolution is planned with.
  * \param params        The same parameters as used by the convolution().
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  */
 void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
@@ -454,34 +470,37 @@ void reportPlanInfo(std::ostream &out, const poplar::Graph &graph,
                     const poplar::OptionFlags &options = {},
                     PlanningCache *cache = nullptr);
 
+/** Structure for estimated costs returned by reportPlanEstimatedCosts() */
+struct PlanCosts {
+  std::size_t cycles;
+  std::size_t memory;
+};
+
 /** Report the estimated cycles and memory costs of the convolution plan
  * corresponding to the \p params and \p options provided.
  *
  * \param graph         The graph that the convolution is planned with.
  * \param params        The same parameters as used by the convolution().
  * \param options       Options controlling the implementation.
+ *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  *
- * \return              cycles and memory cost estimates for the planned
- *                      convolution
+ * \return              Cycles and memory cost estimates for the planned
+ *                      convolution.
  */
-struct PlanCosts {
-  std::size_t cycles;
-  std::size_t memory;
-};
-
 PlanCosts reportPlanEstimatedCosts(const poplar::Graph &graph,
                                    const ConvParams &params,
                                    const poplar::OptionFlags &options = {},
                                    PlanningCache *cache = nullptr);
 
 /** Report the convolution plan corresponding to the weight update pass given
- * the fwd pass \p params and \p options.
+ * the forward pass \p params and \p options.
  *
  * \param out           ostream to report the plan to.
  * \param graph         The graph that the convolution is planned with.
- * \param fwdParams     Fwd pass parameters as used by the convolution().
- * \param fwdOptions    Fwd pass options controlling the implementation.
+ * \param fwdParams     Forward pass parameters as used by the convolution().
+ * \param fwdOptions    Forward pass options controlling the implementation.
+ *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  */
 void reportWeightUpdatePlanInfo(std::ostream &out, const poplar::Graph &graph,
@@ -489,8 +508,18 @@ void reportWeightUpdatePlanInfo(std::ostream &out, const poplar::Graph &graph,
                                 const poplar::OptionFlags &fwdOptions = {},
                                 PlanningCache *cache = nullptr);
 
-// Arranges the weights such that they suited for the
-// backwards pass in a fully connected layer.
+/** Arranges the weights (activations) such that they are suited for the
+ * backward pass in a fully connected layer.
+ * \param graph         The graph that the operation will be added to.
+ * \param activations   Tensor containing the inputs to the convolution.
+ * \param params        Parameters of the convolution.
+ * \param prog          Poplar program sequence to append the operation onto.
+ * \param debugPrefix   Name of the operation, for debugging.
+ * \param options       Options controlling the implementation.
+ *                      See createWeights().
+ * \param cache         Optional pointer to planning cache to use.
+ * \return A tensor with the weights suitably arranged.
+ */
 poplar::Tensor fullyConnectedWeightTranspose(
     poplar::Graph &graph, poplar::Tensor weights, const ConvParams &params,
     poplar::program::Sequence &prog, const std::string &debugPrefix,

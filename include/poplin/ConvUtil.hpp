@@ -1,14 +1,17 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * A collection of utility functions to assist calculation of input/output
+ * ranges when moving a 2-dimensional kernel over a larger 2-dimensional
+ * space (for example in convolution or pooling layers)
+ *
+ */
 
 #ifndef poplin_ConvUtil_hpp
 #define poplin_ConvUtil_hpp
 #include <poplin/Convolution.hpp>
 #include <tuple>
 #include <vector>
-
-/// A collection of utility functions to assist calculation of input/output
-/// ranges when moving a 2-dimensional kernel over a larger 2-dimensional
-/// space (for example in convolution or pooling layers)
 
 namespace poplin {
 
