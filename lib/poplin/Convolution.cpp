@@ -2502,90 +2502,8 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
 
 static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
                                 Sequence &prog, unsigned numConvGroups,
-                                unsigned chansPerGroup,
-                                const std::string &debugPrefix);
-
-static Tensor convolutionInternal(
-    Graph &graph, const poplar::Tensor &in_, const poplar::Tensor &weights_,
-    const Plan &plan, const CanonicalConvParams &params,
-    bool transposeAndFlipWeights, ConvProgramTree &cpt,
-    const std::string &debugPrefix, const ConvOptions &options) {
-  auto weights = weights_;
-  if (weights.rank() == params->getNumFieldDims() + 2) {
-    weights = weights.expand({0});
-  }
-  if (transposeAndFlipWeights) {
-    // Create transposed/flipped weights
-    auto bwdWeights =
-        createWeights(graph, plan, params.getParams(), "bwdWeights", options);
-    if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
-      auto &prog = cpt.weightsTranspose;
-      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog.preTranspose,
-                                  prog.transposeCS, prog.postTranspose,
-                                  debugPrefix);
-    }
-    weights = bwdWeights;
-  }
-  auto fullWeights = weights;
-
-  auto weightsIn = weights;
-  weights = weightsToInternalShape(weights);
-  auto in = actsToInternalShape(in_, params->numConvGroups,
-                                params->inputChannelsPerConvGroup);
-  verifyInputShapes(params, in, weights);
-
-  const auto createPartialsLevel = getCreatePartialsLevel(plan);
-  auto activations = *convolutionImpl(
-      graph, params, plan, 0, in, weights, cpt, {} /* indices */,
-      {} /* partials */, createPartialsLevel, debugPrefix, options);
-
-  assert(activations.elementType() == params->outputType);
-  auto output = actsToExternalShape(activations);
-
-  // Introspect output tensor to check if it has a decent layout as a bad layout
-  // impacts operations using the tensor in both memory and cycles. This is a
-  // conservative check as we only check if there's a grouping.
-  if (options.remapOutputTensor) {
-    // If this is a matrix multiplication, permute the dimensions before
-    // deciding whether to remap. This particular logic is hard to justify,
-    // except that it matches what we used to do before when matmul operands
-    // were swapped (see T16758) and removing it results in some regressions.
-    bool transposeBeforeRemap = options.pass == Pass::NONE_MATMUL ||
-                                options.pass == Pass::FC_INFERENCE_FWD ||
-                                options.pass == Pass::FC_TRAINING_FWD ||
-                                options.pass == Pass::FC_TRAINING_BWD ||
-                                options.pass == Pass::FC_TRAINING_WU;
-    if (transposeBeforeRemap) {
-      output = actsToInternalShape(output, params->numConvGroups,
-                                   params->outputChannelsPerConvGroup);
-      output = output.dimShufflePartial({1, output.rank() - 1},
-                                        {output.rank() - 1, output.rank() - 2});
-      output = actsToExternalShape(output);
-    }
-    const auto dimGroupings = detectDimGroupings(graph, output);
-    if (dimGroupings.empty()) {
-      output = remapOutputTensor(
-          graph, output, cpt.finalizeProg, params->numConvGroups,
-          transposeBeforeRemap ? params->batchSize
-                               : params->outputChannelsPerConvGroup,
-          debugPrefix);
-    }
-    if (transposeBeforeRemap) {
-      output =
-          actsToInternalShape(output, params->numConvGroups, params->batchSize);
-      output = output.dimShufflePartial({output.rank() - 1, output.rank() - 2},
-                                        {1, output.rank() - 1});
-      output = actsToExternalShape(output);
-    }
-  }
-
-  return output;
-}
-
-Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
-                         Sequence &prog, unsigned numConvGroups,
-                         unsigned chansPerConvGroup,
-                         const std::string &debugPrefix) {
+                                unsigned chansPerConvGroup,
+                                const std::string &debugPrefix) {
 
   // prefer a grouping of 16 if possible, if not then fallback to either 8 or 4.
   const auto grainSize = [&] {
@@ -2623,6 +2541,60 @@ Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
   prog.add(Copy(output, remappedOutput));
   logging::debug("  convolution output tensor remapped linearly");
   return remappedOutput;
+}
+
+static Tensor convolutionInternal(
+    Graph &graph, const poplar::Tensor &in_, const poplar::Tensor &weights_,
+    const Plan &plan, const CanonicalConvParams &params,
+    bool transposeAndFlipWeights, ConvProgramTree &cpt,
+    const std::string &debugPrefix, const ConvOptions &options) {
+  auto weights = weights_;
+  if (weights.rank() == params->getNumFieldDims() + 2) {
+    weights = weights.expand({0});
+  }
+  if (transposeAndFlipWeights) {
+    // Create transposed/flipped weights
+    auto bwdWeights =
+        createWeights(graph, plan, params.getParams(), "bwdWeights", options);
+    if (bwdWeights.dim(1) && bwdWeights.dim(2)) {
+      auto &prog = cpt.weightsTranspose;
+      weightsTransposeChansFlipXY(graph, weights, bwdWeights, prog.preTranspose,
+                                  prog.transposeCS, prog.postTranspose,
+                                  debugPrefix);
+    }
+    weights = bwdWeights;
+  }
+  weights = weightsToInternalShape(weights);
+  auto in = actsToInternalShape(in_, params->numConvGroups,
+                                params->inputChannelsPerConvGroup);
+  verifyInputShapes(params, in, weights);
+
+  const auto createPartialsLevel = getCreatePartialsLevel(plan);
+  auto activations = *convolutionImpl(
+      graph, params, plan, 0, in, weights, cpt, {} /* indices */,
+      {} /* partials */, createPartialsLevel, debugPrefix, options);
+
+  assert(activations.elementType() == params->outputType);
+  auto output = actsToExternalShape(activations);
+
+  // Introspect the output tensor to check if it has a decent layout as a bad
+  // layout impacts operations using the tensor in both memory and cycles. This
+  // is a conservative check as we only check if there's a grouping. Don't do
+  // this if this is a weight update pass as the dimension we want to be
+  // contiguous (the batch dimension) is not the innermost dimension of the
+  // output.
+  bool isWeightUpdatePass =
+      options.pass == Pass::TRAINING_WU || options.pass == Pass::FC_TRAINING_WU;
+  if (!isWeightUpdatePass && options.remapOutputTensor) {
+    const auto dimGroupings = detectDimGroupings(graph, output);
+    if (dimGroupings.empty()) {
+      output = remapOutputTensor(
+          graph, output, cpt.finalizeProg, params->numConvGroups,
+          params->outputChannelsPerConvGroup, debugPrefix);
+    }
+  }
+
+  return output;
 }
 
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
