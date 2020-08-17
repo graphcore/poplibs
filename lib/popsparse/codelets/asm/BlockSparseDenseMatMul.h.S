@@ -46,7 +46,7 @@
 #define STACK_SIZE                      (W_RBASELIST + 4)
 
 
-.macro BLOCK_SPARSE_MATMUL CNAME, INTYPE, PTYPE, POSTFIX, BLOCKSIZE
+.macro BLOCK_SPARSE_MATMUL CNAME, INTYPE, PTYPE, POSTFIX, BLOCKSIZE, GRADA_FN
 
 // Registers allocation
 #define s_vertexBase                 m0
@@ -158,7 +158,11 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\():
   // load entries from output
 Ls_XLoop_\INTYPE\()_\PTYPE\():
     ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
+.ifc \GRADA_FN, 1
+    st32                   $s_xOffsetInQ, $sp, W_YOFFSET/4
+.else
     st32                   $s_xOffsetInQ, $sp, W_XOFFSET/4
+.endif
     ldz16step              $s_numYm1, $mzero, $s_wTemp+=, 1
 
 Ls_YLoop_\INTYPE\()_\PTYPE\():
@@ -171,7 +175,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              0x4 // CCCS_CWEI_1_0
       ld64putcs              0x5 // CCCS_CWEI_1_1
       ld64putcs              0x8 // CCCS_CWEI_2_0
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       ld64putcs              0x9 // CCCS_CWEI_2_1
       ld64putcs              0xC // CCCS_CWEI_3_0
       ld64putcs              0xD // CCCS_CWEI_3_1
@@ -181,7 +189,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              0x8 // CCCS_CWEI_2_0
       ld64putcs              0xC // CCCS_CWEI_3_0
       nop
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
 .endif // \INTYPE float
 .endif // \BLOCKSIZE, 4
 
@@ -195,7 +207,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              3
       ld64putcs              4
       ld64putcs              5
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       ld64putcs              6
       ld64putcs              7
       ld64putcs              8
@@ -229,7 +245,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              4
       ld64putcs              5
       ld64putcs              8
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       ld64putcs              9
       ld64putcs              12
       ld64putcs              13
@@ -252,7 +272,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              2
       ld64putcs              3
       ld64putcs              4
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       ld64putcs              5
       ld64putcs              6
       ld64putcs              7
@@ -289,7 +313,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              2
       ld64putcs              3
       ld64putcs              4
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       ld64putcs              5
       ld64putcs              6
       ld64putcs              7
@@ -325,7 +353,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
       ld64putcs              2
       ld64putcs              3
       ld64putcs              4
+.ifc \GRADA_FN, 1
+      st32                   $s_yOffsetInS, $sp, W_XOFFSET/4
+.else
       st32                   $s_yOffsetInS, $sp, W_YOFFSET/4
+.endif
       ld64putcs              5
       ld64putcs              6
       ld64putcs              7

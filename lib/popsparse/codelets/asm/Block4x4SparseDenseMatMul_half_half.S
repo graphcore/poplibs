@@ -61,6 +61,8 @@
 DEF_STACK_USAGE w_StackSize blockSparseDenseMultiply_hh4x4
 .section ".text.blockSparseDenseMultiply_hf4x4", FUNCTION_IS_WORKER
 .type blockSparseDenseMultiply_hh4x4, @function
+.global blockSparseDenseMultiply_hh4x4
+.global blockSparseDenseMultiply_hh4x4_retained
 .align 8
 .worker
 // worker code
@@ -235,7 +237,7 @@ exitz                 $mzero
 // match the PNs subgroup id. 
 
 // Instantiate supervisor codelet
-BLOCK_SPARSE_MATMUL CODELET_NAME half half hh4x4 4
+BLOCK_SPARSE_MATMUL CODELET_NAME half half hh4x4 4 0
 
 // =============================================================================
 #endif // #ifdef __IPU__

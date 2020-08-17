@@ -62,6 +62,8 @@
 DEF_STACK_USAGE w_StackSize blockSparseDenseMultiply_hh8x8
 .section ".text.blockSparseDenseMultiply_hh8x8", FUNCTION_IS_WORKER
 .type blockSparseDenseMultiply_hh8x8, @function
+.global blockSparseDenseMultiply_hh8x8
+.global blockSparseDenseMultiply_hh8x8_retained
 .align 8
 .worker
 // worker code
@@ -307,7 +309,7 @@ bri             LNumElemsEq2
 // match the PNs subgroup id. 
 
 // Instantiate supervisor codelet
-BLOCK_SPARSE_MATMUL CODELET_NAME half half hh8x8 8
+BLOCK_SPARSE_MATMUL CODELET_NAME half half hh8x8 8 0
 
 // =============================================================================
 #endif // #ifdef __IPU__

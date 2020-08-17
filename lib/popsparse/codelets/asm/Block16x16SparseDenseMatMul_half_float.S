@@ -51,6 +51,8 @@
 DEF_STACK_USAGE WORKER_STACK_SIZE blockSparseDenseMultiply_hf16x16
 .section ".text.blockSparseDenseMultiply_hh16x16", FUNCTION_IS_WORKER
 .type blockSparseDenseMultiply_hf16x16, @function
+.global blockSparseDenseMultiply_hf16x16
+.global blockSparseDenseMultiply_hf16x16_retained
 .align 8
 .worker
 blockSparseDenseMultiply_hf16x16:
@@ -363,6 +365,6 @@ blockSparseDenseMultiply_hf16x16_retained:
 // match the PNs subgroup id. 
 
 // Instantiate supervisor codelet
-BLOCK_SPARSE_MATMUL CODELET_NAME half float hf16x16 16
+BLOCK_SPARSE_MATMUL CODELET_NAME half float hf16x16 16 0
 
 #endif // defined(__IPU__)

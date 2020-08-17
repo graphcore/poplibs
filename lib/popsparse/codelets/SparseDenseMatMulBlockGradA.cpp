@@ -19,14 +19,18 @@ static constexpr auto SHORT_SPAN = VectorLayout::SHORT_SPAN;
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
-  return false;
+  constexpr bool is4x4 = BlockRows == 4 && BlockCols == 4;
+  constexpr bool is8x8 = BlockRows == 8 && BlockCols == 8;
+  constexpr bool is16x16 = BlockRows == 16 && BlockCols == 16;
+  constexpr bool floatInputs = std::is_same<FPType, float>();
+  return is4x4 || is8x8 || (!floatInputs && is16x16);
 }
 
 namespace popsparse {
 
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
-class SparseDenseMatMulBlockGradA
+class [[poplar::constraint("elem(*q) != elem(*s)")]] SparseDenseMatMulBlockGradA
     : public SupervisorVertexIf<
           hasAssemblyVersion<FPType, AccumType, BlockRows, BlockCols>() &&
           ASM_CODELETS_ENABLED> {
@@ -35,6 +39,7 @@ class SparseDenseMatMulBlockGradA
   using MetaInfo = popsparse::BlockMetaInfo<MetaInfoType>;
   constexpr static std::size_t rAlignmentRequirement = 8;
   constexpr static std::size_t qAlignmentRequirement = 8;
+  constexpr static bool qInInterleavedMem = std::is_same<FPType, half>();
 
 public:
   SparseDenseMatMulBlockGradA();
@@ -50,7 +55,7 @@ public:
   // Single pointer to dense output q. Layout of elements in memory expected to
   // be {X,Z}.
   // We may use this in multiple passes so this needs to be an InOut edge.
-  InOut<Vector<AccumType, ONE_PTR, qAlignmentRequirement>> q;
+  InOut<Vector<AccumType, ONE_PTR, qAlignmentRequirement, qInInterleavedMem>> q;
   // The sub-group id that should be processed by this vertex.
   const MetaInfoType subGroupIdToProcess;
   // Multiple of 32-bits in q to zero. Set to zero if no zeroing required.
@@ -72,11 +77,10 @@ public:
   static constexpr auto accumTypeSize =
       std::is_same<AccumType, float>::value ? 4 : 2;
 
-  static void workerCompute(unsigned wid, unsigned zStrideInQ,
-                            unsigned zStrideInS, unsigned offsetZ,
-                            unsigned numZ, unsigned offsetXInQ,
-                            unsigned offsetYInS, AccumType *q, const FPType *r,
-                            const FPType *s) {
+  static void workerCompute(
+      unsigned wid, unsigned zStrideInQ, unsigned zStrideInS, unsigned offsetZ,
+      unsigned numZ, unsigned offsetXInQ, unsigned offsetYInS, AccumType *q,
+      const FPType *r, const FPType *s) {
     // The following pointers could be calculated once and retained for each
     // worker
     q += (zStrideInQ * (8 / accumTypeSize) * offsetZ);
