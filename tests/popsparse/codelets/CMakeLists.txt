@@ -62,7 +62,7 @@ endforeach()
 add_multi_target_test_executable(SparseDenseMatMulBlock 
                                  SparseDenseMatMulBlock.cpp SparseDenseUtils.cpp SparseDenseUtils.hpp)
 
-set(SPARSE_DENSE_BLOCK_VERTEX_TYPES Forward)
+set(SPARSE_DENSE_BLOCK_VERTEX_TYPES Forward GradA)
 foreach(ZERO_PARTIALS "" "ZeroPartials")
   set(ZERO_PARTIALS_OPT)
   if (ZERO_PARTIALS STREQUAL "ZeroPartials")

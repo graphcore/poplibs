@@ -371,8 +371,8 @@ int main(int argc, char **argv) try {
 
   // Allocate operands
   const auto aType = inputType;
-  const auto bType = inputType;
-  const auto cType = partialsType;
+  const auto bType = vertexType == VertexType::GradA ? partialsType : inputType;
+  const auto cType = vertexType == VertexType::GradA ? inputType : partialsType;
   std::vector<Tensor> aBuckets(numBuckets);
   std::vector<Tensor> metaInfoBuckets(numBuckets);
   for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
@@ -401,8 +401,10 @@ int main(int argc, char **argv) try {
   case VertexType::Forward:
     vertexBaseClass += "SparseDenseMatMulBlock";
     break;
-  case VertexType::Transposed:
   case VertexType::GradA:
+    vertexBaseClass += "SparseDenseMatMulBlockGradA";
+    break;
+  case VertexType::Transposed:
   case VertexType::GradW:
     throw poplibs_error("Vertex type not yet supported");
     break;
@@ -414,20 +416,29 @@ int main(int argc, char **argv) try {
                      blockSize.val[1]);
   const auto v = graph.addVertex(cs, vertexClass);
 
-  const unsigned zStrideInQ = aShape.val[0] * partialsTypeSize / 8;
-  const unsigned zStrideInS = aShape.val[1] * inputTypeSize / 8;
+  unsigned zStrideInQ = vertexType == VertexType::GradA
+                            ? aShape.val[1] * partialsTypeSize / 8
+                            : aShape.val[0] * partialsTypeSize / 8;
+  unsigned zStrideInS = vertexType == VertexType::GradA
+                            ? aShape.val[0] * inputTypeSize / 8
+                            : aShape.val[1] * inputTypeSize / 8;
+
   const unsigned maxPositiveStride = (1 << (target.getNumStrideBits() - 1)) - 1;
   if (zStrideInQ > maxPositiveStride || zStrideInS > maxPositiveStride) {
     throw poplibs_error("Strides exceed machine limits");
   }
-  graph.connect(v["q"], c.flatten());
+  auto qTensor = c, sTensor = b;
+  if (vertexType == VertexType::GradA) {
+    std::swap(sTensor, qTensor);
+  }
+  graph.connect(v["q"], qTensor.flatten());
   graph.connect(v["r"], aBuckets);
-  graph.connect(v["s"], b.flatten());
+  graph.connect(v["s"], sTensor.flatten());
   graph.connect(v["metaInfo"], metaInfoBuckets);
   graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
-  assert(partialsType == FLOAT || c.numElements() % 2 == 0);
-  const auto numPartials =
-      (partialsType == FLOAT) ? c.numElements() : c.numElements() / 2;
+  assert(partialsType == FLOAT || qTensor.numElements() % 2 == 0);
+  const auto numPartials = (partialsType == FLOAT) ? qTensor.numElements()
+                                                   : qTensor.numElements() / 2;
 
   graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
   graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
@@ -501,6 +512,8 @@ int main(int argc, char **argv) try {
   const boost::multi_array<double, 2> origC = hostC;
   if (vertexType == VertexType::Forward) {
     copy(target, cType, rawHostC.get(), hostC);
+  } else if (vertexType == VertexType::GradA) {
+    copy(target, bType, rawHostB.get(), hostB);
   }
 
   if (!ignoreData) {
@@ -520,8 +533,13 @@ int main(int argc, char **argv) try {
           assert(bucketNzOffset + i < hostABuckets[bucket].num_elements());
           for (unsigned j = 0; j != blockSize.val[0]; ++j) {
             for (unsigned k = 0; k != blockSize.val[1]; ++k) {
-              auto srcOffset =
-                  bucketNzOffset + i * blockElems + j * blockSize.val[1] + k;
+              // For GradA, each block is created transposed and thus we create
+              // the dense matrix by transposing each block.
+              auto srcOffset = vertexType == VertexType::GradA
+                                   ? bucketNzOffset + i * blockElems +
+                                         k * blockSize.val[0] + j
+                                   : bucketNzOffset + i * blockElems +
+                                         j * blockSize.val[1] + k;
               hostADense[sparseIndices.at(nzOffset + i)[0] + j]
                         [sparseIndices.at(nzOffset + i)[1] + k] =
                             hostABuckets[bucket][srcOffset];
@@ -548,6 +566,18 @@ int main(int argc, char **argv) try {
         }
       }
       matchesModel = checkIsClose("modelC", hostC, modelC, relativeTolerance,
+                                  absoluteTolerance);
+    } else if (vertexType == VertexType::GradA) {
+      boost::multi_array<double, 2> modelB(
+          boost::extents[bShape[1]][bShape[0]]);
+      poplibs_test::gemm::generalMatrixMultiply(hostC, hostADense, modelB,
+                                                false, false);
+      if (!zeroPartials) {
+        for (std::size_t i = 0; i < modelB.num_elements(); ++i) {
+          modelB.data()[i] += origB.data()[i];
+        }
+      }
+      matchesModel = checkIsClose("modelB", hostB, modelB, relativeTolerance,
                                   absoluteTolerance);
     } else {
       throw poputil::poplibs_error("Unhandled vertex type");

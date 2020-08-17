@@ -36,6 +36,11 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlock)(
   return 0;
 }
 
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlockGradA)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, unsigned BlockRows, unsigned BlockCols) {
+  return 0;
+}
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseGatherElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
@@ -115,6 +120,25 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                             16),
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlock, FLOAT, FLOAT, 16,
                             16),
+
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, HALF, FLOAT,
+                            4, 4),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, HALF, HALF,
+                            4, 4),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, FLOAT,
+                            FLOAT, 4, 4),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, HALF, FLOAT,
+                            8, 8),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, HALF, HALF,
+                            8, 8),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, FLOAT,
+                            FLOAT, 8, 8),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, HALF, HALF,
+                            16, 16),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, HALF, FLOAT,
+                            16, 16),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockGradA, FLOAT,
+                            FLOAT, 16, 16),
   };
 }
 
