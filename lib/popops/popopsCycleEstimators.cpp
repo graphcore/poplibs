@@ -33,12 +33,47 @@ static bool hasExternalCodelet(expr::BinaryOpType op, Type type) {
           op == expr::BinaryOpType::MULTIPLY);
 }
 
+// Information about processing time (in device cycles) for elementwise
+// operations. This refers only to the timing of the inner loop, not any loop
+// setup operations  etc.
+// The fields have three patterns of usage:
+//
+//   naturalVectorWidth == false; loopUnrollFactor == 0
+//     This is used only for unary operators.
+//     Each loop processes 1 element and takes 'cyclesPerLoop' + an additional
+//     (overhead) number of cycles.
+//
+//   naturalVectorWidth == true; loopUnrollFactor == 0
+//     This means that each loop processes the 'natural' vector of the target
+//     (for instance 64 bit = 4 halves or 2 floats). Processing 1 vector takes
+//     'cyclesPerLoop' + an additional number of overhead cycles that is added
+//     later when computing the estimate.
+//
+//   naturalVectorWidth == false; loopUnrollFactor >= 1
+//     This means that each loop processes 'loopUnrollFactor' elements in
+//     'cyclesPerLoop'. No overhead cycles are added later.
+//
 struct OpPerformanceInfo {
-  unsigned cyclesPerVector;
-  bool vectorize;
-  OpPerformanceInfo() = default;
-  OpPerformanceInfo(unsigned cyclesPerVector, bool vectorize)
-      : cyclesPerVector(cyclesPerVector), vectorize(vectorize) {}
+  // How many cycles are used to go once through the inner loop, which will
+  // process either one "natural" vector of elements or 'loopUnrollFactor'
+  // elements.
+  unsigned cyclesPerLoop;
+  // If true, the operation is performed using the 'natural' vectorization
+  // of the target (for instance 4 halves =  64 bit) and an additional number
+  // of overhead cycles is added to 'cyclesPerLoop'.
+  bool naturalVectorWidth;
+  // If 0, or if "naturalVectorWidth" = true, this is disregarded. Otherwise,
+  // this indicates the number of elements processed in one loop, and the
+  // 'cyclesPerLoop' will NOT have the overhead value added.
+  unsigned loopUnrollFactor = 0;
+  OpPerformanceInfo() = delete;
+  OpPerformanceInfo(unsigned cyclesPerVector, bool naturalVectorWidth)
+      : cyclesPerLoop(cyclesPerVector), naturalVectorWidth(naturalVectorWidth) {
+  }
+  OpPerformanceInfo(unsigned cyclesPerVector, bool naturalVectorWidth,
+                    unsigned unroll)
+      : cyclesPerLoop(cyclesPerVector), naturalVectorWidth(naturalVectorWidth),
+        loopUnrollFactor(unroll) {}
   OpPerformanceInfo(unsigned cyclesPerVector)
       : OpPerformanceInfo(cyclesPerVector, false) {}
 };
@@ -58,21 +93,41 @@ static const std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
 
 };
 
+// Computes the cycles used by the inner loop in one of the binary op codelets,
+// both for supervisor and 2D version, in place or not.
+std::uint64_t binaryOpInnerLoopCycles(const Target &target,
+                                      const BinaryOpType op, const Type &type,
+                                      const OpPerformanceInfo &perfInfo,
+                                      const unsigned numElems) {
+  unsigned elemsPerLoop;
+  unsigned cyclesPerLoop = perfInfo.cyclesPerLoop;
+  if (perfInfo.naturalVectorWidth) {
+    elemsPerLoop = target.getVectorWidth(type);
+    // This is an overhead for each cycle of the inner loop that processes
+    // 1 element (or 1 vector). It accounts for load/store and loop decision
+    cyclesPerLoop += hasExternalCodelet(op, type) ? 2 : 5;
+  } else {
+    elemsPerLoop = perfInfo.loopUnrollFactor;
+  }
+  unsigned numLoops = iceil(numElems, elemsPerLoop);
+  return numLoops * cyclesPerLoop;
+}
+
 static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, std::uint64_t overheadPerLoop) {
   CODELET_FIELD(data);
   assert(type == HALF || type == FLOAT);
-  auto vectorWidth = target.getVectorWidth(type);
   auto numWorkers = target.getNumWorkerContexts();
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = 20;
   std::uint64_t supervisorCycles = basicOpSupervisorOverhead();
-  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
+  const auto cyclesPerLoop = perfInfo.cyclesPerLoop + overheadPerLoop;
   auto numElems = (data.size() + numWorkers - 1) / numWorkers;
-  if (perfInfo.vectorize)
-    cycles += basicOpLoopCycles(numElems, vectorWidth, cyclesPerLoop);
+  if (perfInfo.naturalVectorWidth)
+    cycles +=
+        basicOpLoopCycles(numElems, target.getVectorWidth(type), cyclesPerLoop);
   else
     cycles += cyclesPerLoop * numElems;
 
@@ -109,17 +164,17 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
 
   CODELET_FIELD(data);
   assert(type == HALF || type == FLOAT);
-  auto vectorWidth = target.getVectorWidth(type);
   auto numWorkers = target.getNumWorkerContexts();
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
   std::uint64_t cycles = overheadPerOuterLoop;
 
   std::uint64_t supervisorCycles = basicOpSupervisorOverhead();
-  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerInnerLoop;
+  const auto cyclesPerLoop = perfInfo.cyclesPerLoop + overheadPerInnerLoop;
   auto numElems = byRow ? columns : (columns + numWorkers - 1) / numWorkers;
-  if (perfInfo.vectorize) {
-    cycles += basicOpLoopCycles(numElems, vectorWidth, cyclesPerLoop);
+  if (perfInfo.naturalVectorWidth) {
+    cycles +=
+        basicOpLoopCycles(numElems, target.getVectorWidth(type), cyclesPerLoop);
   } else {
     cycles += cyclesPerLoop * numElems;
   }
@@ -164,16 +219,16 @@ static std::uint64_t broadcastArithmeticCycleEstimate(
     const Type &type, std::uint64_t overheadPerLoop) {
   CODELET_FIELD(data);
   assert(type == HALF || type == FLOAT);
-  auto vectorWidth = target.getVectorWidth(type);
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
-  const auto cyclesPerLoop = perfInfo.cyclesPerVector + overheadPerLoop;
+  const auto cyclesPerLoop = perfInfo.cyclesPerLoop + overheadPerLoop;
 
   std::uint64_t cycles = 20;
 
   for (unsigned i = 0; i < data.size(); i++) {
     auto numElems = data[i].size();
-    if (perfInfo.vectorize)
-      cycles += basicOpLoopCycles(numElems, vectorWidth, cyclesPerLoop);
+    if (perfInfo.naturalVectorWidth)
+      cycles += basicOpLoopCycles(numElems, target.getVectorWidth(type),
+                                  cyclesPerLoop);
     else
       cycles += (cyclesPerLoop)*numElems;
     cycles += 28;
@@ -1340,175 +1395,176 @@ using BinaryOpType = popops::expr::BinaryOpType;
 
 static const std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
     binaryOpPerfInfo = {
+        // Cycles for many library operations can be *hugely* data dependent.
+        // This includes floating point operations like ATAN2, POWER, REMAINDER;
+        // but also int/unsigned DIVIDE and REMAINDER.
+        // For those operators, note that cycles values used here are from a
+        // random distribution of input values obtained by running BinaryOpTest
+
+        // Note that the ADD, SUBTRACT and MULTIPLY operators can run code that
+        // is *faster* than what is defined here (the 'fastPath'), if the two
+        // operands are laid out in memory appropriately to allow a double
+        // vector load.
+
         {{BinaryOpType::ADD, FLOAT}, {1, true}},
         {{BinaryOpType::ADD, HALF}, {1, true}},
-        {{BinaryOpType::ADD, INT}, {2, false}},
-        {{BinaryOpType::ADD, UNSIGNED_INT}, {2, false}},
-        {{BinaryOpType::ATAN2, FLOAT}, {120, false}},
-        {{BinaryOpType::ATAN2, HALF}, {120, false}},
+        {{BinaryOpType::ADD, INT}, {7, false, 1}},
+        {{BinaryOpType::ADD, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::ATAN2, FLOAT}, {272, false, 2}},
+        {{BinaryOpType::ATAN2, HALF}, {578, false, 4}},
 
-        {{BinaryOpType::BITWISE_AND, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_AND, UNSIGNED_INT}, {3, false}},
-        {{BinaryOpType::BITWISE_OR, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_OR, UNSIGNED_INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XOR, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XOR, UNSIGNED_INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XNOR, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XNOR, UNSIGNED_INT}, {3, false}},
+        {{BinaryOpType::BITWISE_AND, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_AND, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_OR, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_OR, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XOR, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XOR, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XNOR, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XNOR, UNSIGNED_INT}, {7, false, 1}},
 
-        {{BinaryOpType::DIVIDE, FLOAT}, {10, false}},
-        {{BinaryOpType::DIVIDE, HALF}, {10, false}},
-        // ld into aux, ld into aux, div, st
-        {{BinaryOpType::DIVIDE, INT}, {40, false}},
-        {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {40, false}},
-        {{BinaryOpType::LOGICAL_AND, BOOL}, {20, false}},
-        {{BinaryOpType::LOGICAL_OR, BOOL}, {20, false}},
-        {{BinaryOpType::MAXIMUM, FLOAT}, {1, true}},
-        {{BinaryOpType::MAXIMUM, HALF}, {1, true}},
-        {{BinaryOpType::MAXIMUM, INT}, {2}},
-        {{BinaryOpType::MAXIMUM, UNSIGNED_INT}, {2}},
-        {{BinaryOpType::MINIMUM, FLOAT}, {1, true}},
-        {{BinaryOpType::MINIMUM, HALF}, {1, true}},
-        {{BinaryOpType::MINIMUM, INT}, {2}},
-        {{BinaryOpType::MINIMUM, UNSIGNED_INT}, {2}},
+        {{BinaryOpType::DIVIDE, FLOAT}, {6, false, 2}},
+        {{BinaryOpType::DIVIDE, HALF}, {13, false, 4}},
+        {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
+        {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {254, false, 1}},
+        {{BinaryOpType::LOGICAL_AND, BOOL}, {49, false, 4}},
+        {{BinaryOpType::LOGICAL_OR, BOOL}, {23, false, 4}},
+        {{BinaryOpType::MAXIMUM, FLOAT}, {4, false, 2}},
+        {{BinaryOpType::MAXIMUM, HALF}, {4, false, 4}},
+        {{BinaryOpType::MAXIMUM, INT}, {7, false, 1}},
+        {{BinaryOpType::MAXIMUM, UNSIGNED_INT}, {8, false, 1}},
+        {{BinaryOpType::MINIMUM, FLOAT}, {4, false, 2}},
+        {{BinaryOpType::MINIMUM, HALF}, {4, false, 4}},
+        {{BinaryOpType::MINIMUM, INT}, {7, false, 1}},
+        {{BinaryOpType::MINIMUM, UNSIGNED_INT}, {8, false, 1}},
         {{BinaryOpType::MULTIPLY, FLOAT}, {1, true}},
         {{BinaryOpType::MULTIPLY, HALF}, {1, true}},
-        {{BinaryOpType::MULTIPLY, INT}, {2, false}},
-        {{BinaryOpType::MULTIPLY, UNSIGNED_INT}, {2, false}},
+        {{BinaryOpType::MULTIPLY, INT}, {7, false, 1}},
+        {{BinaryOpType::MULTIPLY, UNSIGNED_INT}, {7, false, 1}},
 
         // Accuracy concerns using ln
         // pow(a,b) = exp(b * log(a))
         // Doesn't handle negative values yet
 
         // Power instruction not used
-        {{BinaryOpType::POWER, FLOAT}, {200, false}},
-        {{BinaryOpType::POWER, HALF}, {200, false}},
+        {{BinaryOpType::POWER, FLOAT}, {312, false, 1}},
+        {{BinaryOpType::POWER, HALF}, {325, false, 1}},
 
-        {{BinaryOpType::REMAINDER, FLOAT}, {10, false}},
-        {{BinaryOpType::REMAINDER, HALF}, {10, false}},
-        {{BinaryOpType::REMAINDER, INT}, {40, false}},
-        {{BinaryOpType::REMAINDER, UNSIGNED_INT}, {40, false}},
-        {{BinaryOpType::SHIFT_LEFT, INT}, {3}},
-        {{BinaryOpType::SHIFT_LEFT, UNSIGNED_INT}, {3}},
-        {{BinaryOpType::SHIFT_RIGHT, INT}, {3}},
-        {{BinaryOpType::SHIFT_RIGHT, UNSIGNED_INT}, {3}},
-        {{BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {4}},
+        {{BinaryOpType::REMAINDER, FLOAT}, {133, false, 2}},
+        {{BinaryOpType::REMAINDER, HALF}, {300, false, 4}},
+        {{BinaryOpType::REMAINDER, INT}, {86, false, 1}},
+        {{BinaryOpType::REMAINDER, UNSIGNED_INT}, {65, false, 1}},
+        {{BinaryOpType::SHIFT_LEFT, INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_LEFT, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_RIGHT, INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_RIGHT, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {7, false, 1}},
         {{BinaryOpType::SUBTRACT, FLOAT}, {1, true}},
         {{BinaryOpType::SUBTRACT, HALF}, {1, true}},
-        {{BinaryOpType::SUBTRACT, INT}, {2, false}},
-        {{BinaryOpType::SUBTRACT, UNSIGNED_INT}, {2, false}},
+        {{BinaryOpType::SUBTRACT, INT}, {7, false, 1}},
+        {{BinaryOpType::SUBTRACT, UNSIGNED_INT}, {7, false, 1}},
+
+        {{BinaryOpType::EQUAL, FLOAT}, {14, false, 4}},
+        {{BinaryOpType::EQUAL, HALF}, {9, false, 4}},
+        {{BinaryOpType::EQUAL, INT}, {29, false, 2}},
+        {{BinaryOpType::EQUAL, UNSIGNED_INT}, {29, false, 2}},
+        {{BinaryOpType::EQUAL, BOOL}, {49, false, 4}},
+        // same as B < A
+        // E = A and B, result = A andc E
+        {{BinaryOpType::GREATER_THAN, FLOAT}, {14, false, 4}},
+        {{BinaryOpType::GREATER_THAN, HALF}, {9, false, 4}},
+        {{BinaryOpType::GREATER_THAN, INT}, {30, false, 2}},
+        {{BinaryOpType::GREATER_THAN, UNSIGNED_INT}, {29, false, 2}},
+        {{BinaryOpType::GREATER_THAN, BOOL}, {49, false, 4}},
+        {{BinaryOpType::GREATER_THAN_EQUAL, FLOAT}, {14, false, 4}},
+        {{BinaryOpType::GREATER_THAN_EQUAL, HALF}, {9, false, 4}},
+        {{BinaryOpType::GREATER_THAN_EQUAL, INT}, {30, false, 2}},
+        {{BinaryOpType::GREATER_THAN_EQUAL, UNSIGNED_INT}, {30, false, 2}},
+        {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {17, false, 4}},
+        {{BinaryOpType::LESS_THAN, FLOAT}, {14, false, 4}},
+        {{BinaryOpType::LESS_THAN, HALF}, {9, false, 4}},
+        {{BinaryOpType::LESS_THAN, INT}, {30, false, 2}},
+        {{BinaryOpType::LESS_THAN, UNSIGNED_INT}, {30, false, 2}},
+        {{BinaryOpType::LESS_THAN, BOOL}, {49, false, 4}},
+        {{BinaryOpType::LESS_THAN_EQUAL, FLOAT}, {14, false, 4}},
+        {{BinaryOpType::LESS_THAN_EQUAL, HALF}, {9, false, 4}},
+        {{BinaryOpType::LESS_THAN_EQUAL, INT}, {30, false, 2}},
+        {{BinaryOpType::LESS_THAN_EQUAL, UNSIGNED_INT}, {30, false, 2}},
+        {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {17, false, 4}},
+        {{BinaryOpType::NOT_EQUAL, FLOAT}, {20, false, 4}},
+        {{BinaryOpType::NOT_EQUAL, HALF}, {11, false, 4}},
+        {{BinaryOpType::NOT_EQUAL, INT}, {29, false, 2}},
+        {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, {29, false, 2}},
+        {{BinaryOpType::NOT_EQUAL, BOOL}, {49, false, 4}},
 };
 
 static const std::map<std::pair<BinaryOpType, poplar::Type>, OpPerformanceInfo>
     binaryOpInPlacePerfInfo = {
         {{BinaryOpType::ADD, FLOAT}, {1, true}},
         {{BinaryOpType::ADD, HALF}, {1, true}},
-        {{BinaryOpType::ADD, INT}, {2, false}},
-        {{BinaryOpType::ADD, UNSIGNED_INT}, {2, false}},
-        {{BinaryOpType::ATAN2, FLOAT}, {120, false}},
-        {{BinaryOpType::ATAN2, HALF}, {120, false}},
+        {{BinaryOpType::ADD, INT}, {7, false, 1}},
+        {{BinaryOpType::ADD, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::ATAN2, FLOAT}, {272, false, 2}},
+        {{BinaryOpType::ATAN2, HALF}, {578, false, 4}},
 
-        {{BinaryOpType::BITWISE_AND, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_AND, UNSIGNED_INT}, {3, false}},
-        {{BinaryOpType::BITWISE_OR, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_OR, UNSIGNED_INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XOR, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XOR, UNSIGNED_INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XNOR, INT}, {3, false}},
-        {{BinaryOpType::BITWISE_XNOR, UNSIGNED_INT}, {3, false}},
+        {{BinaryOpType::BITWISE_AND, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_AND, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_OR, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_OR, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XOR, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XOR, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XNOR, INT}, {7, false, 1}},
+        {{BinaryOpType::BITWISE_XNOR, UNSIGNED_INT}, {7, false, 1}},
 
-        {{BinaryOpType::DIVIDE, FLOAT}, {10, false}},
-        {{BinaryOpType::DIVIDE, HALF}, {10, false}},
-        // ld into aux, ld into aux, div, st
-        {{BinaryOpType::DIVIDE, INT}, {40, false}},
-        {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {40, false}},
-        {{BinaryOpType::LOGICAL_AND, BOOL}, {20, false}},
-        {{BinaryOpType::LOGICAL_OR, BOOL}, {20, false}},
-        {{BinaryOpType::MAXIMUM, FLOAT}, {1, true}},
-        {{BinaryOpType::MAXIMUM, HALF}, {1, true}},
-        {{BinaryOpType::MAXIMUM, INT}, {2}},
-        {{BinaryOpType::MAXIMUM, UNSIGNED_INT}, {2}},
-        {{BinaryOpType::MINIMUM, FLOAT}, {1, true}},
-        {{BinaryOpType::MINIMUM, HALF}, {1, true}},
-        {{BinaryOpType::MINIMUM, INT}, {2}},
-        {{BinaryOpType::MINIMUM, UNSIGNED_INT}, {2}},
+        {{BinaryOpType::DIVIDE, FLOAT}, {6, false, 2}},
+        {{BinaryOpType::DIVIDE, HALF}, {13, false, 4}},
+        {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
+        {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {254, false, 1}},
+        {{BinaryOpType::LOGICAL_AND, BOOL}, {49, false, 4}},
+        {{BinaryOpType::LOGICAL_OR, BOOL}, {11, false, 4}},
+        {{BinaryOpType::MAXIMUM, FLOAT}, {4, false, 2}},
+        {{BinaryOpType::MAXIMUM, HALF}, {4, false, 4}},
+        {{BinaryOpType::MAXIMUM, INT}, {7, false, 1}},
+        {{BinaryOpType::MAXIMUM, UNSIGNED_INT}, {8, false, 1}},
+        {{BinaryOpType::MINIMUM, FLOAT}, {4, false, 2}},
+        {{BinaryOpType::MINIMUM, HALF}, {4, false, 4}},
+        {{BinaryOpType::MINIMUM, INT}, {7, false, 1}},
+        {{BinaryOpType::MINIMUM, UNSIGNED_INT}, {8, false, 1}},
         {{BinaryOpType::MULTIPLY, FLOAT}, {1, true}},
         {{BinaryOpType::MULTIPLY, HALF}, {1, true}},
-        {{BinaryOpType::MULTIPLY, INT}, {2, false}},
-        {{BinaryOpType::MULTIPLY, UNSIGNED_INT}, {2, false}},
+        {{BinaryOpType::MULTIPLY, INT}, {7, false, 1}},
+        {{BinaryOpType::MULTIPLY, UNSIGNED_INT}, {7, false, 1}},
 
         // Accuracy concerns using ln
         // pow(a,b) = exp(b * log(a))
         // Doesn't handle negative values yet
 
         // Power instruction not used
-        {{BinaryOpType::POWER, FLOAT}, {200, false}},
-        {{BinaryOpType::POWER, HALF}, {200, false}},
+        {{BinaryOpType::POWER, FLOAT}, {312, false, 1}},
+        {{BinaryOpType::POWER, HALF}, {325, false, 1}},
 
-        {{BinaryOpType::REMAINDER, FLOAT}, {10, false}},
-        {{BinaryOpType::REMAINDER, HALF}, {10, false}},
-        {{BinaryOpType::REMAINDER, INT}, {40, false}},
-        {{BinaryOpType::REMAINDER, UNSIGNED_INT}, {40, false}},
-        {{BinaryOpType::SHIFT_LEFT, INT}, {3}},
-        {{BinaryOpType::SHIFT_LEFT, UNSIGNED_INT}, {3}},
-        {{BinaryOpType::SHIFT_RIGHT, INT}, {3}},
-        {{BinaryOpType::SHIFT_RIGHT, UNSIGNED_INT}, {3}},
-        {{BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {4}},
+        {{BinaryOpType::REMAINDER, FLOAT}, {133, false, 2}},
+        {{BinaryOpType::REMAINDER, HALF}, {300, false, 4}},
+        {{BinaryOpType::REMAINDER, INT}, {86, false, 1}},
+        {{BinaryOpType::REMAINDER, UNSIGNED_INT}, {65, false, 1}},
+        {{BinaryOpType::SHIFT_LEFT, INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_LEFT, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_RIGHT, INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_RIGHT, UNSIGNED_INT}, {7, false, 1}},
+        {{BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, INT}, {7, false, 1}},
         {{BinaryOpType::SUBTRACT, FLOAT}, {1, true}},
         {{BinaryOpType::SUBTRACT, HALF}, {1, true}},
-        {{BinaryOpType::SUBTRACT, INT}, {2, false}},
-        {{BinaryOpType::SUBTRACT, UNSIGNED_INT}, {2, false}},
-};
+        {{BinaryOpType::SUBTRACT, INT}, {7, false, 1}},
+        {{BinaryOpType::SUBTRACT, UNSIGNED_INT}, {7, false, 1}},
 
-static const std::map<std::pair<BinaryOpType, poplar::Type>, unsigned>
-    comparisonOpPerfInfo = {
-        // Dominated by separate _st8 byte function calls
-        // even if the actual arithmetic operation is vectorised
-        {{BinaryOpType::EQUAL, FLOAT}, 17},
-        {{BinaryOpType::EQUAL, HALF}, 17},
-        {{BinaryOpType::EQUAL, INT}, 17},
-        {{BinaryOpType::EQUAL, UNSIGNED_INT}, 17},
-        {{BinaryOpType::EQUAL, BOOL}, 17},
-        // same as B < A
-        // E = A and B, result = A andc E
-        {{BinaryOpType::GREATER_THAN, FLOAT}, 17},
-        {{BinaryOpType::GREATER_THAN, HALF}, 17},
-        {{BinaryOpType::GREATER_THAN, INT}, 17},
-        {{BinaryOpType::GREATER_THAN, UNSIGNED_INT}, 17},
-        {{BinaryOpType::GREATER_THAN, BOOL}, 17},
-        {{BinaryOpType::GREATER_THAN_EQUAL, FLOAT}, 17},
-        {{BinaryOpType::GREATER_THAN_EQUAL, HALF}, 17},
-        {{BinaryOpType::GREATER_THAN_EQUAL, INT}, 17},
-        {{BinaryOpType::GREATER_THAN_EQUAL, UNSIGNED_INT}, 17},
-        {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 17},
-        {{BinaryOpType::LESS_THAN, FLOAT}, 17},
-        {{BinaryOpType::LESS_THAN, HALF}, 17},
-        {{BinaryOpType::LESS_THAN, INT}, 17},
-        {{BinaryOpType::LESS_THAN, UNSIGNED_INT}, 17},
-        {{BinaryOpType::LESS_THAN, BOOL}, 17},
-        {{BinaryOpType::LESS_THAN_EQUAL, FLOAT}, 17},
-        {{BinaryOpType::LESS_THAN_EQUAL, HALF}, 17},
-        {{BinaryOpType::LESS_THAN_EQUAL, INT}, 17},
-        {{BinaryOpType::LESS_THAN_EQUAL, UNSIGNED_INT}, 17},
-        {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, 17},
-        {{BinaryOpType::NOT_EQUAL, FLOAT}, 17},
-        {{BinaryOpType::NOT_EQUAL, HALF}, 17},
-        {{BinaryOpType::NOT_EQUAL, INT}, 17},
-        {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, 17},
-        {{BinaryOpType::NOT_EQUAL, BOOL}, 17},
-};
-
-static const std::map<std::pair<BinaryOpType, poplar::Type>, unsigned>
-    comparisonOpInplacePerfInfo = {
         // E = A and B, F = A or B, G = F andc E, result = 1 andc G
-        {{BinaryOpType::EQUAL, BOOL}, 17},
+        {{BinaryOpType::EQUAL, BOOL}, {49, false, 4}},
         // same as B < A
         // E = A and B, result = A andc E
-        {{BinaryOpType::GREATER_THAN, BOOL}, 17},
-        {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, 17},
-        {{BinaryOpType::LESS_THAN, BOOL}, 17},
-        {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, 17},
-        {{BinaryOpType::NOT_EQUAL, BOOL}, 17},
+        {{BinaryOpType::GREATER_THAN, BOOL}, {49, false, 4}},
+        {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {13, false, 4}},
+        {{BinaryOpType::LESS_THAN, BOOL}, {49, false, 4}},
+        {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {13, false, 4}},
+        {{BinaryOpType::NOT_EQUAL, BOOL}, {49, false, 4}},
 };
 
 static std::uint64_t unaryOpInnerLoopCycles(const Target &target,
@@ -1516,12 +1572,12 @@ static std::uint64_t unaryOpInnerLoopCycles(const Target &target,
                                             const OpPerformanceInfo &perfInfo,
                                             unsigned numElems) {
   unsigned vectorWidth = 1;
-  if (perfInfo.vectorize) {
+  if (perfInfo.naturalVectorWidth) {
     vectorWidth = target.getVectorWidth(type);
   }
   // Estimate loop cycles, including a constant loop overhead added to the
   // cycles per vector.  This accounts for load/store and loop decision.
-  return basicOpLoopCycles(numElems, vectorWidth, perfInfo.cyclesPerVector + 4);
+  return basicOpLoopCycles(numElems, vectorWidth, perfInfo.cyclesPerLoop + 4);
 }
 
 std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
@@ -1529,15 +1585,13 @@ std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
     const popops::expr::BinaryOpType op, const unsigned numElems) {
   auto superviserOverhead = basicOpSupervisorOverhead();
   uint64_t workerCycles = 13;
-  auto c = comparisonOpPerfInfo.find({op, type});
-  const bool isComparison = c != comparisonOpPerfInfo.end();
-  const auto &info = isComparison ? OpPerformanceInfo()
-                                  : binaryOpInPlacePerfInfo.at({op, type});
+  const auto &info = binaryOpInPlacePerfInfo.at({op, type});
+
   const auto numWorkers = target.getNumWorkerContexts();
-  auto numElemsPerWorker = (numElems + numWorkers - 1) / numWorkers;
-  workerCycles += binaryOpInnerLoopCycles(target, type, info.cyclesPerVector,
-                                          info.vectorize, numElemsPerWorker,
-                                          hasExternalCodelet(op, type) ? 2 : 5);
+  auto numElemsPerWorker = iceil(numElems, numWorkers);
+  workerCycles +=
+      binaryOpInnerLoopCycles(target, op, type, info, numElemsPerWorker);
+
   return numWorkers * workerCycles + superviserOverhead;
 }
 
@@ -1610,17 +1664,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
   CODELET_FIELD(out);
   assert(in1.size() == out.size());
   assert(in2.size() == in1.size());
-  auto c = comparisonOpPerfInfo.find({op, type});
-  const bool isComparison = c != comparisonOpPerfInfo.end();
-  const auto &info =
-      isComparison ? OpPerformanceInfo() : binaryOpPerfInfo.at({op, type});
+
+  const auto &info = binaryOpPerfInfo.at({op, type});
 
   for (unsigned i = 0; i < in1.size(); ++i) {
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
-    cycles += binaryOpInnerLoopCycles(target, type, info.cyclesPerVector,
-                                      info.vectorize, in1[i].size(),
-                                      hasExternalCodelet(op, type) ? 2 : 5);
+    cycles += binaryOpInnerLoopCycles(target, op, type, info, in1[i].size());
   }
   return cycles;
 }
@@ -1628,24 +1678,19 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
-  uint64_t superviserOverhead = basicOpSupervisorOverhead();
+  uint64_t supervisorOverhead = basicOpSupervisorOverhead();
   uint64_t workerCycles = 22;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
   CODELET_FIELD(out);
   assert(in1.size() == out.size());
   assert(in2.size() == in1.size());
-  auto c = comparisonOpPerfInfo.find({op, type});
-  const bool isComparison = c != comparisonOpPerfInfo.end();
-  const auto &info =
-      isComparison ? OpPerformanceInfo() : binaryOpPerfInfo.at({op, type});
-  const auto numWorkers = target.getNumWorkerContexts();
-  unsigned numElems = (in1.size() + numWorkers - 1) / numWorkers;
-  workerCycles += binaryOpInnerLoopCycles(target, type, info.cyclesPerVector,
-                                          info.vectorize, numElems,
-                                          hasExternalCodelet(op, type) ? 2 : 5);
+  const auto &info = binaryOpPerfInfo.at({op, type});
 
-  return numWorkers * workerCycles + superviserOverhead;
+  const auto numWorkers = target.getNumWorkerContexts();
+  unsigned numElems = iceil(in1.size(), numWorkers);
+  workerCycles += binaryOpInnerLoopCycles(target, op, type, info, numElems);
+  return numWorkers * workerCycles + supervisorOverhead;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
@@ -1655,16 +1700,11 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
   assert(in1Out.size() == in2.size());
-  auto c = comparisonOpPerfInfo.find({op, type});
-  const bool isComparison = c != comparisonOpPerfInfo.end();
-  const auto &info = isComparison ? OpPerformanceInfo()
-                                  : binaryOpInPlacePerfInfo.at({op, type});
+  const auto &info = binaryOpInPlacePerfInfo.at({op, type});
 
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     assert(in1Out[i].size() == in2[i].size());
-    cycles += binaryOpInnerLoopCycles(target, type, info.cyclesPerVector,
-                                      info.vectorize, in1Out[i].size(),
-                                      hasExternalCodelet(op, type) ? 2 : 5);
+    cycles += binaryOpInnerLoopCycles(target, op, type, info, in1Out[i].size());
   }
   return cycles;
 }
@@ -2933,19 +2973,6 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                                           entry.first.second));
   }
 
-  for (const auto &entry : comparisonOpPerfInfo) {
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp2D, entry.first.first,
-                                          entry.first.second));
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(
-        popops, BinaryOp1DSupervisor, entry.first.first, entry.first.second));
-  }
-  for (const auto &entry : comparisonOpInplacePerfInfo) {
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(
-        popops, BinaryOp2DInPlace, entry.first.first, entry.first.second));
-    table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, BinaryOp1DInPlaceSupervisor,
-                                          entry.first.first,
-                                          entry.first.second));
-  }
   return table;
 }
 

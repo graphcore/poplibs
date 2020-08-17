@@ -1,7 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE BinaryOpTest
 //
-// Perform a binary operation between two tensors with any desired shape, each
+// Performs a binary operation between two tensors with any desired shape, each
 // mapped in any desired way among tiles.
 
 #include <poplar/Engine.hpp>
@@ -16,14 +16,19 @@
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
+#include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
+#include <boost/optional.hpp>
 #include <boost/program_options.hpp>
 #include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
 
+#include <algorithm>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <sstream>
+#include <type_traits>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -31,12 +36,217 @@ using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
 using namespace poplibs_support;
+using popops::expr::BinaryOpType;
 
 const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
+
+// We use 'unsigned char' on the host instead of 'bool', because
+// std::vector<bool> gets specialised with 1 bit per element instead of 1 byte
+typedef unsigned char HostBool;
+
+// A map that, given a BinaryOpType, returns a string with its name
+const std::map<BinaryOpType, const std::string> binaryOpToString = {
+#define ONE_OP(opId)                                                           \
+  { BinaryOpType::opId, #opId }
+    ONE_OP(ADD),
+    ONE_OP(ATAN2),
+    ONE_OP(BITWISE_AND),
+    ONE_OP(BITWISE_OR),
+    ONE_OP(BITWISE_XOR),
+    ONE_OP(BITWISE_XNOR),
+    ONE_OP(DIVIDE),
+    ONE_OP(EQUAL),
+    ONE_OP(GREATER_THAN_EQUAL),
+    ONE_OP(GREATER_THAN),
+    ONE_OP(INV_STD_DEV_TO_VARIANCE),
+    ONE_OP(LESS_THAN_EQUAL),
+    ONE_OP(LOGICAL_AND),
+    ONE_OP(LOGICAL_OR),
+    ONE_OP(LESS_THAN),
+    ONE_OP(MAXIMUM),
+    ONE_OP(MINIMUM),
+    ONE_OP(MULTIPLY),
+    ONE_OP(NOT_EQUAL),
+    ONE_OP(POWER),
+    ONE_OP(REMAINDER),
+    ONE_OP(SHIFT_LEFT),
+    ONE_OP(SHIFT_RIGHT),
+    ONE_OP(SHIFT_RIGHT_SIGN_EXTEND),
+    ONE_OP(SUBTRACT),
+    ONE_OP(VARIANCE_TO_INV_STD_DEV),
+#undef ONE_OP
+};
+
+// Given a string, returns the corresponding BinaryOpType. The string can be
+// uppercase or lowercase and be just the start of the name of the operator, as
+// long as it uniquely identifies it (i.e. "ad" ==> ADD, but "shift_r" is
+// not enough, as we have both SHIFT_RIGHT and SHIFT_RIGHT_SIGN_EXTEND.
+// Note that if the string matches *exactly* the name, then it is considered
+// valid; for instance, "shift_right" => SHIFT_RIGHT, even if we have
+// SHIFT_RIGHT_SIGN_EXTEND
+BinaryOpType stringToBinaryOp(const std::string &s) {
+  boost::optional<BinaryOpType> opFound(boost::none);
+  std::string us = s;
+  boost::to_upper(us);
+  for (auto &e : binaryOpToString) {
+    auto op = e.first;
+    auto opName = e.second;
+    if (opName == us) {
+      return op; // Exact match. Return straight away
+    }
+    if (opName.rfind(us, 0) != std::string::npos) {
+      // Partial match. We need to scan them all to see if more than 1 match
+      if (opFound) {
+        throw std::runtime_error("<" + s +
+                                 "> does not uniquely define a "
+                                 "poplar::expr::BinaryOpType");
+      } else {
+        opFound = op;
+      }
+    }
+  }
+  if (opFound)
+    return *opFound;
+  else
+    throw std::runtime_error("<" + s +
+                             "> is not a valid poplar::expr::BinaryOpType");
+}
+
+// Returns a string with all operations, comma separated. Used for the help
+// message
+const std::string allOps() {
+  std::vector<std::string> ops;
+  for (auto &e : binaryOpToString) {
+    ops.push_back(e.second);
+  }
+  sort(ops.begin(), ops.end());
+  std::string result = ops[0];
+  std::for_each(ops.begin() + 1, ops.end(),
+                [&](auto &s) { result += ", " + s; });
+  return result;
+}
+
+// Is 'op' one of the comparison (relational) operators that return booleans?
+bool isComparisonOp(BinaryOpType op) {
+  switch (op) {
+  case BinaryOpType::EQUAL:
+  case BinaryOpType::GREATER_THAN_EQUAL:
+  case BinaryOpType::GREATER_THAN:
+  case BinaryOpType::LESS_THAN_EQUAL:
+  case BinaryOpType::LESS_THAN:
+  case BinaryOpType::LOGICAL_AND:
+  case BinaryOpType::LOGICAL_OR:
+  case BinaryOpType::NOT_EQUAL:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// Is 'op' one of the operators that can only take integer operands?
+bool isIntOp(BinaryOpType op) {
+  switch (op) {
+  case BinaryOpType::BITWISE_AND:
+  case BinaryOpType::BITWISE_OR:
+  case BinaryOpType::BITWISE_XOR:
+  case BinaryOpType::BITWISE_XNOR:
+  case BinaryOpType::SHIFT_LEFT:
+  case BinaryOpType::SHIFT_RIGHT:
+  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// Definitions for an overloaded 'performOp' function to execute the operation
+// on the host (for verification). Note that the result value is a reference
+// parameter and not the return value of the function to allow for full
+// overload resolution (return type is not used for overload resolution in C++).
+
+// A macro to reduce to the minimum the typing to define each operation
+#define ONE_OP(opId, expr)                                                     \
+  if (op == BinaryOpType::opId) {                                              \
+    result = expr;                                                             \
+    return;                                                                    \
+  }
+
+// These operations are common to floating point and integer types.
+#define COMMON_OPS()                                                           \
+  ONE_OP(ADD, a + b);                                                          \
+  ONE_OP(DIVIDE, a / b);                                                       \
+  ONE_OP(MAXIMUM, (a > b) ? a : b);                                            \
+  ONE_OP(MINIMUM, (a < b) ? a : b);                                            \
+  ONE_OP(MULTIPLY, a *b);                                                      \
+  ONE_OP(SUBTRACT, a - b)
+
+// These operations are common to INT and UNSIGNED_INT types
+#define INTEGER_OPS()                                                          \
+  COMMON_OPS();                                                                \
+  ONE_OP(BITWISE_AND, a &b);                                                   \
+  ONE_OP(BITWISE_OR, a | b);                                                   \
+  ONE_OP(BITWISE_XOR, a ^ b);                                                  \
+  ONE_OP(BITWISE_XNOR, ~(a ^ b));                                              \
+  ONE_OP(LOGICAL_AND, a &&b);                                                  \
+  ONE_OP(LOGICAL_OR, a || b);                                                  \
+  ONE_OP(REMAINDER, a - (a / b) * b);                                          \
+  ONE_OP(SHIFT_LEFT, a << b);                                                  \
+  ONE_OP(SHIFT_RIGHT, (unsigned)a >> b;);                                      \
+  ONE_OP(SHIFT_RIGHT_SIGN_EXTEND, a >> b;);
+
+// Do the operation specified by 'op' on 'a' and 'b', where the operands are
+// floating point types ('float' on the host, HALF or FLOAT on the device)
+void performOp(BinaryOpType op, float a, float b, float &result) {
+  COMMON_OPS();
+  ONE_OP(ATAN2, atan2(a, b));
+  ONE_OP(INV_STD_DEV_TO_VARIANCE, 1 / (a * a) - b);
+  ONE_OP(POWER, pow(a, b));
+  ONE_OP(REMAINDER, std::fmod(a, b));
+  ONE_OP(VARIANCE_TO_INV_STD_DEV, 1 / (std::sqrt(a + b)));
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for floating point types");
+}
+
+// Do the operation specified by 'op' on 'a' and 'b' where the operands are
+// INT types.
+void performOp(BinaryOpType op, int a, int b, int &result) {
+  INTEGER_OPS();
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for signed integer");
+}
+
+// Do the operation specified by 'op' on 'a' and 'b' where the operands are
+// INT types.
+void performOp(BinaryOpType op, unsigned a, unsigned b, unsigned &result) {
+  INTEGER_OPS();
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a valid operator for unsigned integer");
+}
+
+// Do the operation specified by 'op' on 'a' and 'b' where the 'op' is one of
+// the operators that return a boolean. This works both for floating point and
+// integer data types.
+template <typename T>
+void performOp(BinaryOpType op, T a, T b, HostBool &result) {
+  ONE_OP(EQUAL, a == b);
+  ONE_OP(GREATER_THAN_EQUAL, a >= b);
+  ONE_OP(GREATER_THAN, a > b);
+  ONE_OP(LESS_THAN_EQUAL, a <= b);
+  ONE_OP(LESS_THAN, a < b);
+  ONE_OP(LOGICAL_AND, a && b);
+  ONE_OP(LOGICAL_OR, a || b);
+  ONE_OP(NOT_EQUAL, a != b);
+  throw std::logic_error(std::to_string(unsigned(op)) +
+                         " is not a boolean operator");
+}
+
+#undef COMMON_OPS
+#undef ONE_OP
 
 // A descriptor to keep information about which tile to store a slice of
 // a tensor on
 struct MappingDesc {
+  bool isConst = false;
   unsigned tile;
   std::vector<size_t> slice;
 };
@@ -56,8 +266,95 @@ static std::vector<size_t> extendShape(const std::vector<size_t> &shape,
   return shapeExt;
 }
 
+// Given a linear array 'data' (one of the host buffers) which represent a
+// tensor with specified shape, get the element with indices specified by
+// 'i[]', using broadcasting rules.
+// Basically this returns:  data[ i[0], i[1], ... ].
+template <typename T>
+T get(const T data[], const std::vector<size_t> shape,
+      const std::vector<unsigned> i) {
+  unsigned offs = 0;
+  for (unsigned k = 0; k < i.size(); k++) {
+    // Need to keep into account broadcasting rules: if a certain
+    // dimension is 1, then the corresponding index does not matter (i.e.
+    // the effective index to use is 0)
+    offs = offs * shape[k] + ((shape[k] == 1) ? 0 : i[k]);
+  }
+  return data[offs];
+}
+
+std::string convertToString(unsigned val) {
+  std::stringstream ss;
+  ss << "0x" << std::hex << val;
+  return ss.str();
+}
+
+std::string convertToString(HostBool val) {
+  return convertToString(unsigned(val));
+}
+
+std::string convertToString(int val) { return convertToString(unsigned(val)); }
+
+template <typename T> std::string convertToString(T val) {
+  std::stringstream ss;
+  ss << val;
+  return ss.str();
+}
+
+bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
+                 const Type &dataType, float expected, float actual) {
+  // For single precision floating types there are some operators where we
+  // expect the result from the device to be bit exact with the one from the
+  // host
+  if (dataType == FLOAT &&
+      (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
+       op == BinaryOpType::MULTIPLY || op == BinaryOpType::DIVIDE ||
+       op == BinaryOpType::REMAINDER)) {
+    return expected == actual;
+  } else {
+
+    double tolerance = 0.000001;
+
+    // Horrible contortions to verify result for halves. We should really
+    // have a half bit-exact computation library for the host.
+    if (dataType == HALF) {
+
+      float clipTreshHalf = (isIpuModel(deviceType))
+                                ? std::numeric_limits<float>::infinity()
+                                : 65504.0f;
+      float clipValueHalf = 65488.0f;
+      if (actual >= clipTreshHalf) {
+        return expected >= clipValueHalf;
+      } else if (actual <= -clipTreshHalf) {
+        return expected <= -clipValueHalf;
+      }
+
+      // POWER in half is not very precise
+      tolerance = (op == BinaryOpType::POWER) ? 0.012 : 0.003;
+    }
+
+    bool isEqual = false;
+    if (expected == 0) {
+      isEqual = (expected == actual);
+    } else {
+      double delta = std::abs(expected - actual);
+      delta = delta / expected;
+      isEqual = (delta <= tolerance);
+    }
+    return isEqual;
+  }
+}
+
+// For int/unsigned, and boolean values, results must be bit exact
+template <typename T>
+bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
+                 const Type &dataType, float expected, float actual) {
+  return expected == actual;
+}
+
 //*************************************************************************
-/// Verifies on the host the result of the operation performed on the device.
+/// Verifies if the results of the operation performed on the device match
+/// with the one the host
 ///
 /// \param deviceType          The device used.
 /// \param dataType            The data type used (float, half).
@@ -65,71 +362,22 @@ static std::vector<size_t> extendShape(const std::vector<size_t> &shape,
 /// \param shape1Ext           Shape for first operand, rank-extended.
 /// \param in2Host, shape1Ext  Data and shape for second operand.
 /// \param outHost, outShape   Data (and shape) for result, obtained from
-///                            device and converted to host float.
+///                            device and converted to host types.
 /// \param operation           Operation performed on device.
+template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
 static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
-                         const std::vector<float> &in1Host,
+                         const std::vector<HOST_DATA_TYPE> &in1Host,
                          const std::vector<size_t> &shape1Ext,
-                         const std::vector<float> &in2Host,
+                         const std::vector<HOST_DATA_TYPE> &in2Host,
                          const std::vector<size_t> &shape2Ext,
-                         const std::vector<float> &outHost,
+                         const std::vector<HOST_OUT_TYPE> &outHost,
                          const std::vector<size_t> &shapeOut,
-                         const expr::BinaryOpType operation) {
+                         const BinaryOpType op) {
   unsigned errCount = 0; // how many mismatched elements we find
-  double maxDelta = 0;
-
-  // For float values, the results computed on the host will match exactly
-  // the ones on the device, while for half we need to do some approximations.
-  float clipTreshHalf = (isIpuModel(deviceType))
-                            ? std::numeric_limits<float>::infinity()
-                            : 65504.0f;
-  float clipValueHalf = 65488.0f;
-
-  auto equalValues = [&](float expected, float actual) {
-    if (dataType == FLOAT) {
-      return expected == actual;
-    } else if (dataType == HALF) {
-      // horrible contortions to verify result for halves. We should really
-      // have a half bit-exact computation library for the host.
-      if (actual >= clipTreshHalf) {
-        return expected >= clipValueHalf;
-      } else if (actual <= -clipTreshHalf) {
-        return expected <= -clipValueHalf;
-      } else {
-        double delta = std::abs(expected - actual);
-        bool isEqual = false;
-        if (expected == 0) {
-          isEqual = (expected == actual);
-        } else {
-          delta = delta / expected;
-          isEqual = (delta < 0.002);
-        }
-        maxDelta = (delta > maxDelta) ? delta : maxDelta;
-        return isEqual;
-      }
-    }
-    return false;
-  };
 
   unsigned n = shapeOut.size(); // How many dimensions we have
 
-  // Given a linear array 'data' (one of the host buffers) which represent a
-  // tensor with specified shape, get the element with indices specified by
-  // 'i[]', using broadcasting rules.
-  // Basically this returns:  data[ i[0], i[1], ... ]
-  auto get = [&](const float data[], const std::vector<size_t> shape,
-                 const std::vector<unsigned> i) {
-    unsigned offs = 0;
-    for (unsigned k = 0; k < n; k++) {
-      // Need to keep into account broadcasting rules: if a certain
-      // dimension is 1, then the corresponding index does not matter (i.e.
-      // the effective index to use is 0)
-      offs = offs * shape[k] + ((shape[k] == 1) ? 0 : i[k]);
-    }
-    return data[offs];
-  };
-
-  // Perform the specified 'operation' element-wise between in1 and in2 (on
+  // Perform the specified 'op'eration element-wise between in1 and in2 (on
   // the host) and compare with what is returned by the device.
   // We need to nest a variable number ('n') of loops to scan through all
   // 'n' dimensions. We use a recursive function the will recur once for each
@@ -146,27 +394,22 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
         //                in1[ i[0], i[1],... ] *OP*  in2[ i[0], i[1],... ]
         // and compare with the actual value from the device
 
-        float actual = get(outHost.data(), shapeOut, i); // from device
+        HOST_OUT_TYPE actual = get(outHost.data(), shapeOut, i); // from device
 
-        float val1 = get(in1Host.data(), shape1Ext, i);
-        float val2 = get(in2Host.data(), shape2Ext, i);
+        HOST_DATA_TYPE val1 = get(in1Host.data(), shape1Ext, i);
+        HOST_DATA_TYPE val2 = get(in2Host.data(), shape2Ext, i);
 
-        float expected;
-        if (operation == expr::BinaryOpType::ADD) {
-          expected = val1 + val2;
-        } else if (operation == expr::BinaryOpType::MULTIPLY) {
-          expected = val1 * val2;
-        } else if (operation == expr::BinaryOpType::SUBTRACT) {
-          expected = val1 - val2;
-        } else {
-          throw std::logic_error("Unrecognised operation type!");
-        }
-        if (!equalValues(expected, actual)) {
+        HOST_OUT_TYPE expected = 0;
+        performOp(op, val1, val2, expected);
+
+        if (!equalValues(deviceType, op, dataType, expected, actual)) {
           std::cerr << "out[" << i[0];
           for (unsigned j = 1; j < n; j++)
             std::cerr << "," << i[j];
-          std::cerr << "] : expected:" << expected << ";  actual:" << actual
-                    << "\n";
+          std::cerr << "] = " << convertToString(val1) << " "
+                    << binaryOpToString.at(op) << " " << convertToString(val2)
+                    << " =>  expected:" << convertToString(expected)
+                    << ";  actual:" << convertToString(actual) << "\n";
           errCount++;
         }
       } else {
@@ -182,20 +425,168 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
   return errCount == 0;
 }
 
+// This collects together information about each one of the two operands
+struct OperandDescriptor {
+  std::vector<size_t> shape;    // Shape, as defined on command line.
+  std::vector<size_t> shapeExt; // Shape, rank-extended.
+  std::vector<MappingDesc> map; // Indicates where to map this operand
+};
+
+// Filling one of the operand buffers for boolean data. We always fill it with
+// random booelans, (ignoring 'randomData', 'i' and 'max')
+void fillBuffer(const Type &dataType, const bool randomData,
+                std::vector<HostBool> &buf, int i, HostBool max) {
+  for (auto &x : buf)
+    x = rand() < (RAND_MAX / 2);
+}
+
+// Filling one of the operand buffers for int data.
+void fillBufferInt(const Type &dataType, const bool randomData, int *data,
+                   unsigned n, int i, int max) {
+  for (unsigned k = 0; k < n; k++) {
+    if (randomData) {
+      data[k] = rand();
+      if (max == 0) {
+        // For random values, make sure that half of them (randomly) are
+        // negative
+        data[k] = (rand() < (RAND_MAX / 2)) ? -data[k] : data[k];
+      } else {
+        data[k] /= (RAND_MAX / max);
+      }
+    } else {
+      if (max != 0 && i > max)
+        i = 0;
+      data[k] = i++;
+    }
+  }
+}
+
+void fillBuffer(const Type &dataType, const bool randomData,
+                std::vector<int> &buf, int i, int max) {
+  fillBufferInt(dataType, randomData, buf.data(), buf.size(), i, max);
+}
+
+void fillBuffer(const Type &dataType, const bool randomData,
+                std::vector<unsigned> &buf, unsigned i, unsigned max) {
+  // The 'int' filling is good for 'unsigned' as well
+  fillBufferInt(dataType, randomData, (int *)(buf.data()), buf.size(), i, max);
+}
+
+// Filling one of the operand buffers for FLOAT and HALF data (both use 'float'
+// buffers on the host)
+void fillBuffer(const Type &dataType, const bool randomData,
+                std::vector<float> &buf, float i, float absMax) {
+  if (absMax == 0)
+    absMax = 1.0;
+  if (randomData)
+    absMax = 2 * absMax / RAND_MAX;
+  for (auto &x : buf) {
+    if (randomData) {
+      x = (rand() - RAND_MAX / 2) * absMax;
+    } else {
+      if (i > absMax)
+        i = 0;
+      x = i;
+      i += 1.0;
+    }
+  }
+}
+
+/// Fills the host buffers with values appropriate to the data type and the
+/// operation being performed.
+template <typename HOST_DATA_TYPE>
+void fillBuffers(BinaryOpType op, const Type &dataType, bool randomData,
+                 std::vector<HOST_DATA_TYPE> &buf1,
+                 std::vector<HOST_DATA_TYPE> &buf2) {
+
+  HOST_DATA_TYPE max1 = 0, max2 = 0;
+
+  if (std::is_floating_point<HOST_DATA_TYPE>::value) {
+    if (dataType == HALF)
+      max1 = max2 = 300.0;
+    else
+      max1 = max2 = 32000.0;
+  }
+
+  if (op == BinaryOpType::SHIFT_LEFT || op == BinaryOpType::SHIFT_RIGHT ||
+      op == BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND) {
+    max2 = 32;
+  }
+
+  // If we are dealing with integer divide, we limit the size of the second
+  // operand, just to avoid having a lot of zeros in the results
+  if (std::is_same<HOST_DATA_TYPE, int>::value ||
+      std::is_same<HOST_DATA_TYPE, unsigned>::value) {
+    if (op == BinaryOpType::DIVIDE)
+      max2 = 32767;
+  }
+
+  if (op == BinaryOpType::POWER) {
+    if (std::is_floating_point<HOST_DATA_TYPE>::value) {
+      // For the power operator we want values in a small range, to avoid to
+      // have mostly overflows/underflows
+      HOST_DATA_TYPE i = 1;
+      for (auto &x : buf1)
+        x = randomData ? rand() * (4.0 / RAND_MAX) + 1.0 : i += 0.1;
+      i = 1.5;
+      for (auto &x : buf2)
+        x = randomData ? rand() * (4.0 / RAND_MAX) + 1.0 : i += 0.1;
+    }
+  } else {
+    // for add and subtract of halves we want integer values
+    if (std::is_floating_point<HOST_DATA_TYPE>::value) {
+      if (dataType == HALF &&
+          (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT))
+        randomData = false;
+    }
+    fillBuffer(dataType, randomData, buf1, 10, max1);
+    fillBuffer(dataType, randomData, buf2, 100, max2);
+  }
+
+  // If comparing for equality/disequality, we make sure we have a few values
+  // equal
+  if (randomData &&
+      (op == BinaryOpType::EQUAL || op == BinaryOpType::NOT_EQUAL)) {
+    unsigned n1 = buf1.size();
+    unsigned n2 = buf2.size();
+    if (n1 == n2) {
+      for (unsigned i = 0; i < n1; i++) {
+        if (rand() < RAND_MAX / 4)
+          buf1[i] = buf2[i];
+      }
+    } else if (n2 == 1) {
+      // Broadcast scalar
+      for (unsigned i = 0; i < n1; i++) {
+        if (rand() < RAND_MAX / 4)
+          buf1[i] = buf2[0];
+      }
+    } else if (n1 == 1) {
+      // Broadcast scalar
+      for (unsigned i = 0; i < n2; i++) {
+        if (rand() < RAND_MAX / 4)
+          buf2[i] = buf1[0];
+      }
+    }
+  }
+  // Some operations must have a second operand != 0
+  if (op == BinaryOpType::DIVIDE || op == BinaryOpType::ATAN2 ||
+      op == BinaryOpType::REMAINDER) {
+    for (auto &x : buf2)
+      if (x == 0)
+        x = 1;
+  }
+}
+
 //*************************************************************************
-/// Do a binary operation, where the first operand ('in1') is a tensor with
-/// shape 'shape1', and the second operand ('in2') is a tensor with shape
-/// 'shape2'. The shape that the output will have has already been computed
+/// Do a binary operation, where the two operands are described by 'desc1' and
+/// 'desc2'. The shape that the output will have has already been computed
 /// using broadcasting rules ('shapeOut').
 ///
 /// \param deviceType            The device used.
-/// \param dataType              The data type used (float, half).
-/// \param shape1                Shape for first operand, as is.
-/// \param shape1Ext             Shape for first operand, rank-extended.
-/// \param map1                  Indicates where to map first operand.
-/// \param shape2                Shape for second operand, as is.
-/// \param shape2Ext             Shape for second operand, rank-extended.
-/// \param map2                  Indicates where to map second operand.
+/// \param dataType              The data type used for the two opernds.
+/// \param outputType            The type for the result of the operation.
+/// \param desc1                 Description for first operand.
+/// \param desc2                 Description for second operand.
 /// \param outShape              Shape of result (computed from shape1, shape2).
 /// \param tiles                 How many tiles to allocate.
 /// \param mapLinearly           If yes, we map linearly the two operands on
@@ -206,46 +597,73 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
 /// \param doPrintTensors        Print the tensors (for verification).
 /// \param ignoreData            Do not verify results.
 /// \param enableOptimisations   Enable broadcasted vector op optimisations.
+template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
 static bool doBinaryOpTest(
-    const DeviceType &deviceType, const Type &dataType,
-    const std::vector<size_t> &shape1, const std::vector<size_t> &shape1Ext,
-    const std::vector<MappingDesc> &map1, const std::vector<size_t> &shape2,
-    const std::vector<size_t> &shape2Ext, const std::vector<MappingDesc> &map2,
+    const DeviceType &deviceType, const Type &dataType, const Type &outputType,
+    const OperandDescriptor &desc1, const OperandDescriptor &desc2,
     const std::vector<size_t> &shapeOut, const unsigned tiles,
-    const bool mapLinearly, const expr::BinaryOpType operation,
-    const bool inPlace, const bool doReport, const bool doPrintTensors,
-    const bool ignoreData, bool enableOptimisations) {
+    const bool mapLinearly, const BinaryOpType operation, const bool inPlace,
+    const bool doReport, const bool doPrintTensors, const bool randomData,
+    const bool ignoreData, const bool enableOptimisations) {
 
-  auto nElems1 = std::accumulate(shape1.begin(), shape1.end(), std::size_t(1),
-                                 std::multiplies<std::size_t>());
+  bool in1IsConst = desc1.map.size() > 0 && desc1.map[0].isConst;
+  bool in2IsConst = desc2.map.size() > 0 && desc2.map[0].isConst;
 
-  auto nElems2 = std::accumulate(shape2.begin(), shape2.end(), std::size_t(1),
-                                 std::multiplies<std::size_t>());
+  auto nElems1 =
+      std::accumulate(desc1.shape.begin(), desc1.shape.end(), std::size_t(1),
+                      std::multiplies<std::size_t>());
+
+  auto nElems2 =
+      std::accumulate(desc2.shape.begin(), desc2.shape.end(), std::size_t(1),
+                      std::multiplies<std::size_t>());
+
+  if (in1IsConst && inPlace) {
+    throw std::runtime_error("For in-place operations, first operand cannot "
+                             "be a constant");
+  }
+
+  if (in1IsConst && in2IsConst) {
+    throw std::runtime_error("The two operands cannot be both constants");
+  }
+
+  if (in1IsConst && nElems1 != 1) {
+    throw std::runtime_error("The first operand is specified as a constant "
+                             "but also has more than one element");
+  }
+
+  if (in2IsConst && nElems2 != 1) {
+    throw std::runtime_error("The second operand is specified as a constant "
+                             "but also has more than one element");
+  }
+
+  if (inPlace && (outputType != dataType)) {
+    throw std::runtime_error("For in place operations, the data and output "
+                             "types must be the same (specified data type=" +
+                             dataType.toString() + ", specified output type=" +
+                             outputType.toString() + ")");
+  }
+
+  if (isIntOp(operation) && (dataType == HALF || dataType == FLOAT)) {
+    throw std::runtime_error(binaryOpToString.at(operation) +
+                             " requires data "
+                             "of integer type (specified  data type=" +
+                             dataType.toString() + ")");
+  }
 
   auto nElemsOut =
       std::accumulate(shapeOut.begin(), shapeOut.end(), std::size_t(1),
                       std::multiplies<std::size_t>());
 
-  // Allocate and initialise host buffers with some values. For compatibility
-  // with the half case, we make sure we never set a value greater than the
-  // greatest half value.
-  std::vector<float> in1Host(nElems1);
-  std::vector<float> in2Host(nElems2);
-  for (unsigned i = 0; i < in1Host.size(); i++) {
-    in1Host[i] = static_cast<float>((i + 1) % 65000);
-  }
-  for (unsigned i = 0; i < in2Host.size(); i++) {
-    in2Host[i] = static_cast<float>((i + 32000) % 65000);
-  }
+  // Allocate and initialise host buffers with some values.
+  std::vector<HOST_DATA_TYPE> in1Host(nElems1);
+  std::vector<HOST_DATA_TYPE> in2Host(nElems2);
+  fillBuffers(operation, dataType, randomData, in1Host, in2Host);
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType, 1, tiles);
   Target target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
-
-  auto in1 = graph.addVariable(dataType, shape1, "in1");
-  auto in2 = graph.addVariable(dataType, shape2, "in2");
 
   // Map operands on tiles. First it is mapped linearly on all tiles,
   // then the mappings specified by --mapX are applied.
@@ -268,8 +686,29 @@ static bool doBinaryOpTest(
       }
     }
   };
-  mapTensor(in1, map1);
-  mapTensor(in2, map2);
+
+  Tensor in1, in2;
+  std::vector<poplar::Tensor> tensors;
+  expr::BinaryOp binOp = [&]() {
+    if (in1IsConst) {
+      in2 = graph.addVariable(dataType, desc2.shape, "in2");
+      mapTensor(in2, desc2.map);
+      tensors = {in2};
+      return expr::BinaryOp(operation, expr::Const(in1Host[0]), expr::_1);
+    } else if (in2IsConst) {
+      in1 = graph.addVariable(dataType, desc1.shape, "in1");
+      mapTensor(in1, desc1.map);
+      tensors = {in1};
+      return expr::BinaryOp(operation, expr::_1, expr::Const(in2Host[0]));
+    } else {
+      in1 = graph.addVariable(dataType, desc1.shape, "in1");
+      in2 = graph.addVariable(dataType, desc2.shape, "in2");
+      mapTensor(in1, desc1.map);
+      mapTensor(in2, desc2.map);
+      tensors = {in1, in2};
+      return expr::BinaryOp(operation, expr::_1, expr::_2);
+    }
+  }();
 
   OptionFlags opOpts{{"enableVectorBroadcastOptimisations",
                       (enableOptimisations ? "true" : "false")}};
@@ -278,37 +717,55 @@ static bool doBinaryOpTest(
   Sequence prog;
   Tensor out;
   if (inPlace) {
-    mapInPlace(graph, operation, in1, in2, prog, "", opOpts);
+    mapInPlace(graph, binOp, tensors, prog, "", opOpts);
     out = in1;
   } else {
-    out = map(graph, operation, in1, in2, prog, "", opOpts);
+    out = map(graph, binOp, tensors, prog, "", opOpts);
   }
 
   // Create host 'transfer' buffers with the right size for the device type
-  // (half,float)
   std::vector<std::pair<std::string, char *>> tmap;
   Sequence uploadProg, downloadProg;
   std::unique_ptr<char[]> in1HostRaw;
   std::unique_ptr<char[]> in2HostRaw;
   std::unique_ptr<char[]> outHostRaw;
   char *outHostRawPtr = nullptr;
-  if (!ignoreData) {
+  if (!in1IsConst)
     in1HostRaw = allocateHostMemoryForTensor(in1, "in1", graph, uploadProg,
                                              downloadProg, tmap);
+  if (!in2IsConst)
     in2HostRaw = allocateHostMemoryForTensor(in2, "in2", graph, uploadProg,
                                              downloadProg, tmap);
-    if (!inPlace) {
-      outHostRaw = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
-                                               downloadProg, tmap);
-      outHostRawPtr = outHostRaw.get();
-    } else {
-      outHostRawPtr = in1HostRaw.get();
-    }
+  if (!inPlace) {
+    outHostRaw = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
+                                             downloadProg, tmap);
+    outHostRawPtr = outHostRaw.get();
+  } else {
+    outHostRawPtr = in1HostRaw.get();
   }
 
+  // Copy and convert the data from the initialised buffers to the transfer
+  // buffers (still on host)
+  auto copyBuffer = [&](std::vector<HOST_DATA_TYPE> &buf,
+                        std::unique_ptr<char[]> &rawBuf) {
+    copy(target, buf.data(), buf.size(), dataType, rawBuf.get());
+    // For HALF, we copy and convert back into the (float) host buffers so that
+    // the host buffers contain the exact HALF values (which are exactly
+    // representable in float). This helps with the validation for the
+    // comaprison operators
+    if (dataType == HALF)
+      copy(target, dataType, rawBuf.get(), buf.data(), buf.size());
+  };
+  if (!in1IsConst)
+    copyBuffer(in1Host, in1HostRaw);
+  if (!in2IsConst)
+    copyBuffer(in2Host, in2HostRaw);
+
   if (doPrintTensors) {
-    prog.add(PrintTensor("in1", in1));
-    prog.add(PrintTensor("in2", in2));
+    if (!in1IsConst)
+      prog.add(PrintTensor("in1", in1));
+    if (!in2IsConst)
+      prog.add(PrintTensor("in2", in2));
     if (!inPlace)
       prog.add(PrintTensor("out", out));
   }
@@ -316,13 +773,6 @@ static bool doBinaryOpTest(
   // Run sequences
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
   attachStreams(engine, tmap);
-
-  // Copy and convert the data from the initialised buffers to the transfer
-  // buffers (still on host)
-  if (!ignoreData) {
-    copy(target, in1Host.data(), in1Host.size(), dataType, in1HostRaw.get());
-    copy(target, in2Host.data(), in2Host.size(), dataType, in2HostRaw.get());
-  }
 
   device.bind([&](const Device &d) {
     engine.load(d);
@@ -340,11 +790,11 @@ static bool doBinaryOpTest(
     std::cout << "Result not checked for correctness\n";
   } else {
     // Get the result out of the device
-    std::vector<float> outHost(nElemsOut);
-    copy(target, dataType, outHostRawPtr, outHost.data(), outHost.size());
-
-    return verifyResult(deviceType, dataType, in1Host, shape1Ext, in2Host,
-                        shape2Ext, outHost, shapeOut, operation);
+    std::vector<HOST_OUT_TYPE> outHost(nElemsOut);
+    copy(target, outputType, outHostRawPtr, outHost.data(), outHost.size());
+    return verifyResult<HOST_DATA_TYPE, HOST_OUT_TYPE>(
+        deviceType, dataType, in1Host, desc1.shapeExt, in2Host, desc2.shapeExt,
+        outHost, shapeOut, operation);
   }
   return true;
 }
@@ -362,11 +812,11 @@ int main(int argc, char **argv) {
   bool inPlace = false;
   unsigned tiles = 0;
   bool ignoreData = false;
+  unsigned randomSeed = 0; // we use '0' to mean 'not random'
   bool enableOptimisations = true;
   ShapeOption<size_t> shape1;
-  std::vector<MappingDesc> map1;
   ShapeOption<size_t> shape2;
-  std::vector<MappingDesc> map2;
+  OperandDescriptor desc1, desc2;
 
   po::options_description desc("Perform a binary operation between two tensors "
                                "having any specified shape, each mapped in any "
@@ -376,27 +826,30 @@ int main(int argc, char **argv) {
   desc.add_options()
     ("help", "Print help")
     ("report",
-     po::value<bool>(&doReport)->default_value(doReport),
+     po::value<bool>(&doReport)->implicit_value(true),
      "Provide a poplar report")
     ("options-file",
      po::value<std::string>(),
      "A file containing options, with the same syntax as the command line; "
      "can be also specified with '@options_file_name'")
     ("print",
-     po::value<bool>(&doPrintTensors)->default_value(doPrintTensors),
+     po::value<bool>(&doPrintTensors)->implicit_value(true),
      "Print the tensors")
+    ("random-data",
+     po::value<unsigned>(&randomSeed)->implicit_value(1),
+     "Use random data. Value of 0 means 'no random data'")
     ("ignore-data",
-     po::value<bool>(&ignoreData)->default_value(ignoreData),
+     po::value<bool>(&ignoreData)->implicit_value(true),
      "Do not check correctness of result, useful for benchmarking without "
-     "overhead of upload/download of tensors and slow host-side computation")
+     "overhead of host-side computation")
     ("device-type",
-     po::value<DeviceType>(&deviceType)->required(),
+     po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim),
      "Device Type")
     ("data-type",
-     po::value<Type>(&dataType)->required(),
-     "Data Type (half, float)")
+     po::value<Type>(&dataType)->default_value(HALF),
+     "Data Type: half, float, int, unsigned, bool")
     ("in-place",
-     po::value<bool>(&inPlace)->default_value(inPlace),
+     po::value<bool>(&inPlace)->implicit_value(true),
      "Do the specified operation in place")
     ("tiles",
      po::value<unsigned>(&tiles)->default_value(tiles),
@@ -404,23 +857,23 @@ int main(int argc, char **argv) {
      "unspecified, or 0, do not map lineraly the operands (use only the "
      "explicit mapping specified by --map1, --map2)")
     ("shape1",
-     po::value<ShapeOption<size_t>>(&shape1)->multitoken(),
+     po::value<ShapeOption<size_t>>(&shape1)->multitoken()->required(),
      "Shape for first operand, curly bracket delimited:  {d1,d2,...}.")
     ("map1",
-     po::value<std::vector<MappingDesc>>(&map1)->multitoken(),
+     po::value<std::vector<MappingDesc>>(&desc1.map)->multitoken(),
      "Tile mapping for first operand; a sequence of one or more: "
      "T:{d1,d2,...} ... , where T is the tile number and {d1,d2,...} is the "
      "slice mapped on T. If not specified, the operand is mapped linearly on "
      "the allocated tiles.")
     ("shape2",
-     po::value<ShapeOption<size_t>>(&shape2)->multitoken(),
+     po::value<ShapeOption<size_t>>(&shape2)->multitoken()->required(),
      "Shape for second operand; see --shape1")
     ("map2",
-     po::value<std::vector<MappingDesc>>(&map2)->multitoken(),
+     po::value<std::vector<MappingDesc>>(&desc2.map)->multitoken(),
      "Tile mapping for second operand; see --map1.")
     ("operation",
      po::value<std::string>(&operation)->required(),
-     "Operation to perform: ADD,  MULTIPLY (MUL),  SUBTRACT (SUB)\n")
+     ("Operation to perform, one of: " + allOps()).c_str())
     ("enable-optimisations",
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcast operation optimisations")
@@ -428,8 +881,8 @@ int main(int argc, char **argv) {
   // clang-format on
   po::variables_map vm;
   try {
-    // Additional command line parser to interpret an argument '@filename' as a
-    // option "config-file" with the value "filename"
+    // Additional command line parser to interpret an argument '@filename' as
+    // a option "config-file" with the value "filename"
     auto at_option_parser = [](std::string const &s) {
       if ('@' == s[0])
         return std::make_pair(std::string("options-file"), s.substr(1));
@@ -471,37 +924,24 @@ int main(int argc, char **argv) {
     std::cerr << "Error: " << e.what() << "\n";
     return 1;
   }
-  expr::BinaryOpType binOp;
-
-  // Operations
-  if (operation == "ADD") {
-    binOp = expr::BinaryOpType::ADD;
-  } else if ((operation == "MULTIPLY") || (operation == "MUL")) {
-    binOp = expr::BinaryOpType::MULTIPLY;
-  } else if ((operation == "SUBTRACT") || (operation == "SUB")) {
-    binOp = expr::BinaryOpType::SUBTRACT;
-  } else if (operation == "") {
-    std::cerr << "Error: Operation not specified\n";
-    return 1;
-  } else {
-    std::cerr << "Error: Operation <" << operation << "> not recognised\n";
-    return 1;
-  }
+  expr::BinaryOpType opType = stringToBinaryOp(operation);
 
   // Find the shape of the output, applying the broadcasting rules
   // First, get the 'extended to the left' operand shapes; for instance, if
-  // the two operands have shapes {9,8,7,6} and {7,1}, the second is 'extended'
-  // to {1,1,7,1}
-  unsigned n1 = shape1.val.size();
-  unsigned n2 = shape2.val.size();
+  // the two operands have shapes {9,8,7,6} and {7,1}, the second is
+  // 'extended' to {1,1,7,1}
+  desc1.shape = shape1.val;
+  desc2.shape = shape2.val;
+  unsigned n1 = desc1.shape.size();
+  unsigned n2 = desc2.shape.size();
   unsigned n = std::max(n1, n2);
-  const std::vector<size_t> &shape1Ext = extendShape(shape1.val, n);
-  const std::vector<size_t> &shape2Ext = extendShape(shape2.val, n);
+  desc1.shapeExt = extendShape(desc1.shape, n);
+  desc2.shapeExt = extendShape(desc2.shape, n);
 
   std::vector<size_t> shapeOut(n);
   for (unsigned i = 0; i < n; i++) {
-    size_t d1 = shape1Ext[i];
-    size_t d2 = shape2Ext[i];
+    size_t d1 = desc1.shapeExt[i];
+    size_t d2 = desc2.shapeExt[i];
 
     // If the dimensions are different, one of them must be '1'
     if ((d1 != d2) && (d1 != 1) && (d2 != 1)) {
@@ -520,39 +960,78 @@ int main(int argc, char **argv) {
 
   if (tiles == 0) {
     // Find the highest tile number in the tile mapping for the two operands
-    for (auto m : map1) {
+    for (auto m : desc1.map) {
       tiles = std::max(tiles, m.tile);
     }
-    for (auto m : map2) {
+    for (auto m : desc2.map) {
       tiles = std::max(tiles, m.tile);
     }
     tiles++;
   }
 
-  return !doBinaryOpTest(deviceType, dataType, shape1.val, shape1Ext, map1,
-                         shape2.val, shape2Ext, map2, shapeOut, tiles,
-                         mapLinearly, binOp, inPlace, doReport, doPrintTensors,
-                         ignoreData, enableOptimisations);
+  Type outputType = isComparisonOp(opType) ? BOOL : dataType;
+
+  srand(randomSeed);
+
+#define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
+  if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
+    return doBinaryOpTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                      \
+               deviceType, dataType, outputType, desc1, desc2, shapeOut,       \
+               tiles, mapLinearly, opType, inPlace, doReport, doPrintTensors,  \
+               randomSeed != 0, ignoreData, enableOptimisations)               \
+               ? 0                                                             \
+               : 1;                                                            \
+  } // nonzero value = error
+
+  // Note that for HALF and FLOAT the host buffers are 'float'
+  // Note that for INT and UNSIGNED_INT the host buffers are 'int'
+  DO_TEST(BOOL, BOOL, HostBool, HostBool)
+
+  DO_TEST(HALF, HALF, float, float)
+  DO_TEST(HALF, BOOL, float, HostBool)
+
+  DO_TEST(FLOAT, FLOAT, float, float)
+  DO_TEST(FLOAT, BOOL, float, HostBool)
+
+  DO_TEST(INT, INT, int, int)
+  DO_TEST(INT, BOOL, int, HostBool)
+
+  DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
+  DO_TEST(UNSIGNED_INT, BOOL, unsigned, HostBool)
+
+  // Reaching here means the combination of 'dataType' and 'outputType' was
+  // invalid.
+  std::cerr << "Combination of data type and operator not supported\n";
+  return 1;
 }
 
 // Utility function to read a MappingDesc from a stream
 std::istream &operator>>(std::istream &in, MappingDesc &md) {
-  char c;
-  in >> md.tile;
-  in >> c;
-  if (c != ':') {
-    throw std::runtime_error("Invalid shape; expected ':'after tile number'");
+  char c = in.peek();
+  if (c == 'c') {
+    in >> c; // flush the peeked char
+    md.isConst = true;
+  } else {
+    in >> md.tile;
+    in >> c;
+    if (c != ':') {
+      throw std::runtime_error("Invalid shape; expected ':'after tile number'");
+    }
+    ShapeOption<size_t> slice;
+    in >> slice;
+    md.slice = slice.val;
   }
-  ShapeOption<size_t> slice;
-  in >> slice;
-  md.slice = slice.val;
   return in;
 }
 
 // Utility function to write a MappingDesc to a stream
 std::ostream &operator<<(std::ostream &os, const MappingDesc &md) {
-  os << md.tile << ":{";
-  for (auto x : md.slice)
-    os << x << ",";
-  return os << "}";
+  if (md.isConst) {
+    return os << "const";
+  } else {
+    os << md.tile << ":{";
+    for (auto x : md.slice)
+      os << x << ",";
+    return os << "}";
+  }
 }

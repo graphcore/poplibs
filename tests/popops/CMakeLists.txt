@@ -3,7 +3,7 @@ add_subdirectory(codelets)
 add_unit_test(AllTrueTest AllTrueTest.cpp)
 
 # Binary Operator tests - currently not used.
-# add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
+add_multi_target_test_executable(BinaryOpTest BinaryOpTest.cpp)
 
 # Broadcast Optimise tests
 add_multi_target_test_executable(BroadcastOptimiseTest BroadcastOptimiseTest.cpp)
