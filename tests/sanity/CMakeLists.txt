@@ -2,7 +2,8 @@
 # When possible use more than one compiler to get better conformance coverage.
 set(COMPILERS ${CMAKE_CXX_COMPILER})
 find_program(CLANGPP clang++)
-if(NOT CLANGPP STREQUAL CLANGPP-NOTFOUND)
+if(NOT CLANGPP STREQUAL CLANGPP-NOTFOUND AND 
+   NOT CLANGPP STREQUAL ${CMAKE_CXX_COMPILER})
   list(APPEND COMPILERS ${CLANGPP})
 endif()
 foreach(compiler ${COMPILERS})
