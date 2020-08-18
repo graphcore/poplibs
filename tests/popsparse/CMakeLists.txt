@@ -7,79 +7,77 @@ add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIAN
 add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 
-set(SPARSITY_MATRIX ${CMAKE_CURRENT_SOURCE_DIR}/bs-m8x8_0.8_nr.txt)
+set(SPARSITY_MATRIX ${CMAKE_SOURCE_DIR}/tests/popsparse/bs-m8x8_0.8_nr.txt)
 foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
   add_multitarget_test(
-          NAME BlockSparseMtTest_dsd_fp32_${PART_METHOD}
-          COMMAND bs_matmul_test
-                  --tiles-per-ipu=16
-                  --data-type=float
-                  --sparsity-matrix=${SPARSITY_MATRIX}
-                  --batch=64
-                  --lhs-block-cols=8
-                  --lhs-block-row=8
-                  --lhs-block-col=8
-                  --rhs-block=8
-                  --partition-method=${PART_METHOD}
-                  --check-result=1)
-
+    NAME BlockSparseMtTest_dsd_fp32_${PART_METHOD}
+    COMMAND bs_matmul_test
+      --tiles-per-ipu=16
+      --data-type=float
+      --sparsity-matrix=${SPARSITY_MATRIX}
+      --scenario=dsd
+      --lhs-rows=64
+      --lhs-block-row=8
+      --lhs-block-col=8
+      --rhs-block=8
+      --partition-method=${PART_METHOD}
+      --check-result)
+	  
   add_multitarget_test(
-          NAME BlockSparseMtTest_dds_fp32_${PART_METHOD}
-          COMMAND bs_matmul_test
-                  --tiles-per-ipu=16
-                  --data-type=float
-                  --sparsity-matrix=${SPARSITY_MATRIX}
-                  --batch=64
-                  --lhs-block-cols=8
-                  --lhs-block-row=8
-                  --lhs-block-col=8
-                  --rhs-block=8
-                  --is-rhs-matrix-sparse=0
-                  --is-res-matrix-sparse=1
-                  --partition-method=${PART_METHOD}
-                  --check-result=1)
-
+    NAME BlockSparseMtTest_dds_fp32_${PART_METHOD}
+    COMMAND bs_matmul_test
+      --tiles-per-ipu=16
+      --data-type=float
+      --sparsity-matrix=${SPARSITY_MATRIX}
+      --scenario=dds
+      --lhs-block-cols=8
+      --lhs-block-row=8
+      --lhs-block-col=8
+      --rhs-block=8
+      --partition-method=${PART_METHOD}
+      --check-result)
+	
   add_multitarget_test(
-          NAME BlockSparseMtTest_dsd_fp16_${PART_METHOD}
-          COMMAND bs_matmul_test
-                  --tiles-per-ipu=16
-                  --data-type=half
-                  --sparsity-matrix=${SPARSITY_MATRIX}
-                  --batch=64
-                  --lhs-block-cols=8
-                  --lhs-block-row=16
-                  --lhs-block-col=16
-                  --rhs-block=16
-                  --check-result=1)
-
+    NAME BlockSparseMtTest_dsd_fp16_${PART_METHOD}
+    COMMAND bs_matmul_test
+      --tiles-per-ipu=16
+      --data-type=half
+      --sparsity-matrix=${SPARSITY_MATRIX}
+      --scenario=dsd
+      --lhs-rows=64
+      --lhs-block-row=16
+      --lhs-block-col=16
+      --rhs-block=16
+      --check-result)
+	    
   add_multitarget_test(
-          NAME BlockSparseMtTest_dsd_fp16_need_transpose_${PART_METHOD}
-          COMMAND bs_matmul_test
-                  --tiles-per-ipu=16
-                  --data-type=half
-                  --sparsity-matrix=${SPARSITY_MATRIX}
-                  --batch=64
-                  --lhs-block-cols=8
-                  --lhs-block-row=16
-                  --lhs-block-col=16
-                  --rhs-block=16
-                  --rhs-need-transpose=1
-                  --check-result=1)
-
+    NAME BlockSparseMtTest_dsd_fp16_need_transpose_${PART_METHOD}
+    COMMAND bs_matmul_test
+      --tiles-per-ipu=16
+      --data-type=half
+      --sparsity-matrix=${SPARSITY_MATRIX}
+      --scenario=dsd
+      --lhs-rows=64
+      --lhs-block-row=16
+      --lhs-block-col=16
+      --rhs-block=16
+      --rhs-need-transpose=1
+      --check-result)
+	
   add_multitarget_test(
-      NAME BlockSparseMtTest_dsd_fp32_groups_${PART_METHOD}
-      COMMAND bs_matmul_test
-              --tiles-per-ipu=16
-              --data-type=float
-              --sparsity-matrix=${SPARSITY_MATRIX}
-              --batch=16
-              --lhs-block-cols=4
-              --lhs-block-row=8
-              --lhs-block-col=8
-              --rhs-block=8
-              --rhs-need-transpose=1
-              --number-of-groups=2
-              --check-result=1)
+    NAME BlockSparseMtTest_dsd_fp32_groups_${PART_METHOD}
+    COMMAND bs_matmul_test
+      --tiles-per-ipu=16
+      --data-type=float
+      --sparsity-matrix=${SPARSITY_MATRIX}
+      --scenario=dsd
+      --lhs-rows=16
+      --lhs-block-row=8
+      --lhs-block-col=8
+      --rhs-block=8
+      --rhs-need-transpose=1
+      --number-of-groups=2
+      --check-result)
 endforeach()
 
 foreach(DATA_TYPE half float)
