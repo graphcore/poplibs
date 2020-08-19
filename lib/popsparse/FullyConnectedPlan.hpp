@@ -106,7 +106,10 @@ struct Plan {
   unsigned gradAMetaInfoElemsPerBucket;
 
   // returns true if the same bucket is shared between passes
-  bool sharedBuckets() const { return method.gradA == OnTileMethod::Transpose; }
+  bool sharedBuckets() const {
+    return method.gradA == OnTileMethod::Transpose ||
+           method.gradA == OnTileMethod::TransposeAMPBlock;
+  }
 };
 
 std::ostream &operator<<(std::ostream &os, const Plan &p);

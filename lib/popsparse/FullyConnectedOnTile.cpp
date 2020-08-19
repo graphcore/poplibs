@@ -39,6 +39,9 @@ getVertexClass(const OnTileMethod &method, const Type &inputType,
   case OnTileMethod::ForwardAMPBlock:
     return templateVertex("popsparse::SparseDenseMatMulBlock", inputType,
                           partialsType, blockDimensions[0], blockDimensions[1]);
+  case OnTileMethod::TransposeAMPBlock:
+    return templateVertex("popsparse::SparseDenseMatMulBlockGradA", inputType,
+                          partialsType, blockDimensions[0], blockDimensions[1]);
   default:
     throw poplibs_error("Unhandled on-tile sparse fc method");
   }
@@ -119,7 +122,8 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
                           zeroPartials ? partials.numElements() : 0u);
     break;
   }
-  case OnTileMethod::ForwardAMPBlock: {
+  case OnTileMethod::ForwardAMPBlock:
+  case OnTileMethod::TransposeAMPBlock: {
     assert(acts.rank() == 6);
     assert(partials.rank() == 6);
     const auto actsUngrouped = unfactorDims(acts, 3);
@@ -183,6 +187,7 @@ std::vector<unsigned> getOnTileActsOrdering(const OnTileMethod &method) {
     return {0, 1, 2};
     break;
   case OnTileMethod::ForwardAMPBlock:
+  case OnTileMethod::TransposeAMPBlock:
     return {0, 2, 1};
     break;
   default:
@@ -199,6 +204,7 @@ std::vector<unsigned> getOnTilePartialsOrdering(const OnTileMethod &method) {
     return {0, 1, 2};
     break;
   case OnTileMethod::ForwardAMPBlock:
+  case OnTileMethod::TransposeAMPBlock:
     return {0, 2, 1};
     break;
   default:

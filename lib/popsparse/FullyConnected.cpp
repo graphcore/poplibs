@@ -17,6 +17,7 @@
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Pad.hpp>
+#include <popops/Rearrange.hpp>
 #include <popops/Reduce.hpp>
 
 #include "poputil/TensorMetaData.hpp"
@@ -1445,6 +1446,33 @@ static void addPropagationExchangesGradW(
   }
 }
 
+// Transpose blocks within all buckets
+static Tensor transposeBuckets(Graph &graph, Sequence &prog,
+                               const SinglePassPlan &plan,
+                               const Options &options, const Tensor &buckets,
+                               const std::string &debugPrefix) {
+  // Flatten away buckets dimension, and introduce forward pass block
+  // dimensions.
+  const Vector<std::size_t> fwdGrouping = shuffleVector(
+      plan.grouping.asStdVector<std::size_t>(), plan.dimShuffleToFwd);
+  const std::vector<std::size_t> blockDimensions = {fwdGrouping.x,
+                                                    fwdGrouping.y};
+  const auto blockSize = product(blockDimensions);
+  // If the block is not 2-dimensional there is no transpose to do.
+  if (sum(blockDimensions) > blockSize) {
+    return buckets;
+  }
+  const auto bucketsFlat = buckets.flatten();
+  const auto bucketsWithBlocks =
+      bucketsFlat.reshape({bucketsFlat.numElements() / blockSize,
+                           blockDimensions[0], blockDimensions[1]});
+  const auto cs = graph.addComputeSet(debugPrefix + "/transposeBuckets");
+  const auto transposedBuckets = popops::rearrange::partialTranspose(
+      graph, bucketsWithBlocks, cs, debugPrefix);
+  prog.add(Execute(cs));
+  return transposedBuckets.reshape(buckets.shape());
+}
+
 // Handles implementation of sparse * dense = dense matmul as one
 // pass of a fully connected layer. This means parameters are modified
 // prior to this function and it just handles implementation of a
@@ -1455,7 +1483,7 @@ static Tensor fullyConnectedImpl(
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
     const Options &options, const std::vector<unsigned> &hierarchy,
     unsigned level, Tensor metaInfoBuckets, Tensor nzValueBuckets, Tensor acts,
-    const std::string &debugPrefix) {
+    const bool transposedBuckets, const std::string &debugPrefix) {
   // Only supporting single-IPU currently.
   assert(hierarchy.size() == 1);
 
@@ -1469,6 +1497,11 @@ static Tensor fullyConnectedImpl(
   }
 
   const Type resultType = inputType;
+
+  if (transposedBuckets) {
+    nzValueBuckets = transposeBuckets(graph, progBuilder.preDistribution, plan,
+                                      options, nzValueBuckets, debugPrefix);
+  }
 
   // Gather/create all operands required by partition index
   std::vector<Tensor> nextLevelInputs;
@@ -1920,10 +1953,11 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
   const auto fwdPlan = getFwdPlan(plan);
   ProgBuilder progBuilder(graph, hierarchy, debugPrefix);
   std::vector<Vector<unsigned>> indices;
+  constexpr bool transposedBuckets = false;
   const auto &outputActivations = fullyConnectedImpl(
       graph, progBuilder, shape, indices, fwdPlan, options, hierarchy,
       0u /* level */, weightBuckets.getMetaInfoTensor(),
-      weightBuckets.getNzValuesTensor(), input, debugPrefix);
+      weightBuckets.getNzValuesTensor(), input, transposedBuckets, debugPrefix);
   progBuilder.addToSequence(graph, prog, fwdPlan, overflowInfo, debugPrefix);
 
   return inputInternalToExternalShape(outputActivations, shape.groups);
@@ -1988,10 +2022,11 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
 
   ProgBuilder progBuilder(graph, hierarchy, debugPrefix);
   std::vector<Vector<unsigned>> indices;
+  constexpr bool transposedBuckets = true;
   const auto &inputGradients = fullyConnectedImpl(
       graph, progBuilder, shape, indices, gradAPlan, options, hierarchy,
       0u /* level */, weightBuckets.getMetaInfoTensor(),
-      weightBuckets.getNzValuesTensor(), input, debugPrefix);
+      weightBuckets.getNzValuesTensor(), input, transposedBuckets, debugPrefix);
   progBuilder.addToSequence(graph, prog, gradAPlan, overflowInfo, debugPrefix);
 
   return inputInternalToExternalShape(inputGradients, shape.groups);
