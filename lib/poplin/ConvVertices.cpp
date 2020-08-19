@@ -60,6 +60,16 @@ static bool fitsMachineStride(const Target &target, int stride) {
   return stride >= minLimit && stride <= maxLimit;
 }
 
+static int
+getInRowStrideRangeForAmpVertices(const int inRowStride,
+                                  const unsigned convUnitWeightHeight) {
+  // Increase inRowStride here by 2 to get a correct split. That essential
+  // cause we pass inRowStride to supervisor that will build a stride
+  // register to create next pattern:
+  // [2*inRowStride, inRowStride, -2*inRowStride, -inStride+1, ...]
+  return inRowStride * ((convUnitWeightHeight == 4) ? 2 : 1);
+}
+
 // Weights for output channel groups is reordered to be reverse order
 static std::vector<Tensor> reorderWeightsTensor(std::vector<Tensor> &in,
                                                 unsigned numInGroups,
@@ -604,7 +614,9 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   const auto zerosInfo = outWindow[0].numElements();
   if (!fitsMachineStride(target, transformedOutStride / 2) ||
       !fitsMachineStride(target, transformedInStride) ||
-      !fitsMachineStride(target, transformedInRowStride))
+      !fitsMachineStride(
+          target, getInRowStrideRangeForAmpVertices(transformedInRowStride,
+                                                    convUnitWeightHeight)))
     useLimitedVer = false;
 
   if ((numConvGroupGroups - 1 > unsignedMax) ||
@@ -786,13 +798,8 @@ static void createConvPartialAmpVertices(
   int transformedInRowStrideBeforeSplit =
       (inRowStrideBeforeSplit - 1) * numInputLoads + 1;
 
-  if (convUnitWeightHeight == 4) {
-    // Increase inRowStride here by 2 to get a correct split. That essential
-    // cause we pass inRowStride to supervisor that will build a stride
-    // register to create next pattern:
-    // [2*inRowStride, inRowStride, -2*inRowStride, -inStride+1, ...]
-    transformedInRowStrideBeforeSplit *= 2;
-  }
+  transformedInRowStrideBeforeSplit = getInRowStrideRangeForAmpVertices(
+      transformedInRowStrideBeforeSplit, convUnitWeightHeight);
 
   // Find field split that satisfies machine stride bit-widths
   // Only use input striding to decide to split field as it is most likely to

@@ -470,15 +470,27 @@ Partition splitConvIntoAmpVertices(const ConvParams &params,
     stride = std::max(inStride, inRowStride);
   }
 
+  // Find minimum split required to fit stride within machine limits
+  const int machineStride = stride >= 0 ? (1 << numMachineStrideBits) / 2 - 1
+                                        : (1 << numMachineStrideBits) / 2;
+  unsigned splitFactor = (std::abs(stride) + machineStride - 1) / machineStride;
+
+  // Exclude spatial dimensions which yield too few outputs to be splitable,
+  // starting from the dimension next to the outermost dimension.
+  std::vector<std::size_t> fieldShape(params.inputFieldShape);
+  for (unsigned dim = 1; dim < numFieldDims; ++dim) {
+    if (params.getUntransformedOutputSize(dim) < splitFactor) {
+      fieldShape[dim] = 0;
+    }
+  }
+
   // Exclude outermost dimension and select field with maximum input elements
-  const auto fieldDimWithMaxSizeIt = std::max_element(
-      std::next(params.inputFieldShape.begin()), params.inputFieldShape.end());
-  if (fieldDimWithMaxSizeIt != params.inputFieldShape.end()) {
-    const int machineStride = stride >= 0 ? (1 << numMachineStrideBits) / 2 - 1
-                                          : (1 << numMachineStrideBits) / 2;
-    auto splitFactor = (std::abs(stride) + machineStride - 1) / machineStride;
-    fieldDimSplit[std::distance(params.inputFieldShape.begin(),
-                                fieldDimWithMaxSizeIt)] = splitFactor;
+  const auto fieldDimWithMaxSizeIt =
+      std::max_element(std::next(fieldShape.begin()), fieldShape.end());
+  if ((fieldDimWithMaxSizeIt != fieldShape.end()) &&
+      (*fieldDimWithMaxSizeIt != 0)) {
+    fieldDimSplit[std::distance(fieldShape.begin(), fieldDimWithMaxSizeIt)] =
+        splitFactor;
   }
 
   const unsigned batchSplit = 1;
