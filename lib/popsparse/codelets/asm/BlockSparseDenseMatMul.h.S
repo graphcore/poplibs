@@ -429,7 +429,11 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
 .endif // \PTYPE, float
 .endif // \BLOCKSIZE, 16
       runall                 $s_wkrFunction, $sp, 0
-      setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained   
+.ifc \GRADA_FN, 1
+      setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained
+.else
+      setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained_yOff   
+.endif
       sync                   TEXCH_SYNCZONE_LOCAL
 .ifc \BLOCKSIZE, 16
 .ifc \PTYPE, float
@@ -507,7 +511,9 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
 .endif // \PTYPE, float
 .endif // \BLOCKSIZE, 16
       brnzdec                $s_numYm1, Ls_YLoop_\INTYPE\()_\PTYPE\()
-
+.ifc \GRADA_FN, 0
+    setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()_retained
+.endif
     ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
     brnzdec                $s_numXm1, Ls_XLoop_\INTYPE\()_\PTYPE\()
   

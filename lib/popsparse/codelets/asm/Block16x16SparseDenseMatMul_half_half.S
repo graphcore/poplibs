@@ -137,17 +137,19 @@ blockSparseDenseMultiply_hh16x16:
 #undef w_offsetScaledQ
 #undef w_offsetScaledS
 //====================
-#define w_qBase m6
-#define w_sBase m7
+#define w_qBase m10
+#define w_sBase m11
+#define w_qBaseYoffRetained m6
 //====================
 
 blockSparseDenseMultiply_hh16x16_retained:
-  brz $w_num_orig, 0f
-
   ld32 $w_xOffsetInQ, $mvertex_base, W_XOFFSET/4
   shl $w_xOffsetInQ, $w_xOffsetInQ, 1
-  add $w_qBase, $w_qBaseRetained, $w_xOffsetInQ
-  add $w_qBase, $w_qBase, $w_qOffset
+  add $w_qBaseYoffRetained, $w_qBaseRetained, $w_xOffsetInQ
+
+blockSparseDenseMultiply_hh16x16_retained_yOff:
+  brz $w_num_orig, 0f
+  add $w_qBase, $w_qBaseYoffRetained, $w_qOffset
   ld32 $w_yOffsetInS, $mvertex_base, W_YOFFSET/4
   shl $w_yOffsetInS, $w_yOffsetInS, 1
   add $w_sBase, $w_sBaseRetained, $w_yOffsetInS

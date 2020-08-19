@@ -165,7 +165,8 @@ static inline std::uint64_t sparseDenseBlockMultiply(
     unsigned averageSubgroupsPerBucket, unsigned numXBlocks, unsigned numZ,
     unsigned numBlockRows, unsigned numBlockCols,
     const std::vector<unsigned> &numYBlocks, bool floatInput,
-    bool floatPartials, unsigned numWorkerContexts, unsigned numConvUnits) {
+    bool floatPartials, unsigned numWorkerContexts, unsigned numConvUnits,
+    bool retainX) {
 
   // logging::trace("sparseDenseElementwiseMultiply: numBuckets={},
   // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
@@ -287,9 +288,11 @@ static inline std::uint64_t sparseDenseBlockMultiply(
   for (const auto &y : numYBlocks) {
     supervisorBlockLoadCycles +=
         y * (numCoeffLoadCyclesPerBlock + 3 + (12 * numWeightLoadsPerBlock));
-    workerLoopCycles += y * (numWeightLoadsPerBlock * innerCycles);
+    workerLoopCycles +=
+        y * (numWeightLoadsPerBlock * (innerCycles - retainX * 3));
   }
-  supervisorBlockLoadCycles *= numXBlocks + 2;
+  supervisorBlockLoadCycles =
+      (supervisorBlockLoadCycles + retainX) * numXBlocks + 2;
   workerLoopCycles *= numXBlocks;
   uint64_t totalWorkerCycles = workerCyclesOverhead + workerLoopCycles;
   totalSupervisorCycles += supervisorBlockLoadCycles;

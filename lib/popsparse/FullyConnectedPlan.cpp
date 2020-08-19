@@ -609,7 +609,7 @@ addInitialComputeCostSparseDense(
                 numBuckets, numBuckets, numSubGroupsPerBucket, xGroups,
                 workerZElems, xGrouping, yGrouping, {yNonZeroGroups},
                 inputType == FLOAT, partialsType == FLOAT, numWorkers,
-                numConvUnits);
+                numConvUnits, true);
             break;
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
