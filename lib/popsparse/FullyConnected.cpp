@@ -1066,15 +1066,50 @@ finalReduction(Graph &graph, ProgBuilder &progBuilder,
   Tensor result = stitchNextLevelOutputs(partition, nextLevelOutputs);
 
   if (!forGradW) {
+    constexpr std::size_t partialsDim = 2;
     if (needsReduction(partition)) {
       // TODO: Make ConvReduce just take bool args or its own
       // options structure rather than having to grab this unrelated
       // convolution options type.
       poplin::ConvOptions convOpts{};
       convOpts.enableMultiStageReduce = false;
+
+      const std::vector<std::size_t> partialsGrouping = {
+          grouping.groups, grouping.x, grouping.z};
+
+      // Ensure partials are ordered in tensor as they are in memory.
+      std::vector<unsigned> partialsMemOrder =
+          getOnTilePartialsOrdering(plan.method);
+      auto partialsGroupingMemOrder = partialsGrouping;
+      for (std::size_t i = 0; i < partialsMemOrder.size(); ++i) {
+        partialsGroupingMemOrder[i] = partialsGrouping[partialsMemOrder[i]];
+        partialsMemOrder[i]++;
+      }
+      std::vector<unsigned> partialsCurrentOrder(partialsMemOrder.size());
+      std::iota(partialsCurrentOrder.begin(), partialsCurrentOrder.end(), 1);
+      // Roll dimension to be reduced to outer dimension, and remove grouping
+      // from the tensor shape, then shuffle dimensions into their ordering
+      // in memory.
+      const auto partialsInMemOrder =
+          unfactorDims(result.dimRoll(partialsDim, 0), partialsMemOrder.size(),
+                       1)
+              .dimShufflePartial(partialsCurrentOrder, partialsMemOrder);
+
+      // Conv reductions take a grouping in the inner-most dimension so apply
+      // the grouping we have in the innermost dimension in memory.
+      const auto partialsInMemOrderWithGrouping =
+          factorDims(partialsInMemOrder, {partialsGroupingMemOrder.back()},
+                     partialsInMemOrder.rank() - 1);
       result = poplin::multiStageGroupedReduce(
-          graph, result.dimRoll(2, 0), resultType,
+          graph, partialsInMemOrderWithGrouping, resultType,
           progBuilder.reductionCSs.at(level), convOpts, levelPrefix);
+      // Remove grouping of inner-most dimension as used by conv reductions.
+      result = unfactorDims(result, 1, result.rank() - 2);
+      // Reorder back to internal dimension ordering and restore groupings.
+      result = result.expand({0})
+                   .dimShufflePartial(partialsMemOrder, partialsCurrentOrder)
+                   .squeeze({0});
+      result = factorDims(result, partialsGrouping);
     } else {
       result = result.squeeze({2});
     }
