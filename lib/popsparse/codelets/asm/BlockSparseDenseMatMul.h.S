@@ -126,14 +126,16 @@ runall                 $s_zeroWkrFunction, $s_vertexBase, 0
 shr                    $s_metaInfoList, $s_metaInfoList, (32 - SHORT_SPAN_ADDRESS_BITS)
 
 LmetaInfoListLoop_\INTYPE\()_\PTYPE\():  
+  ld32step               $s_metaInfo, $mzero, $s_metaInfoList+=, 1
   st32                   $s_rBaseList, $sp, W_RBASELIST/4
   setzi                  $s_wkrFunction, blockSparseDenseMultiply_\POSTFIX\()   
-  ld32step               $s_metaInfo, $mzero, $s_metaInfoList+=, 1
   st32                   $s_numBuckets, $sp, W_NUM_BUCKETS/4
+  nop
+  nop
 LsubgroupLoop_\INTYPE\()_\PTYPE\():  
+  ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
   // This is the subgroup ID the PN has to process
   ldz16                  $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_PN_SUBGROUP_ID/2
-  ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
 
   // s_metaInfo is at exactly where the numWorkers is so that it can be extracted 
   // by the worker (must be last field)
@@ -143,6 +145,8 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\():
   ldz16                  $s_subgroupSparseElems, $s_metaInfo, MetaInfoSubGroupEntry_offsetToNextSubGroupSparseEntries/2
   
   // If subgroup is 0 there is nothing to do
+  nop
+  nop
   brz                    $s_subgroupId, LendMetaInfoList_\INTYPE\()_\PTYPE\()
 
   // Check if any work to be done by the PN
@@ -150,6 +154,11 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\():
   brz                    $s_match, LnextSubgroup_\INTYPE\()_\PTYPE\()
   ldz16                  $s_numXm1, $mzero, $s_metaInfo, MetaInfoSubGroupEntry_numXm1/2
   add                    $s_wTemp, $s_metaInfo, sizeof_MetaInfoSubGroupEntry
+
+  // preload to hide behind the put latency
+  ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
+
+
   // We let CCCSLOAD to increment between blocks rather then tracking it using
   // a general register
   put                    $CCCSLOAD, $s_rBase
@@ -157,7 +166,6 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\():
 
   // load entries from output
 Ls_XLoop_\INTYPE\()_\PTYPE\():
-    ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
 .ifc \GRADA_FN, 1
     st32                   $s_xOffsetInQ, $sp, W_YOFFSET/4
 .else
@@ -499,6 +507,8 @@ Ls_YLoop_\INTYPE\()_\PTYPE\():
 .endif // \PTYPE, float
 .endif // \BLOCKSIZE, 16
       brnzdec                $s_numYm1, Ls_YLoop_\INTYPE\()_\PTYPE\()
+
+    ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
     brnzdec                $s_numXm1, Ls_XLoop_\INTYPE\()_\PTYPE\()
   
 LnextSubgroup_\INTYPE\()_\PTYPE\():
@@ -512,8 +522,8 @@ LnextSubgroup_\INTYPE\()_\PTYPE\():
   bri                    LsubgroupLoop_\INTYPE\()_\PTYPE\()
   
 LendMetaInfoList_\INTYPE\()_\PTYPE\():
-  ld32                   $s_rBaseList, $sp, W_RBASELIST/4
   ld32                   $s_numBuckets, $sp, W_NUM_BUCKETS/4
+  ld32                   $s_rBaseList, $sp, W_RBASELIST/4
   ld32step               $s_rBase, $mzero, $s_rBaseList+=, 1
   brnzdec                $s_numBuckets, LmetaInfoListLoop_\INTYPE\()_\PTYPE\()
 LendMetaInfoLoop_\INTYPE\()_\PTYPE\():
