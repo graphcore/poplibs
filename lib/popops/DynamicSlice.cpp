@@ -1776,37 +1776,44 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
   if (sSplit > 1) {
     const auto cs2 = graph.addComputeSet(debugPrefix + "/Stage1");
 
-    // Split work by indices for the second stage else we end up with
-    // all the outputs on a subset of tiles quite naturally as a result of
-    // the first split.
-
-    // Calculate how much we can split indices by for the second stage.
+    // A split of the sliced dimension in the first stage produces
+    // iTotalElems * sSplit results, only iTotalElems of which are
+    // the desired final results.
+    //
+    // We perform a second slice with the indices modified in order
+    // to pick the correct results. We spread this second slice over
+    // tiles by splitting iTotalElems further by sSplit (as the original
+    // sliced dimension no longer exists to spread over tiles).
+    //
+    // Each partition in the second stage has some number
+    // ceildiv(iTotalElems, iSplit) of slices that we further split
+    // using sSplit.
+    //
+    // This means each tile has a piece of the output of stage 0
+    // like:
+    //
+    //   {sSplit, iElemsThisPartition, hElemsThisPartition}
+    //
+    // Where we need to select the correct index from the
+    // outer-most dimension.
+    //
+    // We do this by transforming the indices each partition in this
+    // second stage processes as follows:
+    //
+    // for (i in range(0, iElemsThisPartition)) {
+    //   // Offset into iElemsPerPartition to pick out
+    //   stage1Indices[i] = i;
+    //   sPartitionWithCorrectAnswer = stage0Indices[i] / sElemsPerPartition;
+    //   stage1Indices[i] += sPartitionWithCorrectAnswer * iElemsThisPartition.
+    // }
+    //
     const auto iElemsPerPartitionStage1 = ceildiv(iElemsPerPartition, sSplit);
     const auto iSplitStage1 =
         ceildiv(iElemsPerPartition, iElemsPerPartitionStage1);
 
     const Tensor transformedOffset = [&] {
-      // Take our original 1D indices which index:
-      //
-      //   {sTotalElems}
-      //
-      // and transform them to into 2D indices in each partition of shape:
-      //
-      //   {sSplit, ceildiv(iElemsPerPartition, iSplitStage1)}
-      //
-      //   or more simply:
-      //
-      //   {sSplit, iElemsPerPartitionStage1}
-      //
-      // We do this by flattening the 2D indices to 1D.
-      //
-      // To achieve this we divide the original indices by sElemsPerPartition
-      // to get the correct index into the outer-dimension. Then get the offset
-      // into the inner-most dimension [0:iElemsPerPartitionStage1) for this
-      // index. Then flatten our 2D index to 1D by multiplying the outer-most
-      // dimension's index by the number of elements in the inner-most dimension
-      // in this partition.
-      //
+      // innerIdx represents the offset into the indices in the partition
+      // on each tile and hence is just an ascending sequence of integers.
       const Tensor innerIdx = [&] {
         Tensor t = graph.clone(offset.slice(0, iElemsPerPartitionStage1));
         iota(graph, t.squeeze({1}), 0u, prog, debugPrefix);
@@ -1817,22 +1824,65 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
         return t;
       }();
 
+      // innerElems represents the number of indices this partition processes.
+      // There are at most 3 different numbers of indices processed by a
+      // partition, e.g. the following example:
+      //
+      // +                                                                   +
+      // |                                                                   |
+      // +-------------------------------------------------------------------+
+      // |                           iTotalElems=9                           |
+      // +                                                                   +
+      //
+      //
+      //
+      // +                                                                   +
+      // |                                       +                           |
+      // +-------------------------------------------------------------------+
+      // |                   5                   +              4            |
+      // +                                                                   +
+      //                                       iSplit=2
+      //
+      //
+      //
+      // +                                                                   +
+      // |                      +                +                     +     |
+      // +-------------------------------------------------------------------+
+      // |           3          +        2       +           3         +  1  |
+      // +                                                                   +
+      //                    sSplit=2                               sSplit=2
+
       const Tensor innerElems = [&] {
-        const auto nFirst =
-            roundDown(iElemsPerPartition, iElemsPerPartitionStage1);
-        const auto nLast = iElemsPerPartition % iElemsPerPartitionStage1;
-        const auto firstMultiplier = iElemsPerPartitionStage1;
-        const auto lastMultiplier =
-            iElemsPerPartition % iElemsPerPartitionStage1;
-        const auto first =
-            graph.addConstant(UNSIGNED_INT, {1, 1}, firstMultiplier);
-        const auto last =
-            graph.addConstant(UNSIGNED_INT, {1, 1}, lastMultiplier);
-        graph.setTileMapping(first, 0);
-        graph.setTileMapping(last, 0);
-        return concat(first.broadcast(nFirst, 0), last.broadcast(nLast, 0))
-            .broadcast(iSplit, 0)
-            .slice(0, iTotalElems);
+        const auto ceil0 = ceildiv(iTotalElems, iSplit);
+        const auto rem0 = iTotalElems % ceil0;
+        const auto ceil0And1 = ceildiv(ceil0, sSplit);
+        const auto ceil0AndRem1 = ceil0 % ceil0And1;
+        const auto rem0AndCeil1 = ceildiv(rem0, sSplit);
+        const auto rem0And1 = rem0AndCeil1 > 0 ? rem0 % rem0AndCeil1 : 0;
+
+        const auto nCeil0And1 = roundDown(ceil0, ceil0And1);
+        const auto nCeil0AndRem1 = ceil0 - nCeil0And1;
+        const auto nCeil0 = floordiv(iTotalElems, ceil0);
+        const auto nRem0AndCeil1 = roundDown(rem0, ceil0And1);
+        const auto nRem0And1 = rem0 - nRem0AndCeil1;
+
+        const auto tCeil0And1 = graph.addConstant(UNSIGNED_INT, {1}, ceil0And1);
+        const auto tCeil0AndRem1 =
+            graph.addConstant(UNSIGNED_INT, {1}, ceil0AndRem1);
+        const auto tRem0And1 = graph.addConstant(UNSIGNED_INT, {1}, rem0And1);
+        graph.setTileMapping(tCeil0And1, 0);
+        graph.setTileMapping(tCeil0AndRem1, 0);
+        graph.setTileMapping(tRem0And1, 0);
+
+        return concat(
+                   // Evenly split part
+                   concat(tCeil0And1.broadcast(nCeil0And1, 0),
+                          tCeil0AndRem1.broadcast(nCeil0AndRem1, 0), 0)
+                       .broadcast(nCeil0, 0),
+                   // Remainder
+                   concat(tCeil0And1.broadcast(nRem0AndCeil1, 0),
+                          tRem0And1.broadcast(nRem0And1, 0), 0))
+            .expand({1});
       }();
 
       using namespace expr;

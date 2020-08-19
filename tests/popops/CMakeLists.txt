@@ -834,6 +834,14 @@ add_multitarget_test(
                  --tiles-per-ipu=30
                  --plan-constraints={\"unslicedDimSplit\":\"10\"})
 
+add_multitarget_test(
+         NAME embedding_layer_T24704
+         COMMAND embedding_layer
+                 --shape {61,3}
+                 --num-indices 2010
+                 --data-type float
+                 --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"})
+
 # Collective operations
 foreach(collective reduce_scatter
                    all_gather
