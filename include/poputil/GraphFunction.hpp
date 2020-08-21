@@ -59,7 +59,7 @@ public:
                std::function<void(std::vector<poplar::Tensor> &,
                                   poplar::program::Sequence &)>
                    f,
-               bool inlined = true);
+               bool inlined = false);
   void operator()(std::vector<poplar::Tensor> &args,
                   poplar::program::Sequence &seq);
 };
@@ -71,7 +71,7 @@ public:
   ProgramFunction(
       poplar::Graph &graph, Signature sig,
       std::function<poplar::program::Program(std::vector<poplar::Tensor> &)> f,
-      bool inlined = true);
+      bool inlined = false);
   poplar::program::Program operator()(std::vector<poplar::Tensor> &args);
 };
 
@@ -83,7 +83,7 @@ public:
                  std::function<poplar::Tensor(std::vector<poplar::Tensor> &,
                                               poplar::program::Sequence &)>
                      f,
-                 bool inlined = true);
+                 bool inlined = false);
   poplar::Tensor operator()(std::vector<poplar::Tensor> &args,
                             poplar::program::Sequence &prog);
 };
