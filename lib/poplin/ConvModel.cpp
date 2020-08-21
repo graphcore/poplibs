@@ -2503,6 +2503,7 @@ static void addOuterProductConstaints(popsolver::Model &m,
                                       const ConvSizeVariables &s,
                                       const ConvParams &lvl1Params) {
   m.equal(s.batchSize, popsolver::DataType{1});
+  m.equal(getInputChannelCount(m, p, s), popsolver::DataType{1});
 
   assert(lvl1Params.outputTransform.stride.size() == p.fieldGrainSize.size());
   assert(lvl1Params.inputTransform.dilation.size() == p.fieldGrainSize.size());
@@ -2515,10 +2516,11 @@ static void addOuterProductConstaints(popsolver::Model &m,
             popsolver::DataType{1});
     m.equal(m.addConstant(lvl1Params.inputTransform.flip[dim]),
             popsolver::DataType{0});
-    m.equal(getInputChannelCount(m, p, s), popsolver::DataType{1});
 
     // Output size == (padded) input size (because kernelSize and stride are 1)
-    m.equal(getInputFieldSize(m, p, s, dim), popsolver::DataType{1});
+    if (dim + 1 != p.fieldGrainSize.size()) {
+      m.equal(getInputFieldSize(m, p, s, dim), popsolver::DataType{1});
+    }
   }
 }
 

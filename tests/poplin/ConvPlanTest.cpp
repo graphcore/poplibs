@@ -414,19 +414,6 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
   poplin::ConvOptions options{};
   options.planConstraints = std::move(t);
   poplin::Plan plan;
-  BOOST_CHECK_THROW(plan = poplin::getPlan(
-                        target,
-                        poplin::ConvParams{
-                            poplar::FLOAT, // Data type
-                            4, // batch size (invalid! Not enough tiles/IPUs)
-                            {1, 1}, // input field shape
-                            {1, 1}, // kernel shape
-                            1,      // input channels
-                            1,      // output channels
-                            1       // conv groups
-                        },
-                        options, &cache),
-                    poputil::poplibs_error);
   BOOST_CHECK_THROW(
       plan = poplin::getPlan(target,
                              poplin::ConvParams{
@@ -440,20 +427,19 @@ BOOST_AUTO_TEST_CASE(InvalidOuterProduct1) {
                              },
                              options, &cache),
       poputil::poplibs_error);
-
-  BOOST_CHECK_THROW(plan = poplin::getPlan(
-                        target,
-                        poplin::ConvParams{
-                            poplar::FLOAT, // Data type
-                            1,             // batch size
-                            {2, 1}, // input field shape (Invalid! Must be 1)
-                            {1, 1}, // kernel shape
-                            1,      // input channels
-                            1,      // output channels
-                            1       // conv groups
-                        },
-                        options, &cache),
-                    poputil::poplibs_error);
+  BOOST_CHECK_THROW(
+      plan = poplin::getPlan(target,
+                             poplin::ConvParams{
+                                 poplar::FLOAT, // Data type
+                                 1,             // batch size
+                                 {1, 1},        // input field shape
+                                 {1, 1},        // kernel shape
+                                 2, // input channels (Invalid! Must be 1)
+                                 1, // output channels
+                                 1  // conv groups
+                             },
+                             options, &cache),
+      poputil::poplibs_error);
 }
 
 BOOST_AUTO_TEST_CASE(InvalidLevel) {

@@ -857,10 +857,6 @@ static void getConvVertexOuterProductCandidates(
           popsolver::DataType{partialChansPerGroup}) {
     return;
   }
-  // OuterProduct only implemented for when Tile.PartialType == input type.
-  if (partialType != params.inputType) {
-    return;
-  }
 
   // The OuterProduct vertex does not require a grouping of the conv groups.
   const unsigned convGroupsPerGroup = 1;

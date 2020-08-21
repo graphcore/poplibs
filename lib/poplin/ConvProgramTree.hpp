@@ -107,9 +107,10 @@ struct ConvProgramTree {
   poplar::program::Sequence slice, update;
   // the core convolution op.
   ComputeSetsGroup convolveCSGroup;
-  // any post-conv reductions that might be required. first vector indexed by
-  // level in the hierarchy, second vector is indexed by the reduction depth.
-  std::vector<std::vector<poplar::ComputeSet>> reduceComputeSets;
+  // Any post-conv reductions or casts that might be required. First vector is
+  // indexed by the level in the hierarchy, the second vector is indexed by the
+  // reduction depth.
+  std::vector<std::vector<poplar::ComputeSet>> reduceOrCastComputeSets;
   // Program run after all others at any level of the hierarchy.
   poplar::program::Sequence finalizeProg;
 

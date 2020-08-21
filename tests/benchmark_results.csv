@@ -54,8 +54,8 @@ IpuModel,default,fc_layer_16_1000_5_half,8593,0.0,655966,0.0,131160,0.0
 IpuModel,default,fc_layer_16x1324x100,11895,0.9,2363311,0.1,131608,-0.0
 IpuModel,default,fc_layer_1_1000_1000_float,34433,0.4,8682772,0.3,32952,0.0
 IpuModel,default,fc_layer_1_1000_1000_half,12614,2.3,4517972,0.7,32872,0.0
-IpuModel,default,fc_layer_1_1000_5_float,7916,4.4,520426,-2.4,131160,0.0
-IpuModel,default,fc_layer_1_1000_5_half,8281,1.5,498231,-3.3,131128,0.0
+IpuModel,default,fc_layer_1_1000_5_float,6773,-14.4,547592,5.2,131128,-0.0
+IpuModel,default,fc_layer_1_1000_5_half,7974,-3.7,498665,0.1,131128,0.0
 IpuModel,default,fc_layer_4_1000_1000_float,17627,2.1,11139013,0.8,134936,0.0
 IpuModel,default,fc_layer_4_1000_1000_half,21573,0.8,12027966,0.5,134488,0.0
 IpuModel,default,fc_layer_4_1000_5_float,9116,9.2,681469,0.5,131160,0.0
@@ -274,12 +274,12 @@ IpuModel2,default,fc_layer_16_1000_5_half,8583,0.0,718995,0.0,213080,0.0
 IpuModel2,default,fc_layer_16x1324x100,12499,-1.2,2536571,-3.8,213464,0.0
 IpuModel2,default,fc_layer_1_1000_1000_float,15456,-25.8,11545394,-14.9,216088,0.1
 IpuModel2,default,fc_layer_1_1000_1000_half,15483,-0.8,10473344,-0.1,215800,0.0
-IpuModel2,default,fc_layer_1_1000_5_float,7127,-0.7,550294,0.8,213048,0.0
-IpuModel2,default,fc_layer_1_1000_5_half,8361,-0.7,577006,4.7,213048,0.0
+IpuModel2,default,fc_layer_1_1000_5_float,6848,-3.9,572276,4.0,213048,0.0
+IpuModel2,default,fc_layer_1_1000_5_half,7971,-4.7,546162,-5.3,213048,0.0
 IpuModel2,default,fc_layer_4_1000_1000_float,15569,-2.2,11559119,-0.8,216088,0.0
 IpuModel2,default,fc_layer_4_1000_1000_half,24863,-0.7,16087724,-0.3,215800,0.0
 IpuModel2,default,fc_layer_4_1000_5_float,7830,-9.5,794682,-0.9,213080,0.0
-IpuModel2,default,fc_layer_4_1000_5_half,8935,0.2,646810,0.5,213048,0.0
+IpuModel2,default,fc_layer_4_1000_5_half,8540,-4.4,754676,16.7,213048,0.0
 IpuModel2,default,fc_layer_80_1324_100,15312,-1.1,7061379,-0.1,214936,0.3
 IpuModel2,default,fc_layer_8_1000_1000_float,14794,0.0,11582861,0.0,216088,0.0
 IpuModel2,default,fc_layer_8_1000_1000_half,16798,0.0,9572425,0.0,215800,0.0

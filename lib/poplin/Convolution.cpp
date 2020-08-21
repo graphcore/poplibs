@@ -1968,7 +1968,7 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
       transformPostSerial(graph, debugPrefix + "/CastSerialOut"),
       loopCount(plan.totalSerialSplit()),
       convolveCSGroup(graph.addComputeSet(debugPrefix + "/Convolve")),
-      reduceComputeSets(plan.numLevels() - 1) {
+      reduceOrCastComputeSets(plan.numLevels()) {
   transformPre.reserve(plan.numLevels());
   for (unsigned i = 0; i < plan.numLevels(); ++i) {
     transformPre.emplace_back(graph,
@@ -1986,7 +1986,7 @@ void ConvProgramTree::lower(Sequence &prog) {
   assert(transformPre.size() == transformPost.size());
   const unsigned numLevels = transformPre.size();
   assert(numLevels > 1);
-  assert(numLevels - 1 == reduceComputeSets.size());
+  assert(numLevels == reduceOrCastComputeSets.size());
 
   Sequence body;
 
@@ -1998,14 +1998,9 @@ void ConvProgramTree::lower(Sequence &prog) {
   convolveCSGroup.lower(body);
   // lower the remaining reductions and inverse transforms in reverse order
   // as we descend the hierarchy.
-  add(body, transformPost.back());
-  for (int level = numLevels - 2; level >= 0; --level) {
-    // there is a reduction for each level in the partition hierarchy, which is
-    // one less than the transforms. therefore there is no reduction in the
-    // outermost level which is why we start at numLevels - 2 and add the
-    // innermost transform outside of this loop.
-    for (const auto &reduceCS : reduceComputeSets[level]) {
-      body.add(Execute(reduceCS));
+  for (int level = numLevels - 1; level >= 0; --level) {
+    for (const auto &reduceOrCastCS : reduceOrCastComputeSets[level]) {
+      body.add(Execute(reduceOrCastCS));
     }
 
     add(body, transformPost[level]);
@@ -2327,19 +2322,18 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       auto reducedType =
           (partition.inChanSplit.serial > 1) ? partialType : resultType;
       out = multiStageGroupedReduce(graph, partials, reducedType,
-                                    cpt.reduceComputeSets[level], options,
+                                    cpt.reduceOrCastComputeSets[level], options,
                                     debugPrefix);
       out = unsplitActivationFromGroups(out);
     }
   }
-  const auto &partition = plan.partitions[level];
-  if ((out.elementType() != resultType) &&
-      (partition.inChanSplit.serial == 1)) {
-    if (cpt.reduceComputeSets[level].empty()) {
-      cpt.reduceComputeSets[level].push_back(
+  if (out.elementType() != resultType &&
+      (level == tileLevel || plan.partitions[level].inChanSplit.serial == 1)) {
+    if (cpt.reduceOrCastComputeSets[level].empty()) {
+      cpt.reduceOrCastComputeSets[level].push_back(
           graph.addComputeSet(debugPrefix + "/Cast"));
     }
-    out = cast(graph, out, resultType, cpt.reduceComputeSets[level][0],
+    out = cast(graph, out, resultType, cpt.reduceOrCastComputeSets[level][0],
                debugPrefix);
   }
 
@@ -2350,6 +2344,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
   // Update.
   if (level == ipuLevel) {
+    const auto &partition = plan.partitions[level];
     const bool inChansAreSeriallySplit = partition.inChanSplit.serial > 1;
     const bool outChansAreSeriallySplit = partition.outChanSplit.serial > 1;
 
@@ -2401,7 +2396,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
 
   // Casting to the final result type (i.e., the result type of the outermost
   // level) should be deferred until all the serial splits have executed.
-  if ((out.elementType() != resultType) && (partition.inChanSplit.serial > 1)) {
+  if ((out.elementType() != resultType) && level != tileLevel &&
+      plan.partitions[level].inChanSplit.serial > 1) {
     out = cast(graph, out, resultType, cpt.transformPostSerial.castCS,
                debugPrefix);
   }
