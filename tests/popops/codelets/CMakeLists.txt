@@ -85,13 +85,30 @@ add_multi_target_test_executable(histogramCodeletTest histogramCodeletTest.cpp)
 foreach(DATA_SIZE  1 2 3 4 99)
   foreach(DATA_TYPE half float)
     foreach(LIMITS_SIZE 1 5 6 13)
-      add_multitarget_test(NAME histogramSupervisor_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}
+      add_multitarget_test(NAME histogramSupervisor_by_limit_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}
                            COMMAND histogramCodeletTest
                            --data-size=${DATA_SIZE}
                            --limits-size=${LIMITS_SIZE}
                            --type=${DATA_TYPE}
                            --absolute=false
                            --supervisor=true
+                           --supervisor-by-limit=true
+                           LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(DATA_SIZE  1 2 3 4 5 6 7 8 99)
+  foreach(DATA_TYPE half float)
+    foreach(LIMITS_SIZE 1 4 7)
+      add_multitarget_test(NAME histogramSupervisor_by_data_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}
+                           COMMAND histogramCodeletTest
+                           --data-size=${DATA_SIZE}
+                           --limits-size=${LIMITS_SIZE}
+                           --type=${DATA_TYPE}
+                           --absolute=false
+                           --supervisor=true
+                           --supervisor-by-limit=false
                            LABELS codelet)
     endforeach()
   endforeach()

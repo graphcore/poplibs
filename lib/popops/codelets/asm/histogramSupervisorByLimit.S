@@ -156,7 +156,7 @@ data_loop_continue\@:
   rpt $dataCountDiv, (2f-1f)/8 -1
 #endif
 1:
-  CONDITIONAL_ABSv4HALF \IS_ABS
+  CONDITIONAL_ABSv4HALF_BUNDLE \IS_ABS
   {nop
    f16v4cmpgt $a0:1, $upper:BL, $a0:1} //(upper > data) == (data < upper)
   {nop
@@ -165,7 +165,7 @@ data_loop_continue\@:
    f16v4acc $a0:1}
 2:
 #if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
-  brnz $mscratch, 3b
+  brnz $dataCountDiv, 3b
 #endif
   // Deal with trailing 0, 1, 2 elements - will be gathered in $a6:7
   {and $mscratch, $dataCount, 2
@@ -270,7 +270,7 @@ limit_loop\@:
   RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS) $dataCountDiv
 #endif
 1:
-  CONDITIONAL_ABSv2FLOAT \IS_ABS
+  CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
   {nop
    f32v2cmpgt $a0:1, $upper:B, $a0:1} //(upper > data) == (data < upper)
   {nop
@@ -279,7 +279,7 @@ limit_loop\@:
    f32v2add $acc01,$acc01, $a0:1}
 2:
 #if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
-  brnz $mscratch, 3b
+  brnz $dataCountDiv, 3b
 #endif
 
 check_one\@:
@@ -416,10 +416,10 @@ MANGLE_STR(worker_postprocess):
 //******************************************************************************
 // Use the macros above to create vertex code
 //******************************************************************************
-INSTANTIATE_HISTOGRAM true
-INSTANTIATE_HISTOGRAM false
-INSTANTIATE_HISTOGRAM_FLOAT true
-INSTANTIATE_HISTOGRAM_FLOAT false
+INSTANTIATE_HISTOGRAM true_true
+INSTANTIATE_HISTOGRAM false_true
+INSTANTIATE_HISTOGRAM_FLOAT true_true
+INSTANTIATE_HISTOGRAM_FLOAT false_true
 
 
 #endif

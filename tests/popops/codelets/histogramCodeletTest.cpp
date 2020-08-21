@@ -56,7 +56,8 @@ std::vector<float> histogram(const std::vector<float> &data,
 bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
             unsigned padding, const unsigned rows,
             const std::vector<double> &data, const std::vector<float> &limits,
-            bool isSupervisor, const poplar::Type &dataType, bool isAbsolute) {
+            bool isSupervisor, bool divideWorkByLimit,
+            const poplar::Type &dataType, bool isAbsolute) {
   auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -71,10 +72,14 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
 
   auto cs = graph.addComputeSet("cs");
 
-  const auto vertexClass = templateVertex(
-      isSupervisor ? "popops::HistogramSupervisor" : "popops::Histogram2D",
-      dataType, isAbsolute);
+  const auto vertexClassSupervisor = templateVertex(
+      "popops::HistogramSupervisor", dataType, isAbsolute, divideWorkByLimit);
+  const auto vertexClass2D =
+      templateVertex("popops::Histogram2D", dataType, isAbsolute);
 
+  const auto histogramSize =
+      (divideWorkByLimit ? 1 : target.getNumWorkerContexts()) *
+      (limits.size() + 1);
   // We create one data tensor, with multiple vertices reading from it, each
   // with a different offset to ensure we check each input alignment.
   // This is kind of possible with the 2D vertex and multiple rows each of
@@ -92,9 +97,10 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   std::vector<std::string> readHandles(numVertices);
 
   for (unsigned offset = 0; offset < numVertices; offset++) {
-    auto vertexHistogram = graph.addVariable(FLOAT, {limits.size() + 1});
+    auto vertexHistogram = graph.addVariable(FLOAT, {histogramSize});
 
-    auto v = graph.addVertex(cs, vertexClass);
+    auto v = graph.addVertex(cs, isSupervisor ? vertexClassSupervisor
+                                              : vertexClass2D);
     graph.setTileMapping(v, 0);
 
     if (isSupervisor) {
@@ -141,7 +147,7 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
 
     e.run();
     for (unsigned i = 0; i < numVertices; i++) {
-      resultHistogram[i].resize(limits.size() + 1);
+      resultHistogram[i].resize(histogramSize);
       e.readTensor(readHandles[i], resultHistogram[i].data(),
                    resultHistogram[i].data() + resultHistogram[i].size());
     }
@@ -171,6 +177,9 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
               << "\nExpected:" << hostResult;
     std::cout << "\n";
 
+    // Note - in the case of the supervisor vertex with work split by data
+    // size then the output is larger than hostResult.size(), but the
+    // first hostResult.size() entries hold the result
     for (unsigned i = 0; i < hostResult.size(); ++i) {
       if (hostResult[i] != resultHistogram[offset][i]) {
         success = false;
@@ -200,6 +209,7 @@ int main(int argc, char **argv) {
   float limitsRange = 60000 * 2;
   float limitsStep = 0.0;
   bool checkMisaligned = true;
+  bool divideWorkByLimit = true;
 
   po::options_description desc("Options");
   // clang-format off
@@ -229,6 +239,8 @@ int main(int argc, char **argv) {
       "Limits step, found from range unless this parameter is used")
     ("supervisor", po::value(&isSupervisor)->default_value(isSupervisor),
       "Test supervisor vertex")
+    ("supervisor-by-limit", po::value(&divideWorkByLimit)->default_value(divideWorkByLimit),
+      "Test supervisor vertex that divides work by limit, not input data")
     ("absolute", po::value(&isAbsolute)->default_value(isAbsolute),
       "Use absolute values of the data")
     ("check-misaligned", po::value(&checkMisaligned)->default_value(checkMisaligned),
@@ -273,8 +285,9 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < limits.size(); i++) {
     limits[i] = limitsMin + static_cast<float>(i) * limitsStep;
   }
-  auto success = doTest(device, deviceType, profile, padding, rows, data,
-                        limits, isSupervisor, dataType, isAbsolute);
+  auto success =
+      doTest(device, deviceType, profile, padding, rows, data, limits,
+             isSupervisor, divideWorkByLimit, dataType, isAbsolute);
   if (!success) {
     std::cerr << "Failure\n";
   }

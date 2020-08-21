@@ -53,6 +53,7 @@
 #define dataVectCount m10
 #define dataVectPtr m11
 
+#define previous a2
 #define upper a3
 #define one01 a4:5
 #define one0 a4
@@ -74,7 +75,9 @@
   shr $dataVectCountConst, $dataVectPtrConst, (32-SHORT_SPAN_COUNT_BITS)
   sub $dataVectCountConst, $dataVectCountConst, 1
   ldconst $ptrMask, SHORT_SPAN_PTR_MASK
-  and $dataVectPtrConst, $dataVectPtrConst, $ptrMask
+  // Initialise the previous sum to zero
+  {and $dataVectPtrConst, $dataVectPtrConst, $ptrMask
+   mov $previous, $azero}
 
 #ifdef VECTOR_AVAIL_SCALED_PTR32
   // Load and unpack limits, histogram pointers
@@ -164,7 +167,7 @@ data_loop_continue\@:
 
   RPT_ALIGNED_TO MANGLE_STR(half_\IS_ABS) $dataCountDiv
 1:
-  CONDITIONAL_ABSv4HALF \IS_ABS
+  CONDITIONAL_ABSv4HALF_BUNDLE \IS_ABS
   {nop
    f16v4cmpgt $a6:7, $upper:BL, $a0:1} //(upper > data) == (data < upper)
   {nop
@@ -208,11 +211,16 @@ data_loop_end\@:
   {ldb16step $upper, $mzero, $limPtr+=, 1
    f32v2add $a0:1, $a0:1, $a6:7}
   f32add $a0, $a0, $a1
-  st32step $a0, $mzero, $histPtr+=,1
+
+  // Subtract the previous sum
+  f32sub $a1, $a0, $previous
+
+  {st32step $a1, $mzero, $histPtr+=,1
+   mov $previous, $a0}
 
   brnzdec $limCount, limit_loop\@
 
-  bri MANGLE_STR(post_process)
+  bri MANGLE_STR(top_entry)
 
 .size MANGLE_STR(half_\IS_ABS), . -MANGLE_STR(half_\IS_ABS)
 .endm
@@ -240,9 +248,9 @@ MANGLE_STR(float_\IS_ABS):
 
   // Setup working pointer
   mov $dataVectCount, $dataVectCountConst
+  mov $dataVectPtr, $dataVectPtrConst
 
 limit_loop\@:
-  mov $dataVectPtr, $dataVectPtrConst
   // load the next limit, used as an upper limit, clear accumulation registers.
   {ld32step $upper, $mzero, $limPtr+=, 1
    mov $acc01, $azeros}
@@ -270,7 +278,7 @@ data_loop\@:
 
   RPT_ALIGNED_TO MANGLE_STR(float_\IS_ABS) $dataCountDiv
 1:
-  CONDITIONAL_ABSv2FLOAT \IS_ABS
+  CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
   {nop
    f32v2cmpgt $a0:1, $upper:B, $a0:1} //(upper > data) == (data < upper)
   {nop
@@ -296,46 +304,34 @@ data_loop_end\@:
   // Combine and store the result, load the pointer for next time
   {mov $dataVectCount, $dataVectCountConst
    f32add $a0, $acc0, $acc1}
-  st32step $a0, $mzero, $histPtr+=,1
 
+  // Subtract the previous sum
+  {mov $dataVectPtr, $dataVectPtrConst
+   f32sub $a1, $a0, $previous}
+  {st32step $a1, $mzero, $histPtr+=,1
+   mov $previous, $a0}
   brnzdec $limCount, limit_loop\@
 
-  bri MANGLE_STR(post_process)
+  bri MANGLE_STR(top_entry)
 
 .size MANGLE_STR(float_\IS_ABS), . -MANGLE_STR(float_\IS_ABS)
 .endm
 
 //******************************************************************************
-// A common post process / exit function
-// Possibly this could in the loop above by subtracting previous result before
-// storing?  But it has 3 states:
-// Lower histogram entry = result
-// Middle histogram entries = previousResult - result
-// Uppermost histogram entry = dataSize - result
-//
-// With register pressure it is more straightforward to do this at the end
+// A common function to find the top entry and then exit
 //******************************************************************************
 
 #define elemCount m6
-#define histWritePtr m7
 
-.section .text.MANGLE_STR(post_process)
-.global MANGLE_STR(post_process)
-.type MANGLE_STR(post_process), @function
+.section .text.MANGLE_STR(top_entry)
+.global MANGLE_STR(top_entry)
+.type MANGLE_STR(top_entry), @function
 .align 8
 .worker
+  nop // Rpt align
+MANGLE_STR(top_entry):
 
-MANGLE_STR(post_process):
-
-  // Post process - reload counter
-  ldz16 $limCount, $mzero, $mvertex_base, VERTEX_HISTOGRAM_COUNT_OFFSET/2
-  add $limCount, $limCount, -1
-
-  // Pointer is already pointing at the last histogram entry, duplicate for a
-  // trailing write
-  mov $histWritePtr, $histPtr
-
-  // Initialise element count, accumulate all data sizes.  Often quicker here
+   // Initialise element count, accumulate all data sizes.  Quicker here
   // as although we could hand in onto the main loop it would be calculated
   // repeatedly
   // Count was already predecremented so fetch the first to initialise
@@ -353,29 +349,21 @@ MANGLE_STR(post_process):
    fnop}
 2:
   // Store then load the total number of elements as we have an atom
-  // instruction but no mtoa
+  // instruction but no mtoa. Just using the eventual result location to do this
+  // as we know it's available
   st32 $elemCount, $mzero, $histPtr, 0
-  // Load the unsigned count, cast to float and advance the read ptr
-  ld32step $a0, $mzero, $histPtr+=,-1
+  // Load the unsigned count, cast to float
+  ld32 $a0, $mzero, $histPtr, 0
+  f32fromui32 $a0, $a0
+  // Subtract previous "less than" sum and store as the final result, overwriting
+  // the temp elemCount
+  f32sub  $a0, $a0, $previous
+  st32 $a0, $mzero, $histPtr, 0
 
-  // Unrolled loop which does hist[N] = hist[N] - hist[N-1]
-  {ld32step $a1, $mzero, $histPtr+=,-1
-   f32fromui32 $a0, $a0}
-  {add $limCount, $limCount, -1
-   f32sub $a2, $a0, $a1}
-
-  {rpt $limCount, (2f-1f)/8 -1
-    fnop}
-1:
-  {ld32step $a1, $mzero, $histPtr+=,-1
-   mov $a0,$a1}
-  {st32step $a2, $mzero, $histWritePtr+=,-1
-   f32sub $a2, $a0, $a1}
-2:
-  st32step $a2, $mzero, $histWritePtr+=,-1
   exitz $mzero
 
-.size MANGLE_STR(post_process), . -MANGLE_STR(post_process)
+
+.size MANGLE_STR(top_entry), . -MANGLE_STR(top_entry)
 
 
 //******************************************************************************

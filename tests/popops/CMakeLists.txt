@@ -1033,3 +1033,48 @@ add_multitarget_test(
                 --method=meet_in_middle_ring
         LABELS Collectives
         VARIANTS ${IPUMODEL_VARIANTS})
+
+# Histogram
+add_multi_target_test_executable(HistogramTest HistogramTest.cpp)
+
+add_multitarget_test(NAME HistogramTest_largeOnTile
+  COMMAND HistogramTest
+  --type float
+  --data-size=50000
+  --limits-size=8
+  --tiles-per-ipu=1)
+
+foreach(useFloat true false)
+  foreach(update true false)
+    foreach(withOutput true false)
+      add_multitarget_test(NAME HistogramTest_${withOutput}_${update}_${useFloat}
+        COMMAND HistogramTest
+        --type float
+        --data-size=200
+        --limits-size=8
+        --with-output=${withOutput}
+        --update=${update}
+        --use-float-arithmetic=${useFloat})
+    endforeach()
+  endforeach()
+endforeach()
+
+# Note that useFloat works here despite counting 20,000,000 elements -
+# with 7 limits = 8 histogram entries and random data there are few enough
+# values counted in each to be represented in float as an exact integer
+foreach(useFloat true false)
+  foreach(update true false)
+    foreach(withOutput true false)
+      add_multitarget_test(NAME HistogramTest_large_${withOutput}_${update}_${useFloat}
+        COMMAND HistogramTest
+        --type half
+        --data-size=20000000
+        --limits-size=7
+        --with-output=${withOutput}
+        --update=${update}
+        --use-float-arithmetic=${useFloat}
+        --tiles-per-ipu=1024
+        VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+endforeach()

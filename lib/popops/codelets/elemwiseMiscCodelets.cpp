@@ -608,6 +608,7 @@ public:
     };
 
     // Structured like the assembler
+    float previous = 0.0;
     for (unsigned i = 0; i < histogramCount - 1; i++) {
       float lessThanCount = 0;
       histogram[histogramCount - 1] = 0;
@@ -617,14 +618,12 @@ public:
           lessThanCount += condAbs(data[j][k]) < limits[i];
         }
       }
-      histogram[i] = lessThanCount;
+      const auto thisCount = lessThanCount;
+      histogram[i] = lessThanCount - previous;
+      previous = thisCount;
     }
-    // Post process
-    for (unsigned i = histogramCount - 1; i > 0; i--) {
-      float count = histogram[i];
-      float adjusted = count - histogram[i - 1];
-      histogram[i] = adjusted;
-    }
+    // Adjust the last one
+    histogram[histogramCount - 1] -= previous;
     return true;
   }
 };
@@ -634,7 +633,7 @@ template class Histogram2D<half, true>;
 template class Histogram2D<float, false>;
 template class Histogram2D<half, false>;
 
-template <typename InType, bool isAbsolute>
+template <typename InType, bool isAbsolute, bool splitByLimits>
 class HistogramSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
   // SPAN required to support usefully large data size and no alignment
@@ -642,6 +641,8 @@ public:
   Input<Vector<InType, SPAN>> data;
   // There will be `limits` +1 histogram entries
   Input<Vector<InType, PTR_ALIGN32, 4>> limits;
+  // When splitByLimits==false, this array must be histogramCount * NUM_WORKERS
+  // in size
   Output<Vector<float, PTR_ALIGN32, 4>> histogram;
   unsigned short histogramCount;
 
@@ -652,7 +653,7 @@ public:
                         : d;
     };
 
-    // Structured like the assembler
+    // Structured like the assembler (when split by limits)
     for (unsigned wkrId = 0; wkrId < NUM_WORKERS; wkrId++) {
       for (unsigned i = wkrId; i < histogramCount; i += NUM_WORKERS) {
         float lessThanCount = 0;
@@ -674,8 +675,27 @@ public:
   }
 };
 
-template class HistogramSupervisor<float, true>;
-template class HistogramSupervisor<half, true>;
-template class HistogramSupervisor<float, false>;
-template class HistogramSupervisor<half, false>;
+// Note: Other types of histogram vertices may be more efficient in certain
+// circumstances.
+// For example with a large number of levels a scalar
+// comparison of data with a level and a binary search to pick the next level to
+// compare to will reduce the number or comparisons required.  This can be
+// slow (as it cannot be vectorised and will need decision branches in its inner
+// loop) but as the number of levels to compare is increased it will eventually
+// be more efficient.
+// A second case would be where levels are regular (and constant) each input
+// could be used to calculate the histogram entry which it will contribute to
+// directly.
+//
+// The methods used in the exisiting vertices are more general purpose and
+// cover many reasonable cases.
+
+template class HistogramSupervisor<float, true, true>;
+template class HistogramSupervisor<half, true, true>;
+template class HistogramSupervisor<float, false, true>;
+template class HistogramSupervisor<half, false, true>;
+template class HistogramSupervisor<float, true, false>;
+template class HistogramSupervisor<half, true, false>;
+template class HistogramSupervisor<float, false, false>;
+template class HistogramSupervisor<half, false, false>;
 } // namespace popops

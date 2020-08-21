@@ -22,6 +22,7 @@ add_library(popops SHARED
   Fill.cpp
   Gather.cpp
   GatherInternal.cpp
+  GatherStatistics.cpp
   HostSliceTensor.cpp
   NaN.cpp
   Operation.cpp
@@ -50,6 +51,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Expr.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/Fill.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/GatherStatistics.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/NaN.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
@@ -57,7 +60,6 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/Fill.hpp
 
   reduction/ComputeSetList.cpp
   reduction/ComputeSetList.hpp
@@ -143,7 +145,8 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterSupervisorOps.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisor.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByLimit.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByData.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
 )
 
