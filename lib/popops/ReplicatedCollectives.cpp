@@ -893,6 +893,11 @@ poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
 poplar::Tensor ReplicatedCollectives::replicatedReduceScatter(
     Graph &graph, const Tensor &toReduce, popops::Operation op, Sequence &prog,
     const std::string &debugPrefix, const OptionFlags &optionFlags) {
+  logging::info("replicatedReduceScatter data={}, op={}, name={}",
+                toReduce.shape(), op, debugPrefix);
+  logging::debug("Replicated reduce scatter begin ({}B)",
+                 toReduce.numElements() *
+                     graph.getTarget().getTypeSize(toReduce.elementType()));
   if (toReduce.rank() != 1) {
     throw poputil::poplibs_error("Input tensor to replicatedReduceScatter "
                                  "must have rank 1, but had rank " +
@@ -902,7 +907,10 @@ poplar::Tensor ReplicatedCollectives::replicatedReduceScatter(
   CollectiveOptions options;
   parseCollectiveOptions(optionFlags, options);
 
-  return internalReduceScatter(graph, toReduce, op, prog, debugPrefix, options);
+  auto output =
+      internalReduceScatter(graph, toReduce, op, prog, debugPrefix, options);
+  logging::debug("Replicated reduce scatter end");
+  return output;
 }
 
 static void noCheckReplicatedAllGather(Graph &graph, const Tensor &toGather,
