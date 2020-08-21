@@ -82,7 +82,23 @@ template <typename T> struct BlockMetaInfo {
     T offsetToNextSubGroupMetaInfo;
     // Number of blocks in X dimension in this sub-group (minus 1).
     T numXm1;
+    // Total number of GradW workers
+    T numGradWWorkers;
   };
+
+  struct GradWWorkerEntry {
+    // Offset in elements to sparse values for this worker to process;
+    T sparseOffset;
+    // Offset in elements from the beginning of this struct to first output
+    // entry this worker will process.
+    T metaInfoOffsetOutputEntry;
+    // Offset into the output entry's columns for the first output entry
+    // this worker processes.
+    T metaInfoOffsetToOffsetsYInSFirst;
+    // Total number of elements of Y to process over all rows.
+    T totalNumY;
+  };
+
   struct OutputEntry {
     // Offset to X index in Q in elements of Q
     // Q has layout {Z,X} in row major order.

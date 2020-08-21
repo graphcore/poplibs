@@ -1127,6 +1127,8 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       group.push_back(offsetToNextSubGroupSparseEntries);
       group.push_back(offsetToNextSubGroupMetaInfo);
       group.push_back(numRows - 1);
+      // TODO: add gradW workers
+      group.push_back(0);
 
       for (const auto &rowEntry : sg.tileInfo) {
         group.push_back(rowEntry.rowNumber);

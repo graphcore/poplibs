@@ -73,6 +73,21 @@ static std::vector<std::array<unsigned, 2>> generateBlockSparseIndices(
   return rowColumnIndices;
 }
 
+static unsigned
+getGradWWorkerPartition(const Target &target,
+                        const std::vector<unsigned> &aRowColumnCounts) {
+  // Much easier than forward partitions. Just partition the total number
+  // of columns of A between workers.
+  const auto totalAElems = std::accumulate(
+      aRowColumnCounts.begin(), aRowColumnCounts.end(), std::size_t(0));
+
+  const auto numWorkers = target.getNumWorkerContexts();
+  const auto aElemsPerWorker = ceildiv(totalAElems, numWorkers);
+  const auto numAPartitions = ceildiv(totalAElems, aElemsPerWorker);
+
+  return numAPartitions;
+}
+
 // Split the batch dimension across workers
 static std::vector<unsigned int> getForwardWorkerPartition(const Target &target,
                                                            unsigned bColumns) {
@@ -104,6 +119,7 @@ static std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
 
   // Factor by which row and column offsets are scaled
   const auto blockElems = product(blockSize);
+  const auto fillGradWInfo = vertexType == VertexType::GradW;
 
   // Order indices of a by column then row
   std::sort(indices.begin(), indices.end());
@@ -140,13 +156,33 @@ static std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
             sizeof(popsparse::BlockMetaInfo<T>::SubGroupEntry) / sizeof(T);
         const auto outputEntryElems =
             sizeof(popsparse::BlockMetaInfo<T>::OutputEntry) / sizeof(T);
-        const auto totalMetaInfoElems = subgroupEntryElems +
-                                        rows.size() * outputEntryElems +
-                                        processedSubGroupNumElems;
+        const auto gradWEntryElems =
+            sizeof(popsparse::BlockMetaInfo<T>::GradWWorkerEntry) / sizeof(T);
+
+        unsigned gradWNumUsedWorkers = 0;
+        if (fillGradWInfo) {
+          gradWNumUsedWorkers =
+              getGradWWorkerPartition(target, rowColumnCounts);
+        }
+
+        const auto totalMetaInfoElems =
+            subgroupEntryElems + rows.size() * outputEntryElems +
+            processedSubGroupNumElems + gradWNumUsedWorkers * gradWEntryElems;
         metaInfo[bucket].emplace_back(processedSubGroupNumElems * blockElems);
         metaInfo[bucket].emplace_back(totalMetaInfoElems);
         metaInfo[bucket].emplace_back(rows.size() - 1);
+        metaInfo[bucket].emplace_back(gradWNumUsedWorkers);
 
+        std::vector<unsigned> metaInfoGradWWorkerEntryIndices;
+        if (fillGradWInfo) {
+          metaInfoGradWWorkerEntryIndices.resize(gradWNumUsedWorkers);
+          for (unsigned worker = 0; worker < gradWNumUsedWorkers; ++worker) {
+            metaInfoGradWWorkerEntryIndices[worker] = metaInfo[bucket].size();
+            for (std::size_t i = 0; i < gradWEntryElems; ++i) {
+              metaInfo[bucket].emplace_back(~0u);
+            }
+          }
+        }
         // Output row -> column list meta-info
         std::vector<unsigned> outputEntryMetaInfoIndices(rows.size());
         for (std::size_t r = 0; r < rows.size(); ++r) {
@@ -160,6 +196,46 @@ static std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
           for (unsigned c = 0; c < rowColumnCounts[r]; ++c) {
             metaInfo[bucket].push_back(indices.at(nzOffset)[1]);
             ++nzOffset;
+          }
+        }
+
+        if (fillGradWInfo) {
+          const auto totalAElems = std::accumulate(
+              rowColumnCounts.begin(), rowColumnCounts.end(), std::size_t(0));
+          const auto numAElemsPerPartition =
+              ceildiv(totalAElems, gradWNumUsedWorkers);
+          unsigned currRowIndex = 0;
+          unsigned currRowColumnIndex = 0;
+          for (unsigned worker = 0; worker < gradWNumUsedWorkers; ++worker) {
+            const auto sparseStartIndex = worker * numAElemsPerPartition;
+            const auto sparseEndIndex =
+                std::min((worker + 1) * numAElemsPerPartition, totalAElems);
+            const auto numSparseElems = sparseEndIndex - sparseStartIndex;
+
+            unsigned startRowIndex = currRowIndex;
+            unsigned startRowStartColumnIndex = currRowColumnIndex;
+            const auto workerEntryIndex =
+                metaInfoGradWWorkerEntryIndices[worker];
+            metaInfo[bucket][workerEntryIndex + 0] =
+                sparseStartIndex * blockElems;
+            metaInfo[bucket][workerEntryIndex + 1] =
+                outputEntryMetaInfoIndices[startRowIndex] - workerEntryIndex;
+            metaInfo[bucket][workerEntryIndex + 2] = startRowStartColumnIndex;
+            metaInfo[bucket][workerEntryIndex + 3] = numSparseElems;
+
+            // Advance to next worker's work
+            unsigned numRemainingElems = numSparseElems;
+            while (numRemainingElems > 0) {
+              const auto elemsThisRow =
+                  std::min(numRemainingElems,
+                           rowColumnCounts[currRowIndex] - currRowColumnIndex);
+              numRemainingElems -= elemsThisRow;
+              currRowColumnIndex += elemsThisRow;
+              if (currRowColumnIndex >= rowColumnCounts[currRowIndex]) {
+                currRowColumnIndex = 0;
+                currRowIndex++;
+              }
+            }
           }
         }
         ++splitIdx;
@@ -370,9 +446,12 @@ int main(int argc, char **argv) try {
   const auto metaInfoType = UNSIGNED_SHORT;
 
   // Allocate operands
-  const auto aType = inputType;
+  const auto aType = vertexType == VertexType::GradW ? partialsType : inputType;
   const auto bType = vertexType == VertexType::GradA ? partialsType : inputType;
-  const auto cType = vertexType == VertexType::GradA ? inputType : partialsType;
+  const auto cType =
+      vertexType == VertexType::GradA || vertexType == VertexType::GradW
+          ? inputType
+          : partialsType;
   std::vector<Tensor> aBuckets(numBuckets);
   std::vector<Tensor> metaInfoBuckets(numBuckets);
   for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
@@ -404,10 +483,11 @@ int main(int argc, char **argv) try {
   case VertexType::GradA:
     vertexBaseClass += "SparseDenseMatMulBlockGradA";
     break;
-  case VertexType::Transposed:
   case VertexType::GradW:
-    throw poplibs_error("Vertex type not yet supported");
+    vertexBaseClass += "SparseDenseMatMulBlockGradW";
     break;
+  case VertexType::Transposed:
+    throw poplibs_error("Vertex type not yet supported");
   default:
     throw poplibs_error("Unrecognised vertex type");
   }
@@ -416,9 +496,13 @@ int main(int argc, char **argv) try {
                      blockSize.val[1]);
   const auto v = graph.addVertex(cs, vertexClass);
 
-  unsigned zStrideInQ = vertexType == VertexType::GradA
-                            ? aShape.val[1] * partialsTypeSize / 8
-                            : aShape.val[0] * partialsTypeSize / 8;
+  unsigned zStrideInQ =
+      vertexType == VertexType::GradA
+          ? aShape.val[1] * partialsTypeSize / 8
+          : aShape.val[0] *
+                (vertexType == VertexType::GradW ? inputTypeSize
+                                                 : partialsTypeSize) /
+                8;
   unsigned zStrideInS = vertexType == VertexType::GradA
                             ? aShape.val[0] * inputTypeSize / 8
                             : aShape.val[1] * inputTypeSize / 8;
@@ -427,27 +511,50 @@ int main(int argc, char **argv) try {
   if (zStrideInQ > maxPositiveStride || zStrideInS > maxPositiveStride) {
     throw poplibs_error("Strides exceed machine limits");
   }
+
+  // q and s are qGrad and s respectively for gradW pass
   auto qTensor = c, sTensor = b;
   if (vertexType == VertexType::GradA) {
     std::swap(sTensor, qTensor);
   }
-  graph.connect(v["q"], qTensor.flatten());
-  graph.connect(v["r"], aBuckets);
-  graph.connect(v["s"], sTensor.flatten());
-  graph.connect(v["metaInfo"], metaInfoBuckets);
-  graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
-  assert(partialsType == FLOAT || qTensor.numElements() % 2 == 0);
-  const auto numPartials = (partialsType == FLOAT) ? qTensor.numElements()
-                                                   : qTensor.numElements() / 2;
 
-  graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
-  graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
-  graph.setInitialValue(v["zStrideInS"], zStrideInS);
-  auto worklist = getForwardWorkerPartition(target, bShape.val[1]);
-  auto worklistTensor = graph.addConstant(UNSIGNED_SHORT, {worklist.size()},
-                                          worklist.data(), "/worklists");
-  graph.setTileMapping(worklistTensor, 0);
-  graph.connect(v["offsetAndNumZByWorker"], worklistTensor);
+  if (vertexType == VertexType::GradW) {
+    graph.connect(v["qGrad"], qTensor.flatten());
+    graph.connect(v["rGrad"], aBuckets.at(0));
+    graph.connect(v["s"], sTensor.flatten());
+    graph.connect(v["metaInfo"], metaInfoBuckets.at(0));
+    const auto deviceProcessedSubGroupId =
+        graph.addConstant(metaInfoType, {}, processedSubGroupId);
+    graph.setTileMapping(deviceProcessedSubGroupId, 0);
+    graph.connect(v["subGroupIdToProcess"], deviceProcessedSubGroupId);
+    const auto numElements = aBuckets.at(0).numElements();
+    assert(partialsType == FLOAT || numElements % 2 == 0);
+    const auto numPartials =
+        (partialsType == FLOAT) ? numElements : numElements / 2;
+    graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
+    graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
+    graph.setInitialValue(v["zStrideInS"], zStrideInS);
+    graph.setInitialValue(v["numZ"], bShape.val[1]);
+  } else {
+    graph.connect(v["q"], qTensor.flatten());
+    graph.connect(v["r"], aBuckets);
+    graph.connect(v["s"], sTensor.flatten());
+    graph.connect(v["metaInfo"], metaInfoBuckets);
+    graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
+    assert(partialsType == FLOAT || qTensor.numElements() % 2 == 0);
+    const auto numPartials = (partialsType == FLOAT)
+                                 ? qTensor.numElements()
+                                 : qTensor.numElements() / 2;
+
+    graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
+    graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
+    graph.setInitialValue(v["zStrideInS"], zStrideInS);
+    auto worklist = getForwardWorkerPartition(target, bShape.val[1]);
+    auto worklistTensor = graph.addConstant(UNSIGNED_SHORT, {worklist.size()},
+                                            worklist.data(), "/worklists");
+    graph.setTileMapping(worklistTensor, 0);
+    graph.connect(v["offsetAndNumZByWorker"], worklistTensor);
+  }
   graph.setTileMapping(v, 0);
 
   Sequence prog;
@@ -485,7 +592,7 @@ int main(int argc, char **argv) try {
   boost::multi_array<double, 2> hostC(boost::extents[cShape[1]][cShape[0]]);
 
   for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
-    writeRandomValues(target, aType, hostABuckets[bucket], -1.0, 1.0,
+    writeRandomValues(target, aType, hostABuckets[bucket], -1.0, 1.000001,
                       randomEngine);
     copy(target, hostABuckets[bucket], aType, rawHostABuckets[bucket].get());
   }
@@ -514,6 +621,8 @@ int main(int argc, char **argv) try {
     copy(target, cType, rawHostC.get(), hostC);
   } else if (vertexType == VertexType::GradA) {
     copy(target, bType, rawHostB.get(), hostB);
+  } else if (vertexType == VertexType::GradW) {
+    copy(target, aType, rawHostABuckets.at(0).get(), hostABuckets.at(0));
   }
 
   if (!ignoreData) {
@@ -579,6 +688,49 @@ int main(int argc, char **argv) try {
       }
       matchesModel = checkIsClose("modelB", hostB, modelB, relativeTolerance,
                                   absoluteTolerance);
+    } else if (vertexType == VertexType::GradW) {
+      boost::multi_array<double, 2> modelADense(
+          boost::extents[aShape[0]][aShape[1]]);
+      poplibs_test::gemm::generalMatrixMultiply(hostC, hostB, modelADense, true,
+                                                false);
+
+      // Now get the model sparse a, we do this to see if the actual sparse a
+      // overwrote any of the other positions that weren't part of the
+      // processed sub-group.
+      boost::multi_array<double, 1> modelA(
+          boost::extents[sum(subGroupNumElems.at(0)) * blockElems]);
+      if (!zeroPartials) {
+        for (std::size_t i = 0; i < modelA.num_elements(); ++i) {
+          modelA.data()[i] = origA.data()[i];
+        }
+      }
+      std::size_t nzOffset = 0;
+      for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
+        for (const auto &idx : processedSubGroupIndices[bucket]) {
+
+          const auto bucketNzOffset =
+              blockElems *
+              std::accumulate(subGroupNumElems[bucket].begin(),
+                              subGroupNumElems[bucket].begin() + idx,
+                              std::size_t(0));
+          for (std::size_t i = 0; i < subGroupNumElems[bucket][idx]; ++i) {
+            for (std::size_t bRow = 0; bRow != blockSize.val[0]; ++bRow) {
+              for (std::size_t bCol = 0; bCol != blockSize.val[1]; ++bCol) {
+                const auto index = bRow * blockSize.val[1] + bCol;
+                const auto val =
+                    modelADense[sparseIndices.at(nzOffset + i)[0] + bRow]
+                               [sparseIndices.at(nzOffset + i)[1] + bCol];
+                modelA[bucketNzOffset + i * blockElems + index] += val;
+              }
+            }
+          }
+          nzOffset += subGroupNumElems[bucket][idx];
+        }
+      }
+
+      matchesModel = checkIsClose("modelA", hostABuckets.at(0), modelA,
+                                  relativeTolerance, absoluteTolerance);
+
     } else {
       throw poputil::poplibs_error("Unhandled vertex type");
     }
