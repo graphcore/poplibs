@@ -10,7 +10,9 @@
 #include <utility>
 #include <vector>
 
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/logging.hpp"
+
 using namespace poplibs_support;
 
 static inline std::uint64_t zeroPartialsCycles(unsigned numPartials,
@@ -650,6 +652,49 @@ getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
   cycles = cycles * numWorkers;
 
   return cycles;
+}
+
+// Supervisor transpose estimate assuming we have numTransposes contiguous in
+// memory based on supervisor half transpose vertex with a guaranteed minimum
+// grain size.
+static inline std::uint64_t
+getTransposeCycleEstimate(unsigned numTransposes, unsigned numSrcRows,
+                          unsigned numSrcColumns, const poplar::Type &dataType,
+                          unsigned numWorkers) {
+
+  const std::uint64_t supervisorCycles = 7;
+
+  assert(dataType == poplar::FLOAT || dataType == poplar::HALF);
+  const bool is4ByteType = dataType == poplar::FLOAT;
+
+  const unsigned grainSize = is4ByteType ? 2 : 4;
+  const std::uint64_t cyclesPerGrain = is4ByteType ? 3 : 4;
+
+  std::uint64_t maxWorkerCycles = 0;
+  assert(numSrcRows % grainSize == 0);
+  assert(numSrcColumns % grainSize == 0);
+  const auto numSrcRowGrains = numSrcRows / grainSize;
+  const auto numSrcColumnGrains = numSrcColumns / grainSize;
+  const std::uint64_t maxTransposesPerWorker =
+      ceildiv(numTransposes, numWorkers);
+  if (numSrcRowGrains == 1 && numSrcColumnGrains == 1) {
+    if (maxTransposesPerWorker == 1) {
+      maxWorkerCycles = 17 + 12;
+    } else {
+      maxWorkerCycles = 17 + 20 + (maxTransposesPerWorker - 2) * cyclesPerGrain;
+    }
+  } else if (numSrcColumnGrains == 1) {
+    maxWorkerCycles =
+        27 + maxTransposesPerWorker *
+                 (15 + (20 + cyclesPerGrain * (numSrcRowGrains - 2)));
+  } else {
+    maxWorkerCycles =
+        29 + maxTransposesPerWorker *
+                 (18 + (numSrcRowGrains *
+                        (12 + cyclesPerGrain * (numSrcColumnGrains - 2))));
+  }
+
+  return supervisorCycles + numWorkers * maxWorkerCycles;
 }
 
 #endif // _performance_estimation_h_

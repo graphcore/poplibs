@@ -561,7 +561,9 @@ addInitialComputeCostSparseDense(
           // Transpose vertex does its work split at runtime
           workerTiles = splitTileBetweenWorkers(1, 1, numWorkers);
         case OnTileMethod::ForwardAMPBlock:
-          // We may only split Z for forward AMP
+        case OnTileMethod::TransposeAMPBlock:
+          // We may only split Z amongst workers for forward/grad-a AMP
+          // codelets
           workerTiles = splitTileBetweenWorkers(1, zGroups, numWorkers);
           break;
         default:
@@ -604,13 +606,24 @@ addInitialComputeCostSparseDense(
                 zGroups * zGrouping, std::vector<unsigned>({xGroups}),
                 inputType == FLOAT, partialsType == FLOAT, numWorkers);
             break;
-          case OnTileMethod::ForwardAMPBlock:
+          case OnTileMethod::ForwardAMPBlock: {
+            constexpr bool retainX = true;
             mulCycles = sparseDenseBlockMultiply(
-                numBuckets, numBuckets, numSubGroupsPerBucket, xGroups,
+                numBuckets, numBuckets, numSubGroupsPerBucket, xNonZeroGroups,
                 workerZElems, xGrouping, yGrouping, {yNonZeroGroups},
                 inputType == FLOAT, partialsType == FLOAT, numWorkers,
-                numConvUnits, true);
+                numConvUnits, retainX);
             break;
+          }
+          case OnTileMethod::TransposeAMPBlock: {
+            constexpr bool retainX = false;
+            mulCycles = sparseDenseBlockMultiply(
+                numBuckets, numBuckets, numSubGroupsPerBucket, yNonZeroGroups,
+                workerZElems, yGrouping, xGrouping, {xNonZeroGroups},
+                inputType == FLOAT, partialsType == FLOAT, numWorkers,
+                numConvUnits, retainX);
+            break;
+          }
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
           }
@@ -865,6 +878,45 @@ addReductionCost(
   return std::make_tuple(mExchangeCost, mComputeCost, mQTempBytesAfterCompute);
 }
 
+static std::tuple<CostVariables, popsolver::Variable>
+addTransposeBucketsCost(popsolver::Model &m, const Target &target,
+                        const Type &inputType,
+                        const popsolver::Variable &mGroupsPerBucket,
+                        const Vector<popsolver::Variable> &mGrouping) {
+
+  const auto mElemsPerGroup = m.product({mGrouping.x, mGrouping.y});
+  const auto mGroupingSum = m.sum({mGrouping.x, mGrouping.y});
+  const auto mNeedsTranspose = m.sub(
+      m.one(), m.sub(mGroupingSum, m.min({mElemsPerGroup, mGroupingSum})));
+  const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
+
+  const auto numWorkers = target.getNumWorkerContexts();
+
+  const auto calculateTransposeCycles =
+      [=](const std::vector<unsigned> &values) {
+        const auto numTransposes = values[0];
+        const auto numSrcRows = values[1];
+        const auto numSrcColumns = values[2];
+        if (numSrcRows + numSrcColumns > numSrcRows * numSrcColumns) {
+          return popsolver::DataType{0};
+        }
+
+        const auto cycles = getTransposeCycleEstimate(
+            numTransposes, numSrcRows, numSrcColumns, inputType, numWorkers);
+
+        return popsolver::DataType{cycles};
+      };
+  const auto mCycles =
+      m.product({mNeedsTranspose,
+                 m.call<unsigned>({mGroupsPerBucket, mGrouping.x, mGrouping.y},
+                                  calculateTransposeCycles)});
+
+  const auto mTransposedBytes = m.product(
+      {mNeedsTranspose, mGroupsPerBucket, mElemsPerGroup, mBytesPerInput});
+  return std::make_tuple(CostVariables(mCycles, mTransposedBytes),
+                         mTransposedBytes);
+}
+
 static std::tuple<CostVariables, CostBreakdownVariables>
 addEstimates(const Target &target, const Type &inputType,
              const Vector<std::size_t> &shape,
@@ -877,8 +929,7 @@ addEstimates(const Target &target, const Type &inputType,
              const popsolver::Variable &mRGroupsPerBucket,
              const popsolver::Variable &mRElemsPerGroup,
              const popsolver::Variable &mRMetaInfoElemsPerBucket,
-             const Options &options) {
-
+             const bool transposeBuckets, const Options &options) {
   CostBreakdownVariables costBreakdown;
 
   const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
@@ -891,6 +942,15 @@ addEstimates(const Target &target, const Type &inputType,
   const auto mRBytesPerBucket =
       m.sum({mRNonZeroBytesPerBucket, mRMetaInfoBytesPerBucket});
 
+  CostVariables mTransposeBucketsCost(m.zero(), m.zero());
+  popsolver::Variable mRTransposedBytes = m.zero();
+  if (transposeBuckets) {
+    std::tie(mTransposeBucketsCost, mRTransposedBytes) =
+        addTransposeBucketsCost(m, target, inputType, mRGroupsPerBucket,
+                                mGrouping);
+    costBreakdown.emplace_back("Transpose buckets", mTransposeBucketsCost);
+  }
+
   CostVariables mDistributionExchangeCost;
   popsolver::Variable mSTempBytesAfterExchange, mRTempBytesAfterExchange;
   std::tie(mDistributionExchangeCost, mSTempBytesAfterExchange,
@@ -898,6 +958,8 @@ addEstimates(const Target &target, const Type &inputType,
       addDistributionExchangeCostSparseDense(
           m, target, inputType, metaInfoType, options, hierarchy,
           exchangeEstimator, mGroups, mGrouping, mRBytesPerBucket, p);
+  mDistributionExchangeCost.tempBytes =
+      m.sum({mDistributionExchangeCost.tempBytes, mRTransposedBytes});
   costBreakdown.emplace_back("Initial distribution exchange",
                              mDistributionExchangeCost);
 
@@ -908,6 +970,8 @@ addEstimates(const Target &target, const Type &inputType,
           m, target, inputType, nzRatio, options, method, mGroups.back(),
           mGrouping, p.cumulative.back(), mSTempBytesAfterExchange,
           mRTempBytesAfterExchange);
+  mInitialComputeCost.tempBytes =
+      m.sum({mInitialComputeCost.tempBytes, mRTransposedBytes});
   costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
 
   CostVariables mPropagatingExchangeCost;
@@ -916,7 +980,7 @@ addEstimates(const Target &target, const Type &inputType,
                                  exchangeEstimator, mRBytesPerBucket, p);
   mPropagatingExchangeCost.tempBytes =
       m.sum({mPropagatingExchangeCost.tempBytes, mSTempBytesAfterExchange,
-             mQTempBytesAfterCompute});
+             mQTempBytesAfterCompute, mRTransposedBytes});
   costBreakdown.emplace_back("Propagating exchange (per-iteration)",
                              mPropagatingExchangeCost);
 
@@ -942,13 +1006,13 @@ addEstimates(const Target &target, const Type &inputType,
   costBreakdown.emplace_back("Reduction or cast", mReductionComputeCost);
 
   CostVariables cost(
-      m.sum({mDistributionExchangeCost.cycles, mInitialComputeCost.cycles,
-             mPropagatingExchangeCost.cycles, mReductionExchangeCost.cycles,
-             mReductionComputeCost.cycles}),
-      m.max({mDistributionExchangeCost.tempBytes, mInitialComputeCost.tempBytes,
-             mPropagatingExchangeCost.tempBytes,
-             mReductionExchangeCost.tempBytes,
-             mReductionComputeCost.tempBytes}));
+      m.sum({mTransposeBucketsCost.cycles, mDistributionExchangeCost.cycles,
+             mInitialComputeCost.cycles, mPropagatingExchangeCost.cycles,
+             mReductionExchangeCost.cycles, mReductionComputeCost.cycles}),
+      m.max(
+          {mTransposeBucketsCost.tempBytes, mDistributionExchangeCost.tempBytes,
+           mInitialComputeCost.tempBytes, mPropagatingExchangeCost.tempBytes,
+           mReductionExchangeCost.tempBytes, mReductionComputeCost.tempBytes}));
   costBreakdown.emplace_back("Total", cost);
   return std::make_tuple(cost, costBreakdown);
 }
@@ -964,7 +1028,6 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
     const Vector<popsolver::Variable> &mGrouping,
     const popsolver::Variable &mRGroupsPerBucket,
     const popsolver::Variable &mRElemsPerGroup, const Options &options) {
-
   CostBreakdownVariables costBreakdown;
 
   CostVariables mInitialExchangeCost;
@@ -1188,6 +1251,10 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
     return m.call<unsigned>({mGroupsPerTile.x, mGroupsPerTile.y},
                             calcFwdBucketSizeAMPBlock);
   }
+  case OnTileMethod::TransposeAMPBlock: {
+    return m.call<unsigned>({mGroupsPerTile.y, mGroupsPerTile.x},
+                            calcFwdBucketSizeAMPBlock);
+  }
   default:
     throw poputil::poplibs_error("Unhandled OnTileMethod");
   }
@@ -1197,7 +1264,6 @@ static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
            const Method &method, const Cost &bestCost, const Options &options) {
-
   const auto hierarchy = poplibs::getTileHierarchy(target);
   const auto perLevelExchangeBytesPerCycle =
       poplibs::getPerLevelExchangeBytesPerCycle(target);
@@ -1278,7 +1344,7 @@ createPlan(const PlanningObjective &objective, const Target &target,
       target, inputType, fwdShape, params.getSparsityParams(),
       params.getNzRatio(), method.fwd, hierarchy, exchangeEstimator, m,
       fwdPartition, mFwdGroups, mFwdGrouping, mRGroupsPerBucket,
-      mRElemsPerGroup, mRFwdMetaInfoElemsPerBucket, options);
+      mRElemsPerGroup, mRFwdMetaInfoElemsPerBucket, false, options);
 
   CostVariables gradACost(m.zero(), m.zero());
   CostBreakdownVariables gradACostBreakdown;
@@ -1323,7 +1389,7 @@ createPlan(const PlanningObjective &objective, const Target &target,
         target, inputType, gradAShape, params.getSparsityParams(),
         params.getNzRatio(), method.gradA, hierarchy, exchangeEstimator, m,
         gradAPartition, mGradAGroups, mGradAGrouping, mRGroupsPerBucket,
-        mRElemsPerGroup, mRGradAMetaInfoElemsPerBucket, options);
+        mRElemsPerGroup, mRGradAMetaInfoElemsPerBucket, true, options);
   }
 
   CostVariables gradWCost(m.zero(), m.zero());
