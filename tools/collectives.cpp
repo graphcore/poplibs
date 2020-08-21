@@ -397,7 +397,7 @@ int main(int argc, char **argv) {
 
   OptionFlags engineOptions;
   if (vm.count("profile")) {
-    engineOptions.set("debug.instrumentCompute", "true");
+    engineOptions.set("debug.instrument", "true");
   }
 
   bool measureCycles = vm.count("measure-overall-cycles") &&
