@@ -16,7 +16,9 @@ static constexpr auto SHORT_SPAN = VectorLayout::SHORT_SPAN;
 template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
-  return false;
+  constexpr bool is4x4 = BlockRows == 4 && BlockCols == 4;
+
+  return is4x4;
 }
 
 namespace popsparse {

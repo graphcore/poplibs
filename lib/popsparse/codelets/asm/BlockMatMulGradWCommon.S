@@ -182,5 +182,62 @@ br                     $lr
 .size COMMON_FN, . - COMMON_FN
 
 // =============================================================================
+
+#define FF4x4_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___float_float_4_4
+
+DEF_STACK_USAGE (STACK_SIZE + 4) FF4x4_CODELET_NAME
+
+.section .text.FF4x4_CODELET_NAME
+.align 4
+.globl FF4x4_CODELET_NAME
+.type FF4x4_CODELET_NAME, @function
+FF4x4_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block4x4SparseDenseMultiplyGradWFF
+setzi             $s_rGradLd32Flag, 1
+bri               COMMON_FN
+
+.size FF4x4_CODELET_NAME, . - FF4x4_CODELET_NAME
+
+// =============================================================================
+
+#define HF4x4_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_float_4_4
+
+DEF_STACK_USAGE (STACK_SIZE + 4) HF4x4_CODELET_NAME
+
+.section .text.HF4x4_CODELET_NAME
+.align 4
+.globl HF4x4_CODELET_NAME
+.type HF4x4_CODELET_NAME, @function
+HF4x4_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block4x4SparseDenseMultiplyGradWHF
+setzi             $s_rGradLd32Flag, 1
+bri               COMMON_FN
+
+.size HF4x4_CODELET_NAME, . - HF4x4_CODELET_NAME
+
+// =============================================================================
+
+#define HH4x4_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_half_4_4
+
+DEF_STACK_USAGE (STACK_SIZE + 4) HH4x4_CODELET_NAME
+
+.section .text.HH4x4_CODELET_NAME
+.align 4
+.globl HH4x4_CODELET_NAME
+.type HH4x4_CODELET_NAME, @function
+HH4x4_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block4x4SparseDenseMultiplyGradWHH
+setzi             $s_rGradLd32Flag, 0
+bri               COMMON_FN
+
+.size HH4x4_CODELET_NAME, . - HH4x4_CODELET_NAME
+
+// =============================================================================
 #endif // #ifdef __IPU__
 // =============================================================================
