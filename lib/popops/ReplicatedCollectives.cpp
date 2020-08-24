@@ -3,7 +3,9 @@
 #include "popops/CollectivesInterface.hpp"
 
 #include "CollectivesProgram.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/DynamicSlice.hpp"
 #include "popops/ElementWise.hpp"
@@ -311,15 +313,12 @@ static std::vector<Tensor> getPerIpuTensors(const Tensor &t, Graph &graph) {
 }
 
 static CollectiveMethod pickAllGatherMethod(const Graph &graph,
-                                            const Tensor &toGather) {
+                                            std::size_t numBytes) {
   const auto ipusPerRank = graph.getTarget().getNumIPUs();
   const auto numRanks = graph.getReplicationFactor();
   if (ipusPerRank > 1 || numRanks <= 2)
     return CollectiveMethod::CLOCKWISE_RING;
-  const auto &target = graph.getTarget();
-  const auto bytesPerIpu = toGather.numElements() *
-                           target.getTypeSize(toGather.elementType()) /
-                           ipusPerRank;
+  const auto bytesPerIpu = numBytes / ipusPerRank;
   // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
   // MEET_IN_MIDDLE_RING method determined experimentally.
   // TODO: T12970 Lots has changed since these thresholds were set - check if
@@ -331,16 +330,22 @@ static CollectiveMethod pickAllGatherMethod(const Graph &graph,
   return CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
 }
 
+static CollectiveMethod pickAllGatherMethod(const Graph &graph,
+                                            const Tensor &toGather) {
+  const auto &target = graph.getTarget();
+  const auto numBytes =
+      toGather.numElements() * target.getTypeSize(toGather.elementType());
+  return pickAllGatherMethod(graph, numBytes);
+}
+
 static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
-                                                const Tensor &t,
+                                                std::size_t numBytes,
                                                 popops::Operation op) {
   const auto ipusPerRank = graph.getTarget().getNumIPUs();
   const auto numRanks = graph.getReplicationFactor();
   if (ipusPerRank > 1 || numRanks <= 2)
     return CollectiveMethod::CLOCKWISE_RING;
-  const auto &target = graph.getTarget();
-  unsigned bytesPerIpu =
-      t.numElements() * target.getTypeSize(t.elementType()) / ipusPerRank;
+  unsigned bytesPerIpu = numBytes / ipusPerRank;
   // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
   // MEET_IN_MIDDLE_RING method determined experimentally.
   // TODO: T12970 Lots has changed since these thresholds were set - check if
@@ -350,6 +355,14 @@ static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
     return CollectiveMethod::MEET_IN_MIDDLE_RING;
   }
   return CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
+}
+
+static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
+                                                const Tensor &t,
+                                                popops::Operation op) {
+  const auto &target = graph.getTarget();
+  const auto numBytes = t.numElements() * target.getTypeSize(t.elementType());
+  return pickReduceScatterMethod(graph, numBytes, op);
 }
 
 // Split a tensor into the specified number of fragments such that the
@@ -970,6 +983,181 @@ poplar::Tensor ReplicatedCollectives::replicatedAllGather(
   return output;
 }
 
+static std::size_t
+getMaxPerTileElements(Graph::TileToTensorMapping::const_iterator begin,
+                      Graph::TileToTensorMapping::const_iterator end) {
+  std::size_t maxElements = 0;
+  for (auto it = begin; it != end; ++it) {
+    auto elements =
+        std::accumulate(it->begin(), it->end(), 0UL,
+                        [](std::size_t count, const Interval &interval) {
+                          return count + interval.size();
+                        });
+    if (elements > maxElements) {
+      maxElements = elements;
+    }
+  }
+  return maxElements;
+}
+
+static std::size_t
+getNumElements(Graph::TileToTensorMapping::const_iterator begin,
+               Graph::TileToTensorMapping::const_iterator end) {
+  return std::accumulate(
+      begin, end, 0UL,
+      [](std::size_t count, const std::vector<Interval> &intervals) {
+        return std::accumulate(intervals.begin(), intervals.end(), count,
+                               [](std::size_t count, const Interval &interval) {
+                                 return count + interval.size();
+                               });
+      });
+}
+
+// Permute the data tensor to improve the efficiency of an all-reduce using
+// the specified number of fragments and apply the same permutation to the
+// result tensor.
+static void allReduceReorder(Graph &graph, poplar::Tensor *data,
+                             poplar::Tensor *result, unsigned numFragments) {
+  logging::debug("Reorder data tensor for an all-reduce with {} fragments",
+                 numFragments);
+  auto dataReordered = data->flatten();
+  auto resultReordered = result->flatten();
+  graph.reorderToSimplify(&dataReordered, {&resultReordered});
+  auto tileMapping = graph.getTileMapping(dataReordered);
+  auto numIpus = graph.getTarget().getNumIPUs();
+  auto tilesPerIpu = graph.getTarget().getTilesPerIPU();
+  auto typeSize = graph.getTarget().getTypeSize(data->elementType());
+  auto exchangeBytesPerCycle = graph.getTarget().getExchangeBytesPerCycle();
+  std::vector<Interval> reorderedIntervals;
+  for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
+    auto tileBegin = ipu * tilesPerIpu;
+    auto tileEnd = (ipu + 1) * tilesPerIpu;
+
+    // Permute data so when we later split it into fragments each fragment is
+    // well balanced across tiles. We do this by concatenating elements from
+    // each tile in round robin fashion. Instead of concatenating indivdual
+    // elements (which would increase code size due to copies of many small
+    // regions) we concatenate slices. The largest slice size we can use without
+    // increasing the maximum number of elements a single tile contributes to a
+    // fragment is given by the maximum number of elements on any tile divided
+    // by the number of fragments.
+    auto maxElements = getMaxPerTileElements(tileMapping.begin() + tileBegin,
+                                             tileMapping.begin() + tileEnd);
+    auto tileBytesPerFragment = ceildiv(maxElements * typeSize, numFragments);
+    // Round the number of elements up and enforce a minimum size to avoid
+    // fragments being spread too thinly (which would increases memory a lot
+    // for a small reduction in cycles).
+    // This number was choosen arbitrarily so may not be optimial
+    const auto minTileBytesPerFragment = 128UL;
+    tileBytesPerFragment = std::max(tileBytesPerFragment,
+                                    minTileBytesPerFragment);
+    auto grainSize = lcm<unsigned>(exchangeBytesPerCycle, typeSize);
+    auto tileElementsPerFragment =
+        roundUp(tileBytesPerFragment, grainSize) / typeSize;
+    struct MappingOffset {
+      std::size_t interval = 0;
+      std::size_t offsetInInterval = 0;
+    };
+    auto numElements = getNumElements(tileMapping.begin() + tileBegin,
+                                      tileMapping.begin() + tileEnd);
+    auto elementsPerFragment = ceildiv(numElements, numFragments);
+    std::vector<MappingOffset> offsets(tilesPerIpu);
+    unsigned tile = tileBegin;
+    auto ipuElementsRemaining = numElements;
+    // Construct intervals a fragment at a time by cycling through the tiles in
+    // a round robin fashion.
+    for (unsigned fragment = 0; fragment != numFragments; ++fragment) {
+      auto fragmentElementsRemaining = std::min(elementsPerFragment,
+                                                ipuElementsRemaining);
+      while (fragmentElementsRemaining > 0) {
+        auto tileElementsRemaining =
+            std::min(tileElementsPerFragment, fragmentElementsRemaining);
+        auto &offset = offsets[tile - tileBegin];
+        while (tileElementsRemaining > 0) {
+          if (offset.interval == tileMapping[tile].size())
+            break;
+          const auto &interval = tileMapping[tile][offset.interval];
+          auto sliceBegin = interval.begin() + offset.offsetInInterval;
+          auto sliceEnd = std::min(sliceBegin + tileElementsRemaining,
+                                   interval.end());
+          auto sliceSize = sliceEnd - sliceBegin;
+          logging::trace("Add interval [{},{}) on tile {} to fragment {}",
+                         sliceBegin, sliceEnd, tile, fragment);
+          reorderedIntervals.emplace_back(sliceBegin, sliceEnd);
+          if (sliceEnd == interval.end()) {
+            ++offset.interval;
+            offset.offsetInInterval = 0;
+          } else {
+            offset.offsetInInterval += sliceSize;
+          }
+          tileElementsRemaining -= sliceSize;
+          fragmentElementsRemaining -= sliceSize;
+          ipuElementsRemaining -= sliceSize;
+        }
+        ++tile;
+        if (tile == tileEnd)
+          tile = tileBegin;
+      }
+    }
+  }
+  *data = concatSlices(dataReordered, graph, reorderedIntervals);
+  *result = concatSlices(resultReordered, graph, reorderedIntervals);
+}
+
+static unsigned getReduceScatterNumFragments(Graph &graph,
+                                             const CollectiveOptions &options,
+                                             const poplar::Tensor &data,
+                                             popops::Operation op) {
+  CollectiveMethod method = options.method;
+  if (method == CollectiveMethod::AUTO) {
+    method = pickReduceScatterMethod(graph, data, op);
+  }
+  switch (method) {
+  default:
+    POPLIB_UNREACHABLE();
+  case CollectiveMethod::CLOCKWISE_RING:
+  case CollectiveMethod::ANTICLOCKWISE_RING:
+  case CollectiveMethod::MEET_IN_MIDDLE_RING:
+    return graph.getReplicationFactor();
+  case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
+    return graph.getReplicationFactor() * 2;
+  }
+}
+
+static unsigned getAllGatherNumFragments(Graph &graph,
+                                         const CollectiveOptions &options,
+                                         unsigned numBytes) {
+  CollectiveMethod method = options.method;
+  if (method == CollectiveMethod::AUTO) {
+    method = pickAllGatherMethod(graph, numBytes);
+  }
+  switch (method) {
+  default:
+    POPLIB_UNREACHABLE();
+  case CollectiveMethod::CLOCKWISE_RING:
+  case CollectiveMethod::ANTICLOCKWISE_RING:
+  case CollectiveMethod::MEET_IN_MIDDLE_RING:
+    return graph.getReplicationFactor();
+  case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
+    return graph.getReplicationFactor() * 2;
+  }
+}
+
+static unsigned getAllReduceNumFragments(Graph &graph,
+                                         const CollectiveOptions &options,
+                                         const poplar::Tensor &data,
+                                         popops::Operation op) {
+  auto typeSize = graph.getTarget().getTypeSize(data.elementType());
+  auto numElements = data.numElements();
+  auto replicationFactor = graph.getReplicationFactor();
+  auto numElementsAfterReduceScatter =
+      ceildiv(numElements, replicationFactor);
+  return std::max(
+      getReduceScatterNumFragments(graph, options, data, op),
+      getAllGatherNumFragments(graph, options,
+                               numElementsAfterReduceScatter * typeSize));
+}
+
 static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                                        const poplar::Tensor &result,
                                        popops::Operation op,
@@ -984,7 +1172,8 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
 
   auto dataReordered = data.flatten();
   auto resultReordered = result.flatten();
-  graph.reorderToSimplify(&dataReordered, {&resultReordered});
+  allReduceReorder(graph, &dataReordered, &resultReordered,
+                   getAllReduceNumFragments(graph, options, data, op));
   if (options.useReplicatedImplementation) {
     logging::debug("Using replicated version of allReduce");
     auto reduceScattered = internalReduceScatter(graph, dataReordered, op, prog,
