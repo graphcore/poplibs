@@ -472,9 +472,18 @@ static void mapBuffer(Graph &graph, const Tensor &buffer,
   auto ipuMapping = getIpuMapping(graph, fragments[0]);
   const auto numIpus = ipuMapping.size();
   unsigned tilesPerIpu = graph.getTarget().getTilesPerIPU();
+  auto mapping = graph.getTileMapping(fragments);
   for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
     auto virtualGraph =
         graph.createVirtualGraph(ipu * tilesPerIpu, (ipu + 1) * tilesPerIpu);
+    // Spread the buffer across the tiles the fragments are on.
+    std::vector<unsigned> usedTiles;
+    for (unsigned tileInIpu = 0; tileInIpu != tilesPerIpu; ++tileInIpu) {
+      if (mapping[ipu * tilesPerIpu + tileInIpu].empty())
+        continue;
+      usedTiles.push_back(tileInIpu);
+    }
+    virtualGraph = virtualGraph.createVirtualGraph(usedTiles);
     poputil::mapTensorLinearly(
         virtualGraph, concatSlices(buffer, virtualGraph, ipuMapping[ipu]));
   }
