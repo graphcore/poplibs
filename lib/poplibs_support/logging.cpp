@@ -1,17 +1,15 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/logging.hpp"
 #include "poputil/exceptions.hpp"
-
+#include <array>
+#include <iostream>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/file_sinks.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
-
-#include <iostream>
 #include <string>
-#include <unordered_map>
 
 namespace poplibs_support {
 namespace logging {
@@ -34,7 +32,7 @@ spdlog::level::level_enum translate(Level l) {
 // Stores the logging object needed by spdlog.
 struct LoggingContext {
 public:
-  static std::shared_ptr<spdlog::logger> getLogger(Module m);
+  static spdlog::logger &getLogger(Module m);
 
 private:
   LoggingContext();
@@ -46,7 +44,9 @@ private:
   }
 
   std::shared_ptr<spdlog::sinks::sink> sink;
-  std::unordered_map<Module, std::shared_ptr<spdlog::logger>> loggers;
+  std::array<std::shared_ptr<spdlog::logger>,
+             static_cast<std::size_t>(Module::size)>
+      loggers;
 };
 
 Level logLevelFromString(const std::string &level) {
@@ -163,7 +163,7 @@ LoggingContext::LoggingContext() {
     auto logger = std::make_shared<spdlog::logger>(moduleName(m), sink);
     logger->set_level(translate(getLogLevelForModule(m)));
     logger->set_pattern("%T.%e %t PL:%n" + getPaddingForModule(m) + " [%L] %v");
-    loggers[m] = logger;
+    loggers[static_cast<std::size_t>(m)] = logger;
   };
 
   createLogger(Module::popfloat);
@@ -177,32 +177,32 @@ LoggingContext::LoggingContext() {
   createLogger(Module::poplibs);
 }
 
-std::shared_ptr<spdlog::logger> LoggingContext::getLogger(Module m) {
-  return LoggingContext::instance().loggers.at(m);
+spdlog::logger &LoggingContext::getLogger(Module m) {
+  return *LoggingContext::instance().loggers.at(static_cast<std::size_t>(m));
 }
 
 } // namespace
 
 void log(Module m, Level l, std::string &&msg) {
-  LoggingContext::getLogger(m)->log(translate(l), std::move(msg));
+  LoggingContext::getLogger(m).log(translate(l), std::move(msg));
 }
 
 bool shouldLog(Module m, Level l) {
-  return LoggingContext::getLogger(m)->should_log(translate(l));
+  return LoggingContext::getLogger(m).should_log(translate(l));
 }
 
 void setLogLevel(Module m, Level l) {
-  LoggingContext::getLogger(m)->set_level(translate(l));
+  LoggingContext::getLogger(m).set_level(translate(l));
 }
 
-void flush(Module m) { LoggingContext::getLogger(m)->flush(); }
+void flush(Module m) { LoggingContext::getLogger(m).flush(); }
 
 // Deprecated
 void log(Level l, std::string &&msg) {
-  LoggingContext::getLogger(Module::poplibs)->log(translate(l), std::move(msg));
+  LoggingContext::getLogger(Module::poplibs).log(translate(l), std::move(msg));
 }
 bool shouldLog(Level l) {
-  return LoggingContext::getLogger(Module::poplibs)->should_log(translate(l));
+  return LoggingContext::getLogger(Module::poplibs).should_log(translate(l));
 }
 // End deprecated
 

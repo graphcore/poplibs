@@ -51,15 +51,17 @@ enum class Level {
 };
 
 enum class Module {
-  popfloat,
-  poplin,
-  popnn,
-  popops,
-  poprand,
-  popsolver,
-  popsparse,
-  poputil,
-  poplibs // Default - deprecated
+  popfloat = 0,
+  poplin = 1,
+  popnn = 2,
+  popops = 3,
+  poprand = 4,
+  popsolver = 5,
+  popsparse = 6,
+  poputil = 7,
+  poplibs = 8, // Default - deprecated
+
+  size = 9
 };
 
 // Set the current log level to one of the above levels. The default
