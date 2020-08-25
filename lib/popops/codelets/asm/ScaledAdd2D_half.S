@@ -345,7 +345,7 @@ axplusby_half_half_common:  // This is called from ScaledAddaXPlusbY_mixed.S
   // we need to calculate what our out pointer is because the value is hidden
   // inside the $triPtr with no easy way of extracting it. we do this by using
   // how many elements we have processed (origDataSize-currentDataSize), then
-  // doubled as we do one 32-bit load for every 2 halfs and we want the offset
+  // doubled as we do one 32-bit load for every 2 halves and we want the offset
   // to be number of bytes, not items.
   sub $offset, $origDataSize, $dataSize
   shl $offset, $offset, 1

@@ -182,7 +182,7 @@ VectorInnerMul_core_half:
 
   // The current multiple of 4 pipeline uses ldst64pace. The
   // stride of that instruction is a signed 10-bit number of 64-bit words. So
-  // the maximum stride is 8 * (2^9-1) = 4088 bytes = 2044 halfs.
+  // the maximum stride is 8 * (2^9-1) = 4088 bytes = 2044 halves.
   //
   // So if scale_len is more than 2044 we must use the medium speed path.
   cmpult $mscratch0, $scale_len, 2045

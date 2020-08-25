@@ -80,7 +80,7 @@ blockSparseDenseMultiply_hh16x16:
   // The striding in terms of half elements in the inner loop for partials is:
   // 4, stride - 4
   // and since stride is in multiples of 64-bits we divide this calculation by
-  // the number of halfs per 64-bits, 4.
+  // the number of halves per 64-bits, 4.
   add $w_zStrideInQ, $w_zStrideInQ, -1
   add $w_zStrideInS, $w_zStrideInS, -3
 

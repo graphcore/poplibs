@@ -76,7 +76,7 @@ blockSparseDenseMultiply_hh16x16:
   // and inputs is:
   // 4, 4, 4, stride - 12
   // and since stride is in multiples of 64-bits we divide this calculation by
-  // the number of halfs per 64-bits, 4 leaving us with a subtraction of 3.
+  // the number of halves per 64-bits, 4 leaving us with a subtraction of 3.
   add $w_zStrideInQ, $w_zStrideInQ, -3
   add $w_zStrideInS, $w_zStrideInS, -3
 

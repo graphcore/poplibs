@@ -1047,10 +1047,10 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
     // Round the number of elements up and enforce a minimum size to avoid
     // fragments being spread too thinly (which would increases memory a lot
     // for a small reduction in cycles).
-    // This number was choosen arbitrarily so may not be optimial
+    // This number was chosen arbitrarily so may not be optimial
     const auto minTileBytesPerFragment = 128UL;
-    tileBytesPerFragment = std::max(tileBytesPerFragment,
-                                    minTileBytesPerFragment);
+    tileBytesPerFragment =
+        std::max(tileBytesPerFragment, minTileBytesPerFragment);
     auto grainSize = lcm<unsigned>(exchangeBytesPerCycle, typeSize);
     auto tileElementsPerFragment =
         roundUp(tileBytesPerFragment, grainSize) / typeSize;
@@ -1067,8 +1067,8 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
     // Construct intervals a fragment at a time by cycling through the tiles in
     // a round robin fashion.
     for (unsigned fragment = 0; fragment != numFragments; ++fragment) {
-      auto fragmentElementsRemaining = std::min(elementsPerFragment,
-                                                ipuElementsRemaining);
+      auto fragmentElementsRemaining =
+          std::min(elementsPerFragment, ipuElementsRemaining);
       while (fragmentElementsRemaining > 0) {
         auto tileElementsRemaining =
             std::min(tileElementsPerFragment, fragmentElementsRemaining);
@@ -1078,8 +1078,8 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
             break;
           const auto &interval = tileMapping[tile][offset.interval];
           auto sliceBegin = interval.begin() + offset.offsetInInterval;
-          auto sliceEnd = std::min(sliceBegin + tileElementsRemaining,
-                                   interval.end());
+          auto sliceEnd =
+              std::min(sliceBegin + tileElementsRemaining, interval.end());
           auto sliceSize = sliceEnd - sliceBegin;
           logging::trace("Add interval [{},{}) on tile {} to fragment {}",
                          sliceBegin, sliceEnd, tile, fragment);
@@ -1150,8 +1150,7 @@ static unsigned getAllReduceNumFragments(Graph &graph,
   auto typeSize = graph.getTarget().getTypeSize(data.elementType());
   auto numElements = data.numElements();
   auto replicationFactor = graph.getReplicationFactor();
-  auto numElementsAfterReduceScatter =
-      ceildiv(numElements, replicationFactor);
+  auto numElementsAfterReduceScatter = ceildiv(numElements, replicationFactor);
   return std::max(
       getReduceScatterNumFragments(graph, options, data, op),
       getAllGatherNumFragments(graph, options,

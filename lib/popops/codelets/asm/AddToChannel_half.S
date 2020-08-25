@@ -28,7 +28,7 @@
 // ## Fast Paths
 //
 // If the addend_len is a multiple of 4, we can use pipelined code that can
-// process 4 halfs per cycle.
+// process 4 halves per cycle.
 //
 // If it is a multiple of 2 there is probably a "medium speed path" but is
 // not coded to keep the code size small. Also if the addend_len is
@@ -201,12 +201,12 @@ VectorInnerAdd_core_half:
 
   // The current multiple of 4 and 8 pipelines use ldst64pace. The
   // stride of that instruction is a signed 10-bit number of 64-bit words. So
-  // the maximum stride is 8 * (2^9-1) = 4088 bytes = 2044 halfs.
+  // the maximum stride is 8 * (2^9-1) = 4088 bytes = 2044 halves.
   //
   // The stride is equal to the channel size for the multiple-of-4 pipeline,
   // and 8 bytes less than that for the multiple-of-8 pipeline. Therefore the
-  // maximum channel size is 2048 halfs (because that is a multiple of 8,
-  // so the extra 4 halfs are fine).
+  // maximum channel size is 2048 halves (because that is a multiple of 8,
+  // so the extra 4 halves are fine).
   //
   // So if addend_len is more than 2048 we must use the scalar path.
   cmpult $mscratch0, $addend_len, 2049
@@ -439,7 +439,7 @@ nop  # to align following 'rpt'
 
   // Work out the stride, in units of 64-bits. It's addend_len / 4.
   shr $stride, $addend_len, 2
-  // For this we need the stride minus 4 halfs.
+  // For this we need the stride minus 4 halves.
   add $stride, $stride, -1
 
   // Divide the addend_len by 8 and subtract 1 so we can just brnzdec.
