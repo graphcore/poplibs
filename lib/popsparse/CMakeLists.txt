@@ -132,7 +132,9 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block4x4SparseDenseMatMulGradW_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block4x4SparseDenseMatMulGradW_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block4x4SparseDenseMatMulGradW_half_half.S
-    
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulGradW_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulGradW_half_float.S
+
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradAElementWise.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise.h.S

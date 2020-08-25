@@ -239,5 +239,44 @@ bri               COMMON_FN
 .size HH4x4_CODELET_NAME, . - HH4x4_CODELET_NAME
 
 // =============================================================================
+
+
+#define HF16x16_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_float_16_16
+
+DEF_STACK_USAGE (STACK_SIZE + 4) HF16x16_CODELET_NAME
+
+.section .text.HF16x16_CODELET_NAME
+.align 4
+.globl HF16x16_CODELET_NAME
+.type HF16x16_CODELET_NAME, @function
+HF16x16_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block16x16SparseDenseMultiplyGradWHF
+setzi             $s_rGradLd32Flag, 1
+bri               COMMON_FN
+
+.size HF16x16_CODELET_NAME, . - HF16x16_CODELET_NAME
+
+// =============================================================================
+
+#define HH16x16_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_half_16_16
+
+DEF_STACK_USAGE (STACK_SIZE + 4) HH16x16_CODELET_NAME
+
+.section .text.HH16x16_CODELET_NAME
+.align 4
+.globl HH16x16_CODELET_NAME
+.type HH16x16_CODELET_NAME, @function
+HH16x16_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block16x16SparseDenseMultiplyGradWHH
+setzi             $s_rGradLd32Flag, 0
+bri               COMMON_FN
+
+.size HH16x16_CODELET_NAME, . - HH16x16_CODELET_NAME
+
+// =============================================================================
 #endif // #ifdef __IPU__
 // =============================================================================

@@ -17,8 +17,9 @@ template <typename FPType, typename AccumType, std::size_t BlockRows,
           std::size_t BlockCols>
 static constexpr inline bool hasAssemblyVersion() {
   constexpr bool is4x4 = BlockRows == 4 && BlockCols == 4;
-
-  return is4x4;
+  constexpr bool is16x16 =
+      BlockRows == 16 && BlockCols == 16 && std::is_same<FPType, half>();
+  return is4x4 || is16x16;
 }
 
 namespace popsparse {
