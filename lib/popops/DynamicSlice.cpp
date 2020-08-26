@@ -1857,8 +1857,7 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
         const auto rem0 = iTotalElems % ceil0;
         const auto ceil0And1 = ceildiv(ceil0, sSplit);
         const auto ceil0AndRem1 = ceil0 % ceil0And1;
-        const auto rem0AndCeil1 = ceildiv(rem0, sSplit);
-        const auto rem0And1 = rem0AndCeil1 > 0 ? rem0 % rem0AndCeil1 : 0;
+        const auto rem0And1 = rem0 % ceil0And1;
 
         const auto nCeil0And1 = roundDown(ceil0, ceil0And1);
         const auto nCeil0AndRem1 = ceil0 - nCeil0And1;

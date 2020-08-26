@@ -842,6 +842,14 @@ add_multitarget_test(
                  --data-type float
                  --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"})
 
+add_multitarget_test(
+         NAME embedding_layer_T25957
+         COMMAND embedding_layer
+                 --shape {12,6}
+                 --num-indices 1361
+                 --data-type float
+                 --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"})
+
 # Collective operations
 foreach(collective reduce_scatter
                    all_gather
