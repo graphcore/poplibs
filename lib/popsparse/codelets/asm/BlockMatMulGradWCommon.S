@@ -69,8 +69,6 @@ exitz         $mzero
 // to be found only once.
 
 // Registers allocation
-
-// Registers allocation
 #define s_vertexBase                 m0
 #define s_sBase                      m1
 #define s_metaInfo                   m9
@@ -240,6 +238,62 @@ bri               COMMON_FN
 
 // =============================================================================
 
+#define FF8x8_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___float_float_8_8
+
+DEF_STACK_USAGE (STACK_SIZE + 4) FF8x8_CODELET_NAME
+
+.section .text.FF8x8_CODELET_NAME
+.align 4
+.globl FF8x8_CODELET_NAME
+.type FF8x8_CODELET_NAME, @function
+FF8x8_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block8x8SparseDenseMultiplyGradWFF
+setzi             $s_rGradLd32Flag, 1
+bri               COMMON_FN
+
+.size FF8x8_CODELET_NAME, . - FF8x8_CODELET_NAME
+
+// =============================================================================
+
+#define HF8x8_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_float_8_8
+
+DEF_STACK_USAGE (STACK_SIZE + 4) HF8x8_CODELET_NAME
+
+.section .text.HF8x8_CODELET_NAME
+.align 4
+.globl HF8x8_CODELET_NAME
+.type HF8x8_CODELET_NAME, @function
+HF8x8_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block8x8SparseDenseMultiplyGradWHF
+setzi             $s_rGradLd32Flag, 1
+bri               COMMON_FN
+
+.size HF8x8_CODELET_NAME, . - HF8x8_CODELET_NAME
+
+// =============================================================================
+
+#define HH8x8_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_half_8_8
+
+DEF_STACK_USAGE (STACK_SIZE + 4) HH8x8_CODELET_NAME
+
+.section .text.HH8x8_CODELET_NAME
+.align 4
+.globl HH8x8_CODELET_NAME
+.type HH8x8_CODELET_NAME, @function
+HH8x8_CODELET_NAME:
+.supervisor
+
+setzi             $s_wkrFunction, Block8x8SparseDenseMultiplyGradWHH
+setzi             $s_rGradLd32Flag, 0
+bri               COMMON_FN
+
+.size HH8x8_CODELET_NAME, . - HH8x8_CODELET_NAME
+
+// =============================================================================
 
 #define HF16x16_CODELET_NAME __runCodelet_popsparse__SparseDenseMatMulBlockGradW___half_float_16_16
 

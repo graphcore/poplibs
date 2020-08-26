@@ -352,6 +352,29 @@ static inline std::uint64_t sparseDenseBlockMultiplyGradW(
       yOverhead = 29;
       cyclesPerZ = 6;
     }
+  } else if (numBlockRows == 8 && numBlockCols == 8) {
+    if (floatInput) {
+      assert(floatPartials);
+      workerCyclesOverhead = 24;
+      const auto numColumnLoops = 2;
+      const auto numRowLoops = 8;
+      const auto rowLoopOverhead = 5;
+      const auto columnLoopOverhead = 10;
+      xOverhead = 7;
+      yOverhead = 8 + numRowLoops * (rowLoopOverhead +
+                                     numColumnLoops * (columnLoopOverhead));
+      const auto cyclesPerInnerLoop = 3;
+      cyclesPerZ = numRowLoops * numColumnLoops * cyclesPerInnerLoop;
+    } else {
+      // Identical for half/float inputs
+      workerCyclesOverhead = 26;
+      const auto numRowLoops = 8;
+      const auto rowLoopOverhead = 13;
+      const auto cyclesPerInnerLoop = 3;
+      xOverhead = 9;
+      yOverhead = 9 + numRowLoops * rowLoopOverhead;
+      cyclesPerZ = numRowLoops * cyclesPerInnerLoop;
+    }
   } else if (blockArea == 256) {
     if (floatPartials) {
       // float input doesn't have an assembler codelet
