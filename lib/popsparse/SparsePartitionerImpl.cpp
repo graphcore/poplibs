@@ -355,6 +355,9 @@ std::size_t fixedMetaInfoCost(bool useBlockMetaInfoFormat,
   std::size_t metaInfoCost = 0;
   if (useBlockMetaInfoFormat) {
     metaInfoCost += miElems(BMI::SubGroupEntry);
+    if (gradWEnabled) {
+      metaInfoCost += miElems(BMI::GradWWorkerEntry) * numWorkers;
+    }
   } else {
     metaInfoCost +=
         miElems(MI::SubGroupEntry) + miElems(MI::WorkerEntry) * numWorkers;
@@ -380,6 +383,9 @@ sizesForTilePartition(const TilePartition &partition, std::size_t numZGrains,
     const auto nzOffsetEntries = numNZElements;
     metaInfoElements +=
         outputEntriesElements + nzOffsetEntries + miElems(BMI::SubGroupEntry);
+    if (includeGradW) {
+      metaInfoElements += miElems(BMI::GradWWorkerEntry) * numWorkers;
+    }
   } else {
     if (useWorkerSplits) {
       // we split the rows on the tile to be split. The partition is only
@@ -1096,6 +1102,52 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
 
   const auto blockSize = grainX * grainY;
 
+  auto getSubgroupNzCountAndSparseOffsets = [](const TilePartition &sg) {
+    const auto numRows = sg.tileInfo.size();
+    std::size_t nzCount = 0;
+    std::vector<std::size_t> sparseOffset(numRows + 1);
+    for (std::size_t row = 0; row != numRows; ++row) {
+      sparseOffset[row] = nzCount;
+      nzCount += sg.tileInfo[row].positionValues.size();
+    }
+    sparseOffset.back() = nzCount;
+    return sparseOffset;
+  };
+
+  // local structure from which entries for both element and block worker
+  // entries are derived.
+  struct GradWInternal {
+    std::size_t sparseOffset;
+    std::size_t totalNumY;
+    std::size_t metaInfoOffsetToOffsetsYInSFirst;
+    std::size_t metaInfoOffsetOutputEntry;
+  };
+
+  // get GradW worker split
+  auto getGradWWorkerSplit = [](const std::vector<std::size_t> &sparseOffset,
+                                std::size_t numWorkers) {
+    std::vector<GradWInternal> gradWEntries;
+    const auto workerGradW =
+        splitTileBetweenWorkers(1, sparseOffset.back(), numWorkers);
+    auto numGradWWorkers = workerGradW.size();
+    gradWEntries.resize(numGradWWorkers);
+    for (std::size_t i = 0; i != numGradWWorkers; ++i) {
+      const auto &w = workerGradW[i];
+      gradWEntries[i].sparseOffset = w.getColumns().begin();
+      gradWEntries[i].totalNumY = w.getColumns().size();
+      // Get the sparseOffset for the first row that contains this
+      // sparse offset (upper_bound: first entry strictly greater than,
+      // std::prev: last entry less than or equal);
+      auto it = std::prev(std::upper_bound(
+          sparseOffset.begin(), sparseOffset.end(), w.getColumns().begin()));
+      gradWEntries[i].metaInfoOffsetToOffsetsYInSFirst =
+          w.getColumns().begin() - *it;
+      std::size_t rowOffset = std::distance(sparseOffset.begin(), it);
+      gradWEntries[i].metaInfoOffsetOutputEntry = rowOffset;
+    }
+    return gradWEntries;
+  };
+
   std::vector<std::size_t> group;
   std::vector<T> nzBucket;
   group.reserve(metaInfoBucketElements);
@@ -1111,14 +1163,22 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
         continue;
       }
 
-      std::size_t nzCount = 0;
-      for (const auto &rowEntry : sg.tileInfo) {
-        nzCount += rowEntry.positionValues.size();
+      auto sparseOffset = getSubgroupNzCountAndSparseOffsets(sg);
+      std::size_t nzCount = sparseOffset.back();
+
+      // We may also need to include gradW if enabled
+      std::vector<GradWInternal> gradWEntries;
+      if (includeGradW) {
+        gradWEntries = getGradWWorkerSplit(sparseOffset, numWorkers);
       }
+      std::size_t numGradWWorkers = gradWEntries.size();
+
       const auto offsetToNextSubGroupSparseEntries = nzCount * blockSize;
       const auto offsetToNextSubGroupMetaInfo =
           (sizeof(BlockMetaInfo<std::size_t>::SubGroupEntry) +
            sizeof(BlockMetaInfo<std::size_t>::OutputEntry) * numRows +
+           sizeof(BlockMetaInfo<std::size_t>::GradWWorkerEntry) *
+               numGradWWorkers +
            sizeof(BlockMetaInfo<std::size_t>::InputEntry) * nzCount) /
           sizeof(std::size_t);
 
@@ -1127,8 +1187,28 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       group.push_back(offsetToNextSubGroupSparseEntries);
       group.push_back(offsetToNextSubGroupMetaInfo);
       group.push_back(numRows - 1);
-      // TODO: add gradW workers
-      group.push_back(0);
+      group.push_back(numGradWWorkers);
+
+      // BMI::GradWEntries
+      if (includeGradW) {
+        std::size_t workersRemaining = numGradWWorkers;
+        std::vector<MetaInfo<std::size_t>::OutputEntry> outputEntries(numRows);
+
+        for (const auto &w : gradWEntries) {
+          group.push_back(w.sparseOffset);
+          std::size_t offset =
+              w.sparseOffset - w.metaInfoOffsetToOffsetsYInSFirst +
+              (workersRemaining *
+                   sizeof(BlockMetaInfo<std::size_t>::GradWWorkerEntry) +
+               w.metaInfoOffsetOutputEntry *
+                   sizeof(BlockMetaInfo<std::size_t>::OutputEntry)) /
+                  sizeof(std::size_t);
+          group.push_back(offset);
+          group.push_back(w.metaInfoOffsetToOffsetsYInSFirst);
+          group.push_back(w.totalNumY);
+          workersRemaining--;
+        }
+      }
 
       for (const auto &rowEntry : sg.tileInfo) {
         group.push_back(rowEntry.rowNumber);
@@ -1171,19 +1251,15 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       if (workers.empty()) {
         continue;
       }
-      std::size_t nzCount = 0;
-      const auto numWorkers = workers.size();
-      sgEntry.numWorkers = numWorkers;
-      std::vector<std::size_t> sparseOffset(numRows + 1);
-      for (std::size_t row = 0; row != numRows; ++row) {
-        sparseOffset[row] = nzCount;
-        nzCount += sg.tileInfo[row].positionValues.size();
-      }
-      sparseOffset.back() = nzCount;
+      const auto numFwdWorkers = workers.size();
+      sgEntry.numWorkers = numFwdWorkers;
 
-      std::vector<MetaInfo<std::size_t>::WorkerEntry> workerEntries(numWorkers);
+      auto sparseOffset = getSubgroupNzCountAndSparseOffsets(sg);
+      std::size_t nzCount = sparseOffset.back();
+      std::vector<MetaInfo<std::size_t>::WorkerEntry> workerEntries(
+          numFwdWorkers);
 
-      for (std::size_t wIndex = 0; wIndex != numWorkers; ++wIndex) {
+      for (std::size_t wIndex = 0; wIndex != numFwdWorkers; ++wIndex) {
         const auto &worker = workers[wIndex];
         auto &entry = workerEntries[wIndex];
         entry.numXm1 = worker.getRows().size() - 1;
@@ -1195,29 +1271,11 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       }
 
       // We may also need to include gradW if enabled
-      std::vector<MetaInfo<std::size_t>::GradWWorkerEntry> gradWEntries;
-      std::size_t numGradWWorkers = 0;
+      std::vector<GradWInternal> gradWEntries;
       if (includeGradW) {
-        const auto workerGradW =
-            splitTileBetweenWorkers(1, nzCount, numWorkers);
-        numGradWWorkers = workerGradW.size();
-        gradWEntries.resize(numGradWWorkers);
-        for (std::size_t i = 0; i != numGradWWorkers; ++i) {
-          const auto &w = workerGradW[i];
-          gradWEntries[i].sparseOffset = w.getColumns().begin();
-          gradWEntries[i].totalNumY = w.getColumns().size();
-          // Get the sparseOffset for the first row that contains this
-          // sparse offset (upper_bound: first entry strictly greater than,
-          // std::prev: last entry less than or equal);
-          auto it = std::prev(std::upper_bound(sparseOffset.begin(),
-                                               sparseOffset.end(),
-                                               w.getColumns().begin()));
-          gradWEntries[i].metaInfoOffsetToOffsetsYInSFirst =
-              w.getColumns().begin() - *it;
-          std::size_t rowOffset = std::distance(sparseOffset.begin(), it);
-          gradWEntries[i].metaInfoOffsetOutputEntry = rowOffset;
-        }
+        gradWEntries = getGradWWorkerSplit(sparseOffset, numWorkers);
       }
+      std::size_t numGradWWorkers = gradWEntries.size();
 
       std::vector<MetaInfo<std::size_t>::OutputEntry> outputEntries(numRows);
       for (std::size_t row = 0; row != numRows; ++row) {
@@ -1237,7 +1295,7 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       // tables
       std::size_t nzEntriesThisSubgroup = nzCount - sparseOffset.front();
       std::size_t offsetToNextSubGroup =
-          (sizeof(sgEntry) + sizeof(workerEntries[0]) * numWorkers +
+          (sizeof(sgEntry) + sizeof(workerEntries[0]) * numFwdWorkers +
            sizeof(MetaInfo<std::size_t>::GradWWorkerEntry) * numGradWWorkers +
            sizeof(outputEntries[0]) * numRows) /
               sizeof(std::size_t) +
@@ -1252,10 +1310,10 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       group.push_back(numGrains * grainZ);
       group.push_back(numRows - 1);
       group.push_back(offsetToFirstOutputEntry);
-      group.push_back(numWorkers);
+      group.push_back(numFwdWorkers);
 
       // add worker entries
-      std::size_t workersRemaining = numWorkers;
+      std::size_t workersRemaining = numFwdWorkers;
       for (const auto &w : workerEntries) {
         // GradA uses an offset of 0 in each subgroup as there is transposition
         // is fused.
@@ -1567,8 +1625,11 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
               std::to_string(sgEntry->id));
         }
 
-        std::size_t index =
-            miIndexThisPN + sizeof(BMI_U::SubGroupEntry) / sizeof(U);
+        std::size_t index = miIndexThisPN +
+                            sizeof(BMI_U::SubGroupEntry) / sizeof(U) +
+                            sgEntry->numGradWWorkers *
+                                sizeof(BMI_U::GradWWorkerEntry) / sizeof(U);
+
         for (std::size_t rowIdx = 0; rowIdx != numRows; ++rowIdx) {
           const auto *outputEntry =
               reinterpret_cast<const BMI_U::OutputEntry *>(&metaInfo[index]);
