@@ -658,10 +658,12 @@ addInitialComputeCostDenseDense(
     const Vector<popsolver::Variable> &mGrouping,
     const Vector<popsolver::Variable> &mCumulativePartitions,
     const popsolver::Variable &mSparseGroups,
+    const popsolver::Variable &mElemsPerSparseGroup,
     const popsolver::Variable &mQGradTempBytes,
     const popsolver::Variable &mSTempBytes) {
   // TODO: Handle groups for vertex cycle estimates properly
-  const auto mPartialsPerTile = mSparseGroups;
+  const auto mPartialsPerTile =
+      m.product({mSparseGroups, mElemsPerSparseGroup});
 
   const auto numWorkers = target.getNumWorkerContexts();
   const auto &partialsType = options.partialsType;
@@ -705,7 +707,7 @@ addInitialComputeCostDenseDense(
           while (startGroup != endGroup) {
             const auto numYGroupsForXGroup =
                 std::min(endGroup, startGroup + yNonZeroGroups) - startGroup;
-            numYThisWorker.emplace_back(numYGroupsForXGroup * yGrouping);
+            numYThisWorker.emplace_back(numYGroupsForXGroup);
             startGroup += numYGroupsForXGroup;
           }
 
@@ -724,6 +726,12 @@ addInitialComputeCostDenseDense(
             // statistically significant, they just assume a rectangle and
             // divide between workers so there is some accounting for overheads.
             mulCycles = ceildiv(mulCycles, numYThisWorker.size());
+            break;
+          case OnTileMethod::GradWAMPBlock:
+            mulCycles = sparseDenseBlockMultiplyGradW(
+                numBuckets, numBuckets, numSubGroupsPerBucket, numXThisWorker,
+                numZ, xGrouping, yGrouping, numYThisWorker, inputType == FLOAT,
+                partialsType == FLOAT, numWorkers);
             break;
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
@@ -1047,7 +1055,7 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   std::tie(mInitialComputeCost, mRGradTempBytesAfterCompute) =
       addInitialComputeCostDenseDense(
           m, target, inputType, nzRatio, options, method, mGroups.back(),
-          mGrouping, p.cumulative.back(), mRGroupsPerBucket,
+          mGrouping, p.cumulative.back(), mRGroupsPerBucket, mRElemsPerGroup,
           mQGradTempBytesAfterExchange, mSTempBytesAfterExchange);
   costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
 
