@@ -87,7 +87,7 @@ foreach(DATA_TYPE half float)
     list(APPEND PARTIALS_TYPE_CANDIDATES half)
   endif()
   foreach(PARTIALS_TYPE ${PARTIALS_TYPE_CANDIDATES})
-    foreach(PASS_TYPE fwd bwd)
+    foreach(PASS_TYPE fwd bwd wu all)
       foreach(BLOCK_SIZE 4 8 16)
         add_multitarget_test(
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl

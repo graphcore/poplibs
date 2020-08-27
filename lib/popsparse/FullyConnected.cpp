@@ -971,8 +971,18 @@ static void compute(Graph &graph, const ComputeSet &cs,
                     const std::string &debugPrefix) {
   const std::string levelPrefix = debugPrefix + "/l" + std::to_string(level);
   const auto tile = getPartitionTile(hierarchy, plan, indices);
-  const std::array<std::size_t, 2> blockDimensions = {plan.grouping.x,
-                                                      plan.grouping.y};
+
+  // Though it complicates this function slightly, for clarity what we give
+  // to the onTileImpl is the dimensions of the block, as ordered for this
+  // pass. i.e. Forward = {x, y}, GradA = {y, x}, GradW = {x, y}.
+  const auto grouping = plan.grouping.asStdVector<std::size_t>();
+  std::vector<std::size_t> indicesOfBlockDims(plan.dimShuffleToFwd.begin() + 1,
+                                              plan.dimShuffleToFwd.begin() + 3);
+  std::sort(indicesOfBlockDims.begin(), indicesOfBlockDims.end());
+  std::array<std::size_t, 2> blockDimensions;
+  for (std::size_t i = 0; i < indicesOfBlockDims.size(); ++i) {
+    blockDimensions[i] = grouping[indicesOfBlockDims[i]];
+  }
   onTileImpl(graph, cs, tile, plan.method, zeroPartials, subGroupId,
              shape.asStdVector<std::size_t>(), metaInfo, weights, acts,
              partials, blockDimensions, levelPrefix);

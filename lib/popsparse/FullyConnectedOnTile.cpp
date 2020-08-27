@@ -42,6 +42,9 @@ getVertexClass(const OnTileMethod &method, const Type &inputType,
   case OnTileMethod::TransposeAMPBlock:
     return templateVertex("popsparse::SparseDenseMatMulBlockGradA", inputType,
                           partialsType, blockDimensions[0], blockDimensions[1]);
+  case OnTileMethod::GradWBlock:
+    return templateVertex("popsparse::SparseDenseMatMulBlockGradW", inputType,
+                          partialsType, blockDimensions[0], blockDimensions[1]);
   default:
     throw poplibs_error("Unhandled on-tile sparse fc method");
   }
@@ -170,6 +173,42 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     graph.setInitialValue(
         v["zeroInfo"],
         zeroPartials ? partials.numElements() / partialElemsPer32Bits : 0u);
+    break;
+  }
+  case OnTileMethod::GradWBlock: {
+    assert(partials.rank() == 6);
+    assert(weights.rank() == acts.rank());
+    assert(weights.rank() == 6);
+    assert(weights.dim(2) == acts.dim(1));
+    assert(weights.dim(5) == acts.dim(4));
+    const auto actsUngrouped = unfactorDims(acts, 3);
+    const auto weightsUngrouped = unfactorDims(weights, 3);
+    const auto subGroupIdToProcessTensor =
+        boost::get<Tensor>(subGroupIdToProcess);
+    assert(subGroupIdToProcessTensor.rank() <= 1);
+    const auto subGroupIdToProcessScalar =
+        subGroupIdToProcessTensor.flatten().squeeze({0});
+
+    const auto partialElemsPer32Bits = 4 / target.getTypeSize(partialsType);
+    assert(partials.numElements() % partialElemsPer32Bits == 0);
+    std::vector<std::size_t> squeezePartialsDims(5);
+    std::iota(squeezePartialsDims.begin(), squeezePartialsDims.end(), 0);
+    // Expect X as innermost dimension
+    graph.connect(v["qGrad"], weightsUngrouped.dimRoll(1, 2).flatten());
+    graph.connect(v["rGrad"], partials.squeeze(squeezePartialsDims));
+    graph.connect(v["metaInfo"], metaInfoBuckets.squeeze({0}));
+    // Expect Y as innermost dimension
+    graph.connect(v["s"], actsUngrouped.flatten());
+    graph.connect(v["subGroupIdToProcess"], subGroupIdToProcessScalar);
+    graph.setInitialValue(
+        v["zeroInfo"],
+        zeroPartials ? partials.numElements() / partialElemsPer32Bits : 0);
+    graph.setInitialValue(v["numZ"], weightsUngrouped.dim(2));
+    const auto inputElemsPer64Bits = 8 / target.getTypeSize(inputType);
+    const auto zStrideInQ = weightsUngrouped.dim(1) / inputElemsPer64Bits;
+    const auto zStrideInS = actsUngrouped.dim(2) / inputElemsPer64Bits;
+    graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
+    graph.setInitialValue(v["zStrideInS"], zStrideInS);
     break;
   }
   default:

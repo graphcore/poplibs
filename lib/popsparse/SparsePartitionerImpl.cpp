@@ -1195,7 +1195,7 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
         std::vector<MetaInfo<std::size_t>::OutputEntry> outputEntries(numRows);
 
         for (const auto &w : gradWEntries) {
-          group.push_back(w.sparseOffset);
+          group.push_back(w.sparseOffset * blockSize);
           std::size_t offset =
               w.sparseOffset - w.metaInfoOffsetToOffsetsYInSFirst +
               (workersRemaining *

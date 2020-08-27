@@ -61,9 +61,8 @@ enum class OnTileMethod {
   // Codelet for GradA pass reusing forward pass meta-info for block-sparsity
   // utilising AMP.
   TransposeAMPBlock,
-  // Codelet for GradW pass reusing forward pass meta-info for block-sparsity
-  // utilising AMP.
-  GradWAMPBlock,
+  // Codelet for GradW pass reusing forward pass meta-info for block-sparsity.
+  GradWBlock,
 };
 
 std::ostream &operator<<(std::ostream &os, const OnTileMethod &m);

@@ -69,6 +69,7 @@
 #define s_zStrideInQ                 m7
 #define s_zStrideInS                 m9
 #define s_clrCWEI                    m9
+#define s_numGradWWorkers            m10
 #define s_xOffsetInQ                 m3
 #define s_yOffsetInS                 m3
 #define s_numXm1                     m10
@@ -133,6 +134,7 @@ LmetaInfoListLoop_\INTYPE\()_\PTYPE\():
   nop
   nop
 LsubgroupLoop_\INTYPE\()_\PTYPE\():  
+  ldz16                  $s_numGradWWorkers, $s_metaInfo, MetaInfoSubGroupEntry_numGradWWorkers/2
   ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
   // This is the subgroup ID the PN has to process
   ldz16                  $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_PN_SUBGROUP_ID/2
@@ -143,21 +145,20 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\():
   
   // The pointer to sparse R Is offset
   ldz16                  $s_subgroupSparseElems, $s_metaInfo, MetaInfoSubGroupEntry_offsetToNextSubGroupSparseEntries/2
-  
+  nop
+  mul                    $s_numGradWWorkers, $s_numGradWWorkers, sizeof_MetaInfoGradWWorkerEntry
   // If subgroup is 0 there is nothing to do
-  nop
-  nop
   brz                    $s_subgroupId, LendMetaInfoList_\INTYPE\()_\PTYPE\()
 
   // Check if any work to be done by the PN
   cmpeq                  $s_match, $s_subgroupId, $s_pnSubgroupId
   brz                    $s_match, LnextSubgroup_\INTYPE\()_\PTYPE\()
-  ldz16                  $s_numXm1, $mzero, $s_metaInfo, MetaInfoSubGroupEntry_numXm1/2
+
   add                    $s_wTemp, $s_metaInfo, sizeof_MetaInfoSubGroupEntry
-
-  // preload to hide behind the put latency
+  add                    $s_wTemp, $s_wTemp, $s_numGradWWorkers
+  
   ldz16step              $s_xOffsetInQ, $mzero, $s_wTemp+=, 1
-
+  ldz16                  $s_numXm1, $mzero, $s_metaInfo, MetaInfoSubGroupEntry_numXm1/2
 
   // We let CCCSLOAD to increment between blocks rather then tracking it using
   // a general register

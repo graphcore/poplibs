@@ -727,7 +727,7 @@ addInitialComputeCostDenseDense(
             // divide between workers so there is some accounting for overheads.
             mulCycles = ceildiv(mulCycles, numYThisWorker.size());
             break;
-          case OnTileMethod::GradWAMPBlock:
+          case OnTileMethod::GradWBlock:
             mulCycles = sparseDenseBlockMultiplyGradW(
                 numBuckets, numBuckets, numSubGroupsPerBucket, numXThisWorker,
                 numZ, xGrouping, yGrouping, numYThisWorker, inputType == FLOAT,
@@ -1201,10 +1201,18 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
     const auto subGroupElems =
         sizeof(BlockMetaInfo<MetaInfoType>::SubGroupEntry) /
         sizeof(MetaInfoType);
+    const auto gradWWorkerEntryElems =
+        options.doGradWPass
+            ? sizeof(BlockMetaInfo<MetaInfoType>::GradWWorkerEntry) /
+                  sizeof(MetaInfoType)
+            : 0;
+
     const auto numElemsPerfectlyUniform =
         xNonZeroGroups * (outputEntryElems + yNonZeroGroups);
     const unsigned elems =
-        (subGroupElems * numSubgroupsPerBucket +
+        ((subGroupElems +
+          target.getNumWorkerContexts() * gradWWorkerEntryElems) *
+             numSubgroupsPerBucket +
          std::ceil(numElemsPerfectlyUniform *
                    (1.0 + options.metaInfoBucketOversizeProportion)));
     return popsolver::DataType{roundUp(elems, atomSizeInMetaInfoElems)};
@@ -1514,7 +1522,7 @@ getCandidateMethods(const Target &target, const Type &inputType,
     };
     methods.emplace_back(Method{grouping, OnTileMethod::ForwardAMPBlock,
                                 OnTileMethod::TransposeAMPBlock,
-                                OnTileMethod::GradWAMPBlock});
+                                OnTileMethod::GradWBlock});
   }
   return methods;
 }
@@ -1640,8 +1648,8 @@ std::ostream &operator<<(std::ostream &os, const OnTileMethod &m) {
   case OnTileMethod::TransposeAMPBlock:
     os << "TransposeAMPBlock";
     break;
-  case OnTileMethod::GradWAMPBlock:
-    os << "GradWAMPBlock";
+  case OnTileMethod::GradWBlock:
+    os << "GradWBlock";
     break;
   default:
     throw poputil::poplibs_error("Unrecognised on-tile method");

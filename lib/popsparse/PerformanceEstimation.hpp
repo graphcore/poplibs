@@ -183,7 +183,7 @@ static inline std::uint64_t sparseDenseBlockMultiply(
 
   std::uint64_t supervisorOverhead = 40;
   std::uint64_t supervisorCyclesWithBucketsNotForPN =
-      32 * (numBuckets - numBucketsWithInfoForPN) * averageSubgroupsPerBucket;
+      33 * (numBuckets - numBucketsWithInfoForPN) * averageSubgroupsPerBucket;
 
   // assume uniform distribution of location. For the initial distribution this
   // can be set such that subgroup found if the very first.
@@ -191,7 +191,7 @@ static inline std::uint64_t sparseDenseBlockMultiply(
       static_cast<double>(averageSubgroupsPerBucket - 1) / 2;
 
   std::uint64_t supervisorCyclesWithBucketsForPN =
-      (avgSubgroupsForFirstMatch + 1) * 46 + 48;
+      (avgSubgroupsForFirstMatch + 1) * 46 + 56;
 
   std::uint64_t totalSupervisorCycles =
       supervisorOverhead + supervisorCyclesWithBucketsNotForPN +

@@ -122,9 +122,12 @@ public:
 
         if (subGroupEntry->id == subGroupIdToProcess) {
           const auto *r = rBucketIter;
+          const auto *gradWWorkerEntries =
+              reinterpret_cast<const MetaInfo::GradWWorkerEntry *>(
+                  subGroupEntry + 1);
           const auto *outputEntry =
-              reinterpret_cast<const MetaInfo::OutputEntry *>(subGroupEntry +
-                                                              1);
+              reinterpret_cast<const MetaInfo::OutputEntry *>(
+                  gradWWorkerEntries + subGroupEntry->numGradWWorkers);
           for (std::size_t xBlock = 0; xBlock < subGroupEntry->numXm1 + 1;
                ++xBlock) {
             const auto *inputEntry =
