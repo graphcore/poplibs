@@ -44,7 +44,7 @@ private:
   }
 
   std::shared_ptr<spdlog::sinks::sink> sink;
-  std::array<std::shared_ptr<spdlog::logger>,
+  std::array<std::unique_ptr<spdlog::logger>,
              static_cast<std::size_t>(Module::size)>
       loggers;
 };
@@ -160,10 +160,10 @@ LoggingContext::LoggingContext() {
       }
     };
 
-    auto logger = std::make_shared<spdlog::logger>(moduleName(m), sink);
+    auto logger = std::make_unique<spdlog::logger>(moduleName(m), sink);
     logger->set_level(translate(getLogLevelForModule(m)));
     logger->set_pattern("%T.%e %t PL:%n" + getPaddingForModule(m) + " [%L] %v");
-    loggers[static_cast<std::size_t>(m)] = logger;
+    loggers[static_cast<std::size_t>(m)] = std::move(logger);
   };
 
   createLogger(Module::popfloat);
