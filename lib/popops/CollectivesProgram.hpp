@@ -73,95 +73,6 @@ template <class CopyType> struct BufferCopies {
   }
 };
 
-using cases_type = std::vector<BufferCopies<poplar::program::Copy>>;
-
-struct DynamicSliceCopy {
-  poplar::Tensor sliceIndex;
-  // expect dynamic slice to populate this sequence
-  poplar::program::Sequence copyProg;
-
-  poplar::program::Sequence createProgram() const { return copyProg; }
-  void setSlice(poplar::Tensor index) { sliceIndex = std::move(index); }
-  poplar::Tensor getSlice() const { return sliceIndex; }
-  poplar::program::Sequence &getProgram() { return copyProg; }
-  cases_type &getCases() const { std::abort(); }
-};
-
-struct SwitchSliceCopy {
-  // this is going to get transformed into a switch
-  std::vector<BufferCopies<poplar::program::Copy>> cases;
-  poplar::Tensor sliceIndex;
-  explicit SwitchSliceCopy(const unsigned numCases)
-      : cases(std::vector<BufferCopies<poplar::program::Copy>>(numCases)) {}
-  poplar::program::Sequence createProgram() const {
-    // Assert Checking
-    //----------------------------------------------------------------
-    // shouldn't be creating slice of entire tensor
-    assert(cases.size() > 1);
-    // if one of them is a clockwise copy all of them should be
-    assert(std::all_of(cases.begin(), cases.end(),
-                       [&](const BufferCopies<poplar::program::Copy> &val) {
-                         const bool clockwiseAreSame =
-                             static_cast<bool>(val.clockwiseCopy) ==
-                             static_cast<bool>(cases[0].clockwiseCopy);
-                         const bool anticlockwiseAreSame =
-                             static_cast<bool>(val.anticlockwiseCopy) ==
-                             static_cast<bool>(cases[0].anticlockwiseCopy);
-                         return clockwiseAreSame && anticlockwiseAreSame;
-                       }));
-    // --------------------------------------------------------------
-    poplar::program::Switch sliceProg =
-        poplar::program::Switch::switchWithUnreachableDefault(sliceIndex);
-    for (unsigned i = 0; i < cases.size(); ++i) {
-      sliceProg.add(i, cases[i].createProgram());
-    }
-    return poplar::program::Sequence(std::move(sliceProg));
-  }
-  void setSlice(poplar::Tensor index) { sliceIndex = std::move(index); }
-  poplar::Tensor getSlice() const { return sliceIndex; }
-  poplar::program::Sequence &getProgram() { std::abort(); }
-  cases_type &getCases() { return cases; }
-};
-
-struct SliceCopy {
-  boost::variant<SwitchSliceCopy, DynamicSliceCopy> copy;
-  SliceCopy(SwitchSliceCopy copy) : copy(std::move(copy)) {}
-  SliceCopy(DynamicSliceCopy copy) : copy(std::move(copy)) {}
-
-  poplar::program::Sequence createProgram() const {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<poplar::program::Sequence>(
-            [&](const auto &x) { return x.createProgram(); }),
-        copy);
-  }
-  void setSliceIndex(poplar::Tensor sliceIndex) {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<void>(
-            [&](auto &x) { return x.setSlice(sliceIndex); }),
-        copy);
-  }
-  poplar::Tensor getSliceIndex() const {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<poplar::Tensor>(
-            [&](const auto &x) { return x.getSlice(); }),
-        copy);
-  }
-  poplar::program::Sequence &getCopyProgram() {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<poplar::program::Sequence &>(
-            [&](auto &x) -> poplar::program::Sequence & {
-              return x.getProgram();
-            }),
-        copy);
-  }
-  cases_type &cases() {
-    return boost::apply_visitor(
-        poplibs_support::make_visitor<cases_type &>(
-            [&](auto &x) -> cases_type & { return x.getCases(); }),
-        copy);
-  }
-};
-
 struct ReduceProg {
   poplar::Tensor A;
   poplar::Tensor B;
@@ -192,12 +103,11 @@ struct CollectivesProgram {
       exchangeProg; // the cross replica copy may be expanded to multiple
                     // copies to avoid deadlocks
 
-  SliceCopy sliceFragments;                // dynamic slice of tensor
-  boost::optional<ReduceProg> reduceProg;  // only used in reduce scatter
-  poplar::program::Sequence allgatherCopy; // only used in all gather
+  poplar::program::Sequence sliceFragments; // dynamic slice of tensor
+  boost::optional<ReduceProg> reduceProg;   // only used in reduce scatter
+  poplar::program::Sequence allgatherCopy;  // only used in all gather
   poplar::program::Sequence
       firstGatherCopy; // on first iteration copy is from scatter output
-  CollectivesProgram(SliceCopy sliceCopy) : sliceFragments(sliceCopy) {}
 };
 
 static poplar::program::Sequence sequenceFromCrossReplicaCopies(
@@ -254,7 +164,7 @@ poplar::program::Sequence unidirectionalSequence(CollectivesProgram &program,
                                                  poplar::Graph &graph) {
   using namespace poplar::program;
   const auto sliceFunction =
-      graph.addFunction(program.sliceFragments.createProgram());
+      graph.addFunction(std::move(program.sliceFragments));
   Sequence loopBody(std::move(program.incrementIndex),
                     sequenceFromCrossReplicaCopies(program.exchangeProg),
                     std::move(program.allgatherCopy), Call(sliceFunction),
@@ -271,8 +181,8 @@ bidirectionalSequence(CollectivesProgram &clockwise,
   assert(clockwise.repeatCounter == anticlockwise.repeatCounter);
   using namespace poplar::program;
   const auto sliceFunction =
-      graph.addFunction(Sequence(clockwise.sliceFragments.createProgram(),
-                                 anticlockwise.sliceFragments.createProgram()));
+      graph.addFunction(Sequence(std::move(clockwise.sliceFragments),
+                                 std::move(anticlockwise.sliceFragments)));
   boost::optional<ReduceProg> combinedReduceProg;
   assert(static_cast<bool>(clockwise.reduceProg) ==
          static_cast<bool>(anticlockwise.reduceProg));
@@ -318,9 +228,9 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
   graph.setTileMapping(lastConst, controlTile);
 
   const auto clockwiseSliceFunction =
-      graph.addFunction(clockwise.sliceFragments.createProgram());
+      graph.addFunction(std::move(clockwise.sliceFragments));
   const auto anticlockwiseSliceFunction =
-      graph.addFunction(anticlockwise.sliceFragments.createProgram());
+      graph.addFunction(std::move(anticlockwise.sliceFragments));
 
   using namespace popops::expr;
   Sequence isLastProg;
@@ -384,9 +294,9 @@ meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
   graph.setTileMapping(lastConst, controlTile);
 
   const auto clockwiseSliceFunction =
-      graph.addFunction(clockwise.sliceFragments.createProgram());
+      graph.addFunction(std::move(clockwise.sliceFragments));
   const auto anticlockwiseSliceFunction =
-      graph.addFunction(anticlockwise.sliceFragments.createProgram());
+      graph.addFunction(std::move(anticlockwise.sliceFragments));
 
   using namespace popops::expr;
   Sequence isLastProg;
