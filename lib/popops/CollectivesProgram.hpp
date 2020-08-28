@@ -51,7 +51,7 @@ template <class CopyType> struct BufferCopies {
   boost::optional<CopyType> clockwiseCopy;
   boost::optional<CopyType> anticlockwiseCopy;
   poplar::program::Sequence createProgram() const {
-    // at least on of these should be populated
+    // at least one of these should be populated
     assert(clockwiseCopy || anticlockwiseCopy);
     if (!clockwiseCopy) {
       return anticlockwiseCopy.get();
@@ -188,8 +188,10 @@ struct CollectivesProgram {
       initIndex; // program to set sliceTensor to ring index
   poplar::program::Sequence
       incrementIndex; // program to  update sliceIndex per iteration
-  BufferCopies<poplar::program::CrossReplicaCopy>
-      exchangeProg;                        // the cross replica copy
+  std::vector<BufferCopies<poplar::program::CrossReplicaCopy>>
+      exchangeProg; // the cross replica copy may be expanded to multiple
+                    // copies to avoid deadlocks
+
   SliceCopy sliceFragments;                // dynamic slice of tensor
   boost::optional<ReduceProg> reduceProg;  // only used in reduce scatter
   poplar::program::Sequence allgatherCopy; // only used in all gather
@@ -197,6 +199,16 @@ struct CollectivesProgram {
       firstGatherCopy; // on first iteration copy is from scatter output
   CollectivesProgram(SliceCopy sliceCopy) : sliceFragments(sliceCopy) {}
 };
+
+static poplar::program::Sequence sequenceFromCrossReplicaCopies(
+    const std::vector<BufferCopies<poplar::program::CrossReplicaCopy>>
+        &bufferCopies) {
+  poplar::program::Sequence s;
+  for (const auto &b : bufferCopies) {
+    s.add(b.createProgram());
+  }
+  return s;
+}
 
 static void opInPlace(poplar::Graph &graph, popops::Operation op,
                       const poplar::Tensor &a, const poplar::Tensor &b,
@@ -244,7 +256,7 @@ poplar::program::Sequence unidirectionalSequence(CollectivesProgram &program,
   const auto sliceFunction =
       graph.addFunction(program.sliceFragments.createProgram());
   Sequence loopBody(std::move(program.incrementIndex),
-                    program.exchangeProg.createProgram(),
+                    sequenceFromCrossReplicaCopies(program.exchangeProg),
                     std::move(program.allgatherCopy), Call(sliceFunction),
                     opInPlace(graph, program.reduceProg));
   return Sequence(WriteUndef(program.undefTensor), std::move(program.initIndex),
@@ -270,8 +282,8 @@ bidirectionalSequence(CollectivesProgram &clockwise,
   }
   Sequence loopBody(std::move(clockwise.incrementIndex),
                     std::move(anticlockwise.incrementIndex),
-                    clockwise.exchangeProg.createProgram(),
-                    anticlockwise.exchangeProg.createProgram(),
+                    sequenceFromCrossReplicaCopies(clockwise.exchangeProg),
+                    sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg),
                     std::move(clockwise.allgatherCopy),
                     std::move(anticlockwise.allgatherCopy), Call(sliceFunction),
                     opInPlace(graph, combinedReduceProg));
@@ -323,15 +335,15 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
   // loop and use conditionals within the loop to do it
   Sequence loopBody(
       std::move(clockwise.incrementIndex),
-      clockwise.exchangeProg.createProgram(),
+      sequenceFromCrossReplicaCopies(clockwise.exchangeProg),
       // here unconditionally create the cross replica copy. In the first
       // step this will transfer the uninitialised data but as the rest of the
       // repeat will be conditional on it not being step 0 it won't be
       // used and it will be overwritten in the next iteration of the repeat
       // It being done unconditionally means it can be merged with the
       // clockwise cross replica copy
-      anticlockwise.exchangeProg.createProgram(), Call(clockwiseSliceFunction),
-      opInPlace(subGraph, clockwise.reduceProg),
+      sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg),
+      Call(clockwiseSliceFunction), opInPlace(subGraph, clockwise.reduceProg),
       If(isFirstStep, Sequence(Copy(falseConst, isFirstStep)),
          Sequence(std::move(isLastProg),
                   If(isLastStep, Sequence(std::move(combineBuffersProg)),
@@ -392,14 +404,14 @@ meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
   Sequence loopBody(
       std::move(clockwise.incrementIndex),
       std::move(anticlockwise.incrementIndex),
-      clockwise.exchangeProg.createProgram(),
+      sequenceFromCrossReplicaCopies(clockwise.exchangeProg),
       // here unconditionally create the cross replica copy. In the first
       // step this will transfer the uninitialised data but as the rest of the
       // repeat will be conditional on it not being step 0 it won't be
       // used and it will be overwritten in the next iteration of the repeat
       // It being done unconditionally means it can be merged with the
       // clockwise cross replica copy (same for the gather copy)
-      anticlockwise.exchangeProg.createProgram(),
+      sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg),
       std::move(clockwise.allgatherCopy),
       std::move(anticlockwise.allgatherCopy), Call(clockwiseSliceFunction),
       std::move(isLastProg),
