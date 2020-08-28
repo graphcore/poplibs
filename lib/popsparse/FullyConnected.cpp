@@ -1618,7 +1618,6 @@ static Tensor fullyConnectedSparseGradWImpl(
   // At the top level for now, before doing anything else, enforce and
   // introduce grouping into the given tensors.
   if (level == 0) {
-    assert(plan.grouping.groups * plan.grouping.x * plan.grouping.z == 1);
     // Accumulated dimension is always inner-most
     std::vector<std::size_t> weightGrouping = {
         plan.grouping.groups, plan.grouping.x, plan.grouping.y};
