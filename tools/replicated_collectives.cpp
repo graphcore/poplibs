@@ -328,7 +328,10 @@ int main(int argc, char **argv) {
     options.set("useReplicatedImplementation", "true");
   }
   if (vm.count("gcl")) {
-    options.set("useGclCollectives", "true");
+    std::cerr << "This version of replicated collectives is poplibs only\n";
+    std::cerr
+        << "To use --gcl, use the tool in gcl/tools/replicated_collectives\n";
+    std::abort();
   }
   if (vm.count("gcl-max-bytes-per-tile")) {
     if (vm.count("gcl")) {
