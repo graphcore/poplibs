@@ -59,7 +59,7 @@ static Tensor sliceAndPad(Graph &graph, Tensor sparseTensor, unsigned blockRow,
     }
   }
 
-  logging::debug("Maximum slice length = {}", maxSliceLen);
+  logging::popsparse::debug("Maximum slice length = {}", maxSliceLen);
 
   // TODO: To effectively handle sparsity masks
   // with large number of non-zeros in some rows -
@@ -70,7 +70,7 @@ static Tensor sliceAndPad(Graph &graph, Tensor sparseTensor, unsigned blockRow,
         static_cast<long>(maxSliceLen) - static_cast<long>(slicesLen[i]);
     totalPadLength += static_cast<std::size_t>(padLength);
   }
-  logging::debug("Total pad length = {}", totalPadLength);
+  logging::popsparse::debug("Total pad length = {}", totalPadLength);
   if (totalPadLength > 0) {
     // TODO:
     // After moving to SDK 1.2
@@ -117,8 +117,9 @@ Tensor bsSoftmaxInternal(Graph &graph, Tensor sparseTensor, bool inPlace,
                          SubBlockMask subBlockMaskType, Sequence &prog,
                          const std::string &debugStr) {
   const auto debugStr1 = debugStr + "/BSSoftMax";
-  logging::info("blocksparse softmax: sparseTensor={}, name={}, inPlace={}",
-                sparseTensor.shape(), debugStr1, inPlace);
+  logging::popsparse::info(
+      "blocksparse softmax: sparseTensor={}, name={}, inPlace={}",
+      sparseTensor.shape(), debugStr1, inPlace);
 
   const auto dataType = sparseTensor.elementType();
   if (dataType != FLOAT && dataType != HALF) {
@@ -263,7 +264,7 @@ Tensor bsSoftmaxGradInternal(Graph &graph, Tensor sparseOut,
 
   const auto debugStr1 = debugStr + "/BSSoftMaxGrad";
 
-  logging::info(
+  logging::popsparse::info(
       "blocksparse softmaxGrad: sparseOut={}, sparseOutGrad={}, name={}",
       sparseOut.shape(), sparseOutGrad.shape(), debugStr1);
 

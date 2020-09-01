@@ -39,7 +39,7 @@ Tensor softmaxImpl(Graph &graph, Tensor t, bool stableAlgo, bool inPlace,
                    const std::string &debugStr = "") {
   const auto fnStr = debugStr + "/SoftMax";
   const auto dType = t.elementType();
-  logging::info("softmax t={}, name={}", t.shape(), fnStr);
+  logging::popnn::info("softmax t={}, name={}", t.shape(), fnStr);
   if (t.rank() < 1) {
     throw poplibs_error("input tensor to softmax non-linearity must have "
                         "at least 1 dimension");
@@ -117,8 +117,8 @@ Tensor softmaxInputGradientImpl(Graph &graph, const Tensor &out,
                                 const Tensor &outGradient, Sequence &prog,
                                 const std::string &debugPrefix = "") {
   const auto layerPrefix = debugPrefix + "/SoftMaxGradient";
-  logging::info("softmaxInputGradient out={}, outGradient={}, name={}",
-                out.shape(), outGradient.shape(), layerPrefix);
+  logging::popnn::info("softmaxInputGradient out={}, outGradient={}, name={}",
+                       out.shape(), outGradient.shape(), layerPrefix);
 
   if (out.shape() != outGradient.shape()) {
     throw poplibs_error("out and outGradient tensors must have the same "
@@ -175,7 +175,7 @@ Tensor nonLinearityInputGradient(Graph &graph,
   }
 
   const auto layerPrefix = debugPrefix + "/NonLinearityGrad";
-  logging::info(
+  logging::popnn::info(
       "nonLinearityInputGradient type={}, out={}, outGradient={}, name={}",
       nonLinearityType, out.shape(), outGradient.shape(), layerPrefix);
 
@@ -273,8 +273,8 @@ void nonLinearityInPlace(poplar::Graph &graph,
                                  "implemented");
   }
 
-  logging::info("nonLinearityInPlace type={}, t={}, name={}", nonLinearityType,
-                t.shape(), debugPrefix);
+  logging::popnn::info("nonLinearityInPlace type={}, t={}, name={}",
+                       nonLinearityType, t.shape(), debugPrefix);
 
   if (!t.isParallelWriteable())
     throw poputil::poplibs_error("Trying to update tensor that cannot be "

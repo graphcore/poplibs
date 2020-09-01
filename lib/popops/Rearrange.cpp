@@ -378,10 +378,11 @@ std::pair<GroupingInfo, GroupingInfo> updateGrouping(const Graph &graph,
 Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_, const std::string &debugPrefix) {
-  logging::debug("Regroup: debugstr={}", debugPrefix);
-  logging::debug("  t      shape={}", t.shape());
-  logging::debug("  from   grouping={{{},{}}}", from_.first, from_.second);
-  logging::debug("  to     grouping={{{},{}}}", to_.first, to_.second);
+  logging::popops::debug("Regroup: debugstr={}", debugPrefix);
+  logging::popops::debug("  t      shape={}", t.shape());
+  logging::popops::debug("  from   grouping={{{},{}}}", from_.first,
+                         from_.second);
+  logging::popops::debug("  to     grouping={{{},{}}}", to_.first, to_.second);
   if (t.rank() <= 1) {
     return t;
   }
@@ -550,9 +551,9 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            std::vector<Copy> &preTranspose,
                            ComputeSet transposeCS,
                            const std::string &debugPrefix) {
-  logging::debug("Regroup if beneficial: debugstr={}", debugPrefix);
-  logging::debug("  input      shape={}", in_.shape());
-  logging::debug("  reference  shape={}", ref.shape());
+  logging::popops::debug("Regroup if beneficial: debugstr={}", debugPrefix);
+  logging::popops::debug("  input      shape={}", in_.shape());
+  logging::popops::debug("  reference  shape={}", ref.shape());
   auto in = in_;
 
   if (in.rank() <= 1 || ref.rank() <= 1) {
@@ -573,8 +574,8 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 
   const auto inGrouping = detectDimGroupings(graph, in);
   const auto refGrouping = detectDimGroupings(graph, ref);
-  logging::debug("  input      groupings={}", inGrouping);
-  logging::debug("  reference  groupings={}", refGrouping);
+  logging::popops::debug("  input      groupings={}", inGrouping);
+  logging::popops::debug("  reference  groupings={}", refGrouping);
 
   // TODO: T10360 Consider avoiding regrouping float inputs.
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
@@ -582,7 +583,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
       inGrouping[0].first != refGrouping[0].first &&
       (inGrouping[0].second % grainSize) == 0 &&
       (refGrouping[0].second % grainSize) == 0) {
-    logging::debug("  regrouped");
+    logging::popops::debug("  regrouped");
     in = regroupTensor(graph, in, preTranspose, transposeCS, inGrouping[0],
                        refGrouping[0], debugPrefix);
   }
@@ -608,9 +609,10 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
                            std::size_t preferredGrouping_, Sequence &prog,
                            const std::string &debugPrefix) {
-  logging::debug("Regroup if beneficial (preferred): debugstr={}", debugPrefix);
-  logging::debug("  input        shape={}", in_.shape());
-  logging::debug("  preferred grouping={}", preferredGrouping_);
+  logging::popops::debug("Regroup if beneficial (preferred): debugstr={}",
+                         debugPrefix);
+  logging::popops::debug("  input        shape={}", in_.shape());
+  logging::popops::debug("  preferred grouping={}", preferredGrouping_);
   auto in = in_;
 
   // If we can't transpose this data type, it's not beneficial to try
@@ -635,7 +637,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
   if (!inGrouping.empty() && inGrouping[0].first != preferredGrouping.first &&
       inGrouping[0].second % grainSize == 0 &&
       preferredGrouping.second % grainSize == 0) {
-    logging::debug("  regrouped");
+    logging::popops::debug("  regrouped");
     ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
     in = regroupTensor(graph, in, prog, transposeCS, inGrouping[0],
                        preferredGrouping, debugPrefix);

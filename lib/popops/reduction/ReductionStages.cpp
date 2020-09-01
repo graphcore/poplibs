@@ -649,7 +649,7 @@ void createInputReductions(
     Type inputType, Type inVertexType, Type outputType, ComputeSetList &css,
     ResultTensors &reductionResultTensors, const std::string &debugPrefix) {
 
-  logging::debug("DebugStr: {}", debugPrefix);
+  logging::popops::debug("DebugStr: {}", debugPrefix);
   const bool isInputToOutput = out.type() == typeid(Tensor);
 
   // Store the output tensors for each reduction vertex, one per column
@@ -693,23 +693,25 @@ void createInputReductions(
         dividePartials(groupedPartials, graph, in.elementType(), params);
 
     // logging begin
-    if (logging::shouldLog(logging::Level::Trace)) {
+    if (logging::popops::shouldLog(logging::Level::Trace)) {
       // Use to select which to view at compile time...
       auto &debugPartials = splitGroupedPartials;
-      logging::trace(" Tile:{} Reduction Patterns:{}", tile,
-                     debugPartials.size());
+      logging::popops::trace(" Tile:{} Reduction Patterns:{}", tile,
+                             debugPartials.size());
       for (auto &pats : debugPartials) {
         std::stringstream colStr;
         for (auto col : pats.columns) {
           colStr << " " << col;
         }
-        logging::trace("  Patterns:{} Column list[{}]:{}", pats.patterns.size(),
-                       pats.columns.size(), colStr.str());
+        logging::popops::trace("  Patterns:{} Column list[{}]:{}",
+                               pats.patterns.size(), pats.columns.size(),
+                               colStr.str());
         for (auto &pat : pats.patterns) {
-          logging::trace("    Pattern Inner factor:{} Start:{} Stride:{} Outer "
-                         "factor:{} Region:{}",
-                         pat.innerFactor, pat.regionOffset, pat.stride,
-                         pat.outerFactor, pat.regionIdx);
+          logging::popops::trace(
+              "    Pattern Inner factor:{} Start:{} Stride:{} Outer "
+              "factor:{} Region:{}",
+              pat.innerFactor, pat.regionOffset, pat.stride, pat.outerFactor,
+              pat.regionIdx);
         }
       }
     }
@@ -924,7 +926,7 @@ IntermediatePartials intermediateToIntermediate(
     ResultTensors &reductionResultTensors, const unsigned startTile,
     const std::string &debugPrefix) {
 
-  logging::debug("DebugStr: {}", debugPrefix);
+  logging::popops::debug("DebugStr: {}", debugPrefix);
 
   // TODO: temporarily only for ADD, SQUARE ADD as if applied to other types
   //       we produce a mix of partials types.  This can be dealt with when
@@ -935,7 +937,7 @@ IntermediatePartials intermediateToIntermediate(
 
   boost::optional<ComputeSet> castComputeSet;
   if (reductionBenefitsFromPreExchangeCast(ipIn) && opIsAddOrSquareAdd) {
-    logging::debug("Inserting pre-exchange cast half to float");
+    logging::popops::debug("Inserting pre-exchange cast half to float");
     castComputeSet = css.add(graph, debugPrefix + "/PreExchangeCast");
   }
   auto resultType = castComputeSet ? poplar::FLOAT : outType;
@@ -1043,12 +1045,12 @@ IntermediatePartials intermediateToIntermediate(
 
     ++ival;
   }
-  logging::debug(debugNumPartials.min == debugNumPartials.max
-                     ? "  Remaining reduction of {} partials"
-                     : "  Remaining reduction of {} to {} partials",
-                 debugNumPartials.min, debugNumPartials.max);
+  logging::popops::debug(debugNumPartials.min == debugNumPartials.max
+                             ? "  Remaining reduction of {} partials"
+                             : "  Remaining reduction of {} to {} partials",
+                         debugNumPartials.min, debugNumPartials.max);
 
-  logging::debug(
+  logging::popops::debug(
       debugNclip.min == debugNclip.max
           ? "  This stage uses {} tiles, which all reduce {} partials"
           : "  This stage uses {} tiles reducing between {} and {} partials",
@@ -1076,7 +1078,7 @@ IntermediatePartials intermediateToIntermediate(
     if (tileReductions[tile].sourceTilesForInterval.empty()) {
       continue;
     }
-    logging::trace("Tile {} reductions:", tile);
+    logging::popops::trace("Tile {} reductions:", tile);
     debugTileCount++;
 
     // Work out the set of all output regions for this tile.
@@ -1131,9 +1133,9 @@ IntermediatePartials intermediateToIntermediate(
         }
         rt.partials = iPartials;
       }
-      logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
-                     it.second.size(), rt.getPartials().back().numElements(),
-                     re.lower(), re.upper());
+      logging::popops::trace(
+          "  Partials:{} Width:{} Output data index:[{}, {})", it.second.size(),
+          rt.getPartials().back().numElements(), re.lower(), re.upper());
       debugPartialsWidths = {std::min(debugPartialsWidths.min,
                                       rt.getPartials().back().numElements()),
                              std::max(debugPartialsWidths.max,
@@ -1155,10 +1157,10 @@ IntermediatePartials intermediateToIntermediate(
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
   }
-  logging::debug(debugPartialsWidths.min == debugPartialsWidths.max
-                     ? "  Partial width {}"
-                     : " With widths between {} and {}",
-                 debugPartialsWidths.min, debugPartialsWidths.max);
+  logging::popops::debug(debugPartialsWidths.min == debugPartialsWidths.max
+                             ? "  Partial width {}"
+                             : " With widths between {} and {}",
+                         debugPartialsWidths.min, debugPartialsWidths.max);
 
   css.setPos(csPos);
 
@@ -1172,7 +1174,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                           Type inVertexType, ComputeSetList &css,
                           ResultTensors &reductionResultTensors,
                           const Tensor &in, const std::string &debugPrefix) {
-  logging::debug("DebugStr: {}", debugPrefix);
+  logging::popops::debug("DebugStr: {}", debugPrefix);
 
   const auto numOutElements = in.dim(1);
   bool mappingComplete = false;
@@ -1212,7 +1214,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
           return tileOutputs.size() == 1 && tileOutputs[0].size() == 1;
         });
     if (singleOutputOnAnyTile || reductionBenefitsFromPreExchangeCast(ipIn)) {
-      logging::debug("Inserting pre-exchange cast half to float");
+      logging::popops::debug("Inserting pre-exchange cast half to float");
       castComputeSet = css.add(graph, debugPrefix + "/PreExchangeCast");
       inVertexType = poplar::FLOAT;
     }
@@ -1308,13 +1310,13 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
   std::size_t csPos = css.pos();
 
   unsigned debugTiles = 0;
-  if (logging::shouldLog(logging::Level::Debug)) {
+  if (logging::popops::shouldLog(logging::Level::Debug)) {
     for (unsigned tile = 0; tile < mapping.size(); ++tile) {
       if (!mapping[tile].empty()) {
         debugTiles++;
       }
     }
-    logging::debug("  Using {} tiles", debugTiles);
+    logging::popops::debug("  Using {} tiles", debugTiles);
   }
   DebugRange<std::size_t> debugNumPartials = {UINT_MAX, 0};
   DebugRange<std::size_t> debugPartialsWidths = {UINT_MAX, 0};
@@ -1336,7 +1338,7 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     if (mapping[tile].empty()) {
       continue;
     }
-    logging::trace("Tile {} reductions:", tile);
+    logging::popops::trace("Tile {} reductions:", tile);
 
     // Get the regions that are mapped to this tile.
     auto outputRegionsSplitIcl = poplarToSplitIntervalSet(mapping[tile]);
@@ -1408,10 +1410,10 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
       // valid outerFactor.
       rt.outerFactor = rtPartials.back().back().numElements() *
                        rtPartials.back().size() / rt.output.numElements();
-      logging::trace("  Partials:{} Width:{} Output data index:[{}, {})",
-                     partialTiles.size(),
-                     rtPartials.back().back().numElements(), re.begin(),
-                     re.end());
+      logging::popops::trace(
+          "  Partials:{} Width:{} Output data index:[{}, {})",
+          partialTiles.size(), rtPartials.back().back().numElements(),
+          re.begin(), re.end());
       debugPartialsWidths = {std::min(debugPartialsWidths.min,
                                       rtPartials.back().back().numElements()),
                              std::max(debugPartialsWidths.max,
@@ -1489,14 +1491,14 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     if (cssFork.pos() > csPos)
       csPos = cssFork.pos();
   }
-  logging::debug(debugNumPartials.min == debugNumPartials.max
-                     ? "  Tiles all reduce {} partials"
-                     : "  Tiles have between {} and {} partials",
-                 debugNumPartials.min, debugNumPartials.max);
-  logging::debug(debugPartialsWidths.min == debugPartialsWidths.max
-                     ? "  Partial width {}"
-                     : " With widths between {} and {}",
-                 debugPartialsWidths.min, debugPartialsWidths.max);
+  logging::popops::debug(debugNumPartials.min == debugNumPartials.max
+                             ? "  Tiles all reduce {} partials"
+                             : "  Tiles have between {} and {} partials",
+                         debugNumPartials.min, debugNumPartials.max);
+  logging::popops::debug(debugPartialsWidths.min == debugPartialsWidths.max
+                             ? "  Partial width {}"
+                             : " With widths between {} and {}",
+                         debugPartialsWidths.min, debugPartialsWidths.max);
 
   css.setPos(csPos);
 

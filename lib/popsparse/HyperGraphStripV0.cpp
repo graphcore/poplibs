@@ -34,7 +34,7 @@ HyperGraphStripV0::HyperGraphStripV0(const BlockMatrix &A, const BlockMatrix &B,
     assert(0);
   }
 
-  logging::info("HyperGraphStripV0 is created");
+  logging::popsparse::info("HyperGraphStripV0 is created");
 }
 
 void HyperGraphStripV0::createGraphMatMul(poplar::Graph &graph,
@@ -72,9 +72,9 @@ void HyperGraphStripV0::createGraphMatMul(poplar::Graph &graph,
   }
   nTilePerGroup = nTile / nGroup;
 
-  logging::info("number of pass = {} number of group = {} "
-                "number of tile per group = {}",
-                nPass, nGroup, nTilePerGroup);
+  logging::popsparse::info("number of pass = {} number of group = {} "
+                           "number of tile per group = {}",
+                           nPass, nGroup, nTilePerGroup);
 
   std::vector<int> rowSplitTileAssignment, colSplitTileAssignment;
   float rowSplitBalance =
@@ -87,11 +87,11 @@ void HyperGraphStripV0::createGraphMatMul(poplar::Graph &graph,
   if (colSplitBalance <= rowSplitBalance) {
     doRowSplit = false;
     rhsTileAssignment = colSplitTileAssignment;
-    logging::info("column split, load balance: {}", loadBalance);
+    logging::popsparse::info("column split, load balance: {}", loadBalance);
   } else {
     doRowSplit = true;
     rhsTileAssignment = rowSplitTileAssignment;
-    logging::info("row split, load balance: {}", loadBalance);
+    logging::popsparse::info("row split, load balance: {}", loadBalance);
   }
 
   if (doRowSplit) {
@@ -147,9 +147,9 @@ void HyperGraphStripV0::createGraphMatMulSparsifyResult(
   }
   nTilePerGroup = nTile / nGroup;
 
-  logging::info("number of pass = {} number of group = {} "
-                "number of tile per group = {}",
-                nPass, nGroup, nTilePerGroup);
+  logging::popsparse::info("number of pass = {} number of group = {} "
+                           "number of tile per group = {}",
+                           nPass, nGroup, nTilePerGroup);
 
   std::vector<int> rowSplitTileAssignment, colSplitTileAssignment;
   float rowSplitBalance =
@@ -162,11 +162,11 @@ void HyperGraphStripV0::createGraphMatMulSparsifyResult(
   if (colSplitBalance <= rowSplitBalance) {
     doRowSplit = false;
     resultTileAssignment = colSplitTileAssignment;
-    logging::info("column split, load balance: {}", loadBalance);
+    logging::popsparse::info("column split, load balance: {}", loadBalance);
   } else {
     doRowSplit = true;
     resultTileAssignment = rowSplitTileAssignment;
-    logging::info("row split, load balance: {}", loadBalance);
+    logging::popsparse::info("row split, load balance: {}", loadBalance);
   }
 
   if (doRowSplit) {
@@ -246,7 +246,7 @@ void HyperGraphStripV0::createProgramMatMul(poplar::Graph &graph,
 }
 
 HyperGraphData HyperGraphStripV0::getDataForPartitioner() {
-  logging::info("Number of hyper graph nodes: {}", nodes.size());
+  logging::popsparse::info("Number of hyper graph nodes: {}", nodes.size());
 
   HyperGraphData graphData;
 
@@ -270,8 +270,8 @@ HyperGraphData HyperGraphStripV0::getDataForPartitioner() {
     pins.insert(pins.end(), e.pins.begin(), e.pins.end());
   }
 
-  logging::info("Number of pins is {}", pins.size());
-  logging::info("Number of edges is {}", hyperEdges.size());
+  logging::popsparse::info("Number of pins is {}", pins.size());
+  logging::popsparse::info("Number of edges is {}", hyperEdges.size());
 
   graphData.pins = std::move(pins);
   graphData.hyperEdges = std::move(hyperEdges);

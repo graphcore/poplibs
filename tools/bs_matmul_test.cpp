@@ -694,8 +694,9 @@ int main(int argc, char **argv) {
     }
     if (vm.count(option) > 0) {
       if (!used) {
-        logging::warn("Option {} is not used in scenario {}. Ignored.",
-                      option.c_str(), scenarioName.c_str());
+        logging::popsparse::warn(
+            "Option {} is not used in scenario {}. Ignored.", option.c_str(),
+            scenarioName.c_str());
       } else {
         if (optionValue && *optionValue < minValue) {
           std::cerr << "Option " << option << " minimum value is "
@@ -972,9 +973,9 @@ int main(int argc, char **argv) {
                     << " x " << blockSize[2] << std::endl;
         }
         if (rhsNeedTranspose) {
-          logging::info("Right matrix must be transposed");
+          logging::popsparse::info("Right matrix must be transposed");
         }
-        logging::info("LHS rows: {} ", lhsRows);
+        logging::popsparse::info("LHS rows: {} ", lhsRows);
 
         float flopsOp;
         if (operandsType[nStep] == OperandsType::ddd) {
@@ -986,7 +987,7 @@ int main(int argc, char **argv) {
             flopsOp = 2.0 * nonZeroBlock * dim[1] * blockSize[0] * blockSize[2];
           }
         }
-        logging::info("flops op: {:.1f} ", flopsOp);
+        logging::popsparse::info("flops op: {:.1f} ", flopsOp);
         flops += flopsOp;
 
         if (numGroups == 1) {
@@ -1675,12 +1676,12 @@ int main(int argc, char **argv) {
         if (std::isnan(curValTest)) {
           foundNan = true;
           success = false;
-          logging::debug("[{}][{}] True: {}, test = {}", r, c, curValTruth,
-                         curValTest);
+          logging::popsparse::debug("[{}][{}] True: {}, test = {}", r, c,
+                                    curValTruth, curValTest);
         } else if (!checkIsClose(curValTruth, curValTest, threshold)) {
           success = false;
-          logging::debug("[{}][{}] True: {}, test = {}", r, c, curValTruth,
-                         curValTest);
+          logging::popsparse::debug("[{}][{}] True: {}, test = {}", r, c,
+                                    curValTruth, curValTest);
           if (err > maxErr) {
             valTruth = curValTruth;
             valTest = curValTest;

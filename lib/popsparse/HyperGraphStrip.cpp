@@ -41,7 +41,7 @@ HyperGraphStrip::HyperGraphStrip(const BlockMatrix &A, const BlockMatrix &B,
     assert(0);
   }
 
-  logging::info("HyperGraphStrip is created");
+  logging::popsparse::info("HyperGraphStrip is created");
 }
 
 void HyperGraphStrip::createGraphMatMul(poplar::Graph &graph,
@@ -74,9 +74,9 @@ void HyperGraphStrip::createGraphMatMul(poplar::Graph &graph,
   // TODO: handle the case nTile is not divisible by nGroup
   nTilePerGroup = nTile / nGroup;
 
-  logging::info("number of pass = {} number of group = {} "
-                "number of tile per group = {}",
-                nPass, nGroup, nTilePerGroup);
+  logging::popsparse::info("number of pass = {} number of group = {} "
+                           "number of tile per group = {}",
+                           nPass, nGroup, nTilePerGroup);
 
   nSplitFactor = 2 * nTilePerGroup / matB.getBlockColCount();
   if (nSplitFactor == 0) {
@@ -89,8 +89,8 @@ void HyperGraphStrip::createGraphMatMul(poplar::Graph &graph,
       createPartitionPlan(graph, matB, partitionPlan, nTilePerGroup,
                           nSplitFactor, true, debugPrefix);
 
-  logging::info("load balance: {}, nSplitFactor: {}", loadBalance,
-                nSplitFactor);
+  logging::popsparse::info("load balance: {}, nSplitFactor: {}", loadBalance,
+                           nSplitFactor);
 
   lhsPartitionDSD(partitionPlan, lhsPartitionPlan, nTilePerGroup);
 }
@@ -127,9 +127,9 @@ void HyperGraphStrip::createGraphMatMulSparsifyResult(
   nGroup = matA.getBlockColCount() / nPass;
   nTilePerGroup = nTile / nGroup;
 
-  logging::info("number of pass = {} number of group = {} "
-                "number of tile per group = {}",
-                nPass, nGroup, nTilePerGroup);
+  logging::popsparse::info("number of pass = {} number of group = {} "
+                           "number of tile per group = {}",
+                           nPass, nGroup, nTilePerGroup);
 
   nSplitFactor = 2 * nTilePerGroup / matC->getBlockColCount();
 
@@ -145,8 +145,8 @@ void HyperGraphStrip::createGraphMatMulSparsifyResult(
 
   lhsPartitionDDS(partitionPlan, lhsPartitionPlan, nTilePerGroup);
 
-  logging::info("load balance: {}, nSplitFactor: {}", loadBalance,
-                nSplitFactor);
+  logging::popsparse::info("load balance: {}, nSplitFactor: {}", loadBalance,
+                           nSplitFactor);
 }
 
 void HyperGraphStrip::createProgramMatMul(poplar::Graph &graph,
@@ -189,7 +189,7 @@ void HyperGraphStrip::createProgramMatMul(poplar::Graph &graph,
 }
 
 HyperGraphData HyperGraphStrip::getDataForPartitioner() {
-  logging::info("Number of hyper graph nodes: {}", nodes.size());
+  logging::popsparse::info("Number of hyper graph nodes: {}", nodes.size());
 
   HyperGraphData graphData;
 
@@ -213,8 +213,8 @@ HyperGraphData HyperGraphStrip::getDataForPartitioner() {
     pins.insert(pins.end(), e.pins.begin(), e.pins.end());
   }
 
-  logging::info("Number of pins is {}", pins.size());
-  logging::info("Number of edges is {}", hyperEdges.size());
+  logging::popsparse::info("Number of pins is {}", pins.size());
+  logging::popsparse::info("Number of edges is {}", hyperEdges.size());
 
   graphData.pins = std::move(pins);
   graphData.hyperEdges = std::move(hyperEdges);
@@ -469,10 +469,12 @@ float HyperGraphStrip::createPartitionPlan(
     balance = std::max(b, balance);
   }
 
-  logging::info("min tile id = {} blocks = {} ", minTileId, minBlock);
-  logging::info("max tile id = {} blocks = {} ", maxTileId, maxBlock);
-  logging::info("avg block = {} load balance = {}, zero tiles = {}", avgBlock,
-                balance, zeroTiles);
+  logging::popsparse::info("min tile id = {} blocks = {} ", minTileId,
+                           minBlock);
+  logging::popsparse::info("max tile id = {} blocks = {} ", maxTileId,
+                           maxBlock);
+  logging::popsparse::info("avg block = {} load balance = {}, zero tiles = {}",
+                           avgBlock, balance, zeroTiles);
 
   return balance + zeroTiles;
 }

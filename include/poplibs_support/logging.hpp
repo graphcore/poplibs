@@ -115,6 +115,10 @@ void log(Module m, Level l, const char *s, Args &&... args) {
   inline void flush() { flush(Module::MODULE); }                               \
   inline void setLogLevel(Level l) { setLogLevel(Module::MODULE, l); }         \
   inline bool shouldLog(Level l) { return shouldLog(Module::MODULE, l); }      \
+  template <typename... Args>                                                  \
+  void log(Level l, const char *s, Args &&... args) {                          \
+    log(Module::MODULE, l, fmt::format(s, std::forward<Args>(args)...));       \
+  }                                                                            \
   }
 
 // The definition of the logging modules
@@ -126,37 +130,10 @@ MAKE_MODULE_TEMPLATE(poprand)
 MAKE_MODULE_TEMPLATE(popsolver)
 MAKE_MODULE_TEMPLATE(popsparse)
 MAKE_MODULE_TEMPLATE(poputil)
+MAKE_MODULE_TEMPLATE(poplibs)
 
 #undef MAKE_MODULE_LOG_TEMPLATE
 #undef MAKE_MODULE_TEMPLATE
-
-// Begin deprecated
-void log(Level l, std::string &&msg);
-bool shouldLog(Level l);
-template <typename... Args>
-void log(Level l, const char *s, const Args &... args) {
-  if (shouldLog(l)) {
-    log(l, fmt::format(s, args...));
-  }
-}
-#define MAKE_LOG_TEMPLATE(fnName, lvl)                                         \
-  template <typename... Args>                                                  \
-  inline void fnName(const char *s, const Args &... args) {                    \
-    log(Module::poplibs, Level::lvl, s, std::forward<const Args>(args)...);    \
-  }                                                                            \
-  template <typename... Args>                                                  \
-  inline void fnName(const std::string &s, const Args &... args) {             \
-    log(Module::poplibs, Level::lvl, s.c_str(),                                \
-        std::forward<const Args>(args)...);                                    \
-  }
-
-MAKE_LOG_TEMPLATE(trace, Trace)
-MAKE_LOG_TEMPLATE(debug, Debug)
-MAKE_LOG_TEMPLATE(info, Info)
-MAKE_LOG_TEMPLATE(warn, Warn)
-MAKE_LOG_TEMPLATE(err, Err)
-#undef MAKE_LOG_TEMPLATE
-// End deprecated
 
 } // namespace logging
 } // namespace poplibs_support

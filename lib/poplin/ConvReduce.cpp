@@ -120,8 +120,8 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
 
     maxOutWidth = std::max(maxOutWidth, concatFlatReduced.numElements());
   }
-  logging::debug("    Tiles used : {} max outWidth: {}", tilesUsed,
-                 maxOutWidth);
+  logging::poplin::debug("    Tiles used : {} max outWidth: {}", tilesUsed,
+                         maxOutWidth);
 }
 
 static Tensor partialGroupedReduce(
@@ -145,8 +145,8 @@ static Tensor partialGroupedReduce(
   const auto roundedGrainSize =
       (grainSize + minGrainSize - 1) / minGrainSize * minGrainSize;
 
-  logging::debug("  Total reduction depth {} in {} sections", partialsDepth,
-                 outDepth);
+  logging::poplin::debug("  Total reduction depth {} in {} sections",
+                         partialsDepth, outDepth);
   for (unsigned i = 0; i != outDepth; ++i) {
     unsigned begin = (i * partialsDepth) / outDepth;
     unsigned end = ((i + 1) * partialsDepth) / outDepth;
@@ -167,8 +167,8 @@ static Tensor partialGroupedReduce(
     }
 
     graph.setTileMapping(out[i], outSubMapping);
-    logging::debug("    Reduction section with Depth {}, Height {}.",
-                   end - begin, out[i].numElements());
+    logging::poplin::debug("    Reduction section with Depth {}, Height {}.",
+                           end - begin, out[i].numElements());
     reduce(graph, tileToRow, enableFastReduce, enableSingleInputReduce,
            end - begin, partials.slice(begin, end), out[i], outSubMapping, cs);
   }
@@ -201,9 +201,9 @@ static Tensor multiStageGroupedReduce(
         graph.addComputeSet(debugPrefix + "/Reduce" + std::to_string(i)));
   }
   const auto partialsType = partials.elementType();
-  logging::debug("  Multistage: {} stages", plan.size() + 1);
+  logging::poplin::debug("  Multistage: {} stages", plan.size() + 1);
   for (unsigned i = 0; i != plan.size(); ++i) {
-    logging::debug("  Stage {}:", i);
+    logging::poplin::debug("  Stage {}:", i);
     std::string stepDebugPrefix = debugPrefix;
     if (plan.size() > 1)
       stepDebugPrefix += "/Stage" + std::to_string(i);
@@ -212,7 +212,7 @@ static Tensor multiStageGroupedReduce(
         options.enableFastReduce, options.enableSingleInputReduce, partials,
         plan[i], partialsType, computeSets[i], stepDebugPrefix);
   }
-  logging::debug("  Last stage:");
+  logging::poplin::debug("  Last stage:");
   auto reduced = groupedReduce(
       graph, tileGroups, tileGroupRegions, tileToRow, options.enableFastReduce,
       options.enableSingleInputReduce, partials, resultType,
@@ -226,7 +226,8 @@ Tensor multiStageGroupedReduce(Graph &graph, Tensor partials,
                                const ConvOptions &options,
                                const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
-  logging::debug("Creating poplin::reduce vertices, debugStr: {}", debugPrefix);
+  logging::poplin::debug("Creating poplin::reduce vertices, debugStr: {}",
+                         debugPrefix);
   std::map<unsigned, unsigned> tileToRow;
   // Build a map from the output to the set of tiles that contribute partial
   // sums.

@@ -15,7 +15,7 @@ namespace logging = poplibs_support::logging;
 poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix) {
-  logging::info("hasNaN src={}, name={}", src.shape(), debugPrefix);
+  logging::popops::info("hasNaN src={}, name={}", src.shape(), debugPrefix);
 
   const auto cs = graph.addComputeSet(debugPrefix + "/hasNaN");
   const auto vertexName = templateVertex("popops::HasNaN", src.elementType());

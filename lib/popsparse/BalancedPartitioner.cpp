@@ -58,12 +58,13 @@ float BalancedPartitioner::partitionGraph(const HyperGraphData &graphData,
                      minTileId, maxWeight, maxTileId, avgWeight, balance,
                      zeroTiles);
 
-  logging::info("Min weight {} on tile {}", minWeight, minTileId);
-  logging::info("Max weight {} on tile {}", maxWeight, maxTileId);
-  logging::info("Average weight {}", avgWeight);
-  logging::info("partition load balance {}, number of tile that has no "
-                "assignment {}",
-                balance, zeroTiles);
+  logging::popsparse::info("Min weight {} on tile {}", minWeight, minTileId);
+  logging::popsparse::info("Max weight {} on tile {}", maxWeight, maxTileId);
+  logging::popsparse::info("Average weight {}", avgWeight);
+  logging::popsparse::info(
+      "partition load balance {}, number of tile that has no "
+      "assignment {}",
+      balance, zeroTiles);
 
   return balance + zeroTiles;
 }

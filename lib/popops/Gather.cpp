@@ -288,8 +288,8 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               const std::vector<std::size_t> &collapsedSliceDims,
               const std::vector<unsigned> &startIndexMap,
               program::Sequence &prog, const std::string &debugPrefix) {
-  logging::info("gather input={}, indices={}, name={}", input.shape(),
-                indices.shape(), debugPrefix);
+  logging::popops::info("gather input={}, indices={}, name={}", input.shape(),
+                        indices.shape(), debugPrefix);
 
   auto canonicalizedIndices =
       canonicalizeGatherIndices(indices, indexVectorDim, startIndexMap);

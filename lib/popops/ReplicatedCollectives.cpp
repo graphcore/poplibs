@@ -414,7 +414,7 @@ static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
 static Tensor replicatedSplitIntoFragments(const Tensor &t,
                                            unsigned numFragments,
                                            Graph &graph) {
-  logging::debug("Split into fragments");
+  logging::popops::debug("Split into fragments");
   std::vector<Tensor> perIpuFragments;
   for (auto &ipuTensor : getPerIpuTensors(t, graph)) {
     unsigned padding =
@@ -458,7 +458,7 @@ static void replicatedRankSlice(Graph &graph, const Tensor &fragments_,
                                 const Tensor &sliceIndex, const Tensor &dst,
                                 const RingTopology &ring,
                                 const Direction direction, Sequence &prog) {
-  logging::debug("Replicated rank slice");
+  logging::popops::debug("Replicated rank slice");
   assert(fragments_.rank() == dst.rank() + 1);
   assert(fragments_[0].shape() == dst.shape());
   auto fragments = giveFragmentsIpuOrder(fragments_, ring);
@@ -492,7 +492,7 @@ static void replicatedRankUpdate(Graph &graph, const Tensor &src,
                                  const Tensor &sliceIndex,
                                  const RingTopology &ring,
                                  const Direction direction, Sequence &prog) {
-  logging::debug("replicatedRankUpdate begin");
+  logging::popops::debug("replicatedRankUpdate begin");
   assert(src.rank() + 1 == fragments_.rank());
   assert(src.shape() == fragments_[0].shape());
   auto fragments = giveFragmentsIpuOrder(fragments_, ring);
@@ -634,7 +634,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
     Graph &graph, const Tensor &toReduce, popops::Operation op,
     Direction direction, const std::string &debugPrefix,
     const unsigned numSteps, const int startOffset = 0) {
-  logging::debug("Unidirectional ring reduce scatter");
+  logging::popops::debug("Unidirectional ring reduce scatter");
 
   const auto replicationFactor = graph.getReplicationFactor();
   const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
@@ -689,7 +689,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   program.undefTensor = concat({srcBuffer, dstBuffer});
   program.srcBuffer = std::move(srcBuffer);
   program.dstBuffer = std::move(dstBuffer);
-  logging::debug("Unidirectional ring reduce scatter end");
+  logging::popops::debug("Unidirectional ring reduce scatter end");
   return program;
 }
 
@@ -702,7 +702,7 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
   // programs in the same repeat. Don't need to worry about ipu mapping when
   // splitting in half as this method won't be called unless one ipu per
   // replica
-  logging::debug("Bidirectional ring reduce scatter");
+  logging::popops::debug("Bidirectional ring reduce scatter");
   if (graph.getReplicationFactor() == 1) {
     return toReduce;
   }
@@ -730,7 +730,7 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
                                             popops::Operation op,
                                             Sequence &prog,
                                             const std::string &debugPrefix) {
-  logging::debug("Meet in the middle reduce scatter");
+  logging::popops::debug("Meet in the middle reduce scatter");
   const auto replicationFactor = graph.getReplicationFactor();
   if (replicationFactor <= 2) {
     auto program = unidirectionalRingReduceScatter(
@@ -767,7 +767,7 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   prog.add(meetInMiddleReduceScatterSequence(clockwiseProg, anticlockwiseProg,
                                              graph, std::move(combineBuffers),
                                              topLevelControlTile));
-  logging::debug("Meet in the middle ring reduce scatter end");
+  logging::popops::debug("Meet in the middle ring reduce scatter end");
   return clockwiseProg.srcBuffer.get();
 }
 
@@ -783,7 +783,8 @@ static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
   default:
     assert(0 && "Unexpected reduce method");
   case CollectiveMethod::CLOCKWISE_RING: {
-    logging::debug("Reduce scatter collective method is clockwise ring");
+    logging::popops::debug(
+        "Reduce scatter collective method is clockwise ring");
     auto program = unidirectionalRingReduceScatter(
         graph, toReduce, op, CLOCKWISE, debugPrefix,
         graph.getReplicationFactor());
@@ -791,7 +792,8 @@ static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
     return program.srcBuffer.get();
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
-    logging::debug("reduce scatter collective method is anti-clockwise ring");
+    logging::popops::debug(
+        "reduce scatter collective method is anti-clockwise ring");
     auto program = unidirectionalRingReduceScatter(
         graph, toReduce, op, ANTICLOCKWISE, debugPrefix,
         graph.getReplicationFactor());
@@ -799,13 +801,14 @@ static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
     return program.srcBuffer.get();
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
-    logging::debug("Reduce scatter collective method is Bidirectional ring");
+    logging::popops::debug(
+        "Reduce scatter collective method is Bidirectional ring");
     return bidirectionalRingPairReduceScatter(graph, toReduce, op, prog,
                                               debugPrefix);
   }
   case CollectiveMethod::MEET_IN_MIDDLE_RING: {
-    logging::debug("Reduce scatter collective "
-                   "method is Meet in the middle ring");
+    logging::popops::debug("Reduce scatter collective "
+                           "method is Meet in the middle ring");
     return ringMeetInMiddleReduceScatter(graph, toReduce, op, prog,
                                          debugPrefix);
   }
@@ -856,7 +859,7 @@ static CollectivesProgram unidirectionalRingAllGather(
     Graph &graph, const Tensor &toGather, const Tensor &result,
     Direction direction, const std::string &debugPrefix,
     const unsigned numSteps, const int startOffset = 0) {
-  logging::debug("Unidirectional ring allGather");
+  logging::popops::debug("Unidirectional ring allGather");
   const auto replicationFactor = graph.getReplicationFactor();
   const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
   RingTopology ring(replicationFactor, ipusPerReplica,
@@ -903,7 +906,7 @@ static CollectivesProgram unidirectionalRingAllGather(
 static void bidirectionalRingPairAllGather(Graph &graph, const Tensor &toGather,
                                            const Tensor &result, Sequence &prog,
                                            const std::string &debugPrefix) {
-  logging::debug("Bidirectional ring allGather");
+  logging::popops::debug("Bidirectional ring allGather");
   const auto replicationFactor = graph.getReplicationFactor();
 
   auto numFragments = replicationFactor;
@@ -928,7 +931,7 @@ static void bidirectionalRingPairAllGather(Graph &graph, const Tensor &toGather,
 static void ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
                                       const Tensor &result, Sequence &prog,
                                       const std::string &debugPrefix) {
-  logging::debug("Meet in the middle ring allGather");
+  logging::popops::debug("Meet in the middle ring allGather");
   if (graph.getReplicationFactor() <= 2) {
     auto program = unidirectionalRingAllGather(
         graph, toGather, result, Direction::CLOCKWISE, debugPrefix,
@@ -974,7 +977,7 @@ static void allGather(Graph &graph, const Tensor &toGather,
   default:
     assert(0 && "Unexpected reduce method");
   case CollectiveMethod::CLOCKWISE_RING: {
-    logging::debug("All gather collective method is clockwise ring");
+    logging::popops::debug("All gather collective method is clockwise ring");
     auto program =
         unidirectionalRingAllGather(graph, toGather, result, CLOCKWISE,
                                     debugPrefix, graph.getReplicationFactor());
@@ -982,7 +985,8 @@ static void allGather(Graph &graph, const Tensor &toGather,
     return;
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
-    logging::debug("All gather collective method is anti-clockwise ring");
+    logging::popops::debug(
+        "All gather collective method is anti-clockwise ring");
     auto program =
         unidirectionalRingAllGather(graph, toGather, result, ANTICLOCKWISE,
                                     debugPrefix, graph.getReplicationFactor());
@@ -990,12 +994,14 @@ static void allGather(Graph &graph, const Tensor &toGather,
     return;
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
-    logging::debug("All gather collective method is Bidirectional ring");
+    logging::popops::debug(
+        "All gather collective method is Bidirectional ring");
     return bidirectionalRingPairAllGather(graph, toGather, result, prog,
                                           debugPrefix);
   }
   case CollectiveMethod::MEET_IN_MIDDLE_RING: {
-    logging::debug("All gather collective method is Meet in the middle ring");
+    logging::popops::debug(
+        "All gather collective method is Meet in the middle ring");
     return ringMeetInMiddleAllGather(graph, toGather, result, prog,
                                      debugPrefix);
   }
@@ -1014,11 +1020,11 @@ poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
 poplar::Tensor ReplicatedCollectives::replicatedReduceScatter(
     Graph &graph, const Tensor &toReduce, popops::Operation op, Sequence &prog,
     const std::string &debugPrefix, const OptionFlags &optionFlags) {
-  logging::info("replicatedReduceScatter data={}, op={}, name={}",
-                toReduce.shape(), op, debugPrefix);
-  logging::debug("Replicated reduce scatter begin ({}B)",
-                 toReduce.numElements() *
-                     graph.getTarget().getTypeSize(toReduce.elementType()));
+  logging::popops::info("replicatedReduceScatter data={}, op={}, name={}",
+                        toReduce.shape(), op, debugPrefix);
+  logging::popops::debug("Replicated reduce scatter begin ({}B)",
+                         toReduce.numElements() * graph.getTarget().getTypeSize(
+                                                      toReduce.elementType()));
   if (toReduce.rank() != 1) {
     throw poputil::poplibs_error("Input tensor to replicatedReduceScatter "
                                  "must have rank 1, but had rank " +
@@ -1030,7 +1036,7 @@ poplar::Tensor ReplicatedCollectives::replicatedReduceScatter(
 
   auto output =
       internalReduceScatter(graph, toReduce, op, prog, debugPrefix, options);
-  logging::debug("Replicated reduce scatter end");
+  logging::popops::debug("Replicated reduce scatter end");
   return output;
 }
 
@@ -1055,11 +1061,11 @@ poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
 poplar::Tensor ReplicatedCollectives::replicatedAllGather(
     Graph &graph, const Tensor &toGather, Sequence &prog,
     const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
-  logging::info("replicatedAllGather data={}, name={}", toGather.shape(),
-                debugPrefix);
-  logging::debug("Replicated all gather begin ({}B)",
-                 toGather.numElements() *
-                     graph.getTarget().getTypeSize(toGather.elementType()));
+  logging::popops::info("replicatedAllGather data={}, name={}",
+                        toGather.shape(), debugPrefix);
+  logging::popops::debug("Replicated all gather begin ({}B)",
+                         toGather.numElements() * graph.getTarget().getTypeSize(
+                                                      toGather.elementType()));
 
   if (graph.getTopLevelGraph().getReplicationFactor() > 1 &&
       graph.getReplicationFactor() !=
@@ -1087,7 +1093,7 @@ poplar::Tensor ReplicatedCollectives::replicatedAllGather(
 
   output = output.reshape(newShape);
 
-  logging::debug("Replicated all gather end");
+  logging::popops::debug("Replicated all gather end");
   return output;
 }
 
@@ -1126,8 +1132,8 @@ getNumElements(Graph::TileToTensorMapping::const_iterator begin,
 // result tensor.
 static void allReduceReorder(Graph &graph, poplar::Tensor *data,
                              poplar::Tensor *result, unsigned numFragments) {
-  logging::debug("Reorder data tensor for an all-reduce with {} fragments",
-                 numFragments);
+  logging::popops::debug(
+      "Reorder data tensor for an all-reduce with {} fragments", numFragments);
   auto dataReordered = data->flatten();
   auto resultReordered = result->flatten();
   graph.reorderToSimplify(&dataReordered, {&resultReordered});
@@ -1189,8 +1195,9 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
           auto sliceEnd =
               std::min(sliceBegin + tileElementsRemaining, interval.end());
           auto sliceSize = sliceEnd - sliceBegin;
-          logging::trace("Add interval [{},{}) on tile {} to fragment {}",
-                         sliceBegin, sliceEnd, tile, fragment);
+          logging::popops::trace(
+              "Add interval [{},{}) on tile {} to fragment {}", sliceBegin,
+              sliceEnd, tile, fragment);
           reorderedIntervals.emplace_back(sliceBegin, sliceEnd);
           if (sliceEnd == interval.end()) {
             ++offset.interval;
@@ -1280,7 +1287,7 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
   allReduceReorder(graph, &dataReordered, &resultReordered,
                    getAllReduceNumFragments(graph, options, data));
   if (options.useReplicatedImplementation) {
-    logging::debug("Using replicated version of allReduce");
+    logging::popops::debug("Using replicated version of allReduce");
     auto reduceScattered = internalReduceScatter(graph, dataReordered, op, prog,
                                                  debugPrefix, options);
     allGather(graph, reduceScattered, resultReordered, prog, debugPrefix,
@@ -1312,13 +1319,13 @@ void ReplicatedCollectives::replicatedAllReduceWithOutput(
     Graph &graph, const poplar::Tensor &data, poplar::Tensor &result,
     popops::Operation op, program::Sequence &prog,
     const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
-  logging::info(
+  logging::popops::info(
       "replicatedAllReduceWithOutput data={}, result={}, op={}, name={}",
       data.shape(), result.shape(), op, debugPrefix);
 
-  logging::debug("Replicated all reduce begin ({}B)",
-                 data.numElements() *
-                     graph.getTarget().getTypeSize(data.elementType()));
+  logging::popops::debug("Replicated all reduce begin ({}B)",
+                         data.numElements() *
+                             graph.getTarget().getTypeSize(data.elementType()));
   if (data.shape() != result.shape()) {
     throw poputil::poplibs_error("Shape of input and output tensors "
                                  "are different");
@@ -1330,8 +1337,8 @@ void ReplicatedCollectives::replicatedAllReduceWithOutput(
   const bool correctMapping =
       getIpuMapping(graph, data) == getIpuMapping(graph, result);
   if (!correctMapping) {
-    logging::warn("Warning: the ipu mapping of result and input tensor "
-                  "is different. This will introduce an extra copy");
+    logging::popops::warn("Warning: the ipu mapping of result and input tensor "
+                          "is different. This will introduce an extra copy");
   }
   const Tensor output = [&]() {
     if (correctMapping) {
@@ -1345,7 +1352,7 @@ void ReplicatedCollectives::replicatedAllReduceWithOutput(
   if (!correctMapping) {
     prog.add(Copy(output, result));
   }
-  logging::debug("Replicated all reduce end");
+  logging::popops::debug("Replicated all reduce end");
 }
 
 void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
@@ -1369,16 +1376,16 @@ Tensor ReplicatedCollectives::replicatedAllReduce(
     Graph &graph, const poplar::Tensor &data, popops::Operation op,
     program::Sequence &prog, const std::string &debugPrefix,
     const poplar::OptionFlags &optionFlags) {
-  logging::info("replicatedAllReduce data={}, op={}, name={}", data.shape(), op,
-                debugPrefix);
+  logging::popops::info("replicatedAllReduce data={}, op={}, name={}",
+                        data.shape(), op, debugPrefix);
 
-  logging::debug("Replicated all reduce begin ({}B)",
-                 data.numElements() *
-                     graph.getTarget().getTypeSize(data.elementType()));
+  logging::popops::debug("Replicated all reduce begin ({}B)",
+                         data.numElements() *
+                             graph.getTarget().getTypeSize(data.elementType()));
   auto result = graph.clone(data, debugPrefix + "/result");
   noCheckReplicatedAllReduce(graph, data, result, op, prog, debugPrefix,
                              optionFlags);
-  logging::debug("Replicated all reduce end");
+  logging::popops::debug("Replicated all reduce end");
   return result;
 }
 

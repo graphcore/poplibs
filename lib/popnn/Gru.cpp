@@ -429,9 +429,9 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
               program::Sequence &fwdProg, const std::string &debugPrefix,
               const OptionFlags &options,
               poplin::matmul::PlanningCache *cache) {
-  logging::info("gruFwd(steps={}, batch {} x layers {}, name {}",
-                params.timeSteps, params.batchSize, params.layerSizes,
-                debugPrefix);
+  logging::popnn::info("gruFwd(steps={}, batch {} x layers {}, name {}",
+                       params.timeSteps, params.batchSize, params.layerSizes,
+                       debugPrefix);
   validateParams(params);
   auto opt = parseOptions(options);
 
@@ -1062,9 +1062,9 @@ GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                  const std::string &debugPrefix,
                  const poplar::OptionFlags &options_,
                  poplin::matmul::PlanningCache *planningCache) {
-  logging::info("gruWU(steps={}, batch {} x layers {}, name{}",
-                params.timeSteps, params.batchSize, params.layerSizes,
-                debugPrefix);
+  logging::popnn::info("gruWU(steps={}, batch {} x layers {}, name{}",
+                       params.timeSteps, params.batchSize, params.layerSizes,
+                       debugPrefix);
   validateParams(params);
   auto options = parseOptions(options_);
   return gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
@@ -1098,9 +1098,9 @@ Tensor gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                     GruWeights &weightsGrad, const std::string &debugPrefix,
                     const poplar::OptionFlags &options_,
                     poplin::matmul::PlanningCache *planningCache) {
-  logging::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
-                params.timeSteps, params.batchSize, params.layerSizes,
-                debugPrefix);
+  logging::popnn::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
+                       params.timeSteps, params.batchSize, params.layerSizes,
+                       debugPrefix);
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {

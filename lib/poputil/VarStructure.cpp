@@ -90,9 +90,9 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
                                  const std::vector<std::size_t> &shape,
                                  const std::vector<std::size_t> &nPartitions,
                                  const std::string &debugName) {
-  logging::debug("createPartitionableTensor '{}' with shape={} and "
-                 "nPartitions={}",
-                 debugName, shape, nPartitions);
+  logging::poputil::debug("createPartitionableTensor '{}' with shape={} and "
+                          "nPartitions={}",
+                          debugName, shape, nPartitions);
 
   if (shape.size() != nPartitions.size()) {
     throw poplibs_error("createPartitionableTensor: shape.size() (" +

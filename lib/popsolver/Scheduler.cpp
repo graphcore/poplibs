@@ -28,7 +28,7 @@ std::pair<bool, ConstraintEvaluationSummary> Scheduler::propagate() {
     const auto constraint = constraints[cid];
     worklist.pop();
 
-    if (poplibs_support::logging::shouldLog(
+    if (poplibs_support::logging::popsolver::shouldLog(
             poplibs_support::logging::Level::Trace)) {
       // Only provide a breakdown when we are trace log level because this is
       // too slow to be on by default.

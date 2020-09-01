@@ -1363,51 +1363,56 @@ void validatePlanConstraints(
 static void logPlanBreakdown(logging::Level l, const Plan &plan,
                              const Cost &cost,
                              const boost::optional<Cost> &referenceCost) {
-  logging::log(l, "  breakdown of memory and cycle estimates:");
-  logging::log(l, "   - total parallel split: {}", plan.totalParallelSplit());
-  logging::log(l, "   - total serial split: {}", plan.totalSerialSplit());
-  logging::log(l,
-               "   - rearrangement before slice: {} cycles, {} bytes ({} "
-               "overhead, {} per-loop iteration)",
-               cost.rearrangeBeforeSliceCycles,
-               cost.rearrangeBeforeSliceTempBytes +
-                   cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
-               cost.rearrangeBeforeSliceTempBytes,
-               cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
-  logging::log(l, "   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
-               cost.memsetZeroBeforeAddInPlace);
-  logging::log(l, "   - dynamic slice: {} cycles, unknown bytes",
-               cost.dynamicSliceCycles);
-  logging::log(l, "   - transform: {} cycles, {} bytes", cost.transformCycles,
-               cost.transformTempBytes);
-  logging::log(l,
-               "   - exchange: {} cycles, n/a bytes. (Input {},"
-               " Weight {}, Reduce {} + {})",
-               cost.totalExchangeCycles,
-               cost.itemisedExchangeCycles.inputExchangeCycles,
-               cost.itemisedExchangeCycles.weightExchangeCycles,
-               cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
-               cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles);
+  logging::poplin::log(l, "  breakdown of memory and cycle estimates:");
+  logging::poplin::log(l, "   - total parallel split: {}",
+                       plan.totalParallelSplit());
+  logging::poplin::log(l, "   - total serial split: {}",
+                       plan.totalSerialSplit());
+  logging::poplin::log(
+      l,
+      "   - rearrangement before slice: {} cycles, {} bytes ({} "
+      "overhead, {} per-loop iteration)",
+      cost.rearrangeBeforeSliceCycles,
+      cost.rearrangeBeforeSliceTempBytes +
+          cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
+      cost.rearrangeBeforeSliceTempBytes,
+      cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
+  logging::poplin::log(
+      l, "   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
+      cost.memsetZeroBeforeAddInPlace);
+  logging::poplin::log(l, "   - dynamic slice: {} cycles, unknown bytes",
+                       cost.dynamicSliceCycles);
+  logging::poplin::log(l, "   - transform: {} cycles, {} bytes",
+                       cost.transformCycles, cost.transformTempBytes);
+  logging::poplin::log(
+      l,
+      "   - exchange: {} cycles, n/a bytes. (Input {},"
+      " Weight {}, Reduce {} + {})",
+      cost.totalExchangeCycles, cost.itemisedExchangeCycles.inputExchangeCycles,
+      cost.itemisedExchangeCycles.weightExchangeCycles,
+      cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
+      cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles);
 
-  logging::log(l, "   - tile level transform: {} cycles, {} bytes",
-               cost.tileLevelTransformCycles, cost.tileLevelTransformTempBytes);
-  logging::log(l, "   - compute: {} cycles, {} bytes", cost.partialCalcCycles,
-               cost.convTempBytes);
-  logging::log(l, "   - reduction: {} cycles, {} bytes", cost.reduceCycles,
-               cost.reduceTempBytes);
-  logging::log(l, "   - dynamic update: {} cycles, unknown bytes",
-               cost.dynamicUpdateCycles);
-  logging::log(l, "   - add in-place: {} cycles, {} bytes",
-               cost.addInPlaceCycles, cost.addInPlaceTempBytes);
+  logging::poplin::log(l, "   - tile level transform: {} cycles, {} bytes",
+                       cost.tileLevelTransformCycles,
+                       cost.tileLevelTransformTempBytes);
+  logging::poplin::log(l, "   - compute: {} cycles, {} bytes",
+                       cost.partialCalcCycles, cost.convTempBytes);
+  logging::poplin::log(l, "   - reduction: {} cycles, {} bytes",
+                       cost.reduceCycles, cost.reduceTempBytes);
+  logging::poplin::log(l, "   - dynamic update: {} cycles, unknown bytes",
+                       cost.dynamicUpdateCycles);
+  logging::poplin::log(l, "   - add in-place: {} cycles, {} bytes",
+                       cost.addInPlaceCycles, cost.addInPlaceTempBytes);
   // The tensor generated on the final cast is not considered as part of the
   // temporary memory for the purposes of the Conv Planner.
-  logging::log(l, "   - cast: {} cycles, 0 bytes", cost.castCycles, 0);
-  logging::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
-               cost.totalTempBytes);
+  logging::poplin::log(l, "   - cast: {} cycles, 0 bytes", cost.castCycles, 0);
+  logging::poplin::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
+                       cost.totalTempBytes);
   if (referenceCost) {
-    logging::log(l,
-                 "   - cycle difference compared to reference ({} cycles): {}",
-                 referenceCost->totalCycles, cost.totalPerStepCycleDiff);
+    logging::poplin::log(
+        l, "   - cycle difference compared to reference ({} cycles): {}",
+        referenceCost->totalCycles, cost.totalPerStepCycleDiff);
   }
 }
 
@@ -1418,7 +1423,7 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
            const boost::optional<Plan> &referencePlan,
            const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
-  logging::debug("Creating plan with objective {}", objective);
+  logging::poplin::debug("Creating plan with objective {}", objective);
   validateLayerParams(params, options, target);
 
   // A coarse metric to measure the efficiency of the constraint solver
@@ -1533,8 +1538,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
                            convVertexType, params, isJointPlan, bestCost,
                            objective, startTileIdxForVirtualHierarchy,
                            referencePlan, referenceCost, cache, options);
-            logging::trace("Evaluated {} constraints for candidate plan",
-                           constraintsEvaluated);
+            logging::poplin::trace(
+                "Evaluated {} constraints for candidate plan",
+                constraintsEvaluated);
             totalConstraintsEvaluated += constraintsEvaluated;
             if (candidateCost == highestCost) {
               continue;
@@ -1544,8 +1550,9 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
               bestPlan = candidate;
               bestCost = candidateCost;
 
-              logging::debug("Found new best candidate plan using {}: {}",
-                             candidate.method, candidateCost);
+              logging::poplin::debug(
+                  "Found new best candidate plan using {}: {}",
+                  candidate.method, candidateCost);
               logPlanBreakdown(logging::Level::Trace, bestPlan, bestCost,
                                referenceCost);
             }
@@ -1575,10 +1582,11 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   }
 
   if (planIsValid) {
-    logging::debug("Evaluated a total of {} constraints to find the best plan",
-                   totalConstraintsEvaluated);
+    logging::poplin::debug(
+        "Evaluated a total of {} constraints to find the best plan",
+        totalConstraintsEvaluated);
   } else {
-    logging::debug(
+    logging::poplin::debug(
         "Evaluated a total of {} constraints and could not find a valid plan",
         totalConstraintsEvaluated);
   }
@@ -1684,7 +1692,7 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     const auto planDesc = !isJointPlan ? "non-joint"
                           : isSeparate ? "separate joint"
                                        : "joint";
-    logging::debug("Creating {} plan ({} pass)...", planDesc, pass);
+    logging::poplin::debug("Creating {} plan ({} pass)...", planDesc, pass);
   };
 
   auto createMyPlan = [&](const ConvParams &params, const ConvOptions &options,
@@ -1703,8 +1711,9 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     auto planAndCost =
         createMyPlan(params, options, isJointPlan, objective, referenceCost);
     if (!isSet(planAndCost.second)) {
-      logging::warn("Warning: convolution planner unable to meet memory "
-                    "target. Optimizing for minimum memory...");
+      logging::poplin::warn(
+          "Warning: convolution planner unable to meet memory "
+          "target. Optimizing for minimum memory...");
     }
     return planAndCost;
   };
@@ -1954,23 +1963,27 @@ runPlanner(const ConvDescription &conv,
 
   auto objective = [&] {
     if (!availableTileMem) {
-      logging::debug("Planning convolution that uses the least amount of "
-                     "temporary memory.");
+      logging::poplin::debug(
+          "Planning convolution that uses the least amount of "
+          "temporary memory.");
       return PlanningObjective::minimizeTileTempMemory();
     } else {
-      logging::debug("Planning convolution with a per-tile memory limit of {} "
-                     "bytes across {} tiles.",
-                     availableTileMem, target.getTilesPerIPU());
+      logging::poplin::debug(
+          "Planning convolution with a per-tile memory limit of {} "
+          "bytes across {} tiles.",
+          availableTileMem, target.getTilesPerIPU());
       PlanningObjective objective;
       if (referenceCost) {
-        logging::debug("  applying a reference cost: {}", *referenceCost);
+        logging::poplin::debug("  applying a reference cost: {}",
+                               *referenceCost);
         if (cycleLimit) {
-          logging::warn("Planner was given both a reference cost and a cycle "
-                        "limit. Ignoring the cycle limit.");
+          logging::poplin::warn(
+              "Planner was given both a reference cost and a cycle "
+              "limit. Ignoring the cycle limit.");
         }
         objective = PlanningObjective::minimizeCostDiff(minimizeForTiles);
       } else if (cycleLimit) {
-        logging::debug("  applying a cycle limit: {}", *cycleLimit);
+        logging::poplin::debug("  applying a cycle limit: {}", *cycleLimit);
         objective = PlanningObjective::minimizeTiles();
         objective.setCyclesBound(*cycleLimit);
       } else {
@@ -1992,8 +2005,8 @@ runPlanner(const ConvDescription &conv,
     throw poputil::poplibs_error("No base plan found for unbounded plan");
   }
 
-  logging::debug("Found best plan using {}: {}.", plan.method, cost);
-  logging::debug(
+  logging::poplin::debug("Found best plan using {}: {}.", plan.method, cost);
+  logging::poplin::debug(
       "  for input {}x({}x{}x{}), kernel {}, output = {}x({}x{}x{}), pass={}",
       params.inputFieldShape, params.getBatchSize(), params.getNumConvGroups(),
       params.getNumInputChansPerConvGroup(), params.kernelShape,
@@ -2002,8 +2015,8 @@ runPlanner(const ConvDescription &conv,
       options.pass);
   logPlanBreakdown(logging::Level::Debug, plan, cost, referenceCost);
 
-  logging::debug("{}", plan);
-  logging::trace("for params: {}", params);
+  logging::poplin::debug("{}", plan);
+  logging::poplin::trace("for params: {}", params);
 
   if (!options.planConstraintsOutputFilename.empty()) {
     writePlanConstraintsFile(plan, getPlanConstraintsOutputFile(options));
@@ -2244,7 +2257,8 @@ getParallelMultiPlan(const poplar::Target &target,
     return idx;
   }();
 
-  logging::debug("multi-conv convolutions, smallest to largest: {}", idx);
+  logging::poplin::debug("multi-conv convolutions, smallest to largest: {}",
+                         idx);
 
   // The starting tile for the hierarchy is the same currently across every IPU
   unsigned startTileIdxForVirtualHierarchy = 0;
@@ -2252,7 +2266,8 @@ getParallelMultiPlan(const poplar::Target &target,
   // make sure each remaining conv gets at least N tiles.
   unsigned perConvReservedTiles = options.perConvReservedTiles;
   if (target.getNumTiles() < idx.size() * perConvReservedTiles) {
-    logging::warn("Not enough tiles to reserve any for the multi-convolution.");
+    logging::poplin::warn(
+        "Not enough tiles to reserve any for the multi-convolution.");
     perConvReservedTiles = std::max(1ul, target.getNumTiles() / idx.size());
   }
 
@@ -2274,14 +2289,16 @@ getParallelMultiPlan(const poplar::Target &target,
       throw poputil::poplibs_error("Not enough tiles for multi-conv");
     }
 
-    logging::debug("Planning largest convolution, optimising for speed");
+    logging::poplin::debug(
+        "Planning largest convolution, optimising for speed");
     auto planAndCost =
         cachedRunPlanner({params[largestPlanIdx], convOptions[largestPlanIdx],
                           referenceTarget, boost::none, boost::none, false,
                           boost::none, startTileIdxForVirtualHierarchy});
 
     // step 2
-    logging::debug("Re-planning largest convolution, optimising for tiles");
+    logging::poplin::debug(
+        "Re-planning largest convolution, optimising for tiles");
     const auto cycleLimit =
         planAndCost.second.totalCycles.getAs<double>() * cycleBackOff;
     const popsolver::DataType integerCycleLimit{cycleLimit};
@@ -2312,9 +2329,10 @@ getParallelMultiPlan(const poplar::Target &target,
                                    startTileIdxForVirtualHierarchy -
                                    reservedTiles);
 
-      logging::debug("Planning convolution {} across {} tiles, optimising for "
-                     "per-step cycle difference and then tiles used",
-                     thisIdx, virtualTarget.getTilesPerIPU());
+      logging::poplin::debug(
+          "Planning convolution {} across {} tiles, optimising for "
+          "per-step cycle difference and then tiles used",
+          thisIdx, virtualTarget.getTilesPerIPU());
       if (virtualTarget.getTilesPerIPU() == 0) {
         throw poputil::poplibs_error("Not enough tiles for multi-conv");
       }
@@ -2347,7 +2365,7 @@ getParallelMultiPlan(const poplar::Target &target,
         target.getNumIPUs(),
         target.getTilesPerIPU() - startTileIdxForVirtualHierarchy);
 
-    logging::debug(
+    logging::poplin::debug(
         "Planning final convolution on the remaining {} tiles, optimising for "
         "per-step cycle difference and then temporary memory used",
         virtualTarget.getTilesPerIPU());
@@ -2392,8 +2410,9 @@ MultiPlan getMultiPlan(const poplar::Target &target,
     try {
       return getParallelMultiPlan(target, params, convOptions, cache, options);
     } catch (poputil::poplibs_error) {
-      logging::warn("Failed to find a parallel multiplan, falling back to "
-                    "serial planning");
+      logging::poplin::warn(
+          "Failed to find a parallel multiplan, falling back to "
+          "serial planning");
       return getSerialMultiPlan(target, params, convOptions, cache);
     }
   } else {

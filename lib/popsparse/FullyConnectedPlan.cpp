@@ -1577,9 +1577,10 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
     auto objective = PlanningObjective::minimizeCycles();
     auto stepMemBound = availableTileMem;
     objective.setTileTempMemoryBound(popsolver::DataType{stepMemBound});
-    logging::debug("Planning sparse-dense matrix multiply with a per-tile "
-                   "memory limit of {} bytes.",
-                   stepMemBound);
+    logging::popsparse::debug(
+        "Planning sparse-dense matrix multiply with a per-tile "
+        "memory limit of {} bytes.",
+        stepMemBound);
 
     do {
       std::tie(plan, cost, costBreakdown) =
@@ -1589,9 +1590,10 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
       }
 
       stepMemBound *= 2;
-      logging::warn("Unable to meet memory target. Retrying with a per-tile "
-                    "memory limit of {} bytes.",
-                    stepMemBound);
+      logging::popsparse::warn(
+          "Unable to meet memory target. Retrying with a per-tile "
+          "memory limit of {} bytes.",
+          stepMemBound);
       objective.setTileTempMemoryBound(popsolver::DataType{stepMemBound});
     } while (stepMemBound < target.getBytesPerTile() * 2);
 
@@ -1599,28 +1601,29 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
     // get a valid plan of some sort.
     if (cost == highestCost) {
       objective = PlanningObjective::minimizeCycles();
-      logging::warn("Unable to meet memory target. Retrying with no per-tile "
-                    "memory limit.");
+      logging::popsparse::warn(
+          "Unable to meet memory target. Retrying with no per-tile "
+          "memory limit.");
       std::tie(plan, cost, costBreakdown) =
           createPlan(objective, target, inputType, params, options);
     }
   } else {
-    logging::debug(
+    logging::popsparse::debug(
         "Planning sparse-dense matrix multiply with unlimited memory usage.");
   }
 
-  logging::debug("Found best plan: {}.", cost);
-  if (logging::shouldLog(logging::Level::Debug)) {
-    logging::debug("  Cost breakdown:");
+  logging::popsparse::debug("Found best plan: {}.", cost);
+  if (logging::popsparse::shouldLog(logging::Level::Debug)) {
+    logging::popsparse::debug("  Cost breakdown:");
     for (const auto &entry : costBreakdown) {
-      logging::debug("    {}: cycles={}, tempBytes={}", entry.first,
-                     entry.second.cycles, entry.second.tempBytes);
+      logging::popsparse::debug("    {}: cycles={}, tempBytes={}", entry.first,
+                                entry.second.cycles, entry.second.tempBytes);
     }
   }
-  logging::debug("  for params:\n{}", params);
-  logging::debug("  and input type: {}", inputType);
-  logging::debug("  with options:\n{}", options);
-  logging::debug("{}", plan);
+  logging::popsparse::debug("  for params:\n{}", params);
+  logging::popsparse::debug("  and input type: {}", inputType);
+  logging::popsparse::debug("  with options:\n{}", options);
+  logging::popsparse::debug("{}", plan);
 
   return std::make_tuple(std::move(plan), std::move(cost));
 }

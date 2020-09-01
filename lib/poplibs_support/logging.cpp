@@ -88,7 +88,7 @@ std::string moduleName(Module m) {
   case Module::poputil:
     return "POPUTIL";
   default:
-    return "POPLIBS"; // TODO: change to UNKNOWN
+    return "POPLIBS";
   }
 }
 

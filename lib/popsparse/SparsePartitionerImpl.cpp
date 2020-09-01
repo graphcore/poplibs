@@ -164,18 +164,19 @@ PartitionerImpl::PartitionerImpl(
   forceBucketSpills = options.forceBucketSpills;
   useActualWorkerSplitCosts = options.useActualWorkerSplitCosts;
 
-  logging::debug("Created partitioner for sparse matrix mult [X,Y] x [Y,Z]: ");
-  logging::debug("  --X = {}, Y = {}, Z = {}", numX, numY, numZ);
-  logging::debug("  --Split X : {}", xSplits);
-  logging::debug("  --Split Y : {}", ySplits);
-  logging::debug("  --Split Z : {}", zSplits);
-  logging::debug("  --Buckets per Z dimension : {}", bucketsPerZ_);
-  logging::debug("  --Meta-info bucket size in elems (fwd) : {}",
-                 metaInfoBucketElements);
-  logging::debug("  --Meta-info bucket size in elems (grad-a) : {}",
-                 metaInfoBucketElementsGradA);
-  logging::debug("  --NZ bucket size in elements : {}",
-                 nzElementsBucketElements_);
+  logging::popsparse::debug(
+      "Created partitioner for sparse matrix mult [X,Y] x [Y,Z]: ");
+  logging::popsparse::debug("  --X = {}, Y = {}, Z = {}", numX, numY, numZ);
+  logging::popsparse::debug("  --Split X : {}", xSplits);
+  logging::popsparse::debug("  --Split Y : {}", ySplits);
+  logging::popsparse::debug("  --Split Z : {}", zSplits);
+  logging::popsparse::debug("  --Buckets per Z dimension : {}", bucketsPerZ_);
+  logging::popsparse::debug("  --Meta-info bucket size in elems (fwd) : {}",
+                            metaInfoBucketElements);
+  logging::popsparse::debug("  --Meta-info bucket size in elems (grad-a) : {}",
+                            metaInfoBucketElementsGradA);
+  logging::popsparse::debug("  --NZ bucket size in elements : {}",
+                            nzElementsBucketElements_);
 }
 
 // Number of non-zero values in a partition
@@ -253,7 +254,7 @@ std::vector<TilePartition> static getTilePartition(
   // grain size
   std::size_t numPNs = std::accumulate(numXYZ.begin(), numXYZ.end(), 1,
                                        std::multiplies<std::size_t>());
-  logging::trace("  Creating tile partitions for {} PNs", numPNs);
+  logging::popsparse::trace("  Creating tile partitions for {} PNs", numPNs);
 
   std::vector<TilePartition> tilePartitions(numPNs);
 
@@ -271,8 +272,8 @@ std::vector<TilePartition> static getTilePartition(
 
       Tile tile(rowInterval, columnInterval);
       auto tp = getPositionValuePairsPerRow(csr, blockSizeX, blockSizeY, tile);
-      logging::trace("    Tile X={} Y={} number of rows {} ", tile.getRows(),
-                     tile.getColumns(), tp.size());
+      logging::popsparse::trace("    Tile X={} Y={} number of rows {} ",
+                                tile.getRows(), tile.getColumns(), tp.size());
 
       // Split intervals over Z-dimension
       std::vector<std::size_t> rowElements;
@@ -293,7 +294,8 @@ std::vector<TilePartition> static getTilePartition(
       for (std::size_t z = 0; z != splits.size(); ++z) {
         const auto pn = getPNId({row, column, z}, numXYZ);
         std::vector<RowPositionValues> rowPosValues;
-        logging::trace("      z={}, pn={} : z splits={}", z, pn, splits[z]);
+        logging::popsparse::trace("      z={}, pn={} : z splits={}", z, pn,
+                                  splits[z]);
         auto splitIt = splits[z].begin();
         do {
           assert(!tp[rIndex].positionValues.empty());
@@ -301,8 +303,8 @@ std::vector<TilePartition> static getTilePartition(
           for (std::size_t col = 0; col != splitIt->size(); ++col, ++cIndex) {
             positionValues.push_back(tp[rIndex].positionValues[cIndex]);
           }
-          logging::trace("        row : {} = {} ", tp[rIndex].rowNumber,
-                         positionValues);
+          logging::popsparse::trace("        row : {} = {} ",
+                                    tp[rIndex].rowNumber, positionValues);
           RowPositionValues rpEntry(tp[rIndex].rowNumber, positionValues);
           rowPosValues.push_back(rpEntry);
           elementsUsed += splitIt->size();
@@ -340,10 +342,11 @@ std::size_t numMetaInfoElementsForWorker(const TilePartition &partition,
   std::size_t numElements = 0;
   if (rowInTile) {
     numElements += miElems(MI::WorkerEntry);
-    logging::trace("        --WI : {}", miElems(MI::WorkerEntry));
+    logging::popsparse::trace("        --WI : {}", miElems(MI::WorkerEntry));
     if (includeGradW) {
       numElements += miElems(MI::GradWWorkerEntry);
-      logging::trace("        --GWI : {}", miElems(MI::GradWWorkerEntry));
+      logging::popsparse::trace("        --GWI : {}",
+                                miElems(MI::GradWWorkerEntry));
     }
   }
   return numElements;
@@ -400,11 +403,11 @@ sizesForTilePartition(const TilePartition &partition, std::size_t numZGrains,
       }
     } else {
       metaInfoElements += miElems(MI::WorkerEntry) * numWorkers;
-      logging::trace("        --WI : {}", metaInfoElements);
+      logging::popsparse::trace("        --WI : {}", metaInfoElements);
       if (includeGradW) {
         metaInfoElements += miElems(MI::GradWWorkerEntry) * numWorkers + 1;
       }
-      logging::trace("        --WI : {}", metaInfoElements);
+      logging::popsparse::trace("        --WI : {}", metaInfoElements);
     }
 
     std::size_t outputEntriesElements =
@@ -413,11 +416,13 @@ sizesForTilePartition(const TilePartition &partition, std::size_t numZGrains,
     std::size_t nzOffsetEntries = numNZElements;
 
     if (outputEntriesElements) {
-      logging::trace("        --Output entries : {}", outputEntriesElements);
+      logging::popsparse::trace("        --Output entries : {}",
+                                outputEntriesElements);
     }
 
     if (nzOffsetEntries) {
-      logging::trace("        --offset entries : {}", nzOffsetEntries);
+      logging::popsparse::trace("        --offset entries : {}",
+                                nzOffsetEntries);
     }
 
     // include output entries in  meta info
@@ -449,7 +454,7 @@ static void fillBucketSizes(PNBucket &bucket,
                             std::size_t numWorkers, std::size_t bucketsPerZ,
                             bool useBlockMetaInfoFormat, bool includeGradW,
                             const std::string &str) {
-  logging::trace("      Determining sizes for PN bucket " + str);
+  logging::popsparse::trace("      Determining sizes for PN bucket " + str);
   std::size_t nzElements = 0;
   std::size_t metaInfoElements = 0;
   if (!bucket.subGroups.empty()) {
@@ -463,8 +468,9 @@ static void fillBucketSizes(PNBucket &bucket,
       auto bucketSizes = sizesForTilePartition(subgroup, numGrains, numWorkers,
                                                useBlockMetaInfoFormat,
                                                useWorkerSplits, includeGradW);
-      logging::trace("        Bucket group size : metainfo {}   nz elements {}",
-                     bucketSizes.first, bucketSizes.second);
+      logging::popsparse::trace(
+          "        Bucket group size : metainfo {}   nz elements {}",
+          bucketSizes.first, bucketSizes.second);
       nzElements += bucketSizes.second;
       metaInfoElements += bucketSizes.first;
     }
@@ -482,11 +488,12 @@ findPartitionsToRemove(const std::vector<std::size_t> &rowWeights,
                        const std::pair<std::size_t, std::size_t> &target,
                        bool useBlockMetaInfoFormat, std::size_t numWorkers,
                        bool gradWEnabled, bool enableColumnSplit) {
-  logging::trace("    -- find partitions for target {}, row weights {}", target,
-                 rowWeights);
+  logging::popsparse::trace(
+      "    -- find partitions for target {}, row weights {}", target,
+      rowWeights);
   std::size_t miCost =
       fixedMetaInfoCost(useBlockMetaInfoFormat, numWorkers, gradWEnabled);
-  logging::trace("       initial MI costs : {}", miCost);
+  logging::popsparse::trace("       initial MI costs : {}", miCost);
   std::size_t nzElems = 0;
 
   std::vector<std::pair<std::size_t, std::size_t>> partition;
@@ -510,8 +517,9 @@ findPartitionsToRemove(const std::vector<std::size_t> &rowWeights,
     }
   }
 
-  logging::trace("   -- cost for selected partition : {} {} , partition {} ",
-                 miCost, nzElems, partition);
+  logging::popsparse::trace(
+      "   -- cost for selected partition : {} {} , partition {} ", miCost,
+      nzElems, partition);
   return partition;
 }
 
@@ -529,9 +537,10 @@ removeRows(PNBucket &bucket, const std::vector<std::size_t> &zSplits,
     return removedPartition;
   }
 
-  logging::trace("  -removing rows: available  {} : target Elements  {} {} ",
-                 bucket.subGroups[0].tileInfo.size(), metaInfoElementsTarget,
-                 nzElementsTarget);
+  logging::popsparse::trace(
+      "  -removing rows: available  {} : target Elements  {} {} ",
+      bucket.subGroups[0].tileInfo.size(), metaInfoElementsTarget,
+      nzElementsTarget);
 
   // For now just go through row vectors and remove them.
   // TODO: Do this better
@@ -545,8 +554,9 @@ removeRows(PNBucket &bucket, const std::vector<std::size_t> &zSplits,
     fillBucketSizes(bucket, zSplits, numZ, grainSizeZ, useWorkerSplits,
                     numWorkers, bucketsPerZ, useBlockMetaInfoFormat,
                     includeGradW, ": after removing row");
-    logging::trace("  --removed index {}, size of bucket after {}, {}", index,
-                   bucket.metaInfoElements, bucket.numNzElements);
+    logging::popsparse::trace(
+        "  --removed index {}, size of bucket after {}, {}", index,
+        bucket.metaInfoElements, bucket.numNzElements);
     if (bucket.metaInfoElements <= metaInfoElementsTarget &&
         bucket.numNzElements <= nzElementsTarget) {
       break;
@@ -624,22 +634,23 @@ void dumpBucketStatus(const std::vector<PNBucket> &mainBuckets,
   if (numBuckets == overflowBuckets.size()) {
     auto empty = std::all_of(overflowBuckets.begin(), overflowBuckets.end(),
                              [](const PNBucket &b) { return b.empty(); });
-    logging::trace("  - buckets overflown ? {}", !empty);
+    logging::popsparse::trace("  - buckets overflown ? {}", !empty);
     for (std::size_t p = 0; p != numBuckets; ++p) {
       auto &bucket = mainBuckets[p];
       auto oBucket = overflowBuckets[p];
-      logging::trace("  -PN {} groups {} : metainfo elems {} [{}]  nz {} [{}] ",
-                     p, bucket.numSubgroups(), bucket.metaInfoElements,
-                     oBucket.metaInfoElements, bucket.numNzElements,
-                     oBucket.numNzElements);
+      logging::popsparse::trace(
+          "  -PN {} groups {} : metainfo elems {} [{}]  nz {} [{}] ", p,
+          bucket.numSubgroups(), bucket.metaInfoElements,
+          oBucket.metaInfoElements, bucket.numNzElements,
+          oBucket.numNzElements);
     }
   } else {
 
     for (std::size_t p = 0; p != numBuckets; ++p) {
       auto &bucket = mainBuckets[p];
-      logging::trace("  -Main PN  {} groups {} : nz {}  metainfo elems {}", p,
-                     bucket.numSubgroups(), bucket.numNzElements,
-                     bucket.metaInfoElements);
+      logging::popsparse::trace(
+          "  -Main PN  {} groups {} : nz {}  metainfo elems {}", p,
+          bucket.numSubgroups(), bucket.numNzElements, bucket.metaInfoElements);
     }
   }
 }
@@ -653,18 +664,18 @@ static std::size_t countNonEmpty(const std::vector<PNBucket> &bucket) {
 }
 
 static void logBucket(const PNBucket &b, const std::string &str) {
-  logging::trace("   - Logging Bucket : {} : [{}, {}]", str, b.metaInfoElements,
-                 b.numNzElements);
+  logging::popsparse::trace("   - Logging Bucket : {} : [{}, {}]", str,
+                            b.metaInfoElements, b.numNzElements);
   for (const auto &sg : b.subGroups) {
-    logging::trace("     - subgroup ");
+    logging::popsparse::trace("     - subgroup ");
 
-    logging::trace("      + Tile:: {}", sg.tile);
-    logging::trace("      + Tile index:: row {}, col {}. z {}",
-                   std::get<0>(sg.tileIndex), std::get<1>(sg.tileIndex),
-                   std::get<2>(sg.tileIndex));
+    logging::popsparse::trace("      + Tile:: {}", sg.tile);
+    logging::popsparse::trace(
+        "      + Tile index:: row {}, col {}. z {}", std::get<0>(sg.tileIndex),
+        std::get<1>(sg.tileIndex), std::get<2>(sg.tileIndex));
     for (const auto &r : sg.tileInfo) {
-      logging::trace("       - row : {}, num columns : {}", r.rowNumber,
-                     r.positionValues.size());
+      logging::popsparse::trace("       - row : {}, num columns : {}",
+                                r.rowNumber, r.positionValues.size());
     }
   }
 }
@@ -674,7 +685,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
   const auto numBuckets = pnBuckets.size();
 
   // log new parition info
-  logging::trace("Before rebalancing ... ");
+  logging::popsparse::trace("Before rebalancing ... ");
   dumpBucketStatus(pnBuckets);
 
   auto overflown = [&](const PNBucket &bucket) {
@@ -691,8 +702,9 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
 
     if (overflown(bucket) || forceBucketSpills) {
       // remove rows from partition given a target to remove
-      logging::trace("  Attempting to remove rows from pn {} : sizes {} {}", p,
-                     bucket.metaInfoElements, bucket.numNzElements);
+      logging::popsparse::trace(
+          "  Attempting to remove rows from pn {} : sizes {} {}", p,
+          bucket.metaInfoElements, bucket.numNzElements);
       const auto metaInfoElems =
           forceBucketSpills ? 0 : metaInfoBucketElements - 1;
       const auto nzInfoElems = forceBucketSpills ? 0 : nzElemsBucketBlocks;
@@ -710,7 +722,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
   }
 
   // log new parition info
-  logging::trace("After partitioning to overflown buckets ... ");
+  logging::popsparse::trace("After partitioning to overflown buckets ... ");
   dumpBucketStatus(pnBuckets, overflowBuckets);
 
   auto fits = [&](const PNBucket &target, const PNBucket &cand) {
@@ -761,9 +773,11 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
             continue;
           }
 
-          logging::trace("  ===== overflow for PN {} : sizes {} {} ===", thisPN,
-                         ovfBucket.metaInfoElements, ovfBucket.numNzElements);
-          logging::trace("   - checking range [{} {})", pnStart, pnEnd);
+          logging::popsparse::trace(
+              "  ===== overflow for PN {} : sizes {} {} ===", thisPN,
+              ovfBucket.metaInfoElements, ovfBucket.numNzElements);
+          logging::popsparse::trace("   - checking range [{} {})", pnStart,
+                                    pnEnd);
 
           // PN buckets in range sorted in increasing order of size as we
           // want the largest sized to be allocated in the largest gap first
@@ -801,7 +815,8 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
                       " Before Overflow PN  " + std::to_string(thisPN));
             if (fits(bucket, overflowBuckets[thisPN])) {
               bucket.move(ovfBucket);
-              logging::trace("   *+++* : moved {} -> {}", thisPN, pn);
+              logging::popsparse::trace("   *+++* : moved {} -> {}", thisPN,
+                                        pn);
               logBucket(bucket, "After PN " + std::to_string(pn));
               logBucket(ovfBucket,
                         " After Overflow PN " + std::to_string(thisPN));
@@ -837,7 +852,7 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
                             bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled,
                             " : after overflow rows removed " +
                                 std::to_string(thisPN));
-            logging::trace("   *+* : rows PNs {} -> {}", thisPN, pn);
+            logging::popsparse::trace("   *+* : rows PNs {} -> {}", thisPN, pn);
             logBucket(bucket, "After PN " + std::to_string(pn));
             logBucket(overflowBuckets[thisPN],
                       " After Overflow PN " + std::to_string(thisPN));
@@ -861,19 +876,20 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
   for (std::size_t pnRange : pnRanges) {
     for (bool splitColumns : {false, true}) {
       // rebalance
-      logging::info("Rebalance : range {}, split cols ? {} non empty ? {}",
-                    pnRange, splitColumns, countNonEmpty(overflowBuckets));
+      logging::popsparse::info(
+          "Rebalance : range {}, split cols ? {} non empty ? {}", pnRange,
+          splitColumns, countNonEmpty(overflowBuckets));
       rebalance(pnRange, splitColumns);
     }
   }
 
-  logging::info("After rebalancing : non empty {}",
-                countNonEmpty(overflowBuckets));
+  logging::popsparse::info("After rebalancing : non empty {}",
+                           countNonEmpty(overflowBuckets));
 
   for (auto it = pnBuckets.begin(); it != pnBuckets.end(); ++it) {
-    logging::debug(" bucket size for PN {} : mi : {} nz : {}",
-                   std::distance(pnBuckets.begin(), it), it->metaInfoElements,
-                   it->numNzElements);
+    logging::popsparse::debug(" bucket size for PN {} : mi : {} nz : {}",
+                              std::distance(pnBuckets.begin(), it),
+                              it->metaInfoElements, it->numNzElements);
   }
 
   dumpBucketStatus(pnBuckets, overflowBuckets);
@@ -885,8 +901,9 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
                     maxMetaInfo = std::max(maxMetaInfo, b.metaInfoElements);
                     maxNzValues = std::max(maxNzValues, b.numNzElements);
                   });
-    logging::warn("overflow metainfo {}/{}, nz values {}/{}", maxMetaInfo,
-                  metaInfoBucketElements, maxNzValues, nzElemsBucketBlocks);
+    logging::popsparse::warn("overflow metainfo {}/{}, nz values {}/{}",
+                             maxMetaInfo, metaInfoBucketElements, maxNzValues,
+                             nzElemsBucketBlocks);
     throw poputil::poplibs_error("Overflow in buckets");
   }
 }
@@ -970,8 +987,8 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
     }
   }
 
-  logging::debug(" ORG connectivity {}", orgConnectivity);
-  logging::debug(" SORG connectivity {}", sorgConnectivity);
+  logging::popsparse::debug(" ORG connectivity {}", orgConnectivity);
+  logging::popsparse::debug(" SORG connectivity {}", sorgConnectivity);
   const auto connectivityElems =
       ceildiv(orgConnectivity.size(), sizeof(MetaInfoType));
   std::vector<std::size_t> orgConnectivityBitset(connectivityElems);
@@ -981,7 +998,7 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
   }
 
   const auto maxIt = std::max_element(distances.begin(), distances.end());
-  logging::trace("  Distance metric for PN : {}", distances);
+  logging::popsparse::trace("  Distance metric for PN : {}", distances);
   auto maxX = maxIt->first + 1;
   auto maxY = maxIt->second + 1;
   auto maxZ = numSORGs;
@@ -990,7 +1007,7 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
   const auto x = maxX;
   const auto y = x == 1 ? maxY : numY;
   const auto z = x == 1 && y == 1 ? maxZ : numZ;
-  logging::trace("  - selected distance triplet: {} {} {}", x, y, z);
+  logging::popsparse::trace("  - selected distance triplet: {} {} {}", x, y, z);
 
   std::vector<std::size_t> result = {x, y, z};
   std::move(orgConnectivityBitset.begin(), orgConnectivityBitset.end(),
@@ -1001,7 +1018,7 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
 template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
-  logging::trace("Partitioner called with CSR representation");
+  logging::popsparse::trace("Partitioner called with CSR representation");
 
   if (matrix_.getNumRowsInBlock() != grainX ||
       matrix_.getNumColumnsInBlock() != grainY) {
@@ -1042,7 +1059,7 @@ PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
 template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
-  logging::trace("Partitioner called with CSC representation");
+  logging::popsparse::trace("Partitioner called with CSC representation");
 
   if (matrix_.getNumRowsInBlock() != grainX ||
       matrix_.getNumColumnsInBlock() != grainY) {
@@ -1070,7 +1087,7 @@ PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
 template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
-  logging::trace("Partitioner called with COO representation");
+  logging::popsparse::trace("Partitioner called with COO representation");
 
   if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
           matrix_.rowIndices.size() ||
@@ -1381,8 +1398,8 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
   }
 
   if (!debugStr.empty()) {
-    logging::debug("{} : mi {} nz {}  ", debugStr, group.size(),
-                   nzBucket.size());
+    logging::popsparse::debug("{} : mi {} nz {}  ", debugStr, group.size(),
+                              nzBucket.size());
   }
   if (group.size() > metaInfoBucketElements) {
     throw poputil::poplibs_error("Meta info exceeds specified bucket size}");
@@ -1525,7 +1542,7 @@ PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
   std::vector<T> nzBucket;
   for (std::size_t b = 0; b != pnBuckets.size(); ++b) {
     auto str = debugStr;
-    if (logging::shouldLog(logging::Level::Debug)) {
+    if (logging::popsparse::shouldLog(logging::Level::Debug)) {
       str = "Real forward buckets for PN " + std::to_string(b);
     }
     auto bucketFwd = bucketForForward(pnBuckets[b], nzValues, str);
@@ -1537,7 +1554,8 @@ PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
 
     if (!sharedBuckets && gradAEnabled) {
       auto str = debugStr;
-      if (!debugStr.empty() && logging::shouldLog(logging::Level::Debug)) {
+      if (!debugStr.empty() &&
+          logging::popsparse::shouldLog(logging::Level::Debug)) {
         str = "Real forward buckets for PN " + std::to_string(b);
       }
       auto bucketGradA = bucketForGradA(pnBuckets[b], nzValues, str);

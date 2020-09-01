@@ -258,8 +258,9 @@ calculateSplit(const IntermediatePartials &ir, std::size_t grainSize,
       std::max(minPieceCols, averageGrainFactor * grainSize);
 
   if (minPieceColsToUse != minPieceCols) {
-    logging::debug("Intermediate stage minimum columns changed from {} -> {}",
-                   minPieceCols, minPieceColsToUse);
+    logging::popops::debug(
+        "Intermediate stage minimum columns changed from {} -> {}",
+        minPieceCols, minPieceColsToUse);
   }
 
   // We should have an output for every element in the final tensor.

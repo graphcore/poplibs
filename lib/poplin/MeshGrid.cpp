@@ -25,8 +25,9 @@ poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
                         float left, float right, size_t count,
                         const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/linspace";
-  logging::info("linspace type={}, left={}, right={}, count={}, name={}", type,
-                left, right, count, fnPrefix);
+  logging::poplin::info(
+      "linspace type={}, left={}, right={}, count={}, name={}", type, left,
+      right, count, fnPrefix);
 
   if (type != poplar::FLOAT && type != poplar::HALF) {
     throw poplar::poplar_error("linspace only supports FLOAT or HALF");
@@ -54,7 +55,7 @@ std::vector<poplar::Tensor> meshgrid2d(poplar::Graph &graph, poplar::Tensor x,
   const auto ny = y.numElements();
 
   // The output grids have nx columns and ny rows:
-  logging::info("meshgrid2d x={}, y={}", nx, ny);
+  logging::poplin::info("meshgrid2d x={}, y={}", nx, ny);
   return {x.reshape({1, nx}).broadcast(ny, 0),
           y.reshape({ny, 1}).broadcast(nx, 1)};
 }

@@ -269,13 +269,13 @@ poplar::Tensor rnnFwdSequence(
     const popnn::NonLinearityType &nonLinearityType,
     const poplar::Type &partialsType, bool inferenceOnly,
     const std::string &debugPrefix, matmul::PlanningCache *cache) {
-  logging::info("rnnFwdSequence fwdStateInit={}, weightedIn={}, biases={}, "
-                "feedFwdWeights={} feedbackWeights={}, prevLayerActs={}, "
-                "nonLinearityType={}, type={}, inferenceOnly={}, name={}",
-                fwdStateInit.shape(), maybeShape(weightedIn), biases.shape(),
-                feedFwdWeights.shape(), feedbackWeights.shape(),
-                prevLayerActs.shape(), nonLinearityType, partialsType,
-                inferenceOnly, debugPrefix);
+  logging::popnn::info(
+      "rnnFwdSequence fwdStateInit={}, weightedIn={}, biases={}, "
+      "feedFwdWeights={} feedbackWeights={}, prevLayerActs={}, "
+      "nonLinearityType={}, type={}, inferenceOnly={}, name={}",
+      fwdStateInit.shape(), maybeShape(weightedIn), biases.shape(),
+      feedFwdWeights.shape(), feedbackWeights.shape(), prevLayerActs.shape(),
+      nonLinearityType, partialsType, inferenceOnly, debugPrefix);
 
   auto seqSize = prevLayerActs.dim(0);
   auto stateShape = fwdStateInit.shape();
@@ -415,13 +415,13 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const popnn::NonLinearityType &nonLinearityType,
                const poplar::Type &partialsType, const std::string &debugPrefix,
                matmul::PlanningCache *cache) {
-  logging::info("rnnBwdSequence fwdStateInit={}, fwdState={}, biases={}, "
-                "feedFwdWeights={} feedbackWeights={}, outGradient={}, "
-                "actIn={}, nonLinearityType={}, type={}, name={}",
-                fwdStateInit.shape(), fwdState.shape(), biases.shape(),
-                feedFwdWeights.shape(), feedbackWeights.shape(),
-                outGradient.shape(), actIn.shape(), nonLinearityType,
-                partialsType, debugPrefix);
+  logging::popnn::info(
+      "rnnBwdSequence fwdStateInit={}, fwdState={}, biases={}, "
+      "feedFwdWeights={} feedbackWeights={}, outGradient={}, "
+      "actIn={}, nonLinearityType={}, type={}, name={}",
+      fwdStateInit.shape(), fwdState.shape(), biases.shape(),
+      feedFwdWeights.shape(), feedbackWeights.shape(), outGradient.shape(),
+      actIn.shape(), nonLinearityType, partialsType, debugPrefix);
 
   Tensor feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc;
   if (doWU) {

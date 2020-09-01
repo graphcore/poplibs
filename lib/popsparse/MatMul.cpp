@@ -27,7 +27,7 @@ SparseTensor createSparseDenseMatMulLHS(Graph &graph, const Type &inputType,
                                         const OptionFlags &optionFlags,
                                         PlanningCache *cache) {
   const auto options = parseMatMulOptionFlags(optionFlags);
-  logging::debug(
+  logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulLHS: '{}' params={}, options={}",
       debugName, params, options);
 
@@ -56,7 +56,7 @@ Tensor createSparseDenseMatMulRHS(Graph &graph, const Type &inputType,
                                   const OptionFlags &optionFlags,
                                   PlanningCache *cache) {
   const auto options = parseMatMulOptionFlags(optionFlags);
-  logging::debug(
+  logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulRHS: '{}' params={}, options={}",
       debugName, params, options);
   const auto fcParams = getFullyConnectedParams(params);
@@ -124,10 +124,10 @@ poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
   const auto &opMetaData =
       *static_cast<const MatMulTensorMetaData *>(lhs.getOpMetaData().getData());
 
-  logging::debug("popsparse::sparseDenseMatMul: '{}' params={}, "
-                 "transposeLHS={}, transposeRHS={}, options={}",
-                 debugPrefix, opMetaData.mmParams, transposeLHS, transposeRHS,
-                 options);
+  logging::popsparse::debug("popsparse::sparseDenseMatMul: '{}' params={}, "
+                            "transposeLHS={}, transposeRHS={}, options={}",
+                            debugPrefix, opMetaData.mmParams, transposeLHS,
+                            transposeRHS, options);
 
   if (transposeRHS) {
     rhs = rhs.dimRoll(1, 2);

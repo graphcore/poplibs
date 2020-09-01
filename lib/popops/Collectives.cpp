@@ -1115,8 +1115,8 @@ static Tensor internalAllGather(Graph &graph, const Chunks &toGather,
 Chunks reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
                      Sequence &prog, const std::string &debugPrefix,
                      const poplar::OptionFlags &options) {
-  logging::info("reduceScatter toReduce={}, op={}, name={}", toReduce.shape(),
-                op, debugPrefix);
+  logging::popops::info("reduceScatter toReduce={}, op={}, name={}",
+                        toReduce.shape(), op, debugPrefix);
 
   if (toReduce.dim(0) != graph.getTarget().getNumIPUs()) {
     throw poputil::poplibs_error("Multi ipu ranks are not yet supported for "
@@ -1129,8 +1129,9 @@ Chunks reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
 Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
                  const std::string &debugPrefix,
                  const poplar::OptionFlags &options) {
-  logging::info("allGather toGather={}x{}, name={}", toGather.chunks.size(),
-                toGather.originalInput.shape(), debugPrefix);
+  logging::popops::info("allGather toGather={}x{}, name={}",
+                        toGather.chunks.size(), toGather.originalInput.shape(),
+                        debugPrefix);
 
   if (toGather.originalInput.dim(0) != graph.getTarget().getNumIPUs()) {
     throw poputil::poplibs_error("Multi ipu ranks are not yet supported for "
@@ -1144,8 +1145,8 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          popops::Operation op, poplar::program::Sequence &prog,
                          const std::string &debugPrefix,
                          const poplar::OptionFlags &options) {
-  logging::info("allReduce toReduce={}, op={}, name={}", toReduce.shape(), op,
-                debugPrefix);
+  logging::popops::info("allReduce toReduce={}, op={}, name={}",
+                        toReduce.shape(), op, debugPrefix);
   auto flattened = toReduce.flatten(1, toReduce.rank());
   auto scatteredResult =
       internalReduceScatter(graph, flattened, op, prog, debugPrefix, options);

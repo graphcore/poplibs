@@ -905,9 +905,9 @@ unsigned getGroupIndex(const std::vector<unsigned> &groups,
 void log(unsigned indent, const ConvParams &params) {
   namespace logging = poplibs_support::logging;
 
-  if (logging::shouldLog(logging::Level::Info)) {
+  if (logging::poplin::shouldLog(logging::Level::Info)) {
     std::string prefix(indent, ' ');
-    logging::info(
+    logging::poplin::info(
         "{}input={}x({}x{}x{}) padding={}/{} truncation={}/{} dilation={} "
         "flip={}",
         prefix, params.inputFieldShape, params.getBatchSize(),
@@ -916,17 +916,18 @@ void log(unsigned indent, const ConvParams &params) {
         params.inputTransform.truncationLower,
         params.inputTransform.truncationUpper, params.inputTransform.dilation,
         params.inputTransform.flip);
-    logging::info("{}kernel={}x({}x{}x{}) padding={}/{} truncation={}/{} "
-                  "dilation={} flip={}",
-                  prefix, params.kernelShape, params.getNumConvGroups(),
-                  params.getNumOutputChansPerConvGroup(),
-                  params.getNumInputChansPerConvGroup(),
-                  params.kernelTransform.paddingLower,
-                  params.kernelTransform.paddingUpper,
-                  params.kernelTransform.truncationLower,
-                  params.kernelTransform.truncationUpper,
-                  params.kernelTransform.dilation, params.kernelTransform.flip);
-    logging::info(
+    logging::poplin::info(
+        "{}kernel={}x({}x{}x{}) padding={}/{} truncation={}/{} "
+        "dilation={} flip={}",
+        prefix, params.kernelShape, params.getNumConvGroups(),
+        params.getNumOutputChansPerConvGroup(),
+        params.getNumInputChansPerConvGroup(),
+        params.kernelTransform.paddingLower,
+        params.kernelTransform.paddingUpper,
+        params.kernelTransform.truncationLower,
+        params.kernelTransform.truncationUpper, params.kernelTransform.dilation,
+        params.kernelTransform.flip);
+    logging::poplin::info(
         "{}output={}x({}x{}x{}) padding={}/{} truncation={}/{} stride={}",
         prefix, params.getOutputFieldShape(), params.getBatchSize(),
         params.getNumConvGroups(), params.getNumOutputChansPerConvGroup(),

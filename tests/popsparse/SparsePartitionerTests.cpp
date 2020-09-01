@@ -21,7 +21,8 @@ buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor,
                const std::array<std::size_t, 2> &blockDimensions = {1, 1}) {
   boost::multi_array<double, 2> matrix(
       boost::extents[dimensions[0]][dimensions[1]]);
-  logging::debug("Dimension in CSR Matrix generation {}", dimensions);
+  logging::popsparse::debug("Dimension in CSR Matrix generation {}",
+                            dimensions);
 
   assert(dimensions[0] % blockDimensions[0] == 0 &&
          dimensions[1] % blockDimensions[1] == 0);
@@ -50,10 +51,11 @@ buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor,
     rowIndices.push_back(numNzRowElements);
   }
 
-  logging::debug("NZ Values {} : {}", nzValues.size(), nzValues);
-  logging::debug("Columns Indices {} : {}", columnIndices.size(),
-                 columnIndices);
-  logging::debug("Row Indices {} : {}", rowIndices.size(), rowIndices);
+  logging::popsparse::debug("NZ Values {} : {}", nzValues.size(), nzValues);
+  logging::popsparse::debug("Columns Indices {} : {}", columnIndices.size(),
+                            columnIndices);
+  logging::popsparse::debug("Row Indices {} : {}", rowIndices.size(),
+                            rowIndices);
 
   return popsparse::CSRMatrix<double>(nzValues, columnIndices, rowIndices,
                                       blockDimensions);
@@ -168,12 +170,13 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   }
   rowIndicesActual.push_back(totalNzElems);
 
-  logging::debug(" Actual nz values: {} ", nzValuesActual);
-  logging::debug(" expect nz values: {} ", csrMatrix.nzValues);
-  logging::debug(" Actual column values: {} ", colIndicesActual);
-  logging::debug(" expect column values: {} ", csrMatrix.columnIndices);
-  logging::debug(" Actual row values: {} ", rowIndicesActual);
-  logging::debug(" expect row values: {} ", csrMatrix.rowIndices);
+  logging::popsparse::debug(" Actual nz values: {} ", nzValuesActual);
+  logging::popsparse::debug(" expect nz values: {} ", csrMatrix.nzValues);
+  logging::popsparse::debug(" Actual column values: {} ", colIndicesActual);
+  logging::popsparse::debug(" expect column values: {} ",
+                            csrMatrix.columnIndices);
+  logging::popsparse::debug(" Actual row values: {} ", rowIndicesActual);
+  logging::popsparse::debug(" expect row values: {} ", csrMatrix.rowIndices);
 
   if (nzValuesActual.size() != csrMatrix.nzValues.size()) {
     return false;
@@ -236,7 +239,7 @@ int main(int argc, char **argv) {
     ("batch-grain-size",
      po::value<std::size_t>(&grainSizeZ)->default_value(grainSizeZ),
      "Number of grains in batch dimension")
-    ("excess", 
+    ("excess",
       po::value<double>(&excess)->default_value(excess),
       "Excess bucket size")
     ("num-buckets-z",

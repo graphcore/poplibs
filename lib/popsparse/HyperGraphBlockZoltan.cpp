@@ -22,13 +22,13 @@ HyperGraphBlockZoltan::HyperGraphBlockZoltan(
   partitioner = std::make_unique<ZoltanPartitioner>(
       ZoltanPartitioner::PartitionType::HYPERGRAPH);
 
-  logging::info("HyperGraphBlockZoltan is created");
+  logging::popsparse::info("HyperGraphBlockZoltan is created");
 }
 
 HyperGraphData HyperGraphBlockZoltan::getDataForPartitioner() {
-  logging::info("Number of nodes in A: {}", nodeA.size());
-  logging::info("Number of nodes in B: {}", nodeB.size());
-  logging::info("Number of nodes in V: {}", nodeV.size());
+  logging::popsparse::info("Number of nodes in A: {}", nodeA.size());
+  logging::popsparse::info("Number of nodes in B: {}", nodeB.size());
+  logging::popsparse::info("Number of nodes in V: {}", nodeV.size());
 
   HyperGraphData graph;
 
@@ -79,8 +79,8 @@ HyperGraphData HyperGraphBlockZoltan::getDataForPartitioner() {
     pins.insert(pins.end(), v.begin(), v.end());
   }
 
-  logging::info("Number of pins is {}", pins.size());
-  logging::info("Number of edges is {}", hyperEdges.size());
+  logging::popsparse::info("Number of pins is {}", pins.size());
+  logging::popsparse::info("Number of edges is {}", hyperEdges.size());
 
   graph.pins = std::move(pins);
   graph.hyperEdges = std::move(hyperEdges);

@@ -131,14 +131,14 @@ static PacketsAndIndices splitIntoPackets(poplar::Tensor &t,
       const auto end = std::min((p + 1) * packetSize, (unsigned)row.dim(0));
       result.indices.push_back(i);
       result.packets.emplace_back(row.slice(start, end));
-      if (logging::shouldLog(logging::Level::Trace)) {
+      if (logging::popops::shouldLog(logging::Level::Trace)) {
         sizeBreakDown.emplace(end - start, 0);
         ++sizeBreakDown[end - start];
       }
     }
   }
   for (const auto entry : sizeBreakDown) {
-    logging::trace("{} packets of size {}", entry.second, entry.first);
+    logging::popops::trace("{} packets of size {}", entry.second, entry.first);
   }
   return result;
 }
@@ -210,7 +210,7 @@ IndicesAndTensor createHostSliceableTensor(poplar::Graph &graph,
                                            const std::vector<size_t> &shape,
                                            const bool isRead,
                                            const std::string &debugPrefix) {
-  logging::info("createHostSliceableTensor begin");
+  logging::popops::info("createHostSliceableTensor begin");
   if (shape.size() != 2U) {
     throw poputil::poplibs_error(
         "Host sliceable tensors must have rank of 2 not " +
@@ -231,7 +231,7 @@ IndicesAndTensor createHostSliceableTensor(poplar::Graph &graph,
   const auto result = concat(toConcat);
   const auto indices = concat(indicesToConcat);
   assert(result.shape() == shape);
-  logging::info("createHostSliceableTensor end");
+  logging::popops::info("createHostSliceableTensor end");
   return {indices, result};
 }
 

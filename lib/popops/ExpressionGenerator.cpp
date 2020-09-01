@@ -780,7 +780,7 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
       createVertexName(expr, inputs, inPlace, allInputsScalar);
 
   if (graph.hasCodelet(vertexName)) {
-    logging::debug("Codelet already in graph {}", vertexName);
+    logging::popops::debug("Codelet already in graph {}", vertexName);
     return vertexName;
   }
 
@@ -872,7 +872,7 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
     };
   )l";
 
-  logging::debug("Adding codelet {} to graph", vertexName);
+  logging::popops::debug("Adding codelet {} to graph", vertexName);
   graph.addCodelets(stream);
 
   return vertexName;

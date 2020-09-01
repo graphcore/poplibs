@@ -24,7 +24,7 @@ HyperGraphBlockNaive::HyperGraphBlockNaive(
     : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,
                       nTileIn, memoryCycleRatioIn, nMulsOnVNodeIn) {
 
-  logging::info("HyperGraphBlockNaive is created");
+  logging::popsparse::info("HyperGraphBlockNaive is created");
 }
 
 // This algorithm tries to balance computational work equally.

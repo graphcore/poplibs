@@ -25,8 +25,8 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
                       const Tensor &encoded, Sequence &prog, const Tensor *on,
                       const Tensor *off, const std::string &debugPrefix) {
   const std::string layerPrefix = debugPrefix + "/OneHot";
-  logging::info("encodeOneHot indices={}, encoded={}, name={}", indices.shape(),
-                encoded.shape(), layerPrefix);
+  logging::popops::info("encodeOneHot indices={}, encoded={}, name={}",
+                        indices.shape(), encoded.shape(), layerPrefix);
 
   // Verify inputs
   const auto encodedShape = encoded.shape();
@@ -94,10 +94,12 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
   auto cs = graph.addComputeSet(layerPrefix + "/OneHotEncode");
   const bool nonCustomValues = !on || !off;
 
-  logging::debug("encodeOneHot: Indices : grains {}, groups {}, per group {}",
-                 numIndicesGrains, numIndicesGroups, indicesGrainsPerGroup);
-  logging::debug("            : per-batch : grains {}, groups {} per group {}",
-                 numPerBatchGrains, numPerBatchGroups, perBatchGrainsPerGroup);
+  logging::popops::debug(
+      "encodeOneHot: Indices : grains {}, groups {}, per group {}",
+      numIndicesGrains, numIndicesGroups, indicesGrainsPerGroup);
+  logging::popops::debug(
+      "            : per-batch : grains {}, groups {} per group {}",
+      numPerBatchGrains, numPerBatchGroups, perBatchGrainsPerGroup);
 
   unsigned tile = 0U;
   for (unsigned group = 0; group != numIndicesGroups; ++group) {
@@ -117,9 +119,9 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
       auto tileEncElemEnd = std::min(
           tileEncElemStart + perBatchGrainsPerGroup * grainSize, elemsPerBatch);
       auto elemsThisTile = tileEncElemEnd - tileEncElemStart;
-      logging::debug("  tile : {}, indices [{}:{}), per-batch [{}:{})", tile,
-                     indicesStart, indicesEnd, tileEncElemStart,
-                     tileEncElemEnd);
+      logging::popops::debug("  tile : {}, indices [{}:{}), per-batch [{}:{})",
+                             tile, indicesStart, indicesEnd, tileEncElemStart,
+                             tileEncElemEnd);
       auto tileOutput = oneHotOutput
                             .slice({indicesStart, tileEncElemStart},
                                    {indicesEnd, tileEncElemEnd})
@@ -192,8 +194,8 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
   const auto fnPrefix = debugPrefix + "/iota";
   const auto &dType = t.elementType();
 
-  logging::info("iota t={}, start={}, name={}", t.shape(), startInteger,
-                fnPrefix);
+  logging::popops::info("iota t={}, start={}, name={}", t.shape(), startInteger,
+                        fnPrefix);
 
   // TODO: T12947 If the number of elements per tile is very small, it may be
   // better to construct a constant tensor and copy it.

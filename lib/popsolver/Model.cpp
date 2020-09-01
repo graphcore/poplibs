@@ -17,7 +17,7 @@ using namespace popsolver;
 
 std::ostream &popsolver::operator<<(std::ostream &os,
                                     const ConstraintEvaluationSummary &s) {
-  if (poplibs_support::logging::shouldLog(
+  if (poplibs_support::logging::popsolver::shouldLog(
           poplibs_support::logging::Level::Trace)) {
     os << s.total() << " { call " << s.call << ", product " << s.product
        << ", sum " << s.sum << ", max " << s.max << ", min " << s.min

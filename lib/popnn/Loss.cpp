@@ -222,11 +222,12 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     return ss.str();
   };
 
-  logging::info("calcLoss modelOutputs={}, expected={}, loss={}, deltas={}, "
-                "deltasScale={}, modelOutputScaling={}, type={}, name={}",
-                modelOutputs.shape(), expected.shape(), loss.shape(),
-                deltas.shape(), fmap(deltasScale, getShape),
-                fmap(modelOutputScaling, getShape), lossType, debugPrefix);
+  logging::popnn::info(
+      "calcLoss modelOutputs={}, expected={}, loss={}, deltas={}, "
+      "deltasScale={}, modelOutputScaling={}, type={}, name={}",
+      modelOutputs.shape(), expected.shape(), loss.shape(), deltas.shape(),
+      fmap(deltasScale, getShape), fmap(modelOutputScaling, getShape), lossType,
+      debugPrefix);
 
   std::string layerPrefix = debugPrefix;
   std::string transformVertexClass;
@@ -662,8 +663,8 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
 
 Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
             bool sort, Sequence &prog, const std::string &debugPrefix) {
-  logging::info("topK input={}, k={}, sort={}, name={}", input.shape(), K, sort,
-                debugPrefix);
+  logging::popnn::info("topK input={}, k={}, sort={}, name={}", input.shape(),
+                       K, sort, debugPrefix);
 
   if (input.rank() != 2) {
     throw poplibs_error("Topk: input tensor must be of rank 2");
@@ -688,7 +689,7 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
 
 Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
-  logging::info("argMax input={}, name={}", input.shape(), debugPrefix);
+  logging::popnn::info("argMax input={}, name={}", input.shape(), debugPrefix);
 
   // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
@@ -709,7 +710,7 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
 
 Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
               const std::string &debugPrefix) {
-  logging::info("argMax input={}, name={}", input.shape(), debugPrefix);
+  logging::popnn::info("argMax input={}, name={}", input.shape(), debugPrefix);
 
   // TODO: T12906 Map the output tensor.
   unsigned numCorrectTile = 0;
@@ -746,7 +747,7 @@ Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
                      const Tensor &expected, const Tensor &numCorrect,
                      const std::string &debugPrefix) {
   const auto layerPrefix = debugPrefix + "/Accuracy";
-  logging::info(
+  logging::popnn::info(
       "calcAccuracy modelOutputs={}, expected={}, numCorrect={}, name={}",
       modelOutputs.shape(), expected.shape(), numCorrect.shape(), layerPrefix);
 

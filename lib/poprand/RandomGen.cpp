@@ -88,8 +88,8 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
         // more pessimistic than is strictly required.
         scaleF = std::nextafterf(scaleF, 0.f);
         scaleF = std::nextafterf(scaleF, 0.f);
-        logging::debug("uniformScaleAndOffset(float) coerced scale to {}",
-                       scaleF);
+        logging::poprand::debug(
+            "uniformScaleAndOffset(float) coerced scale to {}", scaleF);
       }
     } else if (dType == HALF) {
       // For halves we only check that we're not going to include zero when
@@ -106,8 +106,8 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
         // shrink the scale by 1-2^-10 to reduce the product by 2 representable
         // values
         scaleF = scaleF * 0x3ff / 0x400;
-        logging::debug("uniformScaleAndOffset(half) coerced scale to {}",
-                       scaleF);
+        logging::poprand::debug(
+            "uniformScaleAndOffset(half) coerced scale to {}", scaleF);
       }
     }
     return std::make_pair(scaleF, offsetF);

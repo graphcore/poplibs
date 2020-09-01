@@ -424,8 +424,8 @@ static void createStridedReduceVertex(
   unsigned numPartials, partialsWidth;
   if (r0.regularPartials()) {
     // Partials information is regular and we may be able to use the stride
-    logging::trace("  Offset: {} PartialsWidth: {}", r0.getOffset(),
-                   r0.getStride());
+    logging::popops::trace("  Offset: {} PartialsWidth: {}", r0.getOffset(),
+                           r0.getStride());
 
     std::vector<poplar::Tensor> outputs;
     outputs.reserve(reductions.size());
@@ -811,12 +811,13 @@ void createVertex(poplar::Graph &graph,
     }
   }
   // logging begin
-  if (logging::shouldLog(logging::Level::Trace)) {
+  if (logging::popops::shouldLog(logging::Level::Trace)) {
     for (unsigned i = 0; i < reductions.size(); i++) {
       const auto partials =
           extractPartials({reductions.begin() + i, reductions.begin() + i + 1});
-      logging::trace("Reduction output size = {}, input vector size = {}",
-                     reductions[i].output.numElements(), partials.size());
+      logging::popops::trace(
+          "Reduction output size = {}, input vector size = {}",
+          reductions[i].output.numElements(), partials.size());
       unsigned size = 0;
       unsigned count = 0;
       for (const auto &p : partials) {
@@ -824,13 +825,13 @@ void createVertex(poplar::Graph &graph,
           count++;
           size = p.numElements();
         } else {
-          logging::trace("    Partials: {} with size: {}", count, size);
+          logging::popops::trace("    Partials: {} with size: {}", count, size);
           count = 1;
           size = p.numElements();
         }
       }
       if (count != 0) {
-        logging::trace("    Partials: {} with size: {}", count, size);
+        logging::popops::trace("    Partials: {} with size: {}", count, size);
       }
     }
   }
@@ -855,7 +856,7 @@ void createVertex(poplar::Graph &graph,
 
     const auto name = getReductionVertexName(params, partialType, outputType,
                                              specialisation, params.useScale);
-    logging::trace("{}", name);
+    logging::popops::trace("{}", name);
     const auto vertex = graph.addVertex(cs, name);
     graph.setTileMapping(vertex, tile);
 
@@ -999,8 +1000,8 @@ void connectSingleStageReductions(
 
   assert(reductions.size() == assignments.size());
 
-  logging::trace("Connecting single stage reduction, size: {}",
-                 reductions.size());
+  logging::popops::trace("Connecting single stage reduction, size: {}",
+                         reductions.size());
 
   // Map from worker context to list of reductions.
   // Optimisation: Copying the RegionReductions around could be avoided.
@@ -1152,9 +1153,10 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
                              candidateReductions, remainingReductions)) {
     return remainingReductions;
   }
-  logging::trace("Considering connecting {} reductions as 2 stages. Reason:"
-                 " Optimising column count",
-                 candidateReductions.size());
+  logging::popops::trace(
+      "Considering connecting {} reductions as 2 stages. Reason:"
+      " Optimising column count",
+      candidateReductions.size());
 
   // A vector of partials per reduction - each will be empty if not implemented
   // here, contains "Splits" partials otherwise.  Ie one partial if implemented
@@ -1224,7 +1226,8 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
     }
   }
   if (consumedReductions.size() == 0) {
-    logging::trace("No reductions suitable for column count optimisations");
+    logging::popops::trace(
+        "No reductions suitable for column count optimisations");
     return remainingReductions;
   }
 
@@ -1267,9 +1270,9 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
     }
     partialsIndex++;
   }
-  logging::trace("Connected {} reductions as 2 stages. Reason:"
-                 " Optimising column count",
-                 consumedReductions.size());
+  logging::popops::trace("Connected {} reductions as 2 stages. Reason:"
+                         " Optimising column count",
+                         consumedReductions.size());
   return remainingReductions;
 }
 
@@ -1300,9 +1303,9 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
     return remainingReductions;
   }
 
-  logging::trace("Connecting {} reductions as 2 stages. "
-                 "Reason: InnerFactor and OuterFactor both != 1",
-                 consumedReductions.size());
+  logging::popops::trace("Connecting {} reductions as 2 stages. "
+                         "Reason: InnerFactor and OuterFactor both != 1",
+                         consumedReductions.size());
   // If possible, we could split each reduction this many times, resulting in
   // all workers being occupied.  It may not be possible due to the size of
   // the individual reductions, but this forms an upper bound on the splits.
@@ -1450,7 +1453,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     if (splits[i] == 1) {
       singleStageReductions.push_back(reductions[i]);
       singleStageAssignments.push_back(singleStageAssignments.size());
-      logging::trace("Single stage reduction[{}] {}", i, reductions[i]);
+      logging::popops::trace("Single stage reduction[{}] {}", i, reductions[i]);
     }
   }
 
@@ -1478,7 +1481,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     // e.g. if there are 6 reductions with reduction factors
     //   x1000, x5, x5, x5, x5, x5.
 
-    logging::trace("Two stage reduction[{}] = {}", i, reductions[i]);
+    logging::popops::trace("Two stage reduction[{}] = {}", i, reductions[i]);
 
     auto outputSize = reductions[i].output.numElements();
 
@@ -1626,7 +1629,7 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
   // consume here
   const auto maxSplits = findMaxSplits(remainingWorkers, reductions.size(),
                                        consumedReductions.size());
-  logging::trace(
+  logging::popops::trace(
       "Splitting and connecting {} reductions due to innerFactor != 1",
       consumedReductions.size());
   for (auto &reduction : consumedReductions) {
@@ -1703,7 +1706,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
 
   // Check that all the inputs and outputs are of the appropriate sizes
   // and types.
-  logging::trace("Connecting {} reductions", reductions.size());
+  logging::popops::trace("Connecting {} reductions", reductions.size());
 
   for (const auto &r : reductions) {
 
@@ -1814,11 +1817,12 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
         target, params.op, remainingReductions, vectorListMaxSize,
         remainingWorkers);
     const auto workersUsed = std::accumulate(splits.begin(), splits.end(), 0u);
-    logging::trace("Splitting {} reductions between {} vertices on tile {} {}",
-                   remainingReductions.size(), workersUsed, tile,
-                   remainingReductions.size() == workersUsed
-                       ? " "
-                       : "(Plus reductions to combine those split by row)");
+    logging::popops::trace(
+        "Splitting {} reductions between {} vertices on tile {} {}",
+        remainingReductions.size(), workersUsed, tile,
+        remainingReductions.size() == workersUsed
+            ? " "
+            : "(Plus reductions to combine those split by row)");
 
     for (size_t i = 0; i < remainingReductions.size(); i++) {
 
@@ -1842,7 +1846,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                               debugPrefix);
 
   } else {
-    logging::trace("Using single stage reduction on tile {}", tile);
+    logging::popops::trace("Using single stage reduction on tile {}", tile);
     // Distribute the reductionTensors among 6 (or whatever) vertices.
     auto reductionAssignments = distributeReductionsBetweenWorkers(
         target, params.op, remainingReductions, remainingWorkers);

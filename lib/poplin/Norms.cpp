@@ -120,9 +120,10 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
                bool unbiasedVarEstimate, bool stableAlgo,
                const Type &partialsType, const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/statistics";
-  logging::info("normStatistics acts={}, eps={}, unbiasedVarEstimate={}, "
-                "type={}, name={}",
-                acts.shape(), eps, unbiasedVarEstimate, partialsType, fnPrefix);
+  logging::poplin::info(
+      "normStatistics acts={}, eps={}, unbiasedVarEstimate={}, "
+      "type={}, name={}",
+      acts.shape(), eps, unbiasedVarEstimate, partialsType, fnPrefix);
 
   const auto actsShape = acts.shape();
   const auto numElements = acts.numElements() / acts.dim(1);
@@ -143,7 +144,7 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
       prog.add(Execute(cs));
     }
     css.clear();
-    logging::info("Stable statistics estimator used");
+    logging::poplin::info("Stable statistics estimator used");
     using namespace popops::expr;
     maybeZeroMeanActs = popops::map(graph, _1 - Cast(_2, acts.elementType()),
                                     {acts, broadcastChannelToMatch(acts, mean)},
@@ -192,8 +193,8 @@ Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                   const Tensor &iStdDev, Sequence &prog,
                   const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Whiten";
-  logging::info("normWhiten acts={}, mean={}, iStdDev={}, name={}",
-                acts.shape(), mean.shape(), iStdDev.shape(), fnPrefix);
+  logging::poplin::info("normWhiten acts={}, mean={}, iStdDev={}, name={}",
+                        acts.shape(), mean.shape(), iStdDev.shape(), fnPrefix);
 
   auto meanBroadcast = broadcastChannelToMatch(acts, mean);
   auto actsWhitened = sub(graph, acts, meanBroadcast, prog, fnPrefix + "/mean");
@@ -207,8 +208,9 @@ Tensor normalise(Graph &graph, const Tensor &actsWhitened, const Tensor &gamma,
                  const Tensor &beta, Sequence &prog,
                  const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/normalise";
-  logging::info("normalise actsWhitened={}, gamma={}, beta={}, name={}",
-                actsWhitened.shape(), gamma.shape(), beta.shape(), fnPrefix);
+  logging::poplin::info("normalise actsWhitened={}, gamma={}, beta={}, name={}",
+                        actsWhitened.shape(), gamma.shape(), beta.shape(),
+                        fnPrefix);
 
   auto gammaBroadcast = broadcastChannelToMatch(actsWhitened, gamma);
   auto actsNormalised =
@@ -225,10 +227,11 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
                    const std::string &debugPrefix) {
 
   const auto fnPrefix = debugPrefix + "/Norm/deltas";
-  logging::info("normParamGradients actsWhitened={}, gradsIn={}, scale={}, "
-                "type={}, attemptRegroup={}, name={}",
-                actsWhitened.shape(), gradsIn.shape(), scale, partialsType,
-                attemptRegroup, fnPrefix);
+  logging::poplin::info(
+      "normParamGradients actsWhitened={}, gradsIn={}, scale={}, "
+      "type={}, attemptRegroup={}, name={}",
+      actsWhitened.shape(), gradsIn.shape(), scale, partialsType,
+      attemptRegroup, fnPrefix);
 
   auto gradsInMaybeRegrouped =
       attemptRegroup ? popops::rearrange::regroupIfBeneficial(
@@ -276,8 +279,8 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
 Tensor normGradients(Graph &graph, const Tensor &gradsIn, const Tensor &gamma,
                      Sequence &prog, const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/NormGrad";
-  logging::info("normGradients gradsIn={}, gamma={}, name={}", gradsIn.shape(),
-                gamma.shape(), fnPrefix);
+  logging::poplin::info("normGradients gradsIn={}, gamma={}, name={}",
+                        gradsIn.shape(), gamma.shape(), fnPrefix);
   auto gammaBroadcast = broadcastChannelToMatch(gradsIn, gamma);
   return mul(graph, gradsIn, gammaBroadcast, prog, fnPrefix);
 }
@@ -288,10 +291,10 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
                                const Type &partialsType, // currently unused
                                const std::string &debugPrefix) {
   const auto fnPrefix = debugPrefix + "/Norm/gradients";
-  logging::info("normStatisticsGradients actsWhitened={}, gradsIn={}, "
-                "invStdDev={}, name={}",
-                actsWhitened.shape(), gradsIn.shape(), invStdDev.shape(),
-                fnPrefix);
+  logging::poplin::info("normStatisticsGradients actsWhitened={}, gradsIn={}, "
+                        "invStdDev={}, name={}",
+                        actsWhitened.shape(), gradsIn.shape(),
+                        invStdDev.shape(), fnPrefix);
 
   const auto actsShape = actsWhitened.shape();
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);

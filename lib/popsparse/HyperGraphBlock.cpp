@@ -118,8 +118,8 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
   // issue.
   unsigned int nAvgV = numMuls / nTile / nMulsOnVNode;
 
-  logging::info("Total number of muls: {}", numMuls);
-  logging::info("Average number of muls per node V: {}", nAvgV);
+  logging::popsparse::info("Total number of muls: {}", numMuls);
+  logging::popsparse::info("Average number of muls per node V: {}", nAvgV);
 
   // populate multiply nodes V
   populateNodesV(nRowC, nColC, nColA, nAvgV, blockIdMatrixA, blockIdMatrixB,
@@ -184,8 +184,8 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
 
   unsigned int nAvgV = numMuls / nTile / nMulsOnVNode;
 
-  logging::info("Total number of muls: {}", numMuls);
-  logging::info("Average number of muls per node V: {}", nAvgV);
+  logging::popsparse::info("Total number of muls: {}", numMuls);
+  logging::popsparse::info("Average number of muls per node V: {}", nAvgV);
 
   // populate multiply nodes V
   populateNodesV(nRowC, nColC, nColA, nAvgV, blockIdMatrixA, blockIdMatrixB,
@@ -479,7 +479,7 @@ void HyperGraphBlock::createComputeSetMatMul(
     totalNode += tileNodes[i];
   }
 
-  if (logging::shouldLog(logging::Level::Info)) {
+  if (logging::popsparse::shouldLog(logging::Level::Info)) {
     float avgNode = static_cast<float>(totalNode) / nTile;
     float varNode = 0.0f;
     float maxBalance = 0;
@@ -491,9 +491,10 @@ void HyperGraphBlock::createComputeSetMatMul(
 
     varNode /= nTile;
 
-    logging::info("min node: {} max node: {}", minNode, maxNode);
-    logging::info("total node: {} avg node: {}", totalNode, avgNode);
-    logging::info("varaiance {} load balance: {}", varNode, maxBalance);
+    logging::popsparse::info("min node: {} max node: {}", minNode, maxNode);
+    logging::popsparse::info("total node: {} avg node: {}", totalNode, avgNode);
+    logging::popsparse::info("varaiance {} load balance: {}", varNode,
+                             maxBalance);
   }
 
   nodeCTileId.resize(nodeC.size());
@@ -609,8 +610,8 @@ void HyperGraphBlock::createComputeSetReduce(
     addReduceVertex(graph, partialBlocks, output, nodeCTileId[i], reduceCS);
   }
 
-  logging::info("Total reduction node = {}, min = {}, max = {} ", edgeC.size(),
-                minC, maxC);
+  logging::popsparse::info("Total reduction node = {}, min = {}, max = {} ",
+                           edgeC.size(), minC, maxC);
 }
 
 static const float KBf = 1024.0f;
@@ -714,7 +715,7 @@ static const std::size_t KBu = 1024;
 void HyperGraphBlock::logTileAssignment(
     const poplar::Graph &graph, const std::vector<int> &tileAssignment,
     const std::vector<unsigned int> &nodeCTileId) {
-  if (!logging::shouldLog(logging::Level::Debug)) {
+  if (!logging::popsparse::shouldLog(logging::Level::Debug)) {
     return;
   }
 
@@ -809,15 +810,15 @@ void HyperGraphBlock::logTileAssignment(
     const std::size_t tilesPerCell =
         std::max(nTile / MAX_BAR_SIZE, std::size_t(1));
 
-    logging::info("Number of nodes in A: {}", nodeA.size());
-    logging::info("Number of nodes in B: {}", nodeB.size());
-    logging::info("Number of nodes in C: {}", nodeC.size());
-    logging::info("Number of nodes in V: {}", nodeV.size());
+    logging::popsparse::info("Number of nodes in A: {}", nodeA.size());
+    logging::popsparse::info("Number of nodes in B: {}", nodeB.size());
+    logging::popsparse::info("Number of nodes in C: {}", nodeC.size());
+    logging::popsparse::info("Number of nodes in V: {}", nodeV.size());
 
     // Nodes number Histogram:
-    logging::debug("");
-    logging::debug("Tiles assignment by number of nodes:");
-    logging::debug("Range    \tHistogram (num tiles)");
+    logging::popsparse::debug("");
+    logging::popsparse::debug("Tiles assignment by number of nodes:");
+    logging::popsparse::debug("Range    \tHistogram (num tiles)");
     for (std::size_t idxBucket = 0, numNodessLow = 0; idxBucket < numBuckets;
          ++idxBucket) {
       std::size_t numNodesHigh = numNodessLow + bucketSizeNodes - 1;
@@ -849,15 +850,16 @@ void HyperGraphBlock::logTileAssignment(
         bar.append(barLen, '0');
       }
 
-      logging::debug("{} - {}\t{}", numNodessLow, numNodesHigh, bar.c_str());
+      logging::popsparse::debug("{} - {}\t{}", numNodessLow, numNodesHigh,
+                                bar.c_str());
       numNodessLow += bucketSizeNodes;
     }
-    logging::debug(
+    logging::popsparse::debug(
         "Maximum nodes on tile {}={}: A={}, B={}, V={}, C={}",
         idxMaxOccupiedTile, nodesTotalByTiles[idxMaxOccupiedTile],
         nodesAByTiles[idxMaxOccupiedTile], nodesBByTiles[idxMaxOccupiedTile],
         nodesVByTiles[idxMaxOccupiedTile], nodesCByTiles[idxMaxOccupiedTile]);
-    logging::debug(
+    logging::popsparse::debug(
         "Minimum nodes on tile {}={}: A={}, B={}, V={}, C={}",
         idxMinOccupiedTile, nodesTotalByTiles[idxMinOccupiedTile],
         nodesAByTiles[idxMinOccupiedTile], nodesBByTiles[idxMinOccupiedTile],
@@ -1049,15 +1051,15 @@ void HyperGraphBlock::logTileAssignment(
         (maxBytesPerBucket + MAX_BAR_SIZE - 1) / MAX_BAR_SIZE, std::size_t(1));
 
     // Memory Histogram:
-    logging::debug("");
-    logging::debug("Legend:");
-    logging::debug("A, B, C - permanent variables");
-    logging::debug("P - partials");
-    logging::debug("a, b - A, B copied variables");
-    logging::debug("p - copied partials");
-    logging::debug("X - mix of variables");
-    logging::debug("Tiles assignment by memory:");
-    logging::debug("Range (Kb) Histogram (Kb share)");
+    logging::popsparse::debug("");
+    logging::popsparse::debug("Legend:");
+    logging::popsparse::debug("A, B, C - permanent variables");
+    logging::popsparse::debug("P - partials");
+    logging::popsparse::debug("a, b - A, B copied variables");
+    logging::popsparse::debug("p - copied partials");
+    logging::popsparse::debug("X - mix of variables");
+    logging::popsparse::debug("Tiles assignment by memory:");
+    logging::popsparse::debug("Range (Kb) Histogram (Kb share)");
     for (std::size_t idxBucket = 0, bytesLow = 0; idxBucket < numBuckets;
          ++idxBucket) {
       std::size_t bytesHigh = bytesLow + bucketSizeBytes - 1;
@@ -1120,7 +1122,8 @@ void HyperGraphBlock::logTileAssignment(
           bar.append(barLen, '0');
         }
         assert(bar.size() <= MAX_BAR_SIZE);
-        logging::debug("{:<3} - {:<3} mm {}", kBLow, kBHigh, bar.c_str());
+        logging::popsparse::debug("{:<3} - {:<3} mm {}", kBLow, kBHigh,
+                                  bar.c_str());
       }
       {
         // Reduce bar
@@ -1166,12 +1169,12 @@ void HyperGraphBlock::logTileAssignment(
         } else {
           bar.append(barLen, '0');
         }
-        logging::debug("          rd {}", bar.c_str());
+        logging::popsparse::debug("          rd {}", bar.c_str());
       }
 
       bytesLow += bucketSizeBytes;
     }
-    logging::debug(
+    logging::popsparse::debug(
         "Maximum matmul Kb on tile {}={}: A={}, B={}, C={}, P={}, a={}, b={}",
         idxMaxOccupiedTileMatmul, maxBytesOnTileMatmul / KBf,
         bytesAByTiles[idxMaxOccupiedTileMatmul] / KBf,
@@ -1180,14 +1183,15 @@ void HyperGraphBlock::logTileAssignment(
         bytesVpByTiles[idxMaxOccupiedTileMatmul] / KBf,
         bytesVaByTiles[idxMaxOccupiedTileMatmul] / KBf,
         bytesVbByTiles[idxMaxOccupiedTileMatmul] / KBf);
-    logging::debug("Maximum reduce Kb on tile {}={}: B={}, P={}, C={}, p={}",
-                   idxMaxOccupiedTileReduce, maxBytesOnTileReduce / KBf,
-                   bytesAByTiles[idxMaxOccupiedTileReduce] / KBf,
-                   bytesBByTiles[idxMaxOccupiedTileReduce] / KBf,
-                   bytesCByTiles[idxMaxOccupiedTileReduce] / KBf,
-                   bytesVpByTiles[idxMaxOccupiedTileReduce] / KBf,
-                   bytesCpByTiles[idxMaxOccupiedTileReduce] / KBf);
-    logging::debug(
+    logging::popsparse::debug(
+        "Maximum reduce Kb on tile {}={}: B={}, P={}, C={}, p={}",
+        idxMaxOccupiedTileReduce, maxBytesOnTileReduce / KBf,
+        bytesAByTiles[idxMaxOccupiedTileReduce] / KBf,
+        bytesBByTiles[idxMaxOccupiedTileReduce] / KBf,
+        bytesCByTiles[idxMaxOccupiedTileReduce] / KBf,
+        bytesVpByTiles[idxMaxOccupiedTileReduce] / KBf,
+        bytesCpByTiles[idxMaxOccupiedTileReduce] / KBf);
+    logging::popsparse::debug(
         "Minimum Kb on tile {}={}: A={}, B={}, C={}, P={}, a={}, b={}, p={}",
         idxMinOccupiedTile, minBytesOnTile / KBf,
         bytesAByTiles[idxMinOccupiedTile] / KBf,

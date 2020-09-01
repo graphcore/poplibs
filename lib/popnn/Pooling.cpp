@@ -584,8 +584,9 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     auto convMethodCosts =
         reportPlanEstimatedCosts(graph, paramsForConv, convOptions, &cache);
 
-    logging::debug("Choosing method between Pool {} cycles or Conv {} cycles ",
-                   poolMethodResult.cycles, convMethodCosts.cycles);
+    logging::popnn::debug(
+        "Choosing method between Pool {} cycles or Conv {} cycles ",
+        poolMethodResult.cycles, convMethodCosts.cycles);
     if (convMethodCosts.cycles < poolMethodResult.cycles) {
       // Create a scaling tensor, which will become the convolution weights
       // kernel when broadcast
@@ -621,8 +622,8 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     }
   }
   // Implement as pooling
-  logging::debug("Plan cost: {} cycles", poolMethodResult.cycles);
-  logging::debug("Pooling plan:\n{}", poolMethodResult.plan);
+  logging::popnn::debug("Plan cost: {} cycles", poolMethodResult.cycles);
+  logging::popnn::debug("Pooling plan:\n{}", poolMethodResult.plan);
   Tensor fwdInputActs, fwdOutputActs;
   if (fwdInputActs_) {
     fwdInputActs = *fwdInputActs_;
@@ -721,18 +722,19 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
   const auto poolOptions = parsePoolOptions(options);
   checkWindowParameters(poolParams);
 
-  logging::info("pool");
-  logging::info("  method={} type={} name=\"{}\"",
-                asString(poolParams.poolingType), poolParams.dType,
-                debugPrefix);
-  logging::info("  input={}x({}x{}) padding={}/{}", poolParams.inputFieldShape,
-                poolParams.batchSize, poolParams.numChannels,
-                poolParams.inputTruncationOrPaddingLower,
-                poolParams.inputTruncationOrPaddingUpper);
-  logging::info("  kernel={}", poolParams.kernelShape);
-  logging::info("  output={}x({}x{}) stride={}",
-                poolParams.getOutputFieldShape(), poolParams.batchSize,
-                poolParams.numChannels, poolParams.stride);
+  logging::popnn::info("pool");
+  logging::popnn::info("  method={} type={} name=\"{}\"",
+                       asString(poolParams.poolingType), poolParams.dType,
+                       debugPrefix);
+  logging::popnn::info("  input={}x({}x{}) padding={}/{}",
+                       poolParams.inputFieldShape, poolParams.batchSize,
+                       poolParams.numChannels,
+                       poolParams.inputTruncationOrPaddingLower,
+                       poolParams.inputTruncationOrPaddingUpper);
+  logging::popnn::info("  kernel={}", poolParams.kernelShape);
+  logging::popnn::info("  output={}x({}x{}) stride={}",
+                       poolParams.getOutputFieldShape(), poolParams.batchSize,
+                       poolParams.numChannels, poolParams.stride);
 
   const auto poolingType = poolParams.poolingType;
   assert(in_.dim(0) == poolParams.batchSize);
@@ -794,10 +796,11 @@ void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
   assert(poolParams.batchSize == batchSize);
   assert(poolParams.numChannels == numChannels);
 
-  logging::debug("PoolGrad({}x({}x{}), kernel {}, name='{}'",
-                 poolParams.inputFieldShape, poolParams.batchSize,
-                 poolParams.numChannels, poolParams.kernelShape, debugPrefix);
-  logging::debug("PoolGrad params:\n{}", poolParams);
+  logging::popnn::debug("PoolGrad({}x({}x{}), kernel {}, name='{}'",
+                        poolParams.inputFieldShape, poolParams.batchSize,
+                        poolParams.numChannels, poolParams.kernelShape,
+                        debugPrefix);
+  logging::popnn::debug("PoolGrad params:\n{}", poolParams);
 
   Tensor in, pooled;
   if (maxPooling) {

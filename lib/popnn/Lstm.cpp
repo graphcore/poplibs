@@ -927,7 +927,7 @@ static void basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                                  const LstmOpts &opt,
                                  const std::string &debugPrefix,
                                  matmul::PlanningCache *cache) {
-  logging::debug("basicLstmParamUpdate begin {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdate begin {}", debugPrefix);
   const auto fPrefix = debugPrefix + "/LstmDeltas";
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_WU");
@@ -950,7 +950,7 @@ static void basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
     popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
                        fPrefix + "/Bias");
   }
-  logging::debug("basicLstmParamUpdate end {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdate end {}", debugPrefix);
 }
 
 static LstmWeights basicLstmParamUpdateFinal(Graph &graph,
@@ -960,7 +960,7 @@ static LstmWeights basicLstmParamUpdateFinal(Graph &graph,
                                              const std::string &debugPrefix) {
   // The accumulated bias gradients still has a batch axis that we must
   // accumulate over - do this now.
-  logging::debug("basicLstmParamUpdateFinal begin {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdateFinal begin {}", debugPrefix);
   auto biasGrad = graph.clone(weightGrads.biases.elementType(), weights.biases,
                               debugPrefix + "/biasGrad");
   popops::reduceWithOutput(graph, weightGrads.biases, biasGrad, {1},
@@ -968,7 +968,7 @@ static LstmWeights basicLstmParamUpdateFinal(Graph &graph,
                            debugPrefix + "/FinalBiasReduction");
   auto finalWeightGrads = weightGrads;
   finalWeightGrads.biases = biasGrad;
-  logging::debug("basicLstmParamUpdateFinal end {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdateFinal end {}", debugPrefix);
   return finalWeightGrads;
 }
 
@@ -979,8 +979,8 @@ static LstmWeights createWeightAccumulators(Graph &graph,
                                             const Tensor &bwdIntermediates,
                                             const LstmOpts &options,
                                             const std::string &debugPrefix) {
-  logging::debug("Create weightAccumulators of type {}",
-                 options.accumulatorsType.toString());
+  logging::popnn::debug("Create weightAccumulators of type {}",
+                        options.accumulatorsType.toString());
   LstmWeights weightAccs;
   if (options.preCalcWeights) {
     weightAccs.inputWeights =
@@ -1010,7 +1010,7 @@ static LstmWeights createWeightAccumulators(Graph &graph,
   // otherwise can be significant.
   weightAccs.biases = graph.clone(options.accumulatorsType, bwdIntermediates,
                                   debugPrefix + "/bwdIntermediatesAcc");
-  logging::debug("Create weightAccumulators end");
+  logging::popnn::debug("Create weightAccumulators end");
   return weightAccs;
 }
 
@@ -1018,7 +1018,7 @@ static void zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
                                    const LstmWeights &weightsAcc,
                                    const LstmOpts &options,
                                    const std::string &debugPrefix) {
-  logging::debug("zero weight accumulators");
+  logging::popnn::debug("zero weight accumulators");
   if (options.preCalcWeights) {
     popops::zero(graph,
                  concat({weightsAcc.inputWeights.flatten(),
@@ -1397,7 +1397,7 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   prog.add(Copy(start, seqIdx));
 
   auto sliceOutput = Sequence();
-  logging::debug("Get output of previous step");
+  logging::popnn::debug("Get output of previous step");
   Tensor prevStepOut;
   if (params.outputFullSequence) {
     prevStepOut = dynamicSlice(graph, output, seqIdx, {0}, {1}, sliceOutput,

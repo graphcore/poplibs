@@ -1803,7 +1803,7 @@ SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
                                          const OptionFlags &optionFlags,
                                          PlanningCache *cache) {
   const auto &options = parseOptionFlags(optionFlags);
-  logging::debug(
+  logging::popsparse::debug(
       "popsparse::createFullyConnectedWeights: '{}' params={}, options={}",
       debugName, params, options);
 
@@ -1859,7 +1859,7 @@ Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
   const auto &options = parseOptionFlags(optionFlags);
-  logging::debug(
+  logging::popsparse::debug(
       "popsparse::createFullyConnectedInput: '{}' params={}, options={}",
       debugName, params, options);
 
@@ -1930,8 +1930,9 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
-  logging::debug("popsparse::fullyConnectedFwd: '{}' params={}, options={}",
-                 debugPrefix, params, options);
+  logging::popsparse::debug(
+      "popsparse::fullyConnectedFwd: '{}' params={}, options={}", debugPrefix,
+      params, options);
   validateSparseOperandMetaData(weights, params, options);
   Plan plan;
   Cost cost;
@@ -1981,8 +1982,9 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
-  logging::debug("popsparse::fullyConnectedGradA: '{}' params={}, options={}",
-                 debugPrefix, params, options);
+  logging::popsparse::debug(
+      "popsparse::fullyConnectedGradA: '{}' params={}, options={}", debugPrefix,
+      params, options);
   validateSparseOperandMetaData(weights, params, options);
   Plan plan;
   Cost cost;
@@ -2053,7 +2055,7 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
-  logging::debug(
+  logging::popsparse::debug(
       "popsparse::fullyConnectedSparseGradW: '{}' params={}, options={}",
       debugPrefix, params, options);
   Plan plan;

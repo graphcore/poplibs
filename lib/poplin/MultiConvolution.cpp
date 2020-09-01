@@ -19,10 +19,10 @@ namespace multiconv {
 namespace logging = poplibs_support::logging;
 
 static void log(const char *name, const std::vector<ConvolutionArgs> &args) {
-  if (logging::shouldLog(logging::Level::Info)) {
-    logging::info(name);
+  if (logging::poplin::shouldLog(logging::Level::Info)) {
+    logging::poplin::info(name);
     for (unsigned i = 0; i < args.size(); ++i) {
-      logging::info("  conv {}:", i);
+      logging::poplin::info("  conv {}:", i);
       log(4, args[i].params);
     }
   }
@@ -64,8 +64,8 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix, const F &fn) {
   assert(serial.plans.size() == args.size());
-  logging::info("Implementing multi-convs using a serial plan: {}",
-                debugPrefix);
+  logging::poplin::info("Implementing multi-convs using a serial plan: {}",
+                        debugPrefix);
 
   for (unsigned i = 0; i < args.size(); ++i) {
     const auto &arg = args[i];
@@ -88,8 +88,8 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix, const F &fn) {
   assert(para.plans.size() == args.size());
-  logging::info("Implementing multi-convs using a parallel plan: {}",
-                debugPrefix);
+  logging::poplin::info("Implementing multi-convs using a parallel plan: {}",
+                        debugPrefix);
 
   for (unsigned i = 1; i < para.plans.size(); ++i) {
     assert(para.plans[0].numLevels() == para.plans[i].numLevels());

@@ -343,7 +343,7 @@ void createWorklists(
   }
 
   unsigned contextStart = 0;
-  logging::trace("Tile: {}", tile);
+  logging::popnn::trace("Tile: {}", tile);
   contextStartPos.reserve(numContexts);
   for (std::size_t c = 0; c != numContexts; ++c) {
     std::string loggingStr = "Worklist " + std::to_string(c) + ": ";
@@ -359,7 +359,7 @@ void createWorklists(
         const auto numElements = (r.numElements + strideX - 1) / strideX;
         assert(numElements != 0);
         row.push_back(numElements - 1);
-        if (logging::shouldLog(logging::Level::Trace)) {
+        if (logging::popnn::shouldLog(logging::Level::Trace)) {
           loggingStr += "[" + std::to_string(r.outBeginOffset - outBase) + "," +
                         std::to_string(r.inBeginOffset - inBase) + "," +
                         std::to_string(numElements - 1) + "] ";
@@ -372,7 +372,7 @@ void createWorklists(
       ++contextStart;
     }
     contextStartPos.push_back(contextStart);
-    logging::trace(loggingStr);
+    logging::popnn::trace(loggingStr);
   }
 }
 
@@ -559,8 +559,9 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   graph.setInitialValue(v["inStrideD"], inStride / vectorWidth);
   graph.setInitialValue(v["outStrideD"], outStride / vectorWidth);
 
-  logging::trace("chansPerGroup: {} Groups: {} inStride: {} outStride: {}",
-                 chansPerGroup, numChanGroups, inStride, outStride);
+  logging::popnn::trace(
+      "chansPerGroup: {} Groups: {} inStride: {} outStride: {}", chansPerGroup,
+      numChanGroups, inStride, outStride);
 
   if (poolCfg.pass == PoolPass::POOL_BWD &&
       poolCfg.type == popnn::PoolingType::MAX) {

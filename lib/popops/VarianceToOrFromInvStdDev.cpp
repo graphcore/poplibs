@@ -25,9 +25,10 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
   src = src.flatten();
   dst = dst.flatten();
 
-  logging::info("convertVariance src={}, dst={}, epsilon={}, op={}, name={}",
-                src.shape(), dst.shape(), epsilon.shape(),
-                expr::binaryOpTypeToString(op), debugPrefix);
+  logging::popops::info(
+      "convertVariance src={}, dst={}, epsilon={}, op={}, name={}", src.shape(),
+      dst.shape(), epsilon.shape(), expr::binaryOpTypeToString(op),
+      debugPrefix);
 
   if (epsilon.numElements() != 1) {
     throw poputil::poplibs_error("Epsilon must be a tensor with a single "

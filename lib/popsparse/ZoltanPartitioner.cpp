@@ -82,7 +82,7 @@ float ZoltanPartitioner::partitionGraph(const HyperGraphData &graphData,
 
   std::unique_ptr<Zoltan> zz(new Zoltan);
 
-  logging::info("Zoltan version: {}", zoltanVersion);
+  logging::popsparse::info("Zoltan version: {}", zoltanVersion);
 
   // Register query functions.
   zz->Set_Num_Obj_Fn(objectNumber, (void *)&graphData);
@@ -166,7 +166,7 @@ float ZoltanPartitioner::partitionGraph(const HyperGraphData &graphData,
   case ZOLTAN_OK:
     break;
   case ZOLTAN_WARN:
-    logging::warn("Hypergraph partitioning returned with warnings");
+    logging::popsparse::warn("Hypergraph partitioning returned with warnings");
     break;
   case ZOLTAN_FATAL:
     throw poputil::poplibs_error("Partitioning of the hypergraph failed");
@@ -188,12 +188,13 @@ float ZoltanPartitioner::partitionGraph(const HyperGraphData &graphData,
                      minTileId, maxWeight, maxTileId, avgWeight, balance,
                      zeroTiles);
 
-  logging::info("Min weight {} on tile {}", minWeight, minTileId);
-  logging::info("Max weight {} on tile {}", maxWeight, maxTileId);
-  logging::info("Average weight {}", avgWeight);
-  logging::info("partition load balance {}, number of tile that has no "
-                "assignment {}",
-                balance, zeroTiles);
+  logging::popsparse::info("Min weight {} on tile {}", minWeight, minTileId);
+  logging::popsparse::info("Max weight {} on tile {}", maxWeight, maxTileId);
+  logging::popsparse::info("Average weight {}", avgWeight);
+  logging::popsparse::info(
+      "partition load balance {}, number of tile that has no "
+      "assignment {}",
+      balance, zeroTiles);
   return balance + zeroTiles;
 }
 

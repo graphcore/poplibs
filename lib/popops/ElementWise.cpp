@@ -466,7 +466,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
   const auto cs = graph.addComputeSet(debugPrefix);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  logging::debug("UnaryOp begin DebugStr: {}", debugPrefix);
+  logging::popops::debug("UnaryOp begin DebugStr: {}", debugPrefix);
   const auto outType = outputType(inType, op);
   Tensor out;
   if (inPlace) {
@@ -503,7 +503,8 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
           templateVertex(inPlace ? "popops::UnaryOp1DInPlaceSupervisor"
                                  : "popops::UnaryOp1DSupervisor",
                          op, inType);
-      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexTemplate);
+      logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
+                             vertexTemplate);
       auto v =
           inPlace
               ? graph.addVertex(cs, vertexTemplate,
@@ -520,8 +521,8 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
           splitRegionsBetweenWorkers(target, tileContiguousRegions, grainSize,
                                      2 * grainSize, UINT_MAX, elementLimit);
       if (vertexRegions.size()) {
-        logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                       vertexRegions.size(), vertexTemplate);
+        logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                               vertexRegions.size(), vertexTemplate);
       }
       for (const auto &regions : vertexRegions) {
         VertexRef v = inPlace
@@ -572,7 +573,8 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
         templateVertex(inPlace ? "popops::BinaryOp1DInPlaceSupervisor"
                                : "popops::BinaryOp1DSupervisor",
                        op, dType);
-    logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
+    logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
+                           vertexClass);
     auto outRegion = concat(out.flatten().slices(intervals));
     auto in1Region = concat(in1.flatten().slices(intervals));
     auto in2Region = concat(in2.flatten().slices(intervals));
@@ -594,8 +596,8 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
     const auto vertexRegions = splitRegionsBetweenWorkers(
         target, intervals, grainSize, 2 * grainSize, UINT_MAX, elementLimit);
     if (vertexRegions.size()) {
-      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                     vertexRegions.size(), vertexClass);
+      logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                             vertexRegions.size(), vertexClass);
     }
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, vertexClass);
@@ -723,8 +725,8 @@ bool binaryOpBroadcastScalar(
         inPlace ? "popops::BroadcastScalar1DInPlaceSupervisor"
                 : "popops::BroadcastScalar1DSupervisor";
     const auto vertexClass = templateVertex(vertexName, op, dType);
-    logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                   intervals.size(), vertexClass);
+    logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                           intervals.size(), vertexClass);
     for (const auto &regions : intervals) {
       const auto outRegion = concat(out.flatten().slices(regions));
       const auto in1Region = concat(in1.flatten().slices(regions));
@@ -745,8 +747,8 @@ bool binaryOpBroadcastScalar(
     }
     const auto vertexClass = templateVertex(vertexName, op, dType);
     if (vertexRegions.size()) {
-      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                     vertexRegions.size(), vertexClass);
+      logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                             vertexRegions.size(), vertexClass);
     }
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
@@ -873,7 +875,8 @@ bool binaryOpBroadcastInnerVector(
           inPlace ? "popops::BroadcastVectorInnerInPlaceSupervisor"
                   : "popops::BroadcastVectorInnerSupervisor";
       auto vertexClass = templateVertex(vertexName, op, dType);
-      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass);
+      logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
+                             vertexClass);
       std::uint16_t dataBlockCountPacked =
           packCount(outRegion.numElements(), in2Region.numElements());
       auto v = graph.addVertex(cs, vertexClass);
@@ -906,8 +909,8 @@ bool binaryOpBroadcastInnerVector(
     const auto vertexRegions = splitRegionsBetweenWorkers(
         target, intervals, numPatternElems, numPatternElems, UINT_MAX, maxSize);
     if (vertexRegions.size()) {
-      logging::trace("  Tile: {} Producing: {} {} vertices", tile,
-                     vertexRegions.size(), vertexClass);
+      logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
+                             vertexRegions.size(), vertexClass);
     }
     for (const auto &regions : vertexRegions) {
       auto outRegions = out.flatten().slices(regions);
@@ -1062,7 +1065,8 @@ bool binaryOpBroadcastOuterVector(
     }
 
     for (unsigned int i = 0; i < patterns.size(); i++) {
-      logging::trace("  Tile: {} Producing: 1 {} vertex", tile, vertexClass[i]);
+      logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
+                             vertexClass[i]);
       auto v = graph.addVertex(cs, vertexClass[i],
                                {{"data", in1Region[i]}, {"B", in2Region[i]}});
       graph.setInitialValue(v["columns"], patterns[i].innerFactor);
@@ -1333,8 +1337,8 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
       return;
     }
     const auto outInnerDim = outGrouping[0].first;
-    logging::debug("regroupOperandIfBeneficial: outGrouping=({},{})",
-                   outGrouping[0].first, outGrouping[0].second);
+    logging::popops::debug("regroupOperandIfBeneficial: outGrouping=({},{})",
+                           outGrouping[0].first, outGrouping[0].second);
     const auto unbroadcastOperand = graph.findUnbroadcastTensor(operand);
     assert(out.rank() == unbroadcastOperand.rank());
     if (unbroadcastOperand.dim(outInnerDim) == 1 ||
@@ -1495,23 +1499,24 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
   // Generate vertices from the analyses
   auto cs = graph.addComputeSet(debugPrefix);
 
-  logging::debug("BinaryOp begin DebugStr: {}", debugPrefix);
+  logging::popops::debug("BinaryOp begin DebugStr: {}", debugPrefix);
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     if (tileContiguousRegions[tile].empty()) {
       continue;
     }
     if (!tilePatterns[tile].empty()) {
-      if (logging::shouldLog(logging::Level::Trace)) {
-        logging::trace("tile {}: contiguousRegions={}, patterns={}", tile,
-                       tileContiguousRegions[tile].size(),
-                       tilePatterns[tile].size());
+      if (logging::popops::shouldLog(logging::Level::Trace)) {
+        logging::popops::trace("tile {}: contiguousRegions={}, patterns={}",
+                               tile, tileContiguousRegions[tile].size(),
+                               tilePatterns[tile].size());
         for (std::size_t i = 0; i < tilePatterns[tile].size(); ++i) {
           const auto &pattern = tilePatterns[tile][i];
-          logging::trace("  pattern[{}].innerFactor={} "
-                         "regionNumElements()={} "
-                         "outerFactor={}",
-                         i, pattern.innerFactor, pattern.regionNumElements(),
-                         pattern.outerFactor);
+          logging::popops::trace("  pattern[{}].innerFactor={} "
+                                 "regionNumElements()={} "
+                                 "outerFactor={}",
+                                 i, pattern.innerFactor,
+                                 pattern.regionNumElements(),
+                                 pattern.outerFactor);
           if (logRegions) {
             std::stringstream ss;
             if (!pattern.region.empty()) {
@@ -1522,7 +1527,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
                    << pattern.region[i].end() << ")";
               }
             }
-            logging::trace("  pattern[{}].region={}", i, ss.str());
+            logging::popops::trace("  pattern[{}].region={}", i, ss.str());
           }
         }
       }

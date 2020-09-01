@@ -230,9 +230,9 @@ int main(int argc, char **argv) {
 
   const std::vector<std::size_t> &numIndices = opts.numIndices;
 
-  logging::info("Embedding matrix shape: {}", opts.shape);
-  logging::info("Number of indices to process: {}", numIndices);
-  logging::info("Performing pass: {}", opts.pass);
+  logging::poplibs::info("Embedding matrix shape: {}", opts.shape);
+  logging::poplibs::info("Number of indices to process: {}", numIndices);
+  logging::poplibs::info("Performing pass: {}", opts.pass);
 
   Graph graph(target);
   popops::addCodelets(graph);
@@ -252,16 +252,17 @@ int main(int argc, char **argv) {
   popops::SlicePlan plan;
   Tensor embeddingMatrix;
   if (opts.useEmbeddingPlan) {
-    logging::info("Graph construction: Planning embedding layer");
+    logging::poplibs::info("Graph construction: Planning embedding layer");
     plan = popops::embedding::plan(graph, opts.dataType, opts.shape[0],
                                    opts.shape[1], numIndices, sliceOptions);
-    logging::info("Graph construction: create embedding matrix");
+    logging::poplibs::info("Graph construction: create embedding matrix");
     embeddingMatrix =
         popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0},
                                       {1}, plan, sliceOptions, "embedding");
   } else {
-    logging::info("Graph construction: create embedding matrix, grain size {}",
-                  opts.grainSize);
+    logging::poplibs::info(
+        "Graph construction: create embedding matrix, grain size {}",
+        opts.grainSize);
     embeddingMatrix =
         popops::createSliceableTensor(graph, opts.dataType, opts.shape, {0},
                                       {1}, opts.grainSize, "embedding");
@@ -297,7 +298,7 @@ int main(int argc, char **argv) {
                       static_cast<unsigned>(opts.shape->at(0) - 1),
                       randomEngine);
     const std::string handle = "indices_" + std::to_string(i);
-    logging::trace("Indices[{}]: {}", i, perIndexSet[i].hostIdxs);
+    logging::poplibs::trace("Indices[{}]: {}", i, perIndexSet[i].hostIdxs);
     perIndexSet[i].idxs = createIndicesTensor(graph, {0}, numIndices[i], plan,
                                               sliceOptions, handle);
     perIndexSet[i].rawIdxs = allocateHostMemoryForTensor(
@@ -306,7 +307,8 @@ int main(int argc, char **argv) {
 
   if (passEnabled(opts.pass, Pass::FWD)) {
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
-      logging::info("Graph construction: create gather operation {}", i);
+      logging::poplibs::info("Graph construction: create gather operation {}",
+                             i);
       const std::string handle = "extracted_" + std::to_string(i);
       const auto extractedData =
           popops::multiSlice(graph, embeddingMatrix, perIndexSet[i].idxs, {0},
@@ -321,7 +323,7 @@ int main(int argc, char **argv) {
         graph.addConstant(opts.dataType, {}, opts.scale, "scale");
     graph.setTileMapping(scale, 0);
     for (std::size_t i = 0; i < numIndices.size(); ++i) {
-      logging::info("Graph construction: create update operation");
+      logging::poplibs::info("Graph construction: create update operation");
       Tensor deltas;
       const std::string handle = "deltas_" + std::to_string(i);
       if (opts.useEmbeddingPlan) {
@@ -359,7 +361,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  logging::info("Create engine");
+  logging::poplibs::info("Create engine");
   Engine engine(graph, ctrlProg, engineOptions);
 
   const auto embeddingMatrixExtents =
@@ -367,7 +369,7 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 2> hostEmbeddingMatrix(embeddingMatrixExtents);
 
   if (!opts.ignoreData) {
-    logging::info("Generating the embedding matrix on the host");
+    logging::poplibs::info("Generating the embedding matrix on the host");
     attachStreams(engine, tmap);
 
     writeRandomValues(target, opts.dataType, hostEmbeddingMatrix, -10., 10.,
@@ -386,7 +388,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  logging::info("Run program");
+  logging::poplibs::info("Run program");
   device.bind([&](const Device &d) {
     engine.load(d);
     engine.run(0);
@@ -406,7 +408,7 @@ int main(int argc, char **argv) {
           boost::extents[numIndices[i]][opts.shape->at(1)]);
 
       if (passEnabled(opts.pass, Pass::FWD)) {
-        logging::info("Validate gather operation against model");
+        logging::poplibs::info("Validate gather operation against model");
         poplibs_test::embedding::multiSlice(
             hostEmbeddingMatrix, perIndexSet[i].hostIdxs, modelExtractedData);
 
@@ -418,7 +420,7 @@ int main(int argc, char **argv) {
       }
 
       if (passEnabled(opts.pass, Pass::WU)) {
-        logging::info("Validate update operation against model");
+        logging::poplibs::info("Validate update operation against model");
 
         poplibs_test::embedding::multiUpdateAdd(
             perIndexSet[i].hostDeltas, perIndexSet[i].hostIdxs, opts.scale,

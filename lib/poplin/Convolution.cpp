@@ -586,11 +586,13 @@ static CanonicalConvParams convolutionPreprocess(
     bool rearrangeActs = false, bool rearrangeWeights = false,
     const std::string &debugPrefix = "") {
   if (rearrangeActs) {
-    logging::debug("'{}': forcing rearrangement of activations", debugPrefix);
+    logging::poplin::debug("'{}': forcing rearrangement of activations",
+                           debugPrefix);
   }
 
   if (rearrangeWeights) {
-    logging::debug("'{}': forcing rearrangement of weights", debugPrefix);
+    logging::poplin::debug("'{}': forcing rearrangement of weights",
+                           debugPrefix);
   }
 
   ConvTransform &transform = plan.transforms[level];
@@ -1671,8 +1673,9 @@ void ConvProgramTree::ComputeSetsGroup::lower(Sequence &prog) {
   prog.add(Execute(convolveCS));
 
   for (auto &p : postProg) {
-    logging::debug("#convolution post program bunch copies of type {} = {}",
-                   p.first.toString(), p.second.first.size());
+    logging::poplin::debug(
+        "#convolution post program bunch copies of type {} = {}",
+        p.first.toString(), p.second.first.size());
     assert(p.second.first.size());
     prog.add(Copy(concat(p.second.first), concat(p.second.second)));
   }
@@ -2056,9 +2059,9 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       // in the hierarchy.
       auto rearrangeIfSplitOverTiles = [&](Tensor &slice, bool isActs) {
         auto sliceKind = isActs ? "input" : "weights";
-        logging::debug("'{}': forcing rearrangement of {} before slice "
-                       "because sliced dimension is split over tiles",
-                       debugPrefix, sliceKind);
+        logging::poplin::debug("'{}': forcing rearrangement of {} before slice "
+                               "because sliced dimension is split over tiles",
+                               debugPrefix, sliceKind);
 
         auto createSliceMethod = isActs ? createInputImpl : createWeightsImpl;
         auto sliceRearranged = createSliceMethod(
@@ -2535,7 +2538,7 @@ static Tensor remapOutputTensor(Graph &graph, const poplar::Tensor &output,
       actsToExternalShape(unsplitActivationFromGroups(remappedOutput));
   // Explicity copy to remapped tensor with a benign layout
   prog.add(Copy(output, remappedOutput));
-  logging::debug("  convolution output tensor remapped linearly");
+  logging::poplin::debug("  convolution output tensor remapped linearly");
   return remappedOutput;
 }
 
@@ -2598,8 +2601,8 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const CanonicalConvParams &params,
                    bool transposeAndFlipWeights, ConvProgramTree &cpt,
                    const std::string &debugPrefix, const ConvOptions &options) {
-  logging::info("convolution");
-  logging::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
+  logging::poplin::info("convolution");
+  logging::poplin::info("  pass={}, name=\"{}\"", options.pass, debugPrefix);
   log(2, *params);
 
   auto output =
@@ -3214,8 +3217,9 @@ static FCWTGroupSizes getGroupSizes(const Plan &fwdPlan, const Plan &bwdPlan,
   result.useCopyImpl = result.fwdGroupSize == 1 || result.bwdGroupSize == 1 ||
                        !planSwapsOperands(fwdPlan) ||
                        !planSwapsOperands(bwdPlan);
-  logging::trace("Transpose Group sizes fwd, bwd, useCopy = {} {} {}",
-                 result.fwdGroupSize, result.bwdGroupSize, result.useCopyImpl);
+  logging::poplin::trace("Transpose Group sizes fwd, bwd, useCopy = {} {} {}",
+                         result.fwdGroupSize, result.bwdGroupSize,
+                         result.useCopyImpl);
   return result;
 }
 

@@ -79,7 +79,7 @@ public:
       sparsityBuf += sparsitySizePerGroup;
     }
 
-    logging::info(
+    logging::popsparse::info(
         "bsMatMul dsd: {} x {} x {}, block: {} x {} x {} {} {} group(s)",
         dim[0], dim[1], dim[2], blockSize[0], blockSize[1], blockSize[2],
         (rhsNeedTransposeIn ? "rhs transposed" : ""), numGroups);
@@ -132,9 +132,9 @@ public:
           dim[1], dim[2], blockSize[1], blockSize[2], false));
     }
 
-    logging::info("bsMatMul dds: {} x {} x {}, block: {} x {} x {} {} group(s)",
-                  dim[0], dim[1], dim[2], blockSize[0], blockSize[1],
-                  blockSize[2], numGroups);
+    logging::popsparse::info(
+        "bsMatMul dds: {} x {} x {}, block: {} x {} x {} {} group(s)", dim[0],
+        dim[1], dim[2], blockSize[0], blockSize[1], blockSize[2], numGroups);
   }
 
   std::vector<std::unique_ptr<BlockMatrix>> lhsMatrices;
@@ -230,8 +230,8 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         const std::string &debugPrefix) {
   BSMatMulImpl &bsMatMulImpl = *(bsMatMul.impl.get());
 
-  logging::info("blocksparse matmul: number of groups = {}",
-                bsMatMulImpl.numGroups);
+  logging::popsparse::info("blocksparse matmul: number of groups = {}",
+                           bsMatMulImpl.numGroups);
 
   if (lhsMatrix.rank() != 2 || rhsMatrix.rank() != 2) {
     throw poputil::poplibs_error("The rank of both input matrices must be 2");
@@ -254,7 +254,8 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
     BLOCK_NAIVE,
   };
   PartitionMethod pm = PartitionMethod::STRIP;
-  logging::info("Partition method used: {}", partitionMethod.c_str());
+  logging::popsparse::info("Partition method used: {}",
+                           partitionMethod.c_str());
   if (partitionMethod.compare("block") == 0) {
     pm = PartitionMethod::BLOCK;
   } else if (partitionMethod.compare("block-naive") == 0) {
@@ -264,27 +265,28 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
   } else if (partitionMethod.compare("strip") == 0) {
     pm = PartitionMethod::STRIP;
   } else {
-    logging::warn(
+    logging::popsparse::warn(
         "Unknown partition method {}. Default method strip will be used.",
         partitionMethod.c_str());
   }
 
-  logging::info("matrix dimension [{}, {}, {}, {}] rhs need transpose {} "
-                "inner group size = {}",
-                (int)bsMatMulImpl.lhsMatrices.size(),
-                bsMatMulImpl.lhsMatrices[0]->getRowCount(),
-                bsMatMulImpl.lhsMatrices[0]->getColCount(),
-                bsMatMulImpl.rhsMatrices[0]->getColCount(),
-                bsMatMulImpl.rhsNeedTranspose, bsMatMulImpl.numGroups);
+  logging::popsparse::info(
+      "matrix dimension [{}, {}, {}, {}] rhs need transpose {} "
+      "inner group size = {}",
+      (int)bsMatMulImpl.lhsMatrices.size(),
+      bsMatMulImpl.lhsMatrices[0]->getRowCount(),
+      bsMatMulImpl.lhsMatrices[0]->getColCount(),
+      bsMatMulImpl.rhsMatrices[0]->getColCount(), bsMatMulImpl.rhsNeedTranspose,
+      bsMatMulImpl.numGroups);
 
   if (bsMatMulImpl.isResSparse) {
-    logging::info("result sparse");
+    logging::popsparse::info("result sparse");
   }
 
-  logging::info("block dimention [{}, {}, {}]",
-                bsMatMulImpl.lhsMatrices[0]->getBlockRow(),
-                bsMatMulImpl.lhsMatrices[0]->getBlockCol(),
-                bsMatMulImpl.rhsMatrices[0]->getBlockCol());
+  logging::popsparse::info("block dimention [{}, {}, {}]",
+                           bsMatMulImpl.lhsMatrices[0]->getBlockRow(),
+                           bsMatMulImpl.lhsMatrices[0]->getBlockCol(),
+                           bsMatMulImpl.rhsMatrices[0]->getBlockCol());
 
   float sparsity = 0.0;
   if (bsMatMulImpl.isResSparse) {
@@ -294,14 +296,15 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
         zeros++;
     }
     sparsity = (float)zeros / (float)bsMatMulImpl.resSparsity.size();
-    logging::info("non zero blocks {}, sparsity {}",
-                  (int)(bsMatMulImpl.resSparsity.size() - zeros), sparsity);
+    logging::popsparse::info("non zero blocks {}, sparsity {}",
+                             (int)(bsMatMulImpl.resSparsity.size() - zeros),
+                             sparsity);
   } else {
     int nonZeros = bsMatMulImpl.rhsMatrices[0]->getNonZeroBlockCount();
     int blocks = bsMatMulImpl.rhsMatrices[0]->getBlockRowCount() *
                  bsMatMulImpl.rhsMatrices[0]->getBlockColCount();
-    logging::info("non zero blocks {}, sparsity {}\n", nonZeros,
-                  1.0 - (float)nonZeros / (float)blocks);
+    logging::popsparse::info("non zero blocks {}, sparsity {}\n", nonZeros,
+                             1.0 - (float)nonZeros / (float)blocks);
   }
 
   std::function<std::unique_ptr<HyperGraph>(const BlockMatrix &,

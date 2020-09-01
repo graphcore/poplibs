@@ -525,8 +525,8 @@ static void generateMultiSliceVertices(
         // in the case where region size is odd.
         if (target.getTypeSize(type) == 2 && regionSize % 2 != 0) {
           const auto padWithSelf = [&](const StringRef name, const Tensor &t) {
-            logging::debug("Padding {} in {} to avoid sub-word writes.", name,
-                           debugName);
+            logging::popops::debug("Padding {} in {} to avoid sub-word writes.",
+                                   name, debugName);
 
             // As we want to pad the last dimension, we might as well do that
             // with ourselves. so slice that dimension out, clone it (to avoid
@@ -558,8 +558,8 @@ static void generateMultiSliceVertices(
   }
 
   if (!multiUpdateSubwordTiles.empty()) {
-    logging::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
-                   debugName, multiUpdateSubwordTiles);
+    logging::popops::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
+                           debugName, multiUpdateSubwordTiles);
   }
 
   prog.add(Execute(cs));
@@ -643,9 +643,10 @@ static void generatePlannedMultiUpdateAdd(
   const auto baseIndicesPerSplit = ceildiv(endBaseIndex, slicedSplit);
   const auto elemsPerUSplit = ceildiv(unslicedSize, unslicedSplit);
 
-  logging::debug("PlannedMUAdd: activeTiles={}, split {}/{}/{}, shapes {} {}",
-                 numUsedTiles, nonEmptyLookupSplits, slicedSplit, unslicedSplit,
-                 base.shape(), slices.shape());
+  logging::popops::debug(
+      "PlannedMUAdd: activeTiles={}, split {}/{}/{}, shapes {} {}",
+      numUsedTiles, nonEmptyLookupSplits, slicedSplit, unslicedSplit,
+      base.shape(), slices.shape());
 
   // There are two situations in which we choose to rearrange the slices
   // into this multi-update:
@@ -670,8 +671,9 @@ static void generatePlannedMultiUpdateAdd(
         options, debugName + "/slicesRearranged");
     seq.add(Copy(slices, slicesRearranged));
     slices = slicesRearranged;
-    logging::trace("PlannedMUAdd: Adding copy to rearrange slices into "
-                   "multiUpdateAdd to reduce copy vertex state/exchange code");
+    logging::popops::trace(
+        "PlannedMUAdd: Adding copy to rearrange slices into "
+        "multiUpdateAdd to reduce copy vertex state/exchange code");
   }
 
   // First stage: update each lookupSplit into a temporary dense buffer. When
@@ -773,15 +775,16 @@ static void generatePlannedMultiUpdateAdd(
         const auto vertexName = templateVertex(
             vertexNameUntemplated, stage0OutputType, needSubwordWrites);
 
-        logging::trace("generatePlannedMultiUpdateAdd: "
-                       "Offsets {}/{} ({}); "
-                       "BaseIdx {}/{} ({}), "
-                       "SubIdx {}/{} ({}) "
-                       "for indices {},{},{} "
-                       "on tile {}",
-                       beginOffset, endOffset, unslicedDim, beginBaseIdx,
-                       endBaseIdx, baseSlicedDim, beginSubIdx, endSubIdx,
-                       subSlicedDim, lookupSplitIdx, s, u, tile);
+        logging::popops::trace("generatePlannedMultiUpdateAdd: "
+                               "Offsets {}/{} ({}); "
+                               "BaseIdx {}/{} ({}), "
+                               "SubIdx {}/{} ({}) "
+                               "for indices {},{},{} "
+                               "on tile {}",
+                               beginOffset, endOffset, unslicedDim,
+                               beginBaseIdx, endBaseIdx, baseSlicedDim,
+                               beginSubIdx, endSubIdx, subSlicedDim,
+                               lookupSplitIdx, s, u, tile);
 
         const Tensor tileBase =
             thisBase.slice(beginBaseIdx, endBaseIdx, baseSlicedDim)
@@ -813,8 +816,8 @@ static void generatePlannedMultiUpdateAdd(
   }
 
   if (!multiUpdateSubwordTiles.empty()) {
-    logging::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
-                   debugName, multiUpdateSubwordTiles);
+    logging::popops::debug("UpdateAdd in {} with odd regionSize on tile(s) {}",
+                           debugName, multiUpdateSubwordTiles);
   }
 
   if (multipleStages) {
@@ -1164,17 +1167,17 @@ static Tensor createSliceableTensorGivenOrder(
   t = t.reshapePartial(t.rank() - 1, t.rank(), unslicedShape)
           .dimShuffle(inversePermutation);
 
-  logging::debug("createSliceableTensor {}, minGrainSize {}, dims {}, "
-                 "used tiles {}, "
-                 "{} tiles with {} elems, "
-                 "{} tiles with {} elems",
-                 t.shape(), minGrainSize, dims, tilesUsed,
-                 // Tiles with ceildiv(numElems, numSplits) elements
-                 numUnslicedElems / unslicedElemsPerSplit,
-                 unslicedElemsPerSplit,
-                 // Any remainder
-                 numUnslicedElems % unslicedElemsPerSplit ? 1 : 0,
-                 numUnslicedElems % unslicedElemsPerSplit);
+  logging::popops::debug("createSliceableTensor {}, minGrainSize {}, dims {}, "
+                         "used tiles {}, "
+                         "{} tiles with {} elems, "
+                         "{} tiles with {} elems",
+                         t.shape(), minGrainSize, dims, tilesUsed,
+                         // Tiles with ceildiv(numElems, numSplits) elements
+                         numUnslicedElems / unslicedElemsPerSplit,
+                         unslicedElemsPerSplit,
+                         // Any remainder
+                         numUnslicedElems % unslicedElemsPerSplit ? 1 : 0,
+                         numUnslicedElems % unslicedElemsPerSplit);
   return t;
 }
 
@@ -1276,8 +1279,8 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
                              const std::vector<std::size_t> &sizes,
                              std::size_t minGrainSize,
                              const std::string &debugPrefix) {
-  logging::info("createSliceableTensor/NoPlan for {} / {} / {}", shape, dims,
-                sizes);
+  logging::popops::info("createSliceableTensor/NoPlan for {} / {} / {}", shape,
+                        dims, sizes);
   validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes, false,
                  true);
   const auto idxOrder = bestSliceOrder(shape, dims, sizes);
@@ -1297,8 +1300,8 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
                              const std::vector<std::size_t> &sizes,
                              const SlicePlan &plan, const OptionFlags &options,
                              const std::string &debugName) {
-  logging::info("createSliceableTensor for {} / {} / {}; nullplan? {}", shape,
-                dims, sizes, plan.getImpl().isNull);
+  logging::popops::info("createSliceableTensor for {} / {} / {}; nullplan? {}",
+                        shape, dims, sizes, plan.getImpl().isNull);
   if (plan.getImpl().isNull) {
     return createSliceableTensor(graph, type, shape, dims, sizes, 0, debugName);
   }
@@ -1480,7 +1483,7 @@ poplar::Tensor createIndicesTensor(Graph &graph,
                                    const SlicePlan & /* plan */,
                                    const OptionFlags & /* options */,
                                    const std::string &debugPrefix) {
-  logging::info("createIndicesTensor for {} / {}", numIndices, dims);
+  logging::popops::info("createIndicesTensor for {} / {}", numIndices, dims);
   const auto indices =
       graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
   mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
@@ -1576,8 +1579,9 @@ static Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                            const std::vector<std::size_t> &sizes,
                            poplar::program::Sequence *prog,
                            const std::string &debugPrefix) {
-  logging::info("dynamicSlice t={}, offset={}, dims={}, sizes={}, name={}",
-                t.shape(), offset.shape(), dims, sizes, debugPrefix);
+  logging::popops::info(
+      "dynamicSlice t={}, offset={}, dims={}, sizes={}, name={}", t.shape(),
+      offset.shape(), dims, sizes, debugPrefix);
 
   bool checkOffset = prog != nullptr;
   validateParams("dynamicSlice", {}, {}, t.shape(), offset, dims, sizes,
@@ -1633,7 +1637,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
                    const std::string &debugPrefix) {
-  logging::info(
+  logging::popops::info(
       "dynamicUpdate t={}, s={}, offset={}, dims={}, sizes={}, name={}",
       t.shape(), s.shape(), offset.shape(), dims, sizes, debugPrefix);
 
@@ -1967,8 +1971,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                                offset.dim(0), plan, options, dName);
   }
 
-  logging::info("multiSlice {} -> {}, name={}, nullplan?={}", t.shape(),
-                sMulti.shape(), debugPrefix, plan.getImpl().isNull);
+  logging::popops::info("multiSlice {} -> {}, name={}, nullplan?={}", t.shape(),
+                        sMulti.shape(), debugPrefix, plan.getImpl().isNull);
 
   if (!plan.getImpl().isNull) {
     multiSlicePlanned(graph, t, offset, sMulti, dims, sizes, prog,
@@ -2024,8 +2028,8 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                  const std::vector<std::size_t> &sizes, Sequence &prog,
                  const SlicePlan &plan, const OptionFlags &options,
                  const std::string &debugPrefix) {
-  logging::info("multiUpdate {} into {}, name={}", sMulti.shape(), t.shape(),
-                debugPrefix);
+  logging::popops::info("multiUpdate {} into {}, name={}", sMulti.shape(),
+                        t.shape(), debugPrefix);
   // small number of slices are updated individually
   // large number of slices are updated by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiUpdate";
@@ -2091,8 +2095,9 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
                     const std::vector<std::size_t> &sizes, Sequence &prog,
                     const SlicePlan &plan, const OptionFlags &options,
                     const std::string &debugPrefix) {
-  logging::info("multiUpdateAdd {} into {}, name={}, nullplan={}",
-                sMulti.shape(), t.shape(), debugPrefix, plan.getImpl().isNull);
+  logging::popops::info("multiUpdateAdd {} into {}, name={}, nullplan={}",
+                        sMulti.shape(), t.shape(), debugPrefix,
+                        plan.getImpl().isNull);
   std::string dName = debugPrefix + "/multiUpdateAdd";
   // Check the offsets have been specified with a multi-slice dimension
   if (offset.rank() != 2)
@@ -2159,9 +2164,10 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
                const OptionFlags &optionFlags) {
   const auto options = parseSliceOptions(optionFlags);
 
-  logging::debug("DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
-                 " numLookups {}",
-                 dataType, numEntries, outputSize, numLookups);
+  logging::popops::debug(
+      "DynamicSlicePlan for type {}, numEntries {}, outputSize {},"
+      " numLookups {}",
+      dataType, numEntries, outputSize, numLookups);
   const auto &target = graph.getTarget();
   const auto dataElementSize = target.getTypeSize(dataType);
 
@@ -2399,7 +2405,7 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
 
   // We must have a valid solution.
   if (!s.validSolution()) {
-    logging::warn(
+    logging::popops::warn(
         "Slice planner could not find a valid solution, opting for no plan");
     return std::make_unique<SlicePlanInternal>();
   }
@@ -2413,18 +2419,18 @@ SlicePlan plan(const Graph &graph, const Type &dataType,
   p.slicedDimSizes = {1};
   p.isNull = false;
 
-  logging::debug("Embedding {}", p);
-  logging::debug("UsedTiles {}", s[mUsedTiles]);
-  logging::debug("unslicedGrainSize {}", s[mUnslicedGrainsPerTile]);
-  logging::debug("Tile memory estimates (bytes on worst tile): Base storage "
-                 "{}, Output storage {}, Indices storage {}, Exchange code {}, "
-                 "Slice temp {}, Update temp {}, Peak temp {}, goal {}",
-                 s[mBaseStorageBytesPerTile], s[mOutputStorageBytesPerTile],
-                 s[mIndicesStorageBytesPerTile], s[mExchangeCodeBytes],
-                 s[mSliceTempBytes], s[mUpdateTempBytes], s[mPeakTempBytes],
-                 s[goal]);
-  logging::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",
-                 s[mDictSplit], s[mEmbeddingSplit], s[mLookupSplit]);
+  logging::popops::debug("Embedding {}", p);
+  logging::popops::debug("UsedTiles {}", s[mUsedTiles]);
+  logging::popops::debug("unslicedGrainSize {}", s[mUnslicedGrainsPerTile]);
+  logging::popops::debug(
+      "Tile memory estimates (bytes on worst tile): Base storage "
+      "{}, Output storage {}, Indices storage {}, Exchange code {}, "
+      "Slice temp {}, Update temp {}, Peak temp {}, goal {}",
+      s[mBaseStorageBytesPerTile], s[mOutputStorageBytesPerTile],
+      s[mIndicesStorageBytesPerTile], s[mExchangeCodeBytes], s[mSliceTempBytes],
+      s[mUpdateTempBytes], s[mPeakTempBytes], s[goal]);
+  logging::popops::debug("mDictSplit {}, mEmbeddingSplit {}, lookupSplit {}",
+                         s[mDictSplit], s[mEmbeddingSplit], s[mLookupSplit]);
 
   return std::make_unique<SlicePlanInternal>(std::move(p));
 }

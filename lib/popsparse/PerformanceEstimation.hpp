@@ -170,7 +170,7 @@ static inline std::uint64_t sparseDenseBlockMultiply(
     bool floatPartials, unsigned numWorkerContexts, unsigned numConvUnits,
     bool retainX) {
 
-  // logging::trace("sparseDenseElementwiseMultiply: numBuckets={},
+  // logging::popsparse::trace("sparseDenseElementwiseMultiply: numBuckets={},
   // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
   // numY[0]={}, numWorkers={}", numBuckets, numBucketsWithInfoForPN,
   // averageSubgroupsPerBucket, numX, numZ, numY[0], numWorkerContexts);
@@ -409,7 +409,7 @@ static inline std::uint64_t sparseDenseElementwiseMultiply(
     const std::vector<unsigned> &numY, bool floatInput,
     bool /* floatPartials */, unsigned numWorkerContexts) {
 
-  // logging::trace("sparseDenseElementwiseMultiply: numBuckets={},
+  // logging::popsparse::trace("sparseDenseElementwiseMultiply: numBuckets={},
   // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
   // numY[0]={}, numWorkers={}", numBuckets, numBucketsWithInfoForPN,
   // averageSubgroupsPerBucket, numX, numZ, numY[0], numWorkerContexts);
