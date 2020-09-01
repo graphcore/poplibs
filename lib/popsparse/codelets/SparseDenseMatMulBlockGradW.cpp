@@ -124,9 +124,11 @@ public:
   bool compute() {
 
     // Zero outputs if requested.
-    static_assert((accumTypeSize * BlockRows * BlockCols) % 4 == 0,
-                  "Size in bytes of q must be divisible by 4");
-    for (unsigned i = 0; i < zeroInfo * (4 / accumTypeSize); ++i) {
+    const unsigned bytesPerElem = 8;
+    static_assert(
+        (accumTypeSize * BlockRows * BlockCols) % bytesPerElem == 0,
+        "Size in bytes of rGrad not divisible by bytes per zero elem");
+    for (unsigned i = 0; i < zeroInfo * (bytesPerElem / accumTypeSize); ++i) {
       rGrad[i] = 0;
     }
 

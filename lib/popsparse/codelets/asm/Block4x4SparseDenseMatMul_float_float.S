@@ -15,6 +15,58 @@
 
 // =============================================================================
 
+
+// Zero output/partials
+//
+// Performance: 12 + num_samples / 2
+
+DEF_STACK_USAGE 0 zeroDenseOutput64
+.section ".text.zeroDenseOutput64", FUNCTION_IS_WORKER
+.type zeroDenseOutput64, @function
+.globl zeroDenseOutput64
+.worker
+.align 8
+
+#define wkr_id_zv                       m0
+#define zero_info_zv                    m1
+#define zero_info_div_12_zv             m2
+// Registers above must be retained between calls
+#define outchan_ptr_zv                  m3
+
+zeroDenseOutput64:
+get           $wkr_id_zv, $WSR
+and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
+ldz16         $zero_info_zv, $mvertex_base, SUP_VBASE_ZERO_INFO/2
+
+// we could get zero information as this vertex could be called multiple times
+// but zero infor field must be zero only in the first call
+brz           $zero_info_zv, Loop_end_zero_64
+
+// For n with 0 <= n <= 65533 this does a division by 6 with the remainder
+// split amongst workers.
+add           $zero_info_div_12_zv, $zero_info_zv, 6
+sub           $zero_info_div_12_zv, $zero_info_div_12_zv, $wkr_id_zv
+mul           $zero_info_div_12_zv, $zero_info_div_12_zv, 21845
+shr           $zero_info_div_12_zv, $zero_info_div_12_zv, 17
+
+ld32          $outchan_ptr_zv, $mvertex_base, SUP_VBASE_Q_BASE/4
+ld64step      $azeros, $mzero, $outchan_ptr_zv+=, $wkr_id_zv
+
+{
+  rpt           $zero_info_div_12_zv, (Loop_end_zero_64 - Loop_start_zero_64)/8 - 1
+  fnop
+}
+Loop_start_zero_64:
+  {
+    st64step      $azeros, $mzero, $outchan_ptr_zv+=, 6
+    fnop
+  }
+Loop_end_zero_64:
+exitz         $mzero
+
+.size zeroDenseOutput64, . - zeroDenseOutput64
+
+
 // =============================================================================
 
 //// Vertex state shared between workers (Worker vertex state is allocated

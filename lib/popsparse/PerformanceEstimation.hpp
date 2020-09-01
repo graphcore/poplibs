@@ -17,8 +17,8 @@ using namespace poplibs_support;
 
 static inline std::uint64_t zeroPartialsCycles(unsigned numPartials,
                                                unsigned numWorkerContexts,
-                                               bool floatPartials) {
-  std::uint64_t cycles = 5;
+                                               bool floatPartials, bool block) {
+  std::uint64_t cycles = block ? 3 : 5;
   if (numPartials) {
     unsigned vectorWidth = floatPartials ? 2 : 4;
     cycles += 10 + (numPartials + vectorWidth - 1) / vectorWidth;

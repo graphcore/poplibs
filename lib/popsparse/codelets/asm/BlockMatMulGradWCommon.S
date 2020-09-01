@@ -15,16 +15,16 @@
 
 // =============================================================================
 
-DEF_STACK_USAGE 0 zeroDenseOutFloatGrad
-.section ".text.zeroDenseOutFloatGrad", FUNCTION_IS_WORKER
-.type zeroDenseOutFloatGrad, @function
+DEF_STACK_USAGE 0 zeroDenseOutput64GradW
+.section ".text.zeroDenseOutput64GradW", FUNCTION_IS_WORKER
+.type zeroDenseOutput64GradW, @function
 .align 8
 
 #define wkr_id_zv                       m0
 #define zero_info_zv                    m1
 #define zero_info_div_12_zv             m2
 #define outchan_ptr_zv                  m3
-zeroDenseOutFloatGrad:
+zeroDenseOutput64GradW:
 get           $wkr_id_zv, $WSR
 and           $wkr_id_zv, $wkr_id_zv, CSR_W_WSR__CTXTID_M1__MASK
 ldz16         $zero_info_zv, $mvertex_base, SUP_VBASE_ZERO_INFO/2
@@ -32,23 +32,21 @@ ldz16         $zero_info_zv, $mvertex_base, SUP_VBASE_ZERO_INFO/2
 // we could get zero information as this vertex could be called multiple times
 // but zero infor field must be zero only in the first call
 brz           $zero_info_zv, Loop_end_zero_64
-shr           $zero_info_div_12_zv, $zero_info_zv, (3 - LOG2_SIZEOF_OUT_ATOM)
 
 // For n with 0 <= n <= 65533 this does a division by 6 with the remainder
 // split amongst workers.
-add           $zero_info_div_12_zv, $zero_info_div_12_zv, 6
+add           $zero_info_div_12_zv, $zero_info_zv, 6
 sub           $zero_info_div_12_zv, $zero_info_div_12_zv, $wkr_id_zv
 mul           $zero_info_div_12_zv, $zero_info_div_12_zv, 21845
 shr           $zero_info_div_12_zv, $zero_info_div_12_zv, 17
 
-// Minus 1 so we can quickly store the last element below
-add           $zero_info_zv, $zero_info_zv, -1
 ld32          $outchan_ptr_zv, $mvertex_base, SUP_VBASE_RGRAD_BASE/4
-// Unconditionally write the last element in all the workers
-st32          $azero, $outchan_ptr_zv, $mzero, $zero_info_zv
 ld64step      $azeros, $mzero, $outchan_ptr_zv+=, $wkr_id_zv
 
-rpt           $zero_info_div_12_zv, (Loop_end_zero_64 - Loop_start_zero_64)/8 - 1
+{
+  rpt           $zero_info_div_12_zv, (Loop_end_zero_64 - Loop_start_zero_64)/8 - 1
+  fnop
+}
 
 Loop_start_zero_64:
   {
@@ -58,7 +56,7 @@ Loop_start_zero_64:
 Loop_end_zero_64:
 exitz         $mzero
 
-.size zeroDenseOutFloatGrad, . - zeroDenseOutFloatGrad
+.size zeroDenseOutput64GradW, . - zeroDenseOutput64GradW
 
 // =============================================================================
 
@@ -107,7 +105,7 @@ ldz16                  $s_numZ, $s_vertexBase, SUP_VBASE_NUM_Z/2
 
 // This is the subgroup ID the PN has to process
 ld32                   $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_PN_SUBGROUP_ID/4
-setzi                  $s_zeroWkrFunction, zeroDenseOutFloatGrad
+setzi                  $s_zeroWkrFunction, zeroDenseOutput64GradW
 
 // &S[0] is common to all the metaInformation tables
 ld32                   $s_sBase, $s_vertexBase, SUP_VBASE_S_BASE/4

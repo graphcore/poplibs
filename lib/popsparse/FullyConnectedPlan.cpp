@@ -541,8 +541,9 @@ addInitialComputeCostSparseDense(
         const auto yGrouping = values[6];
         const auto zGrouping = values[7];
         const auto partialsPerWorker = ceildiv(partialsPerTile, numWorkers);
-        std::uint64_t cycles = zeroPartialsCycles(
-            partialsPerWorker, numWorkers, options.partialsType == FLOAT);
+        std::uint64_t cycles = zeroPartialsCycles(partialsPerWorker, numWorkers,
+                                                  options.partialsType == FLOAT,
+                                                  xGrouping * yGrouping > 0);
 
         unsigned xNonZeroGroups, yNonZeroGroups;
         std::tie(xNonZeroGroups, yNonZeroGroups) =
@@ -682,7 +683,8 @@ addInitialComputeCostDenseDense(
         const auto partialsPerWorker = ceildiv(partialsPerTile, numWorkers);
 
         std::uint64_t cycles = zeroPartialsCycles(partialsPerWorker, numWorkers,
-                                                  partialsType == FLOAT);
+                                                  partialsType == FLOAT,
+                                                  xGrouping * yGrouping > 1);
 
         unsigned xNonZeroGroups, yNonZeroGroups;
         std::tie(xNonZeroGroups, yNonZeroGroups) =

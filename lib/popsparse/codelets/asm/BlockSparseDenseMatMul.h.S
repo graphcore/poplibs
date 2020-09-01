@@ -9,8 +9,9 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
+.extern zeroDenseOutput64
+
 #define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
-#define LOG2_SIZEOF_OUT_ATOM 2
 // Short span
 #define SHORT_SPAN_ADDRESS_BITS      20
 
@@ -109,7 +110,7 @@ st32                   $s_sBase, $sp, W_S_BASE/4
 st32                   $s_qBase, $sp, W_Q_BASE/4
 put                    $CR, $s_clrCWEI
 st32                   $s_workList, $sp, W_WORKLIST/4
-setzi                  $s_zeroWkrFunction, zeroDenseOutFloat
+setzi                  $s_zeroWkrFunction, zeroDenseOutput64
 st32                   $s_zStrideInQ, $sp, W_ZSTRIDEINQ/4
 st32                   $s_zStrideInS, $sp, W_ZSTRIDEINS/4
 

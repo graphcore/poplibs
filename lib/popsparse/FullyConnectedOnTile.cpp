@@ -10,6 +10,7 @@
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
+#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/logging.hpp>
 
 using namespace poplar;
@@ -71,6 +72,23 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
   const auto vertexClass =
       getVertexClass(method, inputType, partialsType, blockDimensions);
   const auto v = graph.addVertex(cs, vertexClass);
+
+  auto checkRptBounds = [&](std::size_t numElements, const Type &partialsType) {
+    const auto num64BitValues = 8 / target.getTypeSize(partialsType);
+    const auto numElemsPerWorker =
+        poplibs_support::ceildiv(num64BitValues, target.getNumWorkerContexts());
+    if (numElemsPerWorker > target.getRptCountMax()) {
+      throw poputil::poplibs_error("Number of elements to zero "
+                                   "exceeds rpt count bound");
+    }
+  };
+
+  auto getZeroInfo = [&](std::size_t numElements, const Type &partialsType) {
+    std::size_t multipleOf = 8 / target.getTypeSize(partialsType);
+    auto valid = (numElements % multipleOf) == 0;
+    return std::make_pair(valid, numElements / multipleOf);
+  };
+
   switch (method) {
   case OnTileMethod::Forward:
   case OnTileMethod::GradA:
@@ -167,12 +185,13 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     const auto zStrideInS = actsUngrouped.dim(1) / inputElemsPer64Bits;
     graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
     graph.setInitialValue(v["zStrideInS"], zStrideInS);
-
-    const auto partialElemsPer32Bits = 4 / target.getTypeSize(partialsType);
-    assert(partials.numElements() % partialElemsPer32Bits == 0);
-    graph.setInitialValue(
-        v["zeroInfo"],
-        zeroPartials ? partials.numElements() / partialElemsPer32Bits : 0u);
+    checkRptBounds(partials.numElements(), partialsType);
+    const auto zeroInfo = getZeroInfo(partials.numElements(), partialsType);
+    if (!zeroInfo.first) {
+      throw poputil::poplibs_error("Number of zero elements is not a "
+                                   "multiple of 64-bits ");
+    }
+    graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0u);
     break;
   }
   case OnTileMethod::GradWBlock: {
@@ -188,9 +207,6 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     assert(subGroupIdToProcessTensor.rank() <= 1);
     const auto subGroupIdToProcessScalar =
         subGroupIdToProcessTensor.flatten().squeeze({0});
-
-    const auto partialElemsPer32Bits = 4 / target.getTypeSize(partialsType);
-    assert(partials.numElements() % partialElemsPer32Bits == 0);
     std::vector<std::size_t> squeezePartialsDims(5);
     std::iota(squeezePartialsDims.begin(), squeezePartialsDims.end(), 0);
     // Expect X as innermost dimension
@@ -200,9 +216,13 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     // Expect Y as innermost dimension
     graph.connect(v["s"], actsUngrouped.flatten());
     graph.connect(v["subGroupIdToProcess"], subGroupIdToProcessScalar);
-    graph.setInitialValue(
-        v["zeroInfo"],
-        zeroPartials ? partials.numElements() / partialElemsPer32Bits : 0);
+    checkRptBounds(partials.numElements(), partialsType);
+    const auto zeroInfo = getZeroInfo(partials.numElements(), partialsType);
+    if (!zeroInfo.first) {
+      throw poputil::poplibs_error("Number of zero elements is not a "
+                                   "multiple of 64-bits");
+    }
+    graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0);
     graph.setInitialValue(v["numZ"], weightsUngrouped.dim(2));
     const auto inputElemsPer64Bits = 8 / target.getTypeSize(inputType);
     const auto zStrideInQ = weightsUngrouped.dim(1) / inputElemsPer64Bits;

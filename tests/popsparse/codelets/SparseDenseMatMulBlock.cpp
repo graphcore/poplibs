@@ -38,6 +38,7 @@
 #include "SparseDenseUtils.hpp"
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Util.hpp>
+#include <utility>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -518,6 +519,12 @@ int main(int argc, char **argv) try {
     std::swap(sTensor, qTensor);
   }
 
+  auto getZeroInfo = [&](std::size_t numElements, const Type &partialsType) {
+    std::size_t multipleOf = 8 / target.getTypeSize(partialsType);
+    auto valid = (numElements % multipleOf) == 0;
+    return std::make_pair(valid, numElements / multipleOf);
+  };
+
   if (vertexType == VertexType::GradW) {
     graph.connect(v["qGrad"], qTensor.flatten());
     graph.connect(v["rGrad"], aBuckets.at(0));
@@ -527,11 +534,10 @@ int main(int argc, char **argv) try {
         graph.addConstant(metaInfoType, {}, processedSubGroupId);
     graph.setTileMapping(deviceProcessedSubGroupId, 0);
     graph.connect(v["subGroupIdToProcess"], deviceProcessedSubGroupId);
-    const auto numElements = aBuckets.at(0).numElements();
-    assert(partialsType == FLOAT || numElements % 2 == 0);
-    const auto numPartials =
-        (partialsType == FLOAT) ? numElements : numElements / 2;
-    graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
+    const auto zeroInfo =
+        getZeroInfo(aBuckets.at(0).numElements(), partialsType);
+    assert(zeroInfo.first);
+    graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0);
     graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
     graph.setInitialValue(v["zStrideInS"], zStrideInS);
     graph.setInitialValue(v["numZ"], bShape.val[1]);
@@ -541,12 +547,9 @@ int main(int argc, char **argv) try {
     graph.connect(v["s"], sTensor.flatten());
     graph.connect(v["metaInfo"], metaInfoBuckets);
     graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
-    assert(partialsType == FLOAT || qTensor.numElements() % 2 == 0);
-    const auto numPartials = (partialsType == FLOAT)
-                                 ? qTensor.numElements()
-                                 : qTensor.numElements() / 2;
-
-    graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
+    const auto zeroInfo = getZeroInfo(qTensor.numElements(), partialsType);
+    assert(zeroInfo.first);
+    graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0);
     graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
     graph.setInitialValue(v["zStrideInS"], zStrideInS);
     auto worklist = getForwardWorkerPartition(target, bShape.val[1]);
