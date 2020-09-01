@@ -160,9 +160,8 @@ public:
 
   // using the replication index tensor create a new tensor with
   // value = the position in a clockwise ring of this replica is
-  Tensor initRingIndexTensor(Graph &graph, const Direction direction,
-                             const Tensor &repIndex, Sequence &prog,
-                             const std::string &debugPrefix,
+  Tensor initRingIndexTensor(Graph &graph, const Tensor &repIndex,
+                             Sequence &prog, const std::string &debugPrefix,
                              const unsigned repFactor,
                              const int startOffset) const {
     // start offset allows to initialise this at different positions
@@ -377,84 +376,79 @@ static Tensor replicatedSplitIntoFragments(const Tensor &t,
   return concat(perIpuFragments, 1);
 }
 
-static Tensor giveFragmentsIpuOrder(const Tensor &input,
-                                    const RingTopology &ring) {
-
-  std::vector<Tensor> result(input.dim(0));
-  for (unsigned ringIndex = 0; ringIndex < input.dim(0); ++ringIndex) {
-    const unsigned ipuIndex = ring.indexToRank(ringIndex);
-    result[ringIndex] = input[ipuIndex].expand({0});
+static Tensor giveFragmentsRankOrder(const Tensor &input,
+                                     const RingTopology &ring) {
+  std::vector<Tensor> result;
+  result.reserve(input.dim(0));
+  for (unsigned replica = 0; replica < input.dim(0); ++replica) {
+    const unsigned ringIndex = ring.rankToIndex(replica);
+    result.push_back(input[ringIndex].expand({0}));
   }
   return concat(result, 0);
 }
 
-static void internalReplicatedSlice(Graph &graph, const Tensor &fragments,
-                                    const Tensor &sliceIndex, const Tensor &dst,
-                                    const Direction direction, Sequence &prog) {
-  std::vector<Tensor> rearrange(fragments.dim(0));
-  const unsigned n = rearrange.size();
-  for (unsigned i = 0; i < n; ++i) {
-    int shift = direction == Direction::CLOCKWISE ? 1 : -1;
-    unsigned switchIndex = (i + n + shift) % n;
-    rearrange[switchIndex] = fragments[i].expand({0});
+static Tensor giveFragmentsRingOrder(const Tensor &input,
+                                     const RingTopology &ring) {
+  std::vector<Tensor> result;
+  result.reserve(input.dim(0));
+  for (unsigned ringIndex = 0; ringIndex < input.dim(0); ++ringIndex) {
+    const unsigned replica = ring.indexToRank(ringIndex);
+    result.push_back(input[replica].expand({0}));
   }
-  auto dslice = dynamicSlice(graph, concat(rearrange), sliceIndex.expand({0}),
+  return concat(result, 0);
+}
+
+static void internalReplicatedSlice(Graph &graph, const Tensor &fragmentsByRing,
+                                    const Tensor &sliceIndex, const Tensor &dst,
+                                    Sequence &prog) {
+  auto dslice = dynamicSlice(graph, fragmentsByRing, sliceIndex.expand({0}),
                              {0}, {1}, prog);
   // this copy is probably avoidable
   prog.add(Copy(dslice, dst));
 }
 
-static void replicatedRankSlice(Graph &graph, const Tensor &fragments_,
+static void replicatedRankSlice(Graph &graph, const Tensor &fragmentsByRing,
                                 const Tensor &sliceIndex, const Tensor &dst,
-                                const RingTopology &ring,
-                                const Direction direction, Sequence &prog,
+                                Sequence &prog,
                                 FragmentCopyMethod fragmentCopyMethod) {
   logging::popops::debug("Replicated rank slice");
-  assert(fragments_.rank() == dst.rank() + 1);
-  assert(fragments_[0].shape() == dst.shape());
-  auto fragments = giveFragmentsIpuOrder(fragments_, ring);
+  assert(fragmentsByRing.rank() == dst.rank() + 1);
+  assert(fragmentsByRing[0].shape() == dst.shape());
   if (fragmentCopyMethod == FragmentCopyMethod::DYNAMIC_SLICE) {
-    return internalReplicatedSlice(graph, fragments, sliceIndex, dst, direction,
+    return internalReplicatedSlice(graph, fragmentsByRing, sliceIndex, dst,
                                    prog);
   }
   assert(fragmentCopyMethod == FragmentCopyMethod::SWITCH);
-  unsigned n = fragments_.dim(0);
+  unsigned n = fragmentsByRing.dim(0);
   auto swtch = Switch::switchWithUnreachableDefault(sliceIndex);
   for (unsigned i = 0; i < n; ++i) {
-    int shift = direction == Direction::CLOCKWISE ? 1 : -1;
-    unsigned switchIndex = (i + n + shift) % n;
-    swtch.add(switchIndex, Copy(fragments[i], dst));
+    swtch.add(i, Copy(fragmentsByRing[i], dst));
   }
   prog.add(swtch);
 }
 
 static void internalReplicatedUpdate(Graph &graph, const Tensor &fragments,
                                      const Tensor &sliceIndex,
-                                     const Tensor &src, Direction,
-                                     Sequence &prog) {
+                                     const Tensor &src, Sequence &prog) {
   assert(src.rank() == 1);
   dynamicUpdate(graph, fragments, src.expand({0}), sliceIndex.expand({0}), {0},
                 {1}, prog);
 }
 
 static void replicatedRankUpdate(Graph &graph, const Tensor &src,
-                                 const Tensor &fragments_,
-                                 const Tensor &sliceIndex,
-                                 const RingTopology &ring,
-                                 const Direction direction, Sequence &prog,
+                                 const Tensor &fragments,
+                                 const Tensor &sliceIndex, Sequence &prog,
                                  FragmentCopyMethod fragmentCopyMethod) {
   logging::popops::debug("replicatedRankUpdate begin");
-  assert(src.rank() + 1 == fragments_.rank());
-  assert(src.shape() == fragments_[0].shape());
-  auto fragments = giveFragmentsIpuOrder(fragments_, ring);
+  assert(src.rank() + 1 == fragments.rank());
+  assert(src.shape() == fragments[0].shape());
   if (fragmentCopyMethod == FragmentCopyMethod::DYNAMIC_SLICE) {
-    return internalReplicatedUpdate(graph, fragments, sliceIndex, src,
-                                    direction, prog);
+    return internalReplicatedUpdate(graph, fragments, sliceIndex, src, prog);
   }
   assert(fragmentCopyMethod == FragmentCopyMethod::SWITCH);
   assert(graph.getReplicationFactor() ==
          graph.getTopLevelGraph().getReplicationFactor());
-  unsigned n = fragments_.dim(0);
+  unsigned n = fragments.dim(0);
   auto swtch = Switch::switchWithUnreachableDefault(sliceIndex);
   for (unsigned i = 0; i < n; ++i) {
     swtch.add(i, Copy(src, fragments[i]));
@@ -675,13 +669,15 @@ static CollectivesProgram unidirectionalRingReduceScatter(
                           graph.getTarget().getIpuLinkTopology());
   auto numFragments = replicationFactor;
 
-  auto fragments = replicatedSplitIntoFragments(toReduce, numFragments, graph);
-  auto fragmentSize = fragments.dim(1);
+  auto fragmentsByReplica =
+      replicatedSplitIntoFragments(toReduce, numFragments, graph);
+  auto fragmentsByRing = giveFragmentsRingOrder(fragmentsByReplica, ring);
+  auto fragmentSize = fragmentsByRing.dim(1);
   auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize},
                                      debugPrefix + "/ScatterSrc");
-  mapBuffer(graph, srcBuffer, fragments);
-  fragments = copyToSliceableTensorIfBeneficial(
-      graph, fragments, srcBuffer, debugPrefix + "/InputRearranged",
+  mapBuffer(graph, srcBuffer, fragmentsByRing);
+  fragmentsByRing = copyToSliceableTensorIfBeneficial(
+      graph, fragmentsByRing, srcBuffer, debugPrefix + "/InputRearranged",
       program.rearrangePre, fragmentCopyMethod);
   auto dstBuffer = graph.clone(srcBuffer, debugPrefix + "/ScatterDst");
   auto repFactorTensor = graph.addReplicationIndexConstant();
@@ -691,10 +687,10 @@ static CollectivesProgram unidirectionalRingReduceScatter(
                        getScalarTile(graph.getTileMapping(toReduce)));
 
   program.repeatCounter = numSteps - 1;
-  auto sliceIndex = ring.initRingIndexTensor(graph, direction, repFactorTensor,
-                                             program.initIndex, debugPrefix,
-                                             replicationFactor, startOffset);
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
+  auto sliceIndex = ring.initRingIndexTensor(
+      graph, repFactorTensor, program.initIndex, debugPrefix, replicationFactor,
+      startOffset + incrementValue);
   // create program to change the slice index to it's next value.
   // called every iteration of the repeat
   popops::mapInPlace(graph,
@@ -715,7 +711,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   // Create program that will do a dynamic slice with index being the
   // slice index created earlier. The slice index is incremented by the
   // increment program on each iteration of the repeat.
-  replicatedRankSlice(graph, fragments, sliceIndex, srcBuffer, ring, direction,
+  replicatedRankSlice(graph, fragmentsByRing, sliceIndex, srcBuffer,
                       program.sliceFragments, fragmentCopyMethod);
   // perform the reduction with the received data and the value sliced
   program.reduceProg =
@@ -772,14 +768,10 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
     prog.add(unidirectionalSequence(program, graph));
     return program.srcBuffer.get();
   }
-  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
-  RingTopology ring(replicationFactor, ipusPerReplica,
-                    graph.getTarget().getIpuLinkTopology());
   auto numFragments = replicationFactor;
   auto numSteps = 1 + numFragments / 2;
   const int clockwiseOffset = -1 * (numFragments - numSteps);
   const int anticlockwiseOffset = (numFragments - numSteps) + 1;
-  auto fragments = replicatedSplitIntoFragments(toReduce, numFragments, graph);
 
   auto clockwiseProg = unidirectionalRingReduceScatter(
       graph, toReduce, op, Direction::CLOCKWISE, debugPrefix + "/clockwise",
@@ -889,29 +881,25 @@ static Tensor padAllGatherResult(Graph &graph, const Tensor &fragment,
   return concat(toConcat);
 }
 
-static CollectivesProgram
-unidirectionalRingAllGatherImpl(Graph &graph, const Tensor &toGather,
-                                const Tensor &fragments, Direction direction,
-                                const std::string &debugPrefix,
-                                const unsigned numSteps, const int startOffset,
-                                FragmentCopyMethod fragmentCopyMethod) {
+static CollectivesProgram unidirectionalRingAllGatherImpl(
+    Graph &graph, const Tensor &toGather, const Tensor &fragmentsByRing,
+    const RingTopology &ring, Direction direction,
+    const std::string &debugPrefix, const unsigned numSteps,
+    const int startOffset, FragmentCopyMethod fragmentCopyMethod) {
   CollectivesProgram program;
 
   const auto replicationFactor = graph.getReplicationFactor();
-  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
-  RingTopology ring(replicationFactor, ipusPerReplica,
-                    graph.getTarget().getIpuLinkTopology());
   auto srcBuffer = graph.clone(toGather, debugPrefix + "/GatherSrc");
   auto dstBuffer = graph.clone(toGather, debugPrefix + "/GatherDst");
-  assert(fragments.dim(1) == toGather.numElements());
+  assert(fragmentsByRing.dim(1) == toGather.numElements());
 
   program.repeatCounter = numSteps - 1;
   auto replicationIndex = graph.addReplicationIndexConstant();
   graph.setTileMapping(replicationIndex,
                        getScalarTile(graph.getTileMapping(toGather)));
-  auto sliceIndex = ring.initRingIndexTensor(graph, direction, replicationIndex,
-                                             program.initIndex, debugPrefix,
-                                             replicationFactor, startOffset);
+  auto sliceIndex =
+      ring.initRingIndexTensor(graph, replicationIndex, program.initIndex,
+                               debugPrefix, replicationFactor, startOffset);
   program.firstGatherCopy.add(Copy(toGather, srcBuffer));
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
   popops::mapInPlace(graph,
@@ -929,10 +917,10 @@ unidirectionalRingAllGatherImpl(Graph &graph, const Tensor &toGather,
         direction);
   }
   program.allgatherCopy.add(Copy(dstBuffer, srcBuffer));
-  replicatedRankUpdate(graph, srcBuffer, fragments, sliceIndex, ring, direction,
+  replicatedRankUpdate(graph, srcBuffer, fragmentsByRing, sliceIndex,
                        program.sliceFragments, fragmentCopyMethod);
-  program.undefTensor =
-      concat({fragments.flatten(), srcBuffer.flatten(), dstBuffer.flatten()});
+  program.undefTensor = concat(
+      {fragmentsByRing.flatten(), srcBuffer.flatten(), dstBuffer.flatten()});
   return program;
 }
 
@@ -940,32 +928,39 @@ static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
     Graph &graph, const Tensor &toGather, const std::optional<Tensor> &dst,
     Direction direction, const std::string &debugPrefix) {
   logging::popops::debug("Unidirectional ring allGather");
+  const auto replicationFactor = graph.getReplicationFactor();
+  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
+  RingTopology ring(replicationFactor, ipusPerReplica,
+                    graph.getTarget().getIpuLinkTopology());
   auto numFragments = graph.getReplicationFactor();
   auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
                                 ? FragmentCopyMethod::SWITCH
                                 : FragmentCopyMethod::DYNAMIC_SLICE;
-  Tensor result;
+  Tensor result, fragmentsByRing;
   Sequence resultRearrange;
   if (dst) {
-    auto paddedResult = padAllGatherResult(graph, toGather, numFragments, *dst);
-    result = replicatedSplitIntoFragments(paddedResult, numFragments, graph);
-    result = copyFromSliceableTensorIfBeneficial(
-        graph, result, toGather, debugPrefix + "/SliceableOutput",
+    result = *dst;
+    auto paddedResult =
+        padAllGatherResult(graph, toGather, numFragments, result);
+    auto fragmentsByReplica =
+        replicatedSplitIntoFragments(paddedResult, numFragments, graph);
+    fragmentsByRing = giveFragmentsRingOrder(fragmentsByReplica, ring);
+    fragmentsByRing = copyFromSliceableTensorIfBeneficial(
+        graph, fragmentsByRing, toGather, debugPrefix + "/SliceableOutput",
         resultRearrange, fragmentCopyMethod);
   } else {
     // Since we are free to choose the layout we can use dynamic slice without
     // the penalty of a rearranging copy.
-    result =
+    fragmentsByRing =
         createSliceableTensorFromSlice(graph, toGather.expand({0}), {0},
                                        {numFragments}, debugPrefix + "/Output");
+    result = giveFragmentsRankOrder(fragmentsByRing, ring);
     fragmentCopyMethod = FragmentCopyMethod::DYNAMIC_SLICE;
   }
   auto prog = unidirectionalRingAllGatherImpl(
-      graph, toGather, result, direction, debugPrefix, numFragments, 0,
-      fragmentCopyMethod);
+      graph, toGather, fragmentsByRing, ring, direction, debugPrefix,
+      numFragments, 0, fragmentCopyMethod);
   prog.rearrangePost.add(resultRearrange);
-  if (dst)
-    return {prog, *dst};
   return {prog, result};
 }
 
@@ -1018,13 +1013,17 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
     prog.add(unidirectionalSequence(program, graph));
     return result;
   }
-  auto numSteps = 1 + graph.getReplicationFactor() / 2;
+  const auto replicationFactor = graph.getReplicationFactor();
+  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
+  RingTopology ring(replicationFactor, ipusPerReplica,
+                    graph.getTarget().getIpuLinkTopology());
+  const auto numFragments = replicationFactor;
+  auto numSteps = 1 + replicationFactor / 2;
   const int clockwiseOffset = 0;
   const int anticlockwiseOffset = 0;
 
   unsigned topLevelControlTile =
-      graph.getReplicationFactor() ==
-              graph.getTopLevelGraph().getReplicationFactor()
+      replicationFactor == graph.getTopLevelGraph().getReplicationFactor()
           ? getScalarTile(graph.getTopLevelGraph().getTileMapping(toGather))
           : 0;
   Tensor result;
@@ -1032,17 +1031,18 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
                                 ? FragmentCopyMethod::SWITCH
                                 : FragmentCopyMethod::DYNAMIC_SLICE;
+
   if (dst) {
-    const auto numFragments = graph.getReplicationFactor();
-    result = padAllGatherResult(graph, toGather, numFragments, *dst);
+    result = *dst;
+    result = padAllGatherResult(graph, toGather, numFragments, result);
     result = replicatedSplitIntoFragments(result, numFragments, graph);
+    result = giveFragmentsRingOrder(result, ring);
     result = copyFromSliceableTensorIfBeneficial(
         graph, result, toGather, debugPrefix + "/SliceableOutput",
         resultRearrange, fragmentCopyMethod);
   } else {
     // Since we are free to choose the layout we can use dynamic slice without
     // the penalty of a rearranging copy.
-    const auto numFragments = graph.getReplicationFactor();
     result =
         createSliceableTensorFromSlice(graph, toGather.expand({0}), {0},
                                        {numFragments}, debugPrefix + "/Output");
@@ -1050,10 +1050,11 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   }
 
   auto clockwiseProg = unidirectionalRingAllGatherImpl(
-      graph, toGather, result, Direction::CLOCKWISE, debugPrefix + "/clockwise",
-      numSteps, clockwiseOffset, fragmentCopyMethod);
+      graph, toGather, result, ring, Direction::CLOCKWISE,
+      debugPrefix + "/clockwise", numSteps, clockwiseOffset,
+      fragmentCopyMethod);
   auto anticlockwiseProg = unidirectionalRingAllGatherImpl(
-      graph, toGather, result, Direction::ANTICLOCKWISE,
+      graph, toGather, result, ring, Direction::ANTICLOCKWISE,
       debugPrefix + "/anticlockwise", numSteps - 1, anticlockwiseOffset,
       fragmentCopyMethod);
   prog.add(meetInMiddleAllGatherSequence(clockwiseProg, anticlockwiseProg,
@@ -1061,7 +1062,7 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   prog.add(resultRearrange);
   if (dst)
     return *dst;
-  return result;
+  return giveFragmentsRankOrder(result, ring);
 }
 
 // The IPU mapping of the result tensor determines how the gathered elements
