@@ -78,7 +78,9 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
                 # Test different batch size paths for input data types
                 math(EXPR NUM_ROWS "${X} * ${BLOCKSIZE}")
                 math(EXPR NUM_COLS "${Y} * ${BLOCKSIZE}")
-
+                if (VERTEX_TYPE STREQUAL "GradW" AND BLOCKSIZE EQUAL 16)
+                  set(TimesOutOnSimLocal ${TimesOutOnSim})
+                endif()
                 foreach(Z 2 4 12 16 32)
                   add_multitarget_test(NAME SparseDenseMatMulBlock_m${Z}_k${Y}_block${BLOCKSIZE}_n${X}_sl0.5_${NUM_BUCKETS}bckts_${NUM_SPLITS}splits_float_in_float_out_${VERTEX_TYPE}${ZERO_PARTIALS}
                   COMMAND SparseDenseMatMulBlock
@@ -91,7 +93,8 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
                     --sparsity-level=0.5
                     --num-buckets=${NUM_BUCKETS}
                     --num-splits-per-bucket=${NUM_SPLITS}
-                    --vertex-type=${VERTEX_TYPE})
+                    --vertex-type=${VERTEX_TYPE}
+                  VARIANTS ${TimesOutOnSimLocal})
                 endforeach()
                 foreach(Z 4 8 16 28)
                   foreach(PARTIALS_TYPE half float)

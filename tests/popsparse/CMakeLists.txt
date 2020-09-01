@@ -88,7 +88,12 @@ foreach(DATA_TYPE half float)
   endif()
   foreach(PARTIALS_TYPE ${PARTIALS_TYPE_CANDIDATES})
     foreach(PASS_TYPE fwd bwd wu all)
+
       foreach(BLOCK_SIZE 4 8 16)
+        if (DATA_TYPE STREQUAL "float" AND BLOCK_SIZE EQUAL 16 AND (PASS_TYPE STREQUAL "wu" OR PASS_TYPE STREQUAL "all"))
+          set(TimesOutOnSimLocal ${TimesOutOnSim})
+        endif()
+
         add_multitarget_test(
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl
           COMMAND sparse_fc_layer
@@ -101,7 +106,8 @@ foreach(DATA_TYPE half float)
             --sparsity-factor=0.1
             --tiles-per-ipu=24
             --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
-            --single-phase=${PASS_TYPE})
+            --single-phase=${PASS_TYPE}
+          VARIANTS ${TimesOutOnSimLocal})
         add_multitarget_test(
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_8b_block${BLOCK_SIZE}_0.1sl
           COMMAND sparse_fc_layer
@@ -128,7 +134,8 @@ foreach(DATA_TYPE half float)
             --sparsity-factor=0.01
             --tiles-per-ipu=24
             --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
-            --single-phase=${PASS_TYPE})
+            --single-phase=${PASS_TYPE}
+          VARIANTS ${TimesOutOnSimLocal})
       endforeach()
     endforeach()
   endforeach()
