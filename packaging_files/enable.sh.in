@@ -2,7 +2,7 @@
 
 if [ -z ${POPLAR_SDK_ENABLED+x} ]
 then
-  echo 'ERROR: You must enable a Poplar SDK before you can enable Poplibs.'
+  echo 'ERROR: You must enable a Poplar SDK before you can enable PopLibs.'
 else
   [[ "$OSTYPE" == "linux-gnu" ]] || echo "WARNING: Only Linux is supported. Continue at own risk."
   DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
@@ -11,5 +11,5 @@ else
   export LIBRARY_PATH="$DIR/lib:$LIBRARY_PATH"
 
   # For backward compatibility, create symbolic link <LIB>_local.so to each <LIB>.so file:
-  /usr/bin/find $DIR/lib*/ -name '*.so' -type f -exec /bin/sh -c 'LIB="{}"; /bin/ln -s "${LIB}" "${LIB%.so}_local.so"' \;
+  /usr/bin/find $DIR/lib*/ -name '*.so' -type f -exec /bin/sh -c 'LIB="{}"; /bin/ln -sf "${LIB}" "${LIB%.so}_local.so"' \;
 fi

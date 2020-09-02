@@ -1,4 +1,6 @@
-# Building PopLibs Externally (e.g. from Github Repo)
+# Building PopLibs Externally
+
+This applies when building from the PopLibs GitHub Repository.
 
 Note that only Ubuntu 18.04 is supported for building PopLibs externally.
 
@@ -6,13 +8,22 @@ Note that only Ubuntu 18.04 is supported for building PopLibs externally.
 
 ### Poplar SDK
 
-In order to build PopLibs, the Poplar SDK must be downloaded and installed. Please see https://www.graphcore.ai/developer for details.
+In order to build PopLibs, you must download and install the Poplar SDK.
+Please see the Getting Started guide available at https://www.graphcore.ai/developer for details.
 
-### CMake Version 3.10.2 or greater
+The Poplar SDK version must match the version specified in the name of the PopLibs branch.
+For example, `release-1.2` requires Poplar SDK 1.2.x.
 
-On Ubuntu 18.04:
+### CMake Version 3.12.0 or later
 
-    apt install cmake
+PopLibs requires CMake 3.12.0 or later. The package manager in Ubuntu 18.04 will install CMake 3.10.
+If you see errors about your CMake version you may need to uninstall the apt version using:
+
+    $ sudo apt-get remove cmake
+
+Then install a recent version using pip:
+
+    $ pip3 install cmake
 
 ### Boost Version 1.70.0 (or compatible with)
 
@@ -20,11 +31,12 @@ Download Boost 1.70 source from here: https://www.boost.org/users/history/versio
 
 Within a suitable directory, extract the archive and run:
 
+    $ cd boost_1_70_0
     $ mkdir install # Make a note of this path for later.
     $ ./bootstrap.sh --prefix=install
     $ ./b2 link=static runtime-link=static --abbreviate-paths variant=release toolset=gcc "cxxflags= -fno-semantic-interposition -fPIC" cxxstd=14 --with=all install
 
-Note: Consider using '-j8' (or similar) with './b2' to reduce build time by increasing concurrency.
+Note: Consider using `-j8` (or similar) with `./b2` to reduce build time by increasing concurrency.
 
 For more information, see: https://www.boost.org/doc/libs/1_70_0/more/getting_started/unix-variants.html
 
@@ -42,7 +54,7 @@ Acquire Zoltan from http://www.cs.sandia.gov/Zoltan/ under the LGPL license then
 
 On Ubuntu 18.04:
 
-    $ cd zoltan/
+    $ cd zoltan
     $ mkdir build
     $ cd build
     $ ../configure --prefix install --disable-mpi --disable-zoltan-cppdriver --with-cflags='-fPIC' --with-cxxflags='-fPIC' --disable-tests  --disable-zoltan-tests
@@ -72,21 +84,37 @@ Source the Poplar and Driver enable scripts:
     $ . <poplar_sdk_directory>/gc_drivers-<platform><version>/enable.sh
     $ . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
 
-Create 'build' and 'install' directories within your PopLibs source directory:
+Create `build` and `install` directories within your PopLibs source directory:
 
     $ mkdir build install
     $ cd build
 
 Run cmake then build with Ninja:
 
-    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<path Boost was installed to> -GNinja
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<absolute path Boost was installed to> -GNinja
     $ ninja
 
 Note: if you intend to use the popsparse library you will need to have Zoltan installed as described in Build Requirements then tell cmake where to find it by adding the following to the cmake command above:
 
     -DZOLTAN_ROOT=<path Zoltan was installed to>
 
-Install with Ninja then source the enable script:
+Note: There are some warnings that can be ignored:
+ * CMake Warnings of the form "New Boost version may have incorrect or missing dependencies and imported targets"
+ * Build warnings of the form "Could not find Codelet information for `<<arch1>>` architecture in file `<library>_<codelet>_<arch2>.gp`".
+
+Install with Ninja:
 
     $ ninja install
+
+To start using this build of PopLibs in your current shell you must source the enable script:
+
     $ . ../install/enable.sh
+
+## Using PopLibs
+
+To use this build of PopLibs in a new shell, source the Driver and Poplar
+enable scripts as normal and then source the PopLibs enable script:
+
+    $ . <poplar_sdk_directory>/gc_drivers-<platform><version>/enable.sh
+    $ . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
+    $ . <path to poplibs install directory>/enable.sh
