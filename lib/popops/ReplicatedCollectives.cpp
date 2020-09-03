@@ -1,6 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popops/Collectives.hpp"
-#include "popops/CollectivesInterface.hpp"
 
 #include "CollectivesProgram.hpp"
 #include "poplibs_support/Algorithm.hpp"
@@ -61,52 +60,6 @@ enum class FragmentCopyMethod { SWITCH, DYNAMIC_SLICE };
 
 namespace popops {
 
-class ReplicatedCollectives : public ReplicatedCollectivesInterface {
-
-public:
-  virtual ~ReplicatedCollectives() {}
-
-  std::string version() override { return "default"; }
-
-  poplar::Tensor
-  replicatedAllReduce(poplar::Graph &graph, const poplar::Tensor &data,
-                      popops::Operation op, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix,
-                      const poplar::OptionFlags &options) override;
-
-  void replicatedAllReduceWithOutput(
-      poplar::Graph &graph, const poplar::Tensor &data, poplar::Tensor &output,
-      popops::Operation op, poplar::program::Sequence &prog,
-      const std::string &debugPrefix,
-      const poplar::OptionFlags &options) override;
-
-  poplar::Tensor
-  replicatedAllReduce(poplar::Graph &graph, poplar::Graph &parentGraph,
-                      const poplar::Tensor &data, popops::Operation op,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix,
-                      const poplar::OptionFlags &options) override;
-
-  poplar::Tensor
-  replicatedReduceScatter(poplar::Graph &graph, const poplar::Tensor &data,
-                          popops::Operation op, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix,
-                          const poplar::OptionFlags &optionFlags) override;
-
-  poplar::Tensor
-  replicatedAllGather(poplar::Graph &graph, const poplar::Tensor &data,
-                      poplar::program::Sequence &prog,
-                      const std::string &debugPrefix,
-                      const poplar::OptionFlags &optionFlags) override;
-};
-
-// boost::dll::import returns boost::shared_ptr but since we cannot expose
-// third party libraries in public headers we convert and expose a
-// std::shared_ptr wrapping the boost::shared_ptr.
-template <class T> std::shared_ptr<T> toStd(boost::shared_ptr<T> &p) {
-  return std::shared_ptr<T>(p.get(), [p](...) mutable { p.reset(); });
-}
-
 // Picks tile for mapping scalars based on an existing mapping
 static unsigned getScalarTile(const Graph::TileToTensorMapping mapping) {
   auto it =
@@ -114,11 +67,6 @@ static unsigned getScalarTile(const Graph::TileToTensorMapping mapping) {
                    [](const std::vector<Interval> &iv) { return !iv.empty(); });
   return it == mapping.end() ? 0 : std::distance(mapping.begin(), it);
 }
-
-std::shared_ptr<ReplicatedCollectivesInterface>
-    ReplicatedCollectivesInterface::defaultImpl{new ReplicatedCollectives()};
-
-static const auto impl = ReplicatedCollectivesInterface::defaultImpl;
 
 static std::vector<unsigned>
 invertPermutation(const std::vector<unsigned> &permutation) {
@@ -1170,14 +1118,6 @@ poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
                                        popops::Operation op, Sequence &prog,
                                        const std::string &debugPrefix,
                                        const OptionFlags &optionFlags) {
-
-  return impl->replicatedReduceScatter(graph, toReduce, op, prog, debugPrefix,
-                                       optionFlags);
-}
-
-poplar::Tensor ReplicatedCollectives::replicatedReduceScatter(
-    Graph &graph, const Tensor &toReduce, popops::Operation op, Sequence &prog,
-    const std::string &debugPrefix, const OptionFlags &optionFlags) {
   logging::popops::info("replicatedReduceScatter data={}, op={}, name={}",
                         toReduce.shape(), op, debugPrefix);
   logging::popops::debug("Replicated reduce scatter begin ({}B)",
@@ -1213,13 +1153,6 @@ poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
                                    Sequence &prog,
                                    const std::string &debugPrefix,
                                    const poplar::OptionFlags &optionFlags) {
-  return impl->replicatedAllGather(graph, toGather, prog, debugPrefix,
-                                   optionFlags);
-}
-
-poplar::Tensor ReplicatedCollectives::replicatedAllGather(
-    Graph &graph, const Tensor &toGather, Sequence &prog,
-    const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
   logging::popops::info("replicatedAllGather data={}, name={}",
                         toGather.shape(), debugPrefix);
   logging::popops::debug("Replicated all gather begin ({}B)",
@@ -1438,14 +1371,6 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
                                    program::Sequence &prog,
                                    const std::string &debugPrefix,
                                    const poplar::OptionFlags &optionFlags) {
-  impl->replicatedAllReduceWithOutput(graph, data, result, op, prog,
-                                      debugPrefix, optionFlags);
-}
-
-void ReplicatedCollectives::replicatedAllReduceWithOutput(
-    Graph &graph, const poplar::Tensor &data, poplar::Tensor &result,
-    popops::Operation op, program::Sequence &prog,
-    const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
   logging::popops::info(
       "replicatedAllReduceWithOutput data={}, result={}, op={}, name={}",
       data.shape(), result.shape(), op, debugPrefix);
@@ -1495,14 +1420,7 @@ Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
                            const std::string &debugPrefix,
                            const poplar::OptionFlags &optionFlags) {
-  return impl->replicatedAllReduce(graph, data, op, prog, debugPrefix,
-                                   optionFlags);
-}
 
-Tensor ReplicatedCollectives::replicatedAllReduce(
-    Graph &graph, const poplar::Tensor &data, popops::Operation op,
-    program::Sequence &prog, const std::string &debugPrefix,
-    const poplar::OptionFlags &optionFlags) {
   logging::popops::info("replicatedAllReduce data={}, op={}, name={}",
                         data.shape(), op, debugPrefix);
 
@@ -1521,14 +1439,7 @@ Tensor replicatedAllReduce(Graph &graph, Graph &parentGraph,
                            program::Sequence &prog,
                            const std::string &debugPrefix,
                            const poplar::OptionFlags &optionFlags) {
-  return impl->replicatedAllReduce(graph, parentGraph, data, op, prog,
-                                   debugPrefix, optionFlags);
-}
 
-Tensor ReplicatedCollectives::replicatedAllReduce(
-    Graph &graph, Graph &parentGraph, const poplar::Tensor &data,
-    popops::Operation op, program::Sequence &prog,
-    const std::string &debugPrefix, const poplar::OptionFlags &optionFlags) {
   auto parentGraphReplicationFactor = parentGraph.getReplicationFactor();
   if (parentGraphReplicationFactor != 1) {
     throw poputil::poplibs_error("replicatedAllReduce() does not support "
