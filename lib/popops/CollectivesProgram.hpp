@@ -90,6 +90,10 @@ struct ReduceProg {
 
 struct CollectivesProgram {
   unsigned repeatCounter = 0;
+  // Program to rearrange the input before the start of the loop.
+  poplar::program::Sequence rearrangePre;
+  // Program to rearrange the output at the end of the loop.
+  poplar::program::Sequence rearrangePost;
   poplar::Tensor undefTensor; // These will be undeffed in the sequence
   // The src buffer that the slice program will slice into
   // The reduce scatter step returns this buffer, all gather doesn't set this
@@ -169,9 +173,11 @@ poplar::program::Sequence unidirectionalSequence(CollectivesProgram &program,
                     sequenceFromCrossReplicaCopies(program.exchangeProg),
                     std::move(program.allgatherCopy), Call(sliceFunction),
                     opInPlace(graph, program.reduceProg));
-  return Sequence(WriteUndef(program.undefTensor), std::move(program.initIndex),
+  return Sequence(WriteUndef(program.undefTensor),
+                  std::move(program.rearrangePre), std::move(program.initIndex),
                   std::move(program.firstGatherCopy), Call(sliceFunction),
-                  Repeat(program.repeatCounter, std::move(loopBody)));
+                  Repeat(program.repeatCounter, std::move(loopBody)),
+                  std::move(program.rearrangePost));
 }
 // Create a program that does a clockwise and anticlockwise collective
 // simultaneously
@@ -199,10 +205,13 @@ bidirectionalSequence(CollectivesProgram &clockwise,
                     opInPlace(graph, combinedReduceProg));
   return Sequence(
       WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
+      std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
       std::move(clockwise.firstGatherCopy),
       std::move(anticlockwise.firstGatherCopy), Call(sliceFunction),
-      Repeat(clockwise.repeatCounter, std::move(loopBody)));
+      Repeat(clockwise.repeatCounter, std::move(loopBody)),
+      std::move(clockwise.rearrangePost),
+      std::move(anticlockwise.rearrangePost));
 }
 
 // Create the sequence needed for the meet in the middle collective
@@ -262,13 +271,16 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
       std::move(anticlockwise.incrementIndex), std::move(incrementLoopCounter));
   return Sequence(
       WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
+      std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
       Copy(std::move(trueConst), isFirstStep), Copy(falseConst, isLastStep),
       Copy(std::move(zeroConst), std::move(loopCounter)),
       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
       Call(clockwiseSliceFunction),
       // TODO: T12922 Put this in first iteration of repeat loop.
       Call(anticlockwiseSliceFunction),
-      Repeat(clockwise.repeatCounter, std::move(loopBody)));
+      Repeat(clockwise.repeatCounter, std::move(loopBody)),
+      std::move(clockwise.rearrangePost),
+      std::move(anticlockwise.rearrangePost));
 }
 
 // Create the sequence needed for the meet in the middle collective
@@ -329,13 +341,16 @@ meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
       std::move(incrementLoopCounter));
   return Sequence(
       WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
+      std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
       Copy(std::move(trueConst), std::move(isFirstStep)),
       Copy(std::move(falseConst), std::move(isLastStep)),
       Copy(std::move(zeroConst), std::move(loopCounter)),
       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
       std::move(clockwise.firstGatherCopy),
       std::move(anticlockwise.firstGatherCopy), Call(clockwiseSliceFunction),
-      Repeat(clockwise.repeatCounter, std::move(loopBody)));
+      Repeat(clockwise.repeatCounter, std::move(loopBody)),
+      std::move(clockwise.rearrangePost),
+      std::move(anticlockwise.rearrangePost));
 }
 
 } // namespace popops
