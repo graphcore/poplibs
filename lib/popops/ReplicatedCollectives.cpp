@@ -923,7 +923,7 @@ static Tensor padAllGatherResult(Graph &graph, const Tensor &fragment,
   auto referencePerIpu = getPerIpuTensors(result, graph);
   const auto numIpus = fragmentElementsPerIpu.size();
   assert(referencePerIpu.size() == numIpus);
-  std::vector<Tensor> toConcat = {result};
+  std::vector<Tensor> toConcat = {result.flatten()};
   for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
     const auto referenceElements = referencePerIpu[ipu].numElements();
     const auto fragmentElements = fragmentElementsPerIpu[ipu];
@@ -996,28 +996,28 @@ static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
   auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
                                 ? FragmentCopyMethod::SWITCH
                                 : FragmentCopyMethod::DYNAMIC_SLICE;
-  Tensor result, fragments;
+  Tensor result;
   Sequence resultRearrange;
   if (dst) {
-    result = *dst;
-    auto paddedResult =
-        padAllGatherResult(graph, toGather, numFragments, result);
-    fragments = replicatedSplitIntoFragments(paddedResult, numFragments, graph);
-    fragments = copyFromSliceableTensorIfBeneficial(
-        graph, fragments, toGather, debugPrefix + "/SliceableOutput",
+    auto paddedResult = padAllGatherResult(graph, toGather, numFragments, *dst);
+    result = replicatedSplitIntoFragments(paddedResult, numFragments, graph);
+    result = copyFromSliceableTensorIfBeneficial(
+        graph, result, toGather, debugPrefix + "/SliceableOutput",
         resultRearrange, fragmentCopyMethod);
   } else {
     // Since we are free to choose the layout we can use dynamic slice without
     // the penalty of a rearranging copy.
-    fragments =
+    result =
         createSliceableTensorFromSlice(graph, toGather.expand({0}), {0},
                                        {numFragments}, debugPrefix + "/Output");
     fragmentCopyMethod = FragmentCopyMethod::DYNAMIC_SLICE;
   }
   auto prog = unidirectionalRingAllGatherImpl(
-      graph, toGather, fragments, direction, debugPrefix, numFragments, 0,
+      graph, toGather, result, direction, debugPrefix, numFragments, 0,
       fragmentCopyMethod);
   prog.rearrangePost.add(resultRearrange);
+  if (dst)
+    return {prog, *dst};
   return {prog, result};
 }
 
@@ -1043,15 +1043,18 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
   }
   Tensor clockwiseResult, anticlockwiseResult;
   std::tie(clockwiseProg, clockwiseResult) = unidirectionalRingAllGather(
-      graph, toGather.slice(0, fragmentSize / 2), clockwiseDst,
+      graph, toGather.flatten().slice(0, fragmentSize / 2), clockwiseDst,
       Direction::CLOCKWISE, debugPrefix + "/clockwise");
   std::tie(anticlockwiseProg, anticlockwiseResult) =
       unidirectionalRingAllGather(
-          graph, toGather.slice(fragmentSize / 2, fragmentSize),
+          graph, toGather.flatten().slice(fragmentSize / 2, fragmentSize),
           anticlockwiseDst, Direction::ANTICLOCKWISE,
           debugPrefix + "/anticlockwise");
   prog.add(bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph));
-  return concat(clockwiseResult, anticlockwiseResult);
+  if (dst)
+    return *dst;
+  auto resultShape = toGather.expand({0}).broadcast(numFragments, 0).shape();
+  return concat(clockwiseResult, anticlockwiseResult, 1).reshape(resultShape);
 }
 
 static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
@@ -1082,9 +1085,8 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
                                 ? FragmentCopyMethod::SWITCH
                                 : FragmentCopyMethod::DYNAMIC_SLICE;
   if (dst) {
-    result = *dst;
     const auto numFragments = graph.getReplicationFactor();
-    result = padAllGatherResult(graph, toGather, numFragments, result);
+    result = padAllGatherResult(graph, toGather, numFragments, *dst);
     result = replicatedSplitIntoFragments(result, numFragments, graph);
     result = copyFromSliceableTensorIfBeneficial(
         graph, result, toGather, debugPrefix + "/SliceableOutput",
@@ -1109,6 +1111,8 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   prog.add(meetInMiddleAllGatherSequence(clockwiseProg, anticlockwiseProg,
                                          graph, topLevelControlTile));
   prog.add(resultRearrange);
+  if (dst)
+    return *dst;
   return result;
 }
 

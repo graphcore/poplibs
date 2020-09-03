@@ -91,7 +91,7 @@ void RunAllToAll() {
   }
 }
 
-void RunAllGather() {
+void RunAllGather(const OptionFlags &options) {
   const unsigned numIpus = 8;
   const unsigned cubeRootIpus = 2;
 
@@ -130,7 +130,8 @@ void RunAllGather() {
       popops::mul(graph, replicationFactorTensor, numIpus, sequence);
   popops::addInPlace(graph, t0, mul, sequence);
 
-  poplar::Tensor output = popops::replicatedAllGather(graph, t0, sequence);
+  poplar::Tensor output =
+      popops::replicatedAllGather(graph, t0, sequence, "", options);
 
   // Output is expected to have shape [numReplicas, 2, 2, 2]
   BOOST_TEST(output.shape().size() == 4);
@@ -171,4 +172,12 @@ void RunAllGather() {
 }
 
 BOOST_AUTO_TEST_CASE(RunAllToAllTest) { RunAllToAll(); }
-BOOST_AUTO_TEST_CASE(RunAllGatherTest) { RunAllGather(); }
+BOOST_AUTO_TEST_CASE(RunAllGatherClockwiseRingTest) {
+  RunAllGather({{"method", "clockwise_ring"}});
+}
+BOOST_AUTO_TEST_CASE(RunAllGatherBidirectionalRingPairTest) {
+  RunAllGather({{"method", "bidirectional_ring_pair"}});
+}
+BOOST_AUTO_TEST_CASE(RunAllGatherMeetInMiddleRingTest) {
+  RunAllGather({{"method", "meet_in_middle_ring"}});
+}
