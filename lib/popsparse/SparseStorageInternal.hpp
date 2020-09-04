@@ -6,10 +6,12 @@
 #define _poplibs_popsparse_SparseStorageInternal_hpp_
 
 #include "poplar/Interval.hpp"
+#include "poplibs_support/logging.hpp"
 #include "popsparse/SparseStorageFormats.hpp"
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <numeric>
+#include <unordered_map>
 
 namespace popsparse {
 
@@ -217,7 +219,7 @@ CSCMatrix<T> csrToCSC(std::size_t numRows, std::size_t numColumns,
 
   return CSCMatrix<T>(std::move(nzValues), std::move(columnIndices),
                       std::move(rowIndices),
-                      {csr.getNumColumnsInBlock(), csr.getNumRowsInBlock()});
+                      {csr.getNumRowsInBlock(), csr.getNumColumnsInBlock()});
 }
 
 // Sort the columns of a CSR matrix in a given row to be in increasing order.
@@ -294,7 +296,7 @@ CSRMatrix<T> csrTranspose(std::size_t numRows, std::size_t numColumns,
   // convert to CSC matrix
   return CSRMatrix<T>(
       output.nzValues, output.rowIndices, output.columnIndices,
-      {output.getNumRowsInBlock(), output.getNumColumnsInBlock()});
+      {output.getNumColumnsInBlock(), output.getNumRowsInBlock()});
 }
 
 // Given a tile, return the information for every row containing non-zero values
@@ -377,6 +379,344 @@ CSRMatrix<T> cooToCSR(std::size_t numRows, std::size_t numColumns,
                    {coo.getNumRowsInBlock(), coo.getNumColumnsInBlock()});
   canonicalizeCSR(csrMatrix);
   return csrMatrix;
+}
+
+static inline void
+validateBlockChange(const std::array<std::size_t, 2> &oldBlockDimensions,
+                    const std::array<std::size_t, 2> &newBlockDimensions) {
+
+  auto validateChange = [](std::size_t oldDim, std::size_t newDim,
+                           const std::string &str) {
+    std::string errString = "Cannot change " + str + " from " +
+                            std::to_string(oldDim) + " to " +
+                            std::to_string(newDim);
+    if (newDim > oldDim || oldDim % newDim) {
+      throw poputil::poplibs_error(errString);
+    }
+  };
+  validateChange(oldBlockDimensions[0], newBlockDimensions[0], "rows");
+  validateChange(oldBlockDimensions[1], newBlockDimensions[1], "columns");
+}
+
+// Form a new CSR matrix with smaller block sizes given by newBlockDimensions
+// from the passed CSR matrix.
+template <class T>
+CSRMatrix<T>
+changeCSRBlockSize(const CSRMatrix<T> &csr,
+                   const std::array<std::size_t, 2> &newBlockDimensions) {
+  if (csr.getBlockDimensions() == newBlockDimensions) {
+    return csr;
+  }
+  validateBlockChange(csr.getBlockDimensions(), newBlockDimensions);
+  poplibs_support::logging::popsparse::debug(
+      "Changing CSR block size "
+      "[{},{}] ->[{},{}]",
+      csr.getNumRowsInBlock(), csr.getNumColumnsInBlock(),
+      newBlockDimensions.at(0), newBlockDimensions.at(1));
+  const std::size_t subRowsPerRow =
+      csr.getNumRowsInBlock() / newBlockDimensions[0];
+  const std::size_t subColsPerCol =
+      csr.getNumColumnsInBlock() / newBlockDimensions[1];
+  const std::size_t oldBlockSize = csr.getBlockSize();
+
+  std::vector<std::size_t> rowIndices;
+  std::vector<std::size_t> colIndices;
+  std::vector<T> nzValues;
+
+  rowIndices.resize((csr.rowIndices.size() - 1) * subRowsPerRow + 1);
+  colIndices.resize(csr.columnIndices.size() * subRowsPerRow * subColsPerCol);
+  nzValues.resize(csr.nzValues.size());
+
+  auto newRowIndicesIt = rowIndices.begin();
+  auto newColIndicesIt = colIndices.begin();
+  auto oldColIndicesIt = csr.columnIndices.begin();
+  auto newNzValuesIt = nzValues.begin();
+  for (auto oldRowIt = csr.rowIndices.begin();
+       oldRowIt != csr.rowIndices.end() - 1; ++oldRowIt) {
+    const auto numOldCols = (*std::next(oldRowIt) - *oldRowIt) / oldBlockSize;
+    auto thisRowColBegin = oldColIndicesIt;
+    auto thisRowColEnd = oldColIndicesIt + numOldCols;
+
+    for (std::size_t subR = 0; subR != csr.getNumRowsInBlock();
+         subR += newBlockDimensions[0]) {
+      *newRowIndicesIt++ =
+          *oldRowIt + subR * csr.getNumColumnsInBlock() * numOldCols;
+      for (auto colIt = thisRowColBegin; colIt != thisRowColEnd; ++colIt) {
+        const auto blockStartIndex =
+            *oldRowIt + std::distance(thisRowColBegin, colIt) * oldBlockSize;
+        for (std::size_t subC = 0; subC != csr.getNumColumnsInBlock();
+             subC += newBlockDimensions[1]) {
+          *newColIndicesIt++ = *colIt + subC;
+
+          for (std::size_t r = 0; r != newBlockDimensions[0]; ++r) {
+            auto src = csr.nzValues.begin() + blockStartIndex +
+                       (subR + r) * csr.getNumColumnsInBlock() + subC;
+            std::copy(src, src + newBlockDimensions[1], newNzValuesIt);
+            newNzValuesIt += newBlockDimensions[1];
+          }
+        }
+      }
+    }
+    oldColIndicesIt = thisRowColEnd;
+  }
+  assert(static_cast<std::size_t>(std::distance(
+             colIndices.begin(), newColIndicesIt)) == colIndices.size());
+  assert(static_cast<std::size_t>(std::distance(
+             nzValues.begin(), newNzValuesIt)) == nzValues.size());
+  rowIndices.back() = csr.rowIndices.back();
+  return CSRMatrix<T>(nzValues, colIndices, rowIndices, newBlockDimensions);
+}
+
+// Form a new CSC matrix with smaller block sizes given by newBlockDimensions
+// from the passed CSC matrix.
+template <class T>
+CSCMatrix<T>
+changeCSCBlockSize(const CSCMatrix<T> &csc,
+                   const std::array<std::size_t, 2> &newBlockDimensions) {
+  validateBlockChange(csc.getBlockDimensions(), newBlockDimensions);
+  if (csc.getBlockDimensions() == newBlockDimensions) {
+    return csc;
+  }
+
+  poplibs_support::logging::popsparse::debug(
+      "Changing CSC block size "
+      "[{},{}] ->[{},{}]",
+      csc.getNumRowsInBlock(), csc.getNumColumnsInBlock(),
+      newBlockDimensions.at(0), newBlockDimensions.at(1));
+
+  const std::size_t subRowsPerRow =
+      csc.getNumRowsInBlock() / newBlockDimensions[0];
+  const std::size_t subColsPerCol =
+      csc.getNumColumnsInBlock() / newBlockDimensions[1];
+  const std::size_t oldBlockSize = csc.getBlockSize();
+
+  std::vector<std::size_t> rowIndices;
+  std::vector<std::size_t> colIndices;
+  std::vector<T> nzValues;
+
+  colIndices.resize((csc.columnIndices.size() - 1) * subColsPerCol + 1);
+  rowIndices.resize(csc.rowIndices.size() * subRowsPerRow * subColsPerCol);
+  nzValues.resize(csc.nzValues.size());
+
+  auto newColIndicesIt = colIndices.begin();
+  auto newRowIndicesIt = rowIndices.begin();
+  auto oldRowIndicesIt = csc.rowIndices.begin();
+  auto newNzValuesIt = nzValues.begin();
+
+  for (auto oldColIt = csc.columnIndices.begin();
+       oldColIt != csc.columnIndices.end() - 1; ++oldColIt) {
+    const auto numOldRows = (*std::next(oldColIt) - *oldColIt) / oldBlockSize;
+    auto thisColRowBegin = oldRowIndicesIt;
+    auto thisColRowEnd = oldRowIndicesIt + numOldRows;
+    for (std::size_t subC = 0; subC != csc.getNumColumnsInBlock();
+         subC += newBlockDimensions[1]) {
+      *newColIndicesIt++ =
+          *oldColIt + subC * csc.getNumRowsInBlock() * numOldRows;
+      for (auto rowIt = thisColRowBegin; rowIt != thisColRowEnd; ++rowIt) {
+        const auto blockStartIndex =
+            *oldColIt + std::distance(thisColRowBegin, rowIt) * oldBlockSize;
+        for (std::size_t subR = 0; subR != csc.getNumRowsInBlock();
+             subR += newBlockDimensions[0]) {
+          *newRowIndicesIt++ = *rowIt + subR;
+          for (std::size_t c = 0; c != newBlockDimensions[1]; ++c) {
+            auto src = csc.nzValues.begin() + blockStartIndex +
+                       (subC + c) * csc.getNumRowsInBlock() + subR;
+            std::copy(src, src + newBlockDimensions[0], newNzValuesIt);
+            newNzValuesIt += newBlockDimensions[0];
+          }
+        }
+      }
+    }
+    oldRowIndicesIt = thisColRowEnd;
+  }
+
+  assert(static_cast<std::size_t>(std::distance(
+             rowIndices.begin(), newRowIndicesIt)) == rowIndices.size());
+  assert(static_cast<std::size_t>(std::distance(
+             nzValues.begin(), newNzValuesIt)) == nzValues.size());
+  colIndices.back() = csc.columnIndices.back();
+  return CSCMatrix<T>(nzValues, colIndices, rowIndices, newBlockDimensions);
+}
+
+// Form a new COO matrix with either smaller or larger block sizes given by
+// newBlockDimensions.
+template <class T>
+COOMatrix<T>
+changeCOOBlockSize(const COOMatrix<T> &coo,
+                   const std::array<std::size_t, 2> &newBlockDimensions) {
+  if (coo.getBlockDimensions() == newBlockDimensions) {
+    return coo;
+  }
+
+  // For COO we allow stiching smaller blocks and making them into bigger
+  if (coo.getNumRowsInBlock() <= newBlockDimensions.at(0) &&
+      coo.getNumColumnsInBlock() <= newBlockDimensions.at(1)) {
+    validateBlockChange(newBlockDimensions, coo.getBlockDimensions());
+
+    poplibs_support::logging::popsparse::debug(
+        "Changing COO block sizes down "
+        "[{},{}] ->[{},{}]",
+        newBlockDimensions.at(0), newBlockDimensions.at(1),
+        coo.getNumRowsInBlock(), coo.getNumColumnsInBlock());
+
+    const std::size_t subRowsPerRow =
+        newBlockDimensions.at(0) / coo.getNumRowsInBlock();
+    const std::size_t subColsPerCol =
+        newBlockDimensions.at(1) / coo.getNumColumnsInBlock();
+    const auto numNewIndices =
+        coo.columnIndices.size() / (subRowsPerRow * subColsPerCol);
+
+    assert(coo.columnIndices.size() % (subRowsPerRow * subColsPerCol) == 0);
+    const std::size_t newBlockSize =
+        newBlockDimensions.at(0) * newBlockDimensions.at(1);
+    std::vector<T> nzValues;
+    nzValues.resize(coo.nzValues.size());
+    std::vector<std::size_t> subblockValidity(numNewIndices);
+    std::size_t indexOfNewBlock = 0;
+
+    // guarantee that the mapping of (row,col) <-> indices is bijective.
+    // The other option is to use an unordered_map of a pair -> index.
+    // We also use the mapping to check if number of sub-blocks in a block
+    // are present.
+    std::size_t maxColElement =
+        *std::max_element(coo.columnIndices.begin(), coo.columnIndices.end());
+    maxColElement = (maxColElement / newBlockDimensions.at(1) + 1) *
+                    newBlockDimensions.at(1);
+
+    auto rowColToMapIndex = [&](std::size_t row, std::size_t col) {
+      return row * maxColElement + col;
+    };
+    auto mapIndexToRowCol = [&](std::size_t index) {
+      return std::make_pair(index / maxColElement, index % maxColElement);
+    };
+
+    // keeps track of where the blocks of the new blocks are mapped to in the
+    // new NZ values vector.
+    std::unordered_map<std::size_t, std::size_t> blockCoordToNzIndex;
+    auto oldNzIt = coo.nzValues.begin();
+
+    for (auto oldRowIt = coo.rowIndices.begin(),
+              oldColIt = coo.columnIndices.begin();
+         oldRowIt != coo.rowIndices.end(); ++oldRowIt, ++oldColIt) {
+      const auto newRow =
+          *oldRowIt / newBlockDimensions.at(0) * newBlockDimensions.at(0);
+      const auto newCol =
+          *oldColIt / newBlockDimensions.at(1) * newBlockDimensions.at(1);
+      const auto entry = blockCoordToNzIndex.insert(
+          {rowColToMapIndex(newRow, newCol), indexOfNewBlock});
+      std::size_t blockStart = entry.first->second * newBlockSize;
+      indexOfNewBlock += entry.second;
+      auto rowOffset = *oldRowIt % newBlockDimensions.at(0);
+      auto colOffset = *oldColIt % newBlockDimensions.at(1);
+
+      subblockValidity.at(entry.first->second) +=
+          rowColToMapIndex(rowOffset, colOffset);
+
+      auto newNzIt = nzValues.begin() + blockStart + colOffset;
+      for (std::size_t subR = 0; subR != coo.getNumRowsInBlock();
+           ++subR, oldNzIt += coo.getNumColumnsInBlock()) {
+        auto dst = newNzIt + (rowOffset + subR) * newBlockDimensions.at(1);
+        std::copy(oldNzIt, oldNzIt + coo.getNumColumnsInBlock(), dst);
+      }
+    }
+
+    const auto numCoords = blockCoordToNzIndex.size();
+    std::vector<std::pair<std::size_t, std::size_t>> blockCoordPair;
+    blockCoordPair.resize(numCoords);
+    std::size_t index = 0;
+    for (const auto &p : blockCoordToNzIndex) {
+      blockCoordPair.at(index++) = p;
+    }
+
+    assert(numCoords == numNewIndices);
+    // Check that all subblocks with the new bigger blocks are present
+    const auto subblockValidityValue =
+        subRowsPerRow * subColsPerCol *
+        ((subRowsPerRow - 1) * maxColElement * coo.getNumRowsInBlock() +
+         (subColsPerCol - 1) * coo.getNumColumnsInBlock()) /
+        2;
+    const auto validNumSubBlocks =
+        std::all_of(subblockValidity.begin(), subblockValidity.end(),
+                    [&](std::size_t a) { return a == subblockValidityValue; });
+    if (!validNumSubBlocks) {
+      throw poputil::poplibs_error("All sublocks not present in COO block "
+                                   "change");
+    }
+
+    // we need row columns as stored in the new NZ values, hence sort based
+    // on the start index into it.
+    std::sort(blockCoordPair.begin(), blockCoordPair.end(),
+              [](const std::pair<std::size_t, std::size_t> &a,
+                 const std::pair<std::size_t, std::size_t> &b) {
+                return a.second < b.second;
+              });
+
+    std::vector<std::size_t> rowIndices, columnIndices;
+    rowIndices.resize(numCoords);
+    columnIndices.resize(numCoords);
+
+    for (auto it = blockCoordPair.begin(); it != blockCoordPair.end(); ++it) {
+      auto p = mapIndexToRowCol(it->first);
+      auto index = std::distance(blockCoordPair.begin(), it);
+      rowIndices[index] = p.first;
+      columnIndices[index] = p.second;
+    }
+    return COOMatrix<T>(nzValues, columnIndices, rowIndices,
+                        newBlockDimensions);
+  } else {
+    validateBlockChange(coo.getBlockDimensions(), newBlockDimensions);
+    poplibs_support::logging::popsparse::debug(
+        "Changing COO block sizes up "
+        "[{},{}] ->[{},{}]",
+        coo.getNumRowsInBlock(), coo.getNumColumnsInBlock(),
+        newBlockDimensions.at(0), newBlockDimensions.at(1));
+
+    const std::size_t subRowsPerRow =
+        coo.getNumRowsInBlock() / newBlockDimensions.at(0);
+    const std::size_t subColsPerCol =
+        coo.getNumColumnsInBlock() / newBlockDimensions.at(1);
+    const std::size_t oldBlockSize = coo.getBlockSize();
+
+    std::vector<std::size_t> rowIndices;
+    std::vector<std::size_t> colIndices;
+    std::vector<T> nzValues;
+
+    rowIndices.resize(coo.rowIndices.size() * subRowsPerRow * subColsPerCol);
+    colIndices.resize(coo.columnIndices.size() * subRowsPerRow * subColsPerCol);
+    nzValues.resize(coo.nzValues.size());
+
+    auto newRowIndicesIt = rowIndices.begin();
+    auto newColIndicesIt = colIndices.begin();
+    auto newNzValuesIt = nzValues.begin();
+    assert(coo.rowIndices.size() == coo.columnIndices.size());
+    for (auto oldRowIt = coo.rowIndices.begin(),
+              oldColIt = coo.columnIndices.begin();
+         oldRowIt != coo.rowIndices.end(); ++oldRowIt, ++oldColIt) {
+      const auto blockStart =
+          std::distance(coo.rowIndices.begin(), oldRowIt) * oldBlockSize;
+      for (std::size_t subR = 0; subR != coo.getNumRowsInBlock();
+           subR += newBlockDimensions.at(0)) {
+        for (std::size_t subC = 0; subC != coo.getNumColumnsInBlock();
+             subC += newBlockDimensions.at(1)) {
+          *newRowIndicesIt++ = *oldRowIt + subR;
+          *newColIndicesIt++ = *oldColIt + subC;
+          for (std::size_t r = 0; r != newBlockDimensions.at(0); ++r) {
+            auto src = coo.nzValues.begin() + blockStart +
+                       (subR + r) * coo.getNumColumnsInBlock() + subC;
+            std::copy(src, src + newBlockDimensions.at(1), newNzValuesIt);
+            newNzValuesIt += newBlockDimensions.at(1);
+          }
+        }
+      }
+    }
+    assert(static_cast<std::size_t>(std::distance(
+               rowIndices.begin(), newRowIndicesIt)) == rowIndices.size());
+    assert(static_cast<std::size_t>(std::distance(
+               colIndices.begin(), newColIndicesIt)) == colIndices.size());
+    assert(static_cast<std::size_t>(std::distance(
+               nzValues.begin(), newNzValuesIt)) == coo.nzValues.size());
+    return COOMatrix<T>(nzValues, colIndices, rowIndices, newBlockDimensions);
+  }
 }
 
 } // namespace popsparse

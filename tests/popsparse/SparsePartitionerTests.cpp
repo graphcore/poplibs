@@ -94,10 +94,10 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   // TODO: Test partitioner options
   const popsparse::PartitionerOptions options;
   popsparse::PartitionerImpl partitioner(
-      dimensions, grainSizes, xSplits, ySplits, zSplits, metaInfoBucketSize,
-      metaInfoBucketSizeGradA, nzElementsBucketSize, 6, bucketsPerZ,
-      useBlockMetaInfo, includeGradA, includeGradW, sharedBuckets, dataType,
-      accumType, options);
+      dimensions, grainSizes, {grainSizes.at(0), grainSizes.at(1)}, xSplits,
+      ySplits, zSplits, metaInfoBucketSize, metaInfoBucketSizeGradA,
+      nzElementsBucketSize, 6, bucketsPerZ, useBlockMetaInfo, includeGradA,
+      includeGradW, sharedBuckets, dataType, accumType, options);
 
   auto pnBucketsImpl = partitioner.createBuckets(csrMatrix);
   auto pnBuckets = pnBucketsImpl.pnBuckets;

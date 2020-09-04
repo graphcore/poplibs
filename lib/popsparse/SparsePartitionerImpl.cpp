@@ -49,6 +49,7 @@ getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
 
   std::vector<RowPositionValues> rowValuePairs;
   const auto blockSize = blockSizeX * blockSizeY;
+  std::size_t numBlocksInTile = 0;
   for (auto row = startRow; row != endRow; row += blockSizeX) {
     std::vector<std::pair<std::size_t, ValueType>> valuePairs;
     const auto rowIdx = row / blockSizeX;
@@ -61,6 +62,7 @@ getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
           csr.columnIndices[internalNzIdx] < endColumn) {
         valuePairs.emplace_back(csr.columnIndices[internalNzIdx] - startColumn,
                                 csr.nzValues[internalNzIdx]);
+        ++numBlocksInTile;
       }
     }
     if (!valuePairs.empty()) {
@@ -68,6 +70,7 @@ getPositionValuePairsPerRow(const CSRInternal &csr, std::size_t blockSizeX,
           RowPositionValues(row - startRow, std::move(valuePairs)));
     }
   }
+  logging::popsparse::debug("    - total elems/blocks {}", numBlocksInTile);
   return rowValuePairs;
 }
 
@@ -97,6 +100,7 @@ using BMI = popsparse::BlockMetaInfo<MetaInfoType>;
 PartitionerImpl::PartitionerImpl(
     const std::vector<std::size_t> &dimensions,
     const std::vector<std::size_t> &grainSizes,
+    const std::array<std::size_t, 2> &blockDimensions_,
     const std::vector<std::size_t> &xSplits_,
     const std::vector<std::size_t> &ySplits_,
     const std::vector<std::size_t> &zSplits_,
@@ -135,6 +139,8 @@ PartitionerImpl::PartitionerImpl(
   grainX = grainSizes.at(0);
   grainY = grainSizes.at(1);
   grainZ = grainSizes.at(2);
+
+  blockDimensions = blockDimensions_;
 
   xSplits = xSplits_;
   ySplits = ySplits_;
@@ -1015,30 +1021,46 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
   return result;
 }
 
+// Check that matrix dimensions match with which partitioner dimeb 
+static void 
+checkBlockDimensionsMatch(std::array<std::size_t, 2> matrixDimensions,
+                          std::array<std::size_t, 2> originalDimensions) {
+  if (matrixDimensions != originalDimensions) {
+    throw poputil::poplibs_error("Block dimensions of matrix do not match "
+                                 "ones with which partitioner was created");
+  }
+}
+
 template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
   logging::popsparse::trace("Partitioner called with CSR representation");
+  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
+  const auto &matrixNewBlockSize =
+      matrix_.getBlockDimensions() != grainsXAndY
+          ? changeCSRBlockSize(matrix_, grainsXAndY)
+          : matrix_;
 
-  if (matrix_.getNumRowsInBlock() != grainX ||
-      matrix_.getNumColumnsInBlock() != grainY) {
+  if (matrixNewBlockSize.getNumRowsInBlock() != grainX ||
+      matrixNewBlockSize.getNumColumnsInBlock() != grainY) {
     throw poputil::poplibs_error(
         "Number of rows/columns in block does not match grain sizes "
         "partitioner was created with");
   }
-  if (matrix_.rowIndices.size() != (numX / grainX) + 1) {
+  if (matrixNewBlockSize.rowIndices.size() != (numX / grainX) + 1) {
     throw poputil::poplibs_error(
         "Number of row indices must match number of matrix rows");
   }
 
-  if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
-      matrix_.columnIndices.size()) {
+  if (matrixNewBlockSize.nzValues.size() / matrixNewBlockSize.getBlockSize() !=
+      matrixNewBlockSize.columnIndices.size()) {
     throw poputil::poplibs_error(
         "Number of column indices must match number of non zero values");
   }
 
   // TODO: Avoid this copy, or at least do it in the internal format.
-  auto matrix = matrix_;
+  auto matrix = matrixNewBlockSize;
   canonicalizeCSR(matrix);
 
   // Translate original matrix with typed data to a generic matrix with
@@ -1060,20 +1082,25 @@ template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
   logging::popsparse::trace("Partitioner called with CSC representation");
+  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
+  const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
+                           ? changeCSCBlockSize(matrix_, grainsXAndY)
+                           : matrix_;
 
-  if (matrix_.getNumRowsInBlock() != grainX ||
-      matrix_.getNumColumnsInBlock() != grainY) {
+  if (matrix.getNumRowsInBlock() != grainX ||
+      matrix.getNumColumnsInBlock() != grainY) {
     throw poputil::poplibs_error(
         "Number of rows/columns in block does not match grain sizes "
         "partitioner was created with");
   }
-  if (matrix_.columnIndices.size() != (numY / grainY) + 1) {
+  if (matrix.columnIndices.size() != (numY / grainY) + 1) {
     throw poputil::poplibs_error(
         "Number of column indices must match number of matrix columns");
   }
 
-  if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
-      matrix_.rowIndices.size()) {
+  if (matrix.nzValues.size() / matrix.getBlockSize() !=
+      matrix.rowIndices.size()) {
     throw poputil::poplibs_error(
         "Number of row indices must match number of non zero values");
   }
@@ -1081,22 +1108,27 @@ PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
   // TODO: Transposing this full typed matrix with block size is
   // not as efficient as creating an internal CSC matrix and
   // bucketing this. This is just convenient for the timebeing.
-  return createBuckets(cscToCSR(numX, numY, matrix_));
+  return createBuckets(cscToCSR(numX, numY, matrix));
 }
 
 template <typename T>
 PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
   logging::popsparse::trace("Partitioner called with COO representation");
+  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
+  const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
+                           ? changeCOOBlockSize(matrix_, grainsXAndY)
+                           : matrix_;
 
-  if (matrix_.nzValues.size() / matrix_.getBlockSize() !=
-          matrix_.rowIndices.size() ||
-      matrix_.nzValues.size() / matrix_.getBlockSize() !=
-          matrix_.columnIndices.size()) {
+  if (matrix.nzValues.size() / matrix.getBlockSize() !=
+          matrix.rowIndices.size() ||
+      matrix.nzValues.size() / matrix.getBlockSize() !=
+          matrix.columnIndices.size()) {
     throw poputil::poplibs_error("Number of non-zero values, row indices, and "
                                  "column indices must be equal");
   }
-  return createBuckets(cooToCSR(numX, numY, matrix_));
+  return createBuckets(cooToCSR(numX, numY, matrix));
 }
 
 template <typename T>
@@ -1792,8 +1824,14 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
                        nzValues.begin() + (nzOffset + 1) * blockSize);
   }
 
-  return COOMatrix<T>(std::move(cooNzValues), std::move(cooColumnIndices),
-                      std::move(cooRowIndices), {blockSizeX, blockSizeY});
+  auto matrix =
+      COOMatrix<T>(std::move(cooNzValues), std::move(cooColumnIndices),
+                   std::move(cooRowIndices), {blockSizeX, blockSizeY});
+  std::array<std::size_t, 2> grainXAndY = {blockSizeX, blockSizeY};
+  if (blockDimensions != grainXAndY) {
+    return changeCOOBlockSize(matrix, blockDimensions);
+  }
+  return matrix;
 }
 
 template <typename T>

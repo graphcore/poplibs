@@ -1105,12 +1105,15 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
 // we've decided how blocks should be represented in FullyConnectedParams
 // we'll calculate exactly what we want here.
 static popsolver::Variable
-addNumNonZeroGroups(popsolver::Model &m, const FullyConnectedParams &params) {
+addNumNonZeroGroups(popsolver::Model &m, const FullyConnectedParams &params,
+                    const Type &inputType) {
   const auto &sparsityParams = params.getSparsityParams();
+  const auto blockDimensions =
+      getBlockDimensionsToUse(sparsityParams.blockDimensions, inputType);
   const auto outputBlocks =
-      params.getOutputChannelsPerGroup() / sparsityParams.blockDimensions.at(0);
+      params.getOutputChannelsPerGroup() / blockDimensions.at(0);
   const auto inputBlocks =
-      params.getInputChannelsPerGroup() / sparsityParams.blockDimensions.at(1);
+      params.getInputChannelsPerGroup() / blockDimensions.at(1);
   const auto rGroups =
       params.getNumGroups() *
       unsigned(std::ceil(inputBlocks * outputBlocks * params.getNzRatio()));
@@ -1335,7 +1338,7 @@ createPlan(const PlanningObjective &objective, const Target &target,
   }
 
   // Calculate size of buckets.
-  const auto mRGroups = addNumNonZeroGroups(m, params);
+  const auto mRGroups = addNumNonZeroGroups(m, params, inputType);
   const auto rElemsPerGroup =
       method.grouping.groups * method.grouping.x * method.grouping.y;
   const auto mRGroupsPerBucket = addNumNonZeroGroupsPerBucket(
@@ -1496,9 +1499,11 @@ getCandidateMethods(const Target &target, const Type &inputType,
   std::vector<Method> methods;
 
   const auto &sparsityParams = params.getSparsityParams();
+  const auto blockDimensions =
+      getBlockDimensionsToUse(sparsityParams.blockDimensions, inputType);
 
-  const unsigned xElemsPerBlock = sparsityParams.blockDimensions.at(0);
-  const unsigned yElemsPerBlock = sparsityParams.blockDimensions.at(1);
+  const unsigned xElemsPerBlock = blockDimensions.at(0);
+  const unsigned yElemsPerBlock = blockDimensions.at(1);
   const unsigned elemsPerBlock = xElemsPerBlock * yElemsPerBlock;
 
   if (elemsPerBlock == 1) {

@@ -6,7 +6,6 @@
 
 #include "SparseStorageInternal.hpp"
 #include "popsparse/SparseTensor.hpp"
-
 #include <ostream>
 
 namespace popsparse {
@@ -90,6 +89,12 @@ std::size_t convertRatioNzElemsToAbsolute(std::size_t numGroups,
                                           std::size_t inputSize,
                                           std::size_t outputSize,
                                           double nonZeroRatio);
+
+// Return the block dimensions to use given the original block dimensions
+// and input data type.
+std::array<std::size_t, 2>
+getBlockDimensionsToUse(const std::array<std::size_t, 2> &oldBlockDimensions,
+                        const poplar::Type &dataType);
 
 } // end namespace fullyconnected
 } // end namespace popsparse

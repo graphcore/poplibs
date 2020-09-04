@@ -37,6 +37,85 @@ const popsparse::CSRMatrix<double> csrRef2x3(
      62,   63, 64, 65, 70, 71, 72, 73, 74, 75, 80.0, 81, 82, 83, 84, 85},
     {0, 3, 3, 9, 6, 9, 12, 15}, {0, 12, 24, 42, 48}, {2, 3});
 
+// CSR/CSC/COO representation of matrix for block sparsity with 2x6 blocks
+//    0  1  2  3  4  5     0  0  0  0  0  0   20 21 22 23 24 25
+//    6  7  8  9 10 11     0  0  0  0  0  0   26 27 28 29 30 31
+//
+//    0  0  0  0  0  0    40 41 42 43 44 45    0  0  0  0  0  0
+//    0  0  0  0  0  0    46 47 48 49 50 51    0  0  0  0  0  0
+//
+//   50 51 52 53 54 55    70 71 72 73 74 75   80 81 82 83 84 85
+//   56 57 58 59 60 61    76 77 78 79 80 81   86 87 88 89 90 91
+static const popsparse::CSRMatrix<std::size_t> csrRef2x6(
+    {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 20, 21, 22, 23, 24, 25,
+     26, 27, 28, 29, 30, 31, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+     50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 71, 72, 73, 74, 75,
+     76, 77, 78, 79, 80, 81, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91},
+    {0, 12, 6, 0, 6, 12}, {0, 24, 36, 72}, {2, 6});
+
+static const popsparse::COOMatrix<std::size_t> cooRef2x6(
+    {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 20, 21, 22, 23, 24, 25,
+     26, 27, 28, 29, 30, 31, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+     50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 71, 72, 73, 74, 75,
+     76, 77, 78, 79, 80, 81, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91},
+    {0, 12, 6, 0, 6, 12}, {0, 0, 2, 4, 4, 4}, {2, 6});
+
+static const popsparse::CSRMatrix<std::size_t> csrRef2x6_1x2(
+    {0,  1,  2,  3,  4,  5,  20, 21, 22, 23, 24, 25, 6,  7,  8,  9,  10, 11,
+     26, 27, 28, 29, 30, 31, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+     50, 51, 52, 53, 54, 55, 70, 71, 72, 73, 74, 75, 80, 81, 82, 83, 84, 85,
+     56, 57, 58, 59, 60, 61, 76, 77, 78, 79, 80, 81, 86, 87, 88, 89, 90, 91},
+    {0, 2, 4, 12, 14, 16, 0,  2,  4,  12, 14, 16, 6, 8, 10, 6,  8,  10,
+     0, 2, 4, 6,  8,  10, 12, 14, 16, 0,  2,  4,  6, 8, 10, 12, 14, 16},
+    {0, 12, 24, 30, 36, 54, 72}, {1, 2});
+
+static const popsparse::COOMatrix<std::size_t> cooRef2x6_1x2(
+    {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 20, 21, 22, 23, 24, 25,
+     26, 27, 28, 29, 30, 31, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,
+     50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 70, 71, 72, 73, 74, 75,
+     76, 77, 78, 79, 80, 81, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91},
+    {0, 2, 4, 0, 2, 4, 12, 14, 16, 12, 14, 16, 6,  8,  10, 6,  8,  10,
+     0, 2, 4, 0, 2, 4, 6,  8,  10, 6,  8,  10, 12, 14, 16, 12, 14, 16},
+    {0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3,
+     4, 4, 4, 5, 5, 5, 4, 4, 4, 5, 5, 5, 4, 4, 4, 5, 5, 5},
+    {1, 2});
+
+// CSR/CSC with block size of 4x4
+//  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+// 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+// 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47
+// 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63
+static const popsparse::CSRMatrix<std::size_t>
+    csrRef4x4({0,  1,  2,  3,  16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
+               4,  5,  6,  7,  20, 21, 22, 23, 36, 37, 38, 39, 52, 53, 54, 55,
+               8,  9,  10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59,
+               12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47, 60, 61, 62, 63},
+              {0, 4, 8, 12}, {0, 64}, {4, 4});
+
+static const popsparse::CSRMatrix<std::size_t> csrRef4x4_2x2(
+    {0,  1,  16, 17, 2,  3,  18, 19, 4,  5,  20, 21, 6,  7,  22, 23,
+     8,  9,  24, 25, 10, 11, 26, 27, 12, 13, 28, 29, 14, 15, 30, 31,
+     32, 33, 48, 49, 34, 35, 50, 51, 36, 37, 52, 53, 38, 39, 54, 55,
+     40, 41, 56, 57, 42, 43, 58, 59, 44, 45, 60, 61, 46, 47, 62, 63},
+    {0, 2, 4, 6, 8, 10, 12, 14, 0, 2, 4, 6, 8, 10, 12, 14}, {0, 32, 64},
+    {2, 2});
+
+static const popsparse::COOMatrix<std::size_t>
+    cooRef4x4({0,  1,  2,  3,  16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
+               4,  5,  6,  7,  20, 21, 22, 23, 36, 37, 38, 39, 52, 53, 54, 55,
+               8,  9,  10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59,
+               12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47, 60, 61, 62, 63},
+              {0, 4, 8, 12}, {0, 0, 0, 0}, {4, 4});
+
+static const popsparse::COOMatrix<std::size_t> cooRef4x4_2x2(
+
+    {0,  1,  16, 17, 2,  3,  18, 19, 32, 33, 48, 49, 34, 35, 50, 51,
+     4,  5,  20, 21, 6,  7,  22, 23, 36, 37, 52, 53, 38, 39, 54, 55,
+     8,  9,  24, 25, 10, 11, 26, 27, 40, 41, 56, 57, 42, 43, 58, 59,
+     12, 13, 28, 29, 14, 15, 30, 31, 44, 45, 60, 61, 46, 47, 62, 63},
+    {0, 2, 0, 2, 4, 6, 4, 6, 8, 10, 8, 10, 12, 14, 12, 14},
+    {0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2, 0, 0, 2, 2}, {2, 2});
+
 static const popsparse::CSRMatrix<std::size_t>
     csrRefS({10, 20, 30, 40, 50, 60, 70, 80}, {0, 1, 1, 3, 2, 3, 4, 5},
             {0, 2, 4, 7, 8});
@@ -237,4 +316,131 @@ BOOST_AUTO_TEST_CASE(ConvertCooToCsr) {
   BOOST_CHECK_EQUAL_COLLECTIONS(
       csrRef.columnIndices.begin(), csrRef.columnIndices.end(),
       csr.columnIndices.begin(), csr.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCsrBlockSize2x6) {
+  auto csr = popsparse::changeCSRBlockSize(csrRef2x6, {1, 2});
+  BOOST_CHECK_EQUAL_COLLECTIONS(csrRef2x6_1x2.nzValues.begin(),
+                                csrRef2x6_1x2.nzValues.end(),
+                                csr.nzValues.begin(), csr.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(csrRef2x6_1x2.rowIndices.begin(),
+                                csrRef2x6_1x2.rowIndices.end(),
+                                csr.rowIndices.begin(), csr.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      csrRef2x6_1x2.columnIndices.begin(), csrRef2x6_1x2.columnIndices.end(),
+      csr.columnIndices.begin(), csr.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCsrBlockSize4x4) {
+  auto csr = popsparse::changeCSRBlockSize(csrRef4x4, {2, 2});
+  BOOST_CHECK_EQUAL_COLLECTIONS(csrRef4x4_2x2.nzValues.begin(),
+                                csrRef4x4_2x2.nzValues.end(),
+                                csr.nzValues.begin(), csr.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(csrRef4x4_2x2.rowIndices.begin(),
+                                csrRef4x4_2x2.rowIndices.end(),
+                                csr.rowIndices.begin(), csr.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      csrRef4x4_2x2.columnIndices.begin(), csrRef4x4_2x2.columnIndices.end(),
+      csr.columnIndices.begin(), csr.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCscBlockSize4x4) {
+  auto csc4x4 = popsparse::csrToCSC(4, 16, csrRef4x4);
+  auto csc4x4_2x2 = popsparse::csrToCSC(4, 16, csrRef4x4_2x2);
+  auto csc = popsparse::changeCSCBlockSize(csc4x4, {2, 2});
+  BOOST_CHECK_EQUAL_COLLECTIONS(csc4x4_2x2.nzValues.begin(),
+                                csc4x4_2x2.nzValues.end(), csc.nzValues.begin(),
+                                csc.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(csc4x4_2x2.rowIndices.begin(),
+                                csc4x4_2x2.rowIndices.end(),
+                                csc.rowIndices.begin(), csc.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      csc4x4_2x2.columnIndices.begin(), csc4x4_2x2.columnIndices.end(),
+      csc.columnIndices.begin(), csc.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCscBlockSize2x6) {
+  auto csc2x6 = popsparse::csrToCSC(6, 18, csrRef2x6);
+  auto csc2x6_1x2 = popsparse::csrToCSC(6, 18, csrRef2x6_1x2);
+  auto csc = popsparse::changeCSCBlockSize(csc2x6, {1, 2});
+  BOOST_CHECK_EQUAL_COLLECTIONS(csc2x6_1x2.nzValues.begin(),
+                                csc2x6_1x2.nzValues.end(), csc.nzValues.begin(),
+                                csc.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(csc2x6_1x2.rowIndices.begin(),
+                                csc2x6_1x2.rowIndices.end(),
+                                csc.rowIndices.begin(), csc.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      csc2x6_1x2.columnIndices.begin(), csc2x6_1x2.columnIndices.end(),
+      csc.columnIndices.begin(), csc.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCooBlockSize4x4) {
+  auto coo = popsparse::changeCOOBlockSize(cooRef4x4, {2, 2});
+  BOOST_CHECK_EQUAL_COLLECTIONS(cooRef4x4_2x2.nzValues.begin(),
+                                cooRef4x4_2x2.nzValues.end(),
+                                coo.nzValues.begin(), coo.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(cooRef4x4_2x2.rowIndices.begin(),
+                                cooRef4x4_2x2.rowIndices.end(),
+                                coo.rowIndices.begin(), coo.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef4x4_2x2.columnIndices.begin(), cooRef4x4_2x2.columnIndices.end(),
+      coo.columnIndices.begin(), coo.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCooBlockSize2x6) {
+  auto coo = popsparse::changeCOOBlockSize(cooRef2x6, {1, 2});
+  BOOST_CHECK_EQUAL_COLLECTIONS(cooRef2x6_1x2.nzValues.begin(),
+                                cooRef2x6_1x2.nzValues.end(),
+                                coo.nzValues.begin(), coo.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(cooRef2x6_1x2.rowIndices.begin(),
+                                cooRef2x6_1x2.rowIndices.end(),
+                                coo.rowIndices.begin(), coo.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef2x6_1x2.columnIndices.begin(), cooRef2x6_1x2.columnIndices.end(),
+      coo.columnIndices.begin(), coo.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCooBlockSize2x6DoubleChange) {
+  auto coo = popsparse::changeCOOBlockSize(cooRef2x6, {1, 2});
+  auto cooOrig = popsparse::changeCOOBlockSize(coo, {2, 6});
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef2x6.nzValues.begin(), cooRef2x6.nzValues.end(),
+      cooOrig.nzValues.begin(), cooOrig.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef2x6.rowIndices.begin(), cooRef2x6.rowIndices.end(),
+      cooOrig.rowIndices.begin(), cooOrig.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef2x6.columnIndices.begin(), cooRef2x6.columnIndices.end(),
+      cooOrig.columnIndices.begin(), cooOrig.columnIndices.end());
+}
+
+BOOST_AUTO_TEST_CASE(ChangeCooBlockSize4x4DoubleChange) {
+  auto coo = popsparse::changeCOOBlockSize(cooRef4x4, {2, 2});
+  auto cooOrig = popsparse::changeCOOBlockSize(coo, {4, 4});
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef4x4.nzValues.begin(), cooRef4x4.nzValues.end(),
+      cooOrig.nzValues.begin(), cooOrig.nzValues.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef4x4.rowIndices.begin(), cooRef4x4.rowIndices.end(),
+      cooOrig.rowIndices.begin(), cooOrig.rowIndices.end());
+
+  BOOST_CHECK_EQUAL_COLLECTIONS(
+      cooRef4x4.columnIndices.begin(), cooRef4x4.columnIndices.end(),
+      cooOrig.columnIndices.begin(), cooOrig.columnIndices.end());
 }

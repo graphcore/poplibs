@@ -12,6 +12,7 @@
 #include "poplar/Target.hpp"
 #include "poplar/Type.hpp"
 #include "popsparse/SparseStorageFormats.hpp"
+#include <array>
 #include <string>
 #include <vector>
 
@@ -52,6 +53,10 @@ class PartitionerImpl {
 
   // grain size of Z dimension
   std::size_t grainZ;
+
+  // original block dimensions. This may be different from grainX and grainY
+  // if using different block dimensions results in a faster plan
+  std::array<std::size_t, 2> blockDimensions;
 
   // The splits the planner created for X dimension
   std::vector<std::size_t> xSplits;
@@ -112,6 +117,7 @@ class PartitionerImpl {
 public:
   PartitionerImpl(const std::vector<std::size_t> &dimensions,
                   const std::vector<std::size_t> &grainSizes,
+                  const std::array<std::size_t, 2> &blockDimensions,
                   const std::vector<std::size_t> &xSplits_,
                   const std::vector<std::size_t> &ySplits_,
                   const std::vector<std::size_t> &zSplits_,

@@ -11,10 +11,7 @@ namespace popsparse {
 
 struct Block {
   // Number of columns in a block
-  std::size_t getNumColumnsInBlock() const {
-    return blockDimensions[1];
-    ;
-  }
+  std::size_t getNumColumnsInBlock() const { return blockDimensions[1]; }
   // Number of rows in a block
   std::size_t getNumRowsInBlock() const {
     return blockDimensions[0];
@@ -23,6 +20,11 @@ struct Block {
   // Block size
   std::size_t getBlockSize() const {
     return blockDimensions[0] * blockDimensions[1];
+  }
+
+  // Block dimensions
+  std::array<std::size_t, 2> getBlockDimensions() const {
+    return blockDimensions;
   }
 
 protected:

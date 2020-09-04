@@ -305,5 +305,27 @@ std::size_t convertRatioNzElemsToAbsolute(std::size_t numGroups,
   return numNonZeroElems;
 }
 
+std::array<std::size_t, 2>
+getBlockDimensionsToUse(const std::array<std::size_t, 2> &oldBlockDimensions,
+                        const Type &dataType) {
+  // These table must be updated depending on codelets supported
+  const std::vector<std::size_t> halfBlocksSupported = {4, 8, 16};
+  const std::vector<std::size_t> floatBlocksSupported = {4, 8};
+  if (oldBlockDimensions.at(0) != oldBlockDimensions.at(1)) {
+    return oldBlockDimensions;
+  }
+
+  // find largest value that is exactly divisible
+  const auto &ref =
+      dataType == FLOAT ? floatBlocksSupported : halfBlocksSupported;
+  auto rit = std::find_if(ref.rbegin(), ref.rend(), [&](std::size_t a) {
+    return oldBlockDimensions.at(0) % a == 0;
+  });
+  if (rit != ref.rend()) {
+    return {*rit, *rit};
+  }
+  return oldBlockDimensions;
+}
+
 } // end namespace fullyconnected
 } // end namespace popsparse
