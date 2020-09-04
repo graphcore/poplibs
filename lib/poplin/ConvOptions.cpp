@@ -120,8 +120,6 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
       {"enableMultiStageReduce",
        OptionHandler::createWithBool(enableMultiStageReduce)},
       {"enableFastReduce", OptionHandler::createWithBool(enableFastReduce)},
-      {"enableSingleInputReduce",
-       OptionHandler::createWithBool(enableSingleInputReduce)},
       {"remapOutputTensor", OptionHandler::createWithBool(remapOutputTensor)},
       {"enableConvDithering",
        OptionHandler::createWithBool(enableConvDithering)},

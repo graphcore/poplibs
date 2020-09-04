@@ -30,8 +30,8 @@ namespace poplin {
 
 static void
 reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
-       bool enableFastReduce, bool enableSingleInputReduce,
-       unsigned thisStageRows, Tensor partials, Tensor reduced,
+       bool enableFastReduce, unsigned thisStageRows, Tensor partials,
+       Tensor reduced,
        const std::vector<std::vector<Interval>> &reduceVertexMapping,
        ComputeSet reduceCS) {
   const auto &target = graph.getTarget();
@@ -78,10 +78,8 @@ reduce(Graph &graph, std::map<unsigned, unsigned> tileToRow,
                                         bytesPerPartialsElement;
     bool singleInputReduceIsPossible =
         ((concatFlatReduced.numElements() % partialsGrain) == 0);
-    bool singleInputReducePartialsSize =
-        enableSingleInputReduce &&
-        checkPartialsSizeForSingleInputReduce(exchangedPartialsBytes,
-                                              memoryElementOffsets);
+    bool singleInputReducePartialsSize = checkPartialsSizeForSingleInputReduce(
+        exchangedPartialsBytes, memoryElementOffsets);
     bool useSingleInputReduce =
         singleInputReduceIsPossible &&
         (enableFastReduce || singleInputReducePartialsSize);
@@ -128,8 +126,8 @@ static Tensor partialGroupedReduce(
     Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,
     const std::vector<std::vector<Interval>> &tileGroupRegions,
     std::map<unsigned, unsigned> tileToRow, bool enableFastReduce,
-    bool enableSingleInputReduce, const Tensor &partials, unsigned outDepth,
-    const Type &resultType, ComputeSet cs, const std::string &debugPrefix) {
+    const Tensor &partials, unsigned outDepth, const Type &resultType,
+    ComputeSet cs, const std::string &debugPrefix) {
   const auto partialsDepth = partials.dim(0);
   assert(partialsDepth >= outDepth);
   auto outDims = partials.shape();
@@ -169,21 +167,22 @@ static Tensor partialGroupedReduce(
     graph.setTileMapping(out[i], outSubMapping);
     logging::poplin::debug("    Reduction section with Depth {}, Height {}.",
                            end - begin, out[i].numElements());
-    reduce(graph, tileToRow, enableFastReduce, enableSingleInputReduce,
-           end - begin, partials.slice(begin, end), out[i], outSubMapping, cs);
+    reduce(graph, tileToRow, enableFastReduce, end - begin,
+           partials.slice(begin, end), out[i], outSubMapping, cs);
   }
   return out;
 }
 
-static Tensor groupedReduce(
-    Graph &graph, const std::vector<std::vector<unsigned>> &tileGroups,
-    const std::vector<std::vector<Interval>> &tileGroupRegions,
-    std::map<unsigned, unsigned> tileToRow, bool enableFastReduce,
-    bool enableSingleInputReduce, const Tensor &partials,
-    const Type &resultType, ComputeSet cs, const std::string &debugPrefix) {
+static Tensor
+groupedReduce(Graph &graph,
+              const std::vector<std::vector<unsigned>> &tileGroups,
+              const std::vector<std::vector<Interval>> &tileGroupRegions,
+              std::map<unsigned, unsigned> tileToRow, bool enableFastReduce,
+              const Tensor &partials, const Type &resultType, ComputeSet cs,
+              const std::string &debugPrefix) {
   return partialGroupedReduce(graph, tileGroups, tileGroupRegions, tileToRow,
-                              enableFastReduce, enableSingleInputReduce,
-                              partials, 1, resultType, cs, debugPrefix)
+                              enableFastReduce, partials, 1, resultType, cs,
+                              debugPrefix)
       .reshape(partials[0].shape());
 }
 
@@ -207,16 +206,15 @@ static Tensor multiStageGroupedReduce(
     std::string stepDebugPrefix = debugPrefix;
     if (plan.size() > 1)
       stepDebugPrefix += "/Stage" + std::to_string(i);
-    partials = partialGroupedReduce(
-        graph, tileGroups, tileGroupRegions, tileToRow,
-        options.enableFastReduce, options.enableSingleInputReduce, partials,
-        plan[i], partialsType, computeSets[i], stepDebugPrefix);
+    partials =
+        partialGroupedReduce(graph, tileGroups, tileGroupRegions, tileToRow,
+                             options.enableFastReduce, partials, plan[i],
+                             partialsType, computeSets[i], stepDebugPrefix);
   }
   logging::poplin::debug("  Last stage:");
-  auto reduced = groupedReduce(
-      graph, tileGroups, tileGroupRegions, tileToRow, options.enableFastReduce,
-      options.enableSingleInputReduce, partials, resultType,
-      computeSets[plan.size()], debugPrefix);
+  auto reduced = groupedReduce(graph, tileGroups, tileGroupRegions, tileToRow,
+                               options.enableFastReduce, partials, resultType,
+                               computeSets[plan.size()], debugPrefix);
   return reduced;
 }
 

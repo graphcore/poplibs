@@ -809,7 +809,6 @@ add_multitarget_test(
          --input-type=half
          --output-type=half
          --enable-fast-reduce=true
-         --enable-single-input-reduce=true
          )
 
 # Single conv layer tests

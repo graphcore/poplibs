@@ -54,9 +54,6 @@ public:
   // Enable a faster reduction vertex, but at the cost of partials being stored
   // in one contiguous block in interleaved memory
   bool enableFastReduce = false;
-  // Disable the use of the faster singleInputReduce vertex while performance
-  // is investigated
-  bool enableSingleInputReduce = true;
   // Remap output tensor if its layout is poor
   bool remapOutputTensor = true;
   // Use the ConvParams to pseudo-randomly select a start tile and direction
@@ -76,8 +73,8 @@ private:
       &ConvOptions::planConstraintsOutputFilename,
       &ConvOptions::enableAmpHalfEnginesPlan,
       &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
-      &ConvOptions::enableSingleInputReduce, &ConvOptions::remapOutputTensor,
-      &ConvOptions::enableConvDithering, &ConvOptions::disableTransformations);
+      &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering,
+      &ConvOptions::disableTransformations);
 
 public:
   bool operator<(const ConvOptions &other) const {

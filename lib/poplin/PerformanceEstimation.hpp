@@ -1024,14 +1024,15 @@ inline std::uint64_t estimateCastCycles(unsigned outputSize,
   return (cycles + 26) * numWorkers;
 }
 
-inline std::uint64_t estimateConvReduceCycles(
-    unsigned outputSize, unsigned reductionDepth, unsigned inChanSerialSplit,
-    bool floatOutput, bool floatPartials, unsigned numWorkers,
-    unsigned dataPathWidth, unsigned partialsVectorWidth,
-    unsigned outputVectorWidth,
-    const std::vector<unsigned> &memoryElementOffsets,
-    unsigned bytesPerPartialsElement, bool enableMultiStageReduce,
-    bool enableFastReduce, bool enableSingleInputReduce) {
+inline std::uint64_t
+estimateConvReduceCycles(unsigned outputSize, unsigned reductionDepth,
+                         unsigned inChanSerialSplit, bool floatOutput,
+                         bool floatPartials, unsigned numWorkers,
+                         unsigned dataPathWidth, unsigned partialsVectorWidth,
+                         unsigned outputVectorWidth,
+                         const std::vector<unsigned> &memoryElementOffsets,
+                         unsigned bytesPerPartialsElement,
+                         bool enableMultiStageReduce, bool enableFastReduce) {
   using poplibs_support::ceildiv;
 
   if (reductionDepth == 0)
@@ -1068,10 +1069,8 @@ inline std::uint64_t estimateConvReduceCycles(
         (depthThisStage - 1) * outputSizeThisStage * bytesPerPartialsElement;
     bool singleInputReduceIsPossible =
         (outputSizeThisStage % widthForFastReduce) == 0;
-    bool singleInputReducePartialsSize =
-        enableSingleInputReduce &&
-        checkPartialsSizeForSingleInputReduce(exchangedPartialsBytes,
-                                              memoryElementOffsets);
+    bool singleInputReducePartialsSize = checkPartialsSizeForSingleInputReduce(
+        exchangedPartialsBytes, memoryElementOffsets);
     bool useSingleInputReduce =
         singleInputReduceIsPossible &&
         (enableFastReduce || singleInputReducePartialsSize);
@@ -1090,10 +1089,8 @@ inline std::uint64_t estimateConvReduceCycles(
         (remainingDepth - 1) * outputSizeThisStage * bytesPerPartialsElement;
     bool singleInputReduceIsPossible =
         (outputSizeThisStage % widthForFastReduce) == 0;
-    bool singleInputReducePartialsSize =
-        enableSingleInputReduce &&
-        checkPartialsSizeForSingleInputReduce(exchangedPartialsBytes,
-                                              memoryElementOffsets);
+    bool singleInputReducePartialsSize = checkPartialsSizeForSingleInputReduce(
+        exchangedPartialsBytes, memoryElementOffsets);
     bool useSingleInputReduce =
         singleInputReduceIsPossible &&
         (enableFastReduce || singleInputReducePartialsSize);

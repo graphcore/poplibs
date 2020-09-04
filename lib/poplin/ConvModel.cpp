@@ -1051,8 +1051,7 @@ addReduceCycleEstimate(popsolver::Model &m,
               vars[0], vars[1], vars[2], floatOutput, floatPartials, numWorkers,
               dataPathWidth, partialsVectorWidth, outputVectorWidth,
               memoryElementOffsets, bytesPerPartialsElement,
-              options.enableMultiStageReduce, options.enableFastReduce,
-              options.enableSingleInputReduce)};
+              options.enableMultiStageReduce, options.enableFastReduce)};
         });
     cycleSumOperands.push_back(cycleEstimate);
     // Temporary memory for the reduction will be given by the number of

@@ -94,7 +94,6 @@ int main(int argc, char **argv) {
   std::string planConstraintsFile;
   bool remapOutputTensor;
   bool enableFastReduce;
-  bool enableSingleInputReduce;
 
   boost::optional<std::string> jsonProfileOut;
 
@@ -159,9 +158,6 @@ int main(int argc, char **argv) {
      "the estimated proportion of memory available to perform this operation")
     ("enable-fast-reduce",
      po::value<bool>(&enableFastReduce)->default_value(false),
-     "enable a faster reduction vertex")
-    ("enable-single-input-reduce",
-     po::value<bool>(&enableSingleInputReduce)->default_value(true),
      "enable a faster reduction vertex")
     ("report-plan", "Show plan info")
     ("show-execution-steps", "Show execution steps (requires profiling)")
@@ -284,8 +280,6 @@ int main(int argc, char **argv) {
               std::to_string(availableMemoryProportion));
   }
   mmOpt.set("enableFastReduce", enableFastReduce ? "true" : "false");
-  mmOpt.set("enableSingleInputReduce",
-            enableSingleInputReduce ? "true" : "false");
 
   if (reportPlan) {
     matMulGroupedReportPlan(std::cout, graph, inputType, outputType, {g, m, k},
