@@ -1021,8 +1021,8 @@ findOverflowDistance(const std::vector<PNBucket> &pnBuckets,
   return result;
 }
 
-// Check that matrix dimensions match with which partitioner dimeb 
-static void 
+// Check that matrix dimensions match with which partitioner was construted
+static void
 checkBlockDimensionsMatch(std::array<std::size_t, 2> matrixDimensions,
                           std::array<std::size_t, 2> originalDimensions) {
   if (matrixDimensions != originalDimensions) {
