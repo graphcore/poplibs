@@ -5,6 +5,7 @@
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Lstm.hpp>
 #include <poplibs_test/NonLinearity.hpp>
+#include <unordered_map>
 
 // Fwd state array indices
 #define LSTM_FWD_STATE_FORGET_GATE 2
@@ -32,7 +33,7 @@ static void processBasicLstmUnit(const Array2dRef prevOutput,
                                  const Array3dRef weightsInput,
                                  const Array3dRef weightsOutput,
                                  const Array2dRef biases, Array2dRef output,
-                                 enum BasicLstmCellUnit lstmUnit,
+                                 unsigned lstmUnitOffset,
                                  popnn::NonLinearityType nonLinearityType) {
   const auto batchSize = prevOutput.shape()[0];
   const auto outputSize = prevOutput.shape()[1];
@@ -41,8 +42,8 @@ static void processBasicLstmUnit(const Array2dRef prevOutput,
    * 1) part which weighs only the previous output
    * 2) part which weighs only the input
    */
-  Array2d weightsOutputUnit = weightsOutput[lstmUnit];
-  Array2d weightsInputUnit = weightsInput[lstmUnit];
+  Array2d weightsOutputUnit = weightsOutput[lstmUnitOffset];
+  Array2d weightsInputUnit = weightsInput[lstmUnitOffset];
 
   gemm::generalMatrixMultiply(prevOutput, weightsOutputUnit, output, output,
                               1.0, 0, false, false);
@@ -51,7 +52,7 @@ static void processBasicLstmUnit(const Array2dRef prevOutput,
   /* add bias */
   for (auto b = 0U; b != batchSize; ++b) {
     for (auto i = 0U; i != outputSize; ++i) {
-      output[b][i] += biases[lstmUnit][i];
+      output[b][i] += biases[lstmUnitOffset][i];
     }
   }
 
@@ -59,11 +60,23 @@ static void processBasicLstmUnit(const Array2dRef prevOutput,
   nonLinearity(nonLinearityType, output);
 }
 
+static std::unordered_map<BasicLstmCellUnit, unsigned>
+getCellMapping(const std::vector<BasicLstmCellUnit> &cellOrder) {
+  // build a mapping of the order that the gates are stored in.
+  std::unordered_map<BasicLstmCellUnit, unsigned> cellMapping;
+  for (unsigned i = 0; i < cellOrder.size(); ++i) {
+    auto gate = cellOrder.at(i);
+    cellMapping.insert(std::make_pair(gate, i));
+  }
+
+  return cellMapping;
+}
+
 void poplibs_test::lstm::basicLstmCellForwardPass(
     const Array3dRef input, const Array2dRef biases,
     const Array2dRef prevOutput, const Array3dRef weightsInput,
-    const Array3dRef weightsOutput, Array2dRef prevCellState,
-    Array4dRef state) {
+    const Array3dRef weightsOutput, Array2dRef prevCellState, Array4dRef state,
+    const std::vector<BasicLstmCellUnit> &cellOrder) {
   const auto sequenceSize = state.shape()[1];
   const auto batchSize = state.shape()[2];
   const auto outputSize = state.shape()[3];
@@ -84,6 +97,8 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
   assert(prevOutput.shape()[0] == batchSize);
   assert(prevOutput.shape()[1] == outputSize);
 
+  auto cellMapping = getCellMapping(cellOrder);
+
   for (auto s = 0U; s != sequenceSize; ++s) {
     Array2d ysm1 = s == 0 ? state[LSTM_FWD_STATE_ACTS_IDX][s]
                           : state[LSTM_FWD_STATE_ACTS_IDX][s - 1];
@@ -97,7 +112,7 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
     Array2d forgetGate(boost::extents[batchSize][outputSize]);
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, forgetGate,
-                         BASIC_LSTM_CELL_FORGET_GATE,
+                         cellMapping.at(BASIC_LSTM_CELL_FORGET_GATE),
                          popnn::NonLinearityType::SIGMOID);
     state[LSTM_FWD_STATE_FORGET_GATE][s] = forgetGate;
 
@@ -105,22 +120,23 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
     Array2d inputGate(boost::extents[batchSize][outputSize]);
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, inputGate,
-                         BASIC_LSTM_CELL_INPUT_GATE,
+                         cellMapping.at(BASIC_LSTM_CELL_INPUT_GATE),
                          popnn::NonLinearityType::SIGMOID);
     state[LSTM_FWD_STATE_INPUT_GATE][s] = inputGate;
 
     /* new candidate contribution to this cell */
     Array2d candidate(boost::extents[batchSize][outputSize]);
-    processBasicLstmUnit(
-        prevOutputThisStep, inputThisStep, weightsInput, weightsOutput, biases,
-        candidate, BASIC_LSTM_CELL_CANDIDATE, popnn::NonLinearityType::TANH);
+    processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
+                         weightsOutput, biases, candidate,
+                         cellMapping.at(BASIC_LSTM_CELL_CANDIDATE),
+                         popnn::NonLinearityType::TANH);
     state[LSTM_FWD_STATE_CAND_TANH][s] = candidate;
 
     /* output gate */
     Array2d outputGate(boost::extents[batchSize][outputSize]);
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, outputGate,
-                         BASIC_LSTM_CELL_OUTPUT_GATE,
+                         cellMapping.at(BASIC_LSTM_CELL_OUTPUT_GATE),
                          popnn::NonLinearityType::SIGMOID);
     state[LSTM_FWD_STATE_OUTPUT_GATE][s] = outputGate;
 
@@ -152,7 +168,8 @@ static void computeGradients(const Array2dRef weightIn,
 void poplibs_test::lstm::basicLstmCellBackwardPass(
     const Array3dRef weightsInput, const Array3dRef weightsOutput,
     const Array3dRef gradsNextLayer, const Array2dRef prevCellState,
-    const Array4dRef fwdState, Array4dRef bwdState, Array3dRef gradsPrevLayer) {
+    const Array4dRef fwdState, Array4dRef bwdState, Array3dRef gradsPrevLayer,
+    const std::vector<BasicLstmCellUnit> &cellOrder) {
   const auto sequenceSize = fwdState.shape()[1];
   const auto batchSize = fwdState.shape()[2];
   const auto outputSize = fwdState.shape()[3];
@@ -179,6 +196,8 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
   assert(gradsNextLayer.shape()[2] == outputSize);
   assert(gradsPrevLayer.shape()[0] == sequenceSize);
   assert(gradsPrevLayer.shape()[1] == batchSize);
+
+  auto cellMapping = getCellMapping(cellOrder);
 
   // gradient of cell state for this step
   Array2d gradCellState(boost::extents[batchSize][outputSize]);
@@ -253,20 +272,22 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
 
     Array2d gradIn(boost::extents[batchSize][inputSize]);
     ;
-    Array2d weightsInUnit = weightsInput[BASIC_LSTM_CELL_FORGET_GATE];
-    Array2d weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_FORGET_GATE];
+    Array2d weightsInUnit =
+        weightsInput[cellMapping.at(BASIC_LSTM_CELL_FORGET_GATE)];
+    Array2d weightsOutUnit =
+        weightsOutput[cellMapping.at(BASIC_LSTM_CELL_FORGET_GATE)];
     computeGradients(weightsInUnit, weightsOutUnit, gradAtForgetGate, gradIn,
                      gradOutput, false);
-    weightsInUnit = weightsInput[BASIC_LSTM_CELL_INPUT_GATE];
-    weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_INPUT_GATE];
+    weightsInUnit = weightsInput[cellMapping.at(BASIC_LSTM_CELL_INPUT_GATE)];
+    weightsOutUnit = weightsOutput[cellMapping.at(BASIC_LSTM_CELL_INPUT_GATE)];
     computeGradients(weightsInUnit, weightsOutUnit, gradAtInpGate, gradIn,
                      gradOutput, true);
-    weightsInUnit = weightsInput[BASIC_LSTM_CELL_OUTPUT_GATE];
-    weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_OUTPUT_GATE];
+    weightsInUnit = weightsInput[cellMapping.at(BASIC_LSTM_CELL_OUTPUT_GATE)];
+    weightsOutUnit = weightsOutput[cellMapping.at(BASIC_LSTM_CELL_OUTPUT_GATE)];
     computeGradients(weightsInUnit, weightsOutUnit, gradAtOutGate, gradIn,
                      gradOutput, true);
-    weightsInUnit = weightsInput[BASIC_LSTM_CELL_CANDIDATE];
-    weightsOutUnit = weightsOutput[BASIC_LSTM_CELL_CANDIDATE];
+    weightsInUnit = weightsInput[cellMapping.at(BASIC_LSTM_CELL_CANDIDATE)];
+    weightsOutUnit = weightsOutput[cellMapping.at(BASIC_LSTM_CELL_CANDIDATE)];
     computeGradients(weightsInUnit, weightsOutUnit, gradAtCand, gradIn,
                      gradOutput, true);
 
@@ -284,7 +305,7 @@ void poplibs_test::lstm::basicLstmCellParamUpdate(
     const Array3dRef prevLayerActs, const Array4dRef fwdState,
     const Array2dRef outputActsInit, const Array4dRef bwdState,
     Array3dRef weightsInputDeltas, Array3dRef weightsOutputDeltas,
-    Array2dRef biasDeltas) {
+    Array2dRef biasDeltas, const std::vector<BasicLstmCellUnit> &cellOrder) {
   const auto sequenceSize = prevLayerActs.shape()[0];
   const auto batchSize = prevLayerActs.shape()[1];
   const auto inputSize = prevLayerActs.shape()[2];
@@ -307,6 +328,8 @@ void poplibs_test::lstm::basicLstmCellParamUpdate(
   assert(weightsOutputDeltas.shape()[2] == outputSize);
   assert(biasDeltas.shape()[0] == BASIC_LSTM_CELL_NUM_UNITS);
   assert(biasDeltas.shape()[1] == outputSize);
+
+  auto cellMapping = getCellMapping(cellOrder);
 
   for (auto it = weightsInputDeltas.data(),
             end = weightsInputDeltas.data() + weightsInputDeltas.num_elements();
@@ -334,15 +357,18 @@ void poplibs_test::lstm::basicLstmCellParamUpdate(
       outActs = fwdState[LSTM_FWD_STATE_ACTS_IDX][s - 1];
     }
     Array2d inActs = prevLayerActs[s];
-    for (auto unit = 0; unit != BASIC_LSTM_CELL_NUM_UNITS; ++unit) {
-      Array2d grad = bwdState[unit][s];
+    for (auto i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
+      const auto unit = static_cast<BasicLstmCellUnit>(i);
+
+      Array2d grad = bwdState[i][s];
       Array2d wInputDeltasUnit(boost::extents[inputSize][outputSize]);
 
       gemm::generalMatrixMultiply(inActs, grad, wInputDeltasUnit,
                                   wInputDeltasUnit, 1.0, 0, true, false);
       for (auto ic = 0u; ic != inputSize; ++ic) {
         for (auto oc = 0u; oc != outputSize; ++oc) {
-          weightsInputDeltas[unit][ic][oc] += wInputDeltasUnit[ic][oc];
+          weightsInputDeltas[cellMapping.at(unit)][ic][oc] +=
+              wInputDeltasUnit[ic][oc];
         }
       }
       Array2d wOutputDeltasUnit(boost::extents[outputSize][outputSize]);
@@ -351,13 +377,14 @@ void poplibs_test::lstm::basicLstmCellParamUpdate(
                                   wOutputDeltasUnit, 1.0, 0, true, false);
       for (auto oc1 = 0u; oc1 != outputSize; ++oc1) {
         for (auto oc2 = 0u; oc2 != outputSize; ++oc2) {
-          weightsOutputDeltas[unit][oc1][oc2] += wOutputDeltasUnit[oc1][oc2];
+          weightsOutputDeltas[cellMapping.at(unit)][oc1][oc2] +=
+              wOutputDeltasUnit[oc1][oc2];
         }
       }
 
       for (auto oc = 0u; oc != outputSize; ++oc) {
         for (auto b = 0u; b != batchSize; ++b) {
-          biasDeltas[unit][oc] += grad[b][oc];
+          biasDeltas[cellMapping.at(unit)][oc] += grad[b][oc];
         }
       }
     }

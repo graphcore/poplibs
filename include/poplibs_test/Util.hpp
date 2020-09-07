@@ -378,7 +378,9 @@ std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
   return os << '}';
 }
 
-template <class T> inline T readInteger(std::istream &in) {
+namespace detail {
+
+template <class T> inline T readValue(std::istream &in) {
   std::string number;
   auto c = in.peek();
   if (!std::isdigit(c) && c != '-')
@@ -388,6 +390,19 @@ template <class T> inline T readInteger(std::istream &in) {
   } while (std::isdigit(in.peek()));
   return boost::lexical_cast<T>(number);
 }
+
+template <> inline std::string readValue<std::string>(std::istream &in) {
+  std::string value;
+  auto c = in.peek();
+  if (!std::isalpha(c))
+    throw std::runtime_error("Invalid shape; expected character");
+  do {
+    value += in.get();
+  } while (std::isalpha(in.peek()));
+  return value;
+}
+
+} // namespace detail
 
 template <class T>
 std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
@@ -400,7 +415,7 @@ std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
       in.ignore();
     } else {
       while (true) {
-        s.val.push_back(readInteger<T>(in));
+        s.val.push_back(detail::readValue<T>(in));
         skipSpaces(in);
         c = in.get();
         if (c == '}') {
@@ -416,7 +431,7 @@ std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
       throw std::runtime_error("Invalid shape; expected `{' or digit");
     }
     s.canBeBroadcast = true;
-    s.val.push_back(readInteger<T>(in));
+    s.val.push_back(detail::readValue<T>(in));
   }
   return in;
 }

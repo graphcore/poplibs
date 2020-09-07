@@ -570,9 +570,73 @@ add_multitarget_test(
                  --nonlinearity-type sigmoid
                  --apply-feedforward-weights)
 
-foreach(PARTIALS_TYPE half float)
+foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
+        foreach(PARTIALS_TYPE half float)
+                add_multitarget_test(
+                        NAME basic_lstm_40x4x38_seq_2_half_data_${PARTIALS_TYPE}_partials_${CELL_ORDER}
+                        COMMAND lstm_layer
+                                --input-size 40
+                                --batch-size=4
+                                --output-size 38
+                                --tiles-per-ipu=16
+                                --phase all
+                                --sequence-size 2
+                                --partials-type=${PARTIALS_TYPE}
+                                --accumulators-type=${PARTIALS_TYPE}
+                                --cell-order=${CELL_ORDER}
+                                VARIANTS ${TimesOutOnSim}
+                                LABELS lstm)
+        endforeach()
+
+        foreach(PARTIALS_TYPE half float)
         add_multitarget_test(
-                NAME basic_lstm_40x4x38_seq_2_half_data_${PARTIALS_TYPE}_partials
+                NAME basic_lstm_40x4x38_seq_2_half_data_preweight_inp_${PARTIALS_TYPE}_partials_${CELL_ORDER}
+                COMMAND lstm_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --pre-weight-input=1
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --partials-type=${PARTIALS_TYPE}
+                        --accumulators-type=${PARTIALS_TYPE}
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim}
+                        LABELS lstm)
+        endforeach()
+
+        add_multitarget_test(
+                NAME basic_lstm_40x4x38_seq_2_float_data_${CELL_ORDER}
+                COMMAND lstm_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase all
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim}
+                        LABELS lstm)
+
+        add_multitarget_test(
+                NAME basic_lstm_40x4x38_seq_2_float_data_fwd_only_${CELL_ORDER}
+                COMMAND lstm_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase fwd
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim}
+                        LABELS lstm)
+
+        foreach(PARTIALS_TYPE half float)
+        add_multitarget_test(
+                NAME basic_lstm_40x4x38_seq_2_half_data_celltanhrecomp_${PARTIALS_TYPE}_partials_${CELL_ORDER}
                 COMMAND lstm_layer
                         --input-size 40
                         --batch-size=4
@@ -580,87 +644,31 @@ foreach(PARTIALS_TYPE half float)
                         --tiles-per-ipu=16
                         --phase all
                         --sequence-size 2
+                        --recomputation-mode=cellAndTanh
                         --partials-type=${PARTIALS_TYPE}
                         --accumulators-type=${PARTIALS_TYPE}
+                        --cell-order=${CELL_ORDER}
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
-endforeach()
+        endforeach()
 
-foreach(PARTIALS_TYPE half float)
-  add_multitarget_test(
-         NAME basic_lstm_40x4x38_seq_2_half_data_preweight_inp_${PARTIALS_TYPE}_partials
-         COMMAND lstm_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --pre-weight-input=1
-                 --tiles-per-ipu=16
-                 --phase all
-                 --sequence-size 2
-                 --partials-type=${PARTIALS_TYPE}
-                 --accumulators-type=${PARTIALS_TYPE}
-                 VARIANTS ${TimesOutOnSim}
-                 LABELS lstm)
-endforeach()
-
-add_multitarget_test(
-         NAME basic_lstm_40x4x38_seq_2_float_data
-         COMMAND lstm_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --sequence-size 2
-                 --tiles-per-ipu=16
-                 --phase all
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim}
-                 LABELS lstm)
-
-add_multitarget_test(
-         NAME basic_lstm_40x4x38_seq_2_float_data_fwd_only
-         COMMAND lstm_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --sequence-size 2
-                 --tiles-per-ipu=16
-                 --phase fwd
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim}
-                 LABELS lstm)
-
-foreach(PARTIALS_TYPE half float)
-  add_multitarget_test(
-         NAME basic_lstm_40x4x38_seq_2_half_data_celltanhrecomp_${PARTIALS_TYPE}_partials
-         COMMAND lstm_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --tiles-per-ipu=16
-                 --phase all
-                 --sequence-size 2
-                 --recomputation-mode=cellAndTanh
-                 --partials-type=${PARTIALS_TYPE}
-                 --accumulators-type=${PARTIALS_TYPE}
-                 VARIANTS ${TimesOutOnSim}
-                 LABELS lstm)
-endforeach()
-
-foreach(PARTIALS_TYPE half float)
-  add_multitarget_test(
-         NAME basic_lstm_40x4x38_seq_2_half_data_runs_2_${PARTIALS_TYPE}_partials
-         COMMAND lstm_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --tiles-per-ipu=16
-                 --phase all
-                 --sequence-size 2
-                 --runs 2
-                 --partials-type=${PARTIALS_TYPE}
-                 --accumulators-type=${PARTIALS_TYPE}
-                 VARIANTS ${TimesOutOnSim}
-                 LABELS lstm)
+        foreach(PARTIALS_TYPE half float)
+        add_multitarget_test(
+                NAME basic_lstm_40x4x38_seq_2_half_data_runs_2_${PARTIALS_TYPE}_partials_${CELL_ORDER}
+                COMMAND lstm_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --runs 2
+                        --partials-type=${PARTIALS_TYPE}
+                        --accumulators-type=${PARTIALS_TYPE}
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim}
+                        LABELS lstm)
+        endforeach()
 endforeach()
 
 add_multitarget_test(

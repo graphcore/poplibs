@@ -10,6 +10,13 @@
 namespace popnn {
 namespace lstm {
 
+/**
+ * Get the default order of the gates in a basic LSTM cell.
+ * The default order is:
+ * [Forget gate, Input gate, Candidate, Output Gate].
+ */
+const std::vector<BasicLstmCellUnit> getDefaultBasicLstmCellOrder();
+
 /** Structure representing the parameters of the LSTM.
  */
 struct LstmParams {
@@ -33,6 +40,13 @@ struct LstmParams {
   /// If this parameter is set to false then the LSTM will skip the
   /// calculation of the gradients of the inputs.
   bool calcInputGradients = true;
+  /// The weight and bias tensors are concatenated tensors in terms of which
+  /// gates they service. This option allows the user to specify the order of
+  /// the gates in that outermost dimension.
+  /// The default order is:
+  /// [Forget gate, Input gate, Candidate, Output Gate].
+  std::vector<BasicLstmCellUnit> cellOrder = getDefaultBasicLstmCellOrder();
+
   LstmParams() = default;
   LstmParams(poplar::Type dataType, std::size_t batchSize,
              std::size_t timeSteps, std::vector<std::size_t> layerSizes);

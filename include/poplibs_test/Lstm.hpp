@@ -40,6 +40,8 @@ namespace lstm {
  *                            dimension
  *                            [LSTM_NUM_FWD_STATES][sequenceSize][batchSize]
  *                            [outputSize]
+ * \param cellOrder           The order that the weights for each gate are
+ *                            stored in the input.
  */
 void basicLstmCellForwardPass(
     const boost::multi_array_ref<double, 3> input,
@@ -48,7 +50,8 @@ void basicLstmCellForwardPass(
     const boost::multi_array_ref<double, 3> weightsInput,
     const boost::multi_array_ref<double, 3> weightsOutput,
     boost::multi_array_ref<double, 2> prevCellState,
-    boost::multi_array_ref<double, 4> state);
+    boost::multi_array_ref<double, 4> state,
+    const std::vector<BasicLstmCellUnit> &cellOrder);
 
 /** Run backward pass given forward sequence
  *
@@ -69,6 +72,8 @@ void basicLstmCellForwardPass(
  *                              [batch][output ch]
  * \param gradsPrevLayer  Gradients for previous layer computed by this function
  *                        shape: [sequence][batch][input ch]
+ * \param cellOrder       The order that the weights for each gate are
+ *                        stored in the input.
  */
 void basicLstmCellBackwardPass(
     const boost::multi_array_ref<double, 3> weightsInput,
@@ -77,7 +82,8 @@ void basicLstmCellBackwardPass(
     const boost::multi_array_ref<double, 2> prevCellState,
     const boost::multi_array_ref<double, 4> fwdState,
     boost::multi_array_ref<double, 4> bwdState,
-    boost::multi_array_ref<double, 3> gradsPrevLayer);
+    boost::multi_array_ref<double, 3> gradsPrevLayer,
+    const std::vector<BasicLstmCellUnit> &cellOrder);
 
 /** Param update
  *
@@ -96,6 +102,8 @@ void basicLstmCellBackwardPass(
  *
  * \param biasDeltas      Bias deltas computed by this function
  *                        shape: [NUM_LSTM_UNITS][output ch]
+ * \param cellOrder       The order that the weights for each gate are
+ *                        stored in the input.
  */
 void basicLstmCellParamUpdate(
     const boost::multi_array_ref<double, 3> prevLayerActs,
@@ -104,7 +112,8 @@ void basicLstmCellParamUpdate(
     const boost::multi_array_ref<double, 4> bwdState,
     boost::multi_array_ref<double, 3> weightsInputDeltas,
     boost::multi_array_ref<double, 3> weightsOutputDeltas,
-    boost::multi_array_ref<double, 2> biasDeltas);
+    boost::multi_array_ref<double, 2> biasDeltas,
+    const std::vector<BasicLstmCellUnit> &cellOrder);
 } // namespace lstm
 } // namespace poplibs_test
 

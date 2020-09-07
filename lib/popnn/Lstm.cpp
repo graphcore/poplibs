@@ -186,6 +186,11 @@ static poplar::OptionFlags toFwdPassMatMulOptions(LstmOpts lstmOpts) {
   return flags;
 }
 
+const std::vector<BasicLstmCellUnit> getDefaultBasicLstmCellOrder() {
+  return {BASIC_LSTM_CELL_FORGET_GATE, BASIC_LSTM_CELL_INPUT_GATE,
+          BASIC_LSTM_CELL_CANDIDATE, BASIC_LSTM_CELL_OUTPUT_GATE};
+}
+
 std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
 getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts) {
   const auto lstmOpts = parseOptions(opts, params.dataType);
@@ -301,6 +306,69 @@ void zeroInitialState(Graph &graph, const LstmState &state, Sequence &prog,
   zero(graph, concat(state.output, state.cellState), prog, debugPrefix);
 }
 
+// the outermost dimension of the weights and bias tensors is the gate that
+// those weights are associated with.
+constexpr auto gateDim = 0u;
+
+// rearrange the gate dimension to reflect the order provided by the user.
+static poplar::Tensor
+toCellOrder(poplar::Tensor tensor,
+            const std::vector<BasicLstmCellUnit> &cellOrder) {
+  assert(tensor.shape().at(0) == BASIC_LSTM_CELL_NUM_UNITS);
+
+  std::vector<poplar::Tensor> rearranged;
+  rearranged.reserve(BASIC_LSTM_CELL_NUM_UNITS);
+
+  for (const auto &gate : cellOrder) {
+    const auto idx = static_cast<std::size_t>(gate);
+    rearranged.push_back(tensor.slice(idx, idx + 1, gateDim));
+  }
+
+  return concat(std::move(rearranged));
+}
+
+static LstmWeights
+toCellOrder(LstmWeights weights,
+            const std::vector<BasicLstmCellUnit> &cellOrder) {
+  weights.inputWeights =
+      toCellOrder(std::move(weights.inputWeights), cellOrder);
+  weights.outputWeights =
+      toCellOrder(std::move(weights.outputWeights), cellOrder);
+  weights.biases = toCellOrder(std::move(weights.biases), cellOrder);
+
+  return weights;
+}
+
+// rearrange the gate dimension back from the user configured order to the
+// internal order (which is the order that the gates appear in the enum).
+static poplar::Tensor
+fromCellOrder(poplar::Tensor tensor,
+              const std::vector<BasicLstmCellUnit> &cellOrder) {
+  assert(tensor.shape().at(0) == BASIC_LSTM_CELL_NUM_UNITS);
+
+  std::vector<poplar::Tensor> rearranged;
+  rearranged.resize(BASIC_LSTM_CELL_NUM_UNITS);
+
+  for (unsigned i = 0; i < rearranged.size(); ++i) {
+    const auto idx = static_cast<std::size_t>(cellOrder.at(i));
+    rearranged[idx] = tensor.slice(i, i + 1, gateDim);
+  }
+
+  return concat(std::move(rearranged));
+}
+
+static LstmWeights
+fromCellOrder(LstmWeights weights,
+              const std::vector<BasicLstmCellUnit> &cellOrder) {
+  weights.inputWeights =
+      fromCellOrder(std::move(weights.inputWeights), cellOrder);
+  weights.outputWeights =
+      fromCellOrder(std::move(weights.outputWeights), cellOrder);
+  weights.biases = fromCellOrder(std::move(weights.biases), cellOrder);
+
+  return weights;
+}
+
 std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     const std::string &name, const poplar::OptionFlags &options,
@@ -341,7 +409,10 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
         unflattenUnits(weights.slice(inputSize, inputSize + outputSize),
                        BASIC_LSTM_CELL_NUM_UNITS);
   }
-  return {inputWeights, outputWeights};
+
+  // rearrange the outermost dimension according to the cellOrder parameter.
+  return {toCellOrder(std::move(inputWeights), params.cellOrder),
+          toCellOrder(std::move(outputWeights), params.cellOrder)};
 }
 
 /** Create the weights biases.
@@ -356,7 +427,7 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
                                   {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
                                   name + "/biases");
   mapTensorLinearly(graph, biases);
-  return biases;
+  return toCellOrder(biases, params.cellOrder);
 }
 
 LstmWeights createWeights(Graph &graph, const LstmParams &params,
@@ -691,12 +762,14 @@ Tensor getFwdInput(Graph &graph, const Tensor &weightedIn,
 
 std::pair<Tensor, Tensor>
 lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
-        const Tensor &prevLayerActs, const LstmWeights &weights,
+        const Tensor &prevLayerActs, const LstmWeights &weights_,
         Tensor *intermediatesSeq, program::Sequence &fwdProg,
         const std::string &debugPrefix, const OptionFlags &options,
         poplin::matmul::PlanningCache *cache) {
   validateParams(params);
   auto opt = parseOptions(options, params.dataType);
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
 
   Tensor weightedIn;
   if (!params.doInputWeightCalc) {
@@ -1355,21 +1428,25 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
 
 LstmState lstmBwd(Graph &graph, const LstmParams &params,
                   program::Sequence &prog, const LstmState &fwdStateInit,
-                  const Tensor &fwdIntermediatesSeq, const LstmWeights &weights,
-                  const Tensor &fwdInputSeq, const Tensor &fwdOutput,
-                  const Tensor &gradLayerNext,
+                  const Tensor &fwdIntermediatesSeq,
+                  const LstmWeights &weights_, const Tensor &fwdInputSeq,
+                  const Tensor &fwdOutput, const Tensor &gradLayerNext,
                   const Tensor *lastCellStateGradPtr, Tensor *inputGrad,
                   Tensor *bwdIntermediates, const std::string &debugPrefix,
                   const OptionFlags &options_,
                   poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
+
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
   return lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediatesSeq,
                      weights, fwdInputSeq, fwdOutput, gradLayerNext,
                      lastCellStateGradPtr, inputGrad, bwdIntermediates, nullptr,
@@ -1455,35 +1532,43 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
 LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                    program::Sequence &prog, const LstmState &fwdStateInit,
                    const Tensor &fwdIntermediates,
-                   const Tensor &bwdIntermediates, const LstmWeights &weights,
+                   const Tensor &bwdIntermediates, const LstmWeights &weights_,
                    const Tensor &input, const Tensor &output,
                    const std::string &debugPrefix,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
-  return lstmWUImpl(graph, params, prog, fwdStateInit, fwdIntermediates,
-                    bwdIntermediates, weights, input, output, debugPrefix,
-                    std::move(options), planningCache);
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
+  auto grads = lstmWUImpl(graph, params, prog, fwdStateInit, fwdIntermediates,
+                          bwdIntermediates, weights, input, output, debugPrefix,
+                          std::move(options), planningCache);
+  return toCellOrder(std::move(grads), params.cellOrder);
 }
 
 LstmState lstmBwdWithWU(
     poplar::Graph &graph, const LstmParams &params,
     poplar::program::Sequence &prog, const LstmState &fwdStateInit,
-    const poplar::Tensor &fwdIntermediates, const LstmWeights &weights,
+    const poplar::Tensor &fwdIntermediates, const LstmWeights &weights_,
     const poplar::Tensor &input, const poplar::Tensor &output,
     const poplar::Tensor &outputGrad, const poplar::Tensor *lastCellStateGrad,
-    poplar::Tensor *inputGrad, LstmWeights &weightsGrad,
+    poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
     const std::string &debugPrefix, const poplar::OptionFlags &options_,
     poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
+
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+  LstmWeights weightsGrad;
 
   bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
@@ -1504,6 +1589,8 @@ LstmState lstmBwdWithWU(
         graph, params, prog, fwdStateInit, fwdIntermediates, bwdIntermediates,
         weights, input, output, debugPrefix, std::move(options), planningCache);
   }
+
+  weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
   return stateGrads;
 }
 

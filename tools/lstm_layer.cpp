@@ -26,6 +26,7 @@
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <random>
 
 using namespace poplar;
@@ -43,6 +44,55 @@ using namespace poplibs_support;
 #define HALF_ABS_TOL 7e-2
 
 const OptionFlags defaultEngineOptions;
+
+std::ostream &operator<<(std::ostream &os, const BasicLstmCellUnit u) {
+  switch (u) {
+  case BASIC_LSTM_CELL_FORGET_GATE:
+    return os << "forget";
+  case BASIC_LSTM_CELL_INPUT_GATE:
+    return os << "input";
+  case BASIC_LSTM_CELL_CANDIDATE:
+    return os << "cell";
+  case BASIC_LSTM_CELL_OUTPUT_GATE:
+    return os << "output";
+  case BASIC_LSTM_CELL_NUM_UNITS:
+    break;
+  }
+
+  throw poputil::poplibs_error("Invalid unit");
+}
+
+std::istream &operator>>(std::istream &is, BasicLstmCellUnit &u) {
+  std::string token;
+  is >> token;
+
+  if (token == "forget") {
+    u = BASIC_LSTM_CELL_FORGET_GATE;
+  } else if (token == "input") {
+    u = BASIC_LSTM_CELL_INPUT_GATE;
+  } else if (token == "cell") {
+    u = BASIC_LSTM_CELL_CANDIDATE;
+  } else if (token == "output") {
+    u = BASIC_LSTM_CELL_OUTPUT_GATE;
+  } else {
+    throw poputil::poplibs_error("Invalid token for unit: " + token);
+  }
+
+  return is;
+}
+
+std::vector<BasicLstmCellUnit>
+getCellOrder(const std::vector<std::string> &in) {
+  std::vector<BasicLstmCellUnit> cellOrder;
+  for (const auto &x : in) {
+    cellOrder.emplace_back();
+
+    std::stringstream ss(x);
+    ss >> cellOrder.back();
+  }
+
+  return cellOrder;
+}
 
 void savePoplarReport(poplar::Engine &engine, std::string &dir) {
   // Graph Report
@@ -80,6 +130,7 @@ int main(int argc, char **argv) {
   unsigned runs = 1;
   std::string profileDir = ".";
   double availableMemoryProportion;
+  ShapeOption<std::string> cellOrder;
   boost::optional<std::string> jsonProfileOut;
 
   po::options_description desc("Options");
@@ -144,6 +195,9 @@ int main(int argc, char **argv) {
      po::value<double>(&availableMemoryProportion),
      "What percentage of memory is available to the operation for temporary "
      "use")
+    ("cell-order",
+     po::value<ShapeOption<std::string>>(&cellOrder)->default_value(cellOrder),
+     "The order that the gates are stored in the weights and bias tensors")
   ;
   // clang-format on
 
@@ -201,6 +255,9 @@ int main(int argc, char **argv) {
   poplin::matmul::PlanningCache cache;
   lstm::LstmParams params(dataType, batchSize, sequenceSize,
                           {inputSize, outputSize});
+  if (!cellOrder.val.empty()) {
+    params.cellOrder = getCellOrder(cellOrder.val);
+  }
   poplar::OptionFlags options({{"inferenceOnly", fwdOnly ? "true" : "false"}});
   if (!vm["available-memory-proportion"].empty()) {
     options.set("availableMemoryProportion",
@@ -422,12 +479,13 @@ int main(int argc, char **argv) {
   if (!ignoreData) {
     poplibs_test::lstm::basicLstmCellForwardPass(
         hostPrevLayerAct, hostBiases, hostOutputInit, hostWeightsInput,
-        hostWeightsOutput, modelCellState, modelFwdState);
+        hostWeightsOutput, modelCellState, modelFwdState, params.cellOrder);
 
     if (doBwdPass) {
       poplibs_test::lstm::basicLstmCellBackwardPass(
           hostWeightsInput, hostWeightsOutput, hostNextLayerGrads,
-          hostCellStateInit, modelFwdState, modelBwdState, modelPrevLayerGrads);
+          hostCellStateInit, modelFwdState, modelBwdState, modelPrevLayerGrads,
+          params.cellOrder);
     }
 
     for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
@@ -463,7 +521,8 @@ int main(int argc, char **argv) {
           boost::extents[BASIC_LSTM_CELL_NUM_UNITS][outputSize]);
       poplibs_test::lstm::basicLstmCellParamUpdate(
           hostPrevLayerAct, modelFwdState, hostOutputInit, modelBwdState,
-          modelWeightsInputDeltas, modelWeightsOutputDeltas, modelBiasesDeltas);
+          modelWeightsInputDeltas, modelWeightsOutputDeltas, modelBiasesDeltas,
+          params.cellOrder);
       matchesModel &= checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
                                    modelWeightsInputDeltas, relativeTolerance,
                                    absoluteTolerance);
