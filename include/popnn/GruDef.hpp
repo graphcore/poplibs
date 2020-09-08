@@ -9,10 +9,10 @@
  * a fixed type of non-linearity is associated with each type of unit.
  */
 enum BasicGruCellUnit {
-  BASIC_GRU_CELL_RESET_GATE,
-  BASIC_GRU_CELL_UPDATE_GATE,
-  BASIC_GRU_CELL_CANDIDATE,
-  BASIC_GRU_CELL_NUM_UNITS
+  BASIC_GRU_CELL_RESET_GATE = 0,
+  BASIC_GRU_CELL_UPDATE_GATE = 1,
+  BASIC_GRU_CELL_CANDIDATE = 2,
+  BASIC_GRU_CELL_NUM_UNITS = 3
 };
 
 #endif // popnn_GruDef_hpp

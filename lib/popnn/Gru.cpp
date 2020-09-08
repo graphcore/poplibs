@@ -84,13 +84,13 @@ struct GruOpts {
 std::map<std::string, poplar::Type> partialsTypeMap{{"half", poplar::HALF},
                                                     {"float", poplar::FLOAT}};
 
-static OptionFlags getMMOpts(const GruOpts &lstmOpts) {
+static OptionFlags getMMOpts(const GruOpts &gruOpts) {
   OptionFlags mmOpts = {
-      {"partialsType", lstmOpts.partialsType.toString()},
+      {"partialsType", gruOpts.partialsType.toString()},
   };
-  if (lstmOpts.availableMemoryProportion) {
+  if (gruOpts.availableMemoryProportion) {
     mmOpts.set("availableMemoryProportion",
-               std::to_string(lstmOpts.availableMemoryProportion.get()));
+               std::to_string(gruOpts.availableMemoryProportion.get()));
   }
   return mmOpts;
 }
@@ -118,6 +118,11 @@ static void validateParams(const GruParams &params) {
   if (params.layerSizes.size() != 2) {
     throw poplibs_error("Invalid GRU params (layerSize != 2)");
   }
+}
+
+const std::vector<BasicGruCellUnit> getDefaultBasicGruCellOrder() {
+  return {BASIC_GRU_CELL_RESET_GATE, BASIC_GRU_CELL_UPDATE_GATE,
+          BASIC_GRU_CELL_CANDIDATE};
 }
 
 static Tensor createOutputTensor(Graph &graph, const GruParams &params,
@@ -164,6 +169,68 @@ void zeroInitialState(Graph &graph, const Tensor &init_output, Sequence &prog,
   zero(graph, init_output, prog, debugPrefix);
 }
 
+// the outermost dimension of the weights and bias tensors is the gate that
+// those weights are associated with.
+constexpr auto gateDim = 0u;
+
+// rearrange the gate dimension to reflect the order provided by the user.
+static poplar::Tensor
+toCellOrder(poplar::Tensor tensor,
+            const std::vector<BasicGruCellUnit> &cellOrder) {
+  assert(tensor.shape().at(0) == BASIC_GRU_CELL_NUM_UNITS);
+
+  std::vector<poplar::Tensor> rearranged;
+  rearranged.reserve(BASIC_GRU_CELL_NUM_UNITS);
+
+  for (const auto &gate : cellOrder) {
+    const auto idx = static_cast<std::size_t>(gate);
+    rearranged.push_back(tensor.slice(idx, idx + 1, gateDim));
+  }
+
+  return concat(std::move(rearranged));
+}
+
+static GruWeights toCellOrder(GruWeights weights,
+                              const std::vector<BasicGruCellUnit> &cellOrder) {
+  weights.inputWeights =
+      toCellOrder(std::move(weights.inputWeights), cellOrder);
+  weights.outputWeights =
+      toCellOrder(std::move(weights.outputWeights), cellOrder);
+  weights.biases = toCellOrder(std::move(weights.biases), cellOrder);
+
+  return weights;
+}
+
+// rearrange the gate dimension back from the user configured order to the
+// internal order (which is the order that the gates appear in the enum).
+static poplar::Tensor
+fromCellOrder(poplar::Tensor tensor,
+              const std::vector<BasicGruCellUnit> &cellOrder) {
+  assert(tensor.shape().at(0) == BASIC_GRU_CELL_NUM_UNITS);
+
+  std::vector<poplar::Tensor> rearranged;
+  rearranged.resize(BASIC_GRU_CELL_NUM_UNITS);
+
+  for (unsigned i = 0; i < rearranged.size(); ++i) {
+    const auto idx = static_cast<std::size_t>(cellOrder.at(i));
+    rearranged[idx] = tensor.slice(i, i + 1, gateDim);
+  }
+
+  return concat(std::move(rearranged));
+}
+
+static GruWeights
+fromCellOrder(GruWeights weights,
+              const std::vector<BasicGruCellUnit> &cellOrder) {
+  weights.inputWeights =
+      fromCellOrder(std::move(weights.inputWeights), cellOrder);
+  weights.outputWeights =
+      fromCellOrder(std::move(weights.outputWeights), cellOrder);
+  weights.biases = fromCellOrder(std::move(weights.biases), cellOrder);
+
+  return weights;
+}
+
 std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const GruParams &params,
                     const std::string &name, const poplar::OptionFlags &options,
@@ -175,8 +242,6 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
             opt.inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
-  poplar::Tensor inputWeights;
-  poplar::Tensor outputWeights;
 
   auto weights_ru = createMatMulInputRHS(
       graph, params.dataType, {params.batchSize, inputSize + outputSize},
@@ -194,8 +259,11 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
       unflattenUnits(weights_c.slice(0, inputSize), 1);
   poplar::Tensor outputWeights_c =
       unflattenUnits(weights_c.slice(inputSize, inputSize + outputSize), 1);
-  return {concat(inputWeights_ru, inputWeights_c),
-          concat(outputWeights_ru, outputWeights_c)};
+  poplar::Tensor inputWeights = concat(inputWeights_ru, inputWeights_c);
+  poplar::Tensor outputWeights = concat(outputWeights_ru, outputWeights_c);
+  // rearrange the outermost dimension according to the cellOrder parameter.
+  return {toCellOrder(std::move(inputWeights), params.cellOrder),
+          toCellOrder(std::move(outputWeights), params.cellOrder)};
 }
 
 /** Create the weights biases.
@@ -210,7 +278,7 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
       graph.addVariable(params.dataType, {BASIC_GRU_CELL_NUM_UNITS, outputSize},
                         name + "/biases");
   mapTensorLinearly(graph, biases);
-  return biases;
+  return toCellOrder(biases, params.cellOrder);
 }
 
 GruWeights createWeights(Graph &graph, const GruParams &params,
@@ -425,7 +493,7 @@ static void basicGruCellForwardPassInPlace(
 
 Tensor gruFwd(Graph &graph, const GruParams &params,
               const Tensor &fwdOutputInit, const Tensor &prevLayerActs,
-              const GruWeights &weights, Tensor *intermediatesSeq,
+              const GruWeights &weights_, Tensor *intermediatesSeq,
               program::Sequence &fwdProg, const std::string &debugPrefix,
               const OptionFlags &options,
               poplin::matmul::PlanningCache *cache) {
@@ -434,6 +502,8 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
                        debugPrefix);
   validateParams(params);
   auto opt = parseOptions(options);
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
 
   Tensor output =
       duplicate(graph, fwdOutputInit, fwdProg, debugPrefix + "/fwdOutput");
@@ -961,19 +1031,23 @@ static Tensor gruBwdImpl(Graph &graph, const GruParams &params,
 
 Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-              const GruWeights &weights, const Tensor &fwdInputSeq,
+              const GruWeights &weights_, const Tensor &fwdInputSeq,
               const Tensor &fwdOutput, const Tensor &gradLayerNext,
               Tensor *inputGrad, Tensor *bwdIntermediates,
               const std::string &debugPrefix, const OptionFlags &options_,
               poplin::matmul::PlanningCache *planningCache) {
   validateParams(params);
   auto options = parseOptions(options_);
+
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
   return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
                     weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
                     bwdIntermediates, nullptr, debugPrefix, std::move(options),
@@ -1057,7 +1131,7 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                  const Tensor &fwdOutputInit, const Tensor &fwdIntermediates,
-                 const Tensor &bwdIntermediates, const GruWeights &weights,
+                 const Tensor &bwdIntermediates, const GruWeights &weights_,
                  const Tensor &input, const Tensor &output,
                  const std::string &debugPrefix,
                  const poplar::OptionFlags &options_,
@@ -1067,9 +1141,13 @@ GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                        debugPrefix);
   validateParams(params);
   auto options = parseOptions(options_);
-  return gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
-                   bwdIntermediates, weights, input, output, debugPrefix,
-                   std::move(options), planningCache);
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
+  auto grads = gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
+                         bwdIntermediates, weights, input, output, debugPrefix,
+                         std::move(options), planningCache);
+  return toCellOrder(std::move(grads), params.cellOrder);
 }
 
 // Is it beneficial memory-wise to interleave weight update with
@@ -1092,10 +1170,10 @@ Tensor gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                     poplar::program::Sequence &prog,
                     const Tensor &fwdOutputInit,
                     const poplar::Tensor &fwdIntermediates,
-                    const GruWeights &weights, const poplar::Tensor &input,
+                    const GruWeights &weights_, const poplar::Tensor &input,
                     const poplar::Tensor &output,
                     const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
-                    GruWeights &weightsGrad, const std::string &debugPrefix,
+                    GruWeights &weightsGrad_, const std::string &debugPrefix,
                     const poplar::OptionFlags &options_,
                     poplin::matmul::PlanningCache *planningCache) {
   logging::popnn::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
@@ -1103,12 +1181,16 @@ Tensor gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                        debugPrefix);
   validateParams(params);
   auto options = parseOptions(options_);
+
   if (bool(inputGrad) != params.calcInputGradients) {
     throw poplibs_error(std::string("The inputGradSeq argument should be ") +
                         (inputGrad ? "non null" : "null") +
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+  GruWeights weightsGrad;
 
   bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
@@ -1129,6 +1211,7 @@ Tensor gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
         weights, input, output, debugPrefix, std::move(options), planningCache);
   }
 
+  weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
   return outGrads;
 }
 

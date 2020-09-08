@@ -25,6 +25,7 @@
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 #include <random>
 
 using namespace poplar;
@@ -42,6 +43,50 @@ using namespace poplibs_support;
 #define HALF_ABS_TOL 7e-2
 
 const OptionFlags defaultEngineOptions;
+
+std::ostream &operator<<(std::ostream &os, const BasicGruCellUnit u) {
+  switch (u) {
+  case BASIC_GRU_CELL_RESET_GATE:
+    return os << "reset";
+  case BASIC_GRU_CELL_UPDATE_GATE:
+    return os << "update";
+  case BASIC_GRU_CELL_CANDIDATE:
+    return os << "cell";
+  case BASIC_GRU_CELL_NUM_UNITS:
+    break;
+  }
+
+  throw poputil::poplibs_error("Invalid unit");
+}
+
+std::istream &operator>>(std::istream &is, BasicGruCellUnit &u) {
+  std::string token;
+  is >> token;
+
+  if (token == "reset") {
+    u = BASIC_GRU_CELL_RESET_GATE;
+  } else if (token == "update") {
+    u = BASIC_GRU_CELL_UPDATE_GATE;
+  } else if (token == "cell") {
+    u = BASIC_GRU_CELL_CANDIDATE;
+  } else {
+    throw poputil::poplibs_error("Invalid token for unit: " + token);
+  }
+
+  return is;
+}
+
+std::vector<BasicGruCellUnit> getCellOrder(const std::vector<std::string> &in) {
+  std::vector<BasicGruCellUnit> cellOrder;
+  for (const auto &x : in) {
+    cellOrder.emplace_back();
+
+    std::stringstream ss(x);
+    ss >> cellOrder.back();
+  }
+
+  return cellOrder;
+}
 
 void savePoplarReport(poplar::Engine &engine, std::string &dir) {
   // Graph Report
@@ -77,6 +122,7 @@ int main(int argc, char **argv) {
   unsigned runs = 1;
   std::string profileDir = ".";
   double availableMemoryProportion;
+  ShapeOption<std::string> cellOrder;
   boost::optional<std::string> jsonProfileOut;
 
   po::options_description desc("Options");
@@ -135,6 +181,9 @@ int main(int argc, char **argv) {
      po::value<double>(&availableMemoryProportion),
      "What percentage of memory is available to the operation for temporary "
      "use")
+    ("cell-order",
+     po::value<ShapeOption<std::string>>(&cellOrder)->default_value(cellOrder),
+     "The order that the gates are stored in the weights and bias tensors")
   ;
   // clang-format on
 
@@ -193,6 +242,9 @@ int main(int argc, char **argv) {
   gru::GruParams params(dataType, batchSize, sequenceSize,
                         {inputSize, outputSize});
   params.outputFullSequence = outputAllSequence;
+  if (!cellOrder.val.empty()) {
+    params.cellOrder = getCellOrder(cellOrder.val);
+  }
 
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
@@ -410,13 +462,13 @@ int main(int argc, char **argv) {
   if (!ignoreData) {
     poplibs_test::gru::basicGruCellForwardPass(
         hostPrevLayerAct, hostBiases, hostOutputInit, hostWeightsInput,
-        hostWeightsOutput, modelFwdState);
+        hostWeightsOutput, modelFwdState, params.cellOrder);
 
     if (doBwdPass) {
       poplibs_test::gru::basicGruCellBackwardPass(
           params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
           hostNextLayerGrads, modelFwdState, hostOutputInit, modelBwdState,
-          modelPrevLayerGrads);
+          modelPrevLayerGrads, params.cellOrder);
     }
 
     if (params.outputFullSequence) {
@@ -464,7 +516,8 @@ int main(int argc, char **argv) {
           boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
       poplibs_test::gru::basicGruCellParamUpdate(
           hostPrevLayerAct, modelFwdState, hostOutputInit, modelBwdState,
-          modelWeightsInputDeltas, modelWeightsOutputDeltas, modelBiasesDeltas);
+          modelWeightsInputDeltas, modelWeightsOutputDeltas, modelBiasesDeltas,
+          params.cellOrder);
       matchesModel &= checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
                                    modelWeightsInputDeltas, relativeTolerance,
                                    absoluteTolerance);

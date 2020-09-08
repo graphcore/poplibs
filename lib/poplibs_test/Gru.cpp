@@ -5,6 +5,7 @@
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Gru.hpp>
 #include <poplibs_test/NonLinearity.hpp>
+#include <unordered_map>
 
 //#define DEBUG_TENSOR
 
@@ -49,7 +50,7 @@ static void processBasicGruUnit(const Array2dRef prevOutput,
                                 const Array3dRef weightsInput,
                                 const Array3dRef weightsOutput,
                                 const Array2dRef biases, Array2dRef output,
-                                enum BasicGruCellUnit gruUnit,
+                                unsigned gruUnitOffset,
                                 popnn::NonLinearityType nonLinearityType) {
   const auto batchSize = prevOutput.shape()[0];
   const auto outputSize = prevOutput.shape()[1];
@@ -58,8 +59,8 @@ static void processBasicGruUnit(const Array2dRef prevOutput,
    * 1) part which weighs only the previous output
    * 2) part which weighs only the input
    */
-  Array2d weightsOutputUnit = weightsOutput[gruUnit];
-  Array2d weightsInputUnit = weightsInput[gruUnit];
+  Array2d weightsOutputUnit = weightsOutput[gruUnitOffset];
+  Array2d weightsInputUnit = weightsInput[gruUnitOffset];
 
   gemm::generalMatrixMultiply(prevOutput, weightsOutputUnit, output, false,
                               false);
@@ -68,12 +69,24 @@ static void processBasicGruUnit(const Array2dRef prevOutput,
   /* add bias */
   for (auto b = 0U; b != batchSize; ++b) {
     for (auto i = 0U; i != outputSize; ++i) {
-      output[b][i] += biases[gruUnit][i];
+      output[b][i] += biases[gruUnitOffset][i];
     }
   }
 
   /* apply non-linearity */
   nonLinearity(nonLinearityType, output);
+}
+
+static std::unordered_map<BasicGruCellUnit, unsigned>
+getCellMapping(const std::vector<BasicGruCellUnit> &cellOrder) {
+  // build a mapping of the order that the gates are stored in.
+  std::unordered_map<BasicGruCellUnit, unsigned> cellMapping;
+  for (unsigned i = 0; i < cellOrder.size(); ++i) {
+    auto gate = cellOrder.at(i);
+    cellMapping.insert(std::make_pair(gate, i));
+  }
+
+  return cellMapping;
 }
 
 static void printMatrix2d(FILE *fp, std::string msg, Array2dRef in) {
@@ -121,12 +134,11 @@ static void printMatrix3d(FILE *fp, std::string msg, Array3dRef in) {
   fprintf(fp, "}\n");
 }
 
-void poplibs_test::gru::basicGruCellForwardPass(const Array3dRef input,
-                                                const Array2dRef biases,
-                                                const Array2dRef prevOutput,
-                                                const Array3dRef weightsInput,
-                                                const Array3dRef weightsOutput,
-                                                Array4dRef state) {
+void poplibs_test::gru::basicGruCellForwardPass(
+    const Array3dRef input, const Array2dRef biases,
+    const Array2dRef prevOutput, const Array3dRef weightsInput,
+    const Array3dRef weightsOutput, Array4dRef state,
+    const std::vector<BasicGruCellUnit> &cellOrder) {
   const auto sequenceSize = state.shape()[1];
   const auto batchSize = state.shape()[2];
   const auto outputSize = state.shape()[3];
@@ -144,6 +156,8 @@ void poplibs_test::gru::basicGruCellForwardPass(const Array3dRef input,
   assert(biases.shape()[1] == outputSize);
   assert(prevOutput.shape()[0] == batchSize);
   assert(prevOutput.shape()[1] == outputSize);
+
+  auto cellMapping = getCellMapping(cellOrder);
 
   FILE *fp = NULL;
 #ifdef DEBUG_TENSOR
@@ -167,15 +181,16 @@ void poplibs_test::gru::basicGruCellForwardPass(const Array3dRef input,
     Array2d updateGate(boost::extents[batchSize][outputSize]);
     processBasicGruUnit(prevOutputThisStep, inputThisStep, weightsInput,
                         weightsOutput, biases, updateGate,
-                        BASIC_GRU_CELL_UPDATE_GATE,
+                        cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE),
                         popnn::NonLinearityType::SIGMOID);
     state[GRU_FWD_STATE_UPDATE_GATE_IDX][s] = updateGate;
 
     /* reset gate */
     Array2d resetGate(boost::extents[batchSize][outputSize]);
-    processBasicGruUnit(
-        prevOutputThisStep, inputThisStep, weightsInput, weightsOutput, biases,
-        resetGate, BASIC_GRU_CELL_RESET_GATE, popnn::NonLinearityType::SIGMOID);
+    processBasicGruUnit(prevOutputThisStep, inputThisStep, weightsInput,
+                        weightsOutput, biases, resetGate,
+                        cellMapping.at(BASIC_GRU_CELL_RESET_GATE),
+                        popnn::NonLinearityType::SIGMOID);
     state[GRU_FWD_STATE_RESET_GATE_IDX][s] = resetGate;
 
     /* candidate */
@@ -183,7 +198,8 @@ void poplibs_test::gru::basicGruCellForwardPass(const Array3dRef input,
     Array2d tmp1(boost::extents[batchSize][outputSize]);
     poplibs_test::gemm::hadamardProduct(resetGate, prevOutputThisStep, tmp1);
     processBasicGruUnit(tmp1, inputThisStep, weightsInput, weightsOutput,
-                        biases, candidate, BASIC_GRU_CELL_CANDIDATE,
+                        biases, candidate,
+                        cellMapping.at(BASIC_GRU_CELL_CANDIDATE),
                         popnn::NonLinearityType::TANH);
     state[GRU_FWD_STATE_CANDIDATE_IDX][s] = candidate;
 
@@ -276,7 +292,8 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     bool outputFullSequence, const Array3dRef weightsInput,
     const Array3dRef weightsOutput, const Array3dRef gradsNextLayer,
     const Array4dRef fwdState, const Array2dRef outputActsInit,
-    Array4dRef bwdState, Array3dRef gradsPrevLayer) {
+    Array4dRef bwdState, Array3dRef gradsPrevLayer,
+    const std::vector<BasicGruCellUnit> &cellOrder) {
   const auto sequenceSize = fwdState.shape()[1];
   const auto batchSize = fwdState.shape()[2];
   const auto outputSize = fwdState.shape()[3];
@@ -302,6 +319,8 @@ void poplibs_test::gru::basicGruCellBackwardPass(
   assert(gradsPrevLayer.shape()[0] == sequenceSize);
   assert(gradsPrevLayer.shape()[1] == batchSize);
 
+  auto cellMapping = getCellMapping(cellOrder);
+
   // gradient of output of this step
   Array2d gradOutput(boost::extents[batchSize][outputSize]);
   matrixZero(gradOutput);
@@ -309,13 +328,16 @@ void poplibs_test::gru::basicGruCellBackwardPass(
   Array2d matOne(boost::extents[batchSize][outputSize]);
   matrixOne(matOne);
 
-  Array2d w_c = concatMatrix2D(weightsInput[GRU_FWD_STATE_CANDIDATE_IDX],
-                               weightsOutput[GRU_FWD_STATE_CANDIDATE_IDX], 0);
+  Array2d w_c = concatMatrix2D(
+      weightsInput[cellMapping.at(BASIC_GRU_CELL_CANDIDATE)],
+      weightsOutput[cellMapping.at(BASIC_GRU_CELL_CANDIDATE)], 0);
   Array2d w_ru = concatMatrix2D(
-      concatMatrix2D(weightsInput[GRU_FWD_STATE_RESET_GATE_IDX],
-                     weightsOutput[GRU_FWD_STATE_RESET_GATE_IDX], 0),
-      concatMatrix2D(weightsInput[GRU_FWD_STATE_UPDATE_GATE_IDX],
-                     weightsOutput[GRU_FWD_STATE_UPDATE_GATE_IDX], 0),
+      concatMatrix2D(weightsInput[cellMapping.at(BASIC_GRU_CELL_RESET_GATE)],
+                     weightsOutput[cellMapping.at(BASIC_GRU_CELL_RESET_GATE)],
+                     0),
+      concatMatrix2D(weightsInput[cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE)],
+                     weightsOutput[cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE)],
+                     0),
       1);
   FILE *fp = NULL;
 #ifdef DEBUG_TENSOR
@@ -414,13 +436,11 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     fclose(fp);
 }
 
-void poplibs_test::gru::basicGruCellParamUpdate(const Array3dRef prevLayerActs,
-                                                const Array4dRef fwdState,
-                                                const Array2dRef outputActsInit,
-                                                const Array4dRef bwdState,
-                                                Array3dRef weightsInputDeltas,
-                                                Array3dRef weightsOutputDeltas,
-                                                Array2dRef biasDeltas) {
+void poplibs_test::gru::basicGruCellParamUpdate(
+    const Array3dRef prevLayerActs, const Array4dRef fwdState,
+    const Array2dRef outputActsInit, const Array4dRef bwdState,
+    Array3dRef weightsInputDeltas, Array3dRef weightsOutputDeltas,
+    Array2dRef biasDeltas, const std::vector<BasicGruCellUnit> &cellOrder) {
   const auto sequenceSize = prevLayerActs.shape()[0];
   const auto batchSize = prevLayerActs.shape()[1];
   const auto inputSize = prevLayerActs.shape()[2];
@@ -443,6 +463,8 @@ void poplibs_test::gru::basicGruCellParamUpdate(const Array3dRef prevLayerActs,
   assert(weightsOutputDeltas.shape()[2] == outputSize);
   assert(biasDeltas.shape()[0] == BASIC_GRU_CELL_NUM_UNITS);
   assert(biasDeltas.shape()[1] == outputSize);
+
+  auto cellMapping = getCellMapping(cellOrder);
 
   matrixZero(weightsInputDeltas);
   matrixZero(weightsOutputDeltas);
@@ -484,26 +506,29 @@ void poplibs_test::gru::basicGruCellParamUpdate(const Array3dRef prevLayerActs,
     gemm::generalMatrixMultiply(x_h_prevr, d_c, d_w_c, true, false);
     for (unsigned int m = 0; m < inputSize; m++) {
       for (unsigned int n = 0; n < outputSize; n++) {
-        weightsInputDeltas[BASIC_GRU_CELL_RESET_GATE][m][n] += d_w_r[m][n];
-        weightsInputDeltas[BASIC_GRU_CELL_UPDATE_GATE][m][n] += d_w_u[m][n];
-        weightsInputDeltas[BASIC_GRU_CELL_CANDIDATE][m][n] += d_w_c[m][n];
+        weightsInputDeltas[cellMapping.at(BASIC_GRU_CELL_RESET_GATE)][m][n] +=
+            d_w_r[m][n];
+        weightsInputDeltas[cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE)][m][n] +=
+            d_w_u[m][n];
+        weightsInputDeltas[cellMapping.at(BASIC_GRU_CELL_CANDIDATE)][m][n] +=
+            d_w_c[m][n];
       }
     }
     for (unsigned int m = 0; m < outputSize; m++) {
       for (unsigned int n = 0; n < outputSize; n++) {
-        weightsOutputDeltas[BASIC_GRU_CELL_RESET_GATE][m][n] +=
+        weightsOutputDeltas[cellMapping.at(BASIC_GRU_CELL_RESET_GATE)][m][n] +=
             d_w_r[m + inputSize][n];
-        weightsOutputDeltas[BASIC_GRU_CELL_UPDATE_GATE][m][n] +=
+        weightsOutputDeltas[cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE)][m][n] +=
             d_w_u[m + inputSize][n];
-        weightsOutputDeltas[BASIC_GRU_CELL_CANDIDATE][m][n] +=
+        weightsOutputDeltas[cellMapping.at(BASIC_GRU_CELL_CANDIDATE)][m][n] +=
             d_w_c[m + inputSize][n];
       }
     }
     for (unsigned int m = 0; m < outputSize; m++) {
       for (unsigned int n = 0; n < batchSize; n++) {
-        biasDeltas[BASIC_GRU_CELL_RESET_GATE][m] += d_r[n][m];
-        biasDeltas[BASIC_GRU_CELL_UPDATE_GATE][m] += d_u[n][m];
-        biasDeltas[BASIC_GRU_CELL_CANDIDATE][m] += d_c[n][m];
+        biasDeltas[cellMapping.at(BASIC_GRU_CELL_RESET_GATE)][m] += d_r[n][m];
+        biasDeltas[cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE)][m] += d_u[n][m];
+        biasDeltas[cellMapping.at(BASIC_GRU_CELL_CANDIDATE)][m] += d_c[n][m];
       }
     }
   }

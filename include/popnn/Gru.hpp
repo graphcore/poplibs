@@ -10,6 +10,13 @@
 namespace popnn {
 namespace gru {
 
+/**
+ * Get the default order of the gates in a basic GRU cell.
+ * The default order is:
+ * [Reset gate, Update gate, Candidate].
+ */
+const std::vector<BasicGruCellUnit> getDefaultBasicGruCellOrder();
+
 /** Structure representing the parameters of the GRU.
  */
 struct GruParams {
@@ -27,6 +34,13 @@ struct GruParams {
   // If this parameter is set to false then the GRU will skip the
   // calculation of the gradients of the inputs.
   bool calcInputGradients = true;
+  /// The weight and bias tensors are concatenated tensors in terms of which
+  /// gates they service. This option allows the user to specify the order of
+  /// the gates in that outermost dimension.
+  /// The default order is:
+  /// [Reset gate, Update gate, Candidate].
+  std::vector<BasicGruCellUnit> cellOrder = getDefaultBasicGruCellOrder();
+
   GruParams() = default;
   GruParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
             std::vector<std::size_t> layerSizes);

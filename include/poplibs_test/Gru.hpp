@@ -39,6 +39,8 @@ namespace gru {
  *                            dimension
  *                            [GRU_NUM_FWD_STATES][sequenceSize][batchSize]
  *                            [outputSize]
+ * \param cellOrder           The order that the weights for each gate are
+ *                            stored in the input.
  */
 void basicGruCellForwardPass(
     const boost::multi_array_ref<double, 3> input,
@@ -46,7 +48,8 @@ void basicGruCellForwardPass(
     const boost::multi_array_ref<double, 2> prevOutput,
     const boost::multi_array_ref<double, 3> weightsInput,
     const boost::multi_array_ref<double, 3> weightsOutput,
-    boost::multi_array_ref<double, 4> state);
+    boost::multi_array_ref<double, 4> state,
+    const std::vector<BasicGruCellUnit> &cellOrder);
 
 /** Run backward pass given forward sequence
  *
@@ -70,6 +73,8 @@ void basicGruCellForwardPass(
  *                              [batch][output ch]
  * \param gradsPrevLayer  Gradients for previous layer computed by this function
  *                        shape: [sequence][batch][input ch]
+ * \param cellOrder       The order that the weights for each gate are
+ *                        stored in the input.
  */
 void basicGruCellBackwardPass(
     bool outputFullSequence,
@@ -79,7 +84,8 @@ void basicGruCellBackwardPass(
     const boost::multi_array_ref<double, 4> fwdState,
     const boost::multi_array_ref<double, 2> outputActsInit,
     boost::multi_array_ref<double, 4> bwdState,
-    boost::multi_array_ref<double, 3> gradsPrevLayer);
+    boost::multi_array_ref<double, 3> gradsPrevLayer,
+    const std::vector<BasicGruCellUnit> &cellOrder);
 
 /** Param update
  *
@@ -99,6 +105,8 @@ void basicGruCellBackwardPass(
                                      [output ch]
  * \param biasDeltas      Bias deltas computed by this function
  *                        shape: [BASIC_GRU_CELL_NUM_UNITS][output ch]
+ * \param cellOrder       The order that the weights for each gate are
+ *                        stored in the input.
  */
 
 void basicGruCellParamUpdate(
@@ -108,7 +116,8 @@ void basicGruCellParamUpdate(
     const boost::multi_array_ref<double, 4> bwdState,
     boost::multi_array_ref<double, 3> weightsInputDeltas,
     boost::multi_array_ref<double, 3> weightsOutputDeltas,
-    boost::multi_array_ref<double, 2> biasDeltas);
+    boost::multi_array_ref<double, 2> biasDeltas,
+    const std::vector<BasicGruCellUnit> &cellOrder);
 } // namespace gru
 } // namespace poplibs_test
 

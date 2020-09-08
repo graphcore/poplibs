@@ -671,49 +671,55 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
         endforeach()
 endforeach()
 
-add_multitarget_test(
-         NAME basic_gru_40x4x38_seq_2_half_data
-         COMMAND gru_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --tiles-per-ipu=16
-                 --phase all
-                 --sequence-size 2
-                 VARIANTS ${TimesOutOnSim})
+foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
+        add_multitarget_test(
+                NAME basic_gru_40x4x38_seq_2_half_data_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(
-         NAME basic_gru_40x4x38_seq_2_float_data
-         COMMAND gru_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --sequence-size 2
-                 --tiles-per-ipu=16
-                 --phase all
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+        add_multitarget_test(
+                NAME basic_gru_40x4x38_seq_2_float_data_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase all
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(
-         NAME basic_gru_40x4x38_seq_2_float_data_fwd_only
-         COMMAND gru_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --sequence-size 2
-                 --tiles-per-ipu=16
-                 --phase fwd
-                 --data-type=float
-                 VARIANTS ${TimesOutOnSim})
+        add_multitarget_test(
+                NAME basic_gru_40x4x38_seq_2_float_data_fwd_only_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase fwd
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
 
-add_multitarget_test(
-         NAME basic_gru_40x4x38_seq_2_half_data_runs_2
-         COMMAND gru_layer
-                 --input-size 40
-                 --batch-size=4
-                 --output-size 38
-                 --tiles-per-ipu=16
-                 --phase all
-                 --sequence-size 2
-                 --runs 2
-                 VARIANTS ${TimesOutOnSim})
+        add_multitarget_test(
+                NAME basic_gru_40x4x38_seq_2_half_data_runs_2_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --runs 2
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
+endforeach()
