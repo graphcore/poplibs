@@ -1977,6 +1977,19 @@ add_multitarget_test(
                  --tiles-per-ipu=12
                  VARIANTS ${TimesOutOnSim})
 
+# Caused a failure due to the outer product method being selected despite it
+# not supporting output padding (see T26443)
+add_multitarget_test(
+         NAME conv_output_padding
+         COMMAND single_conv_layer
+                 --data-type=float
+                 --input-channels=1
+                 --output-channels=1
+                 --field={1,1}
+                 --output-padding-lower={1,1}
+                 --tiles-per-ipu=1
+                 VARIANTS ${TimesOutOnSim})
+
 add_multitarget_test(
          NAME conv3x3_stride_1_half_partials
          COMMAND single_conv_layer

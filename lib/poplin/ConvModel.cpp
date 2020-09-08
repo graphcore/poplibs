@@ -2510,6 +2510,14 @@ static void addOuterProductConstaints(popsolver::Model &m,
   assert(lvl1Params.inputTransform.flip.size() == p.fieldGrainSize.size());
   for (auto dim = 0U; dim < p.fieldGrainSize.size(); ++dim) {
     m.equal(s.kernelSize[dim], popsolver::DataType{1});
+    m.equal(m.addConstant(lvl1Params.outputTransform.truncationLower[dim]),
+            popsolver::DataType{0});
+    m.equal(m.addConstant(lvl1Params.outputTransform.truncationUpper[dim]),
+            popsolver::DataType{0});
+    m.equal(m.addConstant(lvl1Params.outputTransform.paddingLower[dim]),
+            popsolver::DataType{0});
+    m.equal(m.addConstant(lvl1Params.outputTransform.paddingUpper[dim]),
+            popsolver::DataType{0});
     m.equal(m.addConstant(lvl1Params.outputTransform.stride[dim]),
             popsolver::DataType{1});
     m.equal(m.addConstant(lvl1Params.inputTransform.dilation[dim]),
