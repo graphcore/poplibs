@@ -935,6 +935,8 @@ int main(int argc, char **argv) try {
     }
   }();
 
+  int rc = EXIT_SUCCESS;
+  std::stringstream errs;
   for (unsigned determinismCheckIdx = 0;
        determinismCheckIdx < numDeterminismChecks + 1; ++determinismCheckIdx) {
 
@@ -1067,12 +1069,12 @@ int main(int argc, char **argv) try {
       };
       for (const auto result : results) { // Report all failures
         if (result.second) {
-          std::cerr << result.first << " validation failed\n";
+          errs << result.first << " validation failed\n";
         }
       }
       for (const auto result : results) { // Abort if any failed
         if (result.second) {
-          return EXIT_FAILURE;
+          rc = EXIT_FAILURE;
         }
       }
     }
@@ -1093,7 +1095,8 @@ int main(int argc, char **argv) try {
     engine.printProfileSummary(std::cout, reportOptions);
   }
 
-  return 0;
+  std::cerr << errs.str();
+  return rc;
 } catch (const poplar::graph_memory_allocation_error &e) {
   std::cerr << e.what() << std::endl;
 
