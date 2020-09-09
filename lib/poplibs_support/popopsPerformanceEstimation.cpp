@@ -23,5 +23,4 @@ std::uint64_t basicOpLoopCycles(const unsigned numElems,
   return cyclesPerVector * (numElems + vectorSize - 1) / vectorSize;
 }
 
-
 } // namespace popops
