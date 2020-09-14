@@ -1,4 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file Loop.hpp
+ *
+ * Functions to provide counted loops of programs.
+ *
+ */
 
 #ifndef poputil_Loop_hpp
 #define poputil_Loop_hpp
@@ -12,13 +17,12 @@
 
 namespace poputil {
 
-// This function creates loop with counter set to initial value of \a begin,
-// and iterate up to the value of \a end (exclusive). Step must be greater than
-// 0.
-
 using CountedLoopBodyType =
     std::function<poplar::program::Program(const poplar::Tensor &)>;
 
+/// This function creates a loop with counter set to initial value of \p begin,
+/// and iterate up to the value of \p end (exclusive). \p step must be greater
+/// than 0.
 inline poplar::program::Sequence countedLoop(poplar::Graph &graph,
                                              std::size_t begin, std::size_t end,
                                              size_t step,
@@ -57,8 +61,8 @@ inline poplar::program::Sequence countedLoop(poplar::Graph &graph,
   return prog;
 }
 
-// This function repeats \a body \a count times. This is a shortcut for
-// countedLoop(graph, 0, count, 1, debugPrefix, body)
+/// This function repeats \p body \p count times. This is a shortcut for
+/// `countedLoop(graph, 0, count, 1, debugPrefix, body)`.
 inline poplar::program::Sequence countedLoop(poplar::Graph &graph,
                                              std::size_t count,
                                              const std::string &debugPrefix,

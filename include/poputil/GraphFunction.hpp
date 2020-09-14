@@ -1,4 +1,14 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file GraphFunctions.hpp
+ *
+ * Definitions for reusing graph structures.
+ *
+ * Since the graph structure takes up memory it is sometimes useful to
+ * re-apply the same graph structure for multiple different data items.
+ * The functions in this namespace provide a way to do this by treating
+ * graphs as reusable functions.
+ *
+ */
 
 #ifndef poputil_GraphFunction_hpp
 #define poputil_GraphFunction_hpp
@@ -6,17 +16,11 @@
 #include <poplar/Program.hpp>
 
 namespace poputil {
+
+/// Support for using poplar::Program objects like function calls.
 namespace graphfn {
 
-/**********************************************************************
- * Graph "functions" for reusing graph structure on multiple data.
- *
- * Since graph structure takes up memory it is sometimes useful to
- * re-apply the same graph structure on multiple different data items.
- * The functions in this header provide a way to do this.
- *
- **********************************************************************/
-
+/// Type of argument to function program.
 enum ArgType { InputArg, OutputArg, InOutArg, CreatedArg };
 
 struct ArgSig {

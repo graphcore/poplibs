@@ -1,4 +1,9 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file VertextTemplates.hpp
+ *
+ * Generate a string describing a vertex type.
+ *
+ */
 
 #ifndef poputil_VertexTemplates_hpp
 #define poputil_VertexTemplates_hpp
@@ -79,6 +84,14 @@ inline std::string templateVertexParams(bool first, bool b, Args &&... args) {
   return p;
 }
 
+/**
+ * Generate a string representation of a Vertex type for use by
+ * poplar::Graph::addVertex().
+ *
+ * \param name  The name of the vertex.
+ * \param args  The types of the arguments to the vertex.
+ * \return      A string representation of the vertex type.
+ */
 template <typename... Args>
 inline std::string templateVertex(const std::string &name, Args &&... args) {
   return name + templateVertexParams(true, std::forward<Args>(args)...);

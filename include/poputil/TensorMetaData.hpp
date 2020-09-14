@@ -1,4 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file TensorMetaData.hpp
+ *
+ * Class to allow extra data to be associated with a tensor.
+ *
+ */
 
 #ifndef poputil_TensorMetaData_hpp
 #define poputil_TensorMetaData_hpp

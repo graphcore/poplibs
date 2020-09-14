@@ -1,4 +1,12 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+/** \file OptionParsing.hpp
+ *
+ * OptionSpec/OptionHandler used to build up a specification of what
+ * options and their values should be, and to translate the value strings
+ * to real values.
+ *
+ */
+
 #ifndef poplibs_support_OptionParsing_hpp
 #define poplibs_support_OptionParsing_hpp
 
@@ -10,11 +18,12 @@
 #include <sstream>
 #include <string>
 
+/// PopLibs classes and functions
 namespace poplibs {
 
-// OptionSpec/OptionHandler used to build up a specification of what
-// options and their values should be, and to translate the value strings
-// to real values.
+/** Represents the various options types.
+ *
+ */
 class OptionHandler {
   std::function<void(poplar::StringRef)> valueHandler;
 
@@ -121,6 +130,8 @@ public:
   }
 };
 
+/** Represents a set of options and their values.
+ */
 class OptionSpec {
   using value_type = std::pair<const std::string, OptionHandler>;
   using map_type = std::map<const std::string, OptionHandler>;
