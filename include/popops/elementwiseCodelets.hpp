@@ -1,6 +1,11 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #ifndef elementwise_codeletes_hpp
 #define elementwise_codeletes_hpp
+/** \file
+ *
+ * Codelets for element-wise operations.
+ *
+ */
 
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
@@ -34,7 +39,7 @@ divideWork(const unsigned size, const unsigned vectorWidthShifts,
 
 namespace {
 
-// Macros to instatiate a template class for an operator and a number
+// Macros to instantiate a template class for an operator and a number
 // of types.
 #define INSTANTIATE_OP_1(v, op, t) template class v<op, t>;
 #define INSTANTIATE_OP_2(v, op, t, ...)                                        \

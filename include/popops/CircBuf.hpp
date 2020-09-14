@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Circular buffer support.
+ *
+ */
 
 #ifndef popops_CircBuf_hpp
 #define popops_CircBuf_hpp
@@ -12,8 +17,9 @@ namespace popops {
 class CircBuf {
 public:
   /** CircBuf represents a circular buffer of tensors which can be indexed using
-   * prev(). Each call to add() will add the given tensor to the circular buffer
-   * with the potential to overwrite a previous element if the buffer is full.
+   * prev(). Each call to \c add() will add the given tensor to the circular
+   * buffer with the potential to overwrite a previous element if the buffer is
+   * full.
    *
    * \param graph             Graph to add the circular buffer to.
    * \param dataType          Datatype of the tensor elements in buffer.
@@ -26,7 +32,7 @@ public:
           const std::vector<std::size_t> &shape,
           const std::string &debugPrefix = "");
 
-  /** Return elements \p i entries old. \p i must be < size
+  /** Return elements \p i entries old. \p i must be less \p size.
    *
    * \param i             Index into the circular buffer.
    * \param seq           Program to add the operation to.
@@ -45,14 +51,14 @@ public:
   void add(poplar::Tensor t, poplar::program::Sequence &seq,
            const std::string &debugPrefix = "");
 
-  /// Tensor representing the index into the circular buffer
+  /// Tensor representing the index into the circular buffer.
   poplar::Tensor getIndex() const;
 
-  /// Size of the circular buffer
+  /// Size of the circular buffer.
   unsigned size() const;
 
-  /// Return tensor mapping of the tensor returned by indexing into a circular
-  /// buffer
+  /// \return Tensor mapping of the tensor returned by indexing into a circular
+  /// buffer.
   poplar::Graph::TileToTensorMapping getTileMapping();
 
 private:

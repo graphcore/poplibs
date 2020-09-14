@@ -89,7 +89,7 @@ poplar::Tensor createWeights(poplar::Graph &graph,
  *                   create the input for.
  * \param options    Options controlling the implementation.
  * \param cache      Optional pointer to a planning cache to use.
- * \return           A input tensor suitable for use with convolution().
+ * \return           A tensor suitable for use as an input to convolution().
  */
 poplar::Tensor createInput(poplar::Graph &graph,
                            const std::vector<CreateTensorArgs> &args,

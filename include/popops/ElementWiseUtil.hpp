@@ -1,4 +1,9 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Supporting functions for element-wise operations.
+ *
+ */
 
 #ifndef _popops_ElementWiseUtil_hpp_
 #define _popops_ElementWiseUtil_hpp_

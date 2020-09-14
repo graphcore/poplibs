@@ -1,4 +1,10 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Operations to rearrange tensors on tiles.
+ *
+ */
+
 #ifndef popops_Rearrange_hpp
 #define popops_Rearrange_hpp
 

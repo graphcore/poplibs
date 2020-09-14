@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Define types of operations used in a reduce.
+ *
+ */
 
 #ifndef popops_Reduce_hpp
 #define popops_Reduce_hpp
@@ -13,19 +18,26 @@
 
 namespace popops {
 
-/// A reduce operation can optionally scale the output, and can also be an
-/// "update", i.e. out += reduce(in) rather than out = reduce(in).
-///
-/// \p ReduceParams stores that information, as well as the basic operation
-/// being performed (add, mul, etc).
+/// Stores parameters for the reduce operation, as well as the basic
+/// operation being performed (for example, \c add or \c mul).
 struct ReduceParams {
   ReduceParams() = default;
-  // Allow implicit convertion from a popops::Operation.
+  // Allow implicit conversion from a popops::Operation.
   ReduceParams(popops::Operation op, bool update = false)
       : op(op), update(update) {
     useScale = false;
   }
 
+  /** Define the details of the reduce operation that will
+   *  be performed by the reduce() and reduceWithOutput()
+   *  functions.
+   *
+   * \param op    The reduce operation to use.
+   * \param scale Can (optionally) scale the output.
+   * \param update Specify that the output should be updated,
+   *               where `out += reduce(in)` rather than
+   *               `out = reduce(in)`.
+   */
   ReduceParams(popops::Operation op, bool update, poplar::Tensor scale)
       : op(op), update(update), scale(scale) {
     useScale = true;
@@ -42,21 +54,21 @@ struct ReduceParams {
 };
 
 /// Apply a reduction operation to a tensor.
-/// scale and update are currently only valid with the `ADD` or `SQUARE_ADD`
+/// \p scale and \p update are only valid with the \c ADD or \c SQUARE_ADD
 /// operations.
 ///
 /// Internally, this creates a new variable for the output then calls
-/// `reduceWithOutput()`. The type of the output will be `outType`.
+/// reduceWithOutput(). The type of the output will be \p outType.
 ///
 /// The options parameter accepts the following:
 ///
-///    * `accumType.interTile` (float, half)
+///  * **accumType.interTile** (float, half)
 ///
-///       The type to use for intermediate values between tiles.
+///    The type to use for intermediate values between tiles.
 ///
-///    * `accumType.inVertex` (float, half)
+///  * **accumType.inVertex** (float, half)
 ///
-///       The type to use for intermediate values within a vertex.
+///    The type to use for intermediate values within a vertex.
 ///
 /// If either of the above options are not set then the intermediate type will
 /// default to either the input tensor element type or float if the input
@@ -70,12 +82,12 @@ struct ReduceParams {
 ///   - `MAX`, `MIN`: float->float, half->half, int->int
 ///   - `LOGICAL_AND`, `LOGICAL_OR`: bool->bool
 ///
-/// \param graph The graph to add the operation to
-/// \param in The tensor to be reduced
-/// \param outType The output type of the reduce operation
-/// \param dims The dimensions to reduce in
-/// \param prog The program sequence to add the operation to
-/// \param debugPrefix Identifying prefix for debugging information
+/// \param graph The graph to add the operation to.
+/// \param in The tensor to be reduced.
+/// \param outType The output type of the reduce operation.
+/// \param dims The dimensions to reduce in.
+/// \param prog The program sequence to add the operation to.
+/// \param debugPrefix Identifying prefix for debugging information.
 ///
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
@@ -84,16 +96,24 @@ poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {});
 
-// An alias for reduce(graph, in, in.elementType(), ...)
+/// \copybrief reduce
+///
+/// An alias for reduce(graph, in, in.elementType(), ...)
+///
+/// \copydetails reduce
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {});
 
+/// \copybrief reduce
+///
 /// This is similar to reduce() but allows you to specify the output.
-/// If the tile mapping of `out` is not complete it will be set. Otherwise it
+/// If the tile mapping of \p out is not complete it will be set. Otherwise it
 /// won't be changed.
+///
+/// \copydetails reduce
 void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Tensor &out,
                       const std::vector<std::size_t> &dims, ReduceParams params,
@@ -101,9 +121,12 @@ void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {});
 
-/// These are alternate forms that add their vertices to a vector
-/// of compute sets instead of a Sequence. The caller is expected to add
-/// each compute set to a Sequence (in an Execute) themselves, like this:
+/// \copybrief reduce
+///
+/// These are alternate forms that add their vertices to a vector of compute
+/// sets instead of a poplar::program::Sequence. The caller is expected to add
+/// each compute set to a poplar::program::Sequence (in a
+/// poplar::program::Execute) themselves, like this:
 ///
 ///     Sequence seq;
 ///     std::vector<ComputeSet> css;
@@ -116,6 +139,9 @@ void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
 /// reductions are not aware of each other, so it may be more efficient
 /// to concatenate tensors and do a single reduction instead if they have the
 /// same shape, operation, and input and output types.
+///
+/// \copydetails reduce
+/// @{
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
                       const std::vector<std::size_t> &dims, ReduceParams params,
@@ -135,6 +161,7 @@ void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       std::vector<poplar::ComputeSet> &css,
                       const std::string &debugPrefix = "",
                       const poplar::OptionFlags &options = {});
+/// @}
 
 } // namespace popops
 

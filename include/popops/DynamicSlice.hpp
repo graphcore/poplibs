@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Support for dynamic slices.
+ *
+ */
 
 #ifndef popops_DynamicSlice_hpp
 #define popops_DynamicSlice_hpp
@@ -13,9 +18,11 @@ class Tensor;
 
 namespace popops {
 
-/// A object representing a plan describing how to implement a
-/// particular slice/update to slice/update APIs.
 class SlicePlanInternal;
+/** An object representing a plan that describes how to implement
+ *  a slice or update. This can be used as a parameter to a function
+ *  that will slice or update a tensor.
+ */
 class SlicePlan {
 public:
   SlicePlan();
@@ -37,7 +44,9 @@ private:
 
 /** Create and map a tensor to be sliced/updated efficiently.
  *
- *  The returned tensor will be laid out according to the plan.
+ *  The returned tensor will be spread over as many tiles as possible while
+ *  respecting the minimum number of elements per tile (\p minGrainSize) and
+ *  still being in a form that can be sliced/updated efficiently.
  *
  *  \param graph        The Poplar graph.
  *  \param type         The type of the elements.
@@ -59,9 +68,7 @@ poplar::Tensor createSliceableTensor(poplar::Graph &graph,
 
 /** Create and map a tensor to be sliced/updated efficiently.
  *
- *  The returned tensor will be spread over as many tiles
- *  as possible while respecting this minimum no. of elements per-tile and
- *  still being in a form to be sliced/updated efficiently.
+ *  The returned tensor will be laid out according to the plan.
  *
  *  \param graph        The Poplar graph.
  *  \param type         The type of the elements.
@@ -80,11 +87,10 @@ poplar::Tensor createSliceableTensor(
     const std::vector<size_t> &sizes, const SlicePlan &plan,
     const poplar::OptionFlags &options, const std::string &debugPrefix = "");
 
-/** Create and map a tensor to be sliced into/updated from efficiently.
+/** Create and map a tensor to be sliced into or updated from efficiently.
  *
- *  Introspection on the tensor to update is used to lay out
- *  the returned tensor such that it can be used to update that tensor
- *  efficiently.
+ *  Introspection on the tensor \p t is used to lay out
+ *  the created tensor such that it can be used to efficiently update \p t.
  *
  *  \param graph        The Poplar graph.
  *  \param t            The tensor to be updated.
@@ -107,7 +113,7 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Tensor &t,
                                  std::size_t numIndices,
                                  const std::string &debugPrefix = "");
 
-/** Create and map a tensor to be sliced into/updated from efficiently.
+/** Create and map a tensor to be sliced into or updated from efficiently.
  *
  *  The returned tensor is laid out according to the plan for the
  *  slice/update operation.
@@ -136,7 +142,7 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const poplar::Type &type,
                                  const poplar::OptionFlags &options,
                                  const std::string &debugPrefix = "");
 
-/** Create and map a tensor to contain indices for slicing/updating
+/** Create and map a tensor to contain indices for slicing or updating
  *  a tensor efficiently.
  *
  * \param graph       The Poplar graph.

@@ -1,4 +1,10 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Functions for padding a tensor.
+ *
+ */
+
 #ifndef popops_Pad_hpp
 #define popops_Pad_hpp
 #include <poplar/Graph.hpp>
@@ -8,11 +14,12 @@
 namespace popops {
 
 // Some general comments:
-// 1) Constant padding requires a Graph, as a Variable is created. This is
+// Constant padding requires a Graph, as a Variable is created. This is
 // the reason for separate API functions for constant padding and other
 // paddings.
 
 namespace padding {
+
 /// Padding types as per numpy.pad
 enum class Type {
   /// Also known as nearest-neighbour padding, each new pad element has
@@ -56,6 +63,7 @@ enum class MappingMethod {
 /// \param mappingMethod  The method that should be used to map added padding
 ///                        elements.
 /// \return The tensor with padding added.
+/// @{
 poplar::Tensor
 pad(poplar::Graph &graph, const poplar::Tensor &t,
     const std::vector<std::ptrdiff_t> &paddingLower,
@@ -73,6 +81,7 @@ pad(poplar::Graph &graph, const poplar::Tensor &t,
     const std::vector<std::ptrdiff_t> &paddingLower,
     const std::vector<std::ptrdiff_t> &paddingUpper, const poplar::Tensor &val,
     padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
+/// @}
 
 /// Return a tensor with constant padding added to one dimension.
 /// \param t              The tensor to pad.
@@ -85,6 +94,8 @@ pad(poplar::Graph &graph, const poplar::Tensor &t,
 /// \param mappingMethod  The method that should be used to map added padding
 ///                        elements.
 /// \return The tensor with padding added.
+///
+/// @{
 poplar::Tensor
 pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
     std::ptrdiff_t paddingUpper, unsigned dim, float val = 0.0f,
@@ -99,6 +110,7 @@ poplar::Tensor
 pad(poplar::Graph &graph, const poplar::Tensor &t, std::ptrdiff_t paddingLower,
     std::ptrdiff_t paddingUpper, unsigned dim, const poplar::Tensor &val,
     padding::MappingMethod mappingMethod = padding::MappingMethod::ZERO);
+/// @}
 
 /// Return a tensor with numpy-style padding added.
 /// \param t            The tensor to pad.

@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Functions for scaling and adding tensors.
+ *
+ */
 
 #ifndef popops_ScaledAdd_hpp
 #define popops_ScaledAdd_hpp
@@ -33,7 +38,7 @@ enum class ScaledAddSpecialisation { DEFAULT, X_MINUS_AX_PLUS_BY };
  *      arithmetic can be used internally, but at the cost of speed.
  *      Floating point arithmetic will be selected if the relative error in
  *      casting is greater than the relative tolerance. \n
- *      Only applies to ScaledAddTo with scaleB.
+ *      Only applies to \c scaledAddTo() with \p scaleB.
  *
  * \param graph        The Poplar graph.
  * \param A            The destination tensor.
@@ -253,7 +258,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
  *  The operation is performed after casting \p scaleA, \p scaleB and \p B to
  *  the type of \p A.
  *
- * \param graph        The poplar graph.
+ * \param graph        The Poplar graph.
  * \param A            The destination tensor.
  * \param scaleA       The scalar tensor to multiply elements of \p A with
  *                     before subtraction.
@@ -282,7 +287,7 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
  * \p A and the
  * operation performed.
  *
- * \param graph        The poplar graph.
+ * \param graph        The Poplar graph.
  * \param A            The destination tensor.
  * \param scaleA       The constant to multiply elements of \p A with before
  *                     subtraction.

@@ -1,4 +1,9 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Operators used in expressions with elements of tensors.
+ *
+ */
 
 #ifndef _popops_ExprOp_hpp_
 #define _popops_ExprOp_hpp_
@@ -6,8 +11,8 @@
 namespace popops {
 namespace expr {
 
-// Enum classes uses for expressions.
-
+/// Enumeration defining operators used by Expr for building expressions.
+/// @{
 enum class TernaryOpType { CLAMP, SELECT };
 
 enum class BinaryOpType {

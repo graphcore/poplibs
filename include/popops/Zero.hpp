@@ -1,4 +1,9 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Set elements of tensor to zero.
+ *
+ */
 
 #ifndef popops_Zero_hpp
 #define popops_Zero_hpp
@@ -47,7 +52,7 @@ void zero(poplar::Graph &graph, const poplar::Tensor &t,
           const std::vector<std::vector<poplar::Interval>> &mapping,
           poplar::ComputeSet zeroCS);
 
-/** Appends programs to \p prog which zeroes all elements of the Tensor \p t
+/** Appends programs to \p prog which zeroes all elements of the tensor \p t
  *
  * \param graph         The graph that the operation will be added to.
  * \param t             The tensor whose elements are to be set to zero.

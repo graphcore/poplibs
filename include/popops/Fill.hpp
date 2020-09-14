@@ -1,4 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Functions to fill tensors with values.
+ *
+ */
 
 #ifndef popops_Fill_hpp
 #define popops_Fill_hpp
@@ -44,7 +49,8 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t, unsigned tile,
  *  \param t             The tensor whose elements are to be set to zero.
  *  \param mapping       The tensor's region mapping per tile. Each element
  *                       describes a region mapping of a tile (ordered).
- *                       i.e. mapping[0] -> tile 0's region mapping for \p t.
+ *                       That is, \c mapping[0] is the region of \p t mapped
+ *                       onto tile 0.
  *  \param fillCS        Compute set to add the operation into.
  *  \param fillValue     The value to fill \p t with.
  */
@@ -53,7 +59,7 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
           const std::vector<std::vector<poplar::Interval>> &mapping,
           poplar::ComputeSet fillCS, FillValueType fillValue);
 
-/** Appends programs to \p prog which fills all elements of the Tensor \p t with
+/** Appends programs to \p prog which fills all elements of the tensor \p t with
  *  a value of \p fillValue.
  *
  *  \note The type of \p fillValue must be compatible with the element type of

@@ -1,4 +1,9 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Casts between tensor types.
+ *
+ */
 
 #ifndef popops_Cast_hpp
 #define popops_Cast_hpp
@@ -13,7 +18,7 @@ namespace popops {
 /** Cast elements of the specified \p src tensor to \p dstType, returning the
  * result as a new tensor.
  *
- * Note: If `dstType` == `src.elementType()`, then the operation is a copy.
+ * Note: If `dstType == src.elementType()`, then the operation is a copy.
  *
  * \param graph         The graph that the operation will be added to.
  * \param src           Source tensor to cast.
@@ -30,9 +35,9 @@ poplar::Tensor cast(poplar::Graph &graph, const poplar::Tensor &src,
 /** Create a program to copy tensor casting between types (for example,
  * half->float).
  *
- * Precondition: `src.shape()` == `dst.shape()`
+ * Precondition: `src.shape() == dst.shape()`
  *
- * Note: If `dst.elementType()` == `src.elementType()`, then the operation is
+ * Note: If `dst.elementType() == src.elementType()`, then the operation is
  * just a copy.
  *
  * \param graph         The graph that the operation will be added to.
@@ -49,7 +54,7 @@ poplar::program::Program cast(poplar::Graph &graph, poplar::Tensor src,
  * tensor casting between types (for example, half->float).
  * The vertices are added to the specified compute set.
  *
- * Precondition: `src.shape()` == `dst.shape()`
+ * Precondition: `src.shape() == dst.shape()`
  *
  * \param graph     The graph that the operation will be added to.
  * \param src       Source tensor.
@@ -76,7 +81,7 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
 
 /** Helper function which checks the relative error in the tensor \p input
  * when casting it to type \p outputType. The result is a single element bool
- * tensor which is set to true if the error is < \p tolerance.
+ * tensor which is set to true if the error is less than \p tolerance.
  *
  * Preconditions:
  *  - `input.elementType() == FLOAT`
@@ -89,7 +94,10 @@ poplar::Tensor cast(poplar::Graph &graph, poplar::Tensor src,
  * \param tolerance     Allowed tolerance in error from cast operation.
  * \param prog          Program to add the check onto.
  * \param debugPrefix   Name of the operation, for debugging.
- * \return              Boolean tensor indicating error < \p tolerance
+ * \return              Boolean tensor indicating that the error is less
+ *                      than \p tolerance.
+ * \throw poputil::poplibs_error If either \p input or \p outputType
+ * are not either half or float.
  */
 poplar::Tensor checkAccuracyWhenCast(poplar::Graph &graph,
                                      const poplar::Tensor &input,

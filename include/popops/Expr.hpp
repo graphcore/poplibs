@@ -1,4 +1,9 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Expressions with elements of tensors.
+ *
+ */
 
 #ifndef __popops_Expr_hpp__
 #define __popops_Expr_hpp__
@@ -18,10 +23,11 @@ namespace expr {
 /** Type to represent element expressions.
  *
  *  This class represents an expression that can be applied to elements
- *  of Tensors.
+ *  of tensors.
  *
- *  The type is an abstract type which can be instantiated by its sub-classes
- *  to build up expressions, for example: `Tanh(Add(Square(_1), Const(3))))`.
+ *  The Expr type is an abstract type which can be instantiated by its
+ *  sub-classes to build up expressions, for example:
+ *  `Tanh(Add(Square(_1), Const(3))))`.
  *
  *  Expressions can be applied to tensors with the popops::map() and
  *  popops::mapInPlace() functions.
@@ -64,8 +70,8 @@ public:
   friend class Expr;
 };
 
-// a class that can contain any expression, useful for building up expression
-// trees dynamically where the type of the outermost expression may change.
+/// A class that can contain any expression, useful for building up expression
+/// trees dynamically where the type of the outermost expression may change.
 class Any {
   std::unique_ptr<Expr> expr;
 
@@ -79,6 +85,7 @@ public:
   }
 };
 
+/// A class to represent constant expressions.
 class Const : public ExprType<Const> {
   poplar::TypeTraits typeTraits;
   poplar::Type type;
@@ -125,6 +132,7 @@ public:
   std::string name(const std::vector<poplar::Tensor> &) const override;
 };
 
+/// A class to represent constant expressions of type \c half.
 class ConstHalf : public Const {
 public:
   ConstHalf(float x) : Const(x, true) {}
@@ -135,6 +143,7 @@ inline ConstHalf operator"" _half(long double x) {
   return ConstHalf(static_cast<float>(x));
 }
 
+/// A class to represent cast expressions.
 class Cast : public ExprType<Cast> {
   std::unique_ptr<Expr> a;
   poplar::Type bType;
@@ -187,6 +196,7 @@ const PlaceHolder _18(18);
 const PlaceHolder _19(19);
 const PlaceHolder _20(20);
 
+/// A class to represent expressions with unary operators.
 class UnaryOp : public ExprType<UnaryOp> {
   static const std::vector<std::string> UnaryOpNames;
   UnaryOpType type;
@@ -247,6 +257,7 @@ POPLIBS_DEFINE_EXPR_UNARY_OP(Square, SQUARE)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Sigmoid, SIGMOID)
 POPLIBS_DEFINE_EXPR_UNARY_OP(Rsqrt, RSQRT)
 
+/// A class to represent expressions with binary operators.
 class BinaryOp : public ExprType<BinaryOp> {
   static const std::vector<std::string> BinaryOpNames;
   BinaryOpType type;
@@ -320,6 +331,7 @@ POPLIBS_DEFINE_EXPR_BINARY_OP(ShrSE, SHIFT_RIGHT_SIGN_EXTEND)
 POPLIBS_DEFINE_EXPR_BINARY_OP_AND_SYMBOL(Sub, SUBTRACT, -)
 POPLIBS_DEFINE_EXPR_BINARY_OP(VarianceToInvStdDev, VARIANCE_TO_INV_STD_DEV)
 
+/// A class to represent expressions with ternary operators.
 class TernaryOp : public ExprType<TernaryOp> {
   static const std::vector<std::string> TernaryOpNames;
   TernaryOpType type;

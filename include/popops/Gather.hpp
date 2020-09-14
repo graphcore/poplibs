@@ -1,4 +1,10 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+/** \file
+ *
+ * Support for gather operations.
+ *
+ */
+
 #ifndef popops_Gather_hpp
 #define popops_Gather_hpp
 #include <poplar/Graph.hpp>
@@ -6,6 +12,7 @@
 
 namespace popops {
 
+/// Defines the parameters to a gather operation.
 struct GatherParams {
   /// Suggested maximum number of elements to place on a tile.
   /// This can be used to balance the gather across the IPUs.
@@ -38,13 +45,14 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 /**
  *  The gather operation stitches together several slices (each slice at a
  *  potentially different runtime offset) of an input tensor. To achieve the
- *  best performance, the input tensor should be created with createGatherInput.
+ *  best performance, the input tensor should be created with
+ *  createGatherInput().
  *
  *  \param graph       The Poplar graph.
  *  \param input       The tensor we are gathering from of rank x.
  *  \param indices     Tensor containing the indices of the slices we gather of
  *                     rank y.
- *  \param axis        The axis to gather on, axis must be less than x.
+ *  \param axis        The axis to gather on. The axis must be less than x.
  *  \param prog        The program sequence to add this operation to.
  *  \param params      Parameters for the form of the gather.
  *  \param debugPrefix A debug name for the operation.
@@ -67,10 +75,10 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
  *  \param graph         The Poplar graph.
  *  \param type          The data type of the required tensor.
  *  \param inputShape    The desired shape of the input.
- *  \param sliceSizes    `slice_sizes[i]` is the bounds for the slice on
- *                       dimension `i`.
+ *  \param sliceSizes    \p sliceSizes[i] is the bounds for
+ *                        the slice on dimension \c i.
  *  \param startIndexMap A map that describes how to map indices in
- *                       `startIndices` to legal indices into input.
+ *                       \p indices in gather() to legal indices into the input.
  *  \param name          The name of the tensor.
  *
  *  \returns A tensor with the desired shape.
@@ -84,27 +92,28 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 /**
  *  The gather operation stitches together several slices (each slice at a
  *  potentially different runtime offset) of an input tensor. To achieve the
- *  best performance, the input tensor should be created with createGatherInput.
+ *  best performance, the input tensor should be created with
+ *  createGatherInput().
  *
  *  \param graph              The Poplar graph.
  *  \param input              The tensor we are gathering from.
  *  \param indices            Tensor containing the starting indices of the
  *                            slices we gather.
- *  \param indexVectorDim     The dimension in `indices` that "contains" the
+ *  \param indexVectorDim     The dimension in \p indices that "contains" the
  *                            starting indices.
  *  \param offsetDims         The set of dimensions in the output shape that
- *                            offset into a tensor sliced from input.
- *  \param sliceSizes         `slice_sizes[i]` is the bounds for the slice on
- *                            dimension `i`.
+ *                            offset into a tensor sliced from \p input.
+ *  \param sliceSizes         \p sliceSizes[i] is the bounds for the slice on
+ *                            dimension \c i.
  *  \param collapsedSliceDims The set of dimensions in each slice that are
  *                            collapsed away. These dimensions must have size 1.
  *  \param startIndexMap      A map that describes how to map indices in
- *                            `startIndices` to legal indices into input.
- *  \param prog               The program sequence to add this operation to
+ *                            \p indices to legal indices into \p input.
+ *  \param prog               The program sequence to add this operation to.
  *  \param debugPrefix        A debug name for the operation.
  *
- *  \note When indexVectorDim == indices.rank(), the indices are interpreted as
- *        scalar values.
+ *  \note When `indexVectorDim == indices.rank()`, the indices are interpreted
+ *        as scalar values.
  *
  *  \note This is a near direct port of
  *  https://www.tensorflow.org/xla/operation_semantics#gather from
@@ -112,7 +121,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *
  *  \returns The gathered slices from the input.
  *
- *  Example usage where we want to take 2 elements from a given tensor:
+ *  Example use where we want to take 2 elements from a given tensor:
  *
  *      // The runtime defined input tensor
  *      input = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}}; // shape = {3, 3}
