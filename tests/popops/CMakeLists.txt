@@ -840,7 +840,8 @@ add_multitarget_test(
                  --shape {61,3}
                  --num-indices 2010
                  --data-type float
-                 --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"})
+                 --plan-constraints={\"unslicedDimSplit\":\"3\",\"slicedDimSplit\":\"8\",\"lookupSplit\":\"21\"}
+         VARIANTS ${TimesOutOnSim})
 
 add_multitarget_test(
          NAME embedding_layer_T25957
@@ -848,7 +849,8 @@ add_multitarget_test(
                  --shape {12,6}
                  --num-indices 1361
                  --data-type float
-                 --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"})
+                 --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"}
+         VARIANTS ${TimesOutOnSim})
 
 # Collective operations
 foreach(collective reduce_scatter
