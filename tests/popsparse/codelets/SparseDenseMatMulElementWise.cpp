@@ -449,6 +449,12 @@ int main(int argc, char **argv) try {
      po::value<VertexType>(&vertexType)->default_value(vertexType),
      "Which vertex to test (Forward | GradA | Transposed | GradW)")
   ;
+
+  // GradWAmp vertex not supported for Element sparsity
+  if (vertexType == VertexType::GradWAmp) {
+    throw poplibs_error("GradWAmp is not supported for element sparsity");
+  }
+
   // clang-format on
   po::variables_map vm;
   try {

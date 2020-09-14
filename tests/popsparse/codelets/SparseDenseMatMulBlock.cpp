@@ -46,6 +46,10 @@ using namespace poplibs_test::util;
 using namespace poputil;
 using namespace poplibs_support;
 
+static bool isGradWVertex(VertexType vt) {
+  return vt == VertexType::GradW || vt == VertexType::GradWAmp;
+}
+
 // generate sparse block start indices
 template <typename RandomEngine>
 static std::vector<std::array<unsigned, 2>> generateBlockSparseIndices(
@@ -120,7 +124,7 @@ static std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
 
   // Factor by which row and column offsets are scaled
   const auto blockElems = product(blockSize);
-  const auto fillGradWInfo = vertexType == VertexType::GradW;
+  const auto fillGradWInfo = isGradWVertex(vertexType);
 
   // Order indices of a by column then row
   std::sort(indices.begin(), indices.end());
@@ -331,7 +335,7 @@ int main(int argc, char **argv) try {
      "do so")
     ("vertex-type",
      po::value<VertexType>(&vertexType)->default_value(vertexType),
-     "Which vertex to test (Forward | GradA | Transposed | GradW)")
+     "Which vertex to test (Forward | GradA | Transposed | GradW | GradWAmp)")
   ;
   // clang-format on
   po::variables_map vm;
@@ -387,7 +391,7 @@ int main(int argc, char **argv) try {
                         "second dimension of block size");
   }
 
-  if (vertexType == VertexType::GradW && numBuckets != 1) {
+  if (isGradWVertex(vertexType) && numBuckets != 1) {
     throw poplibs_error("GradW vertex can only handle --num-buckets=1");
   }
 
@@ -401,6 +405,15 @@ int main(int argc, char **argv) try {
     throw poplibs_error(
         "Second dimension of block size must be a multiple of " +
         std::to_string(modForCheck));
+  }
+
+  const auto gradWAmpDimMultiple = inputType == FLOAT ? 8U : 16U;
+  if (vertexType == VertexType::GradWAmp && bShape[1] % gradWAmpDimMultiple) {
+    throw poplibs_error("GradWAmp codelets only support multiple of " +
+                        std::to_string(gradWAmpDimMultiple) +
+                        " as inner "
+                        "dimension of b for " +
+                        inputType.toString() + " input data type");
   }
 
   const std::vector<std::size_t> cShape = {aShape[0], bShape[1]};
@@ -447,10 +460,10 @@ int main(int argc, char **argv) try {
   const auto metaInfoType = UNSIGNED_SHORT;
 
   // Allocate operands
-  const auto aType = vertexType == VertexType::GradW ? partialsType : inputType;
+  const auto aType = isGradWVertex(vertexType) ? partialsType : inputType;
   const auto bType = vertexType == VertexType::GradA ? partialsType : inputType;
   const auto cType =
-      vertexType == VertexType::GradA || vertexType == VertexType::GradW
+      vertexType == VertexType::GradA || isGradWVertex(vertexType)
           ? inputType
           : partialsType;
   std::vector<Tensor> aBuckets(numBuckets);
@@ -487,6 +500,9 @@ int main(int argc, char **argv) try {
   case VertexType::GradW:
     vertexBaseClass += "SparseDenseMatMulBlockGradW";
     break;
+  case VertexType::GradWAmp:
+    vertexBaseClass += "SparseDenseMatMulBlockAmpGradW";
+    break;
   case VertexType::Transposed:
     throw poplibs_error("Vertex type not yet supported");
   default:
@@ -501,8 +517,7 @@ int main(int argc, char **argv) try {
       vertexType == VertexType::GradA
           ? aShape.val[1] * partialsTypeSize / 8
           : aShape.val[0] *
-                (vertexType == VertexType::GradW ? inputTypeSize
-                                                 : partialsTypeSize) /
+                (isGradWVertex(vertexType) ? inputTypeSize : partialsTypeSize) /
                 8;
   unsigned zStrideInS = vertexType == VertexType::GradA
                             ? aShape.val[0] * inputTypeSize / 8
@@ -525,7 +540,11 @@ int main(int argc, char **argv) try {
     return std::make_pair(valid, numElements / multipleOf);
   };
 
-  if (vertexType == VertexType::GradW) {
+  if (isGradWVertex(vertexType)) {
+    if (vertexType == VertexType::GradWAmp) {
+      qTensor = qTensor.transpose();
+      sTensor = sTensor.transpose();
+    }
     graph.connect(v["qGrad"], qTensor.flatten());
     graph.connect(v["rGrad"], aBuckets.at(0));
     graph.connect(v["s"], sTensor.flatten());
@@ -538,8 +557,10 @@ int main(int argc, char **argv) try {
         getZeroInfo(aBuckets.at(0).numElements(), partialsType);
     assert(zeroInfo.first);
     graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0);
-    graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
-    graph.setInitialValue(v["zStrideInS"], zStrideInS);
+    if (vertexType == VertexType::GradW) {
+      graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
+      graph.setInitialValue(v["zStrideInS"], zStrideInS);
+    }
     graph.setInitialValue(v["numZ"], bShape.val[1]);
   } else {
     graph.connect(v["q"], qTensor.flatten());
@@ -624,7 +645,7 @@ int main(int argc, char **argv) try {
     copy(target, cType, rawHostC.get(), hostC);
   } else if (vertexType == VertexType::GradA) {
     copy(target, bType, rawHostB.get(), hostB);
-  } else if (vertexType == VertexType::GradW) {
+  } else if (isGradWVertex(vertexType)) {
     copy(target, aType, rawHostABuckets.at(0).get(), hostABuckets.at(0));
   }
 
@@ -691,7 +712,7 @@ int main(int argc, char **argv) try {
       }
       matchesModel = checkIsClose("modelB", hostB, modelB, relativeTolerance,
                                   absoluteTolerance);
-    } else if (vertexType == VertexType::GradW) {
+    } else if (isGradWVertex(vertexType)) {
       boost::multi_array<double, 2> modelADense(
           boost::extents[aShape[0]][aShape[1]]);
       poplibs_test::gemm::generalMatrixMultiply(hostC, hostB, modelADense, true,

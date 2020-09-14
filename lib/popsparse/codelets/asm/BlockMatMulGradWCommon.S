@@ -18,6 +18,7 @@
 DEF_STACK_USAGE 0 zeroDenseOutput64GradW
 .section ".text.zeroDenseOutput64GradW", FUNCTION_IS_WORKER
 .type zeroDenseOutput64GradW, @function
+.globl zeroDenseOutput64GradW
 .align 8
 
 #define wkr_id_zv                       m0

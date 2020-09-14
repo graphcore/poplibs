@@ -27,6 +27,9 @@ std::ostream &operator<<(std::ostream &os, const VertexType &vt) {
   case VertexType::GradW:
     os << "GradW";
     break;
+  case VertexType::GradWAmp:
+    os << "GradWAmp";
+    break;
   default:
     throw poplibs_error(
         "Unrecognised vertex type " +
@@ -46,6 +49,8 @@ std::istream &operator>>(std::istream &is, VertexType &vt) {
     vt = VertexType::Transposed;
   } else if (token == "GradW") {
     vt = VertexType::GradW;
+  } else if (token == "GradWAmp") {
+    vt = VertexType::GradWAmp;
   } else {
     throw poplibs_error("Unrecognised vertex type '" + token + "'");
   }

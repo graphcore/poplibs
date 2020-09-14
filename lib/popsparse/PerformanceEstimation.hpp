@@ -304,7 +304,6 @@ static inline std::uint64_t sparseDenseBlockMultiply(
 // Should be called such that numY has one entry for many X where numY is
 // an average. If the effect of different sizes of Y has to be taken into
 // account, numX should be 1.
-
 static inline std::uint64_t sparseDenseBlockMultiplyGradW(
     unsigned numBuckets, unsigned numBucketsWithInfoForPN,
     unsigned averageSubgroupsPerBucket, unsigned numXBlocks, unsigned numZ,
@@ -400,6 +399,107 @@ static inline std::uint64_t sparseDenseBlockMultiplyGradW(
   return totalWorkerCycles * numWorkerContexts + totalSupervisorCycles;
 }
 
+static inline std::uint64_t sparseDenseBlockMultiplyGradWAmp(
+    unsigned numBuckets, unsigned numBucketsWithInfoForPN,
+    unsigned averageSubgroupsPerBucket, unsigned numXBlocks, unsigned numZ,
+    unsigned numBlockRows, unsigned numBlockCols,
+    const std::vector<unsigned> &numYBlocks, bool floatInput,
+    bool floatPartials, unsigned numWorkerContexts, unsigned numConvUnits) {
+  std::uint64_t supervisorOverhead = 37;
+  std::uint64_t supervisorCyclesWithBucketsNotForPN = 38;
+
+  // assume uniform distribution of location. For the initial distribution this
+  // can be set such that subgroup found if the very first.
+  double avgSubgroupsForFirstMatch =
+      static_cast<double>(averageSubgroupsPerBucket - 1) / 2;
+
+  std::uint64_t supervisorCyclesWithBucketsForPN =
+      (avgSubgroupsForFirstMatch + 1) * 26;
+
+  std::uint64_t totalSupervisorCycles =
+      supervisorOverhead + supervisorCyclesWithBucketsNotForPN +
+      supervisorCyclesWithBucketsForPN * numBucketsWithInfoForPN;
+
+  // Supervisor cycles: split into first and next for the first pass
+  // and subsequent passes because we exploit the fact that there is worker
+  // imbalance. We assume for all cases, the worker imbalance is large enough
+  // to account for all the excess cycles before a sync. The other way to do it
+  // would be loop around and find the max and min.
+  std::uint64_t sXOverheadFirst = 23;
+  std::uint64_t sXOverheadOther = 8;
+  std::uint64_t sYOverheadFirst = 32;
+  std::uint64_t sYOverheadOther = 10;
+  std::uint64_t sZOverheadFirst = 15;
+  std::uint64_t sZOverheadOther = 4;
+  std::uint64_t sRunCycles = 8;
+  std::uint64_t sWeightLoad = 0;
+  std::uint64_t wRetention = 0;
+  std::uint64_t wNonRetention = 0;
+  std::uint64_t wZOffRetention = 0;
+
+  if (numBlockRows == 16 && numBlockCols == 16) {
+    sWeightLoad = 234;
+    assert(!floatInput);
+    if (numConvUnits == 4 && !floatInput) {
+      sRunCycles = 17;
+      wZOffRetention = 2;
+      // times 2 for non retention because of 2 passes of 8x16
+      if (floatPartials) {
+        wRetention = 11;
+        wNonRetention = 2 * 33 - wZOffRetention;
+      } else {
+        wRetention = 9;
+        wNonRetention = 2 * 31 - wZOffRetention;
+      }
+    } else {
+      wZOffRetention = 4;
+      wRetention = 10;
+      wNonRetention = 33;
+    }
+  } else if (numBlockRows == 8 && numBlockCols == 8) {
+    sWeightLoad = 114;
+
+    if (floatInput) {
+      wZOffRetention = 2;
+      wRetention = 8;
+      wNonRetention = 34;
+    } else {
+      wZOffRetention = 4;
+      wRetention = floatPartials ? 8 : 7;
+      wNonRetention = 28;
+    }
+  } else if (numBlockRows == 4 && numBlockCols == 4) {
+    sWeightLoad = 54;
+    wRetention = 6;
+    if (floatInput) {
+      wZOffRetention = 1;
+      wNonRetention = 21;
+    } else {
+      wZOffRetention = 2;
+      wNonRetention = floatPartials ? 18 : 17;
+    }
+  }
+
+  totalSupervisorCycles += (numXBlocks - 1) * sXOverheadOther + sXOverheadFirst;
+  uint64_t supervisorLoopCycles = 0;
+  std::uint64_t workerCycles = wRetention;
+  std::uint64_t innerLoopCycles = 0;
+
+  for (const auto &y : numYBlocks) {
+    supervisorLoopCycles += sYOverheadFirst + (y - 1) * sYOverheadOther;
+    const auto numBlocks = ceildiv(numZ, floatInput ? 8U : 16U);
+    supervisorLoopCycles +=
+        (sZOverheadFirst + (numBlocks - 1) * sZOverheadOther +
+         numBlocks * (sRunCycles + sWeightLoad)) *
+        y;
+    innerLoopCycles +=
+        y * (wNonRetention * numBlocks - (numBlocks - 1) * wZOffRetention);
+  }
+  totalSupervisorCycles += supervisorLoopCycles * numXBlocks;
+  workerCycles += numXBlocks * innerLoopCycles;
+  return workerCycles * numWorkerContexts + totalSupervisorCycles;
+}
+
 // Should be called such that numY has one entry for many X where numY is
 // an average. If the effect of different sizes of Y has to be taken into
 // account, numX should be 1.
@@ -408,11 +508,6 @@ static inline std::uint64_t sparseDenseElementwiseMultiply(
     unsigned averageSubgroupsPerBucket, unsigned numX, unsigned numZ,
     const std::vector<unsigned> &numY, bool floatInput,
     bool /* floatPartials */, unsigned numWorkerContexts) {
-
-  // logging::popsparse::trace("sparseDenseElementwiseMultiply: numBuckets={},
-  // numBucketsWithInfoForPN={}, averageSubgroupsPerBucket={}, numX={}, numZ={},
-  // numY[0]={}, numWorkers={}", numBuckets, numBucketsWithInfoForPN,
-  // averageSubgroupsPerBucket, numX, numZ, numY[0], numWorkerContexts);
 
   std::uint64_t supervisorOverhead = 30;
   std::uint64_t supervisorCyclesWithBucketsNotForPN =

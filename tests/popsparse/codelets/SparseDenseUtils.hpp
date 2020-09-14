@@ -16,6 +16,7 @@ enum class VertexType {
   GradA,      // version where a separate meta information table is used
   Transposed, // Uses forward meta information table
   GradW,
+  GradWAmp,
 };
 
 std::ostream &operator<<(std::ostream &os, const VertexType &vt);

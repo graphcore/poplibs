@@ -95,6 +95,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulBlock.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulBlockGradA.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulBlockGradW.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMatMulBlockAmpGradW.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseGather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Utils.cpp
 
@@ -137,7 +138,17 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block8x8SparseDenseMatMulGradW_half_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulGradW_half_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulGradW_half_float.S
-    
+
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulAmpGradW_half_half_2ampsets.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulAmpGradW_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block16x16SparseDenseMatMulAmpGradW_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block8x8SparseDenseMatMulAmpGradW_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block8x8SparseDenseMatMulAmpGradW_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block8x8SparseDenseMatMulAmpGradW_float_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block4x4SparseDenseMatMulAmpGradW_half_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block4x4SparseDenseMatMulAmpGradW_half_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Block4x4SparseDenseMatMulAmpGradW_float_float.S
+
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradAElementWise.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise.h.S
@@ -148,6 +159,8 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockSparseMatMulStructs.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockSparseMatMulStructs.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockSparseMatMulGradW.h.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockSparseMatMulAmpGradW.h.S
+
     ${CMAKE_CURRENT_SOURCE_DIR}/SparseMetaInfo.hpp
 )
 
