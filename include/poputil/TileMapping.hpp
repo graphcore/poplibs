@@ -116,11 +116,11 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
  *  \param minGrainsPerTile
  *                   The minimum number of grains to be mapped to a tile.
  */
-[[deprecated("Obsoleted in favour of createOutputForElementWiseOp")]] void
-mapOutputForElementWiseOp(poplar::Graph &graph,
-                          const std::vector<poplar::Tensor> &inputs,
-                          const poplar::Tensor &output, unsigned grainSize = 1,
-                          unsigned minGrainsPerTile = 0);
+void mapOutputForElementWiseOp(poplar::Graph &graph,
+                               const std::vector<poplar::Tensor> &inputs,
+                               const poplar::Tensor &output,
+                               unsigned grainSize = 1,
+                               unsigned minGrainsPerTile = 0);
 
 class TensorUseTrackerState;
 
