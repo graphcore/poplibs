@@ -464,12 +464,18 @@ addDistributionExchangeCostDenseDense(
     const auto mQGradConsecutiveTilesReceivingSameData = m.one();
     const auto mSConsecutiveTilesReceivingSameData = p.partition[level].x;
 
-    const auto mQGradExchangeCycles = exchangeEstimator(
-        mQGradBytesToSendReceive, mQGradConsecutiveTilesReceivingSameData,
-        p.product[level], level);
-    const auto mSExchangeCycles = exchangeEstimator(
-        mSBytesToSendReceive, mSConsecutiveTilesReceivingSameData,
-        p.product[level], level);
+    // There should be as much data as the number of z partitions as there
+    // is no reduction stage following this.
+    const auto mQGradExchangeCycles =
+        m.product({exchangeEstimator(mQGradBytesToSendReceive,
+                                     mQGradConsecutiveTilesReceivingSameData,
+                                     p.product[level], level),
+                   p.partition[level].z});
+    const auto mSExchangeCycles =
+        m.product({exchangeEstimator(mSBytesToSendReceive,
+                                     mSConsecutiveTilesReceivingSameData,
+                                     p.product[level], level),
+                   p.partition[level].z});
     mCyclesPerLevel[level] = m.sum({mQGradExchangeCycles, mSExchangeCycles});
 
     mTempBytesPerLevel[level] =
@@ -671,7 +677,7 @@ addInitialComputeCostDenseDense(
   const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialsType));
   const auto mCycles = m.call<unsigned>(
       {mPartialsPerTile, mGroups.x, mGroups.y, mGroups.z, mGrouping.x,
-       mGrouping.y, mGrouping.z},
+       mGrouping.y, mGrouping.z, mCumulativePartitions.z},
       [=](const std::vector<unsigned> &values) -> popsolver::DataType {
         const auto partialsPerTile = values[0];
         const auto xGroups = values[1];
@@ -680,6 +686,7 @@ addInitialComputeCostDenseDense(
         const auto xGrouping = values[4];
         const auto yGrouping = values[5];
         const auto zGrouping = values[6];
+        const auto numZPartitions = values[7];
         const auto partialsPerWorker = ceildiv(partialsPerTile, numWorkers);
 
         std::uint64_t cycles = zeroPartialsCycles(partialsPerWorker, numWorkers,
@@ -687,8 +694,12 @@ addInitialComputeCostDenseDense(
                                                   xGrouping * yGrouping > 1);
 
         unsigned xNonZeroGroups, yNonZeroGroups;
+        // Divide the number of xGroups by Z partition as we always split
+        // rows first.
+        const auto xGroupsPerZSplit = ceildiv(xGroups, numZPartitions);
         std::tie(xNonZeroGroups, yNonZeroGroups) =
-            getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroups, yGroups);
+            getNumGroupsGivenUniformSparsityPattern(nzRatio, xGroupsPerZSplit,
+                                                    yGroups);
         unsigned nonZeroGroups = xNonZeroGroups * yNonZeroGroups;
         const auto groupsPerWorker = ceildiv(nonZeroGroups, numWorkers);
         const auto numUsedWorkers = ceildiv(nonZeroGroups, groupsPerWorker);
@@ -731,16 +742,21 @@ addInitialComputeCostDenseDense(
             break;
           case OnTileMethod::GradWBlock:
             mulCycles = sparseDenseBlockMultiplyGradW(
-                numBuckets, numBuckets, numSubGroupsPerBucket, numXThisWorker,
-                numZ, xGrouping, yGrouping, numYThisWorker, inputType == FLOAT,
-                partialsType == FLOAT, numWorkers);
+                numBuckets, numBuckets, numSubGroupsPerBucket,
+                numXGroupsThisWorker, numZ, xGrouping, yGrouping,
+                numYThisWorker, inputType == FLOAT, partialsType == FLOAT,
+                numWorkers);
+            // Average over different values of Y. TODO: The Y provided aren't
+            // statistically significant, they just assume a rectangle and
+            // divide between workers so there is some accounting for overheads.
+            mulCycles = ceildiv(mulCycles, numYThisWorker.size());
             break;
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
           }
           maxMulCycles = std::max(maxMulCycles, mulCycles);
         }
-        cycles += maxMulCycles;
+        cycles += maxMulCycles * xGroupsPerZSplit;
 
         return popsolver::DataType{cycles};
       });

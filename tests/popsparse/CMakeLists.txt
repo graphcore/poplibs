@@ -153,19 +153,19 @@ foreach(DATA_TYPE half float)
           --batch-size=4
           --sparsity-factor=0.1
           --tiles-per-ipu=24
-          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
+          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\",\"availableMemoryProportion\":\"0.6\"}
           --single-phase=${PASS_TYPE})
 
       add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_8b_0.1sl_sb_${SHARED_BUCKETS}
+        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_512in_512out_8b_0.1sl_sb_${SHARED_BUCKETS}
         COMMAND sparse_fc_layer
           --data-type=${DATA_TYPE}
-          --input-size=1024
-          --output-size=1024
+          --input-size=512
+          --output-size=512
           --batch-size=8
           --sparsity-factor=0.1
           --tiles-per-ipu=24
-          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
+          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\",\"availableMemoryProportion\":\"0.6\"}
           --single-phase=${PASS_TYPE}
         VARIANTS ${TimesOutOnSim})
 
@@ -194,7 +194,7 @@ foreach(DATA_TYPE half float)
             --weighted-area-end={400,786}
             --weighted-area-weight=8
             --tiles-per-ipu=24
-            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"}
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"availableMemoryProportion\":\"0.6\"}
             --single-phase=${PASS_TYPE}
           VARIANTS ${TimesOutOnSim})
       endif()
