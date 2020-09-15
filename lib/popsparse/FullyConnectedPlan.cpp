@@ -634,6 +634,7 @@ addInitialComputeCostSparseDense(
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
           }
+
           maxMulCycles = std::max(maxMulCycles, mulCycles);
         }
         cycles += maxMulCycles;
@@ -657,6 +658,45 @@ addInitialComputeCostSparseDense(
                          mPartialsTempBytes);
 }
 
+static std::pair<popsolver::Variable, popsolver::Variable>
+transposeDenseCost(popsolver::Model &m, const Target &target,
+                   const Type &dataType, const popsolver::Variable &mXOrYGroups,
+                   const popsolver::Variable mXOrYGrouping,
+                   const popsolver::Variable &mZGroups,
+                   const popsolver::Variable &mZGrouping) {
+  const auto numWorkers = target.getNumWorkerContexts();
+
+  // TODO: add padding cost once we support padding.
+  const auto calculateTransposeCycles =
+      [=](const std::vector<unsigned> &values) {
+        const auto numTransposes = values[0];
+        const auto numSrcRows = values[1];
+        const auto numSrcColumns = values[2];
+        const auto minGrouping = target.getVectorWidth(dataType);
+        if (numSrcRows % minGrouping || numSrcColumns % minGrouping) {
+          // assume 2 cycles per datum
+          const auto cycles =
+              2 * ceildiv(numTransposes * numSrcRows * numSrcRows, numWorkers);
+          return popsolver::DataType{cycles};
+        } else {
+          const auto cycles = getTransposeCycleEstimate(
+              numTransposes, numSrcRows, numSrcColumns, dataType, numWorkers);
+
+          return popsolver::DataType{cycles};
+        }
+      };
+
+  const auto mCycles =
+      m.call<unsigned>({m.one(), m.product({mXOrYGroups, mXOrYGrouping}),
+                        m.product({mZGroups, mZGroups})},
+                       calculateTransposeCycles);
+  const auto mBytesPerInput = m.addConstant(target.getTypeSize(dataType));
+
+  const auto mTransposedBytes = m.product(
+      {mBytesPerInput, mXOrYGroups, mXOrYGrouping, mZGroups, mZGrouping});
+  return std::make_pair(mCycles, mTransposedBytes);
+}
+
 static std::tuple<CostVariables, popsolver::Variable>
 addInitialComputeCostDenseDense(
     popsolver::Model &m, const Target &target, const Type &inputType,
@@ -671,11 +711,12 @@ addInitialComputeCostDenseDense(
   // TODO: Handle groups for vertex cycle estimates properly
   const auto mPartialsPerTile =
       m.product({mSparseGroups, mElemsPerSparseGroup});
-
-  const auto numWorkers = target.getNumWorkerContexts();
   const auto &partialsType = options.partialsType;
+  const unsigned numConvUnits =
+      getNumConvUnits(target, inputType == FLOAT, partialsType == FLOAT);
+  const auto numWorkers = target.getNumWorkerContexts();
   const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialsType));
-  const auto mCycles = m.call<unsigned>(
+  auto mCycles = m.call<unsigned>(
       {mPartialsPerTile, mGroups.x, mGroups.y, mGroups.z, mGrouping.x,
        mGrouping.y, mGrouping.z, mCumulativePartitions.z},
       [=](const std::vector<unsigned> &values) -> popsolver::DataType {
@@ -702,26 +743,32 @@ addInitialComputeCostDenseDense(
                                                     yGroups);
         unsigned nonZeroGroups = xNonZeroGroups * yNonZeroGroups;
         const auto groupsPerWorker = ceildiv(nonZeroGroups, numWorkers);
-        const auto numUsedWorkers = ceildiv(nonZeroGroups, groupsPerWorker);
+        const auto numUsedWorkers =
+            method == OnTileMethod::GradWAMPBlock
+                ? 1
+                : ceildiv(nonZeroGroups, groupsPerWorker);
 
         const auto numZ = zGroups * zGrouping;
-
         std::uint64_t maxMulCycles = 0;
         for (unsigned worker = 0; worker < numUsedWorkers; ++worker) {
-          auto startGroup = worker * groupsPerWorker;
-          auto endGroup =
-              std::min(nonZeroGroups, (worker + 1) * groupsPerWorker);
-
-          const auto numXGroupsThisWorker =
-              ceildiv(endGroup, yNonZeroGroups) -
-              floordiv(startGroup, yNonZeroGroups);
           std::vector<unsigned> numYThisWorker;
-          numYThisWorker.reserve(numXGroupsThisWorker);
-          while (startGroup != endGroup) {
-            const auto numYGroupsForXGroup =
-                std::min(endGroup, startGroup + yNonZeroGroups) - startGroup;
-            numYThisWorker.emplace_back(numYGroupsForXGroup);
-            startGroup += numYGroupsForXGroup;
+          unsigned numXGroupsThisWorker;
+          if (method == OnTileMethod::GradWAMPBlock) {
+            numYThisWorker.push_back(yNonZeroGroups);
+            numXGroupsThisWorker = xNonZeroGroups;
+          } else {
+            auto startGroup = worker * groupsPerWorker;
+            auto endGroup =
+                std::min(nonZeroGroups, (worker + 1) * groupsPerWorker);
+            numXGroupsThisWorker = ceildiv(endGroup, yNonZeroGroups) -
+                                   floordiv(startGroup, yNonZeroGroups);
+            numYThisWorker.reserve(numXGroupsThisWorker);
+            while (startGroup != endGroup) {
+              const auto numYGroupsForXGroup =
+                  std::min(endGroup, startGroup + yNonZeroGroups) - startGroup;
+              numYThisWorker.emplace_back(numYGroupsForXGroup);
+              startGroup += numYGroupsForXGroup;
+            }
           }
 
           constexpr auto numBuckets = 1u;
@@ -735,10 +782,6 @@ addInitialComputeCostDenseDense(
                 numBuckets, numBuckets, numSubGroupsPerBucket, numXThisWorker,
                 numZ, numYThisWorker, inputType == FLOAT, partialsType == FLOAT,
                 numWorkers);
-            // Average over different values of Y. TODO: The Y provided aren't
-            // statistically significant, they just assume a rectangle and
-            // divide between workers so there is some accounting for overheads.
-            mulCycles = ceildiv(mulCycles, numYThisWorker.size());
             break;
           case OnTileMethod::GradWBlock:
             mulCycles = sparseDenseBlockMultiplyGradW(
@@ -746,18 +789,26 @@ addInitialComputeCostDenseDense(
                 numXGroupsThisWorker, numZ, xGrouping, yGrouping,
                 numYThisWorker, inputType == FLOAT, partialsType == FLOAT,
                 numWorkers);
-            // Average over different values of Y. TODO: The Y provided aren't
-            // statistically significant, they just assume a rectangle and
-            // divide between workers so there is some accounting for overheads.
-            mulCycles = ceildiv(mulCycles, numYThisWorker.size());
+
+            break;
+          case OnTileMethod::GradWAMPBlock:
+            // Each block is processed by all workers
+            mulCycles = sparseDenseBlockMultiplyGradWAmp(
+                numBuckets, numBuckets, numSubGroupsPerBucket,
+                numXGroupsThisWorker, numZ, xGrouping, yGrouping,
+                numYThisWorker, inputType == FLOAT, partialsType == FLOAT,
+                numWorkers, numConvUnits);
             break;
           default:
             throw poputil::poplibs_error("Unhandled method when planning");
           }
+          // Average over different values of Y. TODO: The Y provided aren't
+          // statistically significant, they just assume a rectangle and
+          // divide between workers so there is some accounting for overheads.
+          mulCycles = ceildiv(mulCycles, numYThisWorker.size());
           maxMulCycles = std::max(maxMulCycles, mulCycles);
         }
-        cycles += maxMulCycles * xGroupsPerZSplit;
-
+        cycles += maxMulCycles * numZPartitions;
         return popsolver::DataType{cycles};
       });
   const auto mNeedsCast = m.addConstant(inputType != partialsType ? 1u : 0u);
@@ -1068,6 +1119,30 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   // Our GradW vertex does not handle multiple inputs currently, therefore
   // the initial distribution theoretically introduces no exchange unless
   // the input came from another layer (quite likely but for now it's okay).
+  popsolver::Variable mSTransposeCycles = m.zero();
+  popsolver::Variable mQGradTransposeQCycles = m.zero();
+  popsolver::Variable mSTransposeBytes = m.zero();
+  popsolver::Variable mQGradTransposeBytes = m.zero();
+  if (method == OnTileMethod::GradWAMPBlock) {
+    // Estimate cycle cost for transposing both activations and gradients
+    // wrt output. Transpose and exchange and there need not be done for
+    // each partition of z.
+    std::tie(mQGradTransposeQCycles, mQGradTransposeBytes) =
+        transposeDenseCost(m, target, inputType, mGroups.back().x, mGrouping.x,
+                           mGroups.back().z, mGrouping.z);
+
+    std::tie(mSTransposeCycles, mSTransposeBytes) =
+        transposeDenseCost(m, target, inputType, mGroups.back().y, mGrouping.y,
+                           mGroups.back().z, mGrouping.z);
+  }
+  CostVariables mSTransposeCost(mSTransposeCycles, mSTransposeBytes);
+  CostVariables mQGradTransposeCost(mQGradTransposeQCycles,
+                                    mQGradTransposeBytes);
+  costBreakdown.emplace_back("Q Grad transpose", mQGradTransposeCost);
+  costBreakdown.emplace_back("S Transpose cost", mSTransposeCost);
+  const auto mTransposeCycles =
+      m.max({mQGradTransposeQCycles, mSTransposeCycles});
+
   CostVariables mInitialComputeCost;
   popsolver::Variable mRGradTempBytesAfterCompute;
   std::tie(mInitialComputeCost, mRGradTempBytesAfterCompute) =
@@ -1076,6 +1151,9 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
           mGrouping, p.cumulative.back(), mRGroupsPerBucket, mRElemsPerGroup,
           mQGradTempBytesAfterExchange, mSTempBytesAfterExchange);
   costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
+
+  const auto initialComputeBytesIncludingTranspose = m.sum(
+      {mQGradTransposeBytes, mSTransposeBytes, mInitialComputeCost.tempBytes});
 
   CostVariables mPropagatingExchangeCost;
   popsolver::Variable mQGradAndSTempBytesAfterExchange; // NOTE: Unused
@@ -1107,9 +1185,10 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
 
   CostVariables cost(
       m.sum({mInitialExchangeCost.cycles, mInitialComputeCost.cycles,
-             mPropagatingExchangeCost.cycles, mReductionExchangeCost.cycles,
-             mReductionComputeCost.cycles}),
-      m.max({mInitialExchangeCost.tempBytes, mInitialComputeCost.tempBytes,
+             mTransposeCycles, mPropagatingExchangeCost.cycles,
+             mReductionExchangeCost.cycles, mReductionComputeCost.cycles}),
+      m.max({mInitialExchangeCost.tempBytes,
+             initialComputeBytesIncludingTranspose,
              mPropagatingExchangeCost.tempBytes,
              mReductionExchangeCost.tempBytes,
              mReductionComputeCost.tempBytes}));
@@ -1546,6 +1625,25 @@ getCandidateMethods(const Target &target, const Type &inputType,
     methods.emplace_back(Method{grouping, OnTileMethod::ForwardAMPBlock,
                                 OnTileMethod::TransposeAMPBlock,
                                 OnTileMethod::GradWBlock});
+    // Batch size restriction on AMP based GradW method
+
+    const auto zGrouping = inputType == FLOAT ? 8U : 16U;
+    const auto addGradWAmpMethod = (params.getBatchSize() % zGrouping == 0) &&
+                                   (xElemsPerBlock % 4 == 0) &&
+                                   (yElemsPerBlock % 4 == 0);
+    // TODO: Enable this when graph construction is ready
+    if (addGradWAmpMethod && false) {
+      // AMP-based block methods
+      Vector<unsigned> groupingAmp = {
+          1,
+          xElemsPerBlock,
+          yElemsPerBlock,
+          zGrouping,
+      };
+      methods.emplace_back(Method{groupingAmp, OnTileMethod::ForwardAMPBlock,
+                                  OnTileMethod::TransposeAMPBlock,
+                                  OnTileMethod::GradWAMPBlock});
+    }
   }
   return methods;
 }
@@ -1673,6 +1771,9 @@ std::ostream &operator<<(std::ostream &os, const OnTileMethod &m) {
     break;
   case OnTileMethod::TransposeAMPBlock:
     os << "TransposeAMPBlock";
+    break;
+  case OnTileMethod::GradWAMPBlock:
+    os << "GradWAMPBlock";
     break;
   case OnTileMethod::GradWBlock:
     os << "GradWBlock";
