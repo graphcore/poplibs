@@ -281,7 +281,7 @@ IpuModel2,default,fc_layer_4_1000_1000_half,24863,0.0,16087724,-1.1,215800,0.0
 IpuModel2,default,fc_layer_4_1000_5_float,7830,0.0,794682,-16.1,213080,0.0
 IpuModel2,default,fc_layer_4_1000_5_half,8540,0.0,754676,-17.9,213048,0.0
 IpuModel2,default,fc_layer_80_1324_100,15312,0.0,7061379,-2.6,214936,0.0
-IpuModel2,default,fc_layer_8_1000_1000_float,14794,0.0,11760565,1.5,216088,0.0
+IpuModel2,default,fc_layer_8_1000_1000_float,14794,0.0,11582861,-1.5,216088,0.0
 IpuModel2,default,fc_layer_8_1000_1000_half,16798,0.0,9572425,-2.0,215800,0.0
 IpuModel2,default,fc_layer_8_1000_5_float,8537,0.0,799972,-16.1,213080,0.0
 IpuModel2,default,fc_layer_8_1000_5_half,9969,0.0,630673,-20.5,213048,0.0
@@ -364,7 +364,7 @@ IpuModel2,default,inception_tr_bs4_i9_c3x3,69973,0.0,67192603,-0.5,221208,0.0
 IpuModel2,default,inception_tr_bs4_i9_d1x1,23456,0.0,30748686,-1.2,215768,0.0
 IpuModel2,default,inception_tr_bs4_layer1,51432,0.0,71265147,-0.5,221272,0.0
 IpuModel2,default,inception_tr_bs4_layer10,334140,0.0,204796684,-0.2,247576,0.0
-IpuModel2,default,inception_tr_bs4_layer3,134621,0.0,151120224,0.2,222232,0.0
+IpuModel2,default,inception_tr_bs4_layer3,134621,0.0,150756436,-0.2,222232,0.0
 IpuModel2,default,inception_tr_bs4_layer5,219519,0.0,181298537,-0.2,231448,0.0
 IpuModel2,default,inception_tr_bs4_layer8,85770,0.0,141695343,-0.2,231896,0.0
 IpuModel2,default,lstm_16_25_1024_1024_half,341954,0.0,36073310,-0.1,218776,0.0
