@@ -12,7 +12,9 @@ In order to build PopLibs, you must download and install the Poplar SDK.
 Please see the Getting Started guide available at https://www.graphcore.ai/developer for details.
 
 The Poplar SDK version must match the version specified in the name of the PopLibs branch.
-For example, `release-1.2` requires Poplar SDK 1.2.x.
+For example, `release-1.3` requires Poplar SDK 1.3.x.
+
+These instructions are for Poplar SDK 1.3 and later.
 
 ### CMake Version 3.12.0 or later
 
@@ -79,10 +81,11 @@ On Ubuntu 18.04:
 
 ## Building PopLibs
 
-Source the Poplar and Driver enable scripts:
+Source the Poplar enable script:
 
-    $ . <poplar_sdk_directory>/gc_drivers-<platform><version>/enable.sh
     $ . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
+
+Note: from Poplar SDK 1.3 there is no additional enable script for the drivers.
 
 Create `build` and `install` directories within your PopLibs source directory:
 
@@ -100,7 +103,6 @@ Note: if you intend to use the popsparse library you will need to have Zoltan in
 
 Note: There are some warnings that can be ignored:
  * CMake Warnings of the form "New Boost version may have incorrect or missing dependencies and imported targets"
- * Build warnings of the form "Could not find Codelet information for `<<arch1>>` architecture in file `<library>_<codelet>_<arch2>.gp`".
 
 Install with Ninja:
 
@@ -112,9 +114,8 @@ To start using this build of PopLibs in your current shell you must source the e
 
 ## Using PopLibs
 
-To use this build of PopLibs in a new shell, source the Driver and Poplar
-enable scripts as normal and then source the PopLibs enable script:
+To use this build of PopLibs in a new shell, source the Poplar
+enable script and then source the PopLibs enable script:
 
-    $ . <poplar_sdk_directory>/gc_drivers-<platform><version>/enable.sh
     $ . <poplar_sdk_directory>/poplar-<platform><version>/enable.sh
     $ . <path to poplibs install directory>/enable.sh
