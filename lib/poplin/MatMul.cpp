@@ -70,15 +70,14 @@ struct MatMulOptions {
   bool operator<(const MatMulOptions &other) const {
     using poplibs_support::makeStructHelper;
 
-    auto helper = makeStructHelper(&MatMulOptions::partialsType,
-                                   &MatMulOptions::fullyConnectedPass,
-                                   &MatMulOptions::planConstraints,
-                                   &MatMulOptions::availableMemoryProportion,
-                                   &MatMulOptions::inputRHSIsPreArranged,
-                                   &MatMulOptions::use128BitConvUnitLoad,
-                                   &MatMulOptions::enableMultiStageReduce,
-                                   &MatMulOptions::enableFastReduce,
-                                   &MatMulOptions::remapOutputTensor);
+    auto helper = makeStructHelper(
+        &MatMulOptions::partialsType, &MatMulOptions::fullyConnectedPass,
+        &MatMulOptions::planConstraints,
+        &MatMulOptions::availableMemoryProportion,
+        &MatMulOptions::inputRHSIsPreArranged,
+        &MatMulOptions::use128BitConvUnitLoad,
+        &MatMulOptions::enableMultiStageReduce,
+        &MatMulOptions::enableFastReduce, &MatMulOptions::remapOutputTensor);
 
     return helper.lt(*this, other);
   }
