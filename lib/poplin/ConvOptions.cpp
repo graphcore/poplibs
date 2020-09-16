@@ -58,34 +58,36 @@ std::ostream &operator<<(std::ostream &os, const Pass p) {
 }
 
 std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
-  os << "Option: availableMemoryProportion     ";
+  os << "Option: availableMemoryProportion       ";
   os << opts.availableMemoryProportion << "\n";
-  os << "        pass                          ";
+  os << "        pass                            ";
   os << opts.pass << "\n";
-  os << "        partialsType                  ";
+  os << "        partialsType                    ";
   os << opts.partialsType << "\n";
-  os << "        interTilePartialsType         ";
+  os << "        interTilePartialsType           ";
   os << opts.interTilePartialsType << "\n";
-  os << "        interIpuPartialsType          ";
+  os << "        interIpuPartialsType            ";
   os << opts.interIpuPartialsType << "\n";
-  os << "        use128BitConvUnitLoad         ";
+  os << "        use128BitConvUnitLoad           ";
   os << opts.use128BitConvUnitLoad << "\n";
-  os << "        planConstraints               ";
+  os << "        planConstraints                 ";
   os << opts.planConstraints; // No newline needed
-  os << "        planConstraintsOutputFilename ";
+  os << "        planConstraintsOutputFilename   ";
   os << opts.planConstraintsOutputFilename << "\n";
-  os << "        enableAmpHalfEnginesPlan      ";
+  os << "        enableAmpHalfEnginesPlan        ";
   os << opts.enableAmpHalfEnginesPlan << "\n";
-  os << "        enableMultiStageReduce        ";
+  os << "        enableMultiStageReduce          ";
   os << opts.enableMultiStageReduce << "\n";
-  os << "        enableFastReduce              ";
+  os << "        enableFastReduce                ";
   os << opts.enableFastReduce << "\n";
-  os << "        remapOutputTensor             ";
-  os << opts.remapOutputTensor;
-  os << "        enableConvDithering           ";
-  os << opts.enableConvDithering;
-  os << "        disableTransformations        ";
-  os << opts.disableTransformations;
+  os << "        remapOutputTensor               ";
+  os << opts.remapOutputTensor << "\n";
+  os << "        enableConvDithering             ";
+  os << opts.enableConvDithering << "\n";
+  os << "        disableTransformations          ";
+  os << opts.disableTransformations << "\n";
+  os << "        insertTransformsCycleCountProgs ";
+  os << opts.insertTransformsCycleCountProgs << "\n";
   return os;
 }
 
@@ -124,7 +126,9 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
       {"enableConvDithering",
        OptionHandler::createWithBool(enableConvDithering)},
       {"disableTransformations",
-       OptionHandler::createWithBool(disableTransformations)}};
+       OptionHandler::createWithBool(disableTransformations)},
+      {"insertTransformsCycleCountProgs",
+       OptionHandler::createWithBool(insertTransformsCycleCountProgs)}};
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
   }

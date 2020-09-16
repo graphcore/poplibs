@@ -75,7 +75,7 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
     ConvProgramTree cpt(graph, plan, name);
 
     fn(plan, arg, cpt, name);
-    cpt.lower(prog);
+    cpt.lower(graph, prog);
   }
 }
 
@@ -107,7 +107,7 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
     fn(plan, arg, cpt, name);
   }
 
-  cpt.lower(prog);
+  cpt.lower(graph, prog);
 }
 
 poplar::Tensor createWeights(poplar::Graph &graph,

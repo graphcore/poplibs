@@ -60,7 +60,8 @@ struct ConvProgramTree {
                   const std::string &debugPrefix);
 
   // lower the program tree as has been built up into the sequence passed in.
-  void lower(poplar::program::Sequence &prog);
+  void lower(poplar::Graph &graph, poplar::program::Sequence &prog,
+             bool insertTransformsCycleCountProgs = false);
 
   // the following shows how the control code structure is after lowering,
   // assuming 2 levels in the hierarchy.

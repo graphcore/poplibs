@@ -1,3 +1,5 @@
+find_package(PythonInterp 3)
+
 include(GNUInstallDirs)
 
 function(add_tool name)
@@ -115,4 +117,25 @@ if (TARGET popsparse)
                         poplibs_support
                         poplibs_test
                         Boost::program_options)
+endif()
+
+function(add_python_tool_test)
+  cmake_parse_arguments(add_python_tool_test "" "NAME"
+                        "COMMAND"
+                        "${ARGN}")
+
+  add_test(NAME ${add_python_tool_test_NAME}
+      COMMAND ${add_python_tool_test_COMMAND}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BUILD_DIR})
+
+  set_tests_properties(${add_python_tool_test_NAME} PROPERTIES LABELS "python_tool")
+endfunction()
+
+if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+  add_python_tool_test(
+      NAME transformsTool
+      COMMAND ${PYTHON_EXECUTABLE}
+              ${CMAKE_SOURCE_DIR}/tools/transforms.py
+              --ci-test
+              --remove-files)
 endif()

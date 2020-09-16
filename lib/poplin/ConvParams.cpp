@@ -234,7 +234,8 @@ ConvParams::ConvParams(poplar::Type dataType_, std::size_t batchSize_,
                  outputChannelsPerConvGroup_, numConvGroups_) {}
 
 std::ostream &operator<<(std::ostream &os, const ConvParams &p) {
-  os << "Params: inputType                  " << p.inputType << "\n";
+  os << "\n  Params:\n";
+  os << "        inputType                  " << p.inputType << "\n";
   os << "        outputType                 " << p.outputType << "\n";
   os << "        batchSize                  " << p.batchSize << "\n";
   os << "        numConvGroups              " << p.numConvGroups << "\n";

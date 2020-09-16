@@ -11,6 +11,7 @@
 #include "ConvVertices.hpp"
 #include "ConvolutionInternal.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplar/CycleCount.hpp"
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Algorithms.hpp"
 #include "poplibs_support/Compiler.hpp"
@@ -1979,12 +1980,27 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
   }
 }
 
-void ConvProgramTree::lower(Sequence &prog) {
+template <typename T>
+static void lowerAndAddCycleCount(Graph &graph, Sequence &prog,
+                                  bool insertCycleCounts, T &tpp,
+                                  const std::string &debugPrefix) {
+  Sequence seq;
+  tpp.lower(seq);
+  if (insertCycleCounts == true) {
+    cycleCount(graph, seq, 0, debugPrefix);
+  }
+  prog.add(seq);
+}
+
+void ConvProgramTree::lower(Graph &graph, Sequence &prog,
+                            bool insertCycleCounts) {
   for (const auto &c : copyWritten) {
     prog.add(WriteUndef(c.second));
   }
 
-  weightsTranspose.lower(prog);
+  // weightsTranspose
+  lowerAndAddCycleCount(graph, prog, insertCycleCounts, weightsTranspose,
+                        "weightsTransposeSeq");
 
   assert(transformPre.size() == transformPost.size());
   const unsigned numLevels = transformPre.size();
@@ -1995,7 +2011,9 @@ void ConvProgramTree::lower(Sequence &prog) {
 
   // lower the transforms in ascending order as we climb the hierarchy.
   for (unsigned level = 0; level < numLevels; ++level) {
-    transformPre[level].lower(body);
+    // transformPre[level]
+    lowerAndAddCycleCount(graph, body, insertCycleCounts, transformPre[level],
+                          "transformPre" + std::to_string(level));
   }
 
   convolveCSGroup.lower(body);
@@ -2006,17 +2024,30 @@ void ConvProgramTree::lower(Sequence &prog) {
       body.add(Execute(reduceOrCastCS));
     }
 
-    add(body, transformPost[level]);
+    // transformPost[level]
+    Sequence reduceTransformPostSeq;
+    add(reduceTransformPostSeq, transformPost[level]);
+    if (insertCycleCounts == true) {
+      cycleCount(graph, reduceTransformPostSeq, 0,
+                 "transformPost" + std::to_string(level));
+    }
+    body.add(reduceTransformPostSeq);
   }
 
-  transformPreSerial.lower(prog);
+  // transformPreSerial
+  lowerAndAddCycleCount(graph, prog, insertCycleCounts, transformPreSerial,
+                        "transformPreSerialSeq");
+
   if (loopCount == 1) {
     prog.add(body);
   } else {
     assert(loopCount != 0);
     prog.add(Repeat(loopCount, Sequence(slice, body, update, loopPost)));
   }
-  transformPostSerial.lower(prog);
+
+  // transformPostSerial
+  lowerAndAddCycleCount(graph, prog, insertCycleCounts, transformPostSerial,
+                        "transformPostSerialSeq");
 
   prog.add(finalizeProg);
 }
@@ -2627,7 +2658,7 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   auto out = convolution(graph, in, weights, plan, params,
                          transposeAndFlipWeights, cpt, layerName, options);
 
-  cpt.lower(prog);
+  cpt.lower(graph, prog, options.insertTransformsCycleCountProgs);
   return out;
 }
 
@@ -2900,7 +2931,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
                                    wuParams, cpt, debugPrefix, wuOptions);
 
-  cpt.lower(prog);
+  cpt.lower(graph, prog);
   return out;
 }
 
@@ -2939,7 +2970,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,
                           wuOptions);
-  cpt.lower(prog);
+  cpt.lower(graph, prog);
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -2982,7 +3013,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,
                           wuOptions);
-  cpt.lower(prog);
+  cpt.lower(graph, prog);
 }
 
 // Add a program to update the biases tensor with the gradients derived

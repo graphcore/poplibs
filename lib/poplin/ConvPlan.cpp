@@ -100,25 +100,23 @@ bool operator<(const ConvTransform &a, const ConvTransform &b) {
 }
 
 std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
-  os << "  Transform:\n"
-        "        extraFieldDims          "
-     << t.extraFieldDims
+  os << "  Transform: extraFieldDims          " << t.extraFieldDims
      << "\n"
-        "        dilatePostConv          ";
+        "             dilatePostConv          ";
   printContainer(t.dilatePostConv, os);
   os << "\n"
-     << "        swapOperands            "
+     << "             swapOperands            "
      << (t.swapOperands ? "true" : "false") << "\n"
-     << "        expandDims              ";
+     << "             expandDims              ";
   printContainer(t.expandDims, os);
   os << "\n"
-     << "        outChanFlattenDims      ";
+     << "             outChanFlattenDims      ";
   printContainer(t.outChanFlattenDims, os);
   os << "\n"
-     << "        flattenDims             ";
+     << "             flattenDims             ";
   printContainer(t.flattenDims, os);
   os << "\n"
-     << "        combineConvGroupsFactor       " << t.combineConvGroupsFactor
+     << "             combineConvGroupsFactor " << t.combineConvGroupsFactor
      << "\n";
   return os;
 }
@@ -184,19 +182,19 @@ bool operator<(const Plan &a, const Plan &b) {
 }
 
 std::ostream &operator<<(std::ostream &os, const Plan &p) {
-  os << "  Plan:";
+  os << "\nPlan:";
   const auto numLevels = p.transforms.size();
   for (std::size_t i = 0; i != numLevels; ++i) {
-    os << "        transform #" << i << "\n";
+    os << "\ntransform #" << i << "\n";
     os << p.transforms[i] << "\n";
     if (i + 1 != numLevels) {
-      os << "        partition #" << i << "\n";
+      os << "\npartition #" << i << "\n";
       os << p.partitions[i];
     }
-    os << "        types #" << i << "\n";
+    os << "\ntypes #" << i << "\n";
     os << p.types[i];
   }
-  os << "        convGroupsPerGroup      " << p.convGroupsPerGroup << "\n"
+  os << "\n        convGroupsPerGroup      " << p.convGroupsPerGroup << "\n"
      << "        inChansPerGroup         " << p.inChansPerGroup << "\n"
      << "        partialChansPerGroup    " << p.partialChansPerGroup << "\n"
      << "        method                  " << p.method << "\n"
@@ -2016,7 +2014,7 @@ runPlanner(const ConvDescription &conv,
   logPlanBreakdown(logging::Level::Debug, plan, cost, referenceCost);
 
   logging::poplin::debug("{}", plan);
-  logging::poplin::trace("for params: {}", params);
+  logging::poplin::debug("for params: {}", params);
 
   if (!options.planConstraintsOutputFilename.empty()) {
     writePlanConstraintsFile(plan, getPlanConstraintsOutputFile(options));

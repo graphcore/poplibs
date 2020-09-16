@@ -61,6 +61,8 @@ public:
   bool enableConvDithering = false;
   // Disable transformations.
   bool disableTransformations = false;
+  // Enables insertion of cycle counts progs around convolution sequences
+  bool insertTransformsCycleCountProgs = false;
 
   void parseConvOptions(const poplar::OptionFlags &options);
 
@@ -74,7 +76,8 @@ private:
       &ConvOptions::enableAmpHalfEnginesPlan,
       &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
       &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering,
-      &ConvOptions::disableTransformations);
+      &ConvOptions::disableTransformations,
+      &ConvOptions::insertTransformsCycleCountProgs);
 
 public:
   bool operator<(const ConvOptions &other) const {
