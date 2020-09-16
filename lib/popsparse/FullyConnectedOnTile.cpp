@@ -165,7 +165,7 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
 
     // Work is divided between workers statically along z dimension.
     const auto workerTiles =
-        splitTileBetweenWorkers(1, acts.dim(2), numWorkers);
+        splitTileBetweenWorkers(1, actsUngrouped.dim(2), numWorkers);
     std::vector<unsigned short> offsetAndNumZByWorker(numWorkers * 2);
     for (std::size_t worker = 0; worker < workerTiles.size(); ++worker) {
       const auto &workerZInterval = workerTiles[worker].getColumns();
