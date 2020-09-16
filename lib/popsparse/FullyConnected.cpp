@@ -670,24 +670,73 @@ static void copyPartitions(Graph &graph, Sequence &prog,
   prog.add(Copy(concat(flatSrc), concat(flatDst)));
 }
 
+static void transposePartitions(Graph &graph, const ComputeSet &cs,
+                                const std::vector<Tensor> &src,
+                                const std::vector<Tensor> &dst,
+                                const std::vector<unsigned> &srcMemOrdering,
+                                const std::vector<unsigned> &dstMemOrdering,
+                                const std::string &debugPrefix) {
+  // We only really know how to deal with 2D transposes and don't expect
+  // groups for the timebeing.
+  assert(srcMemOrdering.at(0) == 0 && dstMemOrdering.at(0) == 0);
+  assert(src.size() == dst.size());
+  // Gather together transposes of the same shape just to reduce the number of
+  // calls needed to add transpose vertices.
+  //
+  // Shape pair is transpose source {rows, columns}.
+  std::map<std::pair<std::size_t, std::size_t>,
+           std::pair<std::vector<Tensor>, std::vector<Tensor>>>
+      uniqueShapedTransposes;
+  for (std::size_t i = 0; i < src.size(); ++i) {
+    auto s = unfactorDims(src[i], 3);
+    auto d = unfactorDims(dst[i], 3);
+    assert(s.dim(0) == 1 && d.dim(0) == 1);
+    assert(s.shape() == d.shape());
+    s = s.dimShuffle(srcMemOrdering).squeeze({0});
+    d = d.dimShuffle(dstMemOrdering).squeeze({0});
+    auto &shapeTransposes =
+        uniqueShapedTransposes[std::make_pair(s.dim(0), s.dim(1))];
+    shapeTransposes.first.emplace_back(s.expand({0}));
+    shapeTransposes.second.emplace_back(d.expand({0}));
+  }
+
+  for (const auto &[shape, ts] : uniqueShapedTransposes) {
+    const auto sFlat = concat(ts.first, 0).flatten(1, 3);
+    const auto dFlat = concat(ts.second, 0).flatten(1, 3);
+    const auto srcRows = shape.first;
+    const auto srcColumns = shape.second;
+    const auto transposeMapping = graph.getTileMapping(dFlat.slice(0, 1, 1));
+    popops::rearrange::addTransposeVertices(
+        graph, cs, sFlat.elementType(), srcRows, srcColumns, transposeMapping,
+        [&](std::size_t i) { return std::make_pair(sFlat[i], dFlat[i]); });
+  }
+}
+
 static void allocatePerPartitionInputs(
     Graph &graph, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Type &inputType, const std::vector<unsigned> &hierarchy,
+    bool isActs, const Type &inputType, const std::vector<unsigned> &hierarchy,
     const unsigned level, Tensor &input, const std::string &debugName) {
   const auto &grouping = plan.grouping;
-  const auto inputMemOrdering = getOnTileActsOrdering(plan.method);
-  const std::vector<std::size_t> shapeInternal = {
-      shape.groups * grouping.groups, shape.y * grouping.y,
-      shape.z * grouping.z};
-  std::vector<std::size_t> shapeAllocation(inputMemOrdering.size());
-  for (std::size_t i = 0; i < inputMemOrdering.size(); ++i) {
-    shapeAllocation[i] = shapeInternal[inputMemOrdering[i]];
+  std::vector<unsigned> memOrdering;
+  std::vector<std::size_t> shapeInternal, inputGrouping;
+  if (isActs) {
+    memOrdering = getOnTileActsOrdering(plan.method);
+    shapeInternal = {shape.groups * grouping.groups, shape.y * grouping.y,
+                     shape.z * grouping.z};
+    inputGrouping = {grouping.groups, grouping.y, grouping.z};
+  } else {
+    memOrdering = getOnTileWeightsOrdering(plan.method);
+    shapeInternal = {shape.groups * grouping.groups, shape.x * grouping.x,
+                     shape.y * grouping.y};
+    inputGrouping = {grouping.groups, grouping.x, grouping.y};
+  }
+  std::vector<std::size_t> shapeAllocation(memOrdering.size());
+  for (std::size_t i = 0; i < memOrdering.size(); ++i) {
+    shapeAllocation[i] = shapeInternal[memOrdering[i]];
   }
   input = graph.addVariable(inputType, shapeAllocation, debugName)
-              .dimShuffle(inversePermutation(inputMemOrdering));
-  const std::vector<std::size_t> inputGrouping = {grouping.groups, grouping.y,
-                                                  grouping.z};
+              .dimShuffle(inversePermutation(memOrdering));
   input = factorDims(input, inputGrouping);
   const auto tile = getPartitionTile(hierarchy, plan, indices);
   graph.setTileMapping(input, tile);
@@ -697,7 +746,7 @@ template <typename NextLevelInput>
 static void allocatePerPartitionInputs(
     Graph &graph, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Type &inputType, const std::vector<unsigned> &hierarchy,
+    bool isActs, const Type &inputType, const std::vector<unsigned> &hierarchy,
     const unsigned level, std::vector<NextLevelInput> &perPartitionInputs,
     const std::string &debugName) {
   const auto &partition = plan.partition;
@@ -712,8 +761,8 @@ static void allocatePerPartitionInputs(
         const auto partitionIndexFlat =
             flattenIndex(partition.asStdVector(), i.asStdVector());
         allocatePerPartitionInputs(
-            graph, subShape, subIndices, plan, inputType, hierarchy, level + 1,
-            perPartitionInputs[partitionIndexFlat], debugName);
+            graph, subShape, subIndices, plan, isActs, inputType, hierarchy,
+            level + 1, perPartitionInputs[partitionIndexFlat], debugName);
       });
 }
 
@@ -1544,8 +1593,8 @@ static Tensor fullyConnectedImpl(
   // are present).
   {
     std::vector<Tensor> perPartitionInputs;
-    allocatePerPartitionInputs(graph, shape, {}, plan, inputType, hierarchy, 0,
-                               perPartitionInputs,
+    allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
+                               hierarchy, 0, perPartitionInputs,
                                debugPrefix + "/partitionedInputs");
     copyPartitions(graph, progBuilder.preDistribution, nextLevelInputs,
                    perPartitionInputs);
@@ -1606,6 +1655,7 @@ static Tensor fullyConnectedImpl(
 static Tensor fullyConnectedSparseGradWImpl(
     Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
+    const OnTileMethod &fwdMethod, const OnTileMethod &gradAMethod,
     const Options &options, const std::vector<unsigned> &hierarchy,
     unsigned level, Tensor metaInfoBuckets, Tensor weights, Tensor acts,
     const std::string &debugPrefix) {
@@ -1650,6 +1700,60 @@ static Tensor fullyConnectedSparseGradWImpl(
   std::vector<Tensor> subGroupIds;
   getSubGroupIds(graph, {}, plan, options, hierarchy, subGroupIds,
                  debugPrefix + "/subGroupIds");
+
+  // Pre-arrange inputs and weights. We use the plans for forward and grada
+  // passes to see if a transpose is needed of input/weights. This is aggressive
+  // in that we assume the layout of these operands is that we would expect
+  // from the plan for forward/grada passes even though it may well not be.
+  //
+  // The intention is to solve the more fiddly question of more efficient
+  // rearrangements of non-weight operands at a later date all at once but
+  // let us achieve the performance we expect for now in benchmarking when
+  // we know our assumptions about layout are met.
+  {
+    std::vector<Tensor> perPartitionInputs, perPartitionWeights;
+    auto inputSrcMemOrdering = getOnTileActsOrdering(fwdMethod);
+    // Ordering of dimensions of activations is transposed as compared to
+    // forward pass.
+    std::swap(inputSrcMemOrdering.at(1), inputSrcMemOrdering.at(2));
+    const auto inputDstMemOrdering = getOnTileActsOrdering(plan.method);
+    const auto weightsSrcMemOrdering = getOnTileActsOrdering(gradAMethod);
+    const auto weightsDstMemOrdering = getOnTileWeightsOrdering(plan.method);
+
+    allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
+                               hierarchy, 0, perPartitionInputs,
+                               debugPrefix + "/partitionedInputs");
+    allocatePerPartitionInputs(graph, shape, {}, plan, false, inputType,
+                               hierarchy, 0, perPartitionWeights,
+                               debugPrefix + "/partitionedWeights");
+
+    // Either copy or transpose (which is just a special copy) partitions
+    // depending on the expected layout of inputs based on the forward/grada
+    // plan.
+    const auto transposeCS =
+        graph.addComputeSet(debugPrefix + "/transposeInputs");
+    if (inputSrcMemOrdering != inputDstMemOrdering) {
+      transposePartitions(graph, transposeCS, nextLevelInputs,
+                          perPartitionInputs, inputSrcMemOrdering,
+                          inputDstMemOrdering,
+                          debugPrefix + "/transposeInputs");
+    } else {
+      copyPartitions(graph, progBuilder.preDistribution, nextLevelInputs,
+                     perPartitionInputs);
+    }
+    if (weightsSrcMemOrdering != weightsDstMemOrdering) {
+      transposePartitions(graph, transposeCS, nextLevelWeights,
+                          perPartitionWeights, weightsSrcMemOrdering,
+                          weightsDstMemOrdering,
+                          debugPrefix + "/transposeWeights");
+    } else {
+      copyPartitions(graph, progBuilder.preDistribution, nextLevelWeights,
+                     perPartitionWeights);
+    }
+    progBuilder.preDistribution.add(Execute(transposeCS));
+    std::swap(nextLevelInputs, perPartitionInputs);
+    std::swap(nextLevelWeights, perPartitionWeights);
+  }
 
   writeUndefPartitions(progBuilder.preDistribution, partials);
   compute(graph, progBuilder.distributionCS, shape, {}, plan, options,
@@ -2105,8 +2209,9 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
   ProgBuilder progBuilder(graph, hierarchy, debugPrefix);
   std::vector<Vector<unsigned>> indices;
   auto weightGradientBuckets = fullyConnectedSparseGradWImpl(
-      graph, progBuilder, shape, indices, gradWPlan, options, hierarchy,
-      0u /* level */, metaInfoBuckets, outputGrad, input, debugPrefix);
+      graph, progBuilder, shape, indices, gradWPlan, plan.method.fwd,
+      plan.method.gradA, options, hierarchy, 0u /* level */, metaInfoBuckets,
+      outputGrad, input, debugPrefix);
   progBuilder.addToSequence(graph, prog, gradWPlan, overflowInfo, debugPrefix);
 
   // Rearrange resulting weight gradient buckets into order expected for

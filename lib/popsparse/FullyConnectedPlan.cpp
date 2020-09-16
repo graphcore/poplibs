@@ -1631,8 +1631,7 @@ getCandidateMethods(const Target &target, const Type &inputType,
     const auto addGradWAmpMethod = (params.getBatchSize() % zGrouping == 0) &&
                                    (xElemsPerBlock % 4 == 0) &&
                                    (yElemsPerBlock % 4 == 0);
-    // TODO: Enable this when graph construction is ready
-    if (addGradWAmpMethod && false) {
+    if (addGradWAmpMethod) {
       // AMP-based block methods
       Vector<unsigned> groupingAmp = {
           1,

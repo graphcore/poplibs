@@ -37,6 +37,15 @@ void onTileImpl(
 // Assumes internal shape of activations
 std::vector<unsigned> getOnTileActsOrdering(const OnTileMethod &method);
 
+// Describes the desired ordering in memory of weights given to onTileImpl
+// dependent on the method. For the time being this is the only information
+// needed to lay out operands optimally for the operation.
+//
+// Assumes internal shape of weights.
+//
+// NOTE: Only relevant for GradW pass codelets
+std::vector<unsigned> getOnTileWeightsOrdering(const OnTileMethod &method);
+
 // Describes the desired ordering in memory of partials given to onTileImpl
 // dependent on the method. For the time being this is the only information
 // needed to lay out operands optimally for the operation.

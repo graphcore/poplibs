@@ -46,6 +46,10 @@ getVertexClass(const OnTileMethod &method, const Type &inputType,
   case OnTileMethod::GradWBlock:
     return templateVertex("popsparse::SparseDenseMatMulBlockGradW", inputType,
                           partialsType, blockDimensions[0], blockDimensions[1]);
+  case OnTileMethod::GradWAMPBlock:
+    return templateVertex("popsparse::SparseDenseMatMulBlockAmpGradW",
+                          inputType, partialsType, blockDimensions[0],
+                          blockDimensions[1]);
   default:
     throw poplibs_error("Unhandled on-tile sparse fc method");
   }
@@ -194,7 +198,8 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0u);
     break;
   }
-  case OnTileMethod::GradWBlock: {
+  case OnTileMethod::GradWBlock:
+  case OnTileMethod::GradWAMPBlock: {
     assert(partials.rank() == 6);
     assert(weights.rank() == acts.rank());
     assert(weights.rank() == 6);
@@ -209,12 +214,19 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
         subGroupIdToProcessTensor.flatten().squeeze({0});
     std::vector<std::size_t> squeezePartialsDims(5);
     std::iota(squeezePartialsDims.begin(), squeezePartialsDims.end(), 0);
-    // Expect X as innermost dimension
-    graph.connect(v["qGrad"], weightsUngrouped.dimRoll(1, 2).flatten());
+    auto weightsInCodeletOrder = weightsUngrouped;
+    auto actsInCodeletOrder = actsUngrouped;
+    if (method == OnTileMethod::GradWBlock) {
+      // Expect X as innermost dimension
+      weightsInCodeletOrder = weightsInCodeletOrder.dimRoll(1, 2);
+    } else if (method == OnTileMethod::GradWAMPBlock) {
+      actsInCodeletOrder = actsInCodeletOrder.dimRoll(1, 2);
+    }
+    graph.connect(v["qGrad"], weightsInCodeletOrder.flatten());
     graph.connect(v["rGrad"], partials.squeeze(squeezePartialsDims));
     graph.connect(v["metaInfo"], metaInfoBuckets.squeeze({0}));
     // Expect Y as innermost dimension
-    graph.connect(v["s"], actsUngrouped.flatten());
+    graph.connect(v["s"], actsInCodeletOrder.flatten());
     graph.connect(v["subGroupIdToProcess"], subGroupIdToProcessScalar);
     checkRptBounds(partials.numElements(), partialsType);
     const auto zeroInfo = getZeroInfo(partials.numElements(), partialsType);
@@ -224,11 +236,13 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     }
     graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0);
     graph.setInitialValue(v["numZ"], weightsUngrouped.dim(2));
-    const auto inputElemsPer64Bits = 8 / target.getTypeSize(inputType);
-    const auto zStrideInQ = weightsUngrouped.dim(1) / inputElemsPer64Bits;
-    const auto zStrideInS = actsUngrouped.dim(2) / inputElemsPer64Bits;
-    graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
-    graph.setInitialValue(v["zStrideInS"], zStrideInS);
+    if (method == OnTileMethod::GradWBlock) {
+      const auto inputElemsPer64Bits = 8 / target.getTypeSize(inputType);
+      const auto zStrideInQ = weightsUngrouped.dim(1) / inputElemsPer64Bits;
+      const auto zStrideInS = actsUngrouped.dim(2) / inputElemsPer64Bits;
+      graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
+      graph.setInitialValue(v["zStrideInS"], zStrideInS);
+    }
     break;
   }
   default:
@@ -243,12 +257,26 @@ std::vector<unsigned> getOnTileActsOrdering(const OnTileMethod &method) {
   case OnTileMethod::GradA:
   case OnTileMethod::Transpose:
   case OnTileMethod::GradW:
+  case OnTileMethod::GradWBlock:
     return {0, 1, 2};
     break;
   case OnTileMethod::ForwardAMPBlock:
   case OnTileMethod::TransposeAMPBlock:
+  case OnTileMethod::GradWAMPBlock:
     return {0, 2, 1};
     break;
+  default:
+    throw poplibs_error("Unhandled OnTileMethod");
+  }
+}
+
+std::vector<unsigned> getOnTileWeightsOrdering(const OnTileMethod &method) {
+  switch (method) {
+  case OnTileMethod::GradWBlock:
+  case OnTileMethod::GradW:
+    return {0, 2, 1};
+  case OnTileMethod::GradWAMPBlock:
+    return {0, 1, 2};
   default:
     throw poplibs_error("Unhandled OnTileMethod");
   }
