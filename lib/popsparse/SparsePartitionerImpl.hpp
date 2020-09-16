@@ -136,7 +136,8 @@ public:
 
   // creates buckets for a CSR matrix
   template <typename T>
-  PNBucketsImpl<T> createBuckets(const CSRMatrix<T> &matrix_) const;
+  PNBucketsImpl<T> createBuckets(const CSRMatrix<T> &matrix_,
+                                 bool checkDims = true) const;
 
   // creates buckets for a COO matrix
   template <typename T>

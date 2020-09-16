@@ -1032,10 +1032,12 @@ checkBlockDimensionsMatch(std::array<std::size_t, 2> matrixDimensions,
 }
 
 template <typename T>
-PNBucketsImpl<T>
-PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_) const {
+PNBucketsImpl<T> PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_,
+                                                bool checkDims) const {
   logging::popsparse::trace("Partitioner called with CSR representation");
-  checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  if (checkDims) {
+    checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  }
   std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
   const auto &matrixNewBlockSize =
       matrix_.getBlockDimensions() != grainsXAndY
@@ -1108,7 +1110,7 @@ PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
   // TODO: Transposing this full typed matrix with block size is
   // not as efficient as creating an internal CSC matrix and
   // bucketing this. This is just convenient for the timebeing.
-  return createBuckets(cscToCSR(numX, numY, matrix));
+  return createBuckets(cscToCSR(numX, numY, matrix), false);
 }
 
 template <typename T>
@@ -1128,7 +1130,7 @@ PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
     throw poputil::poplibs_error("Number of non-zero values, row indices, and "
                                  "column indices must be equal");
   }
-  return createBuckets(cooToCSR(numX, numY, matrix));
+  return createBuckets(cooToCSR(numX, numY, matrix), false);
 }
 
 template <typename T>
@@ -1857,9 +1859,9 @@ template PNBucketsImpl<float>
 PartitionerImpl::createBuckets<float>(const CSCMatrix<float> &) const;
 
 template PNBucketsImpl<double>
-PartitionerImpl::createBuckets<double>(const CSRMatrix<double> &) const;
+PartitionerImpl::createBuckets<double>(const CSRMatrix<double> &, bool) const;
 template PNBucketsImpl<float>
-PartitionerImpl::createBuckets<float>(const CSRMatrix<float> &) const;
+PartitionerImpl::createBuckets<float>(const CSRMatrix<float> &, bool) const;
 
 template PNBucketsImpl<double>
 PartitionerImpl::createBuckets<double>(const COOMatrix<double> &) const;
