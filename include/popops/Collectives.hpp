@@ -140,6 +140,11 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
  *  This operation reduces across the tensors that the replicated tensor is a
  *  handle for. The result is returned as a replicated tensor.
  *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::allReduce instead.
+ *
  *  \param graph The replicated graph the input tensor belongs to.
  *  \param data The replicated tensor to reduce.
  *  \param op The reduction operator (for example, poplar::Operation::ADD).
@@ -155,10 +160,26 @@ poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
                                    const std::string &debugPrefix = "",
                                    const poplar::OptionFlags &options = {});
 
-/// \copybrief
-/// Same as replicatedAllReduce() but writes the result to the output tensor
-/// instead of creating a new one.
-/// \copydetails
+/** Perform an all-reduce operation on the specified replicated tensor.
+ *  This operation reduces across the tensors that the replicated tensor is a
+ *  handle for.
+ *
+ *  Same as replicatedAllReduce() but writes the result to the output tensor
+ *  instead of creating a new one.
+ *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::allReduceToDestination instead.
+ *
+ *  \param graph The replicated graph the input tensor belongs to.
+ *  \param data The replicated tensor to reduce.
+ *  \param output The result of the reduction of \p data.
+ *  \param op The reduction operator (for example, poplar::Operation::ADD).
+ *  \param prog The program sequence to add operations to.
+ *  \param debugPrefix String used as a prefix for compute sets.
+ *  \param options Collective options. See reduceScatter().
+ */
 void replicatedAllReduceWithOutput(poplar::Graph &graph,
                                    const poplar::Tensor &data,
                                    poplar::Tensor &output, popops::Operation op,
@@ -169,6 +190,11 @@ void replicatedAllReduceWithOutput(poplar::Graph &graph,
 /** Perform an all-reduce operation on the specified replicated tensor.
  *  This operation reduces across the tensors the replicated tensor is a handle
  *  for. The result is written to back to the input data tensor.
+ *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::allReduceInPlace instead.
  *
  *  \param graph The replicated graph the input tensor belongs to.
  *  \param data The replicated tensor to reduce and written to.
@@ -183,9 +209,13 @@ void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
                                 const std::string &debugPrefix = "",
                                 const poplar::OptionFlags &options = {});
 
-/// Perform an all-reduce operation on the specified replicated tensor.
-/// This variant of replicatedAllReduce() is deprecated and may be removed
-/// in future.
+/** Perform an all-reduce operation on the specified replicated tensor.
+ *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::allReduce instead.
+ */
 poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
                                    poplar::Graph &parentGraph,
                                    const poplar::Tensor &data,
@@ -227,6 +257,11 @@ poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
  *    * Replica2: result[op(z0, z1, z2, z3), 0]
  *    * Replica3: result[0,                  0]
  *    * Mapping:  result[IPU0,               IPU1]
+ *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::reduceScatter instead.
  */
 poplar::Tensor replicatedReduceScatter(poplar::Graph &graph,
                                        const poplar::Tensor &toReduce,
@@ -251,6 +286,11 @@ poplar::Tensor replicatedReduceScatter(poplar::Graph &graph,
  *
  *  For an input of shape [incomingShape] the output will be
  *  [replicationFactor][incomingShape].
+ *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::allGather instead.
  */
 poplar::Tensor replicatedAllGather(poplar::Graph &graph,
                                    const poplar::Tensor &toGather,
@@ -276,6 +316,11 @@ poplar::Tensor replicatedAllGather(poplar::Graph &graph,
  *    * Replica0: Tensor T[x0,y0,z0]
  *    * Replica1: Tensor T[x1,y1,z1]
  *    * Replica2: Tensor T[x2,y2,z2]
+ *
+ * \deprecated
+ *
+ * **Deprecated:** This function is deprecated and will be removed in a future
+ * release. Use gcl::allToAll instead.
  */
 poplar::Tensor
 allToAllPersonalizedExchange(poplar::Graph &graph, const poplar::Tensor &input,
