@@ -131,11 +131,12 @@ function(add_python_tool_test)
   set_tests_properties(${add_python_tool_test_NAME} PROPERTIES LABELS "python_tool")
 endfunction()
 
-if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
-  add_python_tool_test(
-      NAME transformsTool
-      COMMAND ${PYTHON_EXECUTABLE}
-              ${CMAKE_SOURCE_DIR}/tools/transforms.py
-              --ci-test
-              --remove-files)
-endif()
+# FIXME: Randomly fails on CI. Temporaly removing for futher investigation
+# if(NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+#   add_python_tool_test(
+#       NAME transformsTool
+#       COMMAND ${PYTHON_EXECUTABLE}
+#               ${CMAKE_SOURCE_DIR}/tools/transforms.py
+#               --ci-test
+#               --remove-files)
+# endif()
