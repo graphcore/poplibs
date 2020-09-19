@@ -43,8 +43,8 @@ IpuModel,default,bert_reduce_3,2758,0.0,553960,-4.2,2568,-0.9
 IpuModel,default,bert_reduce_4,2446,0.0,1036460,-2.7,1076,-2.2
 IpuModel,default,conv_5x200_1_in_100_out_bs1440,307824,0.0,192431801,-0.2,203832,0.0
 IpuModel,default,embedding_small,204268,0.0,49108598,-0.4,63108,0.0
-IpuModel,default,embedding_vlarge,155694,0.0,57569462,-0.3,77080,0.0
-IpuModel,default,embedding_vlarge_large_indices,1154996,0.0,164533538,-0.1,161548,0.0
+IpuModel,default,embedding_vlarge,155694,0.0,57569102,-0.3,77080,0.0
+IpuModel,default,embedding_vlarge_large_indices,1154996,0.0,164530658,-0.1,161548,0.0
 IpuModel,default,fc_layer_1440x100x200,22713,0.0,14082122,-1.0,132696,0.0
 IpuModel,default,fc_layer_1440x200x400,40916,0.0,40412492,-0.4,135896,0.0
 IpuModel,default,fc_layer_16_1000_1000_float,24678,0.0,13497339,-1.1,134936,0.0
