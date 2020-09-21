@@ -14,7 +14,7 @@ without any graph partitioning
 */
 class HyperGraphBlockNaive : public HyperGraphBlock {
 public:
-  HyperGraphBlockNaive(const BlockMatrix &A, const BlockMatrix &B,
+  HyperGraphBlockNaive(BlockMatrix &A, BlockMatrix &B,
                        poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
                        poplar::Type partialDataTypeIn, int nTileIn,
                        float memoryCycleRatioIn,

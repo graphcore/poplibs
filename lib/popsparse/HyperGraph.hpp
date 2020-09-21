@@ -22,9 +22,9 @@ This is a base class for block-sparse matrix multiplication engine.
 */
 class HyperGraph {
 public:
-  HyperGraph(const BlockMatrix &A, const BlockMatrix &B,
-             poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
-             poplar::Type partialDataTypeIn, int nTileIn)
+  HyperGraph(BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
+             poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
+             int nTileIn)
       : matA(A), matB(B), inDataType(inDataTypeIn), outDataType(outDataTypeIn),
         partialDataType(partialDataTypeIn), nTile(nTileIn) {}
 
@@ -53,6 +53,20 @@ public:
                                    poplar::ComputeSet &reduceCS,
                                    poplar::program::Sequence &prog,
                                    const std::string &debugPrefix) = 0;
+
+  // Follow the simple and clear contract that all poplibs' APIs should not
+  // change the input tensors' tile mapping,  setTileMappingLHS and
+  // setTileMappingRHS should only be called in the utility function
+  // createBSMatMulInputLHS and createBSMatMulInputRHS, and never be called
+  // inside its APIs.
+
+  // Set the tile mapping for left hand matrix
+  virtual void setTileMappingLHS(poplar::Graph &graph,
+                                 poplar::Tensor &lhsTensor) = 0;
+
+  // Set the tile mapping for right hand matrix
+  virtual void setTileMappingRHS(poplar::Graph &graph,
+                                 poplar::Tensor &rhsTensor) = 0;
 
   // Gets output matmul tensor result
   poplar::Tensor getResultTensor() const;
@@ -93,8 +107,8 @@ public:
                         const std::string &debugPrefix);
 
 public:
-  const BlockMatrix &matA;
-  const BlockMatrix &matB;
+  BlockMatrix &matA;
+  BlockMatrix &matB;
   std::unique_ptr<BlockMatrix> matC;
 
   poplar::Type inDataType;

@@ -146,6 +146,8 @@ public:
  *
  * \param name            The debug name of the created matrix.
  *
+ * \param options         matmul options, see bsMatmul for details
+ *
  * \returns               For non-grouped BSMatMulParams object,
  *                        if the left matrix is a dense matrix, the return
  *                        tensor is just a regular 2D matrix. If it is a sparse
@@ -158,7 +160,8 @@ public:
  */
 poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
-                                      const std::string &name);
+                                      const std::string &name,
+                                      const poplar::OptionFlags &options = {});
 
 /**
  * Create a tensor for use as the right operand of block-sparse matrix
@@ -172,6 +175,8 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
  *
  * \param name            The debug name of the created matrix.
  *
+ * \param options         matmul options, see bsMatmul for details
+ *
  * \returns               For non-grouped BSMatMulParams object,
  *                        if the right matrix is a dense matrix, the return
  *                        tensor is just a regular 2D matrix. If it is a sparse
@@ -184,7 +189,8 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
  */
 poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
-                                      const std::string &name);
+                                      const std::string &name,
+                                      const poplar::OptionFlags &options = {});
 
 /* This function multiplies the left-hand matrix by the right-hand matrix.
  *
@@ -215,20 +221,27 @@ poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
  * \param options         The structure describing options on how the
  *                        multiplication should be implemented.
  *
- *                        option "memory_cycle_ratio" is for computing the
+ *                        option "memoryCycleRatio" is for computing the
  *                        weight of hyper graph node. This may be only a
  *                        temporary option
  *                           w = memory_cycle_ratio * mem_weight +
  *                               (1.0 - memory_cycle_ratio) * cycle_weight
  *
- *                        option "partition-method", if it is "block", the
- *                        matmul computation graph is created for each non zero
- *                        blocks; if it is "strip", the graph is created for
- *                        columns or rows.
+ *                        option "numberOfPass": the number of passes to
+ *                        serialize the matmul
+ *
+ *                        option "partitionMethod":
+ *                          if it is "block", the matmul computation graph is
+ *                          created for each non zero blocks, zoltan is used
+ *                          to partition the graph;
+ *                          if it is "block-naive", the matmul computation
+ *                          graph is created for each non zero blocks, a
+ *                          greedy algorithm is used to partition the graph;
+ *                          if it is "strip", the graph is created for columns
+ *                          or rows.
  *
  * \param debugPrefix     A debug prefix added to compute set and tensor
  *                        names.
- *
  * \returns               The tensor holding the result of the
  *                        multiplication. This tensor will be created, added to
  *                        the graph and mapped to tiles.

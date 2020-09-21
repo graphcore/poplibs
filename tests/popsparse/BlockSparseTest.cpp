@@ -8,6 +8,7 @@
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 #include <random>
 #include <vector>
 
@@ -346,8 +347,8 @@ namespace experimental {
 class HyperGraphBlockTest : public HyperGraphBlock {
 
 public:
-  HyperGraphBlockTest(const BlockMatrix &A, const BlockMatrix &B,
-                      poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
+  HyperGraphBlockTest(BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
+                      poplar::Type outDataTypeIn,
                       poplar::Type partialDataTypeIn, int nTileIn,
                       int nMulNodesSplitFactorIn = MUL_ON_NODE_V)
       : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,
@@ -897,6 +898,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   // LHS dense matrix
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
   A.setBlockTensor(tensorA);
+  poputil::mapTensorLinearly(graph, tensorA);
 
   std::unique_ptr<char[]> rawHostA =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -906,6 +908,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   // RHS sparse matrix
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
+  poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1032,6 +1035,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   // LHS dense matrix
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
   A.setBlockTensor(tensorA);
+  poputil::mapTensorLinearly(graph, tensorA);
 
   std::unique_ptr<char[]> rawHostA =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1041,6 +1045,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   // RHS sparse matrix
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
+  poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1174,6 +1179,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   // LHS dense matrix
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
   A.setBlockTensor(tensorA);
+  poputil::mapTensorLinearly(graph, tensorA);
 
   std::unique_ptr<char[]> rawHostA =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1183,6 +1189,7 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   // RHS dense matrix
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
+  poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> rawHostB =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1369,6 +1376,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   /////////////////// A * B = C
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
   A.setBlockTensor(tensorA);
+  poputil::mapTensorLinearly(graph, tensorA);
 
   std::unique_ptr<char[]> rawHostA =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1377,6 +1385,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
 
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
+  poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1408,6 +1417,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   /////////////////// A1 * Bt = C1
   poplar::Tensor tensorA1 = A1.createTensor(graph, dataType, "A1");
   A1.setBlockTensor(tensorA1);
+  poputil::mapTensorLinearly(graph, tensorA1);
 
   std::unique_ptr<char[]> rawHostA1 =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1423,6 +1433,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
 
   poplar::Tensor tensorBt = Bt.createTensor(graph, dataType, "Bt");
   Bt.setBlockTensor(tensorBt);
+  poputil::mapTensorLinearly(graph, tensorBt);
 
   std::unique_ptr<char[]> blocksRawHostBt = poplibs_test::util::allocateHostMemoryForTensor(
         tensorBt, "Bt", graph, uploadProg,
@@ -1624,6 +1635,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   /////////////////// A * B = C
   poplar::Tensor tensorA = A.createTensor(graph, dataType, "A");
   A.setBlockTensor(tensorA);
+  poputil::mapTensorLinearly(graph, tensorA);
 
   std::unique_ptr<char[]> rawHostA =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1632,6 +1644,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 
   poplar::Tensor tensorB = B.createTensor(graph, dataType, "B");
   B.setBlockTensor(tensorB);
+  poputil::mapTensorLinearly(graph, tensorB);
 
   std::unique_ptr<char[]> blocksRawHostB =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1663,6 +1676,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   /////////////////// At * B1 = C1
   poplar::Tensor tensorB1 = B1.createTensor(graph, dataType, "B1");
   B1.setBlockTensor(tensorB1);
+  poputil::mapTensorLinearly(graph, tensorB1);
 
   std::unique_ptr<char[]> rawHostB1 =
       poplibs_test::util::allocateHostMemoryForTensor(
@@ -1673,6 +1687,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
 
   poplar::Tensor tensorAt = At.createTensor(graph, dataType, "At");
   At.setBlockTensor(tensorAt);
+  poputil::mapTensorLinearly(graph, tensorAt);
 
   std::unique_ptr<char[]> rawHostAt =
       poplibs_test::util::allocateHostMemoryForTensor(

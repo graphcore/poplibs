@@ -220,11 +220,14 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
   }
 
   if (!needArrangeLHS.empty()) {
+    // TODO: Since the input tensors are regrouped, so they should be contiguous
+    //       already. This copy may be not needed, need to check and confirm if
+    //       this is the case.
     poplar::Tensor rearrangedLHS = graph.addVariable(
         inDataType,
         {needArrangeLHS.size(), numInGroups,
          static_cast<unsigned long>(lhsBlockRow * lhsBlockCol / numInGroups)},
-        debugPrefix + "/rearranged_block");
+        debugPrefix + "/rearranged_lhs_block");
     unsigned count = 0;
     for (unsigned i = 0; i < lhsInBlocks.size(); i++) {
       if (!lhsBlocks[i].valid()) {

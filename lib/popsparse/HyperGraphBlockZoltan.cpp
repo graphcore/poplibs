@@ -13,7 +13,7 @@ namespace popsparse {
 namespace experimental {
 
 HyperGraphBlockZoltan::HyperGraphBlockZoltan(
-    const BlockMatrix &A, const BlockMatrix &B, poplar::Type inDataTypeIn,
+    BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
     poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn, int nTileIn,
     float memoryCycleRatioIn, int nMulNodesSplitFactorIn)
     : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,

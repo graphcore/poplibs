@@ -15,7 +15,7 @@ namespace logging = poplibs_support::logging;
 namespace popsparse {
 namespace experimental {
 
-HyperGraphStripV0::HyperGraphStripV0(const BlockMatrix &A, const BlockMatrix &B,
+HyperGraphStripV0::HyperGraphStripV0(BlockMatrix &A, BlockMatrix &B,
                                      poplar::Type inDataTypeIn,
                                      poplar::Type outDataTypeIn,
                                      poplar::Type partialDataTypeIn,
@@ -185,6 +185,28 @@ void HyperGraphStripV0::createGraphMatMulSparsifyResult(
     } else {
       lhsPartitionDDS(rhsTileAssignment, lhsTileAssignment, nTilePerGroup);
     }
+  }
+}
+
+void HyperGraphStripV0::setTileMappingLHS(poplar::Graph &graph,
+                                          poplar::Tensor &lhsTensor) {
+  matA.setBlockTensor(lhsTensor);
+  std::vector<int> lhsBlockTileId;
+  if (!isResultSparse) {
+    setLHSTileMapDSD(graph, lhsBlockTileId, true);
+  } else {
+    setLHSTileMapDDS(graph, lhsBlockTileId, true);
+  }
+}
+
+void HyperGraphStripV0::setTileMappingRHS(poplar::Graph &graph,
+                                          poplar::Tensor &rhsTensor) {
+  matB.setBlockTensor(rhsTensor);
+  std::vector<int> rhsBlockTileId;
+  if (!isResultSparse) {
+    setRHSTileMapDSD(graph, rhsBlockTileId, true);
+  } else {
+    setRHSTileMapDDS(graph, rhsBlockTileId, true);
   }
 }
 
@@ -488,7 +510,8 @@ void HyperGraphStripV0::resultPartitionDSD(
 }
 
 void HyperGraphStripV0::setLHSTileMapDSD(poplar::Graph &graph,
-                                         std::vector<int> &blockTileId) {
+                                         std::vector<int> &blockTileId,
+                                         bool setTileMap) {
   const std::vector<poplar::Tensor> &blockData = matA.getBlockTensor();
   std::vector<std::vector<int>> blockIdMatrix = matA.getBlockIdMatrix();
   const int nRow = matA.getBlockRowCount();
@@ -514,7 +537,9 @@ void HyperGraphStripV0::setLHSTileMapDSD(poplar::Graph &graph,
           continue;
         }
         blockTileId[blockId] = tileId;
-        graph.setTileMapping(blockData[blockId], tileId);
+        if (setTileMap) {
+          graph.setTileMapping(blockData[blockId], tileId);
+        }
       }
 
       tileOffset += nTilePerGroup;
@@ -525,7 +550,8 @@ void HyperGraphStripV0::setLHSTileMapDSD(poplar::Graph &graph,
 
 // need to evenly distribute to groups of tiles.
 void HyperGraphStripV0::setRHSTileMapDSD(poplar::Graph &graph,
-                                         std::vector<int> &blockTileId) {
+                                         std::vector<int> &blockTileId,
+                                         bool setTileMap) {
   const std::vector<poplar::Tensor> &blockData = matB.getBlockTensor();
   std::vector<std::vector<int>> blockIdMatrix = matB.getBlockIdMatrix();
   const int nRow = matB.getBlockRowCount();
@@ -558,7 +584,10 @@ void HyperGraphStripV0::setRHSTileMapDSD(poplar::Graph &graph,
         for (int j = start; j < end; j++) {
           int blockId = blockIdMatrix[r][nonZeroBlockIds[j]];
           blockTileId[blockId] = tileId + currentTileOffset;
-          graph.setTileMapping(blockData[blockId], tileId + currentTileOffset);
+          if (setTileMap) {
+            graph.setTileMapping(blockData[blockId],
+                                 tileId + currentTileOffset);
+          }
         }
         currentTileOffset += nTilePerGroup;
         start = end;
@@ -589,7 +618,9 @@ void HyperGraphStripV0::setRHSTileMapDSD(poplar::Graph &graph,
         for (int j = start; j < end; j++) {
           int blockId = blockIdMatrix[nonZeroBlockIds[j]][c];
           blockTileId[blockId] = tileId + currentTileOffset;
-          graph.setTileMapping(blockData[blockId], blockTileId[blockId]);
+          if (setTileMap) {
+            graph.setTileMapping(blockData[blockId], blockTileId[blockId]);
+          }
         }
         currentTileOffset += nTilePerGroup;
         start = end;
@@ -648,9 +679,9 @@ void HyperGraphStripV0::createComputeSetColSplitDSD(
     const std::string &debugPrefix) {
 
   std::vector<int> lhsBlockTileId;
-  setLHSTileMapDSD(graph, lhsBlockTileId);
+  setLHSTileMapDSD(graph, lhsBlockTileId, false);
   std::vector<int> rhsBlockTileId;
-  setRHSTileMapDSD(graph, rhsBlockTileId);
+  setRHSTileMapDSD(graph, rhsBlockTileId, false);
   setResultTileMapDSD(graph);
 
   std::vector<poplar::Tensor> blockDataA, blockDataB;
@@ -782,9 +813,9 @@ void HyperGraphStripV0::createComputeSetRowSplitDSD(
   const unsigned nColB = matB.getBlockColCount();
 
   std::vector<int> lhsBlockTileId;
-  setLHSTileMapDSD(graph, lhsBlockTileId);
+  setLHSTileMapDSD(graph, lhsBlockTileId, false);
   std::vector<int> rhsBlockTileId;
-  setRHSTileMapDSD(graph, rhsBlockTileId);
+  setRHSTileMapDSD(graph, rhsBlockTileId, false);
   setResultTileMapDSD(graph);
 
   std::vector<poplar::Tensor> blockDataA, blockDataB;
@@ -1093,7 +1124,8 @@ void HyperGraphStripV0::lhsPartitionDDS(
 }
 
 void HyperGraphStripV0::setLHSTileMapDDS(poplar::Graph &graph,
-                                         std::vector<int> &blockTileId) {
+                                         std::vector<int> &blockTileId,
+                                         bool setTileMap) {
   const std::vector<poplar::Tensor> &blockData = matA.getBlockTensor();
   std::vector<std::vector<int>> blockIdMatrix = matA.getBlockIdMatrix();
   const int nRow = matA.getBlockRowCount();
@@ -1119,7 +1151,9 @@ void HyperGraphStripV0::setLHSTileMapDDS(poplar::Graph &graph,
           continue;
         }
         blockTileId[blockId] = tileId + tileOffset;
-        graph.setTileMapping(blockData[blockId], tileId + tileOffset);
+        if (setTileMap) {
+          graph.setTileMapping(blockData[blockId], tileId + tileOffset);
+        }
         tileOffset += nTilePerGroup;
       }
 
@@ -1130,7 +1164,8 @@ void HyperGraphStripV0::setLHSTileMapDDS(poplar::Graph &graph,
 
 // need to evenly distribute to groups of tiles.
 void HyperGraphStripV0::setRHSTileMapDDS(poplar::Graph &graph,
-                                         std::vector<int> &blockTileId) {
+                                         std::vector<int> &blockTileId,
+                                         bool setTileMap) {
   const std::vector<poplar::Tensor> &blockData = matB.getBlockTensor();
   std::vector<std::vector<int>> blockIdMatrix = matB.getBlockIdMatrix();
   const int nRow = matB.getBlockRowCount();
@@ -1157,7 +1192,9 @@ void HyperGraphStripV0::setRHSTileMapDDS(poplar::Graph &graph,
           continue;
         }
         blockTileId[blockId] = tileId + tileOffset;
-        graph.setTileMapping(blockData[blockId], tileId + tileOffset);
+        if (setTileMap) {
+          graph.setTileMapping(blockData[blockId], tileId + tileOffset);
+        }
         tileOffset += nTilePerGroup;
       }
       start = end;
@@ -1256,9 +1293,9 @@ void HyperGraphStripV0::createComputeSetColSplitDDS(
     poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
   std::vector<int> lhsBlockTileId;
-  setLHSTileMapDDS(graph, lhsBlockTileId);
+  setLHSTileMapDDS(graph, lhsBlockTileId, false);
   std::vector<int> rhsBlockTileId;
-  setRHSTileMapDDS(graph, rhsBlockTileId);
+  setRHSTileMapDDS(graph, rhsBlockTileId, false);
   std::vector<int> blockTileId;
   setOutputTileMapDDS(graph, blockTileId);
 
@@ -1370,9 +1407,9 @@ void HyperGraphStripV0::createComputeSetRowSplitDDS(
     poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
   std::vector<int> lhsBlockTileId;
-  setLHSTileMapDDS(graph, lhsBlockTileId);
+  setLHSTileMapDDS(graph, lhsBlockTileId, false);
   std::vector<int> rhsBlockTileId;
-  setRHSTileMapDDS(graph, rhsBlockTileId);
+  setRHSTileMapDDS(graph, rhsBlockTileId, false);
   std::vector<int> blockTileId;
   setOutputTileMapDDS(graph, blockTileId);
 

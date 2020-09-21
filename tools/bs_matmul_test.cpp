@@ -890,6 +890,12 @@ int main(int argc, char **argv) {
   poplar::Tensor dCTensor;
   poplar::Tensor dBTensor;
 
+  poplar::OptionFlags options = {
+      {"memoryCycleRatio", std::to_string(memoryCycleRatio)},
+      {"numberOfPass", std::to_string(nPass)},
+      {"partitionMethod", partitionMethod},
+  };
+
   for (int nRep = 0; nRep < numReps; ++nRep) {
     for (unsigned nStep = 0; nStep < numSteps; ++nStep) {
       std::string stepSuffix =
@@ -1067,10 +1073,10 @@ int main(int argc, char **argv) {
           poplar::Tensor lhsTensor;
           poplar::Tensor rhsTensor;
           if (runType[nStep] == Pass::FWD) {
-            lhsTensor = createBSMatMulInputLHS(graph, bsMatMulObj,
-                                               debugPrefix + "/matrix_lhs");
-            rhsTensor = createBSMatMulInputRHS(graph, bsMatMulObj,
-                                               debugPrefix + "/matrix_rhs");
+            lhsTensor = createBSMatMulInputLHS(
+                graph, bsMatMulObj, debugPrefix + "/matrix_lhs", options);
+            rhsTensor = createBSMatMulInputRHS(
+                graph, bsMatMulObj, debugPrefix + "/matrix_rhs", options);
             if (((scenario & Scenario::bwd) == Scenario::bwd) ||
                 ((scenario & Scenario::wu) == Scenario::wu)) {
               // Save A tensor
@@ -1080,8 +1086,8 @@ int main(int argc, char **argv) {
             }
           } else if (runType[nStep] == Pass::BWD) {
             if ((scenario & Scenario::fwdMask) == Scenario::dsd) {
-              lhsTensor = createBSMatMulInputLHS(graph, bsMatMulObj,
-                                                 debugPrefix + "/matrix_lhs");
+              lhsTensor = createBSMatMulInputLHS(
+                  graph, bsMatMulObj, debugPrefix + "/matrix_lhs", options);
               rhsTensor = bTensor;
               if ((scenario & Scenario::wu) == Scenario::wu) {
                 // Save dC tensor
@@ -1089,8 +1095,8 @@ int main(int argc, char **argv) {
               }
             } else if ((scenario & Scenario::fwdMask) == Scenario::dds) {
               lhsTensor = bTensor;
-              rhsTensor = createBSMatMulInputRHS(graph, bsMatMulObj,
-                                                 debugPrefix + "/matrix_rhs");
+              rhsTensor = createBSMatMulInputRHS(
+                  graph, bsMatMulObj, debugPrefix + "/matrix_rhs", options);
               if ((scenario & Scenario::wu) == Scenario::wu) {
                 // Save dB tensor
                 dBTensor = rhsTensor;
@@ -1107,8 +1113,8 @@ int main(int argc, char **argv) {
                 assert(dCTensor.valid());
                 rhsTensor = dCTensor;
               } else {
-                rhsTensor = createBSMatMulInputRHS(graph, bsMatMulObj,
-                                                   debugPrefix + "/matrix_rhs");
+                rhsTensor = createBSMatMulInputRHS(
+                    graph, bsMatMulObj, debugPrefix + "/matrix_rhs", options);
               }
             } else if ((scenario & Scenario::fwdMask) == Scenario::dds) {
               assert(aTensor.valid());
@@ -1118,8 +1124,8 @@ int main(int argc, char **argv) {
                 assert(dBTensor.valid());
                 rhsTensor = dBTensor;
               } else {
-                rhsTensor = createBSMatMulInputRHS(graph, bsMatMulObj,
-                                                   debugPrefix + "/matrix_rhs");
+                rhsTensor = createBSMatMulInputRHS(
+                    graph, bsMatMulObj, debugPrefix + "/matrix_rhs", options);
               }
             } else {
               assert(0);
@@ -1127,12 +1133,6 @@ int main(int argc, char **argv) {
           } else {
             assert(0);
           }
-
-          poplar::OptionFlags options = {
-              {"memoryCycleRatio", std::to_string(memoryCycleRatio)},
-              {"numberOfPass", std::to_string(nPass)},
-              {"partitionMethod", partitionMethod},
-          };
 
           // sparse matmul
           poplar::Tensor outTensor;
@@ -1186,8 +1186,9 @@ int main(int argc, char **argv) {
               BSMatMulParams bsMatMulObjHelper =
                   createBsMatMul(dimHelper, blockSizeHelper, sparsity, dataType,
                                  false, false, mask, numGroups);
-              Tensor outerGrad = createBSMatMulInputRHS(
-                  graph, bsMatMulObjHelper, debugPrefix + "/outer_grad");
+              Tensor outerGrad =
+                  createBSMatMulInputRHS(graph, bsMatMulObjHelper,
+                                         debugPrefix + "/outer_grad", options);
               assert(outerGrad.shape() == softmaxTensor.shape());
               poputil::mapTensorLinearly(graph, outerGrad);
               Tensor softmaxGradTensor = bsSoftmaxGrad(
@@ -1284,14 +1285,14 @@ int main(int argc, char **argv) {
               createBsMatMul(dimHelper, blockSizeHelper, sparsity, dataType,
                              false, false, mask, numGroups);
 
-          Tensor inputTensor = createBSMatMulInputRHS(graph, bsMatMulObjHelper,
-                                                      debugPrefix + "/input");
+          Tensor inputTensor = createBSMatMulInputRHS(
+              graph, bsMatMulObjHelper, debugPrefix + "/input", options);
           poputil::mapTensorLinearly(graph, inputTensor);
 
           Tensor outerGradTensor;
           if (scenario == Scenario::smsBwd) {
             outerGradTensor = createBSMatMulInputRHS(
-                graph, bsMatMulObjHelper, debugPrefix + "/outer_grad");
+                graph, bsMatMulObjHelper, debugPrefix + "/outer_grad", options);
             assert(outerGradTensor.shape() == inputTensor.shape());
             poputil::mapTensorLinearly(graph, outerGradTensor);
           }
@@ -1388,6 +1389,7 @@ int main(int argc, char **argv) {
       engineOptions.set("debug.loweredVarDumpFile", profileDir + "/vars.capnp");
     }
   }
+  engineOptions.set("exchange.multicastPolicy", "balanced");
 
   Sequence allSequence;
   // if run many times, we are doing benchmark, so ignore the host data copy

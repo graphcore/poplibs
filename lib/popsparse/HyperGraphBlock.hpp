@@ -20,10 +20,10 @@ Derived classes uses different partitioning algorithms.
 class HyperGraphBlock : public HyperGraph {
 
 public:
-  HyperGraphBlock(const BlockMatrix &A, const BlockMatrix &B,
-                  poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
-                  poplar::Type partialDataTypeIn, int nTileIn,
-                  float memoryCycleRatioIn, int nMulsOnVNodeIn = MUL_ON_NODE_V);
+  HyperGraphBlock(BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
+                  poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
+                  int nTileIn, float memoryCycleRatioIn,
+                  int nMulsOnVNodeIn = MUL_ON_NODE_V);
 
   virtual ~HyperGraphBlock() = default;
 
@@ -175,6 +175,14 @@ public:
       const std::map<unsigned int, poplar::Tensor> &partialDataIn,
       const std::vector<unsigned int> &nodeCTileId,
       poplar::ComputeSet &reduceCS, const std::string &debugPrefix);
+
+  // Set the tile mapping for left hand matrix
+  void setTileMappingLHS(poplar::Graph &graph,
+                         poplar::Tensor &lhsTensor) override;
+
+  // Set the tile mapping for right hand matrix
+  void setTileMappingRHS(poplar::Graph &graph,
+                         poplar::Tensor &rhsTensor) override;
 
   unsigned int getTotalNodes() const { return gNodeId; }
 

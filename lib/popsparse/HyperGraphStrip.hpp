@@ -12,9 +12,9 @@ namespace experimental {
 class HyperGraphStrip : public HyperGraph {
 
 public:
-  HyperGraphStrip(const BlockMatrix &A, const BlockMatrix &B,
-                  poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
-                  poplar::Type partialDataTypeIn, int nTileIn, int nPassIn = 1);
+  HyperGraphStrip(BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
+                  poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn,
+                  int nTileIn, int nPassIn = 1);
 
   virtual ~HyperGraphStrip() = default;
 
@@ -79,6 +79,14 @@ public:
                                   const unsigned char *sparsity,
                                   const std::string &debugPrefix) override;
 
+  // Set the tile mapping for left hand matrix
+  void setTileMappingLHS(poplar::Graph &graph,
+                         poplar::Tensor &lhsTensor) override;
+
+  // Set the tile mapping for right hand matrix
+  void setTileMappingRHS(poplar::Graph &graph,
+                         poplar::Tensor &rhsTensor) override;
+
   // Creates a program to perform matmul
   virtual void createProgramMatMul(poplar::Graph &graph,
                                    SubBlockMask subBlockMask,
@@ -117,9 +125,11 @@ private:
                            poplar::program::Sequence &prog,
                            const std::string &debugPrefix);
 
-  void setLHSTileMapDSD(poplar::Graph &graph, std::vector<int> &lhsBlockTileId);
+  void setLHSTileMapDSD(poplar::Graph &graph, std::vector<int> &lhsBlockTileId,
+                        bool setTileMap);
 
-  void setRHSTileMapDSD(poplar::Graph &graph, std::vector<int> &blockTileId);
+  void setRHSTileMapDSD(poplar::Graph &graph, std::vector<int> &blockTileId,
+                        bool setTileMap);
 
   void setResultTileMapDSD(poplar::Graph &graph, std::vector<int> &blockTileId);
 
@@ -159,9 +169,11 @@ private:
   void genSeq3(poplar::Graph &graph, GenCs3 genCs3,
                poplar::program::Sequence &prog, const std::string &debugPrefix);
 
-  void setLHSTileMapDDS(poplar::Graph &graph, std::vector<int> &lhsBlockTileId);
+  void setLHSTileMapDDS(poplar::Graph &graph, std::vector<int> &lhsBlockTileId,
+                        bool setTileMap);
 
-  void setRHSTileMapDDS(poplar::Graph &graph, std::vector<int> &blockTileId);
+  void setRHSTileMapDDS(poplar::Graph &graph, std::vector<int> &blockTileId,
+                        bool setTileMap);
 
   void setOutputTileMapDDS(poplar::Graph &graph, std::vector<int> &blockTileId);
 

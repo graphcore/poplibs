@@ -15,7 +15,7 @@ This class uses Zoltan library for partitioning.
 class HyperGraphBlockZoltan : public HyperGraphBlock {
 
 public:
-  HyperGraphBlockZoltan(const BlockMatrix &A, const BlockMatrix &B,
+  HyperGraphBlockZoltan(BlockMatrix &A, BlockMatrix &B,
                         poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
                         poplar::Type partialDataTypeIn, int nTileIn,
                         float memoryCycleRatioIn,

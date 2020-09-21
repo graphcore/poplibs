@@ -18,7 +18,7 @@ namespace popsparse {
 namespace experimental {
 
 HyperGraphBlockNaive::HyperGraphBlockNaive(
-    const BlockMatrix &A, const BlockMatrix &B, poplar::Type inDataTypeIn,
+    BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
     poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn, int nTileIn,
     float memoryCycleRatioIn, int nMulsOnVNodeIn)
     : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,

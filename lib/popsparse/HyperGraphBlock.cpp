@@ -25,7 +25,7 @@ namespace logging = poplibs_support::logging;
 namespace popsparse {
 namespace experimental {
 
-HyperGraphBlock::HyperGraphBlock(const BlockMatrix &A, const BlockMatrix &B,
+HyperGraphBlock::HyperGraphBlock(BlockMatrix &A, BlockMatrix &B,
                                  poplar::Type inDataTypeIn,
                                  poplar::Type outDataTypeIn,
                                  poplar::Type partialDataTypeIn, int nTileIn,
@@ -194,6 +194,40 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
   // save the pointer to matrix C
   matC = std::move(matCSparse);
   setupWeights(graph, numMuls);
+}
+
+void HyperGraphBlock::setTileMappingLHS(poplar::Graph &graph,
+                                        poplar::Tensor &lhsTensor) {
+  matA.setBlockTensor(lhsTensor);
+  const std::vector<poplar::Tensor> &blockDataA = matA.getBlockTensor();
+  for (const auto &n : nodeA) {
+    unsigned int blockId = n.blockId;
+    unsigned int nodeId = n.id;
+    if (tileAssignment[nodeId] < 0) {
+      throw poputil::poplibs_error(
+          "Invalid tile id: " + std::to_string(tileAssignment[nodeId]) +
+          " For node " + std::to_string(nodeId));
+    }
+    unsigned int tileId = static_cast<unsigned int>(tileAssignment[nodeId]);
+    graph.setTileMapping(blockDataA[blockId], tileId);
+  }
+}
+
+void HyperGraphBlock::setTileMappingRHS(poplar::Graph &graph,
+                                        poplar::Tensor &rhsTensor) {
+  matB.setBlockTensor(rhsTensor);
+  const std::vector<poplar::Tensor> &blockDataB = matB.getBlockTensor();
+  for (const auto &n : nodeB) {
+    unsigned int blockId = n.blockId;
+    unsigned int nodeId = n.id;
+    if (tileAssignment[nodeId] < 0) {
+      throw poputil::poplibs_error(
+          "Invalid tile id: " + std::to_string(tileAssignment[nodeId]) +
+          " For node " + std::to_string(nodeId));
+    }
+    unsigned int tileId = static_cast<unsigned int>(tileAssignment[nodeId]);
+    graph.setTileMapping(blockDataB[blockId], tileId);
+  }
 }
 
 void HyperGraphBlock::setupWeights(const poplar::Graph &graph, int numMuls) {
@@ -422,11 +456,11 @@ void HyperGraphBlock::createComputeSetMatMul(
           " For node " + std::to_string(nodeId));
     }
     unsigned int tileId = static_cast<unsigned int>(tileAssignment[nodeId]);
-    graph.setTileMapping(blockDataA[blockId], tileId);
     lhsBlockTileId[blockId] = tileId;
   }
 
   const std::vector<poplar::Tensor> &blockDataB = matB.getBlockTensor();
+
   std::vector<int> rhsBlockTileId(blockDataB.size());
   const std::string debugPrefix1 = debugPrefix + "transposed_matBblock_";
   for (const auto &n : nodeB) {
@@ -438,7 +472,6 @@ void HyperGraphBlock::createComputeSetMatMul(
           " For node " + std::to_string(nodeId));
     }
     unsigned int tileId = static_cast<unsigned int>(tileAssignment[nodeId]);
-    graph.setTileMapping(blockDataB[blockId], tileId);
     rhsBlockTileId[blockId] = tileId;
   }
 
