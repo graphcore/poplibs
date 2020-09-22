@@ -66,6 +66,16 @@ MAKE_CYCLE_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
   return getBlockTransposeGradWCycles(fpType == FLOAT, blockSizeXOrY,
                                       numXOrYBlocks, numZ, numWorkers);
 }
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiSliceElementWise)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &fpType) {
+  return 0;
+}
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiUpdateAddElementWise)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &fpType) {
+  return 0;
+}
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseGatherElementWise)(
     const VertexIntrospector &vertex, const Target &target,
@@ -204,7 +214,14 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockAmpGradW, FLOAT,
                             FLOAT, 16, 16),
       CYCLE_ESTIMATOR_ENTRY(popsparse, BlockTransposeGradW, FLOAT),
-      CYCLE_ESTIMATOR_ENTRY(popsparse, BlockTransposeGradW, HALF)};
+      CYCLE_ESTIMATOR_ENTRY(popsparse, BlockTransposeGradW, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMultiSliceElementWise, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMultiSliceElementWise, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMultiUpdateAddElementWise,
+                            HALF),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMultiUpdateAddElementWise,
+                            FLOAT),
+  };
 }
 
 } // end namespace popsparse
