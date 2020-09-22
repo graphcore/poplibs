@@ -15,6 +15,29 @@
 
 using namespace poplibs_support;
 
+static inline std::uint64_t getBlockTransposeGradWCycles(bool floatInput,
+                                                         unsigned blockSizeXY,
+                                                         unsigned numBlocks,
+                                                         unsigned numZ,
+                                                         unsigned numWorkers) {
+  const auto blockSizeZ = floatInput ? 8 : 16;
+  assert(numZ % blockSizeZ == 0);
+  const auto blocksPerWorker = ceildiv(numBlocks, numWorkers);
+  std::uint64_t supervisorCycles = 18;
+  std::uint64_t workerOverhead = 35;
+  std::uint64_t workerLoopCycles;
+
+  const auto numZBlocks = numZ / blockSizeZ;
+  if (floatInput) {
+    workerLoopCycles =
+        blocksPerWorker * (3 + numZBlocks * (3 + blockSizeXY / 2 * 11));
+  } else {
+    workerLoopCycles =
+        blocksPerWorker * (3 + numZBlocks * (3 + blockSizeXY / 4 * 22));
+  }
+  return supervisorCycles + workerOverhead + workerLoopCycles;
+}
+
 static inline std::uint64_t zeroPartialsCycles(unsigned numPartials,
                                                unsigned numWorkerContexts,
                                                bool floatPartials, bool block) {

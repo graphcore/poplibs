@@ -54,6 +54,19 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlockAmpGradW)(
   return 0;
 }
 
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
+                                               const Target &target,
+                                               const Type &fpType) {
+  const auto numWorkers = target.getNumWorkerContexts();
+  CODELET_SCALAR_VAL(blockSizeXOrY, unsigned);
+  CODELET_SCALAR_VAL(numXOrYBlocks, unsigned);
+  CODELET_SCALAR_VAL(numZ, unsigned);
+
+  return getBlockTransposeGradWCycles(fpType == FLOAT, blockSizeXOrY,
+                                      numXOrYBlocks, numZ, numWorkers);
+}
+
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseGatherElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
@@ -190,7 +203,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                             FLOAT, 16, 16),
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulBlockAmpGradW, FLOAT,
                             FLOAT, 16, 16),
-  };
+      CYCLE_ESTIMATOR_ENTRY(popsparse, BlockTransposeGradW, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popsparse, BlockTransposeGradW, HALF)};
 }
 
 } // end namespace popsparse

@@ -126,3 +126,28 @@ foreach(ZERO_PARTIALS "" "ZeroPartials")
     endforeach()
   endforeach()
 endforeach()
+
+
+add_multi_target_test_executable(BlockTransposeGradWTest BlockTransposeGradWTest.cpp)
+
+foreach(BLOCKSIZE 4 8 16)
+  foreach(XYBLOCK 1 2 4)
+    foreach(ZBLOCK 1 2)
+      foreach(TYPE half float)
+        math(EXPR XYSIZE "${XYBLOCK} * ${BLOCKSIZE}")
+        if (TYPE STREQUAL "half")
+          math(EXPR ZSIZE "${ZBLOCK} * 16")      
+        else()
+          math(EXPR ZSIZE "${ZBLOCK} * 8")
+        endif()
+        
+        add_multitarget_test(NAME BlockTransposeGradWTest_BLOCK${BLOCKSIZE}_xy${XYSIZE}_z${ZSIZE}_${TYPE}
+        COMMAND BlockTransposeGradWTest
+          --data-type=${TYPE}
+          --x-y-size=${XYSIZE}
+          --z-size=${ZSIZE}
+          --block-size=${BLOCKSIZE})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
