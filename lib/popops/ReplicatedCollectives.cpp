@@ -292,9 +292,17 @@ static std::vector<Tensor> getPerIpuTensors(const Tensor &t, Graph &graph) {
   return result;
 }
 
-static CollectiveMethod pickAllGatherMethod(const Graph &graph,
+static unsigned getIpusPerReplica(Graph &graph) {
+  auto topLevelGraph = graph.getTopLevelGraph();
+  unsigned numIpus = topLevelGraph.getTarget().getNumIPUs() *
+                     topLevelGraph.getReplicationFactor();
+  unsigned numReplicas = graph.getReplicationFactor();
+  return numIpus / numReplicas;
+}
+
+static CollectiveMethod pickAllGatherMethod(Graph &graph,
                                             std::size_t numBytes) {
-  const auto ipusPerRank = graph.getTarget().getNumIPUs();
+  const auto ipusPerRank = getIpusPerReplica(graph);
   const auto numRanks = graph.getReplicationFactor();
   const auto &target = graph.getTarget();
   if (target.getIpuLinkTopology() == IpuLinkTopology::Torus &&
@@ -317,7 +325,7 @@ static CollectiveMethod pickAllGatherMethod(const Graph &graph,
   return CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
 }
 
-static CollectiveMethod pickAllGatherMethod(const Graph &graph,
+static CollectiveMethod pickAllGatherMethod(Graph &graph,
                                             const Tensor &toGather) {
   const auto &target = graph.getTarget();
   const auto numBytes =
@@ -325,14 +333,14 @@ static CollectiveMethod pickAllGatherMethod(const Graph &graph,
   return pickAllGatherMethod(graph, numBytes);
 }
 
-static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
+static CollectiveMethod pickReduceScatterMethod(Graph &graph,
                                                 std::size_t numBytes) {
-  const auto ipusPerRank = graph.getTarget().getNumIPUs();
+  const auto ipusPerRank = getIpusPerReplica(graph);
   const auto numRanks = graph.getReplicationFactor();
   const auto &target = graph.getTarget();
   if (target.getIpuLinkTopology() == IpuLinkTopology::Torus &&
-      ipusPerRank > 1) { // Note we don't utilize the loopback cable for 1 ipu
-                         // per replica (T25224)
+      ipusPerRank > 1) {
+    // Note we don't utilize the loopback cable for 1 ipu per replica (T25224)
     // TODO: T26094 Investigate when to use BIDIRECTIONAL_RING_PAIR instead
     return CollectiveMethod::MEET_IN_MIDDLE_RING;
   }
@@ -350,8 +358,7 @@ static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
   return CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
 }
 
-static CollectiveMethod pickReduceScatterMethod(const Graph &graph,
-                                                const Tensor &t) {
+static CollectiveMethod pickReduceScatterMethod(Graph &graph, const Tensor &t) {
   const auto &target = graph.getTarget();
   const auto numBytes = t.numElements() * target.getTypeSize(t.elementType());
   return pickReduceScatterMethod(graph, numBytes);
@@ -506,6 +513,14 @@ std::vector<size_t> orderIpusBySize(const std::vector<Tensor> &tensorPerIpu) {
   return ipuIndexOrderedBySize;
 }
 
+Graph getReplicatedGraphWithAllIpus(Graph &graph) {
+  auto topLevelGraph = graph.getTopLevelGraph();
+  if (topLevelGraph.getReplicationFactor() == graph.getReplicationFactor())
+    return topLevelGraph;
+  return topLevelGraph.createReplicatedGraph(
+      graph.getReplicationFactor() / topLevelGraph.getReplicationFactor());
+}
+
 /*
  For CrossReplicaCopies which would involve through routing on every IPU on a
  given vertical (e.g. ipu 0, 2, 4, 6 ..) with a loopback cable, there is the
@@ -527,22 +542,35 @@ std::vector<size_t> orderIpusBySize(const std::vector<Tensor> &tensorPerIpu) {
 std::vector<std::pair<Tensor, Tensor>>
 splitExchangesToAvoidDeadlock(Graph &graph, const Tensor &src,
                               const Tensor &dst) {
-  if (graph.getTarget().getIpuLinkTopology() != IpuLinkTopology::Torus) {
-    // We only have problems with torus configuration
+  if (graph.getTarget().getIpuLinkTopology() != IpuLinkTopology::Torus ||
+      getIpusPerReplica(graph) <= 2) {
+    // We only have problems with torus configuration and replica sizes which
+    // introduce through routing to the neighbouring replica
     return {std::make_pair(src, dst)};
   }
-  const auto numIpusPerReplica = graph.getTarget().getNumIPUs();
-  const auto numExchangesRequired = numIpusPerReplica >> 1;
-  const auto srcTensorPerIpu = getPerIpuTensors(src, graph);
-  const auto dstTensorPerIpu = getPerIpuTensors(dst, graph);
+  logging::popops::debug("splitExchangesToAvoidDeadlock");
+
+  auto replicatedGraphWithAllIpus = getReplicatedGraphWithAllIpus(graph);
+  if (replicatedGraphWithAllIpus.getTarget().getNumIPUs() % 2 != 0) {
+    throw poputil::poplibs_error("Odd sized replicas are unsupported");
+  }
+  const auto srcTensorPerIpu =
+      getPerIpuTensors(src, replicatedGraphWithAllIpus);
+  const auto dstTensorPerIpu =
+      getPerIpuTensors(dst, replicatedGraphWithAllIpus);
 
   std::vector<Tensor> evenRailSrcTensors;
   std::vector<Tensor> oddRailSrcTensors;
+  std::vector<Tensor> evenRailDstTensors;
+  std::vector<Tensor> oddRailDstTensors;
+
   for (unsigned i = 0; i < srcTensorPerIpu.size(); i++) {
     if (i % 2 == 0) {
       evenRailSrcTensors.push_back(srcTensorPerIpu[i]);
+      evenRailDstTensors.push_back(dstTensorPerIpu[i]);
     } else {
       oddRailSrcTensors.push_back(srcTensorPerIpu[i]);
+      oddRailDstTensors.push_back(dstTensorPerIpu[i]);
     }
   }
 
@@ -556,20 +584,42 @@ splitExchangesToAvoidDeadlock(Graph &graph, const Tensor &src,
   // - ipu 3 (replica 0) -> ipu 3 (replica 1) : LARGE
   // Then, we want to pair the large ipu 0 & ipu 3 cross replica copies, and
   // then ipu 2 & ipu 1 cross replica copies to give more balanced exchanges.
-  const auto evenRailSrcIdxOrdered = orderIpusBySize(evenRailSrcTensors);
-  const auto oddRailSrcIdxOrdered = orderIpusBySize(oddRailSrcTensors);
+  const auto evenRailIdxOrdered = orderIpusBySize(evenRailSrcTensors);
+  const auto oddRailIdxOrdered = orderIpusBySize(oddRailSrcTensors);
 
+  // The max number of exchanges depends on whichever rail has the most cross
+  // replica copies as each will need to be separated into a separate exchange
+  const auto numExchangesRequired =
+      std::max(evenRailSrcTensors.size(), oddRailSrcTensors.size());
   std::vector<std::pair<Tensor, Tensor>> exchanges;
   for (unsigned i = 0; i < numExchangesRequired; i++) {
-    // We can combine even and odd exchanges at the same time as they are not
-    // overlapping, we only have issues with deadlocks when it creates a loop
-    // vertically on the ladder
-    exchanges.push_back(std::make_pair(
-        concat(srcTensorPerIpu[2 * evenRailSrcIdxOrdered[i]],
-               srcTensorPerIpu[2 * oddRailSrcIdxOrdered[i] + 1]),
-        concat(dstTensorPerIpu[2 * evenRailSrcIdxOrdered[i]],
-               dstTensorPerIpu[2 * oddRailSrcIdxOrdered[i] + 1])));
+    if (i < evenRailSrcTensors.size() && i < oddRailSrcTensors.size()) {
+      // We can combine even and odd exchanges at the same time as they are not
+      // overlapping, we only have issues with deadlocks when it creates a loop
+      // vertically on the ladder
+      exchanges.push_back(
+          std::make_pair(concat(evenRailSrcTensors[evenRailIdxOrdered[i]],
+                                oddRailSrcTensors[oddRailIdxOrdered[i]]),
+                         concat(evenRailDstTensors[evenRailIdxOrdered[i]],
+                                oddRailDstTensors[oddRailIdxOrdered[i]])));
+    } else if (i < evenRailSrcTensors.size()) {
+      exchanges.push_back(
+          std::make_pair(evenRailSrcTensors[evenRailIdxOrdered[i]],
+                         evenRailDstTensors[evenRailIdxOrdered[i]]));
+    } else if (i < oddRailSrcTensors.size()) {
+      exchanges.push_back(
+          std::make_pair(oddRailSrcTensors[oddRailIdxOrdered[i]],
+                         oddRailDstTensors[oddRailIdxOrdered[i]]));
+    } else {
+      POPLIB_UNREACHABLE();
+    }
   }
+  if (exchanges.size() != 1) {
+    logging::popops::debug(
+        "split into {} exchanges to avoid a potential deadlock",
+        exchanges.size());
+  }
+  assert(exchanges.size() && "Exchanges cannot be empty");
   return exchanges;
 }
 
@@ -664,7 +714,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
                                 : FragmentCopyMethod::DYNAMIC_SLICE;
 
   const auto replicationFactor = graph.getReplicationFactor();
-  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
+  const unsigned ipusPerReplica = getIpusPerReplica(graph);
   const RingTopology ring(replicationFactor, ipusPerReplica,
                           graph.getTarget().getIpuLinkTopology());
   auto numFragments = replicationFactor;
@@ -929,7 +979,7 @@ static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
     Direction direction, const std::string &debugPrefix) {
   logging::popops::debug("Unidirectional ring allGather");
   const auto replicationFactor = graph.getReplicationFactor();
-  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
+  const unsigned ipusPerReplica = getIpusPerReplica(graph);
   RingTopology ring(replicationFactor, ipusPerReplica,
                     graph.getTarget().getIpuLinkTopology());
   auto numFragments = graph.getReplicationFactor();
@@ -1014,7 +1064,7 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
     return result;
   }
   const auto replicationFactor = graph.getReplicationFactor();
-  const unsigned ipusPerReplica = graph.getTarget().getNumIPUs();
+  const unsigned ipusPerReplica = getIpusPerReplica(graph);
   RingTopology ring(replicationFactor, ipusPerReplica,
                     graph.getTarget().getIpuLinkTopology());
   const auto numFragments = replicationFactor;
