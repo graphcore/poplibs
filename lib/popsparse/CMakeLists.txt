@@ -46,6 +46,8 @@ add_library(popsparse SHARED
   popsparseCycleEstimators.cpp
   SparseMetaInfo.hpp
   SparseStorageInternal.hpp
+  SparseFormatsValidate.cpp
+  SparseFormatsValidate.hpp
   SparsityParams.cpp
   SparsePartitioner.cpp
   SparsePartitionerImpl.cpp
@@ -100,6 +102,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMultiSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseGather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Utils.cpp
+      
 
 
   ASM_SOURCES

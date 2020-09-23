@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "SparsePartitionerImpl.hpp"
 #include "FullyConnectedUtils.hpp"
+#include "SparseFormatsValidate.hpp"
 #include "SparseMetaInfo.hpp"
 #include "SparsePartitionerImpl.hpp"
 #include "SparseStorageInternal.hpp"
@@ -1038,6 +1039,8 @@ PNBucketsImpl<T> PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_,
   if (checkDims) {
     checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
   }
+  validateCSR(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
+              matrix_.rowIndices, matrix_.columnIndices);
   std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
   const auto &matrixNewBlockSize =
       matrix_.getBlockDimensions() != grainsXAndY
@@ -1085,6 +1088,8 @@ PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const CSCMatrix<T> &matrix_) const {
   logging::popsparse::trace("Partitioner called with CSC representation");
   checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  validateCSC(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
+              matrix_.rowIndices, matrix_.columnIndices);
   std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
   const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
                            ? changeCSCBlockSize(matrix_, grainsXAndY)
@@ -1118,6 +1123,8 @@ PNBucketsImpl<T>
 PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
   logging::popsparse::trace("Partitioner called with COO representation");
   checkBlockDimensionsMatch(matrix_.getBlockDimensions(), blockDimensions);
+  validateCOO(numX, numY, matrix_.getBlockDimensions(), matrix_.nzValues.size(),
+              matrix_.rowIndices, matrix_.columnIndices);
   std::array<std::size_t, 2> grainsXAndY = {grainX, grainY};
   const auto &matrix = matrix_.getBlockDimensions() != grainsXAndY
                            ? changeCOOBlockSize(matrix_, grainsXAndY)
