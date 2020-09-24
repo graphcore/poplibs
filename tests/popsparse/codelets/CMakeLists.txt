@@ -138,11 +138,11 @@ foreach(BLOCKSIZE 4 8 16)
       foreach(TYPE half float)
         math(EXPR XYSIZE "${XYBLOCK} * ${BLOCKSIZE}")
         if (TYPE STREQUAL "half")
-          math(EXPR ZSIZE "${ZBLOCK} * 16")      
+          math(EXPR ZSIZE "${ZBLOCK} * 16")
         else()
           math(EXPR ZSIZE "${ZBLOCK} * 8")
         endif()
-        
+
         add_multitarget_test(NAME BlockTransposeGradWTest_BLOCK${BLOCKSIZE}_xy${XYSIZE}_z${ZSIZE}_${TYPE}
         COMMAND BlockTransposeGradWTest
           --data-type=${TYPE}
@@ -161,17 +161,20 @@ add_multi_target_test_executable(SparseDenseMultiSliceElementWise
 foreach(TYPE half float)
   foreach(UPDATE true false)
     foreach(BUCKETS 1 2)
-      add_multitarget_test(NAME SparseMultiSlice_${TYPE}_${UPDATE}_${BUCKETS}
-        COMMAND SparseDenseMultiSliceElementWise
-          --baseT-shape={10,16}
-          --offsets=6
-          --sparsity-level=0.5
-          --num-other-sub-groups=20
-          --input-type=${TYPE}
-          --num-buckets=${BUCKETS}
-          --row-offset=2
-          --initialise-subT=true
-          --update-add=${UPDATE})
+      foreach(ZSIZE 4 8 33 128 1002)
+        add_multitarget_test(NAME SparseMultiSlice_${TYPE}_${UPDATE}_${BUCKETS}_${ZSIZE}
+          COMMAND SparseDenseMultiSliceElementWise
+            --baseT-shape={10,16}
+            --offsets=6
+            --sparsity-level=0.5
+            --num-other-sub-groups=20
+            --input-type=${TYPE}
+            --num-buckets=${BUCKETS}
+            --row-offset=2
+            --initialise-subT=true
+            --update-add=${UPDATE}
+            --z-size=${ZSIZE})
+      endforeach()
     endforeach()
   endforeach()
 endforeach()

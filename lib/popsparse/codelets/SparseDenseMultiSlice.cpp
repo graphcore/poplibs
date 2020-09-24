@@ -6,6 +6,7 @@
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
 
+#include "SparseCodeletMetaInfoScale.hpp"
 #include "SparseMetaInfo.hpp"
 
 using namespace poplar;
@@ -25,7 +26,7 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
                          BaseTMetaInfoType &baseTMetaInfo, SubTType &subT,
                          const unsigned rowOffset,
                          const MetaInfoType subGroupIdToProcess,
-                         const unsigned short nzScale,
+                         const unsigned nzScaleFactor,
                          const unsigned short subColumns, FPType scale) {
 
   using MetaInfo = popsparse::MetaInfo<MetaInfoType>;
@@ -35,13 +36,13 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
       std::conditional_t<std::is_same<FPType, half>::value, float, FPType>;
   const auto scaleVal = ScaleType(scale);
 
-  // TODO - The application of this scaling as a divide later could be a
-  // problem.  This will need revising.  This ties in with the need to
-  // include the nzScale parameter in the vertex state
+  // Note that in practice these sizes are used to divide but are all powers
+  // of 2, and can be combined with the shift in the expressions where they are
+  // used below
   const auto yOffTypeSize =
-      nzScale * getYOffsetTypeFactor(std::is_same<FPType, float>::value);
+      getYOffsetTypeFactor(std::is_same<FPType, float>::value);
   const auto xOffTypeSize =
-      nzScale * getXOffsetTypeFactor(std::is_same<FPType, float>::value);
+      getXOffsetTypeFactor(std::is_same<FPType, float>::value);
 
   const auto subGroupElements =
       sizeof(MetaInfo::SubGroupEntry) / sizeof(MetaInfoType);
@@ -61,18 +62,21 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
       // Only process sub groups with a specific id.  They contain
       // data that belongs in our partition of the input
       if (id == subGroupIdToProcess) {
-        // The 1st worker doesn't necessarily process the first row listed, so
-        // we have to skip over the sub group and the worker entries.
-        // TODO - what about GradWWorkerEntry entries (Will need skipping over)
-        // Or actually use the vertex state of the workers to divide
-        // work instead?
-        iter += subGroupElements;
-        iter += workerEntryElements * subGroupEntry->numWorkers;
+        // We aren't using the workerEntry information to divide work so
+        // skip over the sub group and the worker entries.
+
+        iter += subGroupEntry->offsetToFirstOutputEntryMetaInfo;
 
         // Loop over the rows found in a sub-group
         for (unsigned sparseRow = 0; sparseRow <= subGroupEntry->numXm1;
              sparseRow++) {
-          const auto rowFound = *iter++ / xOffTypeSize + rowOffset;
+          // Although this could be maintained unscaled the reciprocal to divide
+          // method is fairly efficient and rowFound is used to compare to
+          // multiple offsets below, which therefore don't need scaling (which
+          // could be done my multiplying the offset)
+          const auto rowFound =
+              reciprocalMulDiv(*iter++, nzScaleFactor) / xOffTypeSize +
+              rowOffset;
           const auto columnsInRow = *iter++;
           // Loop over the rows listed in the offsets, a row may be referenced
           // multiple times
@@ -84,12 +88,12 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
               auto *colNZIter = nzIter;
               const auto offset = idx * subColumns;
               for (unsigned c = 0; c < columnsInRow; c++) {
+                const unsigned column =
+                    reciprocalMulDiv(*colIter, nzScaleFactor) / yOffTypeSize;
                 if constexpr (isUpdateAdd) {
-                  *colNZIter +=
-                      scaleVal *
-                      ScaleType(subT[offset + (*colIter / yOffTypeSize)]);
+                  *colNZIter += scaleVal * ScaleType(subT[offset + column]);
                 } else {
-                  subT[offset + (*colIter / yOffTypeSize)] = *colNZIter;
+                  subT[offset + column] = *colNZIter;
                 }
                 colIter++;
                 colNZIter++;
@@ -127,7 +131,7 @@ public:
   BaseTNZType baseTNZ;
   BaseTMetaInfoType baseTMetaInfo;
   SubTType subT;
-  MetaInfoType nzScale;
+  MetaInfoType nzScaleFactor;
   // This vertex will process data with the given subGroupIdToProcess, that data
   // had this rowOffset applied to its metadata
   const unsigned rowOffset;
@@ -139,7 +143,7 @@ public:
     const auto function = computeSlice<FPType, BaseTNZType, SubTType, false>;
 
     return function(offsets, baseTNZ, baseTMetaInfo, subT, rowOffset,
-                    subGroupIdToProcess, nzScale, subColumns, 1.0f);
+                    subGroupIdToProcess, nzScaleFactor, subColumns, 1.0f);
   }
 };
 template class SparseDenseMultiSliceElementWise<float>;
@@ -162,7 +166,7 @@ public:
   BaseTNZType baseTNZ;
   BaseTMetaInfoType baseTMetaInfo;
   SubTType subT;
-  MetaInfoType nzScale;
+  MetaInfoType nzScaleFactor;
   // This vertex will process data with the given subGroupIdToProcess, that data
   // had this rowOffset applied to its metadata
   const unsigned rowOffset;
@@ -175,7 +179,7 @@ public:
     const auto function = computeSlice<FPType, BaseTNZType, SubTType, true>;
 
     return function(offsets, baseTNZ, baseTMetaInfo, subT, rowOffset,
-                    subGroupIdToProcess, nzScale, subColumns, *scale);
+                    subGroupIdToProcess, nzScaleFactor, subColumns, *scale);
   }
 };
 template class SparseDenseMultiUpdateAddElementWise<float>;

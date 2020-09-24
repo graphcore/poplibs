@@ -25,6 +25,7 @@
 
 #include <popsparse/codelets.hpp>
 
+#include "../lib/popsparse/SparseCodeletMetaInfoScale.hpp"
 #include "SparseDensePartition.hpp"
 #include "SparseDenseUtils.hpp"
 
@@ -197,9 +198,16 @@ int main(int argc, char **argv) try {
       otherSubGroupIds, processedSubGroupIndices, subGroupNumElems, target,
       inputType, inputType, VertexType::Forward);
 
-  // TODO: Check values in meta-info to ensure they are representable by this
-  // type.
+  // Check values in meta-info to ensure they are representable by this type
   const auto metaInfoType = UNSIGNED_SHORT;
+  for (unsigned i = 0; i < hostMetaInfoBuckets.size(); i++) {
+    if (std::any_of(hostMetaInfoBuckets[i].begin(),
+                    hostMetaInfoBuckets[i].end(), [](const unsigned a) {
+                      return a > std::numeric_limits<unsigned short>::max();
+                    })) {
+      throw poplibs_error("Meta Data exceeds type size.");
+    }
+  }
 
   // Allocate operands
   std::vector<Tensor> nzBuckets(numBuckets);
@@ -236,7 +244,7 @@ int main(int argc, char **argv) try {
   graph.connect(v["baseTNZ"], nzBuckets);
   graph.connect(v["baseTMetaInfo"], metaInfoBuckets);
   graph.connect(v["subT"], subT.flatten());
-  graph.setInitialValue(v["nzScale"], zSize);
+  graph.setInitialValue(v["nzScaleFactor"], reciprocalMulFactor(zSize));
 
   graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
 
@@ -257,20 +265,18 @@ int main(int argc, char **argv) try {
   std::vector<std::unique_ptr<char[]>> rawHostNZBuckets(numBuckets),
       rawHostMetaInfoBuckets(numBuckets);
 
-  if (!ignoreData) {
-    for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
-      rawHostNZBuckets[bucket] = allocateHostMemoryForTensor(
-          nzBuckets[bucket], "a[" + std::to_string(bucket) + "]", graph,
-          uploadProg, downloadProg, tmap);
-      rawHostMetaInfoBuckets[bucket] = allocateHostMemoryForTensor(
-          metaInfoBuckets[bucket], "metaInfo[" + std::to_string(bucket) + "]",
-          graph, uploadProg, downloadProg, tmap);
-    }
-    rawHostOffsets = allocateHostMemoryForTensor(
-        offsets, "offsets", graph, uploadProg, downloadProg, tmap);
-    rawHostSubT = allocateHostMemoryForTensor(subT, "subT", graph, uploadProg,
-                                              downloadProg, tmap);
+  for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
+    rawHostNZBuckets[bucket] = allocateHostMemoryForTensor(
+        nzBuckets[bucket], "a[" + std::to_string(bucket) + "]", graph,
+        uploadProg, downloadProg, tmap);
+    rawHostMetaInfoBuckets[bucket] = allocateHostMemoryForTensor(
+        metaInfoBuckets[bucket], "metaInfo[" + std::to_string(bucket) + "]",
+        graph, uploadProg, downloadProg, tmap);
   }
+  rawHostOffsets = allocateHostMemoryForTensor(offsets, "offsets", graph,
+                                               uploadProg, downloadProg, tmap);
+  rawHostSubT = allocateHostMemoryForTensor(subT, "subT", graph, uploadProg,
+                                            downloadProg, tmap);
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg));
   attachStreams(engine, tmap);
@@ -442,16 +448,17 @@ int main(int argc, char **argv) try {
 
   double relativeTolerance = inputType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
   double absoluteTolerance = inputType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
-  bool subTMatchesModel = checkIsClose("subT", ipuSubT, hostSubT,
-                                       relativeTolerance, absoluteTolerance);
-  bool baseTMatchesModel = checkIsClose("baseT", extractData(ipuBaseTDense),
-                                        extractData(hostBaseTDense),
-                                        relativeTolerance, absoluteTolerance);
-  if (!(subTMatchesModel && baseTMatchesModel)) {
-    std::cerr << "Validation failed\n";
-    return 1;
+  if (!ignoreData) {
+    bool subTMatchesModel = checkIsClose("subT", ipuSubT, hostSubT,
+                                         relativeTolerance, absoluteTolerance);
+    bool baseTMatchesModel = checkIsClose("baseT", extractData(ipuBaseTDense),
+                                          extractData(hostBaseTDense),
+                                          relativeTolerance, absoluteTolerance);
+    if (!(subTMatchesModel && baseTMatchesModel)) {
+      std::cerr << "Validation failed\n";
+      return 1;
+    }
   }
-
   return 0;
 } catch (const poplar::graph_memory_allocation_error &e) {
   std::cerr << e.what() << std::endl;

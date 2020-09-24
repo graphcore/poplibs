@@ -27,7 +27,7 @@ template <typename T> struct MetaInfo {
     // The total number of rows processed by all the workers on this tile
     T numXm1;
     // The offset of the first output entry on this tile
-    T offsetToFirstOutputEntry;
+    T offsetToFirstOutputEntryMetaInfo;
     // Number of workers to utilise for this sub-group's work in this bucket.
     T numWorkers;
   };

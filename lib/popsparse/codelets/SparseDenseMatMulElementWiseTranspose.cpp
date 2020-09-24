@@ -101,7 +101,7 @@ public:
         if (subGroupEntry->id == subGroupIdToProcess) {
           const auto *firstOutputEntry =
               reinterpret_cast<const MetaInfoType *>(metaInfoBucketIter) +
-              subGroupEntry->offsetToFirstOutputEntry;
+              subGroupEntry->offsetToFirstOutputEntryMetaInfo;
           // the workers divide the work per row using field in the
           // subGroup
           workerCompute(firstOutputEntry, &q[0], rBucketIter, &s[0],

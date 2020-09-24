@@ -44,6 +44,7 @@ add_library(popsparse SHARED
   PlanningCache.cpp
   popsparseCycleEstimators.hpp
   popsparseCycleEstimators.cpp
+  SparseCodeletMetaInfoScale.hpp
   SparseMetaInfo.hpp
   SparseStorageInternal.hpp
   SparseFormatsValidate.cpp
@@ -172,6 +173,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BlockTransposeGradW.h.S
 
     ${CMAKE_CURRENT_SOURCE_DIR}/SparseMetaInfo.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/SparseCodeletMetaInfoScale.hpp
 )
 
 install(TARGETS popsparse

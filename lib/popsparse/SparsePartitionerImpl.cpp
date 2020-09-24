@@ -1768,7 +1768,8 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
           throw poputil::poplibs_error("possibly corrupt or invalid metaInfo");
         }
 
-        std::size_t index = miIndexThisPN + sgEntry->offsetToFirstOutputEntry;
+        std::size_t index =
+            miIndexThisPN + sgEntry->offsetToFirstOutputEntryMetaInfo;
         for (std::size_t row = 0; row != numRows; ++row) {
           const auto *outputEntry =
               reinterpret_cast<const MI_U::OutputEntry *>(&metaInfo[index]);
