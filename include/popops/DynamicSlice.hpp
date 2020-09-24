@@ -165,7 +165,7 @@ poplar::Tensor createIndicesTensor(poplar::Graph &graph,
                                    const poplar::OptionFlags &options,
                                    const std::string &debugPrefix = "");
 
-/* Create and map a tensor to be sliced/updated.
+/** Create and map a tensor to be sliced/updated.
  *
  * The tensor is mapped in a way that can be efficiently sliced and updated
  * to/from the given slice tensor. It will be distributed across as many
@@ -179,6 +179,8 @@ poplar::Tensor createIndicesTensor(poplar::Graph &graph,
  * \param numSlices   The number of independent slices in each sliced
  *                    dimension.
  * \param debugPrefix The prefix prepended to debugging info.
+ *
+ * \returns           A tensor to be sliced/updated.
  */
 poplar::Tensor
 createSliceableTensorFromSlice(poplar::Graph &graph, const poplar::Tensor &s,
