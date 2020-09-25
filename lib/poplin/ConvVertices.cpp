@@ -612,11 +612,12 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
 
   bool useLimitedVer = true;
   const auto zerosInfo = outWindow[0].numElements();
+  const auto inRowStrideAmpVertex = getInRowStrideRangeForAmpVertices(
+      transformedInRowStride, convUnitWeightHeight);
   if (!fitsMachineStride(target, transformedOutStride / 2) ||
       !fitsMachineStride(target, transformedInStride) ||
-      !fitsMachineStride(
-          target, getInRowStrideRangeForAmpVertices(transformedInRowStride,
-                                                    convUnitWeightHeight)))
+      !fitsMachineStride(target, inRowStrideAmpVertex) ||
+      !fitsMachineStride(target, -inRowStrideAmpVertex))
     useLimitedVer = false;
 
   if ((numConvGroupGroups - 1 > unsignedMax) ||
