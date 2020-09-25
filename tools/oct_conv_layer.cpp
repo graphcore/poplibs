@@ -1311,9 +1311,6 @@ int main(int argc, char **argv) try {
       engineOptions.set("profiler.useUnstableFormat", "true");
     }
   }
-  if (isSimulator(deviceType) && numIPUs > 1) {
-    engineOptions.set("debug.globalExchangeViaDebug", "true");
-  }
 
   Engine engine(graph, std::move(programs), engineOptions);
   attachStreams(engine, tmap);
