@@ -75,7 +75,9 @@ static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
     ConvProgramTree cpt(graph, plan, name);
 
     fn(plan, arg, cpt, name);
-    cpt.lower(graph, prog);
+
+    const ConvOptions options(arg.options);
+    cpt.lower(graph, prog, options.insertTransformsCycleCountProgs);
   }
 }
 
@@ -98,16 +100,26 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
   }
 
   ConvProgramTree cpt(graph, para.plans.front(), debugPrefix);
+  const ConvOptions options(args[0].options);
+  const bool insertCycleCounts = options.insertTransformsCycleCountProgs;
 
   for (unsigned i = 0; i < args.size(); ++i) {
     const auto &arg = args[i];
     const auto &plan = para.plans[i];
 
     const auto name = debugPrefix + "/" + std::to_string(i);
+
     fn(plan, arg, cpt, name);
+
+    const ConvOptions optionsNextPlan(arg.options);
+    if (insertCycleCounts != optionsNextPlan.insertTransformsCycleCountProgs) {
+      throw poputil::poplibs_error(
+          "Parallel multi-plans require to have same value for "
+          "<insertTransformsCycleCountProgs> option");
+    }
   }
 
-  cpt.lower(graph, prog);
+  cpt.lower(graph, prog, insertCycleCounts);
 }
 
 poplar::Tensor createWeights(poplar::Graph &graph,

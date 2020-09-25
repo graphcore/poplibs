@@ -1982,24 +1982,24 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
 
 template <typename T>
 static void lowerAndAddCycleCount(Graph &graph, Sequence &prog,
-                                  bool insertCycleCounts, T &tpp,
+                                  const bool insertCycleCount, T &tpp,
                                   const std::string &debugPrefix) {
   Sequence seq;
   tpp.lower(seq);
-  if (insertCycleCounts == true) {
+  if (insertCycleCount == true) {
     cycleCount(graph, seq, 0, debugPrefix);
   }
   prog.add(seq);
 }
 
 void ConvProgramTree::lower(Graph &graph, Sequence &prog,
-                            bool insertCycleCounts) {
+                            const bool insertCycleCount) {
   for (const auto &c : copyWritten) {
     prog.add(WriteUndef(c.second));
   }
 
   // weightsTranspose
-  lowerAndAddCycleCount(graph, prog, insertCycleCounts, weightsTranspose,
+  lowerAndAddCycleCount(graph, prog, insertCycleCount, weightsTranspose,
                         "weightsTransposeSeq");
 
   assert(transformPre.size() == transformPost.size());
@@ -2012,7 +2012,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   // lower the transforms in ascending order as we climb the hierarchy.
   for (unsigned level = 0; level < numLevels; ++level) {
     // transformPre[level]
-    lowerAndAddCycleCount(graph, body, insertCycleCounts, transformPre[level],
+    lowerAndAddCycleCount(graph, body, insertCycleCount, transformPre[level],
                           "transformPre" + std::to_string(level));
   }
 
@@ -2027,7 +2027,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
     // transformPost[level]
     Sequence reduceTransformPostSeq;
     add(reduceTransformPostSeq, transformPost[level]);
-    if (insertCycleCounts == true) {
+    if (insertCycleCount == true) {
       cycleCount(graph, reduceTransformPostSeq, 0,
                  "transformPost" + std::to_string(level));
     }
@@ -2035,7 +2035,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   }
 
   // transformPreSerial
-  lowerAndAddCycleCount(graph, prog, insertCycleCounts, transformPreSerial,
+  lowerAndAddCycleCount(graph, prog, insertCycleCount, transformPreSerial,
                         "transformPreSerialSeq");
 
   if (loopCount == 1) {
@@ -2046,7 +2046,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   }
 
   // transformPostSerial
-  lowerAndAddCycleCount(graph, prog, insertCycleCounts, transformPostSerial,
+  lowerAndAddCycleCount(graph, prog, insertCycleCount, transformPostSerial,
                         "transformPostSerialSeq");
 
   prog.add(finalizeProg);
@@ -2931,7 +2931,7 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   auto out = calculateWeightDeltas(graph, zDeltas_, activations_, wuPlan,
                                    wuParams, cpt, debugPrefix, wuOptions);
 
-  cpt.lower(graph, prog);
+  cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs);
   return out;
 }
 
@@ -2970,7 +2970,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,
                           wuOptions);
-  cpt.lower(graph, prog);
+  cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs);
 }
 
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
@@ -3013,7 +3013,7 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
   convolutionWeightUpdate(graph, zDeltas, weights, activations, wuPlan,
                           std::move(wuParams), scale, cpt, debugPrefix,
                           wuOptions);
-  cpt.lower(graph, prog);
+  cpt.lower(graph, prog, wuOptions.insertTransformsCycleCountProgs);
 }
 
 // Add a program to update the biases tensor with the gradients derived

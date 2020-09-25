@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 import argparse
-import re
-import subprocess
-import csv
-import os
-import sys
 import collections
+import csv
 import itertools
-from progress.bar import Bar
-from datetime import datetime
+import logging
 from multiprocessing import Pool, TimeoutError
+from progress.bar import Bar
+import re
+import os
+import subprocess
+import sys
 
 
 newline = r'(?:\n|\r\n?)'
@@ -255,8 +255,8 @@ def collect_standard_benchmarks(names):
             if name in benchmarksNames:
                 testsDict[name] = allBenchmarks[name]
         if len(testsDict) == 0:
-            print(f'No tests found for the given names - {names}')
-            exit(1)
+            logging.error(f'No tests found for the given names - {names}')
+            sys.exit(1)
     else:
        testsDict = allBenchmarks
 
@@ -311,8 +311,25 @@ def add_permutations(standardTest):
     finalDict = {}
     for name, cmd in standardTest.items():
         numDims = len(cmd[2].split(','))
-        parameters = itertools.product(phasesDict, swapOperands, powerset(range(numDims)), 
-                                    powerset(range(numDims)), combineConvGroupsFactor)
+
+        # Redefinitions below are useful for debug purposes
+        # so that one can easily eliminate one or more dimensions
+
+        # Example of debug params
+        # p_list = phasesDict
+        # so_list = ['false']
+        # ed_list =  ['[]']
+        # ocfd_list = ['[]']
+        # ccgf_list = ['1']
+
+        # Release params
+        p_list = phasesDict
+        so_list = swapOperands
+        ed_list =  powerset(range(numDims))
+        ocfd_list = powerset(range(numDims))
+        ccgf_list = combineConvGroupsFactor
+
+        parameters = itertools.product(p_list, so_list, ed_list, ocfd_list, ccgf_list)
 
         for p, so, ed, ocfd, ccgf in parameters:
             edStr = str(ed).replace(', ', '_')
@@ -345,8 +362,8 @@ def run_tests(testsDict, outputPath, timeOut):
     procs = {}
     killedTests = []
 
-    print(f'Starting {numOfBench} benchmarks (Runtime timeout for a one test is {timeOut}secs).')
-    print('Meanwhile go and grab some brew!')
+    logging.info(f'Starting {numOfBench} benchmarks (Runtime timeout for a one test is {timeOut}secs).')
+    logging.fatal('Meanwhile go and grab some brew!')
 
     nproc = int(nproc / 2) # gives same execution results as nproc
     progressBar =  BenchmarksBar('Running', max=numOfBench)
@@ -367,13 +384,12 @@ def run_tests(testsDict, outputPath, timeOut):
     pool.join()
 
     # New line required after progress bar has finished
-    print('\n')
     if killedTests:
-        print('--------------------------------------------------------------------------------')
-        print(f'These tests were removed due to timeout {timeOut}sec:')
+        logging.info('--------------------------------------------------------------------------------')
+        logging.info(f'These tests were removed due to timeout {timeOut}sec:')
         for k in killedTests:
-            print(k)
-        print('--------------------------------------------------------------------------------')
+            logging.info(k)
+        logging.info('--------------------------------------------------------------------------------')
 
 
 # -----------------------------------------------------------------------------
@@ -399,6 +415,7 @@ def capture_exec_cycles(logOutput):
     execEndCapture = re.compile(r'^([a-zA-Z]+\d)/timeAfterCS_(\d+)$')
     execStepsInfo = collections.namedtuple('execStepsInfo', ['location', 'cs', 'cycles'])
 
+    valid = False
     execDB = list(0 for x in range(2 * len(executionFieldsNames)))
 
     csId = 0
@@ -413,10 +430,12 @@ def capture_exec_cycles(logOutput):
         endMatch = execEndCapture.match(execStepsNamed.cs)
         if endMatch and endMatch.group(1) in executionFieldsNames:
             if csId != endMatch.group(2):
-                print(f'Expected timeAfterCS_{csId}. Got timeAfterCS_{endMatch.group(2)}')
+                logging.debug(f'Expected timeAfterCS_{csId}. Got timeAfterCS_{endMatch.group(2)}')
                 raise 'Couldn\'t find timeAfterCS_'
             csId = 0 # reset
             stepName = ''
+            # At least  one valid pair of cycle count found
+            valid = True
             continue
 
         if csId != 0 and execStepsNamed.location in executionStepCycles:
@@ -426,7 +445,7 @@ def capture_exec_cycles(logOutput):
             index = index * len(executionStepCycles) + offset
             execDB[index] += nextStepCycles
 
-    return tuple(execDB)
+    return valid, tuple(execDB)
 
 
 # -----------------------------------------------------------------------------
@@ -458,94 +477,92 @@ def calculate_diffs(plannerData, profileData):
 # Capture information from logs
 # -----------------------------------------------------------------------------
 def capture_logs_info(testsDict, outputPath, removeFiles):
-    transformsLog = os.path.join(outputPath, 'transformsLog.log')
     megaDB = {}
-    with open(transformsLog,  mode='w', encoding='utf-8') as runLog:
-        for name in testsDict.keys():
-            phaseDB = {}
-            fileName = os.path.join(outputPath, name + extension)
-            with open(fileName, mode='r', encoding='utf-8') as f:
-                all_of_it = f.read()
-            if removeFiles is True:
-                os.remove(fileName)
+    for name in testsDict.keys():
+        phaseDB = {}
+        fileName = os.path.join(outputPath, name + extension)
+        with open(fileName, mode='r', encoding='utf-8') as f:
+            all_of_it = f.read()
+        if removeFiles is True:
+            os.remove(fileName)
 
-            plannerInfoMatch = plannerInfo.findall(all_of_it)
-            transformInfoMatch = transformInfo.findall(all_of_it)
-            partitionInfoMatch = partitionInfo.findall(all_of_it)
-            convParamsInfoMatch = convParamsInfo.findall(all_of_it)
-            executionProfileMatch = executionProfile.findall(all_of_it)
+        plannerInfoMatch = plannerInfo.findall(all_of_it)
+        transformInfoMatch = transformInfo.findall(all_of_it)
+        partitionInfoMatch = partitionInfo.findall(all_of_it)
+        convParamsInfoMatch = convParamsInfo.findall(all_of_it)
+        executionProfileMatch = executionProfile.findall(all_of_it)
 
-            # Check if test was successful
-            if all_of_it.find('terminate called') != -1:
-                runLog.write(f'{name} - was terminated. Mission aborted... (No record added into a  file)\n')
-                continue
+        # Check if test was successful
+        if all_of_it.find('terminate called') != -1:
+            logging.debug(f'{name} - was terminated. Mission aborted... (No record added into a  file)')
+            continue
 
-            # Find phase related info and record index to get params and transform infos
-            index = -1
-            phase = name.split('_')[-1]
-            try:
-                for pi in plannerInfoMatch:
-                    index += 1
-                    if pi[5].lower() == phase:
-                        plannerData = plannerInfoFields._make(x for x in pi)
-                        phaseDB[name] = [plannerData]
-                        break
-            except IndexError:
-                runLog.write(f'{name} - No best plan info. Potentionally something bad happened...\n')
-                continue
+        # Find phase related info and record index to get params and transform infos
+        index = -1
+        phase = name.split('_')[-1]
+        try:
+            for pi in plannerInfoMatch:
+                index += 1
+                if pi[5].lower() == phase:
+                    plannerData = plannerInfoFields._make(x for x in pi)
+                    phaseDB[name] = [plannerData]
+                    break
+        except IndexError:
+            logging.debug(f'{name} - No best plan info. Most likely test had a timeout')
+            continue
 
-            # Make sure we got plan info for a       correct phase
-            if index != phasesDict[phase]:
-                runLog.write(f'{name} - No best plan info for a {phase} pass\n')
-                continue
+        # Make sure we got plan info for a       correct phase
+        if index != phasesDict[phase]:
+            logging.debug(f'{name} - No best plan info for a {phase} pass')
+            continue
 
-            try:
-                phaseDB[name].append(transformInfoFileds._make(x for x in transformInfoMatch[index]))
-            except IndexError:
-                runLog.write(f'{name} - No transforms info. Possible incorrect test params...\n')
-                continue
+        try:
+            phaseDB[name].append(transformInfoFileds._make(x for x in transformInfoMatch[index]))
+        except IndexError:
+            logging.debug(f'{name} - No transforms info. Possible incorrect test params...')
+            continue
 
-            try:
-                phaseDB[name].append(partitionInfoFields._make(x for x in partitionInfoMatch[index]))
-            except IndexError:
-                runLog.write(f'{name} - No partition info. Planner failed...\n')
-                continue
+        try:
+            phaseDB[name].append(partitionInfoFields._make(x for x in partitionInfoMatch[index]))
+        except IndexError:
+            logging.debug(f'{name} - No partition info. Planner failed...')
+            continue
 
-            try:
-                phaseDB[name].append(convParamsInfoFields._make(x for x in convParamsInfoMatch[index]))
-            except IndexError:
-                runLog.write(f'{name} - No convolution params info. Planner failed...\n')
-                continue
+        try:
+            phaseDB[name].append(convParamsInfoFields._make(x for x in convParamsInfoMatch[index]))
+        except IndexError:
+            logging.debug(f'{name} - No convolution params info. Planner failed...')
+            continue
 
-            # Get transforms execution cycles from profile output
-            if executionProfileMatch:
-                profileData = capture_exec_cycles(executionProfileMatch)
-                if any(c != 0 for c in profileData):
-                    phaseDB[name].append(profileData)
-                else:
-                    runLog.write(f'{name} - No transfroms markers found in profile output. Make sure you use next option: --convolution-options={{\"insertTransformsCycleCountProgs\":true}}')
-                    continue
+        # Get transforms execution cycles from profile output
+        if executionProfileMatch:
+            valid, profileData = capture_exec_cycles(executionProfileMatch)
+            if valid:
+                phaseDB[name].append(profileData)
             else:
-                runLog.write(f'{name} - No profile info. Planner failed...\n')
+                logging.debug(f'{name} - No transfroms markers found in profile output. Make sure you use next option: --convolution-options={{\"insertTransformsCycleCountProgs\":true}}')
                 continue
+        else:
+            logging.debug(f'{name} - No profile info. Planner failed...')
+            continue
 
-            # Generate planner vs profiles diffs
-            phaseDB[name].append(calculate_diffs(plannerData, profileData))
+        # Generate planner vs profiles diffs
+        phaseDB[name].append(calculate_diffs(plannerData, profileData))
 
-            # Debug printouts
-            if False:
-                print("\n\nExecution:")
-                for p in executionProfileMatch:
-                    print(p)
+        # Debug printouts
+        if False:
+            logging.error("Execution:")
+            for p in executionProfileMatch:
+                logging.error(p)
 
-            if False:
-                print("\n\nPlanner info:")
-                for phase, params in phaseDB.items():
-                    print(f'{phase}:')
-                    for p in params:
-                        print(f'{p}')
+        if False:
+            logging.error("Planner info:")
+            for phase, params in phaseDB.items():
+                logging.error(f'{phase}:')
+                for p in params:
+                    logging.error(f'{p}')
 
-            megaDB.update(phaseDB)
+        megaDB.update(phaseDB)
 
     return megaDB
 
@@ -599,21 +616,68 @@ def dump_results(megaDB, filePath):
                 data += info
             resultsWriter.writerow(data)
 
+
+# -----------------------------------------------------------------------------
+# Generate CI tests
+# -----------------------------------------------------------------------------
+def generate_ci_tests(workspace, test_binary):
+    ci_test_dict = {}
+    for p in phasesDict:
+        test_name = f'ci_test_{p}'
+        ci_test_dict[test_name] = [test_binary,
+                        '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
+                        '--output-channels', '1', '--conv-groups', '64', '--batch-size', '2', '--bias', '0',
+                        '--ignore-data', '--use-unstable-format', '--device-type=Hw', '--profile',
+                        f'--single-phase={p}', '--tiles-per-ipu=2',
+                        '--convolution-options={"insertTransformsCycleCountProgs":true}',
+                        transform_constraints(p, 'true', '[]', '[]', '1')]
+
+        # Remove ci-test logs to guarantee tests run
+        file_to_remove = os.path.join(workspace, test_name + extension)
+        if os.path.exists(file_to_remove):
+            os.remove(file_to_remove)
+
+    return ci_test_dict
+
+
 # -----------------------------------------------------------------------------
 # MAIN
 # -----------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Convolution transforms data collector')
-    parser.add_argument('--test-file', default='', help='Shall contain list of '
-         'single_conv_layers tests. File format shall be next: name:<test_name>, command:<test executable>. One command per line.')
-    parser.add_argument('--test-names', default='', help='Benchmarks names separated by commas')
-    parser.add_argument('--remove-files', default=False, action='store_true', help='If specified - log capture files WILL BE removed after being processed')
+    parser = argparse.ArgumentParser(description='Collect convolution transforms data')
     parser.add_argument('--workspace', default=os.getcwd(), help='Absolute path to where to store tests log files and report. Default path is a current folder')
     parser.add_argument('--results-file', default='transforms.csv', help='Filename to store results. Default: transfroms.csv')
+    parser.add_argument('--remove-files', default=False, action='store_true', help='If specified - log capture files WILL BE removed after being processed')
+    parser.add_argument('--test-names', default='', help='Benchmarks names separated by commas')
     parser.add_argument('--ci-test', default=False, action='store_true', help='Uses predefined test to assest regex parsers')
     parser.add_argument('--execution-timeout', type=int, default=45, help='Defines timeout for a single test execution')
+    parser.add_argument('--test-file', default='', help='Shall contain list of '
+         'single_conv_layers tests. File format shall be next: name:<test_name>, command:<test executable>. One command per line.')
+    parser.add_argument('--test-binary', default='', help='')
     args = parser.parse_args()
+
+
+    # Setup logging so that debug messages will be logged only to a file
+    # Although, for running on CI it's beneficial to stdout everything
+    stdout_logger = logging.StreamHandler()
+    if args.ci_test:
+        stdout_logger.setLevel(logging.DEBUG)
+    else:
+        stdout_logger.setLevel(logging.INFO)
+
+    log_file_path = os.path.join(args.workspace, 'transforms_tool.log')
+    file_logger = logging.FileHandler(log_file_path, mode='w')
+    file_logger.setLevel(logging.DEBUG)
+
+    logging.basicConfig(
+        level=os.environ.get("TRANSFORMS_TOOL_LOG_LEVEL", default='DEBUG'),
+        format="[%(levelname)s] %(asctime)s: %(message)s",
+        handlers=[
+            file_logger,
+            stdout_logger
+        ]
+    )
 
     reportFile = os.path.join(args.workspace, args.results_file)
 
@@ -623,50 +687,43 @@ def main():
 
     # Get
     if args.ci_test is True:
-        print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Starting a test run')
-        ci_test_name = 'ci_test_fwd'
-        testsDict = {ci_test_name :
-                        [os.path.join(os.getcwd(), 'single_conv_layer'),
-                        '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
-                        '--output-channels', '1', '--conv-groups', '128', '--batch-size', '2', '--bias', '0',
-                        '--ignore-data', '--use-unstable-format', '--device-type=Sim', '--profile',
-                        '--single-phase=fwd', '--tiles-per-ipu=2',
-                        '--convolution-options={"insertTransformsCycleCountProgs":true}',
-                        transform_constraints('fwd', 'true', '[]', '[]', '1')]
-                    }
-
-        # Remove ci-test log to guarantee test run
-        file_to_remove = os.path.join(args.workspace, ci_test_name + extension)
-        if os.path.exists(file_to_remove):
-            os.remove(file_to_remove)
+        logging.info('Starting a test run')
+        testsDict = generate_ci_tests(args.workspace, args.test_binary)
 
     elif os.path.exists(args.test_file):
-        print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Collecting benchmarks from a file')
+        logging.info('Collecting benchmarks from a file')
         testsDict = parse_test_file(args.test_file)
 
     else:
-        print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Collecting existent benchmarks')
+        logging.info('Collecting existent benchmarks')
         testsDict = collect_standard_benchmarks(args.test_names)
 
         # Speaks for itself
-        print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Generating plan constarints for the given benchmarks')
+        logging.info('Generating plan constarints for the given benchmarks')
         testsDict = add_permutations(testsDict)
 
     # Run benchmarks
-    print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Processing...')
+    logging.info('Processing...')
     run_tests(testsDict, args.workspace, args.execution_timeout)
 
     # Capture logs
-    print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Capturing results')
+    logging.info('Capturing results')
     megaDB = capture_logs_info(testsDict, args.workspace, args.remove_files)
 
     # Dump results
     if args.ci_test is True:
         # Successful capture shall have - planner, transform0, partition0, conv params, profiles infos and a diff ratio
-        if len(megaDB[ci_test_name]) != 6:
+        if len(megaDB) != len(phasesDict):
+            logging.error(' No valid test result for all phases')
+            logging.error(f'Only following present: {megaDB.keys()}')
             sys.exit(1)
+        else:
+            for k in megaDB.keys():
+                if len(megaDB[k]) != 6:
+                    logging.error(f'Not all test data found for {k} phase')
+                    sys.exit(1)
     else:
-        print(f'{datetime.now().strftime("%d/%m/%Y %H:%M:%S")} - Storing results into a file(s)')
+        logging.info('Storing results into a file(s)')
         dump_results(megaDB, reportFile)
 
 

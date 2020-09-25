@@ -2,6 +2,7 @@
 #ifndef poplin_ConvProgramTree_H
 #define poplin_ConvProgramTree_H
 
+#include <ConvOptions.hpp>
 #include <boost/optional.hpp>
 #include <map>
 #include <poplar/Program.hpp>
@@ -61,7 +62,7 @@ struct ConvProgramTree {
 
   // lower the program tree as has been built up into the sequence passed in.
   void lower(poplar::Graph &graph, poplar::program::Sequence &prog,
-             bool insertTransformsCycleCountProgs = false);
+             bool insertTransformsCycleCountProgs);
 
   // the following shows how the control code structure is after lowering,
   // assuming 2 levels in the hierarchy.
