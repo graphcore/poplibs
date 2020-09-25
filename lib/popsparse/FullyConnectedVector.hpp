@@ -3,6 +3,7 @@
 #define popsparse_FullyConnectedVector_hpp
 
 #include <ostream>
+#include <tuple>
 #include <vector>
 
 namespace popsparse {
@@ -82,6 +83,12 @@ template <typename T> struct Vector {
 
   constexpr std::size_t size() const { return 4; }
 };
+
+template <typename T>
+inline auto operator==(const Vector<T> &a, const Vector<T> &b)
+    -> decltype((void)(T() == T()), bool()) {
+  return std::tie(a.groups, a.x, a.y, a.z) == std::tie(b.groups, b.x, b.y, b.z);
+}
 
 // operator+= if element-wise operator exists
 template <typename T>

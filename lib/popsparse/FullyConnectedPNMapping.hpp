@@ -5,6 +5,7 @@
 #include "FullyConnectedVector.hpp"
 
 #include <ostream>
+#include <vector>
 
 namespace popsparse {
 namespace fullyconnected {
@@ -12,20 +13,25 @@ namespace fullyconnected {
 /** The order in which to map partitions of different dimensions
  *  of a sparse fully connected layer operation to tiles.
  */
-enum class PartitionToPNMappingOrder {
-  /// Partitions are mapped to PNs linearly, where the PN no.
-  /// is given by flattening the 4-dimensional index into a
-  /// shape given by no. of partitions of Groups, X, Y, and Z,
-  /// respectively: {Groups,Y,Z,X}.
-  FwdLinearGYZX,
+class PartitionToPNMapping {
+  Vector<unsigned> linearisationOrder;
+
+public:
+  PartitionToPNMapping() = default;
+  PartitionToPNMapping(const PartitionToPNMapping &other) = default;
+  PartitionToPNMapping(PartitionToPNMapping &&other) = default;
+  PartitionToPNMapping &operator=(const PartitionToPNMapping &other) = default;
+  PartitionToPNMapping &operator=(PartitionToPNMapping &&other) = default;
+
+  PartitionToPNMapping(const Vector<unsigned> &linearisationOrder);
+  unsigned getPNIdForPartition(const Vector<unsigned> &partitions,
+                               const Vector<unsigned> &index) const;
+  const Vector<unsigned> &getLinearisationOrder() const {
+    return linearisationOrder;
+  }
+  friend std::ostream &operator<<(std::ostream &os,
+                                  const PartitionToPNMapping &m);
 };
-
-std::ostream &operator<<(std::ostream &os,
-                         const PartitionToPNMappingOrder &order);
-
-unsigned getPNIdForPartition(const PartitionToPNMappingOrder &order,
-                             const Vector<unsigned> &partitions,
-                             const Vector<unsigned> &index);
 
 } // end namespace fullyconnected
 } // end namespace popsparse

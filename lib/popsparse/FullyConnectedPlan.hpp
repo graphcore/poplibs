@@ -83,6 +83,15 @@ struct Method {
 
 std::ostream &operator<<(std::ostream &os, const Method &m);
 
+struct ExchangeAndMappingPlan {
+  // Method to use for mapping partitions to processor nodes.
+  PartitionToPNMapping fwdMapping;
+  PartitionToPNMapping gradAMapping;
+  PartitionToPNMapping gradWMapping;
+};
+
+std::ostream &operator<<(std::ostream &os, const ExchangeAndMappingPlan &p);
+
 // This structure describes how to implement the passes of a fully
 // connected layer.
 struct Plan {
@@ -91,22 +100,22 @@ struct Plan {
   // sparse-dense matmul are partitioned to spread computational load
   // and memory usage across tiles.
   Vector<unsigned> partition;
-  // This describes how buckets are partitioned for the initial
-  // exchange and compute step. TODO: This might be better off
-  // represented as a broadcast factor or similar (i.e.
-  // partition / initialDistributionBucketPartition) as that's really
-  // what we're doing. It would also play better with multiple levels of
-  // hierarchy I believe (needs thinking through).
-  Vector<unsigned> initialDistributionBucketPartition;
-  // Method to use for mapping partitions to processor nodes.
-  PartitionToPNMappingOrder mappingOrder;
+
+  // This gives the number of partitions handled in the initial distribution
+  // phase. This must be an exact divisor of partitions.
+  Vector<unsigned> initialDistributionPartitions;
+  // This gives the number of partitions handled in the propagation
+  // phase. This must be an exact divisor of partition.
+  Vector<unsigned> gradWPropagationPartitions;
+  // Determines tile layout and patterns/methods used to exchange data
+  // in different stages of the operation.
+  ExchangeAndMappingPlan exchangePlan;
   // Number of non-zero elements per bucket.
   unsigned nzElemsPerBucket;
   // Number of meta-info elements per bucket (Forward pass).
   unsigned fwdMetaInfoElemsPerBucket;
   // Number of meta-info elements per bucket (GradA pass).
   unsigned gradAMetaInfoElemsPerBucket;
-
   // returns true if the same bucket is shared between passes
   bool sharedBuckets() const {
     return method.gradA == OnTileMethod::Transpose ||

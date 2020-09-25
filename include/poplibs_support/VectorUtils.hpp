@@ -7,11 +7,23 @@
 #include <numeric>
 #include <vector>
 
-template <class T> T product(const std::vector<T> &v) {
+template <class T> inline T product(const std::vector<T> &v) {
   return std::accumulate(v.begin(), v.end(), T(1), std::multiplies<T>());
 }
-template <class T> T sum(const std::vector<T> &v) {
+template <class T> inline T sum(const std::vector<T> &v) {
   return std::accumulate(v.begin(), v.end(), T(0), std::plus<T>());
+}
+
+template <class T>
+inline std::vector<T> inversePermutation(const std::vector<T> &v) {
+  static_assert(
+      std::is_unsigned<T>(),
+      "Data type must be unsigned integer as data represents indices");
+  std::vector<T> result(v.size());
+  for (std::size_t i = 0; i < v.size(); ++i) {
+    result[v[i]] = i;
+  }
+  return result;
 }
 
 template <class To, class From>

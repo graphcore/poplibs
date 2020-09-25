@@ -50,10 +50,14 @@ namespace {
 struct SinglePassPlan {
   fullyconnected::Vector<unsigned> grouping;
   fullyconnected::Vector<unsigned> partition;
-  fullyconnected::Vector<unsigned> initialDistributionBucketPartition;
+  // What portion of the problem is covered by the initial distribution phase.
+  fullyconnected::Vector<unsigned> initialDistributionPartitions;
+  // What portion of the problem is covered by each step in the
+  // propagation phase.
+  fullyconnected::Vector<unsigned> propagationPartitions;
   unsigned nzElemsPerBucket;
   unsigned metaInfoElemsPerBucket;
-  fullyconnected::PartitionToPNMappingOrder mappingOrder;
+  fullyconnected::PartitionToPNMapping mapping;
   fullyconnected::OnTileMethod method;
   // Some things need mapping back to forward pass such as tile mapping
   // of operations and sub-group id calculation.
@@ -72,58 +76,6 @@ static std::vector<T> shuffleVector(const std::vector<T> &v,
     result.emplace_back(v[i]);
   }
   return result;
-}
-
-template <typename T>
-static std::vector<T> inversePermutation(const std::vector<T> &shuffle) {
-  std::vector<T> result(shuffle.size());
-  for (std::size_t i = 0; i < shuffle.size(); ++i) {
-    result[shuffle[i]] = i;
-  }
-  return result;
-}
-
-// Starting offset for propagation phase, result given in terms of
-// forward pass, and is the same for all passes hence 'canonical'
-static std::vector<unsigned>
-getPropagationStartingOffsetCanonical(const SinglePassPlan &plan) {
-  const auto partition =
-      shuffleVector(plan.partition.asStdVector(), plan.dimShuffleToFwd);
-  auto indices =
-      shuffleVector((plan.partition / plan.initialDistributionBucketPartition -
-                     Vector<unsigned>(1))
-                        .asStdVector(),
-                    plan.dimShuffleToFwd);
-
-  // A check that our starting index does not 'slice' outer dimensions
-  // leaving parts of the volume uncovered or covered multiple times by
-  // our pattern of iteration.
-#ifndef NDEBUG
-  bool innerDimsAreCompletelyCovered = true;
-  for (int i = indices.size() - 1; i > 0; --i) {
-    assert(indices[i] == 0 || innerDimsAreCompletelyCovered);
-    innerDimsAreCompletelyCovered &= indices[i] == partition[i] - 1;
-  }
-#endif
-
-  indices.back()++;
-  for (int i = indices.size() - 1; i > 0; --i) {
-    if (indices[i] == partition[i]) {
-      ++indices[i - 1];
-      indices[i] = 0;
-    }
-  }
-  return indices;
-}
-
-// As above but the starting offset is given in terms of the pass
-// in question.
-static Vector<unsigned>
-getPropagationStartingOffset(const SinglePassPlan &plan) {
-  const auto fwdOffset = getPropagationStartingOffsetCanonical(plan);
-  const auto indices =
-      shuffleVector(fwdOffset, inversePermutation(plan.dimShuffleToFwd));
-  return indices;
 }
 
 // Unflatten a flattened index, but allowing indices that extend beyond
@@ -156,6 +108,66 @@ static std::size_t flattenIndexBoundless(const std::vector<T> &shape,
   return index;
 }
 
+// Check if the given volume in the given space would be contiguous
+// when the space is flattened to 1 dimension.
+//
+// e.g. given a multi-dimensional space with bound {8, 5, 6}:
+// When the space is flattened to 1 dimension (with size {240}, do the
+// following volumes map to a contiguous region of 1-dimensional space?
+//
+// {4, 5, 6} - yes, this is maps contiguously to 1-dimensional space with
+//             size {120}
+// {4, 1, 6} - no, this maps into 4 noncontiguous volumes in 1-dimensional
+//             space with size {6} each.
+// {8, 5, 1} - no, this maps into 40 noncontiguous volumes in 1-dimensional
+//             space with size {1} each.
+//
+[[maybe_unused]] static bool
+volumeIsContiguousInFlattenedSpace(const std::vector<unsigned> &space,
+                                   const std::vector<unsigned> &shape) {
+  assert(space.size() == shape.size());
+  int dim = shape.size() - 1;
+  while (dim >= 0 && shape[dim] == space[dim])
+    dim--;
+  const auto notEqualOne = [](const auto n) { return n != 1; };
+  if (dim > 0 &&
+      std::any_of(shape.begin(), shape.begin() + dim - 1, notEqualOne)) {
+    return false;
+  }
+  return true;
+}
+
+// Starting offset for propagation phase, result given in terms of
+// forward pass, and is the same for all passes hence 'canonical'
+static std::vector<unsigned>
+getPropagationStartingOffsetCanonical(const SinglePassPlan &plan) {
+  const auto partition =
+      shuffleVector(plan.partition.asStdVector(), plan.dimShuffleToFwd);
+  auto initialDistributionPartitions = shuffleVector(
+      plan.initialDistributionPartitions.asStdVector(), plan.dimShuffleToFwd);
+  assert(volumeIsContiguousInFlattenedSpace(partition,
+                                            initialDistributionPartitions));
+  auto indexFlat = product(initialDistributionPartitions);
+  auto indices = unflattenIndexBoundless(partition, indexFlat);
+  // We ignore groups so just get rid of them for now.
+  indices.at(1) +=
+      indices.front() * std::accumulate(std::next(partition.begin()),
+                                        partition.end(), unsigned(1),
+                                        std::multiplies<unsigned>());
+  indices.front() = 0;
+  return indices;
+}
+
+// As above but the starting offset is given in terms of the pass
+// in question.
+static Vector<unsigned>
+getPropagationStartingOffset(const SinglePassPlan &plan) {
+  const auto fwdOffset = getPropagationStartingOffsetCanonical(plan);
+  const auto indices =
+      shuffleVector(fwdOffset, inversePermutation(plan.dimShuffleToFwd));
+  return indices;
+}
+
 // Get all the information needed to iterate in the control program.
 // This determines the optimisation whereby we may not need to
 // iterate all dims, as well as the order of iteration and starting
@@ -168,40 +180,19 @@ getPropagationIteratedDimsAndStartingIndices(const SinglePassPlan &plan) {
   // This is always ordered the same as the forward pass as this is
   // the way we allocate information to buckets hence should give the
   // fewest total iterations in general.
-  std::vector<std::size_t> dimsToIterate, dimsToIterateFwd;
+  std::vector<std::size_t> dimsToIterate;
 
   // Multi-dimensional bounds of the loops we iterate.
-  std::vector<unsigned> loopBounds;
   for (std::size_t dimIdx = 0; dimIdx < plan.partition.size(); ++dimIdx) {
     const auto dim = plan.dimShuffleToFwd.at(dimIdx);
     const auto partition = plan.partition.asStdVector().at(dim);
-    if (partition > 1) {
+    const auto increment = plan.propagationPartitions.asStdVector().at(dim);
+    if (partition > increment) {
       // We assume 'groups' does not have a partition for now.
       assert(dim >= 1);
       assert(dimIdx >= 1);
       dimsToIterate.emplace_back(dim - 1);
-      dimsToIterateFwd.emplace_back(dimIdx - 1);
-      loopBounds.emplace_back(partition);
     }
-  }
-
-  // Flatten the index into the shape given by the partitions
-  // and then unflatten into the shape given by the partitions
-  // of dimensions we need to iterate.
-  const auto partitionFwd =
-      shuffleVector(plan.partition.asStdVector(), plan.dimShuffleToFwd);
-  const auto partitionIndexFlat = flattenIndexBoundless(partitionFwd, indices);
-  const auto usedIndices =
-      unflattenIndexBoundless(loopBounds, partitionIndexFlat);
-
-  // We have indices for all used loop bounds, ordered for the forward pass.
-  // We should return a full set of indices ordered for this pass.
-  indices.clear();
-  indices.resize(partitionFwd.size());
-  assert(usedIndices.size() == dimsToIterate.size());
-  assert(usedIndices.size() == dimsToIterateFwd.size());
-  for (std::size_t i = 0; i < usedIndices.size(); ++i) {
-    indices[dimsToIterateFwd[i] + 1] = usedIndices[i];
   }
   indices = shuffleVector(indices, inversePermutation(plan.dimShuffleToFwd));
   // No 'groups' dimension
@@ -257,19 +248,17 @@ public:
   std::vector<Sequence> pre;
   std::vector<Sequence> distributionExchange;
   Sequence preDistribution;
-  ComputeSet distributionCS;
-  Sequence firstPropagationExchange;
-  // [direction][buffer index]
+  Sequence distributionCompute;
+  Sequence prePropagation;
+  // [direction]
   std::array<Program, numDirections> propagationExchanges;
-  Program propagationCompute;
+  Sequence propagationCompute;
   std::vector<std::vector<ComputeSet>> reductionCSs;
   std::vector<Sequence> post;
 
   ProgBuilder(Graph &graph, const std::vector<unsigned> &hierarchy,
               const std::string &debugPrefix)
       : pre(hierarchy.size() + 1), distributionExchange(hierarchy.size() + 1),
-        distributionCS(graph.addComputeSet(
-            debugPrefix + "/ComputePartialsInitialDistribution")),
         reductionCSs(hierarchy.size()), post(hierarchy.size() + 1) {}
 
   void addToSequence(Graph &graph, Sequence &seq,
@@ -281,10 +270,18 @@ public:
       seq.add(distributionExchange[level]);
     }
     seq.add(preDistribution);
-    seq.add(Execute(distributionCS));
-    const bool needDynamic =
-        plan.partition.x * plan.partition.y * plan.partition.z > 1;
-    if (needDynamic && overflowInfo) {
+    seq.add(distributionCompute);
+
+    std::vector<std::size_t> dimsToIterate;
+    std::vector<unsigned> startingIndices;
+    std::tie(dimsToIterate, startingIndices) =
+        getPropagationIteratedDimsAndStartingIndices(plan);
+    auto staticLoopBounds = plan.partition.asStdVector();
+    staticLoopBounds.erase(staticLoopBounds.begin());
+    const bool needPropagationPhase =
+        flattenIndexBoundless(staticLoopBounds, startingIndices) <
+        product(staticLoopBounds);
+    if (needPropagationPhase && overflowInfo) {
       std::vector<Sequence> progs;
       progs.emplace_back();
 
@@ -296,12 +293,7 @@ public:
       const auto outerLoopIterationsToSkip =
           getOuterLoopIterationsToSkip(overflowInfo.get());
 
-      progs.back().add(firstPropagationExchange);
-
-      std::vector<std::size_t> dimsToIterate;
-      std::vector<unsigned> startingIndices;
-      std::tie(dimsToIterate, startingIndices) =
-          getPropagationIteratedDimsAndStartingIndices(plan);
+      progs.back().add(prePropagation);
 
       const auto indices = graph.clone(endIndices, debugPrefix + "/indices");
       const auto zero = graph.addConstant(UNSIGNED_INT, {1}, 0);
@@ -370,7 +362,12 @@ public:
               Switch(doIteration, {{0, Sequence()}}, std::move(prog)));
         }
         progs.back().add(propagationExchanges.at(*dimIt));
-        popops::addInPlace(graph, indices[*dimIt], one, progs.back(),
+
+        Tensor increment = graph.addConstant(
+            UNSIGNED_INT, {1},
+            plan.propagationPartitions.asStdVector().at(*dimIt));
+        graph.setTileMapping(increment, 0);
+        popops::addInPlace(graph, indices[*dimIt], increment, progs.back(),
                            debugPrefix + "/increment" + dimNames[*dimIt] +
                                "Index");
         auto prog = std::move(progs.back());
@@ -412,9 +409,9 @@ static SinglePassPlan getFwdPlan(const Plan &plan) {
   SinglePassPlan p;
   p.grouping = plan.method.grouping;
   p.partition = plan.partition;
-  p.initialDistributionBucketPartition =
-      plan.initialDistributionBucketPartition;
-  p.mappingOrder = plan.mappingOrder;
+  p.initialDistributionPartitions = plan.initialDistributionPartitions;
+  p.propagationPartitions = Vector<unsigned>(1);
+  p.mapping = plan.exchangePlan.fwdMapping;
   p.nzElemsPerBucket = plan.nzElemsPerBucket;
   p.metaInfoElemsPerBucket = plan.fwdMetaInfoElemsPerBucket;
   p.method = plan.method.fwd;
@@ -426,8 +423,10 @@ static SinglePassPlan getGradAPlan(const Plan &plan) {
   SinglePassPlan p = getFwdPlan(plan);
   std::swap(p.grouping.x, p.grouping.y);
   std::swap(p.partition.x, p.partition.y);
-  std::swap(p.initialDistributionBucketPartition.x,
-            p.initialDistributionBucketPartition.y);
+  std::swap(p.initialDistributionPartitions.x,
+            p.initialDistributionPartitions.y);
+  std::swap(p.propagationPartitions.x, p.propagationPartitions.y);
+  p.mapping = plan.exchangePlan.gradAMapping;
   p.metaInfoElemsPerBucket = plan.gradAMetaInfoElemsPerBucket;
   p.method = plan.method.gradA;
   p.dimShuffleToFwd = {0, 2, 1, 3};
@@ -436,12 +435,13 @@ static SinglePassPlan getGradAPlan(const Plan &plan) {
 
 static SinglePassPlan getGradWPlan(const Plan &plan) {
   SinglePassPlan p = getFwdPlan(plan);
-  // GradW doesn't use this for now.
-  p.initialDistributionBucketPartition = p.partition;
   std::swap(p.grouping.y, p.grouping.z);
   std::swap(p.partition.y, p.partition.z);
-  std::swap(p.initialDistributionBucketPartition.y,
-            p.initialDistributionBucketPartition.z);
+  std::swap(p.initialDistributionPartitions.y,
+            p.initialDistributionPartitions.z);
+  p.propagationPartitions = plan.gradWPropagationPartitions;
+  std::swap(p.propagationPartitions.y, p.propagationPartitions.z);
+  p.mapping = plan.exchangePlan.gradWMapping;
   p.metaInfoElemsPerBucket = plan.fwdMetaInfoElemsPerBucket;
   p.method = plan.method.gradW;
   p.dimShuffleToFwd = {0, 1, 3, 2};
@@ -538,14 +538,8 @@ static unsigned getPartitionTile(const std::vector<unsigned> &hierarchy,
 
   unsigned tile = 0;
   for (unsigned level = 0; level < hierarchy.size(); ++level) {
-    const auto &levelIndex = indices[level];
-    const auto &levelPartition = plan.partition;
-    const auto &levelIndexFwd =
-        shuffleVector(levelIndex.asStdVector(), plan.dimShuffleToFwd);
-    const auto &levelPartitionFwd =
-        shuffleVector(levelPartition.asStdVector(), plan.dimShuffleToFwd);
-    const auto levelPNId = getPNIdForPartition(
-        plan.mappingOrder, levelPartitionFwd, levelIndexFwd);
+    const auto levelPNId =
+        plan.mapping.getPNIdForPartition(plan.partition, indices[level]);
     tile = tile * hierarchy[level] + levelPNId;
   }
   return tile;
@@ -649,9 +643,9 @@ static void copyPartitions(Graph &graph, Sequence &prog,
   for (std::size_t i = 0; i < src.size(); ++i) {
     auto s = src[i];
     auto d = dst[i];
-    // TODO: For GradW the source can have a smaller shape
+    // For GradW the source can have a smaller shape
     // in its outer-most non-singular dimension. In this case
-    // we can allow this and simply trim the destination
+    // we allow this and simply trim the destination
     // tensor to match the source.
     if (s.shape() != d.shape()) {
       std::vector<std::ptrdiff_t> paddingLower(s.rank(), 0);
@@ -820,7 +814,10 @@ static void getNextLevelDistributionBuckets(
     Graph &graph, const SinglePassPlan &plan, const Options &options,
     const Tensor &buckets, std::vector<NextLevelBuckets> &nextLevelBuckets) {
   const auto &partition = plan.partition;
-  const auto &bucketPartition = plan.initialDistributionBucketPartition;
+  assert(product(plan.initialDistributionPartitions.asStdVector()) ==
+         plan.initialDistributionPartitions.z);
+  auto bucketPartition = plan.partition;
+  bucketPartition.z /= plan.initialDistributionPartitions.z;
   const auto totalPartitions = product(partition.asStdVector());
   nextLevelBuckets.resize(totalPartitions);
   const auto &bucketsByPartition =
@@ -1273,10 +1270,8 @@ static void createPropagationBuffers(
 }
 
 static void getPropagationExchangeSources(
-    Graph &graph, const Vector<unsigned> &shape,
-    const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Options &options, const std::vector<unsigned> &hierarchy,
-    const unsigned level, const Vector<unsigned> &offset, const Tensor &buckets,
+    Graph &graph, const SinglePassPlan &plan, const Options &options,
+    const Vector<unsigned> &offset, const Tensor &buckets,
     const Tensor &prevBuckets, Tensor &nextLevelSources,
     const std::string &debugPrefix) {
   nextLevelSources = prevBuckets;
@@ -1284,37 +1279,61 @@ static void getPropagationExchangeSources(
 
 template <typename NextLevelBuckets, typename NextLevelExchangeSources>
 static void getPropagationExchangeSources(
-    Graph &graph, const Vector<unsigned> &shape,
-    const std::vector<Vector<unsigned>> &indices, const SinglePassPlan &plan,
-    const Options &options, const std::vector<unsigned> &hierarchy,
-    const unsigned level, const Vector<unsigned> &offset,
+    Graph &graph, const SinglePassPlan &plan, const Options &options,
+    const Vector<unsigned> &offset,
     const std::vector<NextLevelBuckets> &buckets,
     const std::vector<NextLevelBuckets> &prevBuckets,
     std::vector<NextLevelExchangeSources> &nextLevelSources,
     const std::string &debugPrefix) {
   nextLevelSources.resize(product(plan.partition.asStdVector()));
-  iteratePartitions(
-      shape, plan.partition, plan.grouping,
-      [&](const auto &i, const auto &begin, const auto &end) {
-        const auto sShape = end - begin;
-        auto sIndices = indices;
-        sIndices.emplace_back(i);
+  iteratePartitions(plan.partition, [&](const auto &i) {
+    // We find and pass down 'previous buckets/buffers' for the sources of
+    // exchanges at each level though currently the only level that handles
+    // this is the tile level.
+    const auto prevI = (i + (plan.partition - offset)) % plan.partition;
+    // Pick out current (i) and previous (prevI) buckets that will get
+    // passed on to the next level.
+    const auto idxFlat =
+        flattenIndex(plan.partition.asStdVector(), i.asStdVector());
+    const auto prevIdxFlat =
+        flattenIndex(plan.partition.asStdVector(), prevI.asStdVector());
+    getPropagationExchangeSources(graph, plan, options, offset,
+                                  buckets[idxFlat], buckets[prevIdxFlat],
+                                  nextLevelSources[idxFlat], debugPrefix);
+  });
+}
 
-        // We find and pass down 'previous buckets/buffers' for the sources of
-        // exchanges at each level though currently the only level that handles
-        // this is the tile level.
-        const auto prevI = (i + (plan.partition - offset)) % plan.partition;
-        // Pick out current (i) and previous (prevI) buckets that will get
-        // passed on to the next level.
-        const auto idxFlat =
-            flattenIndex(plan.partition.asStdVector(), i.asStdVector());
-        const auto prevIdxFlat =
-            flattenIndex(plan.partition.asStdVector(), prevI.asStdVector());
-        getPropagationExchangeSources(graph, sShape, sIndices, plan, options,
-                                      hierarchy, level + 1, offset,
-                                      buckets[idxFlat], buckets[prevIdxFlat],
-                                      nextLevelSources[idxFlat], debugPrefix);
-      });
+static void getBroadcastPropagationExchangeSources(
+    const SinglePassPlan &plan, const Options &options,
+    const Vector<unsigned> &broadcastSrcIdx,
+    const Vector<unsigned> &broadcastFactor, const Tensor &source,
+    Tensor &broadcastSource) {
+  broadcastSource = source;
+}
+
+template <typename NextLevelSources>
+static void getBroadcastPropagationExchangeSources(
+    const SinglePassPlan &plan, const Options &options,
+    const Vector<unsigned> &broadcastSrcIdx,
+    const Vector<unsigned> &broadcastFactor,
+    const std::vector<NextLevelSources> &sources,
+    std::vector<NextLevelSources> &broadcastSources) {
+  broadcastSources.resize(product(plan.partition.asStdVector()));
+#ifndef NDEBUG
+  auto lessThanPred = [](const auto &a, const auto &b) { return a < b; };
+#endif
+  assert(product(broadcastSrcIdx.binaryOp(broadcastFactor, lessThanPred)
+                     .asStdVector()) != 0);
+  assert(plan.partition % broadcastFactor == Vector<unsigned>(0));
+  iteratePartitions(plan.partition, [&](const auto &i) {
+    const auto srcI = (i / broadcastFactor) * broadcastFactor + broadcastSrcIdx;
+    const auto srcIdxFlat =
+        flattenIndex(plan.partition.asStdVector(), srcI.asStdVector());
+    const auto idxFlat =
+        flattenIndex(plan.partition.asStdVector(), i.asStdVector());
+    getBroadcastPropagationExchangeSources(
+        plan, options, {}, {}, sources[srcIdxFlat], broadcastSources[idxFlat]);
+  });
 }
 
 static unsigned int getTotalMetaInfoElemsPerBuckets(const Plan &plan) {
@@ -1341,23 +1360,22 @@ static void addPropagationExchanges(
     const Tensor &bufferIdx, const std::string &debugPrefix) {
   MetaInfoAndValues<std::vector<Tensor>> homeSources;
   const auto homeOffset = getPropagationStartingOffset(plan);
-  getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy, 0,
-                                homeOffset, buckets.metaInfo, {},
-                                homeSources.metaInfo, debugPrefix);
-  getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy, 0,
-                                homeOffset, buckets.values, {},
-                                homeSources.values, debugPrefix);
+  getPropagationExchangeSources(graph, plan, options, homeOffset,
+                                buckets.metaInfo, {}, homeSources.metaInfo,
+                                debugPrefix);
+  getPropagationExchangeSources(graph, plan, options, homeOffset,
+                                buckets.values, {}, homeSources.values,
+                                debugPrefix);
   // We also set buffer index before exchanging.
   constexpr std::size_t initialBufferIdx = 0;
   const auto bufferIdxInitialVal =
       graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx);
   graph.setTileMapping(bufferIdxInitialVal, 0);
-  progBuilder.firstPropagationExchange.add(
-      Copy(bufferIdxInitialVal, bufferIdx));
-  copyPartitions(graph, progBuilder.firstPropagationExchange,
-                 homeSources.metaInfo, buffers.metaInfo.at(initialBufferIdx));
-  copyPartitions(graph, progBuilder.firstPropagationExchange,
-                 homeSources.values, buffers.values.at(initialBufferIdx));
+  progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
+  copyPartitions(graph, progBuilder.prePropagation, homeSources.metaInfo,
+                 buffers.metaInfo.at(initialBufferIdx));
+  copyPartitions(graph, progBuilder.prePropagation, homeSources.values,
+                 buffers.values.at(initialBufferIdx));
   const auto getDir = [](std::size_t dirIdx) -> Vector<unsigned> {
     std::vector<unsigned> v(4, 0);
     v[1 + dirIdx] = 1;
@@ -1370,13 +1388,12 @@ static void addPropagationExchanges(
     for (std::size_t destBuffer = 0; destBuffer < numBuffers; ++destBuffer) {
       MetaInfoAndValues<std::vector<Tensor>> bufferSources;
       const auto sourceBuffer = (destBuffer + (numBuffers - 1)) % numBuffers;
-      getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy,
-                                    0, offset,
+      getPropagationExchangeSources(graph, plan, options, offset,
                                     buffers.metaInfo.at(sourceBuffer), {},
                                     bufferSources.metaInfo, debugPrefix);
-      getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy,
-                                    0, offset, buffers.values.at(sourceBuffer),
-                                    {}, bufferSources.values, debugPrefix);
+      getPropagationExchangeSources(graph, plan, options, offset,
+                                    buffers.values.at(sourceBuffer), {},
+                                    bufferSources.values, debugPrefix);
       copyPartitions(graph, exchangeProgs.at(destBuffer),
                      bufferSources.metaInfo, buffers.metaInfo.at(destBuffer));
       copyPartitions(graph, exchangeProgs.at(destBuffer), bufferSources.values,
@@ -1411,29 +1428,29 @@ static void addPropagationExchangesGradW(
   const auto bufferIdxInitialVal =
       graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx);
   graph.setTileMapping(bufferIdxInitialVal, 0);
-  progBuilder.firstPropagationExchange.add(
-      Copy(bufferIdxInitialVal, bufferIdx));
-  getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy, 0,
-                                homeOffset, inputs, {}, inputHomeSources,
-                                debugPrefix);
-  copyPartitions(graph, progBuilder.firstPropagationExchange, inputHomeSources,
+  progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
+  getPropagationExchangeSources(graph, plan, options, homeOffset, inputs, {},
+                                inputHomeSources, debugPrefix);
+  copyPartitions(graph, progBuilder.prePropagation, inputHomeSources,
                  inputBuffers.at(initialBufferIdx), true);
-  getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy, 0,
-                                homeOffset, weights, {}, weightHomeSources,
-                                debugPrefix);
-  copyPartitions(graph, progBuilder.firstPropagationExchange, weightHomeSources,
+  getPropagationExchangeSources(graph, plan, options, homeOffset, weights, {},
+                                weightHomeSources, debugPrefix);
+  copyPartitions(graph, progBuilder.prePropagation, weightHomeSources,
                  weightBuffers.at(initialBufferIdx), true);
-  getPropagationExchangeSources(graph, shape, {}, plan, options, hierarchy, 0,
-                                homeOffset, subGroupIds, {},
-                                subGroupIdHomeSources, debugPrefix);
-  copyPartitions(graph, progBuilder.firstPropagationExchange,
-                 subGroupIdHomeSources, subGroupIdBuffers.at(initialBufferIdx));
+  getPropagationExchangeSources(graph, plan, options, homeOffset, subGroupIds,
+                                {}, subGroupIdHomeSources, debugPrefix);
+  copyPartitions(graph, progBuilder.prePropagation, subGroupIdHomeSources,
+                 subGroupIdBuffers.at(initialBufferIdx));
 
   // This is opposite direction to Fwd/GradA
+  auto offsets = plan.propagationPartitions.asStdVector();
+  // No groups dimension here.
+  offsets.erase(offsets.begin());
   const auto getDir = [&](std::size_t dirIdx) -> Vector<unsigned> {
     std::vector<unsigned> v(4, 0);
     const auto partition = plan.partition.asStdVector();
-    v[1 + dirIdx] = (partition[1 + dirIdx] - 1) % partition[1 + dirIdx];
+    v[1 + dirIdx] =
+        (partition[1 + dirIdx] - offsets[dirIdx]) % partition[1 + dirIdx];
     return v;
   };
   // We have 3 directions, X, Y, and Z, in which to propagate.
@@ -1461,24 +1478,24 @@ static void addPropagationExchangesGradW(
           // not need to move it.
           if (moveInput) {
             std::vector<Tensor> sources;
-            getPropagationExchangeSources(
-                graph, shape, {}, plan, options, hierarchy, 0, offset,
-                inputBuffers.at(inputSourceBuffer), {}, sources, debugPrefix);
+            getPropagationExchangeSources(graph, plan, options, offset,
+                                          inputBuffers.at(inputSourceBuffer),
+                                          {}, sources, debugPrefix);
             copyPartitions(graph, exchangeProg, sources,
                            inputBuffers.at(inputDestBuffer));
           }
           if (moveWeights) {
             std::vector<Tensor> sources;
-            getPropagationExchangeSources(
-                graph, shape, {}, plan, options, hierarchy, 0, offset,
-                weightBuffers.at(weightSourceBuffer), {}, sources, debugPrefix);
+            getPropagationExchangeSources(graph, plan, options, offset,
+                                          weightBuffers.at(weightSourceBuffer),
+                                          {}, sources, debugPrefix);
             copyPartitions(graph, exchangeProg, sources,
                            weightBuffers.at(weightDestBuffer));
           }
           if (moveSubGroupIds) {
             std::vector<Tensor> sources;
             getPropagationExchangeSources(
-                graph, shape, {}, plan, options, hierarchy, 0, offset,
+                graph, plan, options, offset,
                 subGroupIdBuffers.at(subGroupIdSourceBuffer), {}, sources,
                 debugPrefix);
             copyPartitions(graph, exchangeProg, sources,
@@ -1602,11 +1619,13 @@ static Tensor fullyConnectedImpl(
   }
 
   writeUndefPartitions(progBuilder.preDistribution, partials);
-  compute(graph, progBuilder.distributionCS, shape, {}, plan, options,
-          hierarchy, 0, true, nextLevelInputs,
-          nextLevelDistributionBuckets.values,
+  const auto distributionCS =
+      graph.addComputeSet(debugPrefix + "/ComputePartialsInitialDistribution");
+  compute(graph, distributionCS, shape, {}, plan, options, hierarchy, 0, true,
+          nextLevelInputs, nextLevelDistributionBuckets.values,
           nextLevelDistributionBuckets.metaInfo, partials, subGroupIds,
           debugPrefix);
+  progBuilder.distributionCompute.add(Execute(distributionCS));
 
   // We need a set of buffers on each tile for use during dynamic exchange
   // and compute steps (propagation phase).
@@ -1625,8 +1644,8 @@ static Tensor fullyConnectedImpl(
                           propagationBuffers.values[buffer]);
     // WriteUndef buffers as they are written to/read from during dynamic
     // control flow
-    progBuilder.firstPropagationExchange.add(WriteUndef(metaInfoBuffer));
-    progBuilder.firstPropagationExchange.add(WriteUndef(nzValueBuffer));
+    progBuilder.prePropagation.add(WriteUndef(metaInfoBuffer));
+    progBuilder.prePropagation.add(WriteUndef(nzValueBuffer));
   }
   addPropagationExchanges(graph, progBuilder, shape, plan, options, hierarchy,
                           nextLevelPropagationBuckets, propagationBuffers,
@@ -1650,6 +1669,186 @@ static Tensor fullyConnectedImpl(
                      hierarchy, 0, partials, false, debugPrefix);
 
   return unfactorDims(output, 3);
+}
+
+static void computeInitialDistributionGradW(
+    Graph &graph, Sequence &prog, const Vector<unsigned> &shape,
+    const SinglePassPlan &plan, const Options &options,
+    const std::vector<unsigned> &hierarchy,
+    const std::vector<Tensor> &nextLevelInputs,
+    const std::vector<Tensor> &nextLevelWeights,
+    const std::vector<Tensor> &nextLevelMetaInfoBuckets,
+    const std::vector<Tensor> &partials, const std::vector<Tensor> &subGroupIds,
+    const std::vector<Tensor> &inputBuffer,
+    const std::vector<Tensor> &weightBuffer,
+    const std::vector<Tensor> &subGroupIdBuffer,
+    const std::string &debugPrefix) {
+  // For GradW we don't have a specific vertex that can handle multiple
+  // partitions at a time. Instead we use a special exchange and compute
+  // pattern that broadcasts each partition we need to handle to all partitions
+  // which at least allows us to take advantage of 64-bit exchange where
+  // possible.
+  if (product(plan.initialDistributionPartitions.asStdVector()) == 1) {
+    const auto cs = graph.addComputeSet(debugPrefix +
+                                        "/ComputePartialsInitialDistribution");
+    compute(graph, cs, shape, {}, plan, options, hierarchy, 0, true,
+            nextLevelInputs, nextLevelWeights, nextLevelMetaInfoBuckets,
+            partials, subGroupIds, debugPrefix);
+    prog.add(Execute(cs));
+  } else {
+    const auto broadcastFactor = plan.initialDistributionPartitions;
+    bool moveSubGroupIds = broadcastFactor.x * broadcastFactor.z > 1;
+    bool moveInputs = broadcastFactor.y * broadcastFactor.z > 1;
+    bool moveWeights = broadcastFactor.x * broadcastFactor.y > 1;
+    std::array<ComputeSet, 2> computeCSs;
+    for (bool zeroPartials : {false, true}) {
+      computeCSs[zeroPartials] = graph.addComputeSet(
+          debugPrefix + "/ComputePartialsInitialDistribution" +
+          (zeroPartials ? "ZeroPartials" : ""));
+      compute(graph, computeCSs[zeroPartials], shape, {}, plan, options,
+              hierarchy, 0, zeroPartials,
+              moveInputs ? inputBuffer : nextLevelInputs,
+              moveWeights ? weightBuffer : nextLevelWeights,
+              nextLevelMetaInfoBuckets, partials,
+              moveSubGroupIds ? subGroupIdBuffer : subGroupIds, debugPrefix);
+    }
+    Sequence computeProg;
+    bool zeroPartials = true;
+    iteratePartitions(broadcastFactor, [&](const auto &i) {
+      if (moveInputs) {
+        std::vector<Tensor> broadcastInputSource;
+        getBroadcastPropagationExchangeSources(plan, options, i,
+                                               broadcastFactor, nextLevelInputs,
+                                               broadcastInputSource);
+        copyPartitions(graph, computeProg, broadcastInputSource, inputBuffer,
+                       true);
+      }
+      if (moveWeights) {
+        std::vector<Tensor> broadcastWeightSource;
+        getBroadcastPropagationExchangeSources(
+            plan, options, i, broadcastFactor, nextLevelWeights,
+            broadcastWeightSource);
+        copyPartitions(graph, computeProg, broadcastWeightSource, weightBuffer,
+                       true);
+      }
+      if (moveSubGroupIds) {
+        std::vector<Tensor> broadcastSubGroupIdSource;
+        getBroadcastPropagationExchangeSources(plan, options, i,
+                                               broadcastFactor, subGroupIds,
+                                               broadcastSubGroupIdSource);
+        copyPartitions(graph, computeProg, broadcastSubGroupIdSource,
+                       subGroupIdBuffer);
+      }
+      computeProg.add(Execute(computeCSs[zeroPartials]));
+      zeroPartials = false;
+    });
+
+    prog.add(std::move(computeProg));
+  }
+}
+
+static void computePropagationGradW(
+    Graph &graph, Sequence &prog, const Vector<unsigned> &shape,
+    const SinglePassPlan &plan, const Options &options,
+    const std::vector<unsigned> &hierarchy,
+    const std::array<std::vector<Tensor>, numBuffers> &inputBuffers,
+    const std::array<std::vector<Tensor>, numBuffers> &weightBuffers,
+    const std::array<std::vector<Tensor>, numBuffers> &subGroupIdBuffers,
+    const std::vector<Tensor> &metaInfoBuckets,
+    const std::vector<Tensor> &partials, const Tensor &bufferIdx,
+    const std::string &debugPrefix) {
+
+  // Create compute programs that operate on each combination of
+  // input/weight/subGroupId buffers.
+  std::vector<std::size_t> computeProgIndexedShape = {numBuffers, numBuffers,
+                                                      numBuffers};
+  std::vector<Program> computeProgs(product(computeProgIndexedShape));
+  for (std::size_t inputBuffer = 0; inputBuffer < numBuffers; ++inputBuffer) {
+    for (std::size_t weightBuffer = 0; weightBuffer < numBuffers;
+         ++weightBuffer) {
+      for (std::size_t subGroupIdBuffer = 0; subGroupIdBuffer < numBuffers;
+           ++subGroupIdBuffer) {
+        const auto cs = graph.addComputeSet(
+            debugPrefix + "/ComputePartialsPropagateBufferIn" +
+            std::to_string(inputBuffer) + "Weights" +
+            std::to_string(weightBuffer) + "SubGroupId" +
+            std::to_string(subGroupIdBuffer));
+        compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false,
+                inputBuffers.at(inputBuffer), weightBuffers.at(weightBuffer),
+                metaInfoBuckets, partials,
+                subGroupIdBuffers.at(subGroupIdBuffer), debugPrefix);
+        computeProgs.at(flattenIndex(
+            computeProgIndexedShape,
+            {inputBuffer, weightBuffer, subGroupIdBuffer})) = Execute(cs);
+      }
+    }
+  }
+
+  if (product(plan.propagationPartitions.asStdVector()) > 1) {
+    const auto broadcastFactor = plan.propagationPartitions;
+    bool moveInputs = broadcastFactor.y * broadcastFactor.z > 1;
+    bool moveWeights = broadcastFactor.x * broadcastFactor.y > 1;
+    bool moveSubGroupIds = broadcastFactor.x * broadcastFactor.z > 1;
+
+    std::vector<Program> computeCSs(computeProgs.size());
+    std::swap(computeProgs, computeCSs);
+    for (std::size_t inputBuffer = 0; inputBuffer < numBuffers; ++inputBuffer) {
+      for (std::size_t weightBuffer = 0; weightBuffer < numBuffers;
+           ++weightBuffer) {
+        for (std::size_t subGroupIdBuffer = 0; subGroupIdBuffer < numBuffers;
+             ++subGroupIdBuffer) {
+          const auto computeInputBuffer =
+              (inputBuffer + moveInputs) % numBuffers;
+          const auto computeWeightBuffer =
+              (weightBuffer + moveWeights) % numBuffers;
+          const auto computeSubGroupIdBuffer =
+              (subGroupIdBuffer + moveSubGroupIds) % numBuffers;
+          const auto computeCS = computeCSs.at(flattenIndex(
+              computeProgIndexedShape, {computeInputBuffer, computeWeightBuffer,
+                                        computeSubGroupIdBuffer}));
+
+          Sequence computeProg;
+          iteratePartitions(broadcastFactor, [&](const auto &i) {
+            if (moveInputs) {
+              std::vector<Tensor> broadcastSource;
+              getBroadcastPropagationExchangeSources(
+                  plan, options, i, broadcastFactor,
+                  inputBuffers.at(inputBuffer), broadcastSource);
+              copyPartitions(graph, computeProg, broadcastSource,
+                             inputBuffers.at(computeInputBuffer));
+            }
+            if (moveWeights) {
+              std::vector<Tensor> broadcastSource;
+              getBroadcastPropagationExchangeSources(
+                  plan, options, i, broadcastFactor,
+                  weightBuffers.at(weightBuffer), broadcastSource);
+              copyPartitions(graph, computeProg, broadcastSource,
+                             weightBuffers.at(computeWeightBuffer));
+            }
+            if (moveSubGroupIds) {
+              std::vector<Tensor> broadcastSource;
+              getBroadcastPropagationExchangeSources(
+                  plan, options, i, broadcastFactor,
+                  subGroupIdBuffers.at(subGroupIdBuffer), broadcastSource);
+              copyPartitions(graph, computeProg, broadcastSource,
+                             subGroupIdBuffers.at(computeSubGroupIdBuffer));
+            }
+            computeProg.add(computeCS);
+          });
+          computeProgs.at(
+              flattenIndex(computeProgIndexedShape,
+                           {inputBuffer, weightBuffer, subGroupIdBuffer})) =
+              std::move(computeProg);
+        }
+      }
+    }
+  }
+
+  auto computeSwitch = Switch(bufferIdx);
+  for (std::size_t i = 0; i < computeProgs.size(); ++i) {
+    computeSwitch.add(i, computeProgs[i]);
+  }
+  prog.add(computeSwitch);
 }
 
 static Tensor fullyConnectedSparseGradWImpl(
@@ -1711,7 +1910,6 @@ static Tensor fullyConnectedSparseGradWImpl(
   // let us achieve the performance we expect for now in benchmarking when
   // we know our assumptions about layout are met.
   {
-    std::vector<Tensor> perPartitionInputs, perPartitionWeights;
     auto inputSrcMemOrdering = getOnTileActsOrdering(fwdMethod);
     // Ordering of dimensions of activations is transposed as compared to
     // forward pass.
@@ -1720,45 +1918,46 @@ static Tensor fullyConnectedSparseGradWImpl(
     const auto weightsSrcMemOrdering = getOnTileActsOrdering(gradAMethod);
     const auto weightsDstMemOrdering = getOnTileWeightsOrdering(plan.method);
 
-    allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
-                               hierarchy, 0, perPartitionInputs,
-                               debugPrefix + "/partitionedInputs");
-    allocatePerPartitionInputs(graph, shape, {}, plan, false, inputType,
-                               hierarchy, 0, perPartitionWeights,
-                               debugPrefix + "/partitionedWeights");
+    // Pre-arrange meta-info as this should stay along-side partials and never
+    // move between tiles.
+    {
+      std::vector<Tensor> perPartition;
+      const auto prearranged =
+          createBuckets(graph, metaInfoBuckets.elementType(), plan,
+                        plan.metaInfoElemsPerBucket, hierarchy,
+                        debugPrefix + "/partitionedMetaInfoBuckets");
+      getBucketsByPartition(plan, prearranged, perPartition);
+      copyPartitions(graph, progBuilder.preDistribution,
+                     nextLevelMetaInfoBuckets, perPartition);
+      std::swap(nextLevelMetaInfoBuckets, perPartition);
+    }
 
-    // Either copy or transpose (which is just a special copy) partitions
-    // depending on the expected layout of inputs based on the forward/grada
-    // plan.
+    // Transpose partitions depending on the expected layout of inputs based
+    // on the forward/grada plan.
     const auto transposeCS =
         graph.addComputeSet(debugPrefix + "/transposeInputs");
     if (inputSrcMemOrdering != inputDstMemOrdering) {
-      transposePartitions(graph, transposeCS, nextLevelInputs,
-                          perPartitionInputs, inputSrcMemOrdering,
-                          inputDstMemOrdering,
+      std::vector<Tensor> perPartition;
+      allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
+                                 hierarchy, 0, perPartition,
+                                 debugPrefix + "/partitionedInputs");
+      transposePartitions(graph, transposeCS, nextLevelInputs, perPartition,
+                          inputSrcMemOrdering, inputDstMemOrdering,
                           debugPrefix + "/transposeInputs");
-    } else {
-      copyPartitions(graph, progBuilder.preDistribution, nextLevelInputs,
-                     perPartitionInputs);
+      std::swap(nextLevelInputs, perPartition);
     }
     if (weightsSrcMemOrdering != weightsDstMemOrdering) {
-      transposePartitions(graph, transposeCS, nextLevelWeights,
-                          perPartitionWeights, weightsSrcMemOrdering,
-                          weightsDstMemOrdering,
+      std::vector<Tensor> perPartition;
+      allocatePerPartitionInputs(graph, shape, {}, plan, false, inputType,
+                                 hierarchy, 0, perPartition,
+                                 debugPrefix + "/partitionedWeights");
+      transposePartitions(graph, transposeCS, nextLevelWeights, perPartition,
+                          weightsSrcMemOrdering, weightsDstMemOrdering,
                           debugPrefix + "/transposeWeights");
-    } else {
-      copyPartitions(graph, progBuilder.preDistribution, nextLevelWeights,
-                     perPartitionWeights);
+      std::swap(nextLevelWeights, perPartition);
     }
     progBuilder.preDistribution.add(Execute(transposeCS));
-    std::swap(nextLevelInputs, perPartitionInputs);
-    std::swap(nextLevelWeights, perPartitionWeights);
   }
-
-  writeUndefPartitions(progBuilder.preDistribution, partials);
-  compute(graph, progBuilder.distributionCS, shape, {}, plan, options,
-          hierarchy, 0, true, nextLevelInputs, nextLevelWeights,
-          nextLevelMetaInfoBuckets, partials, subGroupIds, debugPrefix);
 
   std::array<std::vector<Tensor>, numBuffers> inputPropagationBuffers,
       weightPropagationBuffers, subGroupIdPropagationBuffers;
@@ -1775,13 +1974,22 @@ static Tensor fullyConnectedSparseGradWImpl(
         graph, inputType, shape, {}, plan, options, hierarchy, 0, subGroupIds,
         {}, subGroupIdPropagationBuffers.at(buffer),
         debugPrefix + "/subGroupIdPropagationBuffer" + std::to_string(buffer));
-    writeUndefPartitions(progBuilder.firstPropagationExchange,
+    writeUndefPartitions(progBuilder.prePropagation,
                          inputPropagationBuffers.at(buffer));
-    writeUndefPartitions(progBuilder.firstPropagationExchange,
+    writeUndefPartitions(progBuilder.prePropagation,
                          weightPropagationBuffers.at(buffer));
-    writeUndefPartitions(progBuilder.firstPropagationExchange,
+    writeUndefPartitions(progBuilder.prePropagation,
                          subGroupIdPropagationBuffers.at(buffer));
   }
+
+  writeUndefPartitions(progBuilder.preDistribution, partials);
+  computeInitialDistributionGradW(
+      graph, progBuilder.distributionCompute, shape, plan, options, hierarchy,
+      nextLevelInputs, nextLevelWeights, nextLevelMetaInfoBuckets, partials,
+      subGroupIds, inputPropagationBuffers.at(0),
+      weightPropagationBuffers.at(0), subGroupIdPropagationBuffers.at(0),
+      debugPrefix);
+
   const auto bufferIdx =
       graph.addVariable(UNSIGNED_INT, {}, debugPrefix + "/bufferIdx");
   graph.setTileMapping(bufferIdx, 0);
@@ -1791,29 +1999,12 @@ static Tensor fullyConnectedSparseGradWImpl(
       weightPropagationBuffers, subGroupIdPropagationBuffers, bufferIdx,
       debugPrefix);
 
-  auto computeSwitch = Switch(bufferIdx);
-  for (std::size_t inputBuffer = 0; inputBuffer < numBuffers; ++inputBuffer) {
-    for (std::size_t weightBuffer = 0; weightBuffer < numBuffers;
-         ++weightBuffer) {
-      for (std::size_t subGroupIdBuffer = 0; subGroupIdBuffer < numBuffers;
-           ++subGroupIdBuffer) {
-        const auto cs = graph.addComputeSet(
-            debugPrefix + "/ComputePartialsPropagateBufferIn" +
-            std::to_string(inputBuffer) + "Weights" +
-            std::to_string(weightBuffer) + "SubGroupId" +
-            std::to_string(subGroupIdBuffer));
-        compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false,
-                inputPropagationBuffers.at(inputBuffer),
-                weightPropagationBuffers.at(weightBuffer),
-                nextLevelMetaInfoBuckets, partials,
-                subGroupIdPropagationBuffers.at(subGroupIdBuffer), debugPrefix);
-        computeSwitch.add(inputBuffer * numBuffers * numBuffers +
-                              weightBuffer * numBuffers + subGroupIdBuffer,
-                          Execute(cs));
-      }
-    }
-  }
-  progBuilder.propagationCompute = computeSwitch;
+  computePropagationGradW(
+      graph, progBuilder.propagationCompute, shape, plan, options, hierarchy,
+      inputPropagationBuffers, weightPropagationBuffers,
+      subGroupIdPropagationBuffers, nextLevelMetaInfoBuckets, partials,
+      bufferIdx, debugPrefix);
+
   const auto output =
       finalReduction(graph, progBuilder, shape, resultType, {}, plan, options,
                      hierarchy, 0, partials, true, debugPrefix);

@@ -3,35 +3,31 @@
 
 #include "poputil/exceptions.hpp"
 
+#include "poplibs_support/VectorUtils.hpp"
+
 namespace popsparse {
 namespace fullyconnected {
 
-std::ostream &operator<<(std::ostream &os,
-                         const PartitionToPNMappingOrder &order) {
-  switch (order) {
-  case PartitionToPNMappingOrder::FwdLinearGYZX:
-    os << "FwdLinearGYZX";
-    break;
-  default:
-    throw poputil::poplibs_error("Unrecognised mapping order");
+PartitionToPNMapping::PartitionToPNMapping(
+    const Vector<unsigned> &linearisationOrder)
+    : linearisationOrder(linearisationOrder) {}
+
+unsigned PartitionToPNMapping::getPNIdForPartition(
+    const Vector<unsigned> &partitions_, const Vector<unsigned> &index_) const {
+  unsigned id = 0;
+  const auto inverseOrder =
+      inversePermutation(linearisationOrder.asStdVector());
+  const auto &partitions = partitions_.asStdVector();
+  const auto &index = index_.asStdVector();
+  for (const auto dim : inverseOrder) {
+    id = id * partitions[dim] + index[dim];
   }
-  return os;
+  return id;
 }
 
-unsigned getPNIdForPartition(const PartitionToPNMappingOrder &order,
-                             const Vector<unsigned> &partitions,
-                             const Vector<unsigned> &index) {
-  switch (order) {
-  case PartitionToPNMappingOrder::FwdLinearGYZX: {
-    unsigned id = index.groups;
-    id = id * partitions.y + index.y;
-    id = id * partitions.z + index.z;
-    id = id * partitions.x + index.x;
-    return id;
-  }
-  default:
-    throw poputil::poplibs_error("Unrecognised mapping order");
-  }
+std::ostream &operator<<(std::ostream &os, const PartitionToPNMapping &m) {
+  os << m.linearisationOrder;
+  return os;
 }
 
 } // end namespace fullyconnected

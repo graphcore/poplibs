@@ -256,10 +256,10 @@ std::vector<unsigned> getOnTileActsOrdering(const OnTileMethod &method) {
   case OnTileMethod::Forward:
   case OnTileMethod::GradA:
   case OnTileMethod::Transpose:
-  case OnTileMethod::GradW:
   case OnTileMethod::GradWBlock:
     return {0, 1, 2};
     break;
+  case OnTileMethod::GradW:
   case OnTileMethod::ForwardAMPBlock:
   case OnTileMethod::TransposeAMPBlock:
   case OnTileMethod::GradWAMPBlock:
@@ -273,8 +273,8 @@ std::vector<unsigned> getOnTileActsOrdering(const OnTileMethod &method) {
 std::vector<unsigned> getOnTileWeightsOrdering(const OnTileMethod &method) {
   switch (method) {
   case OnTileMethod::GradWBlock:
-  case OnTileMethod::GradW:
     return {0, 2, 1};
+  case OnTileMethod::GradW:
   case OnTileMethod::GradWAMPBlock:
     return {0, 1, 2};
   default:
