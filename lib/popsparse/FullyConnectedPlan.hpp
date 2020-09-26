@@ -135,6 +135,8 @@ getPlan(const poplar::Target &target, const poplar::Type &inputType,
         const poplar::OptionFlags &options = {},
         popsparse::dynamic::PlanningCache *cache = nullptr);
 
+unsigned int getTotalMetaInfoElemsPerBuckets(const Plan &plan);
+
 } // end namespace fullyconnected
 } // end namespace popsparse
 

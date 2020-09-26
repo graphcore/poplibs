@@ -79,6 +79,12 @@ public:
   CSCMatrix<T> sparsityDataImplToCSCMatrix(
       const SparsityDataImpl<T> &sparsityDataImpl) const;
 
+  /// Fetch the partitions in X, Y and Z to reveal the plan
+  std::array<std::vector<std::size_t>, 3> getPlanPartitions(void) const;
+
+  /// Fetch the number of elements in a meta info bucket.
+  std::size_t getmetaInfoBucketElements(void) const;
+
 private:
   std::unique_ptr<PartitionerImpl> impl;
 };

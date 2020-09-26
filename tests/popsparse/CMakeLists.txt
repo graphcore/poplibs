@@ -24,7 +24,7 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
       --rhs-block=8
       --partition-method=${PART_METHOD}
       --check-result)
-	  
+
   add_multitarget_test(
     NAME BlockSparseMtTest_dds_fp32_${PART_METHOD}
     COMMAND bs_matmul_test
@@ -38,7 +38,7 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
       --rhs-block=8
       --partition-method=${PART_METHOD}
       --check-result)
-	
+
   add_multitarget_test(
     NAME BlockSparseMtTest_dsd_fp16_${PART_METHOD}
     COMMAND bs_matmul_test
@@ -51,7 +51,7 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
       --lhs-block-col=16
       --rhs-block=16
       --check-result)
-	    
+
   add_multitarget_test(
     NAME BlockSparseMtTest_dsd_fp16_need_transpose_${PART_METHOD}
     COMMAND bs_matmul_test
@@ -65,7 +65,7 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0")
       --rhs-block=16
       --rhs-need-transpose=1
       --check-result)
-	
+
   add_multitarget_test(
     NAME BlockSparseMtTest_dsd_fp32_groups_${PART_METHOD}
     COMMAND bs_matmul_test
@@ -120,7 +120,7 @@ foreach(DATA_TYPE half float)
             --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
             --single-phase=${PASS_TYPE}
           VARIANTS ${TimesOutOnSim})
-          
+
         add_multitarget_test(
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_256in_256out_64b_block${BLOCK_SIZE}_0.1sl
           COMMAND sparse_fc_layer
@@ -289,6 +289,47 @@ foreach(BLOCK_XY 1 4)
             endforeach()
           endforeach()
         endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+
+foreach(DATA_TYPE float half)
+  foreach(ROWS 4 67 126)
+    foreach(COLUMNS 12 64 127)
+      foreach(INDICES 1 2 3 4 5 15 16 17 40)
+        add_multitarget_test(
+          NAME sparse_embedding_tied_matmul_${DATA_TYPE}_${ROWS}_${COLUMNS}_${INDICES}
+          COMMAND sparse_embedding_tied_matmul
+            --data-type=${DATA_TYPE}
+            --m=${ROWS}
+            --k=${COLUMNS}
+            --n=4
+            --tiles-per-ipu=8
+            --num-indices=${INDICES}
+            --sparsity-factor=0.25
+            --matmul-options={\"metaInfoBucketOversizeProportion\":\"1.0\"})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(DATA_TYPE float half)
+  foreach(ROWS 4 67 126)
+    foreach(COLUMNS 12 64 127)
+      foreach(INDICES 1 2 3 4 5 15 16 17 40)
+        add_multitarget_test(
+          NAME sparse_embedding_tied_matmul_z_split_${DATA_TYPE}_${ROWS}_${COLUMNS}_${INDICES}
+          COMMAND sparse_embedding_tied_matmul
+            --data-type=${DATA_TYPE}
+            --m=${ROWS}
+            --k=${COLUMNS}
+            --n=128
+            --tiles-per-ipu=16
+            --num-indices=${INDICES}
+            --sparsity-factor=0.25
+            --matmul-options={\"metaInfoBucketOversizeProportion\":\"1.0\"})
       endforeach()
     endforeach()
   endforeach()

@@ -1911,5 +1911,10 @@ std::tuple<Plan, Cost> getPlan(const Target &target, const Type &inputType,
   return planAndCost;
 }
 
+unsigned int getTotalMetaInfoElemsPerBuckets(const Plan &plan) {
+  return plan.fwdMetaInfoElemsPerBucket +
+         (plan.sharedBuckets() ? 0 : plan.gradAMetaInfoElemsPerBucket);
+}
+
 } // end namespace fullyconnected
 } // end namespace popsparse

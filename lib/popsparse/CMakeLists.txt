@@ -18,6 +18,7 @@ add_library(popsparse SHARED
   BSOps.cpp
   BSUtils.cpp
   BSNonLinearity.cpp
+  Embedding.cpp
   FullyConnected.cpp
   FullyConnectedOnTile.hpp
   FullyConnectedOnTile.cpp
@@ -57,6 +58,7 @@ add_library(popsparse SHARED
   SparsePartitionerOptions.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/experimental/BlockSparseMatMul.hpp
+  ${CMAKE_SOURCE_DIR}/include/popsparse/Embedding.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/FullyConnectedParams.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/FullyConnected.hpp
   ${CMAKE_SOURCE_DIR}/include/popsparse/MatMul.hpp

@@ -467,16 +467,6 @@ static inline void iterateMultiDimSpace(const std::vector<T> &bounds,
   } while (carryDim < i.size());
 }
 
-static Tensor weightBucketsByPartition(const Tensor &weightBuckets,
-                                       const Vector<unsigned> &partition) {
-  const auto totalPartitions = product(partition.asStdVector());
-  auto shape = partition.asStdVector<std::size_t>();
-  assert(weightBuckets.dim(0) % totalPartitions == 0);
-  const auto bucketsPerPartition = weightBuckets.dim(0) / totalPartitions;
-  shape.insert(shape.end(), bucketsPerPartition);
-  return weightBuckets.reshapePartial(0, 1, shape);
-}
-
 template <typename F>
 static void iteratePartitions(const Vector<unsigned> &partition_, const F &f) {
   const auto &partition = partition_.asStdVector();
@@ -821,7 +811,7 @@ static void getNextLevelDistributionBuckets(
   const auto totalPartitions = product(partition.asStdVector());
   nextLevelBuckets.resize(totalPartitions);
   const auto &bucketsByPartition =
-      weightBucketsByPartition(buckets, bucketPartition);
+      getBucketsByPartition(buckets, bucketPartition);
   iteratePartitions(partition, [&](const auto &i) {
     const auto bucketsPerPartition = partition / bucketPartition;
     const auto bucketPartitionStart = i / bucketsPerPartition;
@@ -854,7 +844,8 @@ getBucketsByPartition(const SinglePassPlan &plan, const Tensor &buckets,
                       std::vector<NextLevelBuckets> &nextLevelBuckets) {
   nextLevelBuckets.resize(product(plan.partition.asStdVector()));
   const auto &bucketsByPartition =
-      weightBucketsByPartition(buckets, plan.partition);
+      getBucketsByPartition(buckets, plan.partition);
+
   iteratePartitions(plan.partition, [&](const auto &i) {
     const auto iPlusOne = i + Vector<unsigned>(1);
     std::vector<std::size_t> squeezeDims(i.size());
@@ -1334,11 +1325,6 @@ static void getBroadcastPropagationExchangeSources(
     getBroadcastPropagationExchangeSources(
         plan, options, {}, {}, sources[srcIdxFlat], broadcastSources[idxFlat]);
   });
-}
-
-static unsigned int getTotalMetaInfoElemsPerBuckets(const Plan &plan) {
-  return plan.fwdMetaInfoElemsPerBucket +
-         (plan.sharedBuckets() ? 0 : plan.gradAMetaInfoElemsPerBucket);
 }
 
 static void addBufferIncrementProg(Graph &graph, const Tensor &t, Sequence &seq,
@@ -2312,11 +2298,9 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
   const auto gradAPlan = getGradAPlan(plan);
 
   // We need to shuffle buckets around to the order expected by the grad-a pass.
-  weightBuckets =
-      SparseTensor(weightBucketsByPartition(weightBuckets.getMetaInfoTensor(),
-                                            plan.partition),
-                   weightBucketsByPartition(weightBuckets.getNzValuesTensor(),
-                                            plan.partition));
+  weightBuckets = SparseTensor(
+      getBucketsByPartition(weightBuckets.getMetaInfoTensor(), plan.partition),
+      getBucketsByPartition(weightBuckets.getNzValuesTensor(), plan.partition));
   const std::vector<unsigned> shuffleSrc = {0, 1, 2, 3};
   const auto shuffleDest = vectorConvert<unsigned>(gradAPlan.dimShuffleToFwd);
   weightBuckets = SparseTensor(weightBuckets.getMetaInfoTensor()
@@ -2390,7 +2374,7 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
   const auto gradWPlan = getGradWPlan(plan);
 
   // We need to shuffle buckets around to the order expected by the grad-w pass.
-  metaInfoBuckets = weightBucketsByPartition(metaInfoBuckets, plan.partition);
+  metaInfoBuckets = getBucketsByPartition(metaInfoBuckets, plan.partition);
   metaInfoBuckets =
       metaInfoBuckets
           .dimShufflePartial({0, 1, 2, 3},
@@ -2408,7 +2392,7 @@ Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
   // Rearrange resulting weight gradient buckets into order expected for
   // the forward pass.
   weightGradientBuckets =
-      weightBucketsByPartition(weightGradientBuckets, gradWPlan.partition);
+      getBucketsByPartition(weightGradientBuckets, gradWPlan.partition);
   weightGradientBuckets =
       weightGradientBuckets
           .dimShufflePartial(vectorConvert<unsigned>(gradWPlan.dimShuffleToFwd),

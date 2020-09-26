@@ -3,6 +3,7 @@
 #include "FullyConnectedUtils.hpp"
 
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/VectorUtils.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -327,5 +328,14 @@ getBlockDimensionsToUse(const std::array<std::size_t, 2> &oldBlockDimensions,
   return oldBlockDimensions;
 }
 
+Tensor getBucketsByPartition(const Tensor &buckets,
+                             const Vector<unsigned> &partition) {
+  const auto totalPartitions = product(partition.asStdVector());
+  auto shape = partition.asStdVector<std::size_t>();
+  assert(buckets.dim(0) % totalPartitions == 0);
+  const auto bucketsPerPartition = buckets.dim(0) / totalPartitions;
+  shape.insert(shape.end(), bucketsPerPartition);
+  return buckets.reshapePartial(0, 1, shape);
+}
 } // end namespace fullyconnected
 } // end namespace popsparse

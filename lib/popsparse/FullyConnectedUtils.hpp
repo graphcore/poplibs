@@ -4,6 +4,7 @@
 
 #include <poplar/Tensor.hpp>
 
+#include "FullyConnectedVector.hpp"
 #include "SparseStorageInternal.hpp"
 #include "popsparse/SparseTensor.hpp"
 #include <ostream>
@@ -96,6 +97,9 @@ std::array<std::size_t, 2>
 getBlockDimensionsToUse(const std::array<std::size_t, 2> &oldBlockDimensions,
                         const poplar::Type &dataType);
 
+// Shape the buckets tensor to represent the partitions provided
+poplar::Tensor getBucketsByPartition(const poplar::Tensor &buckets,
+                                     const Vector<unsigned> &partition);
 } // end namespace fullyconnected
 } // end namespace popsparse
 

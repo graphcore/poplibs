@@ -66,11 +66,13 @@ MAKE_CYCLE_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
   return getBlockTransposeGradWCycles(fpType == FLOAT, blockSizeXOrY,
                                       numXOrYBlocks, numZ, numWorkers);
 }
+
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiSliceElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
   return 0;
 }
+
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiUpdateAddElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {

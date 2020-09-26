@@ -117,6 +117,12 @@ if (TARGET popsparse)
                         poplibs_support
                         poplibs_test
                         Boost::program_options)
+
+  add_tool(sparse_embedding_tied_matmul sparse_embedding_tied_matmul.cpp)
+  target_link_libraries(sparse_embedding_tied_matmul
+                        poplibs_support
+                        poplibs_test
+                        Boost::program_options)
 endif()
 
 
