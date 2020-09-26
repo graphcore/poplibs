@@ -40,17 +40,22 @@ class [[poplar::constraint(
 
   static void workerCompute(AccumType * rGrad, const FPType *s,
                             const FPType *qGrad, unsigned numZ) {
+    constexpr unsigned blockSizeZ = std::is_same<FPType, float>::value ? 8 : 16;
     // Accumulate over numZ.
     for (unsigned bRow = 0; bRow < BlockRows; ++bRow) {
       for (unsigned bCol = 0; bCol < BlockCols; ++bCol) {
         const auto rIndex = bRow * BlockCols + bCol;
         AccumType sum = rGrad[rIndex];
-        for (unsigned zIndex = 0; zIndex < numZ; ++zIndex) {
-          const auto qGradIndex = bRow * numZ + zIndex;
-          const auto sIndex = bCol * numZ + zIndex;
-          sum += AccumType(s[sIndex] * qGrad[qGradIndex]);
-          rGrad[rIndex] = sum;
+        for (unsigned zBlock = 0; zBlock != numZ / blockSizeZ; ++zBlock) {
+          for (unsigned zIndex = 0; zIndex != blockSizeZ; ++zIndex) {
+            auto qGradIndex =
+                zBlock * BlockRows * blockSizeZ + bRow * blockSizeZ + zIndex;
+            auto sIndex =
+                zBlock * BlockCols * blockSizeZ + bCol * blockSizeZ + zIndex;
+            sum += AccumType(s[sIndex] * qGrad[qGradIndex]);
+          }
         }
+        rGrad[rIndex] = sum;
       }
     }
   }

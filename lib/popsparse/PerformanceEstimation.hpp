@@ -24,18 +24,18 @@ static inline std::uint64_t getBlockTransposeGradWCycles(bool floatInput,
   assert(numZ % blockSizeZ == 0);
   const auto blocksPerWorker = ceildiv(numBlocks, numWorkers);
   std::uint64_t supervisorCycles = 18;
-  std::uint64_t workerOverhead = 35;
+  std::uint64_t workerOverhead = 34;
   std::uint64_t workerLoopCycles;
 
   const auto numZBlocks = numZ / blockSizeZ;
   if (floatInput) {
     workerLoopCycles =
-        blocksPerWorker * (3 + numZBlocks * (3 + blockSizeXY / 2 * 11));
+        blocksPerWorker * (3 + numZBlocks * (3 + blockSizeXY / 2 * 12));
   } else {
     workerLoopCycles =
-        blocksPerWorker * (3 + numZBlocks * (3 + blockSizeXY / 4 * 22));
+        blocksPerWorker * (3 + numZBlocks * (3 + blockSizeXY / 4 * 23));
   }
-  return supervisorCycles + workerOverhead + workerLoopCycles;
+  return supervisorCycles + (workerOverhead + workerLoopCycles) * numWorkers;
 }
 
 static inline std::uint64_t zeroPartialsCycles(unsigned numPartials,
@@ -461,45 +461,45 @@ static inline std::uint64_t sparseDenseBlockMultiplyGradWAmp(
   std::uint64_t wZOffRetention = 0;
 
   if (numBlockRows == 16 && numBlockCols == 16) {
-    sWeightLoad = 234;
+    sWeightLoad = 32;
     assert(!floatInput);
     if (numConvUnits == 4 && !floatInput) {
       sRunCycles = 17;
       wZOffRetention = 2;
       // times 2 for non retention because of 2 passes of 8x16
       if (floatPartials) {
-        wRetention = 11;
-        wNonRetention = 2 * 33 - wZOffRetention;
+        wRetention = 6;
+        wNonRetention = 2 * 32 - wZOffRetention;
       } else {
-        wRetention = 9;
-        wNonRetention = 2 * 31 - wZOffRetention;
+        wRetention = 5;
+        wNonRetention = 2 * 30 - wZOffRetention;
       }
     } else {
       wZOffRetention = 4;
-      wRetention = 10;
-      wNonRetention = 33;
+      wRetention = 5;
+      wNonRetention = 32;
     }
   } else if (numBlockRows == 8 && numBlockCols == 8) {
-    sWeightLoad = 114;
+    sWeightLoad = 16;
 
     if (floatInput) {
       wZOffRetention = 2;
-      wRetention = 8;
-      wNonRetention = 34;
+      wRetention = 5;
+      wNonRetention = 33;
     } else {
       wZOffRetention = 4;
-      wRetention = floatPartials ? 8 : 7;
-      wNonRetention = 28;
+      wRetention = 5;
+      wNonRetention = 27;
     }
   } else if (numBlockRows == 4 && numBlockCols == 4) {
-    sWeightLoad = 54;
-    wRetention = 6;
+    sWeightLoad = 8;
+    wRetention = 5;
     if (floatInput) {
       wZOffRetention = 1;
-      wNonRetention = 21;
+      wNonRetention = 20;
     } else {
-      wZOffRetention = 2;
-      wNonRetention = floatPartials ? 18 : 17;
+      wZOffRetention = floatPartials ? 2 : 1;
+      wNonRetention = floatPartials ? 17 : 15;
     }
   }
 

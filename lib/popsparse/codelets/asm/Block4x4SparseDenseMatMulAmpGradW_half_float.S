@@ -19,15 +19,12 @@
 
 // =============================================================================
 
-#define w_numZ                 m0
 #define w_id                   m1
 #define w_lt4                  m2
-#define w_workerOff            m4
 #define w_zOff                 m5
 #define w_qWorkerOff           m6
 #define w_rWorkerOff           m7
 #define w_rGrad                m8
-#define w_qGrad                m9
 #define w_qGradRetained        m10
 
 #define w_fp_clr_reg          a0
@@ -52,11 +49,10 @@ DEF_STACK_USAGE WORKER_STACK_SIZE blockSparseDenseMultiplyGradWAmp_hf4x4
 .align 4
 .worker
 blockSparseDenseMultiplyGradWAmp_hf4x4:
-ld32              $w_numZ, $mvertex_base, W_AMP_NUM_Z/4
 get               $w_id, $WSR
 and               $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
 cmpult            $w_lt4, $w_id, 4
-mul               $w_qWorkerOff, $w_id, $w_numZ
+mul               $w_qWorkerOff, $w_id, Z_PER_PASS * SIZEOF_INPUT_TYPE
 mul               $w_rWorkerOff, $w_id, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE
 
 blockSparseDenseMultiplyGradWAmp_hf4x4_retained:
@@ -64,46 +60,42 @@ ld32              $w_rGrad, $mvertex_base, W_AMP_RGRAD_BASE_BLOCK/4
 ld32              $w_qGradRetained, $mvertex_base, W_AMP_QGRAD_BASE/4
 
 blockSparseDenseMultiplyGradWAmp_hf4x4_retained_zOff:
-brz               $w_lt4, LExit
-ld32              $w_zOff, $mvertex_base, W_AMP_OFFSET_Z/4
-
 {
-  mul               $w_zOff, $w_zOff, Z_PER_PASS * SIZEOF_INPUT_TYPE
+  brz               $w_lt4, LExit
   setzi             $w_fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT 
 }
 { 
   ld64              $w_pin, $w_rWorkerOff, $w_rGrad, 0
   uput              $FP_CLR, $w_fp_clr_reg 
 }
-
 // Begin feeding partials
 {
   ld64              $w_pin, $w_rWorkerOff, $w_rGrad, 1
   f16v4sisoamp      $w_pout, $azeros, $w_pin, TAMP_F16V4_E4_P0
 }
 {
-  add               $w_qGrad, $w_qGradRetained, $w_zOff
+  ld32              $w_zOff, $mvertex_base, W_AMP_OFFSET_Z/4
   f16v4sisoamp      $w_pout, $azeros, $w_pin, TAMP_F16V4_E4_P1 
 }
 {
-  ldz16step         $mzero, $mzero, $w_qGrad+=, $w_qWorkerOff
+  add               $w_zOff, $w_qWorkerOff, $w_zOff
   f16v4sisoamp      $w_pout, $azeros, $azeros, TAMP_F16V4_E4_P2 
 }
 { 
-  ld64              $w_xin, $mzero, $w_qGrad, 0
+  ld64              $w_xin, $w_zOff, $w_qGradRetained, 0
   f16v4sisoamp      $w_pout, $azeros, $azeros, TAMP_F16V4_E4_P3 
 }
 // Begin feeding inputs
 { 
-  ld64              $w_xin, $mzero, $w_qGrad, 1
+  ld64              $w_xin, $w_zOff, $w_qGradRetained, 1
   f16v4sisoamp      $w_pout, $w_xin, $azeros, TAMP_F16V4_E4_P0 
 }
 { 
-  ld64              $w_xin, $mzero, $w_qGrad, 2
+  ld64              $w_xin, $w_zOff, $w_qGradRetained, 2
   f16v4sisoamp      $w_pout, $w_xin, $azeros, TAMP_F16V4_E4_P1 
 }
 { 
-  ld64              $w_xin, $mzero, $w_qGrad, 3
+  ld64              $w_xin, $w_zOff, $w_qGradRetained, 3
   f16v4sisoamp      $w_pout, $w_xin, $azeros, TAMP_F16V4_E4_P2 
 }
 f16v4sisoamp      $w_pout, $w_xin, $azeros, TAMP_F16V4_E4_P3 

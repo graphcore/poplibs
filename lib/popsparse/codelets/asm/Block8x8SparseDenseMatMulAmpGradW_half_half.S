@@ -19,11 +19,8 @@
 
 // =============================================================================
 
-#define w_numZ                 m0
 #define w_id                   m1
 #define w_lt4                  m2
-#define w_strides              m3
-#define w_workerOff            m4
 #define w_zOff                 m5
 #define w_qWorkerOff           m6
 #define w_rWorkerOff           m7
@@ -55,13 +52,11 @@ DEF_STACK_USAGE WORKER_STACK_SIZE blockSparseDenseMultiplyGradWAmp_hh8x8
 .align 4
 .worker
 blockSparseDenseMultiplyGradWAmp_hh8x8:
-ld32              $w_numZ, $mvertex_base, W_AMP_NUM_Z/4
 get               $w_id, $WSR
 and               $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
 cmpult            $w_lt4, $w_id, 4
-mul               $w_workerOff, $w_id, 2 * SIZEOF_INPUT_TYPE
-mul               $w_qWorkerOff, $w_workerOff, $w_numZ
-mul               $w_rWorkerOff, $w_workerOff, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE/SIZEOF_INPUT_TYPE
+mul               $w_qWorkerOff, $w_id, 2 * SIZEOF_INPUT_TYPE * Z_PER_PASS
+mul               $w_rWorkerOff, $w_id, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE * 2
 
 blockSparseDenseMultiplyGradWAmp_hh8x8_retained:
 ld32              $w_rGradRetained, $mvertex_base, W_AMP_RGRAD_BASE_BLOCK/4
@@ -72,7 +67,6 @@ add               $w_qGradRetained, $w_qGradRetained, $w_qWorkerOff
 blockSparseDenseMultiplyGradWAmp_hh8x8_retained_zOff:
 brz               $w_lt4, LExit
 ld32              $w_zOff, $mvertex_base, W_AMP_OFFSET_Z/4
-mul               $w_zOff, $w_zOff, Z_PER_PASS * SIZEOF_INPUT_TYPE
 add               $w_qGrad, $w_qGradRetained, $w_zOff
 { 
   tapack            $w_tripack, $w_qGrad, $w_rGradRetained, $w_rGradRetained
@@ -84,15 +78,12 @@ add               $w_qGrad, $w_qGradRetained, $w_zOff
 }
 // Begin feeding partials
 f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P0
+
 { 
   ld2x64pace        $azeros, $w_pin, $w_tripack+=, $mzero, 0b0001
   f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P1 
 }
-{
-  // Strides [0 | $w_numZ/4 - 3 | 0]
-  ld32              $w_strides, $mvertex_base, W_AMP_STRIDES/4
-  f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P2 
-}
+f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P2 
 { 
   ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $mzero, 0b0000
   f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P3 
@@ -107,7 +98,7 @@ f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P0
   f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P1 
 }
 { 
-  ld2x64pace        $w_xin, $azeros, $w_tripack+=, $w_strides, 0b1110
+  ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b1100
   f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2 
 }
 { 

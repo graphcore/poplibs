@@ -654,23 +654,18 @@ static void copyPartitions(Graph &graph, Sequence &prog,
   prog.add(Copy(concat(flatSrc), concat(flatDst)));
 }
 
-static void transposePartitions(Graph &graph, const ComputeSet &cs,
+static void rearrangePartitions(Graph &graph, const ComputeSet &cs,
                                 const std::vector<Tensor> &src,
-                                const std::vector<Tensor> &dst,
+                                std::vector<Tensor> &dst,
                                 const std::vector<unsigned> &srcMemOrdering,
                                 const std::vector<unsigned> &dstMemOrdering,
+                                unsigned grouping,
                                 const std::string &debugPrefix) {
   // We only really know how to deal with 2D transposes and don't expect
   // groups for the timebeing.
   assert(srcMemOrdering.at(0) == 0 && dstMemOrdering.at(0) == 0);
   assert(src.size() == dst.size());
-  // Gather together transposes of the same shape just to reduce the number of
-  // calls needed to add transpose vertices.
-  //
-  // Shape pair is transpose source {rows, columns}.
-  std::map<std::pair<std::size_t, std::size_t>,
-           std::pair<std::vector<Tensor>, std::vector<Tensor>>>
-      uniqueShapedTransposes;
+  assert(grouping == 4 || grouping == 8 || grouping == 16);
   for (std::size_t i = 0; i < src.size(); ++i) {
     auto s = unfactorDims(src[i], 3);
     auto d = unfactorDims(dst[i], 3);
@@ -678,21 +673,38 @@ static void transposePartitions(Graph &graph, const ComputeSet &cs,
     assert(s.shape() == d.shape());
     s = s.dimShuffle(srcMemOrdering).squeeze({0});
     d = d.dimShuffle(dstMemOrdering).squeeze({0});
-    auto &shapeTransposes =
-        uniqueShapedTransposes[std::make_pair(s.dim(0), s.dim(1))];
-    shapeTransposes.first.emplace_back(s.expand({0}));
-    shapeTransposes.second.emplace_back(d.expand({0}));
-  }
+#ifndef NDEBUG
+    const auto blockSize = s.elementType() == FLOAT ? 8U : 16U;
+    assert(s.dim(0) % blockSize == 0);
+#endif
+    assert(s.dim(1) % grouping == 0);
 
-  for (const auto &[shape, ts] : uniqueShapedTransposes) {
-    const auto sFlat = concat(ts.first, 0).flatten(1, 3);
-    const auto dFlat = concat(ts.second, 0).flatten(1, 3);
-    const auto srcRows = shape.first;
-    const auto srcColumns = shape.second;
-    const auto transposeMapping = graph.getTileMapping(dFlat.slice(0, 1, 1));
-    popops::rearrange::addTransposeVertices(
-        graph, cs, sFlat.elementType(), srcRows, srcColumns, transposeMapping,
-        [&](std::size_t i) { return std::make_pair(sFlat[i], dFlat[i]); });
+    unsigned maxSizePerTile =
+        (s.elementType() == FLOAT ? 2 : 4) *
+        ((1 << (graph.getTarget().getNumStrideBits() - 1)) - 1);
+    if (s.dim(1) > maxSizePerTile) {
+      throw poplibs_error("ASM vertex doesn't support dimension size. "
+                          "Consider adding an unlimited version");
+    }
+    const auto vertexClass =
+        templateVertex("popsparse::BlockTransposeGradW", s.elementType());
+    const auto v = graph.addVertex(cs, vertexClass,
+                                   {{"in", s.flatten()}, {"out", d.flatten()}});
+    graph.setInitialValue(v["blockSizeXOrY"], grouping);
+    const auto numBlocks = s.dim(1) / grouping;
+    graph.setInitialValue(v["numXOrYBlocks"], numBlocks);
+    graph.setInitialValue(v["numZ"], s.dim(0));
+    graph.setInitialValue(
+        v["maxXOrYBlocksPerWorker"],
+        ceildiv(numBlocks, graph.getTarget().getNumWorkerContexts()));
+    // assume whole tensor lives on the tile
+    const auto sliceTileMap = graph.getTileMapping(d.slice(0, 1, 0));
+    auto it = std::find_if(
+        sliceTileMap.begin(), sliceTileMap.end(),
+        [&](const std::vector<Interval> &regions) { return !regions.empty(); });
+    assert(it != sliceTileMap.end());
+    const auto tile = std::distance(sliceTileMap.begin(), it);
+    graph.setTileMapping(v, tile);
   }
 }
 
@@ -1927,9 +1939,9 @@ static Tensor fullyConnectedSparseGradWImpl(
       allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
                                  hierarchy, 0, perPartition,
                                  debugPrefix + "/partitionedInputs");
-      transposePartitions(graph, transposeCS, nextLevelInputs, perPartition,
+      rearrangePartitions(graph, transposeCS, nextLevelInputs, perPartition,
                           inputSrcMemOrdering, inputDstMemOrdering,
-                          debugPrefix + "/transposeInputs");
+                          plan.grouping.z, debugPrefix + "/transposeInputs");
       std::swap(nextLevelInputs, perPartition);
     }
     if (weightsSrcMemOrdering != weightsDstMemOrdering) {
@@ -1937,9 +1949,9 @@ static Tensor fullyConnectedSparseGradWImpl(
       allocatePerPartitionInputs(graph, shape, {}, plan, false, inputType,
                                  hierarchy, 0, perPartition,
                                  debugPrefix + "/partitionedWeights");
-      transposePartitions(graph, transposeCS, nextLevelWeights, perPartition,
+      rearrangePartitions(graph, transposeCS, nextLevelWeights, perPartition,
                           weightsSrcMemOrdering, weightsDstMemOrdering,
-                          debugPrefix + "/transposeWeights");
+                          plan.grouping.x, debugPrefix + "/transposeWeights");
       std::swap(nextLevelWeights, perPartition);
     }
     progBuilder.preDistribution.add(Execute(transposeCS));

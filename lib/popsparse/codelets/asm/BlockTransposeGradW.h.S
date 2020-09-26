@@ -122,9 +122,8 @@ mul             $w_inStrideBlockZ, $w_numXY, BLOCK_SIZE_Z
 sub             $w_inStrideBlockZ, $w_inStrideBlockZ, $w_blockSizeXY
 mul             $w_inStrideBlockZ, $w_inStrideBlockZ, SIZEOF_DATA
 
-mul             $w_inStrideSubblockXY, $w_numXY, -(BLOCK_SIZE_Z - 1) * (1 << STRIDE_BITS)/ELEMS_PER_LD_ST
-add             $w_inStrideSubblockXY, $w_inStrideSubblockXY, (SUBBLOCK_SIZE_XY << STRIDE_BITS)/ELEMS_PER_LD_ST
-add             $w_inStrideSubblockXY, $w_inStrideSubblockXY, BLOCK_SIZE_Z/ELEMS_PER_LD_ST
+mul             $w_inStrideSubblockXY, $w_numXY, -(BLOCK_SIZE_Z - 1) * SIZEOF_DATA
+add             $w_inStrideSubblockXY, $w_inStrideSubblockXY, (SUBBLOCK_SIZE_XY - ELEMS_PER_LD_ST) * SIZEOF_DATA
 
 // This is the increment applied to move to the next XY block
 // -numXY * numZ + blockSizeXY

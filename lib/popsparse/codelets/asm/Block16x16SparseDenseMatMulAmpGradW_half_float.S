@@ -14,11 +14,9 @@
 
 // =============================================================================
 
-#define w_numZ                 m0
 #define w_id                   m1
 #define w_lt5                  m2
 #define w_strides              m3
-#define w_workerOff            m4
 #define w_zOff                 m1
 #define w_qWorkerOff           m6
 #define w_rWorkerOff           m7
@@ -26,7 +24,6 @@
 #define w_tripack              m8:9
 #define w_rGrad                m10
 #define w_qGradRetained        m11
-#define w_strides8             m5
 
 
 #define w_fp_clr_reg a0
@@ -50,18 +47,13 @@ DEF_STACK_USAGE WORKER_STACK_SIZE blockSparseDenseMultiplyGradWAmp_hf16x16
 .align 4
 .worker
 blockSparseDenseMultiplyGradWAmp_hf16x16:
-ld32              $w_numZ, $mvertex_base, W_AMP_NUM_Z/4
 get               $w_id, $WSR
 and               $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
 cmpult            $w_lt5, $w_id, 5
-mul               $w_strides8, $w_lt5, 5
-// Strides [0 | $w_numZ/4 - 3 | 0/5]
-ld32              $w_strides, $mvertex_base, W_AMP_STRIDES/4
-or                $w_strides, $w_strides, $w_strides8
-mul               $w_strides, $w_strides, $w_lt5
-mul               $w_workerOff, $w_id, 3 * SIZEOF_INPUT_TYPE
-mul               $w_qWorkerOff, $w_workerOff, $w_numZ
-mul               $w_rWorkerOff, $w_workerOff, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE / SIZEOF_INPUT_TYPE
+// Strides [0 | 0 | 0/5]
+mul               $w_strides, $w_lt5, 5
+mul               $w_qWorkerOff, $w_id, 3 * SIZEOF_INPUT_TYPE * Z_PER_PASS
+mul               $w_rWorkerOff, $w_id, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE * 3
 
 blockSparseDenseMultiplyGradWAmp_hf16x16_retained:
 
@@ -74,7 +66,6 @@ ld32              $w_rGrad, $mvertex_base, W_AMP_RGRAD_BASE_BLOCK/4
 add               $w_rGrad, $w_rGrad, $w_rWorkerOff
 
 ld32              $w_zOff, $mvertex_base, W_AMP_OFFSET_Z/4
-mul               $w_zOff, $w_zOff, Z_PER_PASS * SIZEOF_INPUT_TYPE
 add               $w_qGrad, $w_qGradRetained, $w_zOff
 
 { 
@@ -118,7 +109,7 @@ add               $w_qGrad, $w_qGradRetained, $w_zOff
 }
 
 { 
-  ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_strides, 0b0110
+  ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_strides, 0b0100
   f16v4sisoamp      $w_pout1, $w_xin, $w_pin, TAMP_F16V4_E4_P2 
 }
 
@@ -140,7 +131,7 @@ add               $w_qGrad, $w_qGradRetained, $w_zOff
 
 brz               $w_lt5, LNumElemsEq1
 { 
-  ld2xst64pace      $w_xinpin, $w_pout1, $w_tripack+=, $w_strides, 0b000110
+  ld2xst64pace      $w_xinpin, $w_pout1, $w_tripack+=, $w_strides, 0b000100
   f16v4sisoamp      $w_pout1, $w_xin, $w_pin, TAMP_F16V4_E4_P2 
 }
 

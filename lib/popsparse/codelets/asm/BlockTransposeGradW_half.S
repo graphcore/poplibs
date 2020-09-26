@@ -25,7 +25,10 @@ SETUP_FOR_MAIN_LOOP half
 LXYBlockLoop:
   mov           $w_zBlockCnt, $w_numZBlocks
 LZBlockLoop:
-    rpt             $w_numXYSubblocks, (LXYSubblockLoopEnd - LXYSubblockLoopStart)/8 - 1
+    {
+      rpt             $w_numXYSubblocks, (LXYSubblockLoopEnd - LXYSubblockLoopStart)/8 - 1
+      fnop
+    }
 LXYSubblockLoopStart:
       // dummy load from the write address
       {
@@ -92,8 +95,12 @@ LXYSubblockLoopStart:
         f16v4stacc      $a6:7, TSTACC_P1
       }
       {
-        ldst64pace      $a6:7, $a6:7, $w_tripack+=, $w_inStrideSubblockXY, 0b0110
+        ldst64pace      $a6:7, $a6:7, $w_tripack+=, $w_outStridesNumXY, 0b1000
         f16v4istacc     $a2:3, $a0:1, $a2:3, TISTACC_P0
+      }
+      {
+        add             $w_in, $w_in, $w_inStrideSubblockXY
+        fnop        
       }
       {
         st64pace        $a2:3, $w_tripack+=, $w_outStridesNumXY, 0b10
@@ -145,6 +152,8 @@ CODELET_NAME:
 
 setzi           $m1, WORKER_FN
 runall          $m1, $m0, 0
+sync            TEXCH_SYNCZONE_LOCAL
+
 br              $lr
 .size CODELET_NAME, . - CODELET_NAME
 

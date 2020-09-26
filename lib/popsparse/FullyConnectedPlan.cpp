@@ -686,7 +686,7 @@ addInitialComputeCostSparseDense(
 }
 
 static std::pair<popsolver::Variable, popsolver::Variable>
-transposeDenseCost(popsolver::Model &m, const Target &target,
+rearrangeDenseCost(popsolver::Model &m, const Target &target,
                    const Type &dataType, const popsolver::Variable &mXOrYGroups,
                    const popsolver::Variable mXOrYGrouping,
                    const popsolver::Variable &mZGroups,
@@ -694,29 +694,19 @@ transposeDenseCost(popsolver::Model &m, const Target &target,
   const auto numWorkers = target.getNumWorkerContexts();
 
   // TODO: add padding cost once we support padding.
-  const auto calculateTransposeCycles =
+  const auto calculateRearrangeCycles =
       [=](const std::vector<unsigned> &values) {
-        const auto numTransposes = values[0];
-        const auto numSrcRows = values[1];
-        const auto numSrcColumns = values[2];
-        const auto minGrouping = target.getVectorWidth(dataType);
-        if (numSrcRows % minGrouping || numSrcColumns % minGrouping) {
-          // assume 2 cycles per datum
-          const auto cycles =
-              2 * ceildiv(numTransposes * numSrcRows * numSrcRows, numWorkers);
-          return popsolver::DataType{cycles};
-        } else {
-          const auto cycles = getTransposeCycleEstimate(
-              numTransposes, numSrcRows, numSrcColumns, dataType, numWorkers);
-
-          return popsolver::DataType{cycles};
-        }
+        const auto numXOrYGroups = values[0];
+        const auto blockSizeXY = values[1];
+        const auto numZ = values[2];
+        const auto cycles = getBlockTransposeGradWCycles(
+            dataType == FLOAT, blockSizeXY, numXOrYGroups, numZ, numWorkers);
+        return popsolver::DataType{cycles};
       };
 
-  const auto mCycles =
-      m.call<unsigned>({m.one(), m.product({mXOrYGroups, mXOrYGrouping}),
-                        m.product({mZGroups, mZGroups})},
-                       calculateTransposeCycles);
+  const auto mCycles = m.call<unsigned>(
+      {mXOrYGroups, mXOrYGrouping, m.product({mZGroups, mZGrouping})},
+      calculateRearrangeCycles);
   const auto mBytesPerInput = m.addConstant(target.getTypeSize(dataType));
 
   const auto mTransposedBytes = m.product(
@@ -1156,15 +1146,15 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   popsolver::Variable mSTransposeBytes = m.zero();
   popsolver::Variable mQGradTransposeBytes = m.zero();
   if (method == OnTileMethod::GradWAMPBlock) {
-    // Estimate cycle cost for transposing both activations and gradients
+    // Estimate cycle cost for rearranging both activations and gradients
     // wrt output. Transpose and exchange and there need not be done for
     // each partition of z.
     std::tie(mQGradTransposeQCycles, mQGradTransposeBytes) =
-        transposeDenseCost(m, target, inputType, mGroups.back().x, mGrouping.x,
+        rearrangeDenseCost(m, target, inputType, mGroups.back().x, mGrouping.x,
                            mGroups.back().z, mGrouping.z);
 
     std::tie(mSTransposeCycles, mSTransposeBytes) =
-        transposeDenseCost(m, target, inputType, mGroups.back().y, mGrouping.y,
+        rearrangeDenseCost(m, target, inputType, mGroups.back().y, mGrouping.y,
                            mGroups.back().z, mGrouping.z);
   }
   CostVariables mSTransposeCost(mSTransposeCycles, mSTransposeBytes);
@@ -1173,7 +1163,7 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
   costBreakdown.emplace_back("Q Grad transpose", mQGradTransposeCost);
   costBreakdown.emplace_back("S Transpose cost", mSTransposeCost);
   const auto mTransposeCycles =
-      m.max({mQGradTransposeQCycles, mSTransposeCycles});
+      m.sum({mQGradTransposeQCycles, mSTransposeCycles});
 
   CostVariables mInitialComputeCost;
   popsolver::Variable mRGradTempBytesAfterCompute;

@@ -22,17 +22,14 @@
 
 // =============================================================================
 
-#define w_numZ                 m0
 #define w_id                   m1
 #define w_lt5                  m2
-#define w_strides              m3
-#define w_workerOff            m4
-#define w_zOff                 m1
+#define w_zOff                 m3
+#define w_strides8             m4
 #define w_qWorkerOff           m6
 #define w_rWorkerOff           m7
 #define w_qGrad                m9
 #define w_tripack              m8:9
-#define w_strides8             m5
 #define w_qGradRetained        m10
 #define w_rGrad                m11
 
@@ -60,16 +57,11 @@ DEF_STACK_USAGE WORKER_STACK_SIZE blockSparseDenseMultiplyGradWAmp_hh16x16
 .align 4
 .worker
 blockSparseDenseMultiplyGradWAmp_hh16x16:
-ld32              $w_numZ, $mvertex_base, W_AMP_NUM_Z/4
 get               $w_id, $WSR
 and               $w_id, $w_id, CSR_W_WSR__CTXTID_M1__MASK
 cmpult            $w_lt5, $w_id, 5
-// Strides [0 | $w_numZ/4 - 3 | 0/1]
-ld32              $w_strides, $mvertex_base, W_AMP_STRIDES/4
-mul               $w_strides, $w_strides, $w_lt5
-mul               $w_workerOff, $w_id, 3 * SIZEOF_INPUT_TYPE
-mul               $w_qWorkerOff, $w_workerOff, $w_numZ
-mul               $w_rWorkerOff, $w_workerOff, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE/SIZEOF_INPUT_TYPE
+mul               $w_qWorkerOff, $w_id, 3 * SIZEOF_INPUT_TYPE * Z_PER_PASS
+mul               $w_rWorkerOff, $w_id, SIZEOF_PARTIALS_TYPE * BLOCK_SIZE * 3
 
 blockSparseDenseMultiplyGradWAmp_hh16x16_retained:
 ld32              $w_qGradRetained, $mvertex_base, W_AMP_QGRAD_BASE/4
@@ -82,7 +74,6 @@ ld32              $w_rGrad, $mvertex_base, W_AMP_RGRAD_BASE_BLOCK/4
 add               $w_rGrad, $w_rGrad, $w_rWorkerOff
 
 ld32              $w_zOff, $mvertex_base, W_AMP_OFFSET_Z/4
-mul               $w_zOff, $w_zOff, Z_PER_PASS * SIZEOF_INPUT_TYPE
 add               $w_qGrad, $w_qGradRetained, $w_zOff
 
 { 
@@ -102,12 +93,10 @@ add               $w_qGrad, $w_qGradRetained, $w_zOff
   ld2x64pace        $azeros, $w_pin, $w_tripack+=, $w_strides8, 0b0110
   f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P1 
 }
-{
-  or                $w_strides, $w_strides, $w_lt5
-  f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P2 
-}
+
+f16v4hihoamp      $w_pout_low, $azeros, $w_pin_low, TAMP_F16V4_E4_P2 
 { 
-  ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_strides, 0b0100
+  ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_lt5, 0b0100
   f16v4hihoamp      $w_pout_high, $azeros, $w_pin_high, TAMP_F16V4_E4_P3 
 }
 // Begin feeding inputs
@@ -120,11 +109,11 @@ add               $w_qGrad, $w_qGradRetained, $w_zOff
   f16v4hihoamp      $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P1 
 }
 { 
-  ld2x64pace        $w_xin, $azeros, $w_tripack+=, $w_strides, 0b1110
+  ld2x64pace        $w_xin, $azeros, $w_tripack+=, $mzero, 0b1100
   f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2 
 }
 { 
-  ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_strides, 0b0100
+  ld2x64pace        $w_xin, $w_pin, $w_tripack+=, $w_lt5, 0b0100
   f16v4hihoamp $w_pout_high, $w_xin, $w_pin_high, TAMP_F16V4_E4_P3 
 }
 // Outputs are now available
@@ -138,7 +127,7 @@ add               $w_qGrad, $w_qGradRetained, $w_zOff
 }
 brz               $w_lt5, LNumElemsEq1
 { 
-  ldst64pace        $w_xin, $w_pout, $w_tripack+=, $w_strides, 0b0010
+  ldst64pace        $w_xin, $w_pout, $w_tripack+=, $mzero, 0b0000
   f16v4hihoamp      $w_pout_low, $w_xin, $w_pin_low, TAMP_F16V4_E4_P2 
 }
 { 

@@ -20,6 +20,11 @@
 
 // =============================================================================
 
+#define BLOCKSIZE_Z_FLOAT            8
+#define BLOCKSIZE_Z_HALF             16
+#define SIZEOF_FLOAT                 4
+#define SIZEOF_HALF                  2
+
 // =============================================================================
 
 // Registers allocation
@@ -46,9 +51,7 @@
 #define s_sThisY                     m7
 #define s_offZ                       m8
 #define s_numWorkers                 m8
-#define s_sLoadCwei                  m9
 #define s_yTempOffset                m9
-#define s_stride                     m6
 
 
 // macro to load a block of
@@ -58,33 +61,19 @@
 .macro LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI TYPE, FULL
   ld128putcs             0
   ld128putcs             2
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             4
   ld128putcs             6
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             8
   ld128putcs             10
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             12
   ld128putcs             14
 .ifc \FULL, 1
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             16
   ld128putcs             18
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             20
   ld128putcs             22
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             24
   ld128putcs             26
-  LOAD_POSTINC           \TYPE $mzero $mzero $s_sLoadCwei $s_numZ
-  put                    $CCCSLOAD, $s_sLoadCwei  
   ld128putcs             28
   ld128putcs             30
 .endif
@@ -93,10 +82,8 @@
 // macro to load a block of 16x16 coefficients in CWEI for MK1
 .macro LOAD_BLOCK16x16_HALF_IN_CWEI PTYPE, WKR_FUNC
   LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI half 1
-  LOAD_POSTINC           half $mzero $mzero $s_sLoadCwei $s_numZ
   runall                 $s_wkrFunction, $sp, 0
   setzi                  $s_wkrFunction, \WKR_FUNC\()_retained_zOff
-  put                    $CCCSLOAD, $s_sLoadCwei  
 
   // increment pointer to move to next half of rGrad
   INCR_PTR               \PTYPE $s_rGradBase 8
@@ -104,15 +91,6 @@
   st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE_BLOCK/4 
   DECR_PTR               \PTYPE $s_rGradBase 8
   LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI half 1
-.endm
-
-// Macro to update S pointer after a each iteration of Z
-.macro UPDATE_S_PTR INTYPE
-.ifc \INTYPE, float
-  DECR_PTR               float $s_sThisY 8
-.else
-  DECR_PTR               half $s_sThisY 16
-.endif
 .endm
 
 // macro to create supervisor code for AMP
@@ -141,29 +119,21 @@ ld32                   $s_pnSubgroupId, $s_vertexBase, SUP_VBASE_AMP_PN_SUBGROUP
 // number of blocks of 16/8 (half/float) batch elements to process
 .ifc \INTYPE, float     
 shr                    $s_temp, $s_numZ, 3
-shr                    $s_stride, $s_numZ, 1
 .else
 shr                    $s_temp, $s_numZ, 4
-shr                    $s_stride, $s_numZ, 2
 .endif
 
 runall                 $s_zeroWkrFunction, $s_vertexBase, 0
-add                    $s_stride, $s_stride, -3
 // Decrement by 1 to use in brnzdec
 add                    $s_temp, $s_temp, -1
 ldz16                  $s_pnSubgroupId, $mzero, $s_pnSubgroupId, 0
 st32                   $m9, $sp, STACK_SIZE_AMP/4
 st32                   $m10, $sp, STACK_SIZE_AMP/4 + 1
-st32                   $s_numZ, $sp, W_AMP_NUM_Z/4
-.ifc \INTYPE, half     
-shl                    $s_stride, $s_stride, 10
-.endif
 setzi                  $s_wkrFunction, \GRADW_FN
 st32                   $s_temp, $sp, W_AMP_NUM_X16_BATCHES/4
 st32                   $s_pnSubgroupId, $sp, W_AMP_PN_SUBGROUP_ID/4
 put                    $CR, $s_clrCWEI
 ld32                   $s_metaInfo, $s_vertexBase, SUP_VBASE_AMP_META_BASE/4
-st32                   $s_stride, $sp, W_AMP_STRIDES/4
 
 LsubgroupLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\(): 
   ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
@@ -192,29 +162,23 @@ LsubgroupLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
 LXLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
     LOAD_POSTINC           \INTYPE $mzero $mzero $s_qGradThisX $s_offXInQ
     sync                   TEXCH_SYNCZONE_LOCAL
-    st32                   $s_qGradThisX, $sp, W_QGRAD_BASE/4
+    st32                   $s_qGradThisX, $sp, W_AMP_QGRAD_BASE/4
     ldz16step              $s_numY, $mzero, $s_metaInfo+=, 1 
 
 LYLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
       // The number of times to loop in blocks of 16/8 batch elements
       ld32                   $s_offZ, $sp, W_AMP_NUM_X16_BATCHES/4
-.ifc \INTYPE, half
-      sub                    $s_yTempOffset, $s_numZ, 16 
-.else
-      sub                    $s_yTempOffset, $s_numZ, 8
-.endif
+      mov                    $s_yTempOffset, $mzero
       ldz16step              $s_offYinS, $mzero, $s_metaInfo+=, 1 
       mul                    $s_offYinS, $s_offYinS, $s_numZ
-      add                    $s_offYinS, $s_offYinS, $s_yTempOffset
       LOAD_POSTINC           \INTYPE $mzero $mzero $s_sThisY $s_offYinS
-
+      put                    $CCCSLOAD, $s_sThisY
+       
 LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
         // Need to sync because workers may  active and we touch common vertex state
         sync                   TEXCH_SYNCZONE_LOCAL
         st32                   $s_rGradBase, $sp, W_AMP_RGRAD_BASE_BLOCK/4 
-        st32                   $s_offZ, $sp, W_AMP_OFFSET_Z/4
-        mov                    $s_sLoadCwei, $s_sThisY
-        put                    $CCCSLOAD, $s_sThisY
+        st32                   $s_yTempOffset, $sp, W_AMP_OFFSET_Z/4
         // load S into $CWEI
 .ifc \BLOCKSIZE, 16
 .ifc \INTYPE, half
@@ -224,64 +188,34 @@ LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
 #else
         ld128putcs             0
         ld128putcs             2
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             4
         ld128putcs             6
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             32
         ld128putcs             34
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             36
         ld128putcs             38
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             8
         ld128putcs             10
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             12
         ld128putcs             14
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             40
         ld128putcs             42
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             44
         ld128putcs             46
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             16
         ld128putcs             18
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             20
         ld128putcs             22
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             48
         ld128putcs             50
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             52
         ld128putcs             54
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             24
         ld128putcs             26
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             28
         ld128putcs             30
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             56
         ld128putcs             58
-        LOAD_POSTINC           \INTYPE $mzero $mzero $s_sLoadCwei $s_numZ
-        put                    $CCCSLOAD, $s_sLoadCwei  
         ld128putcs             60
         ld128putcs             62
 #endif // __IPU_ARCH_VERSION__ < 2
@@ -300,9 +234,13 @@ LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\():
 .ifc \BLOCKSIZE, 4
         LOAD_BLOCK_8x16HALF_OR_8x8FLOAT_IN_CWEI \INTYPE 0
 .endif // .ifc \BLOCKSIZE, 4
-        UPDATE_S_PTR           \INTYPE
         runall                 $s_wkrFunction, $sp, 0
         setzi                  $s_wkrFunction, \GRADW_FN\()_retained_zOff 
+.ifc \INTYPE, float
+        add                    $s_yTempOffset, $s_yTempOffset, \BLOCKSIZE * BLOCKSIZE_Z_FLOAT * SIZEOF_FLOAT
+.else
+        add                    $s_yTempOffset, $s_yTempOffset, \BLOCKSIZE * BLOCKSIZE_Z_HALF * SIZEOF_HALF
+.endif
         brnzdec                $s_offZ, LZLoop_\INTYPE\()_\PTYPE\()_\BLOCKSIZE\()
         
       ld32                   $s_sThisY, $s_vertexBase, SUP_VBASE_AMP_S_BASE/4

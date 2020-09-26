@@ -56,11 +56,9 @@
 #define W_AMP_RGRAD_BASE                8
 #define W_AMP_RGRAD_BASE_BLOCK          12
 #define W_AMP_METAINFO                  16
-#define W_AMP_NUM_Z                     20
-#define W_AMP_PN_SUBGROUP_ID            24
-#define W_AMP_NUM_X16_BATCHES           28
-#define W_AMP_STRIDES                   32
-#define W_AMP_OFFSET_Z                  36
+#define W_AMP_PN_SUBGROUP_ID            20
+#define W_AMP_NUM_X16_BATCHES           24
+#define W_AMP_OFFSET_Z                  28
 #define STACK_SIZE_AMP                  (W_AMP_OFFSET_Z + 4)
 
 // =============================================================================

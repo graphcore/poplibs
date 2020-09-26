@@ -539,11 +539,21 @@ int main(int argc, char **argv) try {
     auto valid = (numElements % multipleOf) == 0;
     return std::make_pair(valid, numElements / multipleOf);
   };
-
+  Sequence prog;
   if (isGradWVertex(vertexType)) {
     if (vertexType == VertexType::GradWAmp) {
-      qTensor = qTensor.transpose();
-      sTensor = sTensor.transpose();
+      const auto numZ = qTensor.dim(0);
+      const auto numX = qTensor.dim(1);
+      const auto numY = sTensor.dim(1);
+      const unsigned blockSizeZ = inputType == FLOAT ? 8 : 16;
+      qTensor = qTensor
+                    .reshape({numZ / blockSizeZ, blockSizeZ,
+                              numX / blockSize.val[0], blockSize.val[0]})
+                    .dimShuffle({2, 0, 3, 1});
+      sTensor = sTensor
+                    .reshape({numZ / blockSizeZ, blockSizeZ,
+                              numY / blockSize.val[1], blockSize.val[1]})
+                    .dimShuffle({2, 0, 3, 1});
     }
     graph.connect(v["qGrad"], qTensor.flatten());
     graph.connect(v["rGrad"], aBuckets.at(0));
@@ -581,7 +591,6 @@ int main(int argc, char **argv) try {
   }
   graph.setTileMapping(v, 0);
 
-  Sequence prog;
   prog.add(Execute(cs));
 
   Sequence uploadProg, downloadProg;
