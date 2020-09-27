@@ -634,6 +634,34 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
 
+        add_multitarget_test(
+                NAME basic_lstm_40x4x38_seq_2_float_data_bwd_only_${CELL_ORDER}
+                COMMAND lstm_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase bwd
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim}
+                        LABELS lstm)
+
+        add_multitarget_test(
+                NAME basic_lstm_40x4x38_seq_2_float_data_wu_only_${CELL_ORDER}
+                COMMAND lstm_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase wu
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim}
+                        LABELS lstm)
+
         foreach(PARTIALS_TYPE half float)
         add_multitarget_test(
                 NAME basic_lstm_40x4x38_seq_2_half_data_celltanhrecomp_${PARTIALS_TYPE}_partials_${CELL_ORDER}
