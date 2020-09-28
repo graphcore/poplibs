@@ -224,6 +224,15 @@ static Tensor getPassEndIndices(const Tensor &t, const SinglePassPlan &plan) {
   return concat(toConcat);
 }
 
+static std::vector<unsigned> getLoopIncrements(const SinglePassPlan &plan) {
+  // Increments are just the partitions covered per step of the propagation
+  // phase, only we need to cut groups out of the vector.
+  const auto &propagationPartitions = plan.propagationPartitions.asStdVector();
+  const std::vector<unsigned> increments(propagationPartitions.begin() + 1,
+                                         propagationPartitions.end());
+  return increments;
+}
+
 static std::size_t getOuterLoopDim(const SinglePassPlan &plan) {
   // Outer loop is always the X dimension from the forward pass.
   // Find this from the plan in terms of the current pass.
@@ -292,6 +301,7 @@ public:
       const auto outerLoopDim = getOuterLoopDim(plan);
       const auto outerLoopIterationsToSkip =
           getOuterLoopIterationsToSkip(overflowInfo.get());
+      const auto increments = getLoopIncrements(plan);
 
       progs.back().add(prePropagation);
 
@@ -363,13 +373,13 @@ public:
         }
         progs.back().add(propagationExchanges.at(*dimIt));
 
-        Tensor increment = graph.addConstant(
-            UNSIGNED_INT, {1},
-            plan.propagationPartitions.asStdVector().at(*dimIt));
+        Tensor increment =
+            graph.addConstant(UNSIGNED_INT, {1}, increments[*dimIt]);
         graph.setTileMapping(increment, 0);
         popops::addInPlace(graph, indices[*dimIt], increment, progs.back(),
                            debugPrefix + "/increment" + dimNames[*dimIt] +
                                "Index");
+
         auto prog = std::move(progs.back());
         progs.pop_back();
         Sequence condBody;

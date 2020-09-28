@@ -183,6 +183,18 @@ foreach(DATA_TYPE half float)
           --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
           --single-phase=${PASS_TYPE})
 
+      add_multitarget_test(
+        NAME sparse_fc_layer_T27490_${PASS_TYPE}_${DATA_TYPE}_sb_${SHARED_BUCKETS}
+        COMMAND sparse_fc_layer
+          --data-type=${DATA_TYPE}
+          --input-size=784
+          --output-size=300
+          --batch-size=16
+          --sparsity-factor=0.1
+          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"}
+          --single-phase=${PASS_TYPE}
+          VARIANTS ${TimesOutOnSim})
+
       if (${SHARED_BUCKETS} STREQUAL "true")
         add_multitarget_test(
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_8b_0.1sl_imbalanced_sb_${SHARED_BUCKETS}
