@@ -912,6 +912,8 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
       (positionsOuter * kernelElements / kernelShape[0]);
   const auto outStrideX =
       inputDilation.back() / gcd(inputDilation.back(), stride.back());
+
+  workList.reserve(numWorkerContexts);
   for (unsigned context = 0; context < numWorkerContexts; ++context) {
     workList.emplace_back();
     for (auto k = 0U; k != numKernelPositions; ++k) {

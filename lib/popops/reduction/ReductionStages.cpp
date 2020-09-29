@@ -740,7 +740,9 @@ void createInputReductions(
     std::vector<std::vector<Interval>> outputRegionsSplit2D(
         splitGroupedPartials.size());
     for (unsigned i = 0; i < splitGroupedPartials.size(); i++) {
-      for (unsigned j = 0; j < splitGroupedPartials[i].columns.size(); j++) {
+      auto columns = splitGroupedPartials[i].columns.size();
+      outputRegionsSplit2D[i].reserve(columns);
+      for (unsigned j = 0; j < columns; j++) {
         outputRegionsSplit2D[i].push_back(
             {splitGroupedPartials[i].columns[j],
              splitGroupedPartials[i].columns[j] + 1});
@@ -1378,19 +1380,23 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
     // make a single RegularPartials Tensor or IrregularPartials vector of
     // Tensors to describe them.
     std::vector<std::vector<poplar::Tensor>> rtPartials;
+
+    rtPartials.resize(outputRegionsSplit.size());
+
+    std::size_t idx = 0;
     for (const auto &re : outputRegionsSplit) {
       RegionReduction rt;
-      rtPartials.resize(rtPartials.size() + 1);
+      auto &rtPartial = rtPartials[idx++];
 
       // Connect the output. This is fine because output is 1D.
       rt.output = out.slice(re);
-
-      rtPartials.back().reserve(32); // This speeds things up a bit.
 
       // Get the list of partials to use.
       auto partialTiles = thisTilesForOutput(re.begin());
       debugNumPartials = {std::min(debugNumPartials.min, partialTiles.size()),
                           std::max(debugNumPartials.max, partialTiles.size())};
+
+      rtPartial.reserve(partialTiles.size());
       for (auto partialTile : partialTiles) {
         size_t sourceDataIdx = ipIn.dataElement(partialTile, re.begin());
         size_t len = re.size();
@@ -1399,27 +1405,26 @@ void intermediateToOutput(Graph &graph, const IntermediatePartials &ipIn,
                sourceDataIdx + len - 1);
 
         if (castComputeSet) {
-          rtPartials.back().emplace_back(
+          rtPartial.emplace_back(
               castIpIn[partialTile].slice(sourceDataIdx, sourceDataIdx + len));
         } else {
-          rtPartials.back().emplace_back(
+          rtPartial.emplace_back(
               ipIn.data(partialTile).slice(sourceDataIdx, sourceDataIdx + len));
         }
       }
       // As the partials are all the same size we can do this to create a
       // valid outerFactor.
-      rt.outerFactor = rtPartials.back().back().numElements() *
-                       rtPartials.back().size() / rt.output.numElements();
+      rt.outerFactor = rtPartial.back().numElements() * rtPartial.size() /
+                       rt.output.numElements();
       logging::popops::trace(
           "  Partials:{} Width:{} Output data index:[{}, {})",
-          partialTiles.size(), rtPartials.back().back().numElements(),
-          re.begin(), re.end());
-      debugPartialsWidths = {std::min(debugPartialsWidths.min,
-                                      rtPartials.back().back().numElements()),
-                             std::max(debugPartialsWidths.max,
-                                      rtPartials.back().back().numElements())};
+          partialTiles.size(), rtPartial.back().numElements(), re.begin(),
+          re.end());
+      debugPartialsWidths = {
+          std::min(debugPartialsWidths.min, rtPartial.back().numElements()),
+          std::max(debugPartialsWidths.max, rtPartial.back().numElements())};
 
-      reductions.push_back(rt);
+      reductions.push_back(std::move(rt));
     }
 
     // Only now we have gathered all the reductions for this tile, and all the
