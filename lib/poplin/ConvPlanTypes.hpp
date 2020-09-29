@@ -128,7 +128,8 @@ template <typename T> struct Estimates {
   T rearrangeBeforeSliceCycles;
   T memsetZeroBeforeAddInPlace;
   T dynamicSliceCycles;
-  T transformCycles;
+  T transformCopyCycles;
+  T transformExchangeCycles;
 
   T totalExchangeCycles;
   ExchangeEstimates<T> itemisedExchangeCycles;
@@ -168,7 +169,8 @@ inline bool operator<(const Cost &a, const Cost &b) {
       &Cost::totalPerStepCycleDiff,
 
       &Cost::rearrangeBeforeSliceCycles, &Cost::memsetZeroBeforeAddInPlace,
-      &Cost::dynamicSliceCycles, &Cost::transformCycles,
+      &Cost::dynamicSliceCycles, &Cost::transformCopyCycles,
+      &Cost::transformExchangeCycles,
 
       &Cost::totalExchangeCycles, &Cost::itemisedExchangeCycles,
 
@@ -191,7 +193,10 @@ inline Cost maxPerStepCycles(Cost a, const Cost &b) {
   a.memsetZeroBeforeAddInPlace =
       std::max(a.memsetZeroBeforeAddInPlace, b.memsetZeroBeforeAddInPlace);
   a.dynamicSliceCycles = std::max(a.dynamicSliceCycles, b.dynamicSliceCycles);
-  a.transformCycles = std::max(a.transformCycles, b.transformCycles);
+  a.transformCopyCycles =
+      std::max(a.transformCopyCycles, b.transformCopyCycles);
+  a.transformExchangeCycles =
+      std::max(a.transformExchangeCycles, b.transformExchangeCycles);
 
   // the MINIMIZE_COST_DIFF method currently using the totalExchangeCycles, if
   // that changes we would need to update this too.

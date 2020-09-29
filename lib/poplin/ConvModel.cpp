@@ -1180,8 +1180,9 @@ bool isFullyConnected(Pass pass) {
          pass == Pass::FC_TRAINING_BWD || pass == Pass::FC_TRAINING_WU;
 }
 
-// returns a pair of the number of cycles and the number of bytes per tile.
-static std::pair<popsolver::Variable, popsolver::Variable>
+// returns a tuple of the number of copy and exchange cycles and the number of
+// bytes per tile
+static std::tuple<popsolver::Variable, popsolver::Variable, popsolver::Variable>
 addTransformCycleEstimate(
     popsolver::Model &m, const ConvParams &params,
     const ConvParams &transformedOnceParams,
@@ -1254,10 +1255,11 @@ addTransformCycleEstimate(
   const auto regroupBytesPerCycle =
       std::min<unsigned>(target.getMemcpyBytesPerCycle(),
                          partialChansPerGroup * inputBytesPerElement);
+
   if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
       !regroupOutput && !regroupWeights) {
     const auto zero = m.addConstant(0);
-    return std::make_pair(zero, zero);
+    return std::make_tuple(zero, zero, zero);
   }
 
   const auto &convSize = transformedConvSizes[ipuLevel];
@@ -1307,7 +1309,8 @@ addTransformCycleEstimate(
   const auto exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
 
   std::vector<popsolver::Variable> memoryUsage;
-  std::vector<popsolver::Variable> cyclesOperands;
+  std::vector<popsolver::Variable> copyCyclesOperands;
+  std::vector<popsolver::Variable> exchangeCyclesOperands;
 
   if (rearrangeInput || rearrangeWeights || regroupWeights) {
     const auto reorderBytesPerCycle = std::min<unsigned>(
@@ -1337,7 +1340,7 @@ addTransformCycleEstimate(
                       m.addConstant(factor[1] * regroupBytesPerCycle));
 
         memoryUsage.push_back(bytesPerTile);
-        cyclesOperands.push_back(cycles);
+        copyCyclesOperands.push_back(cycles);
       }
     }
     auto numElements = m.sum(numElementsOperands);
@@ -1345,14 +1348,14 @@ addTransformCycleEstimate(
     auto bytesPerTile =
         m.product({numElementsPerTile, m.addConstant(inputBytesPerElement)});
 
-    cyclesOperands.push_back(
+    exchangeCyclesOperands.push_back(
         m.ceildiv(bytesPerTile, m.addConstant(exchangeBytesPerCycle)));
     const auto factor = getScaleFactorForTransform(
         transformedOnceUnpaddedParams.inputType,
         transformedOnceUnpaddedParams.inputChannelsPerConvGroup *
             transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
 
-    cyclesOperands.push_back(
+    copyCyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                   m.addConstant(reorderBytesPerCycle * factor[1])));
     memoryUsage.push_back(bytesPerTile);
@@ -1372,12 +1375,12 @@ addTransformCycleEstimate(
     if (rearrangeOutput) {
       const auto outputReorderBytesPerCycle = std::min<unsigned>(
           target.getMemcpyBytesPerCycle(), outputBytesPerElement);
-      cyclesOperands.push_back(
+      exchangeCyclesOperands.push_back(
           m.ceildiv(bytesPerTile, m.addConstant(exchangeBytesPerCycle)));
       const auto factor = getScaleFactorForTransform(
           transformedOnceUnpaddedParams.outputType,
           transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
-      cyclesOperands.push_back(
+      copyCyclesOperands.push_back(
           m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                     m.addConstant(outputReorderBytesPerCycle * factor[1])));
       memoryUsage.push_back(bytesPerTile);
@@ -1385,7 +1388,7 @@ addTransformCycleEstimate(
       const auto factor = getScaleFactorForTransform(
           transformedOnceUnpaddedParams.outputType,
           transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
-      cyclesOperands.push_back(
+      copyCyclesOperands.push_back(
           m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                     m.addConstant(outputRegroupBytesPerCycle * factor[1])));
       memoryUsage.push_back(bytesPerTile);
@@ -1397,13 +1400,17 @@ addTransformCycleEstimate(
   // required is two times the usage as the input and output must be live at the
   // same time. of course this assumes that the inputs and outputs are the same
   // size which is not always the case.
-  const auto cycles =
-      m.sum(std::move(cyclesOperands), "transformCycleEstimate");
+  const auto copyCyclesEstimates =
+      m.sum(copyCyclesOperands, "transformCopyCycleEstimate");
+  const auto exchangeCyclesEstimates =
+      m.sum(exchangeCyclesOperands, "transformExchangeCycleEstimate");
+
   const auto tempBytes =
       m.product({m.max(std::move(memoryUsage)), m.addConstant(2u)},
                 "transformTempBytesEstimate");
 
-  return std::make_pair(cycles, tempBytes);
+  return std::make_tuple(copyCyclesEstimates, exchangeCyclesEstimates,
+                         tempBytes);
 }
 
 // estimation function for both dynamic slice and update.
@@ -1678,11 +1685,13 @@ static Estimates<popsolver::Variable> addEstimates(
       m, partitionVars, convSize, transformedDims, exchangeEstimator,
       transformedOnceParams, options, types, inputsPerLevel, weightsPerLevel);
 
-  std::tie(e.transformCycles, e.transformTempBytes) = addTransformCycleEstimate(
-      m, untransformedParams, transformedOnceParams,
-      transformedOnceUnpaddedParams, transforms, partitionVars,
-      transformedConvSize, transformedDims, inChansPerGroup,
-      partialChansPerGroup, types, isJointPlan, options, target);
+  std::tie(e.transformCopyCycles, e.transformExchangeCycles,
+           e.transformTempBytes) =
+      addTransformCycleEstimate(
+          m, untransformedParams, transformedOnceParams,
+          transformedOnceUnpaddedParams, transforms, partitionVars,
+          transformedConvSize, transformedDims, inChansPerGroup,
+          partialChansPerGroup, types, isJointPlan, options, target);
 
   const auto &intraTileSplits = partitionVars.back();
 
@@ -1793,10 +1802,10 @@ static Estimates<popsolver::Variable> addEstimates(
              e.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
              e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles});
 
-  e.totalCycles =
-      m.sum({e.dynamicSliceCycles, e.transformCycles, e.totalExchangeCycles,
-             e.tileLevelTransformCycles, e.partialCalcCycles, e.reduceCycles,
-             e.dynamicUpdateCycles, e.addInPlaceCycles});
+  e.totalCycles = m.sum(
+      {e.dynamicSliceCycles, e.transformCopyCycles, e.transformExchangeCycles,
+       e.totalExchangeCycles, e.tileLevelTransformCycles, e.partialCalcCycles,
+       e.reduceCycles, e.dynamicUpdateCycles, e.addInPlaceCycles});
   e.totalCycles = m.product({e.totalCycles, serialSplits});
   e.totalCycles = m.sum({e.memsetZeroBeforeAddInPlace, e.totalCycles,
                          e.rearrangeBeforeSliceCycles, e.castCycles});
@@ -1830,7 +1839,8 @@ static Estimates<popsolver::Variable> addEstimates(
         {posDiff(e.rearrangeBeforeSliceCycles, c.rearrangeBeforeSliceCycles),
          posDiff(e.memsetZeroBeforeAddInPlace, c.memsetZeroBeforeAddInPlace),
          posDiff(e.dynamicSliceCycles, c.dynamicSliceCycles),
-         posDiff(e.transformCycles, c.transformCycles),
+         posDiff(e.transformCopyCycles, c.transformCopyCycles),
+         posDiff(e.transformExchangeCycles, c.transformExchangeCycles),
 
          // TODO: should this be using the itemised exchange estimates?
          posDiff(e.totalExchangeCycles, c.totalExchangeCycles),

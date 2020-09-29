@@ -27,7 +27,7 @@ phasesDict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]    - rearrangement before slice: 0 cycles, 0 bytes (0 overhead, 0 per-loop iteration)
 # 16:52:46.800 55378 PL [D]    - memsetZeroBeforeAddInPlace: 0 cycles, unknown bytes
 # 16:52:46.800 55378 PL [D]    - dynamic slice: 0 cycles, unknown bytes
-# 16:52:46.800 55378 PL [D]    - transform: 1421 cycles, 2868 bytes
+# 16:52:46.800 55378 PL [D]    - transform: 33281 copy cycles, 9984 exchange cycles, 54784 bytes
 # 16:52:46.800 55378 PL [D]    - exchange: 8233 cycles, n/a bytes. (Input 4178, Weight 359, Reduce 3696 + 0)
 # 16:52:46.800 55378 PL [D]    - tile level transform: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - compute: 17338 cycles, 51072 bytes
@@ -44,7 +44,7 @@ plannerInfo = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(\d+)
                           ".+rearrangement before slice:\s(\d+).+" + newline +
                           ".+memsetZeroBeforeAddInPlace:\s(\d+).+" + newline +
                           ".+dynamic slice:\s(\d+).+" + newline +
-                          ".+transform:\s(\d+)\scycles,\s(\d+).+" + newline +
+                          ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+).+" + newline +
                           ".+exchange:\s(\d+).+Input\s(\d+),\sWeight\s(\d+),\sReduce\s(\d+)\s\+\s(\d+).+" + newline +
                           ".+tile level transform:\s(\d+).+" + newline +
                           ".+compute:\s(\d+).+" + newline +
@@ -56,7 +56,7 @@ plannerInfo = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(\d+)
 
 plannerInfoFieldsNames = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
                  'parallelSplit', 'serialSplit', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
-                 'dynamicSlice', 'transformsCycles', 'transformsBytes', 'exchange', 'inputExchange',
+                 'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes', 'exchange', 'inputExchange',
                  'weightsExchange', 'reduceExchange', 'reduceExchangePlus', 'tileTransforms',
                  'compute', 'reduce', 'dynamicUpdate', 'addInPlace', 'cast']
 
@@ -384,6 +384,7 @@ def run_tests(testsDict, outputPath, timeOut):
     pool.join()
 
     # New line required after progress bar has finished
+    logging.info('')
     if killedTests:
         logging.info('--------------------------------------------------------------------------------')
         logging.info(f'These tests were removed due to timeout {timeOut}sec:')
@@ -467,8 +468,8 @@ def calculate_diffs(plannerData, profileData):
     transformsExchange = transformsOffset + executionStepCycles.index('DoExchange')
     transformsOnTile = transformsOffset + executionStepCycles.index('OnTileExecute')
 
-    transformsExchangeDiff = get_diffs(plannerData.exchange, profileData[transformsExchange])
-    transformsOnTileDiff = get_diffs(plannerData.transformsCycles, profileData[transformsOnTile])
+    transformsExchangeDiff = get_diffs(plannerData.transformsExchangeCycles, profileData[transformsExchange])
+    transformsOnTileDiff = get_diffs(plannerData.transformsCopyCycles, profileData[transformsOnTile])
 
     return planner2ProfileRatioFields._make(x for x in [transformsExchangeDiff, transformsOnTileDiff])
 
@@ -657,6 +658,9 @@ def main():
     parser.add_argument('--test-binary', default='', help='')
     args = parser.parse_args()
 
+    # Make sure workspace folder  exists
+    if not os.path.exists(args.workspace):
+        os.makedirs(args.workspace)
 
     # Setup logging so that debug messages will be logged only to a file
     # Although, for running on CI it's beneficial to stdout everything
@@ -680,10 +684,6 @@ def main():
     )
 
     reportFile = os.path.join(args.workspace, args.results_file)
-
-    # Make sure workspace folder  exists
-    if not os.path.exists(args.workspace):
-        os.makedirs(args.workspace)
 
     # Get
     if args.ci_test is True:

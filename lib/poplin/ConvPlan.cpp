@@ -466,7 +466,8 @@ choosePlan(const poplar::Target &target,
   cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
   cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
   cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
-  cost.transformCycles = s[e.transformCycles];
+  cost.transformCopyCycles = s[e.transformCopyCycles];
+  cost.transformExchangeCycles = s[e.transformExchangeCycles];
 
   cost.totalExchangeCycles = s[e.totalExchangeCycles];
   cost.itemisedExchangeCycles.inputExchangeCycles =
@@ -1380,8 +1381,10 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
       cost.memsetZeroBeforeAddInPlace);
   logging::poplin::log(l, "   - dynamic slice: {} cycles, unknown bytes",
                        cost.dynamicSliceCycles);
-  logging::poplin::log(l, "   - transform: {} cycles, {} bytes",
-                       cost.transformCycles, cost.transformTempBytes);
+  logging::poplin::log(
+      l, "   - transform: {} copy cycles, {} exchange cycles, {} bytes",
+      cost.transformCopyCycles, cost.transformExchangeCycles,
+      cost.transformTempBytes);
   logging::poplin::log(
       l,
       "   - exchange: {} cycles, n/a bytes. (Input {},"
