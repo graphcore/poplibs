@@ -876,7 +876,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_1
                  --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_2
          COMMAND single_conv_layer
@@ -897,7 +897,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_2
                  --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_3
          COMMAND single_conv_layer
@@ -918,7 +918,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_3
                  --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_4
          COMMAND single_conv_layer
@@ -939,7 +939,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_4
                  --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_5
          COMMAND single_conv_layer
@@ -960,7 +960,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_5
                  --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_6
          COMMAND single_conv_layer
@@ -981,7 +981,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_6
                  --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_7
          COMMAND single_conv_layer
@@ -1002,7 +1002,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_7
                  --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_8
          COMMAND single_conv_layer
@@ -1023,7 +1023,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_8
                  --tiles-per-ipu=1
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_9
          COMMAND single_conv_layer
@@ -1044,7 +1044,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_9
                  --tiles-per-ipu=16
                  --ipus=2
                  --convolution-options={\"partialsType\":\"float\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 add_multitarget_test(NAME multi_ipu_conv_smoke_10
          COMMAND single_conv_layer
@@ -1065,7 +1065,7 @@ add_multitarget_test(NAME multi_ipu_conv_smoke_10
                  --tiles-per-ipu=24
                  --ipus=2
                  --convolution-options={\"partialsType\":\"half\"}
-         VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+         VARIANTS "Hw;${IPUMODEL_VARIANTS};${SIM_VARIANTS}")
 
 # Basic convolution to test profiling option
 add_multitarget_test(NAME conv_profile
@@ -2768,8 +2768,7 @@ foreach(TYPE half float)
                                --output-channels=${CO}
                                --tiles-per-ipu=20
                                --single-phase=fwd
-                               --fwd-plan-constraints-file=${DEPTHWISE_CONV_PLAN}
-                               VARIANTS "Hw;Cpu;${IPUMODEL_VARIANTS}")
+                               --fwd-plan-constraints-file=${DEPTHWISE_CONV_PLAN})
             endforeach()
           endforeach()
         endforeach()
@@ -3017,8 +3016,7 @@ add_multitarget_test(
                 --kernel-padding-lower={2,1}
                 --stride={1,1}
                 --ipus=2
-                --tiles-per-ipu=20
-                VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+                --tiles-per-ipu=20)
 
 add_multitarget_test(
          NAME conv3x3_kernel_padding_amp
@@ -3137,8 +3135,7 @@ add_multitarget_test(
                  --stride={1,2,1}
                  --tiles-per-ipu=2
                  --ipus=2
-                 --convolution-options={\"partialsType\":\"half\"}
-                 VARIANTS "Hw;Cpu;${IPUMODEL_VARIANTS}")
+                 --convolution-options={\"partialsType\":\"half\"})
 
 # Convolution seen in resnet 50 which exposed a bug when generating WU pass
 add_multitarget_test(

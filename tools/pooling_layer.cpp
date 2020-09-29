@@ -197,6 +197,9 @@ int main(int argc, char **argv) {
         engineOptions.set("profiler.useUnstableFormat", "true");
       }
     }
+    if (isSimulator(deviceType) && numIPUs > 1) {
+      engineOptions.set("debug.globalExchangeViaDebug", "true");
+    }
 
     po::notify(vm);
   } catch (std::exception &e) {
