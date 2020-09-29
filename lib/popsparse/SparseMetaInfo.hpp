@@ -18,6 +18,12 @@ template <typename T> struct MetaInfo {
     // ID of the sub-group: must be the first entry as it is checked for
     // in deciding to exit processing of a bucket.
     T id;
+    // The partition in the X dimension that this sub-group's information
+    // belongs to
+    T xPartition;
+    // The partition in the Y dimension that this sub-group's information
+    // belongs to
+    T yPartition;
     // Number of sparse values for this sub-group in this bucket.
     T sparseElementCount;
     // Offset to next sub-group's entry in this bucket.

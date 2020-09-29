@@ -212,9 +212,14 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
         metaInfo[bucket].emplace_back(processedSubGroupId);
         const auto processedSubGroupNumElems = subGroupNumElems[bucket].at(i);
         const auto elemsPerNzElem = generateGradAMetaInfo ? 2 : 1;
+        // No concept of a partition in codelet tests as yet
+        const auto xPartition = 0;
+        const auto yPartition = 0;
+        metaInfo[bucket].emplace_back(xPartition);
+        metaInfo[bucket].emplace_back(yPartition);
         metaInfo[bucket].emplace_back(processedSubGroupNumElems);
         const auto totalMetaInfoElems =
-            7 + fwdNumUsedWorkers * 5 + rows.size() * 2 +
+            9 + fwdNumUsedWorkers * 5 + rows.size() * 2 +
             processedSubGroupNumElems * elemsPerNzElem +
             (generateGradWMetaInfo ? 1 + 4 * gradWNumUsedWorkers : 0);
         const auto offsetToFirstOutputEntry =
@@ -344,10 +349,14 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
         const auto subGroupId = otherSubGroupIds[otherSubGroupIdx];
         const auto numElems = subGroupNumElems[bucket][i];
         metaInfo[bucket].emplace_back(subGroupId);
+        // Enforce a large numbered partition to go with sub group IDs that
+        // aren't to be used.
+        metaInfo[bucket].emplace_back(0xffff);
+        metaInfo[bucket].emplace_back(0xffff);
         metaInfo[bucket].emplace_back(numElems);
         // We also just use this no. of sub-elements as garbage in the meta-info
         // for the other (unprocessed) sub-groups.
-        metaInfo[bucket].emplace_back(numElems + 3);
+        metaInfo[bucket].emplace_back(numElems + 5);
         for (std::size_t i = 0; i < numElems; ++i) {
           metaInfo[bucket].emplace_back(garbageDist(randomEngine));
         }

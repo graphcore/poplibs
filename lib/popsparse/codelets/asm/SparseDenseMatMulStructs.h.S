@@ -16,14 +16,16 @@
 #define MIGradWorkerEntry_totalNumY                        6
 
 // Bucket meta information field offsets and sizes (in bytes)
-#define sizeof_MetaInfoSubGroupEntry                       14
+#define sizeof_MetaInfoSubGroupEntry                       18
 #define MetaInfoSubGroupEntry_id                           0
-#define MetaInfoSubGroupEntry_sparseElementCount           2
-#define MetaInfoSubGroupEntry_offsetToNextSubGroupMetaInfo 4
-#define MetaInfoSubGroupEntry_numZ                         6
-#define MetaInfoSubGroupEntry_numXm1                       8
-#define MetaInfoSubGroupEntry_offsetToFirstOutputEntry     10
-#define MetaInfoSubGroupEntry_numWorkers                   12
+#define MetaInfoSubGroupEntry_xPartition                   2
+#define MetaInfoSubGroupEntry_yPartition                   4
+#define MetaInfoSubGroupEntry_sparseElementCount           6
+#define MetaInfoSubGroupEntry_offsetToNextSubGroupMetaInfo 8
+#define MetaInfoSubGroupEntry_numZ                         10
+#define MetaInfoSubGroupEntry_numXm1                       12
+#define MetaInfoSubGroupEntry_offsetToFirstOutputEntry     14
+#define MetaInfoSubGroupEntry_numWorkers                   16
 #define sizeof_metaInfoEntry                               2
 
 

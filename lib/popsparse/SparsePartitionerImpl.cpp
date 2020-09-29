@@ -1289,6 +1289,8 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
       sgEntry.id = formSubgroupId(
           sg.tileIndex, {xSplits.size(), ySplits.size(), zSplits.size()},
           genForGradA);
+      sgEntry.xPartition = std::get<0>(sg.tileIndex);
+      sgEntry.yPartition = std::get<1>(sg.tileIndex);
       const auto numGrains =
           getNumZGrains(sg.tileIndex, zSplits, numZ, bucketsPerZ, grainZ);
       const auto numRows = sg.tileInfo.size();
@@ -1363,6 +1365,8 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
           offsetToNextSubGroup - nzEntriesThisSubgroup * entriesPerNz -
           (sizeof(outputEntries[0]) * numRows) / sizeof(std::size_t);
       group.push_back(sgEntry.id);
+      group.push_back(sgEntry.xPartition);
+      group.push_back(sgEntry.yPartition);
       group.push_back(nzEntriesThisSubgroup);
       group.push_back(offsetToNextSubGroup);
       group.push_back(numGrains * grainZ);

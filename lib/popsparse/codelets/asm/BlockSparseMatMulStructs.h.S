@@ -14,7 +14,7 @@
 #define MetaInfoSubGroupEntry_numGradWWorkers                   8
 
 #define sizeof_MetaInfoGradWWorkerEntry                             8
-#define MetaInfoGradWWorkerEntry_sparseOffset                       0      
+#define MetaInfoGradWWorkerEntry_sparseOffset                       0
 #define MetaInfoGradWWorkerEntry_metaInfoOffsetOutputEntry          2
 #define MetaInfoGradWWorkerEntry_metaInfoOffsetToOffsetsYInSFirst   4
 #define MetaInfoGradWWorkerEntry_totalNumY                          6
