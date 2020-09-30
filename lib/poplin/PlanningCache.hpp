@@ -33,8 +33,8 @@ public:
     decltype(poplibs_support::memoize(
         estimateZeroSupervisorCycles)) mEstimateZeroSupervisorCycles;
     decltype(poplibs_support::memoize(
-        getConvPartialSlicSupervisorOuterLoopCycleEstimate))
-        mGetConvPartialSlicSupervisorOuterLoopCycleEstimate;
+        getConvPartialSlicSupervisorCycleOuterLoopEstimate))
+        mGetConvPartialSlicSupervisorCycleOuterLoopEstimate;
     decltype(poplibs_support::memoize(
         getConvPartialSlicInnerLoopCycles)) mGetConvPartialSlicInnerLoopCycles;
 
@@ -50,8 +50,8 @@ public:
           mEstimateConvReduceCycles(estimateConvReduceCycles),
           mGetNumberOfMACs(getNumberOfMACs),
           mEstimateZeroSupervisorCycles(estimateZeroSupervisorCycles),
-          mGetConvPartialSlicSupervisorOuterLoopCycleEstimate(
-              getConvPartialSlicSupervisorOuterLoopCycleEstimate),
+          mGetConvPartialSlicSupervisorCycleOuterLoopEstimate(
+              getConvPartialSlicSupervisorCycleOuterLoopEstimate),
           mGetConvPartialSlicInnerLoopCycles(
               getConvPartialSlicInnerLoopCycles) {}
   };
