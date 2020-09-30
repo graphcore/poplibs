@@ -69,7 +69,7 @@
 #define s_workList                   m10
 #define s_zStrideInQ                 m7
 #define s_zStrideInS                 m9
-#define s_clrCWEI                    m9
+#define s_clrCWEI                    m3
 #define s_numGradWWorkers            m10
 #define s_xOffsetInQ                 m3
 #define s_yOffsetInS                 m3
@@ -100,6 +100,7 @@ ld32                   $s_qBase, $s_vertexBase, SUP_VBASE_Q_BASE/4
 shr                    $s_numBuckets, $s_metaInfoList, SHORT_SPAN_ADDRESS_BITS
 
 st32                   $m9, $sp, STACK_SIZE/4
+
 st32                   $m10, $sp, STACK_SIZE/4 + 1
 ld32                   $s_workList, $s_vertexBase, SUP_VBASE_WORKLIST/4
 ldz16                  $s_zStrideInQ, $s_vertexBase, SUP_VBASE_ZSTRIDEINQ/2
