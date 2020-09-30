@@ -664,18 +664,22 @@ static void copyPartitions(Graph &graph, Sequence &prog,
   prog.add(Copy(concat(flatSrc), concat(flatDst)));
 }
 
-static void rearrangePartitions(Graph &graph, const ComputeSet &cs,
-                                const std::vector<Tensor> &src,
-                                std::vector<Tensor> &dst,
-                                const std::vector<unsigned> &srcMemOrdering,
-                                const std::vector<unsigned> &dstMemOrdering,
-                                unsigned grouping,
-                                const std::string &debugPrefix) {
+// Rearrange partitions and return a view of an already mapped tensor.
+static std::vector<Tensor> rearrangePartitions(
+    Graph &graph, const ComputeSet &cs, const std::vector<Tensor> &src,
+    const std::vector<Tensor> &dst, const std::vector<unsigned> &srcMemOrdering,
+    const std::vector<unsigned> &dstMemOrdering, unsigned grouping,
+    const std::string &debugPrefix) {
+  std::vector<Tensor> dstView;
+  dstView.resize(dst.size());
   // We only really know how to deal with 2D transposes and don't expect
   // groups for the timebeing.
   assert(srcMemOrdering.at(0) == 0 && dstMemOrdering.at(0) == 0);
   assert(src.size() == dst.size());
   assert(grouping == 4 || grouping == 8 || grouping == 16);
+
+  const auto inverseDstMemOrdering = inversePermutation(dstMemOrdering);
+
   for (std::size_t i = 0; i < src.size(); ++i) {
     auto s = unfactorDims(src[i], 3);
     auto d = unfactorDims(dst[i], 3);
@@ -683,10 +687,8 @@ static void rearrangePartitions(Graph &graph, const ComputeSet &cs,
     assert(s.shape() == d.shape());
     s = s.dimShuffle(srcMemOrdering).squeeze({0});
     d = d.dimShuffle(dstMemOrdering).squeeze({0});
-#ifndef NDEBUG
-    const auto blockSize = s.elementType() == FLOAT ? 8U : 16U;
+    const auto blockSize = getRearrangementBlockSize(s.elementType());
     assert(s.dim(0) % blockSize == 0);
-#endif
     assert(s.dim(1) % grouping == 0);
 
     unsigned maxSizePerTile =
@@ -715,7 +717,19 @@ static void rearrangePartitions(Graph &graph, const ComputeSet &cs,
     assert(it != sliceTileMap.end());
     const auto tile = std::distance(sliceTileMap.begin(), it);
     graph.setTileMapping(v, tile);
+    auto dRearranged = d.reshape({d.dim(0) / grouping, d.dim(1) / blockSize,
+                                  grouping, blockSize})
+                           .dimShuffle({0, 2, 1, 3})
+                           .reshape(d.shape())
+                           .expand({0})
+                           .dimShuffle(inverseDstMemOrdering);
+
+    const auto dstShape = dst[i].shape();
+    const std::vector<std::size_t> dstGroupings(dstShape.end() - 3,
+                                                dstShape.end());
+    dstView.at(i) = factorDims(dRearranged, dstGroupings);
   }
+  return dstView;
 }
 
 static void allocatePerPartitionInputs(
@@ -1949,20 +1963,22 @@ static Tensor fullyConnectedSparseGradWImpl(
       allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
                                  hierarchy, 0, perPartition,
                                  debugPrefix + "/partitionedInputs");
-      rearrangePartitions(graph, transposeCS, nextLevelInputs, perPartition,
-                          inputSrcMemOrdering, inputDstMemOrdering,
-                          plan.grouping.z, debugPrefix + "/transposeInputs");
-      std::swap(nextLevelInputs, perPartition);
+      auto perPartitionView = rearrangePartitions(
+          graph, transposeCS, nextLevelInputs, perPartition,
+          inputSrcMemOrdering, inputDstMemOrdering, plan.grouping.z,
+          debugPrefix + "/transposeInputs");
+      std::swap(nextLevelInputs, perPartitionView);
     }
     if (weightsSrcMemOrdering != weightsDstMemOrdering) {
       std::vector<Tensor> perPartition;
       allocatePerPartitionInputs(graph, shape, {}, plan, false, inputType,
                                  hierarchy, 0, perPartition,
                                  debugPrefix + "/partitionedWeights");
-      rearrangePartitions(graph, transposeCS, nextLevelWeights, perPartition,
-                          weightsSrcMemOrdering, weightsDstMemOrdering,
-                          plan.grouping.x, debugPrefix + "/transposeWeights");
-      std::swap(nextLevelWeights, perPartition);
+      auto perPartitionView = rearrangePartitions(
+          graph, transposeCS, nextLevelWeights, perPartition,
+          weightsSrcMemOrdering, weightsDstMemOrdering, plan.grouping.x,
+          debugPrefix + "/transposeWeights");
+      std::swap(nextLevelWeights, perPartitionView);
     }
     progBuilder.preDistribution.add(Execute(transposeCS));
   }
