@@ -20,6 +20,10 @@ using namespace poplibs_support;
 namespace popsparse {
 namespace fullyconnected {
 
+unsigned getRearrangementBlockSize(const poplar::Type &type) {
+  return type == FLOAT ? 8U : 16U;
+}
+
 static std::string
 getVertexClass(const OnTileMethod &method, const Type &inputType,
                const Type &partialsType,
@@ -219,8 +223,23 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     if (method == OnTileMethod::GradWBlock) {
       // Expect X as innermost dimension
       weightsInCodeletOrder = weightsInCodeletOrder.dimRoll(1, 2);
+
     } else if (method == OnTileMethod::GradWAMPBlock) {
       actsInCodeletOrder = actsInCodeletOrder.dimRoll(1, 2);
+      const auto numY = actsInCodeletOrder.dim(1);
+      const auto numZ = actsInCodeletOrder.dim(2);
+      const auto blockSizeZ = getRearrangementBlockSize(inputType);
+      actsInCodeletOrder =
+          actsInCodeletOrder
+              .reshape({numY / blockDimensions.at(1), blockDimensions.at(1),
+                        numZ / blockSizeZ, blockSizeZ})
+              .dimShuffle({0, 2, 1, 3});
+      const auto numX = weightsInCodeletOrder.dim(1);
+      weightsInCodeletOrder =
+          weightsInCodeletOrder
+              .reshape({numX / blockDimensions.at(0), blockDimensions.at(0),
+                        numZ / blockSizeZ, blockSizeZ})
+              .dimShuffle({0, 2, 1, 3});
     }
     graph.connect(v["qGrad"], weightsInCodeletOrder.flatten());
     graph.connect(v["rGrad"], partials.squeeze(squeezePartialsDims));

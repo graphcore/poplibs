@@ -51,6 +51,9 @@ std::vector<unsigned> getOnTileWeightsOrdering(const OnTileMethod &method);
 // needed to lay out operands optimally for the operation.
 std::vector<unsigned> getOnTilePartialsOrdering(const OnTileMethod &method);
 
+// The block size used for the batch in GradW block rearrangements
+unsigned getRearrangementBlockSize(const poplar::Type &type);
+
 } // end namespace fullyconnected
 } // end namespace popsparse
 
