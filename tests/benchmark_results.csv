@@ -62,7 +62,7 @@ IpuModel,default,fc_layer_4_1000_5_float,9116,0.0,681469,-15.6,131160,0.0
 IpuModel,default,fc_layer_4_1000_5_half,8824,0.3,580118,0.0,131128,0.0
 IpuModel,default,fc_layer_80_1324_100,16609,-0.4,6672263,0.0,132536,0.0
 IpuModel,default,fc_layer_8_1000_1000_float,16860,0.0,11167730,-1.3,134936,0.0
-IpuModel,default,fc_layer_8_1000_1000_half,19131,0.0,9532656,-1.7,134488,0.0
+IpuModel,default,fc_layer_8_1000_1000_half,19107,-0.1,9532656,0.0,134488,0.0
 IpuModel,default,fc_layer_8_1000_5_float,8492,0.0,620301,-16.2,131160,0.0
 IpuModel,default,fc_layer_8_1000_5_half,10370,16.9,566683,-13.0,131128,0.0
 IpuModel,default,gemm_1000x256x10000,113957,-0.0,195771018,0.0,197464,0.0
