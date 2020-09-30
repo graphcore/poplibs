@@ -227,7 +227,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 24;
         } else {
           if (floatPartials) {
-            thisWorkerCycles += 20 + (outputZeroing ? 2 : 4);
+            thisWorkerCycles += (outputZeroing ? 22 : 25);
           } else {
             thisWorkerCycles += 24;
           }
@@ -238,7 +238,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 47 + (2 + zeroCyclesPerGroup) * outputZeroing;
         else {
           if (floatPartials) {
-            thisWorkerCycles += 31 + (outputZeroing ? 2 : 4);
+            thisWorkerCycles += (outputZeroing ? 35 : 39);
           } else {
             thisWorkerCycles += 39 + (2 + zeroCyclesPerGroup) * outputZeroing;
           }
@@ -249,7 +249,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
           thisWorkerCycles += 46 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
         else {
           if (floatPartials) {
-            thisWorkerCycles += 40 + (outputZeroing ? 2 : 4);
+            thisWorkerCycles += (outputZeroing ? 37 : 41);
           } else {
             thisWorkerCycles +=
                 40 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
@@ -264,7 +264,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         else {
           if (floatPartials) {
             thisWorkerCycles +=
-                (outputZeroing ? 38 : 40) + (numElems - 3) * coreCycles;
+                (outputZeroing ? 37 : 40) + (numElems - 3) * coreCycles;
           } else {
             thisWorkerCycles +=
                 41 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
@@ -287,10 +287,18 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
   return maxWorkerCycles;
 }
 
-inline unsigned getConvPartialAmpSupervisorWeightLoadCycleEstimate(
-    unsigned weightBytesPerConvUnit, unsigned numConvUnits,
+inline unsigned getConvPartialAmpSupervisorCycleWeightLoadEstimate(
+    unsigned convUnitInputLoadElemsPerCycle, unsigned numConvUnits,
     unsigned convUnitCoeffLoadBytesPerCycle, bool floatActivations,
     unsigned filterHeight) {
+
+  // Number of load instruction per AMP loop (See Loop_start_Amp label)
+  unsigned numInputLoadsInnerLoop = 4;
+
+  // When using AMP 4 engines number of loads need to be halved
+  if (numConvUnits == 4) {
+    numInputLoadsInnerLoop /= 2;
+  }
 
   // Nx1 specific - due to data shuffling can't use ld128 for filter height
   // equal to 4 so it's always uses ld64. ld128 allows to us to
@@ -299,8 +307,13 @@ inline unsigned getConvPartialAmpSupervisorWeightLoadCycleEstimate(
   if (filterHeight == 4 && convUnitCoeffLoadBytesPerCycle > 8) {
     convUnitCoeffLoadBytesPerCycle /= 2;
   }
-  const unsigned weightsLoadCycles =
-      (numConvUnits * weightBytesPerConvUnit) / convUnitCoeffLoadBytesPerCycle;
+
+  unsigned weightsLoadCycles =
+      (convUnitInputLoadElemsPerCycle * // 2 for floats and 4 for halves
+       numInputLoadsInnerLoop * numConvUnits *
+       (floatActivations ? 4 : 2)) / // convert elements to bytes
+      convUnitCoeffLoadBytesPerCycle;
+
   return weightsLoadCycles;
 }
 
@@ -308,7 +321,7 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
     std::uint64_t innerLoopCyclesWithZeroing,
     std::uint64_t innerLoopCyclesWithoutZeroing, unsigned numConvGroups,
     unsigned numInGroups, unsigned numOutGroups, unsigned outChansPerGroup,
-    unsigned weightBytesPerConvUnit, unsigned numConvUnits,
+    unsigned convUnitInputLoadElemsPerCycle, unsigned numConvUnits,
     unsigned convUnitCoeffLoadBytesPerCycle, bool floatActivations,
     bool floatPartials, unsigned numWorkerContexts) {
   const auto outputPassesPerGroup =
@@ -318,9 +331,9 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
       conv1x1WorkerRetentionSavings(floatActivations, floatPartials);
 
   // Filter height is not applicable to 1x1 vertex so set it to 1
-  const auto numLoads = getConvPartialAmpSupervisorWeightLoadCycleEstimate(
-      weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
-      floatActivations, 1);
+  const auto numLoads = getConvPartialAmpSupervisorCycleWeightLoadEstimate(
+      convUnitInputLoadElemsPerCycle, numConvUnits,
+      convUnitCoeffLoadBytesPerCycle, floatActivations, 1);
 
   const uint64_t supervisorNonloopOverhead = 50;
   const unsigned outPassesOverhead = 7;
@@ -345,7 +358,7 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
 inline std::uint64_t getConvPartial1x1SupervisorCycleEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numConvGroups, unsigned numInGroups, unsigned numOutGroups,
-    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
+    unsigned outChansPerGroup, unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
   auto innerLoopCyclesWithZeroing =
@@ -359,12 +372,13 @@ inline std::uint64_t getConvPartial1x1SupervisorCycleEstimate(
 
   return getConvPartial1x1SupervisorOuterLoopCycleEstimate(
       innerLoopCyclesWithZeroing, innerLoopCyclesWithoutZeroing, numConvGroups,
-      numInGroups, numOutGroups, outChansPerGroup, weightBytesPerConvUnit,
-      numConvUnits, convUnitCoeffLoadBytesPerCycle, floatActivations,
-      floatPartials, numWorkerContexts);
+      numInGroups, numOutGroups, outChansPerGroup,
+      convUnitInputLoadElemsPerCycle, numConvUnits,
+      convUnitCoeffLoadBytesPerCycle, floatActivations, floatPartials,
+      numWorkerContexts);
 }
 
-inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
+inline std::uint64_t getConvPartialnx1SupervisorCycleOuterLoopEstimate(
     std::uint64_t innerLoopCycles, unsigned numConvGroups,
     unsigned numOutGroups, unsigned numInGroups, unsigned outChansPerGroup,
     unsigned numConvUnits, unsigned numWorkerContexts, bool floatActivations,
@@ -385,10 +399,10 @@ inline std::uint64_t getConvPartialnx1SupervisorOuterLoopCycleEstimate(
       numConvGroups * (16 + numInGroups * (14 + numOutGroups * (14 + cycles)));
 }
 
-inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
+inline std::uint64_t getConvPartialnx1SupervisorCycleInnerLoopEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
-    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
+    unsigned outChansPerGroup, unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
   // Core loop cycles for vertex will all engines in use
@@ -405,9 +419,9 @@ inline std::uint64_t getConvPartialnx1SupervisorInnerLoopCycleEstimate(
 
   // innermostLoopCycles is the cycles in the innermost supervisor loop
   uint64_t innermostLoopCycles =
-      getConvPartialAmpSupervisorWeightLoadCycleEstimate(
-          weightBytesPerConvUnit, numConvUnits, convUnitCoeffLoadBytesPerCycle,
-          floatActivations, filterHeight);
+      getConvPartialAmpSupervisorCycleWeightLoadEstimate(
+          convUnitInputLoadElemsPerCycle, numConvUnits,
+          convUnitCoeffLoadBytesPerCycle, floatActivations, filterHeight);
 
   // additional load cycles dependent on filterHeight
   switch (filterHeight) {
@@ -480,21 +494,21 @@ inline std::uint64_t getConvPartialnx1SupervisorCycleEstimate(
     unsigned numConvGroups, unsigned numOutGroups, unsigned numInGroups,
     unsigned kernelInnerElems, unsigned kernelOuterElems, unsigned filterHeight,
     unsigned inChansPerGroup, unsigned outChansPerGroup,
-    unsigned weightBytesPerConvUnit, unsigned numConvUnits,
+    unsigned convUnitInputLoadElemsPerCycle, unsigned numConvUnits,
     unsigned convUnitCoeffLoadBytesPerCycle, unsigned numWorkerContexts,
     bool floatActivations, bool floatPartials) {
-  auto innerLoopCycles = getConvPartialnx1SupervisorInnerLoopCycleEstimate(
+  auto innerLoopCycles = getConvPartialnx1SupervisorCycleInnerLoopEstimate(
       workerPartitions, kernelInnerElems, kernelOuterElems, filterHeight,
-      outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
+      outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnits,
       convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatActivations,
       floatPartials);
-  return getConvPartialnx1SupervisorOuterLoopCycleEstimate(
+  return getConvPartialnx1SupervisorCycleOuterLoopEstimate(
       innerLoopCycles, numConvGroups, numOutGroups, numInGroups,
       outChansPerGroup, numConvUnits, numWorkerContexts, floatActivations,
       floatPartials);
 }
 
-inline std::uint64_t getConvPartialSlicSupervisorWeightLoadCycleEstimate(
+inline std::uint64_t getConvPartialSlicSupervisorCycleWeightLoadEstimate(
     unsigned convGroupsPerGroup, unsigned chansPerGroup,
     unsigned numWorkerContexts, unsigned slicWindowWidth) {
   assert(slicWindowWidth == 4u);
@@ -518,7 +532,7 @@ inline std::uint64_t getConvPartialSlicSupervisorWeightLoadCycleEstimate(
   return cycles;
 }
 
-inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
+inline std::uint64_t getConvPartialSlicSupervisorCycleOuterLoopEstimate(
     std::uint64_t implicitZeroingInnerLoopCycles, std::uint64_t innerLoopCycles,
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
     unsigned numSubKernels, unsigned numConvUnits, unsigned slicWindowWidth,
@@ -567,7 +581,7 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
 // for all workers to process a single conv group/sub-kernel. There is
 // a strong assumption that the amount of work is always the same between
 // sub-kernels.
-inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimate(
+inline std::uint64_t getConvPartialSlicSupervisorCycleInnerLoopEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
     unsigned numWorkerContexts, unsigned numConvUnits, unsigned slicWindowWidth,
     bool floatActivations, bool floatPartials, unsigned outputStride,
@@ -892,7 +906,7 @@ inline unsigned getNumConvUnits(bool floatActivations, bool floatPartial,
 inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
     unsigned batchElements, const std::vector<unsigned> &outShape,
     const std::vector<unsigned> &kernelShape, unsigned filterHeight,
-    unsigned outChansPerGroup, unsigned weightBytesPerConvUnit,
+    unsigned outChansPerGroup, unsigned convUnitInputLoadElemsPerCycle,
     unsigned numConvUnits, unsigned convUnitCoeffLoadBytesPerCycle,
     unsigned numWorkerContexts, bool floatWeights, bool floatPartials,
     const std::vector<unsigned> &inputDilation,
@@ -927,12 +941,12 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
       }
     }
   }
-  const auto kernelInnerElems = numKernelPositions / positionsOuter;
-  const auto kernelOuterElems = positionsOuter;
+  const auto kernelOuterElems = numKernelPositions / positionsOuter;
+  const auto kernelInnerElems = positionsOuter;
 
-  return getConvPartialnx1SupervisorInnerLoopCycleEstimate(
+  return getConvPartialnx1SupervisorCycleInnerLoopEstimate(
       workList, kernelInnerElems, kernelOuterElems, filterHeight,
-      outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
+      outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnits,
       convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
       floatPartials);
 }
@@ -1008,7 +1022,7 @@ inline std::uint64_t getConvPartialSlicInnerLoopCycles(
       worklist[context].push_back(workerOutWidth);
     }
   }
-  return getConvPartialSlicSupervisorInnerLoopCycleEstimate(
+  return getConvPartialSlicSupervisorCycleInnerLoopEstimate(
       worklist, numWorkerContexts, numConvUnits, slicWindowWidth,
       floatActivations, floatPartials, outputStride.back(), implicitZeroing);
 }
