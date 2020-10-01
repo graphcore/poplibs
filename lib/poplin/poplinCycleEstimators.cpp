@@ -80,17 +80,19 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
     }
   }
   bool floatWeights = fpType == FLOAT;
-  const auto convUnitInputLoadElemsPerCycle =
-      target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
+  const auto weightBytesPerConvUnit =
+      target.getWeightsPerConvUnit(fpType == FLOAT) *
+      target.getTypeSize(fpType);
   auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
-  if (!use128BitConvUnitLoad)
+  if (!use128BitConvUnitLoad) {
     convUnitCoeffLoadBytesPerCycle /= 2;
+  }
   return zeroCycles + getConvPartialnx1SupervisorCycleEstimate(
                           workerPartitions, numConvGroups, numOutGroups,
                           numInGroups, kernelInnerElements, kernelOuterSize,
                           ampKernelHeight, inChansPerGroup, outChansPerGroup,
-                          convUnitInputLoadElemsPerCycle, numConvUnits,
+                          weightBytesPerConvUnit, numConvUnits,
                           convUnitCoeffLoadBytesPerCycle, numWorkerContexts,
                           floatWeights, floatPartials);
 }
@@ -133,15 +135,17 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
     workerPartitions.back().push_back(numFieldElems);
   }
   bool floatWeights = fpType == FLOAT;
-  const auto convUnitInputLoadElemsPerCycle =
-      target.getConvUnitInputLoadElemsPerCycle(fpType == FLOAT);
+  const auto weightBytesPerConvUnit =
+      target.getWeightsPerConvUnit(fpType == FLOAT) *
+      target.getTypeSize(fpType);
   auto convUnitCoeffLoadBytesPerCycle =
       target.getConvUnitCoeffLoadBytesPerCycle();
-  if (!use128BitConvUnitLoad)
+  if (!use128BitConvUnitLoad) {
     convUnitCoeffLoadBytesPerCycle /= 2;
+  }
   return getConvPartial1x1SupervisorCycleEstimate(
       workerPartitions, numConvGroups, numInGroups, numOutGroups,
-      outChansPerGroup, convUnitInputLoadElemsPerCycle, numConvUnits,
+      outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
       convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
       accumType == FLOAT);
 }
@@ -265,18 +269,18 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
   const bool floatPartials = accumType == FLOAT;
 
   const auto implicitZeroingInnerCycles =
-      getConvPartialSlicSupervisorCycleInnerLoopEstimate(
+      getConvPartialSlicSupervisorInnerLoopCycleEstimate(
           workerPartitions, numWorkerContexts, numConvUnits, slicWindowWidth,
           floatActivations, floatPartials, outStride,
           /* implicitZeroing */ true);
-  const auto innerCycles = getConvPartialSlicSupervisorCycleInnerLoopEstimate(
+  const auto innerCycles = getConvPartialSlicSupervisorInnerLoopCycleEstimate(
       workerPartitions, numWorkerContexts, numConvUnits, slicWindowWidth,
       floatActivations, floatPartials, outStride, /* implicitZeroing */ false);
   const auto weightLoadCycles =
-      getConvPartialSlicSupervisorCycleWeightLoadEstimate(
+      getConvPartialSlicSupervisorWeightLoadCycleEstimate(
           convGroupsPerGroup, chansPerGroup, numWorkerContexts,
           slicWindowWidth);
-  const auto cycles = getConvPartialSlicSupervisorCycleOuterLoopEstimate(
+  const auto cycles = getConvPartialSlicSupervisorOuterLoopCycleEstimate(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
       numConvGroupGroups, numSubKernels, numConvUnits, slicWindowWidth,
       floatActivations, floatPartials);

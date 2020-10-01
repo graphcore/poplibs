@@ -345,7 +345,7 @@ static bool canUseConvolutionInstruction(bool floatActivations,
 static bool canUseConvolutionInstruction(bool floatActivations,
                                          bool floatPartials,
                                          unsigned inChansPerGroup,
-                                         unsigned numConvUniteRequired,
+                                         unsigned numConvUnitsRequired,
                                          unsigned outChansPerGroup,
                                          const poplar::Target &target) {
   if (!canUseConvolutionInstruction(floatActivations, floatPartials, target)) {
@@ -355,16 +355,16 @@ static bool canUseConvolutionInstruction(bool floatActivations,
       target.getWeightsPerConvUnit(floatActivations);
   // Any other configuration than 4 uses full set of weights hence no need for
   // extra constraint
-  if (numConvUniteRequired == 4) {
+  if (numConvUnitsRequired == 4) {
     usedWeightsPerConvUnit =
-        (usedWeightsPerConvUnit * numConvUniteRequired) /
+        (usedWeightsPerConvUnit * numConvUnitsRequired) /
         getConvUnitsPerTile(target, floatActivations, floatPartials);
   }
   if (usedWeightsPerConvUnit % inChansPerGroup != 0) {
     return false;
   }
   // Output channels grouping shall be great or equal to number of engines
-  if ((outChansPerGroup % numConvUniteRequired) != 0) {
+  if ((outChansPerGroup % numConvUnitsRequired) != 0) {
     return false;
   }
   // Check we can use aligned loads.
