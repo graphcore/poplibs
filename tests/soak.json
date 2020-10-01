@@ -1,11 +1,11 @@
 {
     "tests": [
         {
-            "name": "single conv layer - Sim",
+            "name": "single conv layer - Sim2",
             "program": "${ROOT_DIR}/poplibs/tools/single_conv_layer_random.py",
             "args": [
                 "--seed", "${TEST_SEED}",
-                "--device-type", "Sim",
+                "--device-type", "Sim2",
                 "--binary", "${BUILD_DIR}/build/poplibs/tools/single_conv_layer"
             ],
             "testArgs": {
@@ -17,11 +17,11 @@
             "parallel": 40
         },
         {
-            "name": "multi conv layer - Sim",
+            "name": "multi conv layer - Sim2",
             "program": "${ROOT_DIR}/poplibs/tools/single_conv_layer_random.py",
             "args": [
                 "--seed", "${TEST_SEED}",
-                "--device-type", "Sim",
+                "--device-type", "Sim2",
                 "--binary", "${BUILD_DIR}/build/poplibs/tools/multi_conv_layer",
                 "--large",
                 "--json",
