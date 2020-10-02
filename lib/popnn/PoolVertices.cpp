@@ -14,6 +14,7 @@
 #include <boost/icl/interval_map.hpp>
 #include <boost/icl/interval_set.hpp>
 #include <cassert>
+#include <tbb/parallel_for.h>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -673,17 +674,32 @@ tileRegionsSet(const PoolSlice &slice, const std::vector<std::size_t> &shape) {
   }
   const auto fieldSize = product(fieldSliceSize);
 
+  // The beginning of the group used to find the region is computed by using
+  // a flattened index given reducedShape. This is split into two parts. The
+  // constant part for all possible field positions is precomputed and the
+  // the second part is done in that loop.
+  std::vector<std::size_t> flattenedFieldIndex;
+  flattenedFieldIndex.reserve(fieldSize);
+  const std::vector<std::size_t> reducedFieldShape(reducedShape.begin() + 2,
+                                                   reducedShape.end());
+  for (std::size_t f = 0; f != fieldSize; ++f) {
+    auto indices = unflattenIndex(fieldSliceSize, f);
+    std::transform(indices.begin(), indices.end(), slice.fieldBegin.begin(),
+                   indices.begin(), std::plus<std::size_t>());
+    flattenedFieldIndex.push_back(flattenIndex(reducedFieldShape, indices));
+  }
+
+  const std::vector<std::size_t> channelsAndBatchShape(
+      reducedShape.begin(), reducedShape.begin() + 2);
+  const auto reducedFieldSize = product(reducedFieldShape);
   for (std::size_t b = slice.batchBegin; b != slice.batchEnd; ++b) {
     for (std::size_t c = slice.chanBegin / chansPerGroup;
          c != slice.chanEnd / chansPerGroup; ++c) {
       for (std::size_t f = 0; f != fieldSize; ++f) {
         std::vector<std::size_t> indices = {c, b};
-        auto fieldIndices = unflattenIndex(fieldSliceSize, f);
-        std::transform(fieldIndices.begin(), fieldIndices.end(),
-                       slice.fieldBegin.begin(), std::begin(fieldIndices),
-                       std::plus<std::size_t>());
-        indices.insert(indices.end(), fieldIndices.begin(), fieldIndices.end());
-        auto groupBegin = flattenIndex(reducedShape, indices);
+        auto groupBegin =
+            flattenIndex(channelsAndBatchShape, indices) * reducedFieldSize +
+            flattenedFieldIndex[f];
         regions += boost::icl::interval<std::size_t>::right_open(
             groupBegin * chansPerGroup, (groupBegin + 1) * chansPerGroup);
       }
@@ -713,24 +729,33 @@ getTileMappingSets(Graph &graph, const Tensor &in_) {
 // mapped on tile
 static unsigned getTileToMap(
     const std::vector<boost::icl::interval_set<std::size_t>> &tileMappingSet,
+    const std::vector<std::size_t> &tileMappingSetSize,
     const boost::icl::interval_set<std::size_t> &setToMatch,
     std::vector<unsigned> &tileMapOrder) {
   assert(tileMapOrder.size() == tileMappingSet.size());
-  unsigned bestSize = 0;
+  const unsigned numTiles = tileMappingSetSize.size();
+
+  // compute set intersection sizes in parallel
+  std::vector<std::size_t> intersectionSize(numTiles);
+  tbb::parallel_for(unsigned(0), numTiles, [&](unsigned t) {
+    auto index = tileMapOrder[t];
+    if (index != ~0U) {
+      auto intersection = tileMappingSet[index] & setToMatch;
+      intersectionSize[t] = intersection.size();
+    }
+  });
+
+  // Now find the best
+  std::size_t bestSize = 0;
   unsigned bestIndex = ~0U;
   for (unsigned t = 0; t != tileMapOrder.size(); ++t) {
-    auto index = tileMapOrder[t];
-    if (index == ~0U)
-      continue;
-    // find which has the best match
-    auto setUnion = tileMappingSet[index] + setToMatch;
-    auto setIntersection =
-        tileMappingSet[index].size() + setToMatch.size() - setUnion.size();
-    if (setIntersection > bestSize || bestIndex == ~0U) {
+    if (tileMapOrder[t] != ~0U &&
+        (intersectionSize[t] > bestSize || bestIndex == ~0U)) {
       bestIndex = t;
-      bestSize = setIntersection;
+      bestSize = intersectionSize[t];
     }
   }
+
   assert(bestIndex != ~0U);
   auto tile = tileMapOrder[bestIndex];
   tileMapOrder[bestIndex] = ~0U;
@@ -761,6 +786,7 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   // By default use tile introspection on input tensor. But in the case when
   // output mapping is available, allow an option to use it.
   std::vector<boost::icl::interval_set<std::size_t>> tileMappingSets;
+  std::vector<std::size_t> tileMappingSetsSize;
   std::vector<unsigned> mapOrder;
   bool useIntrospectionOnInput = true;
 
@@ -773,13 +799,20 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
       useIntrospectionOnInput ? in : *fwdInputActs;
 
   if (poolOptions.poolUseIntrospectiveMapping) {
+
     tileMappingSets = getTileMappingSets(graph, tensorForTileIntrospection);
-    mapOrder.resize(tileMappingSets.size());
+    const auto numTileMappingSets = tileMappingSets.size();
+    mapOrder.resize(numTileMappingSets);
     std::iota(mapOrder.begin(), mapOrder.end(), 0);
-    std::stable_sort(
-        mapOrder.begin(), mapOrder.end(), [&](unsigned a, unsigned b) {
-          return tileMappingSets[a].size() < tileMappingSets[b].size();
-        });
+    tileMappingSetsSize.resize(numTileMappingSets);
+    for (std::size_t i = 0; i != numTileMappingSets; ++i) {
+      tileMappingSetsSize[i] = tileMappingSets[i].size();
+    }
+
+    std::stable_sort(mapOrder.begin(), mapOrder.end(),
+                     [&](std::size_t a, std::size_t b) {
+                       return tileMappingSetsSize[a] < tileMappingSetsSize[b];
+                     });
   }
 
   std::vector<ComputeSet> cs;
@@ -831,7 +864,10 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
             const auto tileRegions = tileRegionsSet(
                 useIntrospectionOnInput ? inputSlice : outputSlice,
                 tensorForTileIntrospection.shape());
-            tile = getTileToMap(tileMappingSets, tileRegions, mapOrder);
+
+            tile = getTileToMap(tileMappingSets, tileMappingSetsSize,
+                                tileRegions, mapOrder);
+
           } else {
             tile = linearTileMap(poolIndices, partition);
           }

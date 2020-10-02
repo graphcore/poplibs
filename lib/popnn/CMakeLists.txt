@@ -50,6 +50,7 @@ target_link_libraries(popnn
     poplar poplin poputil ${CMAKE_DL_LIBS}
   PRIVATE
     poplibs_support Boost::boost
+    TBB::TBB
 )
 
 target_include_directories(popnn
