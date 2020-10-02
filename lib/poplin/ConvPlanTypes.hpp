@@ -110,13 +110,8 @@ inline bool operator<(const ExchangeEstimates<T> &a,
   return helper.lt(a, b);
 }
 
-template <typename T> struct Estimates {
-  Estimates() = default;
-  Estimates(const T totalTiles, const T totalCycles, const T totalTempBytes,
-            const T totalPerStepCycleDiff)
-      : totalTiles(totalTiles), totalCycles(totalCycles),
-        totalTempBytes(totalTempBytes),
-        totalPerStepCycleDiff(totalPerStepCycleDiff) {}
+template <typename T> struct SinglePassEstimates {
+  SinglePassEstimates() = default;
 
   // the four values we support minimizing on.
   T totalTiles;
@@ -150,6 +145,27 @@ template <typename T> struct Estimates {
   T addInPlaceTempBytes;
 };
 
+using SinglePassCost = SinglePassEstimates<popsolver::DataType>;
+
+template <typename T> struct Estimates {
+  Estimates() = default;
+  Estimates(const T totalTiles, const T totalCycles, const T totalTempBytes,
+            const T totalPerStepCycleDiff)
+      : totalTiles(totalTiles), totalCycles(totalCycles),
+        totalTempBytes(totalTempBytes),
+        totalPerStepCycleDiff(totalPerStepCycleDiff) {}
+
+  // the four values we support minimizing on.
+  T totalTiles;
+  T totalCycles;
+  T totalTempBytes;
+  T totalPerStepCycleDiff;
+
+  SinglePassEstimates<T> passEstimates;
+  boost::optional<SinglePassEstimates<T>> jointPlanBwdEstimates;
+  boost::optional<SinglePassEstimates<T>> jointPlanWuEstimates;
+};
+
 using Cost = Estimates<popsolver::DataType>;
 
 static Cost highestCost(popsolver::DataType::max(), popsolver::DataType::max(),
@@ -166,28 +182,14 @@ inline bool operator!=(const Cost &a, const Cost &b) { return !(a == b); }
 inline bool operator<(const Cost &a, const Cost &b) {
   constexpr static auto helper = poplibs_support::makeStructHelper(
       &Cost::totalTiles, &Cost::totalCycles, &Cost::totalTempBytes,
-      &Cost::totalPerStepCycleDiff,
-
-      &Cost::rearrangeBeforeSliceCycles, &Cost::memsetZeroBeforeAddInPlace,
-      &Cost::dynamicSliceCycles, &Cost::transformCopyCycles,
-      &Cost::transformExchangeCycles,
-
-      &Cost::totalExchangeCycles, &Cost::itemisedExchangeCycles,
-
-      &Cost::tileLevelTransformCycles, &Cost::partialCalcCycles,
-      &Cost::reduceCycles, &Cost::dynamicUpdateCycles, &Cost::addInPlaceCycles,
-      &Cost::castCycles,
-
-      &Cost::rearrangeBeforeSliceTempBytes,
-      &Cost::rearrangeBeforeSliceTempDuringRearrangeBytes,
-      &Cost::transformTempBytes, &Cost::tileLevelTransformTempBytes,
-      &Cost::convTempBytes, &Cost::reduceTempBytes, &Cost::addInPlaceTempBytes);
+      &Cost::totalPerStepCycleDiff);
 
   return helper.lt(a, b);
 }
 
 // performs a max on the itemised cycle counts only.
-inline Cost maxPerStepCycles(Cost a, const Cost &b) {
+inline SinglePassCost maxPerStepCycles(SinglePassCost a,
+                                       const SinglePassCost &b) {
   a.rearrangeBeforeSliceCycles =
       std::max(a.rearrangeBeforeSliceCycles, b.rearrangeBeforeSliceCycles);
   a.memsetZeroBeforeAddInPlace =
@@ -212,6 +214,24 @@ inline Cost maxPerStepCycles(Cost a, const Cost &b) {
   a.addInPlaceCycles = std::max(a.addInPlaceCycles, b.addInPlaceCycles);
   a.castCycles = std::max(a.castCycles, b.castCycles);
 
+  return a;
+}
+
+// performs a max on the itemised cycle counts only.
+inline Cost maxPerStepCycles(Cost a, const Cost &b) {
+  a.passEstimates = maxPerStepCycles(a.passEstimates, b.passEstimates);
+  assert(a.jointPlanBwdEstimates.has_value() ==
+         b.jointPlanBwdEstimates.has_value());
+  assert(a.jointPlanWuEstimates.has_value() ==
+         b.jointPlanWuEstimates.has_value());
+  if (a.jointPlanBwdEstimates) {
+    a.jointPlanBwdEstimates =
+        maxPerStepCycles(*a.jointPlanBwdEstimates, *b.jointPlanBwdEstimates);
+  }
+  if (a.jointPlanWuEstimates) {
+    a.jointPlanWuEstimates =
+        maxPerStepCycles(*a.jointPlanWuEstimates, *b.jointPlanWuEstimates);
+  }
   return a;
 }
 

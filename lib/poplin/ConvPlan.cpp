@@ -399,6 +399,65 @@ static Partition makePartition(const popsolver::Solution &s,
   return partition;
 }
 
+static SinglePassCost
+getCostOfSolution(const popsolver::Solution &s,
+                  const SinglePassEstimates<popsolver::Variable> &e) {
+  SinglePassCost cost;
+  cost.totalCycles = s[e.totalCycles];
+  cost.totalTempBytes = s[e.totalTempBytes];
+  cost.totalPerStepCycleDiff = s[e.totalPerStepCycleDiff];
+  cost.totalTiles = s[e.totalTiles];
+
+  cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
+  cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
+  cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
+  cost.transformCopyCycles = s[e.transformCopyCycles];
+  cost.transformExchangeCycles = s[e.transformExchangeCycles];
+
+  cost.totalExchangeCycles = s[e.totalExchangeCycles];
+  cost.itemisedExchangeCycles.inputExchangeCycles =
+      s[e.itemisedExchangeCycles.inputExchangeCycles];
+  cost.itemisedExchangeCycles.weightExchangeCycles =
+      s[e.itemisedExchangeCycles.weightExchangeCycles];
+  cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles =
+      s[e.itemisedExchangeCycles.reduceFirstStageExchangeCycles];
+  cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles =
+      s[e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles];
+
+  cost.tileLevelTransformCycles = s[e.tileLevelTransformCycles];
+  cost.partialCalcCycles = s[e.partialCalcCycles];
+  cost.reduceCycles = s[e.reduceCycles];
+  cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
+  cost.addInPlaceCycles = s[e.addInPlaceCycles];
+  cost.castCycles = s[e.castCycles];
+
+  cost.rearrangeBeforeSliceTempBytes = s[e.rearrangeBeforeSliceTempBytes];
+  cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
+      s[e.rearrangeBeforeSliceTempDuringRearrangeBytes];
+  cost.transformTempBytes = s[e.transformTempBytes];
+  cost.tileLevelTransformTempBytes = s[e.tileLevelTransformTempBytes];
+  cost.convTempBytes = s[e.convTempBytes];
+  cost.reduceTempBytes = s[e.reduceTempBytes];
+  cost.addInPlaceTempBytes = s[e.addInPlaceTempBytes];
+  return cost;
+}
+
+static Cost getCostOfSolution(const popsolver::Solution &s,
+                              const Estimates<popsolver::Variable> &e) {
+  Cost cost;
+  cost.totalCycles = s[e.totalCycles];
+  cost.totalTempBytes = s[e.totalTempBytes];
+  cost.totalPerStepCycleDiff = s[e.totalPerStepCycleDiff];
+  cost.totalTiles = s[e.totalTiles];
+
+  cost.passEstimates = getCostOfSolution(s, e.passEstimates);
+  if (e.jointPlanBwdEstimates)
+    cost.jointPlanBwdEstimates = getCostOfSolution(s, *e.jointPlanBwdEstimates);
+  if (e.jointPlanWuEstimates)
+    cost.jointPlanWuEstimates = getCostOfSolution(s, *e.jointPlanWuEstimates);
+  return cost;
+}
+
 static std::tuple<Plan, Cost, popsolver::ConstraintEvaluationSummary>
 choosePlan(const poplar::Target &target,
            const std::vector<ConvTransform> &transforms,
@@ -457,43 +516,7 @@ choosePlan(const poplar::Target &target,
             startTile.second, isJointPlan, convVertexType.useLimitedVersion);
   plan.transforms = transforms;
 
-  Cost cost;
-  cost.totalCycles = s[e.totalCycles];
-  cost.totalTempBytes = s[e.totalTempBytes];
-  cost.totalPerStepCycleDiff = s[e.totalPerStepCycleDiff];
-  cost.totalTiles = s[e.totalTiles];
-
-  cost.rearrangeBeforeSliceCycles = s[e.rearrangeBeforeSliceCycles];
-  cost.memsetZeroBeforeAddInPlace = s[e.memsetZeroBeforeAddInPlace];
-  cost.dynamicSliceCycles = s[e.dynamicSliceCycles];
-  cost.transformCopyCycles = s[e.transformCopyCycles];
-  cost.transformExchangeCycles = s[e.transformExchangeCycles];
-
-  cost.totalExchangeCycles = s[e.totalExchangeCycles];
-  cost.itemisedExchangeCycles.inputExchangeCycles =
-      s[e.itemisedExchangeCycles.inputExchangeCycles];
-  cost.itemisedExchangeCycles.weightExchangeCycles =
-      s[e.itemisedExchangeCycles.weightExchangeCycles];
-  cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles =
-      s[e.itemisedExchangeCycles.reduceFirstStageExchangeCycles];
-  cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles =
-      s[e.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles];
-
-  cost.tileLevelTransformCycles = s[e.tileLevelTransformCycles];
-  cost.partialCalcCycles = s[e.partialCalcCycles];
-  cost.reduceCycles = s[e.reduceCycles];
-  cost.dynamicUpdateCycles = s[e.dynamicUpdateCycles];
-  cost.addInPlaceCycles = s[e.addInPlaceCycles];
-  cost.castCycles = s[e.castCycles];
-
-  cost.rearrangeBeforeSliceTempBytes = s[e.rearrangeBeforeSliceTempBytes];
-  cost.rearrangeBeforeSliceTempDuringRearrangeBytes =
-      s[e.rearrangeBeforeSliceTempDuringRearrangeBytes];
-  cost.transformTempBytes = s[e.transformTempBytes];
-  cost.tileLevelTransformTempBytes = s[e.tileLevelTransformTempBytes];
-  cost.convTempBytes = s[e.convTempBytes];
-  cost.reduceTempBytes = s[e.reduceTempBytes];
-  cost.addInPlaceTempBytes = s[e.addInPlaceTempBytes];
+  Cost cost = getCostOfSolution(s, e);
 
   return {plan, cost, s.constraintsEvaluated()};
 }
@@ -1367,49 +1390,74 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
                        plan.totalParallelSplit());
   logging::poplin::log(l, "   - total serial split: {}",
                        plan.totalSerialSplit());
-  logging::poplin::log(
-      l,
-      "   - rearrangement before slice: {} cycles, {} bytes ({} "
-      "overhead, {} per-loop iteration)",
-      cost.rearrangeBeforeSliceCycles,
-      cost.rearrangeBeforeSliceTempBytes +
-          cost.rearrangeBeforeSliceTempDuringRearrangeBytes,
-      cost.rearrangeBeforeSliceTempBytes,
-      cost.rearrangeBeforeSliceTempDuringRearrangeBytes);
-  logging::poplin::log(
-      l, "   - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes",
-      cost.memsetZeroBeforeAddInPlace);
-  logging::poplin::log(l, "   - dynamic slice: {} cycles, unknown bytes",
-                       cost.dynamicSliceCycles);
-  logging::poplin::log(
-      l, "   - transform: {} copy cycles, {} exchange cycles, {} bytes",
-      cost.transformCopyCycles, cost.transformExchangeCycles,
-      cost.transformTempBytes);
-  logging::poplin::log(
-      l,
-      "   - exchange: {} cycles, n/a bytes. (Input {},"
-      " Weight {}, Reduce {} + {})",
-      cost.totalExchangeCycles, cost.itemisedExchangeCycles.inputExchangeCycles,
-      cost.itemisedExchangeCycles.weightExchangeCycles,
-      cost.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
-      cost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles);
+  auto logPass = [&](const SinglePassCost &passCost, unsigned indent) {
+    std::string prefix(indent, ' ');
+    logging::poplin::log(
+        l,
+        "{} - rearrangement before slice: {} cycles, {} bytes ({} "
+        "overhead, {} per-loop iteration)",
+        prefix, passCost.rearrangeBeforeSliceCycles,
+        passCost.rearrangeBeforeSliceTempBytes +
+            passCost.rearrangeBeforeSliceTempDuringRearrangeBytes,
+        passCost.rearrangeBeforeSliceTempBytes,
+        passCost.rearrangeBeforeSliceTempDuringRearrangeBytes);
+    logging::poplin::log(
+        l, "{} - memsetZeroBeforeAddInPlace: {} cycles, unknown bytes", prefix,
+        passCost.memsetZeroBeforeAddInPlace);
+    logging::poplin::log(l, "{} - dynamic slice: {} cycles, unknown bytes",
+                         prefix, passCost.dynamicSliceCycles);
+    logging::poplin::log(
+        l, "{} - transform: {} copy cycles, {} exchange cycles, {} bytes",
+        prefix, passCost.transformCopyCycles, passCost.transformExchangeCycles,
+        passCost.transformTempBytes);
+    logging::poplin::log(
+        l,
+        "{} - exchange: {} cycles, n/a bytes. (Input {},"
+        " Weight {}, Reduce {} + {})",
+        prefix, passCost.totalExchangeCycles,
+        passCost.itemisedExchangeCycles.inputExchangeCycles,
+        passCost.itemisedExchangeCycles.weightExchangeCycles,
+        passCost.itemisedExchangeCycles.reduceFirstStageExchangeCycles,
+        passCost.itemisedExchangeCycles.reduceRemainingStagesExchangeCycles);
 
-  logging::poplin::log(l, "   - tile level transform: {} cycles, {} bytes",
-                       cost.tileLevelTransformCycles,
-                       cost.tileLevelTransformTempBytes);
-  logging::poplin::log(l, "   - compute: {} cycles, {} bytes",
-                       cost.partialCalcCycles, cost.convTempBytes);
-  logging::poplin::log(l, "   - reduction: {} cycles, {} bytes",
-                       cost.reduceCycles, cost.reduceTempBytes);
-  logging::poplin::log(l, "   - dynamic update: {} cycles, unknown bytes",
-                       cost.dynamicUpdateCycles);
-  logging::poplin::log(l, "   - add in-place: {} cycles, {} bytes",
-                       cost.addInPlaceCycles, cost.addInPlaceTempBytes);
-  // The tensor generated on the final cast is not considered as part of the
-  // temporary memory for the purposes of the Conv Planner.
-  logging::poplin::log(l, "   - cast: {} cycles, 0 bytes", cost.castCycles, 0);
-  logging::poplin::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
-                       cost.totalTempBytes);
+    logging::poplin::log(l, "{} - tile level transform: {} cycles, {} bytes",
+                         prefix, passCost.tileLevelTransformCycles,
+                         passCost.tileLevelTransformTempBytes);
+    logging::poplin::log(l, "{} - compute: {} cycles, {} bytes", prefix,
+                         passCost.partialCalcCycles, passCost.convTempBytes);
+    logging::poplin::log(l, "{} - reduction: {} cycles, {} bytes", prefix,
+                         passCost.reduceCycles, passCost.reduceTempBytes);
+    logging::poplin::log(l, "{} - dynamic update: {} cycles, unknown bytes",
+                         prefix, passCost.dynamicUpdateCycles);
+    logging::poplin::log(l, "{} - add in-place: {} cycles, {} bytes", prefix,
+                         passCost.addInPlaceCycles,
+                         passCost.addInPlaceTempBytes);
+    // The tensor generated on the final cast is not considered as part of the
+    // temporary memory for the purposes of the Conv Planner.
+    logging::poplin::log(l, "{} - cast: {} cycles, 0 bytes", prefix,
+                         passCost.castCycles, 0);
+    logging::poplin::log(l, "{} - total: {} cycles, {} bytes", prefix,
+                         passCost.totalCycles, passCost.totalTempBytes);
+  };
+  if (cost.jointPlanBwdEstimates || cost.jointPlanWuEstimates) {
+    logging::poplin::log(l, "   - forward pass:");
+    logPass(cost.passEstimates, 4);
+    if (cost.jointPlanBwdEstimates) {
+      logging::poplin::log(l, "   - backward pass:");
+      logPass(*cost.jointPlanBwdEstimates, 4);
+    }
+    if (cost.jointPlanWuEstimates) {
+      logging::poplin::log(l, "   - weight update pass:");
+      logPass(*cost.jointPlanWuEstimates, 4);
+    }
+    logging::poplin::log(l, "   - total: {} cycles, {} bytes", cost.totalCycles,
+                         cost.totalTempBytes);
+  } else {
+    logPass(cost.passEstimates, 2);
+    // No need to log the totals as they should match the totals for the only
+    // pass.
+    assert(cost.totalTempBytes == cost.passEstimates.totalTempBytes);
+  }
   if (referenceCost) {
     logging::poplin::log(
         l, "   - cycle difference compared to reference ({} cycles): {}",

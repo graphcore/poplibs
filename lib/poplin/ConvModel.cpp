@@ -1644,7 +1644,7 @@ addRearrangeBeforeSliceEstimate(popsolver::Model &m,
                          extraWeightsTempBytes);
 }
 
-static Estimates<popsolver::Variable> addEstimates(
+static SinglePassEstimates<popsolver::Variable> addEstimates(
     popsolver::Model &m, const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSize,
     const std::vector<ConvSizeVariables> &transformedConvSize,
@@ -1658,8 +1658,8 @@ static Estimates<popsolver::Variable> addEstimates(
     const ConvVertexType &convVertexType, const std::vector<ConvTypes> &types,
     const std::vector<ConvTransform> &transforms,
     const Plan::LinearizeTileOrder linearizeTileOrder,
-    const boost::optional<Cost> &referenceCost, const ConvOptions &options,
-    PlanningCacheImpl::CycleEstimationImpl *cache) {
+    const boost::optional<SinglePassCost> &referenceCost,
+    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
   const auto numLevelsOfHierarchy = convSize.size();
   ExchangeEstimator exchangeEstimator(m, target, perLevelExchangeBytesPerCycle,
                                       numLevelsOfHierarchy, partitionVars,
@@ -1689,7 +1689,7 @@ static Estimates<popsolver::Variable> addEstimates(
                                       return popsolver::DataType{0U};
                                     });
 
-  Estimates<popsolver::Variable> e;
+  SinglePassEstimates<popsolver::Variable> e;
 
   std::vector<popsolver::Variable> inputsPerLevel, weightsPerLevel;
 
@@ -1878,7 +1878,7 @@ Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
   return fwdMethod;
 }
 
-static Estimates<popsolver::Variable> addBwdEstimates(
+static SinglePassEstimates<popsolver::Variable> addBwdEstimates(
     popsolver::Model &m, ConvParams bwdUntransformedParams,
     ConvParams bwdTransformedOnceParams,
     ConvParams bwdTransformedOnceUnpaddedParams,
@@ -1890,8 +1890,8 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     const poplar::Target &target,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const boost::optional<Cost> &referenceCost, const ConvOptions &options,
-    PlanningCacheImpl::CycleEstimationImpl *cache) {
+    const boost::optional<SinglePassCost> &referenceCost,
+    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(transforms[0].swapOperands);
   // for the backwards pass the output shape will be Ci x Co (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
@@ -1980,7 +1980,7 @@ Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
   return fwdMethod;
 }
 
-static Estimates<popsolver::Variable> addWuEstimates(
+static SinglePassEstimates<popsolver::Variable> addWuEstimates(
     popsolver::Model &m, const ConvParams &untransformedParams,
     ConvParams wuTransformedOnceParams,
     ConvParams wuTransformedOnceUnpaddedParams,
@@ -1992,8 +1992,8 @@ static Estimates<popsolver::Variable> addWuEstimates(
     const poplar::Target &target, const unsigned numFieldDims,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const boost::optional<Cost> &referenceCost, const ConvOptions &options,
-    PlanningCacheImpl::CycleEstimationImpl *cache) {
+    const boost::optional<SinglePassCost> &referenceCost,
+    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(transforms[0].swapOperands);
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
@@ -3023,56 +3023,79 @@ Estimates<popsolver::Variable> constructModel(
 
   const auto usedTiles = getUsedTiles(m, partitionVars, hierarchy);
 
-  auto e = addEstimates(
+  Estimates<popsolver::Variable> e;
+  boost::optional<SinglePassCost> passReferenceCost;
+  if (referenceCost) {
+    passReferenceCost = referenceCost->passEstimates;
+  }
+  e.passEstimates = addEstimates(
       m, partitionVars, convSize, transformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       untransformedParams, transformedOnceParams, transformedOnceUnpaddedParams,
       isJointPlan, convVertexType, types, transforms,
-      Plan::LinearizeTileOrder::STANDARD, referenceCost, options, cache);
+      Plan::LinearizeTileOrder::STANDARD, passReferenceCost, options, cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
+    boost::optional<SinglePassCost> noReferenceCost;
+    const boost::optional<SinglePassCost> &bwdReferenceCost =
+        referenceCost ? referenceCost->jointPlanBwdEstimates : noReferenceCost;
+    const boost::optional<SinglePassCost> &wuReferenceCost =
+        referenceCost ? referenceCost->jointPlanWuEstimates : noReferenceCost;
 
-    const auto bwd =
+    e.jointPlanBwdEstimates =
         addBwdEstimates(m, untransformedParams, transformedOnceParams,
                         transformedOnceUnpaddedParams, numLevelsOfHierarchy,
                         partitionVars, convSize, transforms, convVertexType,
                         usedTiles, target, perLevelExchangeBytesPerCycle, types,
-                        isJointPlan, referenceCost, options, cache);
+                        isJointPlan, bwdReferenceCost, options, cache);
 
-    const auto wu = addWuEstimates(
+    e.jointPlanWuEstimates = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, convVertexType, usedTiles, target, numFieldDims,
-        perLevelExchangeBytesPerCycle, types, isJointPlan, referenceCost,
+        perLevelExchangeBytesPerCycle, types, isJointPlan, wuReferenceCost,
         options, cache);
 
     if (objective.getTileTempMemoryBound() > popsolver::DataType{0}) {
       auto bound = objective.getTileTempMemoryBound();
       // fwd temp bytes constrained below
-      m.lessOrEqual(bwd.totalTempBytes, bound);
-      m.lessOrEqual(wu.totalTempBytes, bound);
+      m.lessOrEqual(e.jointPlanBwdEstimates->totalTempBytes, bound);
+      m.lessOrEqual(e.jointPlanWuEstimates->totalTempBytes, bound);
     }
 
     // report the total cycles of all three phases.
-    e.totalCycles =
-        m.sum({e.totalCycles, bwd.totalCycles, wu.totalCycles}, "totalCycles");
+    e.totalCycles = m.sum({e.passEstimates.totalCycles,
+                           e.jointPlanBwdEstimates->totalCycles,
+                           e.jointPlanWuEstimates->totalCycles},
+                          "totalCycles");
 
     // report the max requirement of all three phases
-    e.totalTempBytes =
-        m.max({e.totalTempBytes, bwd.totalTempBytes, wu.totalTempBytes},
-              "maxTempBytesPerTile");
+    e.totalTempBytes = m.max({e.passEstimates.totalTempBytes,
+                              e.jointPlanBwdEstimates->totalTempBytes,
+                              e.jointPlanWuEstimates->totalTempBytes},
+                             "maxTempBytesPerTile");
 
     // report the total diff of all three phases.
     if (referenceCost) {
       e.totalPerStepCycleDiff =
-          m.sum({e.totalPerStepCycleDiff, bwd.totalPerStepCycleDiff,
-                 wu.totalPerStepCycleDiff},
+          m.sum({e.passEstimates.totalPerStepCycleDiff,
+                 e.jointPlanBwdEstimates->totalPerStepCycleDiff,
+                 e.jointPlanWuEstimates->totalPerStepCycleDiff},
                 "totalPerStepCycleDiff");
+    } else {
+      e.totalPerStepCycleDiff = m.addConstant(popsolver::DataType::max());
     }
 
     // report the max amount of tiles used in all three phases.
-    e.totalTiles = m.max({e.totalTiles, bwd.totalTiles, wu.totalTiles});
+    e.totalTiles =
+        m.max({e.passEstimates.totalTiles, e.jointPlanBwdEstimates->totalTiles,
+               e.jointPlanWuEstimates->totalTiles});
+  } else {
+    e.totalCycles = e.passEstimates.totalCycles;
+    e.totalTempBytes = e.passEstimates.totalTempBytes;
+    e.totalPerStepCycleDiff = e.passEstimates.totalPerStepCycleDiff;
+    e.totalTiles = e.passEstimates.totalTiles;
   }
 
   // if an explicit cycle or memory bound has been added to the objective then
@@ -3108,7 +3131,9 @@ Estimates<popsolver::Variable> constructModel(
 
   m.lessOrEqual(e.totalCycles, cyclesBound);
   m.lessOrEqual(e.totalTempBytes, memoryBound);
-  m.lessOrEqual(e.totalPerStepCycleDiff, perStepBound);
+  if (referenceCost) {
+    m.lessOrEqual(e.totalPerStepCycleDiff, perStepBound);
+  }
   m.lessOrEqual(e.totalTiles, tilesBound);
 
   return e;
