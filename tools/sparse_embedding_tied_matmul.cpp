@@ -140,7 +140,7 @@ int main(int argc, char **argv) try {
     ("weighted-area-weighting",
      po::value<double>(&weightedAreaWeighting)->default_value(weightedAreaWeighting),
      "Weighting for probability that a sparse element resides within the "
-     "specified area")
+     "specified area (Not itself a probability - values > 1 are OK)")
     ("tiles-per-ipu", po::value(&tilesPerIPU), "Number of tiles per IPU")
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
      "Options to use for the matrix multiplication, specified as a JSON "

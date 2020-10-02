@@ -7,15 +7,19 @@
 #include "MatMulUtils.hpp"
 #include "SparseCodeletMetaInfoScale.hpp"
 #include "poplibs_support/logging.hpp"
+#include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Zero.hpp"
 #include "popsparse/MatMul.hpp"
 #include "popsparse/SparsePartitioner.hpp"
 #include "poputil/TileMapping.hpp"
 #include <popops/Expr.hpp>
+#include <poputil/Broadcast.hpp>
 #include <poputil/VertexTemplates.hpp>
 
 #include <boost/optional.hpp>
+
+#include <variant>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -60,9 +64,14 @@ struct PlannedSplits {
   unsigned slicesIndicesSplits;
 
   PlannedSplits(std::size_t numSlices, const FullyConnectedParams &params,
-                const fullyconnected::Plan &plan) {
+                const fullyconnected::Plan &plan,
+                boost::optional<std::size_t> plannedColumns = boost::none) {
     rows = params.getOutputChannelsPerGroup();
-    columns = params.getInputChannelsPerGroup();
+    if (plannedColumns) {
+      columns = plannedColumns.get();
+    } else {
+      columns = params.getInputChannelsPerGroup();
+    }
     z = params.getBatchSize();
     // Just note the splits from the plan, and find the number of elements
     rowSplits = plan.partition.x;
@@ -239,8 +248,9 @@ void createSparseDenseTileVertices(
     Graph &graph, ComputeSet &computeSet, const std::string &vertexClass,
     unsigned tile, const Tensor &offsets, const std::vector<Tensor> &baseTNZ,
     const std::vector<Tensor> &baseTMeta, const Tensor &subT, unsigned columns,
-    unsigned rowStart, unsigned id, unsigned splitZ,
-    const boost::optional<Tensor> &scale) {
+    unsigned rowStart, unsigned rowsPerPartition, unsigned id, unsigned splitZ,
+    const boost::optional<Tensor> &scale,
+    const boost::optional<Tensor> &yPartitionToProcess) {
   // TODO - split the indices between workers (At least for slice)
   // Or do we use the worker information in the metainformation?
   // An issue with this is sub-word writes for the "half" case.
@@ -264,11 +274,14 @@ void createSparseDenseTileVertices(
   graph.connect(vertex["baseTNZ"], baseTNZ);
 
   graph.setInitialValue(vertex["subColumns"], columns);
-  graph.setInitialValue(vertex["rowOffset"], rowStart);
-  graph.setInitialValue(vertex["subGroupIdToProcess"], id);
   graph.setInitialValue(vertex["nzScaleFactor"], reciprocalMulFactor(splitZ));
   if (scale) {
+    graph.setInitialValue(vertex["rowsPerPartition"], rowsPerPartition);
+    graph.connect(vertex["yPartitionToProcess"], yPartitionToProcess.get());
     graph.connect(vertex["scale"], scale.get().reshape({}));
+  } else {
+    graph.setInitialValue(vertex["rowOffset"], rowStart);
+    graph.setInitialValue(vertex["subGroupIdToProcess"], id);
   }
 }
 
@@ -335,8 +348,9 @@ void generateSparseDenseMultiSliceVertices(
 
         createSparseDenseTileVertices(
             graph, computeSet, vertexClass, iTile, offsetsSlice, baseTNZ,
-            baseTMeta, subT.flatten(), columns.size(), rowStart, tileID,
-            plannedSplits.splitZ, boost::none);
+            baseTMeta, subT.flatten(), columns.size(), rowStart,
+            plannedSplits.splitRows, tileID, plannedSplits.splitZ, boost::none,
+            boost::none);
       }
     }
   }
@@ -345,9 +359,10 @@ void generateSparseDenseMultiSliceVertices(
 
 void generateSparseDenseMultiUpdateVertices(
     Graph &graph, Sequence &prog, const Tensor &offsets,
-    const SparseTensor &base, const std::vector<std::size_t> &tShape,
-    const Tensor &slices, const Tensor &scale,
-    const PlannedSplits &plannedSplits, const std::string &debugStr) {
+    const Tensor &columnPartition, const SparseTensor &base,
+    const std::vector<std::size_t> &tShape, const Tensor &slices,
+    const Tensor &scale, const PlannedSplits &plannedSplits,
+    const std::string &debugStr) {
 
   auto computeSet = graph.addComputeSet(debugStr);
   const auto inputType = base.getNzValuesTensor().elementType();
@@ -361,18 +376,22 @@ void generateSparseDenseMultiUpdateVertices(
   auto nzBuckets = fullyconnected::getBucketsByPartition(
       base.getNzValuesTensor(), plannedSplits.getPartitions());
 
+  // Make a plan variable that represents the layout, but with only 1 column
+  // per partition
+  auto offsetsSplits = plannedSplits;
+  offsetsSplits.splitColumns = 1;
+  offsetsSplits.columns = offsetsSplits.columnSplits;
+
   for (unsigned cs = 0; cs < plannedSplits.columnSplits; cs++) {
     for (unsigned rs = 0; rs < plannedSplits.rowSplits; rs++) {
       const auto rowStart = rs * plannedSplits.splitRows;
-      const auto columnStart = cs * plannedSplits.splitColumns;
-      const auto columnEnd =
-          std::min((cs + 1) * plannedSplits.splitColumns, tShape[1]);
+      const auto columns = columnRange(cs, plannedSplits, tShape[1]);
+      const auto offsetsColumns =
+          columnRange(cs, offsetsSplits, offsetsSplits.columnSplits);
 
       // Create vertices on each tile in the Z-split to udpate the portion
       // of baseT that it holds. All slices are used, split in the
       // columns dimension
-      const auto tileID = fullyconnected::calculateSubGroupId(
-          plannedSplits.rowSplits, plannedSplits.columnSplits, rs, cs);
       for (unsigned zSplit = 0; zSplit < plannedSplits.zSplits; zSplit++) {
         auto zTile = plannedSplits.mappingOrder.getPNIdForPartition(
             plannedSplits.getPartitions(), {0, rs, cs, zSplit});
@@ -380,12 +399,25 @@ void generateSparseDenseMultiUpdateVertices(
         auto baseTNZ = nzBuckets[0][rs][cs][zSplit].flatten();
         auto baseTMeta = metaInfoBuckets[0][rs][cs][zSplit].flatten();
 
-        auto subT = slices.slice(columnStart, columnEnd, 1).flatten();
+        // Select the slice that belongs to the tile the vertex is
+        // being executed on
+        const auto gatherRows =
+            rowRange(rs, zSplit, plannedSplits.slicesRowSplits,
+                     plannedSplits.slicesSplitRows, slices.dim(0));
+        const auto offsetsSlice =
+            offsets.slice({gatherRows.begin(), offsetsColumns.begin()},
+                          {gatherRows.end(), offsetsColumns.end()});
 
-        createSparseDenseTileVertices(graph, computeSet, vertexClass, zTile,
-                                      offsets, {baseTNZ}, {baseTMeta}, subT,
-                                      columnEnd - columnStart, rowStart, tileID,
-                                      plannedSplits.splitZ, scale);
+        const auto subT = slices
+                              .slice({gatherRows.begin(), columns.begin()},
+                                     {gatherRows.end(), columns.end()})
+                              .flatten();
+
+        createSparseDenseTileVertices(
+            graph, computeSet, vertexClass, zTile, offsetsSlice, {baseTNZ},
+            {baseTMeta}, subT, columns.size(), rowStart,
+            plannedSplits.splitRows, cs, plannedSplits.splitZ, scale,
+            columnPartition[zSplit][rs][cs]);
       }
     }
   }
@@ -452,26 +484,192 @@ fullyconnected::Plan getFullyConnectedPlan(Graph &graph, Type inputType,
   return plan;
 }
 
-SparseTensor getInternalSparseTensor(Graph &graph, const SparseTensor &baseT,
-                                     const fullyconnected::Plan &plan) {
+std::tuple<Tensor, SparseTensor>
+getInternalSparseTensor(Graph &graph, const SparseTensor &baseT,
+                        const fullyconnected::Plan &plan) {
   const auto target = graph.getTarget();
 
   const auto overflowInfoElems = fullyconnected::getNumOverflowInfoElems(
       target.getTypeSize(UNSIGNED_SHORT), plan.partition.x, plan.partition.y,
       plan.partition.z);
 
-  SparseTensor baseTBuckets;
-  Tensor overflowInfo;
-  std::tie(baseTBuckets, overflowInfo) = fullyconnected::unpackWeights(
+  auto [baseTBuckets, overflowInfo] = fullyconnected::unpackWeights(
       baseT, overflowInfoElems,
       fullyconnected::getTotalMetaInfoElemsPerBuckets(plan),
       plan.nzElemsPerBucket);
 
   // Get meta-info required for forward pass.
-  return fullyconnected::weightsInternalSliceBuckets(
-      baseTBuckets, 0u, plan.fwdMetaInfoElemsPerBucket);
+  return {overflowInfo, fullyconnected::weightsInternalSliceBuckets(
+                            baseTBuckets, 0u, plan.fwdMetaInfoElemsPerBucket)};
 }
 
+// Given a base PlannedSplits structure, apply the same partitioning of rows,
+// columns but alter the number of rows and/or columns per partition to a
+// single row or column.
+std::tuple<PlannedSplits, std::vector<std::size_t>>
+createSplitsAndShape(const PlannedSplits &baseSplits, std::size_t outerDim,
+                     bool singleRowPerSplit, bool singleColumnPerSplit) {
+
+  auto splits = baseSplits;
+  if (singleColumnPerSplit) {
+    splits.splitColumns = 1;
+    splits.columns = splits.columnSplits;
+  }
+  if (singleRowPerSplit) {
+    splits.splitRows = 1;
+    splits.slicesSplitRows = 1;
+    splits.rows = splits.rowSplits;
+  }
+  std::vector<size_t> shape = {outerDim, splits.columnSplits};
+  return {splits, shape};
+}
+// Make exchange buffers.  There are 2 "source" buffers each with destination
+// views.  Copying from src[0] to rowDst[1] results in exchange from tile to
+// tile over the z,row partition of tiles.  Copying from src[0] to columnDst[1]
+// results in exchange from tile to tile over the column partition of tiles.
+// Then from src[1] to dstRow[0] or dstColumn[0] continues the sequence.
+// Using these 2 alternately data can be propogated as many times as required
+struct ExchangeTensors {
+  std::vector<Tensor> src;
+  std::vector<Tensor> rowDst;
+  std::vector<Tensor> columnDst;
+};
+ExchangeTensors createExchangeTensors(Graph &graph, Type dataType,
+                                      const PlannedSplits &plannedSplits,
+                                      unsigned numBuffers, unsigned rows,
+                                      const std::string &debugPrefix) {
+
+  std::vector<Tensor> src(numBuffers), rowDst(numBuffers), colDst(numBuffers);
+  for (unsigned i = 0; i < numBuffers; i++) {
+    // Make a source buffer, mapped to tiles in the same way as slices tensors
+    // in our plannedSplits
+    src[i] = createSliceTensor(
+        graph, dataType, {plannedSplits.rows, plannedSplits.columns}, rows,
+        plannedSplits, false, debugPrefix + "/ExBuf" + std::to_string(i));
+
+    // Create views into the src tensors which become the destination
+    // These are just a view into the source tensor but with the
+    // rows circularly modified so that a tile's data gets copied to the
+    // next tile (The last slicesSplitRows = the first slicesSplitRows,
+    // and all others shuffle up)
+    rowDst[i] =
+        concat(src[i].slice({plannedSplits.slicesSplitRows, src[i].dim(0)}, 0),
+               src[i].slice({0, plannedSplits.slicesSplitRows}, 0), 0);
+
+    // Similarly for columns, where the last splitColumns become the first
+    // splitColumns and all the others shuffle left.  Here the way this is
+    // split matters as it determines the exchage order.  As we don't always go
+    // full circle this direction matters.
+    auto splitPoint =
+        plannedSplits.splitColumns * (plannedSplits.columnSplits - 1);
+    colDst[i] = concat(src[i].slice({splitPoint, src[i].dim(1)}, 1),
+                       src[i].slice({0, splitPoint}, 1), 1);
+  }
+  return {src, rowDst, colDst};
+}
+
+// Create a program to implement a loop countdown from either an initial value
+// held in a tensor or an unsigned int.  Returns the program and a bool
+// decision tensor
+std::tuple<Sequence, Tensor>
+createDecisionProg(Graph &graph, Sequence &prog,
+                   std::variant<unsigned, Tensor> loopCount,
+                   const std::string &debugPrefix) {
+
+  auto decisionCount = graph.addVariable(UNSIGNED_INT, {}, debugPrefix);
+  graph.setTileMapping(decisionCount, 0);
+  Tensor decisionInitialValue;
+  if (std::get_if<Tensor>(&loopCount)) {
+    decisionInitialValue = cast(graph, std::get<Tensor>(loopCount),
+                                UNSIGNED_INT, prog, debugPrefix);
+  } else {
+    decisionInitialValue = graph.addConstant<unsigned>(
+        UNSIGNED_INT, {}, std::get<unsigned>(loopCount), debugPrefix);
+    graph.setTileMapping(decisionInitialValue, 0);
+  }
+
+  prog.add(Copy(decisionInitialValue, decisionCount));
+  Sequence decisionProg;
+  // Sample the result then subtract is an equivalent to a decrement after the
+  // decision and avoids adding 1 to the loop count
+  const auto decision =
+      cast(graph, decisionCount, BOOL, decisionProg, debugPrefix);
+  subInPlace(graph, decisionCount, 1u, decisionProg, debugPrefix);
+  return {decisionProg, decision};
+}
+
+// Create a vector of programs to process (run update vertices) for each of the
+// buffers, exchange over the row,z partitions combined and toggle the
+// buffer select variable
+std::vector<Sequence> createComputeProg(
+    Graph &graph, Sequence &prog, const PlannedSplits &plannedSplits,
+    const SparseTensor &baseTBuckets, const Tensor &bufferSelect,
+    const Tensor &scale, unsigned numBuffers,
+    const ExchangeTensors &slicesExBuf, const ExchangeTensors &offsetsExBuf,
+    const ExchangeTensors &columnPartitionExBuf,
+    const std::string &debugPrefix) {
+
+  // Create programs to run in a loop, alternately on each pass
+  std::vector<Sequence> loopBodyProg(numBuffers);
+  for (unsigned srcBuf = 0; srcBuf < numBuffers; srcBuf++) {
+    const auto dstBuf = srcBuf ? 0u : 1u;
+    // Create the update vertices with the "source view" of the buffer just
+    // copied
+    generateSparseDenseMultiUpdateVertices(
+        graph, loopBodyProg[srcBuf], offsetsExBuf.src[srcBuf],
+        columnPartitionExBuf.src[srcBuf], baseTBuckets,
+        {plannedSplits.rows, plannedSplits.columns}, slicesExBuf.src[srcBuf],
+        scale, plannedSplits, debugPrefix);
+
+    // Exhchange for next time
+    loopBodyProg[srcBuf].add(
+        Copy(slicesExBuf.src[srcBuf], slicesExBuf.rowDst[dstBuf]));
+    loopBodyProg[srcBuf].add(
+        Copy(offsetsExBuf.src[srcBuf], offsetsExBuf.rowDst[dstBuf]));
+
+    // We don't really need to exchange this here but we do need it to
+    // end up in the correct srcBuf[0] or [1] to then run an exchange prog.
+    // It's small so shouldn't be too much overhead.
+    loopBodyProg[srcBuf].add(Copy(columnPartitionExBuf.src[srcBuf],
+                                  columnPartitionExBuf.rowDst[dstBuf]));
+    // Toggle the buffer used for next time: src<->dst
+    bitwiseXorInPlace(graph, bufferSelect, 1u, loopBodyProg[srcBuf]);
+  }
+  return loopBodyProg;
+}
+
+// Create a buffer select variable, plus  a vector of programs to exchange over
+// the columns partition and toggle the buffer select variable
+std::tuple<std::vector<Sequence>, Tensor> createExchangeProg(
+    Graph &graph, Sequence &prog, const PlannedSplits &plannedSplits,
+    const SparseTensor &baseTBuckets, const Tensor &scale, unsigned numBuffers,
+    const ExchangeTensors &slicesExBuf, const ExchangeTensors &offsetsExBuf,
+    const ExchangeTensors &columnPartitionExBuf,
+    const std::string &debugPrefix) {
+
+  // Create and initialise the buffer select variable
+  auto bufferSelect = graph.addVariable(UNSIGNED_INT, {});
+  graph.setTileMapping(bufferSelect, 0);
+  auto bufferSelectInitialValue =
+      graph.addConstant<unsigned>(UNSIGNED_INT, {}, 0u);
+  prog.add(Copy(bufferSelectInitialValue, bufferSelect));
+  graph.setTileMapping(bufferSelectInitialValue, 0);
+
+  // Create programs to run in a loop, alternately on each pass
+  std::vector<Sequence> loopBodyProg(numBuffers);
+  for (unsigned srcBuf = 0; srcBuf < numBuffers; srcBuf++) {
+    const auto dstBuf = srcBuf ? 0u : 1u;
+    loopBodyProg[srcBuf].add(
+        Copy(slicesExBuf.src[srcBuf], slicesExBuf.columnDst[dstBuf]));
+    loopBodyProg[srcBuf].add(
+        Copy(offsetsExBuf.src[srcBuf], offsetsExBuf.columnDst[dstBuf]));
+    loopBodyProg[srcBuf].add(Copy(columnPartitionExBuf.src[srcBuf],
+                                  columnPartitionExBuf.columnDst[dstBuf]));
+    // Toggle the buffer used for next time: src<->dst
+    bitwiseXorInPlace(graph, bufferSelect, 1u, loopBodyProg[srcBuf]);
+  }
+  return {loopBodyProg, bufferSelect};
+}
 } // end anonymous namespace
 
 Tensor createIndicesTensor(Graph &graph, const std::vector<std::size_t> &dims,
@@ -496,7 +694,10 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   const PlannedSplits plannedSplits(offsets.dim(0), params, plan);
   const std::vector<std::size_t> tShape = {plannedSplits.rows,
                                            plannedSplits.columns};
-  const auto baseTBuckets = getInternalSparseTensor(graph, baseT, plan);
+  Tensor overflowInfo;
+  SparseTensor baseTBuckets;
+  std::tie(overflowInfo, baseTBuckets) =
+      getInternalSparseTensor(graph, baseT, plan);
 
   const auto debugPrefix = debugPrefix_ + "/embeddingSlice";
   // Create the result tensor, with padding in cases of the sliced results
@@ -579,7 +780,8 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
     // slicing the same regardless of the "row odd bit at the end"
 
     auto padT = graph.addConstant<unsigned>(
-        offsetsType, {paddedSize - offsets.numElements()}, 0u, "/PadOffsets");
+        offsetsType, {paddedSize - offsets.numElements()}, 0u,
+        debugPrefix + "/PadOffsets");
     graph.setTileMapping(padT, 0);
     auto offsetsReshaped = concat(offsets.flatten(), padT);
     offsetsReshaped = offsetsReshaped.reshape(
@@ -602,8 +804,25 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   return slices.slice(0, offsets.dim(0));
 }
 
+// There is only 1 stage here, as every tile needs access to every row
+// of the `slices` input and the slice in the columns dimension
+// that matches up with the slice in the planned sparse baseT tile allocation.
+// There is the additional issue of bucket spills, where tiles in a row
+// partition spill their content to other tiles in  the same row partition,
+// and likewise in column partitions.
+// All of this is dealt with by serialisation (which also reduces the
+// temporary memory requirement). Data is
+// a) used to update and then exchanged from tile to tile in each
+//    `row and z partition combined` until it has passed full circle.
+// b) Exchanged in the column partition
+//
+// After b) a fully cycle of a) is cariied out once more - repeatedly until
+// all data has visited all the tiles it needs to and updates are complete.
+//
+// Sparse data (being updated) remains ontile, dense data and indices move.
+
 void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
-                        const Tensor &slices, const Tensor &offsets,
+                        const Tensor &slices_, const Tensor &offsets_,
                         const Tensor &scale, Sequence &prog,
                         const FullyConnectedParams &params,
                         const std::string &debugPrefix_,
@@ -613,18 +832,172 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   const auto plan = getFullyConnectedPlan(
       graph, baseT.getNzValuesTensor().elementType(), params, options, cache);
 
-  const PlannedSplits plannedSplits(offsets.dim(0), params, plan);
+  // Pad offsets to a consistent shape, otherwise when exchanging
+  // and processing every step needs to be customised to the number of
+  // offsets on each tile.  The pad is initialised with max unsigned to
+  // prevent actual processing (Such an offset won't be found in the sparse
+  // data).  Therefore the slice data doesn't need to be padded as it isn't
+  // accessed.
+  const auto offsets = [&]() {
+    const PlannedSplits splits(offsets_.dim(0), params, plan);
+    const auto paddedSize =
+        splits.zSplits * splits.rowSplits * splits.slicesSplitRows;
+    const auto paddedValue = std::numeric_limits<unsigned>::max();
+    auto pad = graph.addConstant<unsigned>(
+        offsets_.elementType(), {paddedSize - offsets_.dim(0), 1}, paddedValue,
+        debugPrefix + "/PadOffsets");
+    graph.setTileMapping(pad, 0);
+    return concat(offsets_, pad);
+  }();
 
-  const auto baseTBuckets = getInternalSparseTensor(graph, baseT, plan);
-  // There is only 1 stage here, as every tile needs access to every row
-  // of the `slices` input and simply the slice in the columns dimension
-  // that matches up with the slice in the planned sparse baseT tile allocation
+  // Where the number of columns wasn't exactly divisible by the column splits
+  // we need to pad to make the last, smaller slice the same as all the others.
+  // This is to ensure that when it is passed to other column partitions it is
+  // treated correctly. The meta-data content will ensure that padded elements
+  // are never accessed
+  const auto slices = [&]() {
+    const PlannedSplits splits(offsets_.dim(0), params, plan);
+    const auto paddedSize = splits.columnSplits * splits.splitColumns;
+    auto pad = graph.addVariable(slices_.elementType(),
+                                 {slices_.dim(0), paddedSize - slices_.dim(1)},
+                                 debugPrefix + "/PadSlices");
+    graph.setTileMapping(pad, 0);
+    return concat(slices_, pad, 1);
+  }();
 
-  // TODO - Serialise in some way that is compatible with any bucket overflow
-  generateSparseDenseMultiUpdateVertices(
-      graph, prog, offsets, baseTBuckets,
-      {plannedSplits.rows, plannedSplits.columns}, slices, scale, plannedSplits,
-      debugPrefix);
+  // We want the same plan so present the same parameters, but the total
+  // columns we operate on is different as we padded above
+  const PlannedSplits plannedSplits(offsets.dim(0), params, plan,
+                                    slices.dim(1));
+  const auto [overflowInfo, baseTBuckets] =
+      getInternalSparseTensor(graph, baseT, plan);
+  const auto inputType = baseT.getNzValuesTensor().elementType();
+
+  // Create splits plan matching that of the slices, but containing the
+  // offsets (In other words the same, but with 1 column per split)
+  auto [offsetsSplits, broadcastOffsetsShape] =
+      createSplitsAndShape(plannedSplits, offsets.dim(0), false, true);
+  // Create a broadcast offsets tensor to spread over tiles with each
+  // column split - a broadcast of the offsets over the planned splits
+  auto offsetsBroadcast = offsets;
+  broadcastToMatch(offsetsBroadcast, broadcastOffsetsShape);
+
+  // Create splits plan matching that of the slices, but containing the
+  // columnPartition variable (In other words the same, but with 1 column per
+  // split and 1 row per split)
+  auto [columnPartitionSplits, columnPartitionShape] = createSplitsAndShape(
+      plannedSplits, plannedSplits.zSplits * plannedSplits.rowSplits, true,
+      true);
+  // Create a columnPartition tensor to spread over tiles with each
+  // column split: {0,1,2,...columnSplits} broadcast  rowSplits*zSplits times
+
+  std::vector<unsigned short> columnPartitions(
+      columnPartitionSplits.columnSplits);
+  std::iota(columnPartitions.begin(), columnPartitions.end(), 0);
+  auto columnPartitionBroadcast = graph.addConstant<unsigned short>(
+      baseT.getMetaInfoTensor().elementType(),
+      {1, columnPartitionSplits.columnSplits}, columnPartitions);
+
+  broadcastToMatch(columnPartitionBroadcast, columnPartitionShape);
+
+  columnPartitionBroadcast = columnPartitionBroadcast.reshape(
+      {columnPartitionSplits.zSplits, columnPartitionSplits.rowSplits,
+       columnPartitionSplits.columnSplits});
+  graph.setTileMapping(columnPartitionBroadcast, 0);
+
+  // Create pairs of exchange buffers with the same mapping as the slices
+  // and same shape, plus a view into the buffer representing the exchange
+  // patterns required to propogate over rows (z and row splits) and columns.
+  // We need this for slices, offsets and an columnPartition.
+  // Slices - the actual slice data
+  // Offsets - the offsets/indices matching the slices
+  // ColumnPartition - the column partition number matching the data. 0,1,2...
+  //                   per columnpartition. Needed when columns are spilled.
+  const auto numBuffers = 2;
+  const auto slicesExBuf =
+      createExchangeTensors(graph, inputType, plannedSplits, numBuffers,
+                            offsets.dim(0), debugPrefix + "/Slices");
+
+  const auto offsetsExBuf = createExchangeTensors(
+      graph, offsets.elementType(), offsetsSplits, numBuffers, offsets.dim(0),
+      debugPrefix + "/Offsets");
+
+  auto columnPartitionExBuf = createExchangeTensors(
+      graph, columnPartitionBroadcast.elementType(), columnPartitionSplits,
+      numBuffers,
+      columnPartitionBroadcast.dim(0) * columnPartitionBroadcast.dim(1),
+      debugPrefix + "/ColumnPartition");
+
+  for (unsigned i = 0; i < numBuffers; i++) {
+    const auto shape = columnPartitionBroadcast.shape();
+    columnPartitionExBuf.src[i] = columnPartitionExBuf.src[i].reshape(shape);
+    columnPartitionExBuf.rowDst[i] =
+        columnPartitionExBuf.rowDst[i].reshape(shape);
+    columnPartitionExBuf.columnDst[i] =
+        columnPartitionExBuf.columnDst[i].reshape(shape);
+  }
+
+  // Create program fragments used below
+
+  // Use the overflow info to determine the number of column loops to make
+  const auto yPartitionOverflowIndex = 1;
+  auto columnOverFlowCount = overflowInfo.slice(
+      {yPartitionOverflowIndex, yPartitionOverflowIndex + 1});
+  auto [outerDecisionProg, outerDecisionFlag] = createDecisionProg(
+      graph, prog, columnOverFlowCount, debugPrefix + "/outerLoop");
+
+  const auto [exchangeProg, bufferSelect] = createExchangeProg(
+      graph, prog, plannedSplits, baseTBuckets, scale, numBuffers, slicesExBuf,
+      offsetsExBuf, columnPartitionExBuf, debugPrefix);
+
+  auto computeProg = createComputeProg(
+      graph, prog, plannedSplits, baseTBuckets, bufferSelect, scale, numBuffers,
+      slicesExBuf, offsetsExBuf, columnPartitionExBuf, debugPrefix);
+
+  // Prime the 1st buffer
+  prog.add(Copy(slices, slicesExBuf.src[0].slice(0, slices.dim(0))));
+  prog.add(Copy(offsetsBroadcast, offsetsExBuf.src[0]));
+  prog.add(Copy(columnPartitionBroadcast, columnPartitionExBuf.src[0]));
+
+  // Now use the programs and variables created to make the program below. The
+  // switch program is used to select the computeProg or exchangeProg
+  // based on srcIndex:
+  //
+  // srcIndex = 0;
+  // dstIndex = 1;
+  // columnLoops = column spill distance
+  // while(columnLoops!=0) {
+  //   rowLoops = rs * is;  //(This must perform a full rotation)
+  //   while(rowLoops!=0) {
+  //     // This loop body is `computeProg[0] or [1]`
+  //     createVertices[srcIndex];
+  //     exchangeSlices(src[srcIndex], dstRow[dstIndex]);
+  //     exchangeIndices(src[srcIndex], dstRow[dstIndex]);
+  //     exchangeColumnPartitions(src[srcIndex], dstRow[dstIndex]);
+  //     srcIndex=xor(srcIndex,1);
+  //     dstIndex=xor(dstIndex,1);
+  //     rowLoops--;
+  //   }
+  //   // This is `exchangeProg[0] or [1]`
+  //   exchangeSlices(src[srcIndex], dstColumn[dstIndex]);
+  //   exchangeIndices(src[srcIndex], dstColumn[dstIndex]);
+  //   exchangeColumnPartitions(src[srcIndex], dstColumn[dstIndex]);
+  //   srcIndex=xor(srcIndex,1);
+  //   dstIndex=xor(dstIndex,1);
+  //   columnLoops--;
+  // }
+
+  Sequence innerProg, outerProg;
+  innerProg.add(
+      Switch(bufferSelect, {{0, computeProg[0]}, {1, computeProg[1]}}));
+
+  outerProg.add(
+      Repeat(plannedSplits.slicesRowSplits * plannedSplits.slicesIndicesSplits,
+             innerProg));
+  outerProg.add(
+      Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}));
+
+  prog.add(RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg));
 }
 
 // External function to be used to create the slice input for an update

@@ -306,7 +306,7 @@ foreach(BLOCK_XY 1 4)
   endforeach()
 endforeach()
 
-
+# These test loops can be combined once the functions under test are complete
 foreach(DATA_TYPE float half)
   foreach(ROWS 4 67 126)
     foreach(COLUMNS 12 64 127)
@@ -342,6 +342,37 @@ foreach(DATA_TYPE float half)
             --num-indices=${INDICES}
             --sparsity-factor=0.25
             --matmul-options={\"metaInfoBucketOversizeProportion\":\"1.0\"})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(DATA_TYPE float half)
+  foreach(ROWS 4 67 126)
+    foreach(COLUMNS 8 65 127)
+      if(${COLUMNS} STREQUAL 8)
+        set(WEIGHTED_COLUMN_END 6)
+      endif()
+      if(${COLUMNS} STREQUAL 67)
+        set(WEIGHTED_COLUMN_END 32)
+      endif()
+      if(${COLUMNS} STREQUAL 127)
+        set(WEIGHTED_COLUMN_END 100)
+      endif()
+      foreach(INDICES 1 2 3 4 5 15 16 17 40)
+        add_multitarget_test(
+          NAME sparse_embedding_tied_matmul_spill_${DATA_TYPE}_${ROWS}_${COLUMNS}_${INDICES}_${WEIGHTED_COLUMN_END}
+          COMMAND sparse_embedding_tied_matmul
+            --data-type=${DATA_TYPE}
+            --m=${ROWS}
+            --k=${COLUMNS}
+            --n=128
+            --tiles-per-ipu=16
+            --num-indices=${INDICES}
+            --sparsity-factor=0.25
+            --weighted-area-end={4,${WEIGHTED_COLUMN_END}}
+            --weighted-area-weighting=1.5
+            --pass=wu)
       endforeach()
     endforeach()
   endforeach()

@@ -137,7 +137,7 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
     const std::vector<std::vector<unsigned>> processedSubGroupIndices,
     const std::vector<std::vector<unsigned>> &subGroupNumElems,
     const Target &target, const Type &inputType, const Type &partialType,
-    VertexType vertexType) {
+    VertexType vertexType, unsigned xPartition, unsigned yPartition) {
   const auto generateGradWMetaInfo = vertexType == VertexType::GradW;
   const auto generateGradAMetaInfo = vertexType == VertexType::GradA;
 
@@ -212,9 +212,7 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
         metaInfo[bucket].emplace_back(processedSubGroupId);
         const auto processedSubGroupNumElems = subGroupNumElems[bucket].at(i);
         const auto elemsPerNzElem = generateGradAMetaInfo ? 2 : 1;
-        // No concept of a partition in codelet tests as yet
-        const auto xPartition = 0;
-        const auto yPartition = 0;
+
         metaInfo[bucket].emplace_back(xPartition);
         metaInfo[bucket].emplace_back(yPartition);
         metaInfo[bucket].emplace_back(processedSubGroupNumElems);
@@ -383,4 +381,4 @@ generateMetaInfoAndPartition<std::mt19937>(
     const std::vector<std::vector<unsigned>> processedSubGroupIndices,
     const std::vector<std::vector<unsigned>> &subGroupNumElems,
     const Target &target, const Type &inputType, const Type &partialType,
-    VertexType vertexType);
+    VertexType vertexType, unsigned xPartition, unsigned yPartition);

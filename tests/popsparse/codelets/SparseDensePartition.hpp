@@ -36,6 +36,7 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
     const std::vector<std::vector<unsigned>> processedSubGroupIndices,
     const std::vector<std::vector<unsigned>> &subGroupNumElems,
     const poplar::Target &target, const poplar::Type &inputType,
-    const poplar::Type &partialType, VertexType vertexType);
+    const poplar::Type &partialType, VertexType vertexType,
+    unsigned xPartition = 0, unsigned yPartition = 0);
 
 #endif // _popsparse_SparseDensePartition_hpp

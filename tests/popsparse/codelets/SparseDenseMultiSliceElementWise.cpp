@@ -185,6 +185,13 @@ int main(int argc, char **argv) try {
   std::vector<unsigned> otherSubGroupIds;
   std::tie(processedSubGroupId, otherSubGroupIds) =
       generateSparseSubGroupIds(randomEngine, 1 + numOtherSubGroups, 1, 1000);
+  // An arbritrary value which the vertex under test has to compare to and
+  // match before processing the subGroup data.  This really means "which
+  // partition of the input columns does the metadata hold, and the vertex
+  // need to update"
+  const unsigned yPartitionToProcess = 17;
+  // Use 1 row per partition as the rowOffset may not be divisible by anything
+  const unsigned rowsPerPartition = 1;
 
   std::vector<std::vector<unsigned>> processedSubGroupIndices;
   std::vector<std::vector<unsigned>> subGroupNumElems;
@@ -196,7 +203,8 @@ int main(int argc, char **argv) try {
       randomEngine, sparseIndices, offsetBaseTShape,
       {offsetBaseTShape[1], zSize}, numBuckets, processedSubGroupId,
       otherSubGroupIds, processedSubGroupIndices, subGroupNumElems, target,
-      inputType, inputType, VertexType::Forward);
+      inputType, inputType, VertexType::Forward, rowOffset,
+      yPartitionToProcess);
 
   // Check values in meta-info to ensure they are representable by this type
   const auto metaInfoType = UNSIGNED_SHORT;
@@ -238,7 +246,6 @@ int main(int argc, char **argv) try {
   const auto v = graph.addVertex(cs, vertexClass);
 
   graph.setInitialValue(v["subColumns"], baseTShape[1]);
-  graph.setInitialValue(v["rowOffset"], rowOffset);
 
   graph.connect(v["offsets"], offsets);
   graph.connect(v["baseTNZ"], nzBuckets);
@@ -246,12 +253,20 @@ int main(int argc, char **argv) try {
   graph.connect(v["subT"], subT.flatten());
   graph.setInitialValue(v["nzScaleFactor"], reciprocalMulFactor(zSize));
 
-  graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
-
   if (updateAdd) {
     auto scaleT = graph.addConstant(inputType, {}, scale, "Scale");
     graph.setTileMapping(scaleT, 0);
     graph.connect(v["scale"], scaleT);
+    graph.setInitialValue(v["rowsPerPartition"], rowsPerPartition);
+
+    auto yPartitionToProcessT = graph.addConstant(
+        metaInfoType, {}, yPartitionToProcess, "yPartitionToProcess");
+    graph.setTileMapping(yPartitionToProcessT, 0);
+
+    graph.connect(v["yPartitionToProcess"], yPartitionToProcessT);
+  } else {
+    graph.setInitialValue(v["rowOffset"], rowOffset);
+    graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
   }
 
   graph.setTileMapping(v, 0);
