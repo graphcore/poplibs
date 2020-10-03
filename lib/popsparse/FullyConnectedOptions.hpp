@@ -9,6 +9,8 @@
 #include <ostream>
 #include <tuple>
 
+#include "poplibs_support/PlanConstraints.hpp"
+
 #include "SparsePartitionerOptions.hpp"
 
 namespace popsparse {
@@ -31,6 +33,8 @@ struct Options {
   // If set, forces the buckets to be used for all three passes to be the same
   bool sharedBuckets = true;
   PartitionerOptions partitioner;
+  // Constraints on the plan used
+  poplibs_support::PlanConstraints planConstraints;
 
   friend bool operator<(const Options &a, const Options &b);
   friend bool operator==(const Options &a, const Options &b);

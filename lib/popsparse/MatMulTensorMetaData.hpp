@@ -4,6 +4,7 @@
 #define popsparse_MatMulTensorMetaData_hpp
 
 #include "FullyConnectedTensorMetaData.hpp"
+#include "MatMulOptions.hpp"
 #include "TensorMetaDataBase.hpp"
 #include "popsparse/MatMulParams.hpp"
 
