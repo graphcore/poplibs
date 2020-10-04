@@ -762,6 +762,26 @@ foreach(SUPER true false)
   endforeach()
 endforeach()
 
+# Test all the BroadcastScalar codelets with all possible operations and
+# data types.
+# This is run with 6 different commands to avoid timeouts when running.
+# For details of the possible parameters of 'BinaryCodeletsTest' and usage 
+# examples, run it with the --help parameter:
+#   BinaryCodeletsTest --help
+add_multi_target_test_executable(BinaryCodeletsTest BinaryCodeletsTest.cpp)
+add_multitarget_test(NAME  "BroadcastScalar1DSupervisor"
+        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*1DSupervisor)
+add_multitarget_test(NAME  "BroadcastScalar1DInPlaceSupervisor"
+        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*1DInPlaceSupervisor)
+add_multitarget_test(NAME  "BroadcastScalar2DData"
+        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*2DData$)
+add_multitarget_test(NAME  "BroadcastScalar2DDataInPlace"
+        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar.*2DDataInPlace)
+add_multitarget_test(NAME  "BroadcastScalar2D"
+        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2D$)
+add_multitarget_test(NAME  "BroadcastScalar2DInPlace"
+        COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2DInPlace)
+
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
 

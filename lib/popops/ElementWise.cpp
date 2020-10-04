@@ -308,11 +308,40 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
                                     const Type &dType) {
   switch (op) {
   case BinaryOpType::ADD:
+  case BinaryOpType::DIVIDE:
+  case BinaryOpType::EQUAL:
+  case BinaryOpType::GREATER_THAN:
+  case BinaryOpType::GREATER_THAN_EQUAL:
+  case BinaryOpType::LESS_THAN:
+  case BinaryOpType::LESS_THAN_EQUAL:
+  case BinaryOpType::NOT_EQUAL:
+  case BinaryOpType::MAXIMUM:
+  case BinaryOpType::MINIMUM:
+  case BinaryOpType::REMAINDER:
+  case BinaryOpType::MULTIPLY:
+  case BinaryOpType::SUBTRACT:
+    return (dType == HALF || dType == FLOAT || dType == INT ||
+            dType == UNSIGNED_INT || dType == BOOL);
+
+  case BinaryOpType::LOGICAL_AND:
+  case BinaryOpType::LOGICAL_OR:
+    return dType == BOOL;
+
+  case BinaryOpType::ATAN2:
+  case BinaryOpType::POWER:
   case BinaryOpType::INV_STD_DEV_TO_VARIANCE:
   case BinaryOpType::VARIANCE_TO_INV_STD_DEV:
-  case BinaryOpType::SUBTRACT:
-  case BinaryOpType::MULTIPLY:
     return (dType == HALF || dType == FLOAT);
+
+  case BinaryOpType::BITWISE_AND:
+  case BinaryOpType::BITWISE_OR:
+  case BinaryOpType::BITWISE_XOR:
+  case BinaryOpType::BITWISE_XNOR:
+  case BinaryOpType::SHIFT_LEFT:
+  case BinaryOpType::SHIFT_RIGHT:
+    return (dType == INT || dType == UNSIGNED_INT);
+  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
+    return dType == INT;
   default:
     return false;
   }

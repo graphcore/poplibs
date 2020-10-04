@@ -5,25 +5,63 @@
 #include <cassert>
 #include <cmath>
 
+#include "elemwiseBinaryOps.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
-#include "popops/ExprOp.hpp"
-#include "util.hpp"
+
+using namespace poplar;
+using namespace popops;
+
+using BinaryOpType = popops::expr::BinaryOpType;
+
+// Defines which broadcast codelets have an assembly implementation
+template <BinaryOpType op, typename dType> constexpr static bool hasAssembly() {
+  return (std::is_same<dType, float>::value ||
+          std::is_same<dType, half>::value) &&
+         (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
+          op == BinaryOpType::MULTIPLY);
+}
+
+//******************************************************************************
+// Dispatch functions for the broadcast codelets
+//******************************************************************************
+
+template <BinaryOpType op, typename inT, typename outT,
+          bool allowUnaligned, // Allow input/output that isn't 64-bit aligned
+          bool allowRemainder>
+struct BroadcastOpDispatch {
+  static constexpr std::size_t minAlign = allowUnaligned ? alignof(inT) : 8;
+  static void compute(unsigned size,
+                      const __attribute__((align_value(minAlign))) inT *in,
+                      __attribute__((align_value(minAlign))) outT *out,
+                      const inT K) {
+    for (unsigned j = 0; j != size; j++) {
+      out[j] = BinaryOpFn<op, inT, architecture::active>::fn(in[j], K);
+    }
+  }
+};
+
+// Note: run in the context of one of the worker (started by the supervisor),
+// not the supervisor itself.
+template <BinaryOpType op, typename inT, typename outT,
+          bool allowUnaligned, // Allow input/output that isn't 64-bit aligned.
+          bool allowRemainder>
+struct BroadcastOpDispatchSupervisor {
+public:
+  static void compute(unsigned size, unsigned worker, const inT *in, outT *out,
+                      const inT K) {
+    // No vectorisation but still split over workers
+    for (unsigned j = worker; j < size; j += CTXT_WORKERS)
+      out[j] = BinaryOpFn<op, inT, architecture::active>::fn(in[j], K);
+  }
+};
 
 #ifdef __IPU__
-#include <ipu_memory_intrinsics>
-#include <ipu_vector_math>
 
-static __attribute__((always_inline)) unsigned getWsr(void) {
-  return __builtin_ipu_get(CSR_W_WSR__INDEX) & CSR_W_WSR__CTXTID_M1__MASK;
-}
-// Use attributes to ensure that the maskForRepeat is inline just prior to the
-// repeat instruction and therefore picked up by the compiler pass which
-// optimises for repeat instructions.
-// See T9902.
-static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
-  return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
-}
+// This function is marked as 'noinline' because this, when used together with
+// maskForRepeat to generate a loop count, encourages the compiler to create
+// the loop using the more efficient 'rpt' instruction.
+// See T9902  mad the definitions of maskForRepeat
 __attribute__((noinline)) unsigned divideWork(const unsigned size,
                                               const unsigned vectorWidthShifts,
                                               const unsigned worker) {
@@ -32,69 +70,155 @@ __attribute__((noinline)) unsigned divideWork(const unsigned size,
   const unsigned remainder = (size >> vectorWidthShifts) - loopCount * 6;
   return loopCount + static_cast<unsigned>(worker < remainder);
 }
-#endif
 
-using namespace poplar;
-using namespace popops;
+/// Perform the bulk of a *broadcast scalar* comparison operator
+/// [FLOAT, FLOAT] => BOOL, processing 2 'float2' in each cycle (i.e. 4 floats),
+/// so that we write 4 boolean results (1 full word) at a time, avoiding calls
+/// to __st8/__st16.
+/// This is run both by the '2DData' vertices and by the 1D workers started
+/// by the '1DSupervisor'
+///
+///  \tparam     op         Operation to perform. One of the comparison ops
+///                        (EQUAL, LESS_THAN, ...)
+///
+///  \tparam     stride    Stride (in units of 4 floats/4 bools) to advance
+///                        in/out at each cycle of the loop.
+///
+///  \param[in]  loopCount How many groups of 4 floats to process.
+///
+///  \param[in]  in        Pointer to an array of floats with the input data
+///                        (first operand)
+///
+///  \param[out] out       Pointer to an array of boolean (1 byte each) that
+///                        will be populated with the results
+///
+///  \param[in]  K         The second operand (the one that is broadcasted)
+template <BinaryOpType op, unsigned stride>
+void broadcastCompareOpBulk(unsigned loopCount, const float2 *in, int *out,
+                            const float K) {
+  const float2 K2 = {K, K};
+  for (unsigned j = 0; j < loopCount; j++) {
+    float2 load = ipu::load_postinc(&in, 1);
+    long2 calc_lo = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
+    load = ipu::load_postinc(&in, 2 * stride - 1);
+    long2 calc_hi = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
 
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
+    // Pack the two pair of results as 4 bytes in a 32 bit word and keep
+    // only the least significant bit of each bytes
+    *out = copy_cast<int>(tochar4(calc_lo, calc_hi)) & 0x01010101;
+    out += stride;
+  }
+}
 
-template <expr::BinaryOpType op, typename T> struct BroadcastOpFn {};
+/// Same as for broadcastCompareOpBulk above but for [HALF, HALF] => BOOL,
+/// processing a 'half4' at each cycle in the loop.
+template <BinaryOpType op, unsigned stride>
+void broadcastCompareOpBulk(unsigned loopCount, const half4 *in, int *out,
+                            const half K) {
+  const half4 K4 = {K, K, K, K};
+  for (unsigned j = 0; j < loopCount; j++) {
+    half4 load = ipu::load_postinc(&in, stride);
+    short4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
 
-#define DEFINE_BROADCAST_OP_FN(op, body)                                       \
-  template <typename T> struct BroadcastOpFn<op, T> {                          \
-    static T fn(T x, T K) { body }                                             \
-  };
+    // Pack the four results as 4 bytes in a 32 bit word and keep only the
+    // least significant bit of each bytes
+    *out = copy_cast<int>(tochar4(calc)) & 0x01010101;
+    out += stride;
+  }
+}
 
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::ADD, return x + K;)
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::MULTIPLY, return x * K;)
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::SUBTRACT, return x - K;)
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
-                       return (1 / (x * x)) - K;)
-#ifdef __IPU__
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
-                       return ipu::rsqrt(x + K);)
-#else
-DEFINE_BROADCAST_OP_FN(expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
-                       return 1 / (std::sqrt(x + K));)
-#endif
-//******************************************************************************
-// Dispatch functions for the broadcast codelets
-//******************************************************************************
-
-template <typename T, expr::BinaryOpType op,
-          bool allowUnaligned, // Allow input/output that isn't 64-bit aligned
-          bool allowRemainder>
-struct BroadcastOpDispatch {
-  static constexpr std::size_t minAlign = allowUnaligned ? alignof(T) : 8;
-  static void compute(unsigned size,
-                      const __attribute__((align_value(minAlign))) T *in,
-                      __attribute__((align_value(minAlign))) T *out,
-                      const T K) {
-    for (unsigned j = 0; j != size; j++) {
-      out[j] = BroadcastOpFn<op, T>::fn(in[j], K);
+/// Performs the broadcast comparison operator ([FLOAT, FLOAT] => BOOL or
+/// [HALF, HALF] => BOOL) for the trailing 0..3 elements of the input data.
+/// This is run both by the '2DData' vertices and by the 1D workers started
+/// by the '1DSupervisor'
+///
+///  \tparam     op        Operation to perform. One of the comparison ops
+///                        (EQUAL, LESS_THAN, ...)
+///
+///  \tparam     T         data type )(float or half)
+///
+///  \param[in]  size      Total number of elements contained in 'in'
+///
+///  \param[in]  in        Pointer to an array of floats with all the input data
+///                        (first operand)
+///
+///  \param[out] out       Pointer to an array of boolean (1 byte each) that
+///                        is/will be populated with the results
+///
+///  \param[in]  K         The second operand (the one that is broadcasted)
+template <BinaryOpType op, typename T>
+void broadcastCompareOpRemainder(unsigned size,
+                                 const __attribute__((align_value(8))) T *in,
+                                 __attribute__((align_value(8))) bool *out,
+                                 const T K) {
+  unsigned remainder = size & 3;
+  if (remainder) {
+    unsigned offs = size - remainder;
+    in = &in[offs]; // make it point to the 'remainder'
+    // Read the word of the output in memory that will contain the 1-3 bytes
+    // of the remainder, so that we can write back the byte(s) we will not be
+    // updating.
+    unsigned *out4 = reinterpret_cast<unsigned *>(&out[offs]);
+    unsigned result4 = *out4;
+    // Accumulate in 'result4' the 1-3 bytes of the remainder
+    unsigned mask = 0xff;
+    for (unsigned j = 0, shifts = 0; j != remainder; ++j, shifts += 8) {
+      bool res = BinaryOpFn<op, T, architecture::active>::fn(in[j], K);
+      result4 &= ~(mask << shifts);
+      result4 |= res << shifts;
     }
+    // Do a single word write back to memory
+    *out4 = result4;
+  }
+}
+
+/// Processing for FLOAT, HALF operators returning BOOL (2D workers started by
+/// Supervisor vertices).
+///  \tparam  T    The data type (FLOAT or HALF)
+///  \tparam  VT   The type for a 64 bit vector of type T (i.e. float2 or half4)
+template <BinaryOpType op, typename T, typename VT, bool allowRemainder>
+static void computeBool(unsigned size,
+                        const __attribute__((align_value(8))) T *in,
+                        __attribute__((align_value(8))) bool *out, const T K) {
+  if (size >= 4) {
+    const unsigned loopCount = maskForRepeat(size / 4u);
+    broadcastCompareOpBulk<op, 1>(loopCount, reinterpret_cast<const VT *>(in),
+                                  reinterpret_cast<int *>(out), K);
+  }
+  if (allowRemainder) {
+    broadcastCompareOpRemainder<op, T>(size, in, out, K);
+  }
+}
+
+// Run by the 2D worker for the comparison operators (EQUAL, LESS_THAN, etc )
+// for float data (they return bool results).
+// Optimised to perform word writes.
+template <BinaryOpType op, bool allowRemainder>
+struct BroadcastOpDispatch<op, float, bool, false, allowRemainder> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) float *in,
+                      __attribute__((align_value(8))) bool *out,
+                      const float K) {
+    computeBool<op, float, float2, allowRemainder>(size, in, out, K);
   }
 };
 
-template <typename T, expr::BinaryOpType op,
-          bool allowUnaligned, // Allow input/output that isn't 64-bit aligned.
-          bool allowRemainder>
-struct BroadcastOpDispatchSupervisor {
-public:
-  static void compute(unsigned size, unsigned worker, const T *in, T *out,
-                      const T K) {
-    // No vectorisation but still split over workers
-    for (unsigned j = worker; j < size; j += CTXT_WORKERS)
-      out[j] = BroadcastOpFn<op, T>::fn(in[j], K);
+// Run by the 2D worker for the comparison operators (EQUAL, LESS_THAN, etc )
+// for half data (they return bool results).
+// Optimised to perform word writes.
+template <BinaryOpType op, bool allowRemainder>
+struct BroadcastOpDispatch<op, half, bool, false, allowRemainder> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) half *in,
+                      __attribute__((align_value(8))) bool *out, const half K) {
+    computeBool<op, half, half4, allowRemainder>(size, in, out, K);
   }
 };
 
-#ifdef __IPU__
-
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
+// Run by the 2D worker for the operators that work on half and return half.
+// Optimised to perform vector read/writes.
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatch<op, half, half, allowUnaligned, allowRemainder> {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
   // Assumes in and out both point to the same memory (or at least have
   // same alignment at function start) and that there is at least one element
@@ -110,8 +234,9 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
             reinterpret_cast<std::uintptr_t>(in) & ~std::uintptr_t(3));
         half2 *h2Out = reinterpret_cast<half2 *>(
             reinterpret_cast<std::uintptr_t>(out) & ~std::uintptr_t(3));
-        half2 res = {(*h2Out)[0], BroadcastOpFn<op, half>::fn(
-                                      ipu::load_postinc(&h2In, 1)[1], K)};
+        half2 res = {(*h2Out)[0],
+                     BinaryOpFn<op, half, architecture::active>::fn(
+                         ipu::load_postinc(&h2In, 1)[1], K)};
         *h2Out++ = res;
         size -= 1;
         in = reinterpret_cast<const half *>(h2In);
@@ -121,8 +246,8 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
         half2 K2 = {K, K};
         const half2 *h2In = reinterpret_cast<const half2 *>(in);
         half2 *h2Out = reinterpret_cast<half2 *>(out);
-        *h2Out++ =
-            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
+        *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
+            ipu::load_postinc(&h2In, 1), K2);
         size -= 2;
         in = reinterpret_cast<const half *>(h2In);
         out = reinterpret_cast<half *>(h2Out);
@@ -138,12 +263,12 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
       const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
-        half4 calc = BroadcastOpFn<op, half4>::fn(load, K4);
+        half4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
         load = ipu::load_postinc(&h4In, 1);
         *h4Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      *h4Out++ = BroadcastOpFn<op, half4>::fn(load, K4);
+      *h4Out++ = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
       if (allowRemainder) {
         in = reinterpret_cast<const half *>(h4In);
         half *tmp = reinterpret_cast<half *>(h4Out);
@@ -157,14 +282,14 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
 
       if (size >= 2) {
         half2 K2 = {K, K};
-        *h2Out++ =
-            BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
+        *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
+            ipu::load_postinc(&h2In, 1), K2);
         size -= 2;
       }
 
       if (size == 1) {
         half2 res = (half2){
-            BroadcastOpFn<op, half>::fn((*h2In)[0], K),
+            BinaryOpFn<op, half, architecture::active>::fn((*h2In)[0], K),
             (*h2Out)[1],
         };
         *h2Out = res;
@@ -173,8 +298,10 @@ struct BroadcastOpDispatch<half, op, allowUnaligned, allowRemainder> {
   }
 };
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
+// Run by the 2D worker for the operators that work on floats and return floats.
+// Optimised to perform vector read/writes.
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
   // Assumes in and out both point to the same memory (or at least have
   // same alignment at function start) and that there is at least one element
@@ -185,7 +312,8 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
                       const float K) {
     if (allowUnaligned) {
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
-        *out++ = BroadcastOpFn<op, float>::fn(ipu::load_postinc(&in, 1), K);
+        *out++ = BinaryOpFn<op, float, architecture::active>::fn(
+            ipu::load_postinc(&in, 1), K);
         size -= 1;
       }
     }
@@ -197,12 +325,13 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
       const unsigned loopCount = maskForRepeat((size / 2u) - 1);
       asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; i++) {
-        float2 calc = BroadcastOpFn<op, float2>::fn(load, K2);
+        float2 calc =
+            BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
         load = ipu::load_postinc(&f2In, 1);
         *f2Out++ = calc;
       }
       asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      *f2Out++ = BroadcastOpFn<op, float2>::fn(load, K2);
+      *f2Out++ = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
       if (allowRemainder) {
         in = reinterpret_cast<const float *>(f2In);
         out = reinterpret_cast<float *>(f2Out);
@@ -211,14 +340,74 @@ struct BroadcastOpDispatch<float, op, allowUnaligned, allowRemainder> {
     if (allowRemainder) {
       if (size & 1) {
         float load = ipu::load_postinc(&in, 1);
-        *out = BroadcastOpFn<op, float>::fn(load, K);
+        *out = BinaryOpFn<op, float, architecture::active>::fn(load, K);
       }
     }
   }
 };
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-class BroadcastOpDispatchSupervisor<float, op, allowUnaligned, allowRemainder> {
+/// Processing for FLOAT, HALF operators returning BOOL (for workers started by
+/// Supervisor vertices).
+///
+///  \tparam T              The data type (FLOAT or HALF)
+///  \tparam VT             Type for a 64 bit vector of type T (i.e.
+///                         float2 or half4)
+///  \tparam allowRemainder Same as defined in BroadcastOpDispatchSupervisor
+template <BinaryOpType op, typename T, typename VT, bool allowRemainder>
+static void computeBoolSupervisor(unsigned size, unsigned worker,
+                                  const __attribute__((align_value(8))) T *in,
+                                  __attribute__((align_value(8))) bool *out,
+                                  const T K) {
+  const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+  // We need to process 4 values at a time; for float this means: 2 x float2
+  // while for half means: 1 x half4
+  constexpr unsigned multTo4 = std::is_same<T, float>::value ? 2 : 1;
+  broadcastCompareOpBulk<op, CTXT_WORKERS>(
+      loopCount, reinterpret_cast<const VT *>(in) + multTo4 * worker,
+      reinterpret_cast<int *>(out) + worker, K);
+
+  // To process the trailing elements (if any) use the last worker as it is
+  // most likely to have less to do than the others.
+  if (allowRemainder) {
+    if (worker == (CTXT_WORKERS - 1)) {
+      broadcastCompareOpRemainder<op, T>(size, in, out, K);
+    }
+  }
+}
+
+// Run by the worker (started by supervisor vertex) for the comparison
+// operators (EQUAL, LESS_THAN, etc that return bool results) for float data.
+template <BinaryOpType op, bool allowRemainder>
+class BroadcastOpDispatchSupervisor<op, float, bool, false, allowRemainder> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(8))) float *in,
+                      __attribute__((align_value(8))) bool *out,
+                      const float K) {
+    computeBoolSupervisor<op, float, float2, allowRemainder>(size, worker, in,
+                                                             out, K);
+  }
+};
+
+// Run by the worker (started by supervisor vertex) for the comparison
+// operators (EQUAL, LESS_THAN, etc ) for half data (return bool results).
+template <BinaryOpType op, bool allowRemainder>
+struct BroadcastOpDispatchSupervisor<op, half, bool, false, allowRemainder> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(8))) half *in,
+                      __attribute__((align_value(8))) bool *out, const half K) {
+    computeBoolSupervisor<op, half, half4, allowRemainder>(size, worker, in,
+                                                           out, K);
+  }
+};
+
+// Run by the worker (started by supervisor vertex) for the operators that
+// work on floats and return floats.
+// Optimised to perform vector read/writes.
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+class BroadcastOpDispatchSupervisor<op, float, float, allowUnaligned,
+                                    allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(float) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -235,7 +424,7 @@ public:
       if (reinterpret_cast<std::uintptr_t>(in) & 0x7) {
         if (worker == 0) {
           auto val = ipu::load_postinc(&in, 1);
-          *out++ = BroadcastOpFn<op, float>::fn(val, K);
+          *out++ = BinaryOpFn<op, float, architecture::active>::fn(val, K);
         } else {
           ++in;
           ++out;
@@ -249,7 +438,7 @@ public:
     const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
     for (unsigned j = 0; j < loopCount; j++) {
       float2 load = ipu::load_postinc(&f2In, CTXT_WORKERS);
-      float2 calc = BroadcastOpFn<op, float2>::fn(load, K2);
+      float2 calc = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
       *f2Out = calc;
       f2Out += CTXT_WORKERS;
     }
@@ -257,14 +446,19 @@ public:
     // loop so allow it to process the remainder
     if (allowRemainder) {
       if (worker == (CTXT_WORKERS - 1) && (size & 1)) {
-        out[size - 1] = BroadcastOpFn<op, float>::fn(in[size - 1], K);
+        out[size - 1] =
+            BinaryOpFn<op, float, architecture::active>::fn(in[size - 1], K);
       }
     }
   }
 };
 
-template <expr::BinaryOpType op, bool allowUnaligned, bool allowRemainder>
-struct BroadcastOpDispatchSupervisor<half, op, allowUnaligned, allowRemainder> {
+// Run by the worker (started by supervisor vertex) for the operators that
+// work on half data and return half.
+// Optimised to perform vector read/writes.
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatchSupervisor<op, half, half, allowUnaligned,
+                                     allowRemainder> {
 public:
   static constexpr std::size_t minAlign = allowUnaligned ? alignof(half) : 8;
   // Assumes in and out both point to the same memory (or at least have
@@ -285,8 +479,9 @@ public:
               reinterpret_cast<std::uintptr_t>(in) & ~std::uintptr_t(0x3));
           half2 *h2Out = reinterpret_cast<half2 *>(
               reinterpret_cast<std::uintptr_t>(out) & ~std::uintptr_t(0x3));
-          half2 res = {(*h2Out)[0], BroadcastOpFn<op, half>::fn(
-                                        ipu::load_postinc(&h2In, 1)[1], K)};
+          half2 res = {(*h2Out)[0],
+                       BinaryOpFn<op, half, architecture::active>::fn(
+                           ipu::load_postinc(&h2In, 1)[1], K)};
           *h2Out++ = res;
           in = reinterpret_cast<const half *>(h2In);
           out = reinterpret_cast<half *>(h2Out);
@@ -301,8 +496,8 @@ public:
           half2 K2 = {K, K};
           const half2 *h2In = reinterpret_cast<const half2 *>(in);
           half2 *h2Out = reinterpret_cast<half2 *>(out);
-          *h2Out++ =
-              BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
+          *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
+              ipu::load_postinc(&h2In, 1), K2);
           in = reinterpret_cast<const half *>(h2In);
           out = reinterpret_cast<half *>(h2Out);
         } else {
@@ -321,7 +516,7 @@ public:
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
     for (unsigned j = 0; j < loopCount; j++) {
       half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
-      half4 calc = BroadcastOpFn<op, half4>::fn(load, K4);
+      half4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
       *h4Out = calc;
       h4Out += CTXT_WORKERS;
     }
@@ -336,13 +531,13 @@ public:
         half2 *h2Out = reinterpret_cast<half2 *>(&out[size & ~unsigned(3)]);
         if (size & 2) {
           half2 K2 = {K, K};
-          *h2Out++ =
-              BroadcastOpFn<op, half2>::fn(ipu::load_postinc(&h2In, 1), K2);
+          *h2Out++ = BinaryOpFn<op, half2, architecture::active>::fn(
+              ipu::load_postinc(&h2In, 1), K2);
         }
         if (size & 1) {
           h2Out = reinterpret_cast<half2 *>(&out[size - 1]);
           half2 res = {
-              BroadcastOpFn<op, half>::fn((*h2In)[0], K),
+              BinaryOpFn<op, half, architecture::active>::fn((*h2In)[0], K),
               (*h2Out)[1],
           };
           *h2Out = res;
@@ -356,18 +551,49 @@ public:
 
 namespace popops {
 
-#define INSTANTIATE_TYPES(name, opType)                                        \
-  template class name<opType, float>;                                          \
-  template class name<opType, half>
-
-#define INSTANTIATE_SCALAR_BASIC(name)                                         \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::ADD);                            \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::MULTIPLY);                       \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::SUBTRACT)
-
 #define INSTANTIATE_SCALAR(name)                                               \
-  INSTANTIATE_TYPES(name, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV);        \
-  INSTANTIATE_SCALAR_BASIC(name)
+  INSTANTIATE_OP(name, BinaryOpType::ADD, float, half, int, unsigned)          \
+  INSTANTIATE_OP(name, BinaryOpType::ATAN2, float, half)                       \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_AND, int, unsigned)               \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_OR, int, unsigned)                \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_XOR, int, unsigned)               \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_XNOR, int, unsigned)              \
+  INSTANTIATE_OP(name, BinaryOpType::DIVIDE, float, half, int, unsigned)       \
+  INSTANTIATE_OP(name, BinaryOpType::LOGICAL_AND, bool)                        \
+  INSTANTIATE_OP(name, BinaryOpType::LOGICAL_OR, bool)                         \
+  INSTANTIATE_OP(name, BinaryOpType::MAXIMUM, float, half, int, unsigned)      \
+  INSTANTIATE_OP(name, BinaryOpType::MINIMUM, float, half, int, unsigned)      \
+  INSTANTIATE_OP(name, BinaryOpType::MULTIPLY, float, half, int, unsigned)     \
+  INSTANTIATE_OP(name, BinaryOpType::POWER, float, half)                       \
+  INSTANTIATE_OP(name, BinaryOpType::REMAINDER, float, half, int, unsigned)    \
+  INSTANTIATE_OP(name, BinaryOpType::SHIFT_LEFT, int, unsigned)                \
+  INSTANTIATE_OP(name, BinaryOpType::SHIFT_RIGHT, int, unsigned)               \
+  INSTANTIATE_OP(name, BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int, unsigned)   \
+  INSTANTIATE_OP(name, BinaryOpType::SUBTRACT, float, half, int, unsigned)     \
+  INSTANTIATE_OP(name, BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half)
+
+// Relational (comparison) operators are separate because InPlace vertices
+// have them only for boolean
+#define INSTANTIATE_SCALAR_RELOP(name)                                         \
+  INSTANTIATE_OP(name, BinaryOpType::EQUAL, float, half, int, unsigned, bool)  \
+  INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN, float, half, int, unsigned, \
+                 bool)                                                         \
+  INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN_EQUAL, float, half, int,     \
+                 unsigned, bool)                                               \
+  INSTANTIATE_OP(name, BinaryOpType::LESS_THAN, float, half, int, unsigned,    \
+                 bool)                                                         \
+  INSTANTIATE_OP(name, BinaryOpType::LESS_THAN_EQUAL, float, half, int,        \
+                 unsigned, bool)                                               \
+  INSTANTIATE_OP(name, BinaryOpType::NOT_EQUAL, float, half, int, unsigned,    \
+                 bool)
+
+#define INSTANTIATE_SCALAR_RELOP_IN_PLACE(name)                                \
+  INSTANTIATE_OP(name, BinaryOpType::EQUAL, bool)                              \
+  INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN, bool)                       \
+  INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN_EQUAL, bool)                 \
+  INSTANTIATE_OP(name, BinaryOpType::LESS_THAN, bool)                          \
+  INSTANTIATE_OP(name, BinaryOpType::LESS_THAN_EQUAL, bool)                    \
+  INSTANTIATE_OP(name, BinaryOpType::NOT_EQUAL, bool)
 
 #define INSTANTIATE_VECTOR_OUTER_TYPES(name, opType)                           \
   template class name<opType, float, true>;                                    \
@@ -376,9 +602,9 @@ namespace popops {
   template class name<opType, half, false>
 
 #define INSTANTIATE_VECTOR_OUTER(name)                                         \
-  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BinaryOpType::ADD);               \
-  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BinaryOpType::SUBTRACT);          \
-  INSTANTIATE_VECTOR_OUTER_TYPES(name, expr::BinaryOpType::MULTIPLY)
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, BinaryOpType::ADD);                     \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, BinaryOpType::SUBTRACT);                \
+  INSTANTIATE_VECTOR_OUTER_TYPES(name, BinaryOpType::MULTIPLY)
 
 // The not-in-place broadcast vertices have an 'out' member for the output of
 // the operation.
@@ -392,39 +618,49 @@ namespace popops {
 #define OUT_1D_DEF_HALF Output<Vector<half, ONE_PTR, 8>> out;
 #define OUT_2D_DEF_HALF Vector<Output<Vector<half, ONE_PTR, 8>>, ONE_PTR> out;
 
-#define DEF_BROADCAST_2D_DATA_VERTEX(vertexName, inOutType, outDef, outName)   \
-  template <expr::BinaryOpType op, typename dType>                             \
-  class vertexName : public Vertex {                                           \
-  public:                                                                      \
-    constexpr static bool isExternal() {                                       \
-      return (std::is_same<dType, float>::value ||                             \
-              std::is_same<dType, half>::value) &&                             \
-             (op == expr::BinaryOpType::ADD ||                                 \
-              op == expr::BinaryOpType::SUBTRACT ||                            \
-              op == expr::BinaryOpType::MULTIPLY);                             \
-    }                                                                          \
-    Vector<inOutType<Vector<dType, SPAN, 8>>> data;                            \
-    outDef Input<dType> B;                                                     \
-    IS_EXTERNAL_CODELET(isExternal());                                         \
-    bool compute() {                                                           \
-      unsigned limI = data.size();                                             \
-      for (unsigned i = 0; i < limI; i++) {                                    \
-        BroadcastOpDispatch<dType, op, false, true>::compute(                  \
-            data[i].size(), &data[i][0], &outName[i][0], *B);                  \
-      }                                                                        \
-      return true;                                                             \
-    }                                                                          \
-  };
+template <BinaryOpType op, typename dType>
+class BroadcastScalar2DData : public Vertex {
+  using OutputType = typename BinaryOpOutputType<op, dType>::type;
 
-DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DData, Input, OUT_2D_DEF, out)
-DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
+public:
+  Vector<Input<Vector<dType, SPAN, 8>>> data;
+  Vector<Output<Vector<OutputType, ONE_PTR, 8>>, ONE_PTR> out;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; i++) {
+      BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
+          data[i].size(), &data[i][0], &out[i][0], *B);
+    }
+    return true;
+  }
+};
+
+template <BinaryOpType op, typename dType>
+class BroadcastScalar2DDataInPlace : public Vertex {
+  using OutputType = typename BinaryOpOutputType<op, dType>::type;
+
+public:
+  Vector<InOut<Vector<OutputType, SPAN, 8>>> data;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; i++) {
+      BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
+          data[i].size(), &data[i][0], &data[i][0], *B);
+    }
+    return true;
+  }
+};
 
 // Ensure that internal arithmetic is always done in full precision for
 // INV_STD_DEV_TO_VARIANCE
 #define DEF_BROADCAST_2D_DATA_VERTEX_FP(vertexName, inOutType, outDef,         \
                                         outName)                               \
   template <>                                                                  \
-  class vertexName<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>          \
+  class vertexName<BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>                \
       : public Vertex {                                                        \
   public:                                                                      \
     Vector<inOutType<Vector<half, SPAN, 8>>> data;                             \
@@ -435,9 +671,10 @@ DEF_BROADCAST_2D_DATA_VERTEX(BroadcastScalar2DDataInPlace, InOut, , data)
       for (unsigned i = 0; i < limI; i++) {                                    \
         for (unsigned j = 0; j < data[i].size(); j++) {                        \
           outName[i][j] = static_cast<half>(                                   \
-              BroadcastOpFn<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,       \
-                            float>::fn(static_cast<float>(data[i][j]),         \
-                                       static_cast<float>(*B)));               \
+              BinaryOpFn<                                                      \
+                  BinaryOpType::INV_STD_DEV_TO_VARIANCE, float,                \
+                  architecture::active>::fn(static_cast<float>(data[i][j]),    \
+                                            static_cast<float>(*B)));          \
         }                                                                      \
       }                                                                        \
       return true;                                                             \
@@ -449,38 +686,60 @@ DEF_BROADCAST_2D_DATA_VERTEX_FP(BroadcastScalar2DData, Input, OUT_2D_DEF_HALF,
 DEF_BROADCAST_2D_DATA_VERTEX_FP(BroadcastScalar2DDataInPlace, InOut, , data)
 
 template class BroadcastScalar2DDataInPlace<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
-template class BroadcastScalar2DData<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class BroadcastScalar2DData<BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+                                     float>;
 
 INSTANTIATE_SCALAR(BroadcastScalar2DData);
+INSTANTIATE_SCALAR_RELOP(BroadcastScalar2DData);
 INSTANTIATE_SCALAR(BroadcastScalar2DDataInPlace);
+INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar2DDataInPlace);
 
-#define DEF_BROADCAST_2D_VERTEX(vertexName, inOutType, outDef, outName)        \
-  template <expr::BinaryOpType op, typename dType>                             \
-  class vertexName : public Vertex {                                           \
-  public:                                                                      \
-    Vector<inOutType<Vector<dType, SPAN, 8>>> data;                            \
-    outDef Vector<Input<dType>, ONE_PTR> B;                                    \
-    bool compute() {                                                           \
-      unsigned limI = data.size();                                             \
-      for (unsigned i = 0; i < limI; i++) {                                    \
-        BroadcastOpDispatch<dType, op, false, true>::compute(                  \
-            data[i].size(), &data[i][0], &outName[i][0], B[i]);                \
-      }                                                                        \
-      return true;                                                             \
-    }                                                                          \
-  };
+template <BinaryOpType op, typename dType>
+class BroadcastScalar2D : public Vertex {
+  using OutType = typename BinaryOpOutputType<op, dType>::type;
 
-DEF_BROADCAST_2D_VERTEX(BroadcastScalar2D, Input, OUT_2D_DEF, out)
-DEF_BROADCAST_2D_VERTEX(BroadcastScalar2DInPlace, InOut, , data)
+public:
+  Vector<Input<Vector<dType, SPAN, 8>>> data;
+  Vector<Output<Vector<OutType, ONE_PTR, 8>>, ONE_PTR> out;
+  Vector<Input<dType>, ONE_PTR> B;
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; i++) {
+      BroadcastOpDispatch<op, dType, OutType, false, true>::compute(
+          data[i].size(), &data[i][0], &out[i][0], B[i]);
+    }
+    return true;
+  }
+};
 
-INSTANTIATE_SCALAR_BASIC(BroadcastScalar2D);
-INSTANTIATE_SCALAR_BASIC(BroadcastScalar2DInPlace);
+template <BinaryOpType op, typename dType>
+class BroadcastScalar2DInPlace : public Vertex {
+public:
+  Vector<InOut<Vector<dType, SPAN, 8>>> data;
+  Vector<Input<dType>, ONE_PTR> B;
+  bool compute() {
+    unsigned limI = data.size();
+    for (unsigned i = 0; i < limI; i++) {
+      BroadcastOpDispatch<op, dType, dType, false, true>::compute(
+          data[i].size(), &data[i][0], &data[i][0], B[i]);
+    }
+    return true;
+  }
+};
+
+INSTANTIATE_SCALAR(BroadcastScalar2D);
+INSTANTIATE_SCALAR_RELOP(BroadcastScalar2D);
+INSTANTIATE_SCALAR(BroadcastScalar2DInPlace);
+INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar2DInPlace);
+INSTANTIATE_OP(BroadcastScalar2D, BinaryOpType::INV_STD_DEV_TO_VARIANCE, half,
+               float)
+INSTANTIATE_OP(BroadcastScalar2DInPlace, BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+               half, float)
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_VERTEX(vertexName, inOutType,       \
                                                   outDef, outName, isInPlace)  \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <BinaryOpType op, typename dType, bool allowMisaligned>             \
   class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
@@ -495,7 +754,7 @@ INSTANTIATE_SCALAR_BASIC(BroadcastScalar2DInPlace);
       std::size_t bIndex = 0;                                                  \
       auto bLen = B.size();                                                    \
       for (unsigned i = 0; i < rows; i++) {                                    \
-        BroadcastOpDispatch<dType, op, allowMisaligned,                        \
+        BroadcastOpDispatch<op, dType, dType, allowMisaligned,                 \
                             allowMisaligned>::compute(columns,                 \
                                                       &data[i * columns],      \
                                                       &outName[i * columns],   \
@@ -519,7 +778,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(vertexName, inOutType, outDef,  \
                                                outName, isInPlace)             \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <BinaryOpType op, typename dType, bool allowMisaligned>             \
   class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
@@ -534,7 +793,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlaceSupervisor);
       std::size_t bIndex = 0;                                                  \
       auto bLen = B.size();                                                    \
       for (unsigned i = 0; i < rows; i++) {                                    \
-        BroadcastOpDispatch<dType, op, allowMisaligned,                        \
+        BroadcastOpDispatch<op, dType, dType, allowMisaligned,                 \
                             allowMisaligned>::compute(columns,                 \
                                                       &data[i * columns],      \
                                                       &outName[i * columns],   \
@@ -556,28 +815,46 @@ DEF_BROADCAST_VECT_OUTER_BY_ROW_VERTEX(
 INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowSupervisor);
 INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlaceSupervisor);
 
-#define DEF_BROADCAST_1D_VERTEX(vertexName, inOutType, outDef, outName)        \
-  template <expr::BinaryOpType op, typename dType>                             \
-  class vertexName : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {         \
-  public:                                                                      \
-    inOutType<Vector<dType, SPAN, 8>> data;                                    \
-    outDef Input<dType> B;                                                     \
-    IS_EXTERNAL_CODELET(true);                                                 \
-    bool compute() {                                                           \
-      BroadcastOpDispatch<dType, op, false, true>::compute(                    \
-          data.size(), &data[0], &outName[0], *B);                             \
-      return true;                                                             \
-    }                                                                          \
-  };
+template <BinaryOpType op, typename dType>
+class BroadcastScalar1DSupervisor
+    : public SupervisorVertexIf<binaryOp1DIsSupervisor<op, dType>() &&
+                                ASM_CODELETS_ENABLED> {
+  typedef typename BinaryOpOutputType<op, dType>::type OutputType;
 
-DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DSupervisor, Input, OUT_1D_DEF, out)
-DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
+public:
+  Input<Vector<dType, SPAN, 8>> data;
+  Output<Vector<OutputType, ONE_PTR, 8>> out;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET((binaryOp1DIsSupervisor<op, dType>()));
+  bool compute() {
+    BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
+        data.size(), &data[0], &out[0], *B);
+    return true;
+  }
+};
+
+template <BinaryOpType op, typename dType>
+class BroadcastScalar1DInPlaceSupervisor
+    : public SupervisorVertexIf<binaryOp1DInPlaceIsSupervisor<op, dType>() &&
+                                ASM_CODELETS_ENABLED> {
+  typedef typename BinaryOpOutputType<op, dType>::type OutputType;
+
+public:
+  InOut<Vector<OutputType, SPAN, 8>> data;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET((binaryOp1DInPlaceIsSupervisor<op, dType>()));
+  bool compute() {
+    BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
+        data.size(), &data[0], &data[0], *B);
+    return true;
+  }
+};
 
 // Ensure that internal arithmetic is always done in full precision for
 // INV_STD_DEV_TO_VARIANCE
 #define DEF_BROADCAST_1D_VERTEX_FP(vertexName, inOutType, outDef, outName)     \
   template <>                                                                  \
-  class vertexName<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>          \
+  class vertexName<BinaryOpType::INV_STD_DEV_TO_VARIANCE, half>                \
       : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {                      \
   public:                                                                      \
     inOutType<Vector<half, SPAN, 8>> data;                                     \
@@ -587,9 +864,9 @@ DEF_BROADCAST_1D_VERTEX(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
       unsigned limI = data.size();                                             \
       for (unsigned i = 0; i < limI; i++) {                                    \
         outName[i] = static_cast<half>(                                        \
-            BroadcastOpFn<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,         \
-                          float>::fn(static_cast<float>(data[i]),              \
-                                     static_cast<float>(*B)));                 \
+            BinaryOpFn<BinaryOpType::INV_STD_DEV_TO_VARIANCE, float,           \
+                       architecture::active>::fn(static_cast<float>(data[i]),  \
+                                                 static_cast<float>(*B)));     \
       }                                                                        \
       return true;                                                             \
     }                                                                          \
@@ -600,12 +877,14 @@ DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DSupervisor, Input, OUT_1D_DEF_HALF,
 DEF_BROADCAST_1D_VERTEX_FP(BroadcastScalar1DInPlaceSupervisor, InOut, , data)
 
 template class BroadcastScalar1DInPlaceSupervisor<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
 template class BroadcastScalar1DSupervisor<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
 
 INSTANTIATE_SCALAR(BroadcastScalar1DSupervisor);
+INSTANTIATE_SCALAR_RELOP(BroadcastScalar1DSupervisor);
 INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
+INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlaceSupervisor);
 
 #ifdef __IPU__
 
@@ -613,41 +892,46 @@ INSTANTIATE_SCALAR(BroadcastScalar1DInPlaceSupervisor);
 // supervisor vertices compile to an external codelet.  Called via an
 // assembly stub.
 
-#define DEF_BROADCAST_1D_WK_VERTEX(vertexName, inOutType, outDef, outName)     \
-  template <expr::BinaryOpType op, typename dType>                             \
-  class vertexName : public Vertex {                                           \
-  public:                                                                      \
-    constexpr static bool isExternal() {                                       \
-      return (std::is_same<dType, float>::value ||                             \
-              std::is_same<dType, half>::value) &&                             \
-             (op == expr::BinaryOpType::ADD ||                                 \
-              op == expr::BinaryOpType::SUBTRACT ||                            \
-              op == expr::BinaryOpType::MULTIPLY);                             \
-    }                                                                          \
-    inOutType<Vector<dType, SPAN, 8>> data;                                    \
-    outDef Input<dType> B;                                                     \
-    IS_EXTERNAL_CODELET(isExternal());                                         \
-    bool compute() {                                                           \
-      BroadcastOpDispatchSupervisor<dType, op, false, true>::compute(          \
-          data.size(), getWsr(), &data[0], &outName[0], *B);                   \
-      return true;                                                             \
-    }                                                                          \
-  };
+template <BinaryOpType op, typename dType>
+class BroadcastScalar1D : public Vertex {
+  using OutType = typename BinaryOpOutputType<op, dType>::type;
 
-DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1D, Input, OUT_1D_DEF, out)
-DEF_BROADCAST_1D_WK_VERTEX(BroadcastScalar1DInPlace, InOut, , data)
+public:
+  Input<Vector<dType, SPAN, 8>> data;
+  Output<Vector<OutType, ONE_PTR, 8>> out;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
+  bool compute() {
+    BroadcastOpDispatchSupervisor<op, dType, OutType, false, true>::compute(
+        data.size(), getWsr(), &data[0], &out[0], *B);
+    return true;
+  }
+};
 
-template class BroadcastScalar1D<expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
-                                 float>;
-template class BroadcastScalar1DInPlace<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template <BinaryOpType op, typename dType>
+class BroadcastScalar1DInPlace : public Vertex {
+public:
+  InOut<Vector<dType, SPAN, 8>> data;
+  Input<dType> B;
+  IS_EXTERNAL_CODELET((hasAssembly<op, dType>()));
+  bool compute() {
+    BroadcastOpDispatchSupervisor<op, dType, dType, false, true>::compute(
+        data.size(), getWsr(), &data[0], &data[0], *B);
+    return true;
+  }
+};
+
+template class BroadcastScalar1D<BinaryOpType::INV_STD_DEV_TO_VARIANCE, float>;
+template class BroadcastScalar1DInPlace<BinaryOpType::INV_STD_DEV_TO_VARIANCE,
+                                        float>;
 
 INSTANTIATE_SCALAR(BroadcastScalar1D);
+INSTANTIATE_SCALAR_RELOP(BroadcastScalar1D);
 INSTANTIATE_SCALAR(BroadcastScalar1DInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(                          \
     vertexName, inOutType, outDef, outName, isInPlace)                         \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <BinaryOpType op, typename dType, bool allowMisaligned>             \
   class vertexName : public Vertex {                                           \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? alignof(dType) : 8;                   \
@@ -663,7 +947,7 @@ INSTANTIATE_SCALAR(BroadcastScalar1DInPlace);
       auto bLen = B.size();                                                    \
       for (unsigned i = 0; i < rows; i++) {                                    \
         BroadcastOpDispatchSupervisor<                                         \
-            dType, op, allowMisaligned,                                        \
+            op, dType, dType, allowMisaligned,                                 \
             allowMisaligned>::compute(columns, getWsr(), &data[i * columns],   \
                                       &outName[i * columns], B[bIndex]);       \
         ++bIndex;                                                              \
@@ -694,7 +978,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_ROW_WK_VERTEX(vertexName, inOutType,       \
                                                   outDef, outName, isInPlace)  \
-  template <expr::BinaryOpType op, typename dType, bool allowMisaligned>       \
+  template <BinaryOpType op, typename dType, bool allowMisaligned>             \
   class vertexName : public Vertex {                                           \
     static constexpr std::size_t inputAlign =                                  \
         (allowMisaligned && isInPlace) ? 4 : 8;                                \
@@ -716,7 +1000,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByColumnInPlace);
         while (bIndex >= bLen) {                                               \
           bIndex -= bLen;                                                      \
         }                                                                      \
-        BroadcastOpDispatch<dType, op, allowMisaligned,                        \
+        BroadcastOpDispatch<op, dType, dType, allowMisaligned,                 \
                             allowMisaligned>::compute(columns,                 \
                                                       &data[i * columns],      \
                                                       &outName[i * columns],   \
@@ -748,7 +1032,7 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlace);
 // VARIANCE_TO_INV_STD_DEV and INV_STD_DEV_TO_VARIANCE have the option of a
 // different output type to input type, and all arithmetic is to be carried out
 // in single precision.  Variance will be float, ISD, half
-template <expr::BinaryOpType op, typename inType, typename outType>
+template <BinaryOpType op, typename inType, typename outType>
 class BroadcastScalar2Types2DData : public Vertex {
 public:
   Vector<Input<Vector<inType, SPAN, 8>>> data;
@@ -759,8 +1043,9 @@ public:
     unsigned limI = data.size();
     for (unsigned i = 0; i < limI; i++) {
       for (unsigned j = 0; j < data[i].size(); j++) {
-        out[i][j] = static_cast<outType>(BroadcastOpFn<op, float>::fn(
-            static_cast<float>(data[i][j]), static_cast<float>(*B)));
+        out[i][j] = static_cast<outType>(
+            BinaryOpFn<op, float, architecture::active>::fn(
+                static_cast<float>(data[i][j]), static_cast<float>(*B)));
       }
     }
     return true;
@@ -768,11 +1053,11 @@ public:
 };
 
 template class BroadcastScalar2Types2DData<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
 template class BroadcastScalar2Types2DData<
-    expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
+    BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 
-template <expr::BinaryOpType op, typename inType, typename outType>
+template <BinaryOpType op, typename inType, typename outType>
 class BroadcastScalar2Types1DSupervisor
     : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
@@ -782,14 +1067,15 @@ public:
   IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned i = 0; i < data.size(); i++) {
-      out[i] = static_cast<outType>(BroadcastOpFn<op, float>::fn(
-          static_cast<float>(data[i]), static_cast<float>(*B)));
+      out[i] =
+          static_cast<outType>(BinaryOpFn<op, float, architecture::active>::fn(
+              static_cast<float>(data[i]), static_cast<float>(*B)));
     }
     return true;
   }
 };
 template class BroadcastScalar2Types1DSupervisor<
-    expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
+    BinaryOpType::INV_STD_DEV_TO_VARIANCE, half, float>;
 template class BroadcastScalar2Types1DSupervisor<
-    expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
+    BinaryOpType::VARIANCE_TO_INV_STD_DEV, float, half>;
 } // namespace popops

@@ -163,9 +163,28 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_
 
 // Broadcasting 2nd operand without producing copies to memory
 
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, ADD, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, MULTIPLY, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SUBTRACT, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, ADD, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, ATAN2, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, BITWISE___AND, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, BITWISE___OR, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, BITWISE___XOR, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, BITWISE___XNOR, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, DIVIDE, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, MAXIMUM, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, MINIMUM, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, MULTIPLY, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, POWER, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, REMAINDER,  half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___LEFT, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___RIGHT, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___RIGHT___SIGN___EXTEND, int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SUBTRACT, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, EQUAL, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, NOT___EQUAL, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN___EQUAL, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN___EQUAL, half, float
 
 // Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, float
@@ -179,9 +198,22 @@ INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRow, ADD, half_true, float_true, 
 INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRow, MULTIPLY, half_true, float_true, half_false, float_false
 INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRow, SUBTRACT, half_true, float_true, half_false, float_false
 
-INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, ADD, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, MULTIPLY, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SUBTRACT, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, ADD, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, ATAN2, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, BITWISE___AND, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, BITWISE___OR, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, BITWISE___XOR, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, BITWISE___XNOR, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, DIVIDE, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, MAXIMUM, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, MINIMUM, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, MULTIPLY, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, POWER, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, REMAINDER,  half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SHIFT___LEFT, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SHIFT___RIGHT, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SHIFT___RIGHT___SIGN___EXTEND, int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SUBTRACT, half, float, int, unsigned_int
 
 // Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
 INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, float

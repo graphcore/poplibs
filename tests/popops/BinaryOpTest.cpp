@@ -18,7 +18,6 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
-#include <boost/optional.hpp>
 #include <boost/program_options.hpp>
 #include <boost/token_functions.hpp>
 #include <boost/tokenizer.hpp>
@@ -27,6 +26,7 @@
 #include <cstdlib>
 #include <exception>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <type_traits>
 
@@ -81,11 +81,11 @@ const std::map<BinaryOpType, const std::string> binaryOpToString = {
 // uppercase or lowercase and be just the start of the name of the operator, as
 // long as it uniquely identifies it (i.e. "ad" ==> ADD, but "shift_r" is
 // not enough, as we have both SHIFT_RIGHT and SHIFT_RIGHT_SIGN_EXTEND.
-// Note that if the string matches *exactly* the name, then it is considered
+// But note that if the string matches *exactly* the name, then it is considered
 // valid; for instance, "shift_right" => SHIFT_RIGHT, even if we have
 // SHIFT_RIGHT_SIGN_EXTEND
 BinaryOpType stringToBinaryOp(const std::string &s) {
-  boost::optional<BinaryOpType> opFound(boost::none);
+  std::optional<BinaryOpType> opFound(std::nullopt);
   std::string us = s;
   boost::to_upper(us);
   for (auto &e : binaryOpToString) {
@@ -160,9 +160,10 @@ bool isIntOp(BinaryOpType op) {
 }
 
 // Definitions for an overloaded 'performOp' function to execute the operation
-// on the host (for verification). Note that the result value is a reference
-// parameter and not the return value of the function to allow for full
-// overload resolution (return type is not used for overload resolution in C++).
+// on the host (for verification). Note that the result value is a function
+// parameter (passed by reference) and not the return value of the function, to
+// allow for full overload resolution (return type is not used for overload
+// resolution in C++).
 
 // A macro to reduce to the minimum the typing to define each operation
 #define ONE_OP(opId, expr)                                                     \
@@ -216,7 +217,7 @@ void performOp(BinaryOpType op, int a, int b, int &result) {
 }
 
 // Do the operation specified by 'op' on 'a' and 'b' where the operands are
-// INT types.
+// UNSIGNED_INT types.
 void performOp(BinaryOpType op, unsigned a, unsigned b, unsigned &result) {
   INTEGER_OPS();
   throw std::logic_error(std::to_string(unsigned(op)) +
@@ -224,8 +225,8 @@ void performOp(BinaryOpType op, unsigned a, unsigned b, unsigned &result) {
 }
 
 // Do the operation specified by 'op' on 'a' and 'b' where the 'op' is one of
-// the operators that return a boolean. This works both for floating point and
-// integer data types.
+// the operators that return a boolean. This works for floating point, integer
+// and boolean data types.
 template <typename T>
 void performOp(BinaryOpType op, T a, T b, HostBool &result) {
   ONE_OP(EQUAL, a == b);
@@ -283,6 +284,9 @@ T get(const T data[], const std::vector<size_t> shape,
   return data[offs];
 }
 
+// Overloaded & templated convertToString functions to print correctly
+// from inside the templated 'verifyResult()'  function
+
 std::string convertToString(unsigned val) {
   std::stringstream ss;
   ss << "0x" << std::hex << val;
@@ -301,6 +305,8 @@ template <typename T> std::string convertToString(T val) {
   return ss.str();
 }
 
+/// Check if two values are 'equal enough', for verification. This is the
+/// overloaded for floating point trype
 bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
                  const Type &dataType, float expected, float actual) {
   // For single precision floating types there are some operators where we
@@ -318,7 +324,6 @@ bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
     // Horrible contortions to verify result for halves. We should really
     // have a half bit-exact computation library for the host.
     if (dataType == HALF) {
-
       float clipTreshHalf = (isIpuModel(deviceType))
                                 ? std::numeric_limits<float>::infinity()
                                 : 65504.0f;
@@ -345,7 +350,8 @@ bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
   }
 }
 
-// For int/unsigned, and boolean values, results must be bit exact
+/// Check if two values are 'equal enough'.
+/// For int/unsigned/boolean values, results must be bit exact
 template <typename T>
 bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
                  const Type &dataType, float expected, float actual) {
@@ -400,6 +406,7 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
         HOST_DATA_TYPE val2 = get(in2Host.data(), shape2Ext, i);
 
         HOST_OUT_TYPE expected = 0;
+
         performOp(op, val1, val2, expected);
 
         if (!equalValues(deviceType, op, dataType, expected, actual)) {
@@ -419,9 +426,9 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
   };
   loopOn(0);
 
-  // if (maxDelta>0) {
-  //   std::cout << "max delta: " << maxDelta << "\n";
-  // }
+  if (errCount > 0) {
+    std::cerr << "Failed: mismatch on " << errCount << " value(s)\n";
+  }
   return errCount == 0;
 }
 
@@ -432,27 +439,30 @@ struct OperandDescriptor {
   std::vector<MappingDesc> map; // Indicates where to map this operand
 };
 
-// Filling one of the operand buffers for boolean data. We always fill it with
-// random booelans, (ignoring 'randomData', 'i' and 'max')
-void fillBuffer(const Type &dataType, const bool randomData,
-                std::vector<HostBool> &buf, int i, HostBool max) {
+// A 'random generator' engine which might not be there (in which case it means
+// that we are not using random values to fill the data buffers).
+using RandomEngine = std::optional<std::minstd_rand>;
+
+// Filling one of the operand buffers, for boolean data. We always fill it with
+// random booleans, (ignoring 'i', 'min', 'max' and 'nonZero')
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<HostBool> &buf, int i, HostBool min, HostBool max,
+                bool nonZero) {
+  std::bernoulli_distribution d(0.5);
+
   for (auto &x : buf)
-    x = rand() < (RAND_MAX / 2);
+    x = d(*rndEng);
 }
 
 // Filling one of the operand buffers for int data.
-void fillBufferInt(const Type &dataType, const bool randomData, int *data,
-                   unsigned n, int i, int max) {
+void fillBufferInt(const Type &dataType, RandomEngine &rndEng, int *data,
+                   unsigned n, int i, int min, int max, bool nonZero) {
+  std::uniform_int_distribution<int> d(min, max);
   for (unsigned k = 0; k < n; k++) {
-    if (randomData) {
-      data[k] = rand();
-      if (max == 0) {
-        // For random values, make sure that half of them (randomly) are
-        // negative
-        data[k] = (rand() < (RAND_MAX / 2)) ? -data[k] : data[k];
-      } else {
-        data[k] /= (RAND_MAX / max);
-      }
+    if (rndEng) {
+      do {
+        data[k] = d(*rndEng);
+      } while (nonZero && data[k] == 0);
     } else {
       if (max != 0 && i > max)
         i = 0;
@@ -461,30 +471,32 @@ void fillBufferInt(const Type &dataType, const bool randomData, int *data,
   }
 }
 
-void fillBuffer(const Type &dataType, const bool randomData,
-                std::vector<int> &buf, int i, int max) {
-  fillBufferInt(dataType, randomData, buf.data(), buf.size(), i, max);
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<int> &buf, int i, int min, int max, bool nonZero) {
+  fillBufferInt(dataType, rndEng, buf.data(), buf.size(), i, min, max, nonZero);
 }
 
-void fillBuffer(const Type &dataType, const bool randomData,
-                std::vector<unsigned> &buf, unsigned i, unsigned max) {
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<unsigned> &buf, unsigned i, unsigned min,
+                unsigned max, bool nonZero) {
   // The 'int' filling is good for 'unsigned' as well
-  fillBufferInt(dataType, randomData, (int *)(buf.data()), buf.size(), i, max);
+  fillBufferInt(dataType, rndEng, (int *)(buf.data()), buf.size(), i, min, max,
+                nonZero);
 }
 
 // Filling one of the operand buffers for FLOAT and HALF data (both use 'float'
 // buffers on the host)
-void fillBuffer(const Type &dataType, const bool randomData,
-                std::vector<float> &buf, float i, float absMax) {
-  if (absMax == 0)
-    absMax = 1.0;
-  if (randomData)
-    absMax = 2 * absMax / RAND_MAX;
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<float> &buf, float i, float min, float max,
+                bool nonZero) {
+  std::uniform_real_distribution<float> d(min, max);
   for (auto &x : buf) {
-    if (randomData) {
-      x = (rand() - RAND_MAX / 2) * absMax;
+    if (rndEng) {
+      do {
+        x = d(*rndEng);
+      } while (nonZero && x == 0);
     } else {
-      if (i > absMax)
+      if (i > max)
         i = 0;
       x = i;
       i += 1.0;
@@ -495,85 +507,113 @@ void fillBuffer(const Type &dataType, const bool randomData,
 /// Fills the host buffers with values appropriate to the data type and the
 /// operation being performed.
 template <typename HOST_DATA_TYPE>
-void fillBuffers(BinaryOpType op, const Type &dataType, bool randomData,
+void fillBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
                  std::vector<HOST_DATA_TYPE> &buf1,
                  std::vector<HOST_DATA_TYPE> &buf2) {
+  bool nonZero = false;
 
-  HOST_DATA_TYPE max1 = 0, max2 = 0;
+  // Using a specific random generator means that we get the same random values
+  // on different platforms.
+  RandomEngine rndEng;
+  if (randomSeed != 0 || dataType == BOOL)
+    rndEng = std::minstd_rand(randomSeed);
+
+  // For integer types we generate values in the closed interval [min, max]
+  // For floating point types we generate values in the open interval [min, max)
+  HOST_DATA_TYPE min1 = 0, max1 = 0;
+  HOST_DATA_TYPE min2 = 0, max2 = 0;
 
   if (std::is_floating_point<HOST_DATA_TYPE>::value) {
-    if (dataType == HALF)
-      max1 = max2 = 300.0;
-    else
-      max1 = max2 = 32000.0;
+
+    // For floating point, we limit the range
+    HOST_DATA_TYPE absMax;
+    absMax = (dataType == HALF) ? 300.0 : 32000.0;
+    min1 = min2 = -absMax;
+    max1 = max2 = absMax;
+
+    // For the power operator we want values in a small positive range, to
+    // avoid having mostly overflows/underflows
+    if (op == BinaryOpType::POWER) {
+      min1 = min2 = 1.0;
+      max1 = max2 = 5.0;
+    }
+
+    // In case of ADD,HALF we make both value positive, while for HALF,SUBTRACT
+    // the first is positive and the second negative, because subtracting two
+    // values that are very similar can gives results that are very inaccurate
+    // [for instance (1.0) + (-1.00000001)].
+    if (dataType == HALF) {
+      if (op == BinaryOpType::ADD) {
+        min1 = min2 = 0;
+      } else if (op == BinaryOpType::SUBTRACT) {
+        min1 = max2 = 0;
+      }
+    }
+
+    // VARIANCE_TO_INV_STD_DEV is: 1/sqrt(a+b), so (a+b) must be non-negative.
+    // To simplify, we force both operands to be non-negative
+    if (op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) {
+      min1 = min2 = 0;
+    }
+  } else {
+    // Non floating point case (INT, UNSIGNED)./ For BOOL these are ignored
+    min1 = min2 = std::numeric_limits<HOST_DATA_TYPE>::min();
+    max1 = max2 = std::numeric_limits<HOST_DATA_TYPE>::max();
   }
 
+  // Shifting more than 31 can give different results on different platforms
   if (op == BinaryOpType::SHIFT_LEFT || op == BinaryOpType::SHIFT_RIGHT ||
       op == BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND) {
-    max2 = 32;
+    min2 = 0;
+    max2 = 31;
   }
 
   // If we are dealing with integer divide, we limit the size of the second
-  // operand, just to avoid having a lot of zeros in the results
+  // operand, just to avoid having a lot of zeros in the results (note that this
+  // influences heavily the timing!)
   if (std::is_same<HOST_DATA_TYPE, int>::value ||
       std::is_same<HOST_DATA_TYPE, unsigned>::value) {
-    if (op == BinaryOpType::DIVIDE)
+    if (op == BinaryOpType::DIVIDE || op == BinaryOpType::REMAINDER) {
+      min2 = (dataType == UNSIGNED_INT) ? 0 : -32767;
       max2 = 32767;
+    }
   }
 
-  if (op == BinaryOpType::POWER) {
-    if (std::is_floating_point<HOST_DATA_TYPE>::value) {
-      // For the power operator we want values in a small range, to avoid to
-      // have mostly overflows/underflows
-      HOST_DATA_TYPE i = 1;
-      for (auto &x : buf1)
-        x = randomData ? rand() * (4.0 / RAND_MAX) + 1.0 : i += 0.1;
-      i = 1.5;
-      for (auto &x : buf2)
-        x = randomData ? rand() * (4.0 / RAND_MAX) + 1.0 : i += 0.1;
-    }
-  } else {
-    // for add and subtract of halves we want integer values
-    if (std::is_floating_point<HOST_DATA_TYPE>::value) {
-      if (dataType == HALF &&
-          (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT))
-        randomData = false;
-    }
-    fillBuffer(dataType, randomData, buf1, 10, max1);
-    fillBuffer(dataType, randomData, buf2, 100, max2);
+  // These operations must have a second operand != 0
+  if (op == BinaryOpType::DIVIDE || op == BinaryOpType::ATAN2 ||
+      op == BinaryOpType::REMAINDER) {
+    nonZero = true;
   }
+
+  fillBuffer(dataType, rndEng, buf1, 10, min1, max1, nonZero);
+  fillBuffer(dataType, rndEng, buf2, 100, min2, max2, nonZero);
 
   // If comparing for equality/disequality, we make sure we have a few values
-  // equal
-  if (randomData &&
-      (op == BinaryOpType::EQUAL || op == BinaryOpType::NOT_EQUAL)) {
+  // that are equal to test the 'equal' path
+  if (rndEng && (op == BinaryOpType::EQUAL || op == BinaryOpType::NOT_EQUAL ||
+                 op == BinaryOpType::GREATER_THAN_EQUAL ||
+                 op == BinaryOpType::LESS_THAN_EQUAL)) {
+    std::uniform_int_distribution<int> d(1, 6);
     unsigned n1 = buf1.size();
     unsigned n2 = buf2.size();
     if (n1 == n2) {
       for (unsigned i = 0; i < n1; i++) {
-        if (rand() < RAND_MAX / 4)
+        if (d(*rndEng) == 1)
           buf1[i] = buf2[i];
       }
     } else if (n2 == 1) {
-      // Broadcast scalar
+      // Broadcast scalar (second operand is broadcasted)
       for (unsigned i = 0; i < n1; i++) {
-        if (rand() < RAND_MAX / 4)
+        if (d(*rndEng) == 1)
           buf1[i] = buf2[0];
       }
     } else if (n1 == 1) {
-      // Broadcast scalar
+      // Broadcast scalar (first operand is broadcasted)
       for (unsigned i = 0; i < n2; i++) {
-        if (rand() < RAND_MAX / 4)
+        if (d(*rndEng) == 1)
           buf2[i] = buf1[0];
       }
     }
-  }
-  // Some operations must have a second operand != 0
-  if (op == BinaryOpType::DIVIDE || op == BinaryOpType::ATAN2 ||
-      op == BinaryOpType::REMAINDER) {
-    for (auto &x : buf2)
-      if (x == 0)
-        x = 1;
   }
 }
 
@@ -603,7 +643,7 @@ static bool doBinaryOpTest(
     const OperandDescriptor &desc1, const OperandDescriptor &desc2,
     const std::vector<size_t> &shapeOut, const unsigned tiles,
     const bool mapLinearly, const BinaryOpType operation, const bool inPlace,
-    const bool doReport, const bool doPrintTensors, const bool randomData,
+    const bool doReport, const bool doPrintTensors, const unsigned randomSeed,
     const bool ignoreData, const bool enableOptimisations) {
 
   bool in1IsConst = desc1.map.size() > 0 && desc1.map[0].isConst;
@@ -654,10 +694,10 @@ static bool doBinaryOpTest(
       std::accumulate(shapeOut.begin(), shapeOut.end(), std::size_t(1),
                       std::multiplies<std::size_t>());
 
-  // Allocate and initialise host buffers with some values.
+  // Allocate and initialise host buffers with appropriate values.
   std::vector<HOST_DATA_TYPE> in1Host(nElems1);
   std::vector<HOST_DATA_TYPE> in2Host(nElems2);
-  fillBuffers(operation, dataType, randomData, in1Host, in2Host);
+  fillBuffers(operation, dataType, randomSeed, in1Host, in2Host);
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType, 1, tiles);
@@ -752,7 +792,7 @@ static bool doBinaryOpTest(
     // For HALF, we copy and convert back into the (float) host buffers so that
     // the host buffers contain the exact HALF values (which are exactly
     // representable in float). This helps with the validation for the
-    // comaprison operators
+    // comparison operators
     if (dataType == HALF)
       copy(target, dataType, rawBuf.get(), buf.data(), buf.size());
   };
@@ -812,7 +852,7 @@ int main(int argc, char **argv) {
   bool inPlace = false;
   unsigned tiles = 0;
   bool ignoreData = false;
-  unsigned randomSeed = 0; // we use '0' to mean 'not random'
+  unsigned randomSeed = 1; // we use '0' to mean 'not random'
   bool enableOptimisations = true;
   ShapeOption<size_t> shape1;
   ShapeOption<size_t> shape2;
@@ -835,9 +875,9 @@ int main(int argc, char **argv) {
     ("print",
      po::value<bool>(&doPrintTensors)->implicit_value(true),
      "Print the tensors")
-    ("random-data",
-     po::value<unsigned>(&randomSeed)->implicit_value(1),
-     "Use random data. Value of 0 means 'no random data'")
+    ("random-seed",
+     po::value<unsigned>(&randomSeed)->implicit_value(randomSeed),
+     "Seed for random data. Value of 0 means 'no random data'")
     ("ignore-data",
      po::value<bool>(&ignoreData)->implicit_value(true),
      "Do not check correctness of result, useful for benchmarking without "
@@ -971,20 +1011,17 @@ int main(int argc, char **argv) {
 
   Type outputType = isComparisonOp(opType) ? BOOL : dataType;
 
-  srand(randomSeed);
-
 #define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
   if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
     return doBinaryOpTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                      \
                deviceType, dataType, outputType, desc1, desc2, shapeOut,       \
                tiles, mapLinearly, opType, inPlace, doReport, doPrintTensors,  \
-               randomSeed != 0, ignoreData, enableOptimisations)               \
+               randomSeed, ignoreData, enableOptimisations)                    \
                ? 0                                                             \
                : 1;                                                            \
   } // nonzero value = error
 
   // Note that for HALF and FLOAT the host buffers are 'float'
-  // Note that for INT and UNSIGNED_INT the host buffers are 'int'
   DO_TEST(BOOL, BOOL, HostBool, HostBool)
 
   DO_TEST(HALF, HALF, float, float)
