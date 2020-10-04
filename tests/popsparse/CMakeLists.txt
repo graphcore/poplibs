@@ -183,19 +183,6 @@ foreach(DATA_TYPE half float)
           --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
           --single-phase=${PASS_TYPE})
 
-      # This test exists primarily to demonstrate and exercise plan constraints.
-      add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_plan_constraints_${SHARED_BUCKETS}
-        COMMAND sparse_fc_layer
-          --data-type=${DATA_TYPE}
-          --input-size=512
-          --output-size=512
-          --batch-size=64
-          --sparsity-factor=0.01
-          --tiles-per-ipu=24
-          --matmul-options={\"planConstraints\":\"{\\\"partition\\\":{\\\"x\\\":6,\\\"y\\\":4,\\\"z\\\":1}}\"}
-          --single-phase=${PASS_TYPE})
-
       add_multitarget_test(
         NAME sparse_fc_layer_T27490_${PASS_TYPE}_${DATA_TYPE}_sb_${SHARED_BUCKETS}
         COMMAND sparse_fc_layer

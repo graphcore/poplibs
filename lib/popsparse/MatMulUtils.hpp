@@ -3,13 +3,11 @@
 #ifndef popsparse_MatMulUtils_hpp
 #define popsparse_MatMulUtils_hpp
 
-#include <poplar/OptionFlags.hpp>
 #include <poplar/Tensor.hpp>
 
 #include "MatMulOptions.hpp"
+#include "MatMulTensorMetaData.hpp"
 #include "popsparse/FullyConnectedParams.hpp"
-#include "popsparse/MatMulParams.hpp"
-#include "popsparse/SparseTensor.hpp"
 
 namespace popsparse {
 namespace dynamic {
@@ -39,7 +37,15 @@ static inline poplar::Tensor matrixToFCActs(const poplar::Tensor &t,
   return t.dimRoll(0, 1).flatten(1, 3);
 }
 
-SparseTensor sparseMatrixToFCWeights(const SparseTensor &t);
+static inline SparseTensor sparseMatrixToFCWeights(const SparseTensor &t) {
+  assert(
+      dynamic_cast<const MatMulTensorMetaData *>(t.getOpMetaData().getData()));
+  const auto &mmMetaData =
+      static_cast<const MatMulTensorMetaData *>(t.getOpMetaData().getData());
+
+  return SparseTensor(t.getMetaInfoTensor(), t.getNzValuesTensor(),
+                      mmMetaData->fc.clone());
+}
 
 } // end namespace dynamic
 } // end namespace popsparse

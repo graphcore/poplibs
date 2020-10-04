@@ -7,7 +7,6 @@
 
 #include <map>
 #include <string>
-#include <unordered_set>
 
 using namespace poplar;
 using namespace poplibs;
@@ -26,64 +25,15 @@ std::ostream &operator<<(std::ostream &os, const Options &o) {
      << ",\n partitioner.optimiseForSpeed: " << o.partitioner.optimiseForSpeed
      << ",\n partitioner.forceBucketSpills: " << o.partitioner.forceBucketSpills
      << ",\n partitioner.useActualWorkerSplitCosts: "
-     << o.partitioner.useActualWorkerSplitCosts
-     << ",\n planConstraints: " << o.planConstraints << "}";
+     << o.partitioner.useActualWorkerSplitCosts << "}";
   return os;
 }
 
 static std::map<std::string, poplar::Type> partialsTypeMap{
     {"half", poplar::HALF}, {"float", poplar::FLOAT}};
 
-using boost::property_tree::ptree;
-using poplibs_support::validatePlanConstraintsUnsigned;
-
-static std::unordered_set<std::string> validPartitionConstraintVar = {"x", "y",
-                                                                      "z"};
-
-void validatePlanConstraintsPartition(const std::string &path, const ptree &t) {
-  if (t.empty() && !t.data().empty()) {
-    throw poplar::invalid_option("'" + path + "': Must be an object");
-  }
-  for (const auto &child : t) {
-    const std::string subPath = path + "." + child.first;
-    if (validPartitionConstraintVar.count(child.first) > 0) {
-      validatePlanConstraintsUnsigned(subPath, child.second);
-    } else {
-      throw poplar::invalid_option("'" + subPath + "': " + child.first +
-                                   " is not currently handled or does not "
-                                   "exist");
-    }
-  }
-}
-
-namespace {
-
-struct ValidatePlanConstraintsOption {
-  void operator()(const boost::property_tree::ptree &t) const {
-    if (t.empty() && !t.data().empty()) {
-      throw poplar::invalid_option("Plan constraints must be an object");
-    }
-
-    for (const auto &child : t) {
-      if (child.first == "partition") {
-        validatePlanConstraintsPartition(child.first, child.second);
-      } else {
-        throw poplar::invalid_option(
-            child.first + " is not currently handled or does not exist");
-      }
-    }
-  }
-};
-
-} // end anonymous namespace
-
 Options parseOptionFlags(const OptionFlags &flags) {
   Options options;
-
-  using poplibs_support::makePlanConstraintsOptionHandler;
-  const auto makeSparseFCPlanConstraintsOptionHandler =
-      &poplibs_support::makePlanConstraintsOptionHandler<
-          ValidatePlanConstraintsOption>;
 
   const OptionSpec optSpec{
       {"availableMemoryProportion",
@@ -102,9 +52,7 @@ Options parseOptionFlags(const OptionFlags &flags) {
        OptionHandler::createWithBool(options.partitioner.forceBucketSpills)},
       {"partitioner.useActualWorkerSplitCosts",
        OptionHandler::createWithBool(
-           options.partitioner.useActualWorkerSplitCosts)},
-      {"planConstraints",
-       makeSparseFCPlanConstraintsOptionHandler(options.planConstraints)}};
+           options.partitioner.useActualWorkerSplitCosts)}};
   for (const auto &entry : flags) {
     optSpec.parse(entry.first, entry.second);
   }

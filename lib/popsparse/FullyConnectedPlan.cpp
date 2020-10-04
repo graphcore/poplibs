@@ -1398,28 +1398,6 @@ static popsolver::Variable addMetaInfoElemsPerBucket(
   }
 }
 
-static void
-applyPartitionPlanConstraint(popsolver::Model &m, const Options &options,
-                             unsigned level,
-                             const Vector<popsolver::Variable> &partition) {
-  assert(level == 0);
-  const auto &planConstraints = options.planConstraints;
-  const auto &thisPartition = planConstraints.get_child_optional("partition");
-  if (thisPartition) {
-    const auto constrainVar = [&](const std::string &pathSuffix,
-                                  const popsolver::Variable &var) {
-      const auto constraint =
-          thisPartition.get().get_optional<popsolver::DataType>(pathSuffix);
-      if (constraint) {
-        m.equal(var, *constraint);
-      }
-    };
-    constrainVar("x", partition.x);
-    constrainVar("y", partition.y);
-    constrainVar("z", partition.z);
-  }
-}
-
 static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
@@ -1450,7 +1428,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
     for (unsigned level = 0; level < hierarchy.size(); ++level) {
       mPartitions[level] = Vector<popsolver::Variable>::generate(
           [&] { return m.addVariable(1, hierarchy[level]); });
-      applyPartitionPlanConstraint(m, options, level, mPartitions[level]);
     }
     return PartitionVariables(m, mPartitions);
   }();

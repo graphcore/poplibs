@@ -4,6 +4,7 @@
 #include "FullyConnectedPlan.hpp"
 #include "FullyConnectedUtils.hpp"
 #include "FullyConnectedVector.hpp"
+#include "MatMulUtils.hpp"
 #include "SparseCodeletMetaInfoScale.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
@@ -26,8 +27,8 @@ using namespace poputil;
 using namespace poplibs_support;
 using namespace popsparse;
 using namespace popsparse::dynamic;
-using namespace popops;
 using namespace popops::expr;
+using namespace popops;
 
 namespace popsparse {
 namespace dynamic {
@@ -475,10 +476,11 @@ fullyconnected::Plan getFullyConnectedPlan(Graph &graph, Type inputType,
                                            const OptionFlags &optionFlags,
                                            PlanningCache *cache) {
   const auto target = graph.getTarget();
+  const auto options = parseMatMulOptionFlags(optionFlags);
   fullyconnected::Plan plan;
   fullyconnected::Cost cost;
-  std::tie(plan, cost) =
-      fullyconnected::getPlan(target, inputType, params, optionFlags, cache);
+  std::tie(plan, cost) = fullyconnected::getPlan(
+      target, inputType, params, getFullyConnectedOptions(options), cache);
   return plan;
 }
 
