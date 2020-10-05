@@ -168,17 +168,22 @@ makeConvSize(const std::vector<unsigned> &values,
 
 static popsolver::Variable addPartialCalcCycleEstimate(
     popsolver::Model &m, const std::vector<unsigned> &fieldGrainSize,
-    const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
-    const unsigned outChansPerGroup, const ConvSizeVariables &convSizeVars,
+    const ConvVertexType &convVertexType, const ConvSizeVariables &convSizeVars,
     const std::unordered_set<unsigned> &transformedDims,
     const poplar::Target &target, const ConvParams &params,
-    poplar::Type partialType, Plan::Method method, unsigned slicWindowWidth,
-    unsigned numConvUnitsRequired, const ConvOptions &options,
+    poplar::Type partialType, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(params.inputType == poplar::HALF || params.inputType == poplar::FLOAT);
   bool floatActivations = params.inputType == poplar::FLOAT;
   bool floatPartials = partialType == poplar::FLOAT;
+
+  const auto method = convVertexType.method;
+  const auto convGroupsPerGroup = convVertexType.convGroupsPerGroup;
+  const auto inChansPerGroup = convVertexType.inChansPerGroup;
+  const auto outChansPerGroup = convVertexType.partialChansPerGroup;
+  const auto slicWindowWidth = convVertexType.slicWindowWidth;
+  const auto numConvUnitsRequired = convVertexType.numConvUnitsRequired;
 
   ConvSizeVariablesVector<popsolver::Variable> convSizeVarsVector(convSizeVars);
 
@@ -449,21 +454,21 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
                                    poplar::Type partialType,
-                                   poplar::Type inputType, Plan::Method method,
-                                   unsigned slicWindowWidth) {
+                                   poplar::Type inputType,
+                                   const ConvVertexType &convVertexType) {
   assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
   assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
   const bool floatActivations = inputType == poplar::FLOAT;
   const bool floatPartials = partialType == poplar::FLOAT;
 
   auto vectorWidth = target.getVectorWidth(inputType);
-  switch (method) {
+  switch (convVertexType.method) {
   case Plan::Method::MAC:
   case Plan::Method::OUTER_PRODUCT:
     return vectorWidth;
   case Plan::Method::SLIC:
     assert(!floatActivations);
-    return vectorWidth * slicWindowWidth * 2;
+    return vectorWidth * convVertexType.slicWindowWidth * 2;
   case Plan::Method::AMP: {
     unsigned numConvUnits;
     if (floatActivations) {
@@ -730,15 +735,18 @@ applyPadding(popsolver::Model &m, const poplar::Target &target,
 static std::pair<popsolver::Variable, popsolver::Variable>
 addTileLevelTransformEstimates(
     popsolver::Model &m, const poplar::Target &target, const ConvParams &params,
-    poplar::Type partialType, unsigned inChansPerGroup,
+    poplar::Type partialType,
     const std::vector<ConvSizeVariables> &transformedSizes,
     const std::vector<PartitionVariables> &partitionVars,
-    const ExchangeEstimator &exchangeEstimator, Plan::Method method,
-    unsigned slicWindowWidth, unsigned numConvUnitsRequired) {
+    const ExchangeEstimator &exchangeEstimator,
+    const ConvVertexType &convVertexType) {
   const auto numFieldDims = params.kernelShape.size();
   const auto zero = m.addConstant(0u);
+  const auto inChansPerGroup = convVertexType.inChansPerGroup;
+  const auto slicWindowWidth = convVertexType.slicWindowWidth;
+  const auto numConvUnitsRequired = convVertexType.numConvUnitsRequired;
 
-  switch (method) {
+  switch (convVertexType.method) {
   case Plan::Method::MAC:
   case Plan::Method::OUTER_PRODUCT: {
     return std::make_pair(zero, zero);
@@ -1149,16 +1157,18 @@ addWeightsPerTile(popsolver::Model &m, const popsolver::Variable usedTiles,
 
 static popsolver::Variable
 addPartialsPerTile(popsolver::Model &m, const PartitionVariables &partitionVars,
-                   unsigned convGroupsPerGroup, unsigned partialChansPerGroup,
+                   const ConvVertexType &convVertexType,
                    const ConvSizeVariables &convSize) {
   const unsigned fieldGrainSizeProduct = product(partitionVars.fieldGrainSize);
   auto partialDimSizes = convSize.numFieldGrains;
   partialDimSizes.push_back(m.addConstant(fieldGrainSizeProduct));
   partialDimSizes.push_back(convSize.batchSize);
-  partialDimSizes.push_back(m.product(
-      {convSize.numConvGroupGrains, m.addConstant(convGroupsPerGroup)}));
-  partialDimSizes.push_back(m.product(
-      {convSize.numOutChanGrains, m.addConstant(partialChansPerGroup)}));
+  partialDimSizes.push_back(
+      m.product({convSize.numConvGroupGrains,
+                 m.addConstant(convVertexType.convGroupsPerGroup)}));
+  partialDimSizes.push_back(
+      m.product({convSize.numOutChanGrains,
+                 m.addConstant(convVertexType.partialChansPerGroup)}));
   return m.product(partialDimSizes, "partialsPerTile");
 }
 
@@ -1191,9 +1201,13 @@ addTransformCycleEstimate(
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &transformedConvSizes,
     const std::vector<std::unordered_set<unsigned>> &transformedDims,
-    unsigned inChansPerGroup, unsigned partialChansPerGroup,
-    const std::vector<ConvTypes> &types, bool isJointPlan,
-    const ConvOptions &options, const poplar::Target &target) {
+    const ConvVertexType &convVertexType, const std::vector<ConvTypes> &types,
+    bool isJointPlan, const ConvOptions &options,
+    const poplar::Target &target) {
+
+  const auto inChansPerGroup = convVertexType.inChansPerGroup;
+  const auto partialChansPerGroup = convVertexType.partialChansPerGroup;
+
   bool isConvWeightUpdate = options.pass == Pass::TRAINING_WU;
   bool isFullyConnectedLayer = isFullyConnected(options.pass);
   bool isMatmulOrFullyConnectedLayer =
@@ -1641,10 +1655,8 @@ static Estimates<popsolver::Variable> addEstimates(
     const ConvParams &untransformedParams,
     const ConvParams &transformedOnceParams,
     const ConvParams &transformedOnceUnpaddedParams, const bool isJointPlan,
-    const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
-    const unsigned partialChansPerGroup, const std::vector<ConvTypes> &types,
-    const std::vector<ConvTransform> &transforms, Plan::Method method,
-    const unsigned slicWindowWidth, const unsigned numConvUnitsRequired,
+    const ConvVertexType &convVertexType, const std::vector<ConvTypes> &types,
+    const std::vector<ConvTransform> &transforms,
     const Plan::LinearizeTileOrder linearizeTileOrder,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
@@ -1687,11 +1699,11 @@ static Estimates<popsolver::Variable> addEstimates(
 
   std::tie(e.transformCopyCycles, e.transformExchangeCycles,
            e.transformTempBytes) =
-      addTransformCycleEstimate(
-          m, untransformedParams, transformedOnceParams,
-          transformedOnceUnpaddedParams, transforms, partitionVars,
-          transformedConvSize, transformedDims, inChansPerGroup,
-          partialChansPerGroup, types, isJointPlan, options, target);
+      addTransformCycleEstimate(m, untransformedParams, transformedOnceParams,
+                                transformedOnceUnpaddedParams, transforms,
+                                partitionVars, transformedConvSize,
+                                transformedDims, convVertexType, types,
+                                isJointPlan, options, target);
 
   const auto &intraTileSplits = partitionVars.back();
 
@@ -1707,15 +1719,15 @@ static Estimates<popsolver::Variable> addEstimates(
   // create a variable that represents that most amount of partials that will
   // live on a single tile. this is enough as a cycle estimate is how long the
   // longest tile would take to process it's part of a convolution.
-  const auto partialsPerTile =
-      addPartialsPerTile(m, intraTileSplits, convGroupsPerGroup,
-                         partialChansPerGroup, transformedConvSize.back());
+  const auto partialsPerTile = addPartialsPerTile(
+      m, intraTileSplits, convVertexType, transformedConvSize.back());
 
   // When splitting serially the temp memory should not outlive an iteration of
   // the loop and therefore we don't need to take into account and serial splits
   e.convTempBytes = addConvTempMemoryEstimate(
       m, partitionVars, convSize, inputsPerLevel.back(), weightsPerLevel.back(),
-      partialsPerTile, target, transformedOnceParams, types, method);
+      partialsPerTile, target, transformedOnceParams, types,
+      convVertexType.method);
 
   // it is possible that we may need to add zero padding to the activations
   // and weights so that we have the correct number of input channels for the
@@ -1724,16 +1736,15 @@ static Estimates<popsolver::Variable> addEstimates(
   // effect on temporary memory and cycles and so we need to track it when
   // deciding on the optimal plan.
   std::tie(e.tileLevelTransformCycles, e.tileLevelTransformTempBytes) =
-      addTileLevelTransformEstimates(
-          m, target, transformedOnceParams, types.back().partialType,
-          inChansPerGroup, transformedConvSize, partitionVars,
-          exchangeEstimator, method, slicWindowWidth, numConvUnitsRequired);
+      addTileLevelTransformEstimates(m, target, transformedOnceParams,
+                                     types.back().partialType,
+                                     transformedConvSize, partitionVars,
+                                     exchangeEstimator, convVertexType);
 
   e.partialCalcCycles = addPartialCalcCycleEstimate(
-      m, intraTileSplits.fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
-      partialChansPerGroup, transformedConvSize.back(), transformedDims.back(),
-      target, transformedOnceParams, types.back().partialType, method,
-      slicWindowWidth, numConvUnitsRequired, options, cache);
+      m, intraTileSplits.fieldGrainSize, convVertexType,
+      transformedConvSize.back(), transformedDims.back(), target,
+      transformedOnceParams, types.back().partialType, options, cache);
 
   const std::vector<popsolver::Variable> serialSplitFactors = {
       intraTileSplits.inChanSplit.serial, intraTileSplits.outChanSplit.serial};
@@ -1745,8 +1756,8 @@ static Estimates<popsolver::Variable> addEstimates(
   // on the number of cycles required that can be used to prune the search
   // space.
   const auto maxMACsPerCyclePerTile = getMaxMACsPerCyclePerTile(
-      target, types.back().partialType, transformedOnceParams.inputType, method,
-      slicWindowWidth);
+      target, types.back().partialType, transformedOnceParams.inputType,
+      convVertexType);
   const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
   m.lessOrEqual(popsolver::DataType{totalMacs / maxMACsPerCyclePerTile},
                 m.product({usedTiles, e.partialCalcCycles, serialSplits}));
@@ -1874,13 +1885,11 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     const unsigned numLevelsOfHierarchy,
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSize,
-    const std::vector<ConvTransform> &transforms, Plan::Method method,
-    unsigned slicWindowWidth, unsigned numConvUnitsRequired,
-    const popsolver::Variable usedTiles, const poplar::Target &target,
+    const std::vector<ConvTransform> &transforms,
+    const ConvVertexType &convVertexType, const popsolver::Variable usedTiles,
+    const poplar::Target &target,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
-    const unsigned partialChansPerGroup,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(transforms[0].swapOperands);
@@ -1914,7 +1923,7 @@ static Estimates<popsolver::Variable> addBwdEstimates(
       bwdP.fieldSplit.back() = p.inChanSplit.parallel;
       bwdP.inChanSplit.parallel = p.fieldSplit.back();
       bwdP.inChanGrainSize = p.fieldGrainSize.back();
-      bwdP.fieldGrainSize.back() = inChansPerGroup;
+      bwdP.fieldGrainSize.back() = convVertexType.inChansPerGroup;
       bwdPartitionVars.push_back(bwdP);
     }
 
@@ -1930,8 +1939,10 @@ static Estimates<popsolver::Variable> addBwdEstimates(
     bwdTS.numInChanGrains = tS.numFieldGrains.back();
     bwdTransformedConvSize.push_back(bwdTS);
   }
-  const auto bwdInChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
-  const auto bwdMethod = getFullyConnectedBwdMethod(method);
+
+  auto bwdConvVertexType = convVertexType;
+  bwdConvVertexType.inChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
+  bwdConvVertexType.method = getFullyConnectedBwdMethod(convVertexType.method);
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
@@ -1939,10 +1950,9 @@ static Estimates<popsolver::Variable> addBwdEstimates(
       m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       bwdUntransformedParams, bwdTransformedOnceParams,
-      bwdTransformedOnceUnpaddedParams, isJointPlan, convGroupsPerGroup,
-      bwdInChansPerGroup, partialChansPerGroup, types, transforms, bwdMethod,
-      slicWindowWidth, numConvUnitsRequired,
-      Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referenceCost, options, cache);
+      bwdTransformedOnceUnpaddedParams, isJointPlan, bwdConvVertexType, types,
+      transforms, Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referenceCost,
+      options, cache);
 }
 
 Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
@@ -1977,14 +1987,11 @@ static Estimates<popsolver::Variable> addWuEstimates(
     const std::size_t numLevelsOfHierarchy,
     const std::vector<PartitionVariables> &partitionVars,
     const std::vector<ConvSizeVariables> &convSize,
-    const std::vector<ConvTransform> &transforms, Plan::Method method,
-    unsigned slicWindowWidth, unsigned numConvUnitsRequired,
-    const popsolver::Variable usedTiles, const poplar::Target &target,
-    const unsigned numFieldDims,
+    const std::vector<ConvTransform> &transforms,
+    const ConvVertexType &convVertexType, const popsolver::Variable usedTiles,
+    const poplar::Target &target, const unsigned numFieldDims,
     const std::vector<double> &perLevelExchangeBytesPerCycle,
     const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const unsigned convGroupsPerGroup, const unsigned inChansPerGroup,
-    const unsigned partialChansPerGroup,
     const boost::optional<Cost> &referenceCost, const ConvOptions &options,
     PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(transforms[0].swapOperands);
@@ -2055,21 +2062,23 @@ static Estimates<popsolver::Variable> addWuEstimates(
     }
     wuTransformedConvSize.push_back(wuTS);
   }
-  const auto wuInChansPerGroup = partialChansPerGroup;
-  const auto wuPartialChansPerGroup = inChansPerGroup;
-  const auto wuMethod = getFullyConnectedWUMethod(
-      untransformedParams, method, partialChansPerGroup, inChansPerGroup);
+
+  auto wuConvVertexType = convVertexType;
+  wuConvVertexType.inChansPerGroup = convVertexType.partialChansPerGroup;
+  wuConvVertexType.partialChansPerGroup = convVertexType.inChansPerGroup;
+  wuConvVertexType.method = getFullyConnectedWUMethod(
+      untransformedParams, convVertexType.method,
+      convVertexType.partialChansPerGroup, convVertexType.inChansPerGroup);
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
-  return addEstimates(
-      m, wuPartitionVars, wuConvSize, wuTransformedConvSize, usedTiles,
-      transformedDims, target, perLevelExchangeBytesPerCycle,
-      wuUntransformedParams, wuTransformedOnceParams,
-      wuTransformedOnceUnpaddedParams, isJointPlan, convGroupsPerGroup,
-      wuInChansPerGroup, wuPartialChansPerGroup, types, transforms, wuMethod,
-      slicWindowWidth, numConvUnitsRequired, Plan::LinearizeTileOrder::FC_WU,
-      referenceCost, options, cache);
+  return addEstimates(m, wuPartitionVars, wuConvSize, wuTransformedConvSize,
+                      usedTiles, transformedDims, target,
+                      perLevelExchangeBytesPerCycle, wuUntransformedParams,
+                      wuTransformedOnceParams, wuTransformedOnceUnpaddedParams,
+                      isJointPlan, wuConvVertexType, types, transforms,
+                      Plan::LinearizeTileOrder::FC_WU, referenceCost, options,
+                      cache);
 }
 
 template <class T>
@@ -3014,36 +3023,29 @@ Estimates<popsolver::Variable> constructModel(
 
   const auto usedTiles = getUsedTiles(m, partitionVars, hierarchy);
 
-  const auto method = convVertexType.method;
-  const auto slicWindowWidth = convVertexType.slicWindowWidth;
-  const auto numConvUnitsRequired = convVertexType.numConvUnitsRequired;
-
   auto e = addEstimates(
       m, partitionVars, convSize, transformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       untransformedParams, transformedOnceParams, transformedOnceUnpaddedParams,
-      isJointPlan, convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
-      types, transforms, method, slicWindowWidth, numConvUnitsRequired,
+      isJointPlan, convVertexType, types, transforms,
       Plan::LinearizeTileOrder::STANDARD, referenceCost, options, cache);
 
   if (isJointPlan) {
     assert(options.pass == Pass::FC_TRAINING_FWD);
 
-    const auto bwd = addBwdEstimates(
-        m, untransformedParams, transformedOnceParams,
-        transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
-        convSize, transforms, method, slicWindowWidth, numConvUnitsRequired,
-        usedTiles, target, perLevelExchangeBytesPerCycle, types, isJointPlan,
-        convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
-        referenceCost, options, cache);
+    const auto bwd =
+        addBwdEstimates(m, untransformedParams, transformedOnceParams,
+                        transformedOnceUnpaddedParams, numLevelsOfHierarchy,
+                        partitionVars, convSize, transforms, convVertexType,
+                        usedTiles, target, perLevelExchangeBytesPerCycle, types,
+                        isJointPlan, referenceCost, options, cache);
 
     const auto wu = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
-        convSize, transforms, method, slicWindowWidth, numConvUnitsRequired,
-        usedTiles, target, numFieldDims, perLevelExchangeBytesPerCycle, types,
-        isJointPlan, convGroupsPerGroup, inChansPerGroup, partialChansPerGroup,
-        referenceCost, options, cache);
+        convSize, transforms, convVertexType, usedTiles, target, numFieldDims,
+        perLevelExchangeBytesPerCycle, types, isJointPlan, referenceCost,
+        options, cache);
 
     if (objective.getTileTempMemoryBound() > popsolver::DataType{0}) {
       auto bound = objective.getTileTempMemoryBound();
