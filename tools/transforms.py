@@ -6,17 +6,17 @@ import csv
 import itertools
 import logging
 from multiprocessing import Pool, TimeoutError
-from progress.bar import Bar
 import re
 import os
 import subprocess
 import sys
+from progress.bar import Bar
 
 
-newline = r'(?:\n|\r\n?)'
-extension = r'.conv.log'
-groupToAnalyse = ['single_conv_layer']
-phasesDict = {'fwd':0, 'bwd':1, 'wu':2}
+NEW_LINE_CHAR = r'(?:\n|\r\n?)'
+LOG_FILE_EXT = r'.conv.log'
+group_to_analyse = ['single_conv_layer']
+phases_dict = {'fwd':0, 'bwd':1, 'wu':2}
 
 # Monsto regex to capture planner output:
 # 16:52:46.800 55378 PL [W] Found best plan using AMP: Cost{cycles=30748, memory=51072, tiles=1120}.
@@ -36,32 +36,32 @@ phasesDict = {'fwd':0, 'bwd':1, 'wu':2}
 # 16:52:46.800 55378 PL [D]    - add in-place: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - cast: 0 cycles, 0 bytes
 # 16:52:46.800 55378 PL [D]    - total: 30748 cycles, 51072 bytes
-plannerInfo = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}." + newline +
-                           ".+pass=([A-Z]+)_([A-Z]+)"  + newline +
-                          ".+" + newline +
-                          ".+total parallel split:\s(\d+)" + newline +
-                          ".+total serial split:\s(\d+)" + newline +
-                          ".+rearrangement before slice:\s(\d+).+" + newline +
-                          ".+memsetZeroBeforeAddInPlace:\s(\d+).+" + newline +
-                          ".+dynamic slice:\s(\d+).+" + newline +
-                          ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+).+" + newline +
-                          ".+exchange:\s(\d+).+Input\s(\d+),\sWeight\s(\d+),\sReduce\s(\d+)\s\+\s(\d+).+" + newline +
-                          ".+tile level transform:\s(\d+).+" + newline +
-                          ".+compute:\s(\d+).+" + newline +
-                          ".+reduction:\s(\d+).+" + newline +
-                          ".+dynamic update:\s(\d+).+" + newline +
-                          ".+add in-place:\s(\d+).+" + newline +
+re_planner_info = re.compile(r"^.+Found best plan using ([A-Z]+): Cost\{cycles=(\d+), memory=(\d+), tiles=(\d+)\}." + NEW_LINE_CHAR +
+                           ".+pass=([A-Z]+)_([A-Z]+)"  + NEW_LINE_CHAR +
+                          ".+" + NEW_LINE_CHAR +
+                          ".+total parallel split:\s(\d+)" + NEW_LINE_CHAR +
+                          ".+total serial split:\s(\d+)" + NEW_LINE_CHAR +
+                          ".+rearrangement before slice:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+memsetZeroBeforeAddInPlace:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+dynamic slice:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+transform:\s(\d+)\scopy\scycles,\s(\d+)\sexchange\scycles,\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+exchange:\s(\d+).+Input\s(\d+),\sWeight\s(\d+),\sReduce\s(\d+)\s\+\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+tile level transform:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+compute:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+reduction:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+dynamic update:\s(\d+).+" + NEW_LINE_CHAR +
+                          ".+add in-place:\s(\d+).+" + NEW_LINE_CHAR +
                           ".+cast:\s(\d+).+$",
                           re.MULTILINE)
 
-plannerInfoFieldsNames = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
+planner_info_fields_names = ['method', 'cost', 'memory', 'tiles', 'training', 'phase',
                  'parallelSplit', 'serialSplit', 'rearrangeBeforeSlice', 'memsetZeroBeforeAddInPlace',
                  'dynamicSlice', 'transformsCopyCycles', 'transformsExchangeCycles', 'transformsBytes', 'exchange', 'inputExchange',
                  'weightsExchange', 'reduceExchange', 'reduceExchangePlus', 'tileTransforms',
                  'compute', 'reduce', 'dynamicUpdate', 'addInPlace', 'cast']
 
-plannerInfoFields = collections.namedtuple(
-    'plannerInfoFields', plannerInfoFieldsNames
+PlannerInfoFields = collections.namedtuple(
+    'PlannerInfoFields', planner_info_fields_names
 )
 
 
@@ -74,20 +74,20 @@ plannerInfoFields = collections.namedtuple(
 #              outChanFlattenDims      {}
 #              flattenDims             {0,2}
 #              combineConvGroupsFactor 1
-transformInfo = re.compile(r'^transform\s\#0' + newline +
-                             '\s+Transform:\sextraFieldDims\s+(\d+)' + newline +
-                             '\s+dilatePostConv\s+(.+)' + newline +
-                             '\s+swapOperands\s+([a-z]+)' + newline +
-                             '\s+expandDims\s+(.+)' + newline +
-                             '\s+outChanFlattenDims\s+(.+)' + newline +
-                             '\s+flattenDims\s+(.+)' + newline +
+re_transform_info = re.compile(r'^transform\s\#0' + NEW_LINE_CHAR +
+                             '\s+Transform:\sextraFieldDims\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+dilatePostConv\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+swapOperands\s+([a-z]+)' + NEW_LINE_CHAR +
+                             '\s+expandDims\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+outChanFlattenDims\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+flattenDims\s+(.+)' + NEW_LINE_CHAR +
                              '\s+combineConvGroupsFactor\s+(\d+)$',
                             re.MULTILINE)
 
-transformInfoFieldsNames = ['extraFieldDims', 'dilatePostConv', 'swapOperands',
+transform_info_fields_names = ['extraFieldDims', 'dilatePostConv', 'swapOperands',
     'expandDims', 'outChanFlattenDims', 'flattenDims', 'combineConvGroupsFactor']
-transformInfoFileds = collections.namedtuple(
-    'transformInfoFileds', transformInfoFieldsNames
+TransformInfoFields = collections.namedtuple(
+    'TransformInfoFields', transform_info_fields_names
 )
 
 # Regex to capture partitions info
@@ -103,25 +103,25 @@ transformInfoFileds = collections.namedtuple(
 #              fieldAxisGrainSize    {1,1}
 #              inChanGrainSize       16
 #              outChanGrainSize      8
-partitionInfo = re.compile(r'^partition\s\#0' + newline +
-                             '\s+Partition:\sfieldSplit\s+(.+)' + newline +
-                             '\s+batchSplit\s+(\d+)' + newline +
-                             '\s+outChanSplit.serial\s+(\d+)' + newline +
-                             '\s+outChanSplit.parallel\s+(\d+)' + newline +
-                             '\s+kernelSplit\s+(.+)' + newline +
-                             '\s+inChanSplit.serial\s+(\d+)' + newline +
-                             '\s+inChanSplit.parallel\s+(\d+)' + newline +
-                             '\s+convGroupSplit\s+(\d+)' + newline +
-                             '\s+fieldAxisGrainSize\s+(.+)' + newline +
-                             '\s+inChanGrainSize\s+(\d+)' + newline +
+re_partition_info = re.compile(r'^partition\s\#0' + NEW_LINE_CHAR +
+                             '\s+Partition:\sfieldSplit\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+batchSplit\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+outChanSplit.serial\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+outChanSplit.parallel\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+kernelSplit\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+inChanSplit.serial\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+inChanSplit.parallel\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+convGroupSplit\s+(\d+)' + NEW_LINE_CHAR +
+                             '\s+fieldAxisGrainSize\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+inChanGrainSize\s+(\d+)' + NEW_LINE_CHAR +
                              '\s+outChanGrainSize\s+(\d+)$',
                             re.MULTILINE)
 
-partitionInfoFieldsNames = ['fieldSplit', 'batchSplit', 'outChanSplit_serial',
+partition_info_fields_names = ['fieldSplit', 'batchSplit', 'outChanSplit_serial',
     'outChanSplit_parallel', 'kernelSplit', 'inChanSplit_serial', 'inChanSplit_parallel',
     'convGroupSplit', 'fieldAxisGrainSize', 'inChanGrainSize', 'outChanGrainSize']
-partitionInfoFields = collections.namedtuple(
-    'partitionInfoFields', partitionInfoFieldsNames
+PartitionInfoFields = collections.namedtuple(
+    'PartitionInfoFields', partition_info_fields_names
 )
 
 # Another monsto regex to capture conv params:
@@ -152,59 +152,59 @@ partitionInfoFields = collections.namedtuple(
 #         outputPaddingLower         {0,0}
 #         outputPaddingUpper         {0,0}
 #         outputFieldShape           {3,3}
-convParamsInfo = re.compile(r"^\s+Params:" + newline +
-                             "\s+inputType\s+([a-z]+)" + newline +
-                             "\s+outputType\s+([a-z]+)" + newline +
-                             "\s+batchSize\s+(\d+)" + newline +
-                             "\s+numConvGroups\s+(\d+)" + newline +
-                             "\s+inputFieldShape\s+(.+)" + newline +
-                             "\s+kernelShape\s+(.+)" + newline +
-                             "\s+inputChannelsPerConvGroup\s+(\d+)" + newline +
-                             "\s+outputChannelsPerConvGroup\s+(\d+)" + newline +
-                             "\s+inputTruncationLower\s+(.+)" + newline +
-                             "\s+inputTruncationUpper\s+(.+)" + newline +
-                             "\s+inputDilation\s+(.+)" + newline +
-                             "\s+inputPaddingLower\s+(.+)" + newline +
-                             "\s+inputPaddingUpper\s+(.+)" + newline +
-                             "\s+flipInput\s+(.+)" + newline +
-                             "\s+kernelTruncationLower\s+(.+)" + newline +
-                             "\s+kernelTruncationUpper\s+(.+)" + newline +
-                             "\s+kernelDilation\s+(.+)" + newline +
-                             "\s+kernelPaddingLower\s+(.+)" + newline +
-                             "\s+kernelPaddingUpper\s+(.+)" + newline +
-                             "\s+flipKernel\s+(.+)" + newline +
-                             "\s+outputTruncationLower\s+(.+)" + newline +
-                             "\s+outputTruncationUpper\s+(.+)" + newline +
-                             "\s+stride\s+(.+)" + newline +
-                             "\s+outputPaddingLower\s+(.+)" + newline +
-                             "\s+outputPaddingUpper\s+(.+)" + newline +
+re_conv_params_info = re.compile(r"^\s+Params:" + NEW_LINE_CHAR +
+                             "\s+inputType\s+([a-z]+)" + NEW_LINE_CHAR +
+                             "\s+outputType\s+([a-z]+)" + NEW_LINE_CHAR +
+                             "\s+batchSize\s+(\d+)" + NEW_LINE_CHAR +
+                             "\s+numConvGroups\s+(\d+)" + NEW_LINE_CHAR +
+                             "\s+inputFieldShape\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+kernelShape\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+inputChannelsPerConvGroup\s+(\d+)" + NEW_LINE_CHAR +
+                             "\s+outputChannelsPerConvGroup\s+(\d+)" + NEW_LINE_CHAR +
+                             "\s+inputTruncationLower\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+inputTruncationUpper\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+inputDilation\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+inputPaddingLower\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+inputPaddingUpper\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+flipInput\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+kernelTruncationLower\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+kernelTruncationUpper\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+kernelDilation\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+kernelPaddingLower\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+kernelPaddingUpper\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+flipKernel\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+outputTruncationLower\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+outputTruncationUpper\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+stride\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+outputPaddingLower\s+(.+)" + NEW_LINE_CHAR +
+                             "\s+outputPaddingUpper\s+(.+)" + NEW_LINE_CHAR +
                              "\s+outputFieldShape\s+(.+)$",
                              re.MULTILINE)
 
-convParamsInfoFieldsNames = ['inputType', 'outputType', 'batchSize', 'numConvGroups', 'inputFieldShape',
+conv_params_info_fields_names = ['inputType', 'outputType', 'batchSize', 'numConvGroups', 'inputFieldShape',
                              'kernelShape', 'inputChannelsPerConvGroup', 'outputChannelsPerConvGroup',
                              'inputTruncationLower', 'inputTruncationUpper', 'inputDilation', 'inputPaddingLower',
                              'inputPaddingUpper', 'flipInput', 'kernelTruncationLower', 'kernelTruncationUpper',
                              'kernelDilation', 'kernelPaddingLower', 'kernelPaddingUpper', 'flipKernel',
                              'outputTruncationLower', 'outputTruncationUpper', 'stride', 'outputPaddingLower',
                              'outputPaddingUpper', 'outputFieldShape']
-convParamsInfoFields = collections.namedtuple(
-    'convParamsInfoFields', convParamsInfoFieldsNames
+ConvParamsInfoFields = collections.namedtuple(
+    'ConvParamsInfoFields', conv_params_info_fields_names
 )
 
 # Execution (Profile) capture
-executionProfile = re.compile(r"^\s+([a-zA-Z]+): (.+)" + newline +
-                               "\s+Cycles:\s+(.+):.+" + newline +
+re_execution_profile = re.compile(r"^\s+([a-zA-Z]+): (.+)" + NEW_LINE_CHAR +
+                               "\s+Cycles:\s+(.+):.+" + NEW_LINE_CHAR +
                                "\s+Active Tiles:"
                               , re.MULTILINE)
 
-executionFieldsNames = ['weightsTranspose', 'transformPreSerial', 'transformPre0', 'transformPost0', 'transformPostSerial']
-executionStepCycles = ['DoExchange', 'OnTileExecute']
+execution_fields_names = ['weightsTranspose', 'transformPreSerial', 'transformPre0', 'transformPost0', 'transformPostSerial']
+execution_step_cycles = ['DoExchange', 'OnTileExecute']
 
 # Planner to Profile diff
-planner2ProfileRatioFieldsNames = ['Exch_Pl2Pr', 'OnTile_Pl2Pr']
-planner2ProfileRatioFields = collections.namedtuple(
-    'planner2ProfileRatioFields', planner2ProfileRatioFieldsNames
+planner_2_profile_ratio_fields_names = ['Exch_Pl2Pr', 'OnTile_Pl2Pr']
+Planner2ProfileRatioFields = collections.namedtuple(
+    'Planner2ProfileRatioFields', planner_2_profile_ratio_fields_names
 )
 
 
@@ -214,7 +214,7 @@ planner2ProfileRatioFields = collections.namedtuple(
 #                                      "--shape=4,25088,8" "--dims=1" "--type=half" "--scale=1.0" "--update=false" "--operation=SQUARE_ADD" "--ignore-data" "--use-unstable-format" "--device-type=IpuModel"
 # Labels: benchmarks python3
 #   Test #407: IpuModel_default_resnet50_tr_bs1_cnv_reduce_benchmark
-benchmarksInfo = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([a-zA-z]+)\"\s\"--expected_csv\"\s\"(\S+)\"\s\"(\S+)\"\s(.+)$")
+benchmarks_info = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([a-zA-z]+)\"\s\"--expected_csv\"\s\"(\S+)\"\s\"(\S+)\"\s(.+)$")
 
 
 # -----------------------------------------------------------------------------
@@ -223,123 +223,124 @@ benchmarksInfo = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([a
 def get_list_of_tests(cmd):
     nproc = f'-j{os.cpu_count()}'
     cmd.append(nproc)
-    testsDict = {}
+    tests_dict = {}
     with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc:
         for line in proc.stdout:
             dline = line.decode('utf-8')
-            match = benchmarksInfo.match(dline)
+            match = benchmarks_info.match(dline)
             if match:
-                testsGroup = match.group(5).split("/")[-1]
-                if testsGroup in groupToAnalyse:
-                    testCmd = match.group(6).replace('"','').split(" ")[:-1]
+                tests_group = match.group(5).split("/")[-1]
+                if tests_group in group_to_analyse:
+                    test_cmd = match.group(6).replace('"','').split(" ")[:-1]
                     # Change batch size to 2 (make the data collection a bit faster)
-                    testCmd[testCmd.index('--batch-size') + 1] = '2'
+                    test_cmd[test_cmd.index('--batch-size') + 1] = '2'
                     # NOTE: Ideally need to search through the matches in case a test already has  conv options and append it
-                    testCmd.append(r'--convolution-options={"insertTransformsCycleCountProgs":true}')
-                    testCmd.insert(0, match.group(5))
-                    testCmd.append(r'--device-type=Hw')
-                    testCmd.append(r'--profile')
-                    testsDict[match.group(2)] = testCmd
-    return testsDict
+                    test_cmd.append(r'--convolution-options={"insertTransformsCycleCountProgs":true}')
+                    test_cmd.insert(0, match.group(5))
+                    test_cmd.append(r'--device-type=Hw')
+                    test_cmd.append(r'--profile')
+                    tests_dict[match.group(2)] = test_cmd
+    return tests_dict
 
 
 def collect_standard_benchmarks(names):
     cmd = [r'./test.sh', 'poplibs', '-L', 'benchmarks', '-N', '-V'] # dry run
-    allBenchmarks = get_list_of_tests(cmd)
+    all_benchmarks = get_list_of_tests(cmd)
 
-    testsDict = {}
+    tests_dict = {}
     if names:
-        listOfNames = names.strip(' ').split(',')
-        benchmarksNames = allBenchmarks.keys()
-        for name in listOfNames:
-            if name in benchmarksNames:
-                testsDict[name] = allBenchmarks[name]
-        if len(testsDict) == 0:
-            logging.error(f'No tests found for the given names - {names}')
+        list_of_names = names.strip(' ').split(',')
+        benchmarks_names = all_benchmarks.keys()
+        for name in list_of_names:
+            if name in benchmarks_names:
+                tests_dict[name] = all_benchmarks[name]
+        if len(tests_dict) == 0:
+            logging.error('No tests found for the given names - %s', names)
             sys.exit(1)
     else:
-       testsDict = allBenchmarks
+        tests_dict = all_benchmarks
 
-    return testsDict
+    return tests_dict
 
 
 # -----------------------------------------------------------------------------
 # Get benchmarks from file
 # -----------------------------------------------------------------------------
-def get_test_from_file(filepath):
-    testsDict = {}
-    testsMatch = re.compile(r'^name:(.+),\scommand:(.+)$')
-    with open(filepath, mode='r', encoding='utf-8') as f:
-        match = testsMatch.match(line.decode('utf-8'))
+def parse_test_file(file_path):
+    tests_dict = {}
+    tests_match = re.compile(r'^name:(.+),\scommand:(.+)$')
+    with open(file_path, mode='r', encoding='utf-8') as f:
+        line = f.readline()
+        match = tests_match.match(line.decode('utf-8'))
         if match:
-            testsDict[match.group(1)] = match.group(2)
+            tests_dict[match.group(1)] = match.group(2)
 
-    return testsDict
+    return tests_dict
 
 
 # -----------------------------------------------------------------------------
 # Benchmarks permutation
 # -----------------------------------------------------------------------------
 def transform_constraints(phase, so, ed, ocfd, ccgf):
-    swapOperands = f'"swapOperands":{so}'
-    expandDims = f'"expandDims":{ed}'
-    outChanFlattenDims = f'"outChanFlattenDims":{ocfd}'
-    combineConvGroupsFactor = f'"combineConvGroupsFactor":[{ccgf}]'
-    phaseConstraintsPrefix = r'{"0": {"transform": {'
-    phaseConstraintsSuffix = r'}}}'
-    phaseConstraints =  phaseConstraintsPrefix +\
-                        swapOperands + ',' +\
-                        expandDims + ',' +\
-                        outChanFlattenDims + ',' +\
-                        combineConvGroupsFactor +\
-                        phaseConstraintsSuffix
-    return f'--{phase.lower()}-plan-constraints=' + phaseConstraints
+    swap_operands = f'"swapOperands":{so}'
+    expand_dims = f'"expandDims":{ed}'
+    out_chan_flatten_dims = f'"outChanFlattenDims":{ocfd}'
+    combine_conv_groups_factor = f'"combineConvGroupsFactor":[{ccgf}]'
+    phase_constraints_prefix = r'{"0": {"transform": {'
+    phase_constraints_suffix = r'}}}'
+    phase_constraints =  phase_constraints_prefix +\
+                        swap_operands + ',' +\
+                        expand_dims + ',' +\
+                        out_chan_flatten_dims + ',' +\
+                        combine_conv_groups_factor +\
+                        phase_constraints_suffix
+    return f'--{phase.lower()}-plan-constraints=' + phase_constraints
 
 
 def powerset(dims):
     x = len(dims)
-    p = []
     for i in range(1 << x):
-        combo = [dims[j] for j in range(x) if (i & (1 << j))]
+        combo = [dims[j] for j in range(x) if i & (1 << j)]
         yield combo[::-1]
 
 
-def add_permutations(standardTest):
-    swapOperands = ['true', 'false']
-    combineConvGroupsFactor = ['1', '2', '4', '8']
+def add_permutations(standard_test):
+    swap_operands = ['true', 'false']
+    combine_conv_groups_factor = ['1', '2', '4', '8']
 
-    finalDict = {}
-    for name, cmd in standardTest.items():
-        numDims = len(cmd[2].split(','))
+    all_tests_dic = {}
+    for name, cmd in standard_test.items():
+        num_dimensions = len(cmd[2].split(','))
 
         # Redefinitions below are useful for debug purposes
         # so that one can easily eliminate one or more dimensions
 
         # Example of debug params
-        # p_list = phasesDict
+        # p_list = phases_dict
         # so_list = ['false']
         # ed_list =  ['[]']
         # ocfd_list = ['[]']
         # ccgf_list = ['1']
 
         # Release params
-        p_list = phasesDict
-        so_list = swapOperands
-        ed_list =  powerset(range(numDims))
-        ocfd_list = powerset(range(numDims))
-        ccgf_list = combineConvGroupsFactor
+        p_list = phases_dict
+        so_list = swap_operands
+        ed_list =  powerset(range(num_dimensions))
+        ocfd_list = powerset(range(num_dimensions))
+        ccgf_list = combine_conv_groups_factor
 
         parameters = itertools.product(p_list, so_list, ed_list, ocfd_list, ccgf_list)
 
-        for p, so, ed, ocfd, ccgf in parameters:
+        for phase, so, ed, ocfd, ccgf in parameters:
+            final_test_name = f'{name}_{so}_{edStr}_{ocfdStr}_[{ccgf}]_{phase}'
             edStr = str(ed).replace(', ', '_')
             ocfdStr = str(ocfd).replace(', ', '_')
-            pname = f'{name}_{so}_{edStr}_{ocfdStr}_[{ccgf}]_{p}'
-            finalDict[pname] = standardTest[name] +\
-                    [f'--single-phase={p}'] +\
-                    [transform_constraints(p, so, ed, ocfd, ccgf)]
 
-    return finalDict
+            all_tests_dic[final_test_name] = standard_test[name] +\
+                    [f'--single-phase={phase}'] +\
+                    [transform_constraints(phase, so, ed, ocfd, ccgf)]
+
+    return all_tests_dic
 
 
 # -----------------------------------------------------------------------------
@@ -348,47 +349,47 @@ def add_permutations(standardTest):
 class BenchmarksBar(Bar):
     suffix = '%(index)d/%(max)d - %(elapsed)ds'
 
-def open_proc(filePath, cmd):
+def open_proc(file_path, cmd):
     # Skip run if log file already exists
-    if not os.path.exists(filePath):
-        with open(filePath, mode="w", encoding='utf-8') as logFile:
-            subprocess.call(cmd, stdout=logFile, stderr=logFile)
+    if not os.path.exists(file_path):
+        with open(file_path, mode="w", encoding='utf-8') as log_file:
+            subprocess.call(cmd, stdout=log_file, stderr=log_file)
 
-def run_tests(testsDict, outputPath, timeOut):
+def run_tests(tests_dict, output_path, runtime_timeout):
     os.environ["POPLIBS_LOG_LEVEL"] = "DEBUG"
     nproc = os.cpu_count()
 
-    numOfBench = len(testsDict)
+    nr_of_bench = len(tests_dict)
     procs = {}
-    killedTests = []
+    killed_tests = []
 
-    logging.info(f'Starting {numOfBench} benchmarks (Runtime timeout for a one test is {timeOut}secs).')
+    logging.info('Starting %d benchmarks (Runtime timeout for a one test is %dsecs).', nr_of_bench, runtime_timeout)
     logging.fatal('Meanwhile go and grab some brew!')
 
     nproc = int(nproc / 2) # gives same execution results as nproc
-    progressBar =  BenchmarksBar('Running', max=numOfBench)
+    progress_bar =  BenchmarksBar('Running', max=nr_of_bench)
     pool = Pool(processes = nproc)
 
-    for name, cmd in testsDict.items():
-        filePath = os.path.join(outputPath, name + extension)
-        procs[name] = pool.apply_async(open_proc, args=(filePath, cmd))
+    for name, cmd in tests_dict.items():
+        file_path = os.path.join(output_path, name + LOG_FILE_EXT)
+        procs[name] = pool.apply_async(open_proc, args=(file_path, cmd))
 
     for name, process in procs.items():
-        progressBar.next() # dry run to display progress bar
+        progress_bar.next() # dry run to display progress bar
         try:
-            process.get(timeOut)
+            process.get(runtime_timeout)
         except TimeoutError:
-            killedTests.append(name)
+            killed_tests.append(name)
 
     pool.terminate()
     pool.join()
 
     # New line required after progress bar has finished
     logging.info('')
-    if killedTests:
+    if killed_tests:
         logging.info('--------------------------------------------------------------------------------')
-        logging.info(f'These tests were removed due to timeout {timeOut}sec:')
-        for k in killedTests:
+        logging.info('These tests were removed due to timeout %dsec:', runtime_timeout)
+        for k in killed_tests:
             logging.info(k)
         logging.info('--------------------------------------------------------------------------------')
 
@@ -396,7 +397,7 @@ def run_tests(testsDict, outputPath, timeOut):
 # -----------------------------------------------------------------------------
 # Capture information from profile output
 # -----------------------------------------------------------------------------
-def capture_exec_cycles(logOutput):
+def capture_exec_cycles(log_output):
 #   //  - weightsTranspose (optional)
 #   //  - transformPreSerial
 #   //  - repeat(loopCount)
@@ -412,210 +413,207 @@ def capture_exec_cycles(logOutput):
 #   //  - transformPostSerial
 #   //  - finalizeProg
 
-    execStartCapture = re.compile(r'^([a-zA-Z]+\d)/timeBeforeCS_(\d+)$')
-    execEndCapture = re.compile(r'^([a-zA-Z]+\d)/timeAfterCS_(\d+)$')
-    execStepsInfo = collections.namedtuple('execStepsInfo', ['location', 'cs', 'cycles'])
+    exec_start_capture = re.compile(r'^([a-zA-Z]+\d)/timeBeforeCS_(\d+)$')
+    exec_end_capture = re.compile(r'^([a-zA-Z]+\d)/timeAfterCS_(\d+)$')
+    ExecStepsInfo = collections.namedtuple('ExecStepsInfo', ['location', 'cs', 'cycles'])
 
     valid = False
-    execDB = list(0 for x in range(2 * len(executionFieldsNames)))
+    execution_dict = list(0 for x in range(2 * len(execution_fields_names)))
 
-    csId = 0
-    stepName = ''
-    for step in logOutput:
-        execStepsNamed = execStepsInfo._make(x for x in step)
-        startMatch = execStartCapture.match(execStepsNamed.cs)
-        if startMatch and startMatch.group(1) in executionFieldsNames:
-            stepName = startMatch.group(1)
-            csId = startMatch.group(2)
+    compute_set_id = 0
+    execution_step_name = ''
+    for step in log_output:
+        exec_steps_named = ExecStepsInfo._make(x for x in step)
+        start_match = exec_start_capture.match(exec_steps_named.cs)
+        if start_match and start_match.group(1) in execution_fields_names:
+            execution_step_name = start_match.group(1)
+            compute_set_id = start_match.group(2)
             continue
-        endMatch = execEndCapture.match(execStepsNamed.cs)
-        if endMatch and endMatch.group(1) in executionFieldsNames:
-            if csId != endMatch.group(2):
-                logging.debug(f'Expected timeAfterCS_{csId}. Got timeAfterCS_{endMatch.group(2)}')
+        end_match = exec_end_capture.match(exec_steps_named.cs)
+        if end_match and end_match.group(1) in execution_fields_names:
+            if compute_set_id != end_match.group(2):
+                logging.debug('Expected timeAfterCS_%s. Got timeAfterCS_%s', compute_set_id, end_match.group(2))
                 raise 'Couldn\'t find timeAfterCS_'
-            csId = 0 # reset
-            stepName = ''
+            compute_set_id = 0 # reset
+            execution_step_name = ''
             # At least  one valid pair of cycle count found
             valid = True
             continue
 
-        if csId != 0 and execStepsNamed.location in executionStepCycles:
-            index = executionFieldsNames.index(stepName)
-            nextStepCycles = int(execStepsNamed.cycles.replace(',',''))
-            offset = executionStepCycles.index(execStepsNamed.location)
-            index = index * len(executionStepCycles) + offset
-            execDB[index] += nextStepCycles
+        if compute_set_id != 0 and exec_steps_named.location in execution_step_cycles:
+            index = execution_fields_names.index(execution_step_name)
+            next_step_cycles = int(exec_steps_named.cycles.replace(',',''))
+            offset = execution_step_cycles.index(exec_steps_named.location)
+            index = index * len(execution_step_cycles) + offset
+            execution_dict[index] += next_step_cycles
 
-    return valid, tuple(execDB)
+    return valid, tuple(execution_dict)
 
 
 # -----------------------------------------------------------------------------
 # Calculate differences between planner and profile
 # -----------------------------------------------------------------------------
-def get_diffs(plannerCycles,  profileCycles):
+def get_diffs(planner_cycles,  profile_cycles):
     try:
-        diff = '{:.2f}'.format(abs(float(plannerCycles) / float(profileCycles)))
+        diff = '{:.2f}'.format(abs(float(planner_cycles) / float(profile_cycles)))
     except ZeroDivisionError:
         diff = '0'
 
     return diff
 
 
-def calculate_diffs(plannerData, profileData):
+def calculate_diffs(planner_data, profile_data):
 
     # At the moment only do diffs  for transfroms but can be exteded to  any other fields
-    transformsOffset = executionFieldsNames.index('transformPre0') * len(executionStepCycles)
-    transformsExchange = transformsOffset + executionStepCycles.index('DoExchange')
-    transformsOnTile = transformsOffset + executionStepCycles.index('OnTileExecute')
+    transforms_offset = execution_fields_names.index('transformPre0') * len(execution_step_cycles)
+    transforms_exchange = transforms_offset + execution_step_cycles.index('DoExchange')
+    transforms_on_tile = transforms_offset + execution_step_cycles.index('OnTileExecute')
 
-    transformsExchangeDiff = get_diffs(plannerData.transformsExchangeCycles, profileData[transformsExchange])
-    transformsOnTileDiff = get_diffs(plannerData.transformsCopyCycles, profileData[transformsOnTile])
+    transforms_exchange_diff = get_diffs(planner_data.transformsExchangeCycles, profile_data[transforms_exchange])
+    transforms_on_tile_diff = get_diffs(planner_data.transformsCopyCycles, profile_data[transforms_on_tile])
 
-    return planner2ProfileRatioFields._make(x for x in [transformsExchangeDiff, transformsOnTileDiff])
+    return Planner2ProfileRatioFields._make(x for x in [transforms_exchange_diff, transforms_on_tile_diff])
 
 
 # -----------------------------------------------------------------------------
 # Capture information from logs
 # -----------------------------------------------------------------------------
-def capture_logs_info(testsDict, outputPath, removeFiles):
-    megaDB = {}
-    for name in testsDict.keys():
-        phaseDB = {}
-        fileName = os.path.join(outputPath, name + extension)
-        with open(fileName, mode='r', encoding='utf-8') as f:
+def capture_logs_info(tests_dict, output_path, remove_log_files):
+    all_results = {}
+    for name in tests_dict.keys():
+        phase_dict = {}
+        filepath = os.path.join(output_path, name + LOG_FILE_EXT)
+        with open(filepath, mode='r', encoding='utf-8') as f:
             all_of_it = f.read()
-        if removeFiles is True:
-            os.remove(fileName)
+        if remove_log_files is True:
+            os.remove(filepath)
 
-        plannerInfoMatch = plannerInfo.findall(all_of_it)
-        transformInfoMatch = transformInfo.findall(all_of_it)
-        partitionInfoMatch = partitionInfo.findall(all_of_it)
-        convParamsInfoMatch = convParamsInfo.findall(all_of_it)
-        executionProfileMatch = executionProfile.findall(all_of_it)
+        match_planner_info = re_planner_info.findall(all_of_it)
+        match_transform_info = re_transform_info.findall(all_of_it)
+        match_partition_info = re_partition_info.findall(all_of_it)
+        match_conv_params_info = re_conv_params_info.findall(all_of_it)
+        match_execution_profile = re_execution_profile.findall(all_of_it)
 
         # Check if test was successful
         if all_of_it.find('terminate called') != -1:
-            logging.debug(f'{name} - was terminated. Mission aborted... (No record added into a  file)')
+            logging.debug('%s - was terminated. Mission aborted... (No record added into a  file)', name)
             continue
 
         # Find phase related info and record index to get params and transform infos
         index = -1
         phase = name.split('_')[-1]
         try:
-            for pi in plannerInfoMatch:
+            for p_info in match_planner_info:
                 index += 1
-                if pi[5].lower() == phase:
-                    plannerData = plannerInfoFields._make(x for x in pi)
-                    phaseDB[name] = [plannerData]
+                if p_info[5].lower() == phase:
+                    planner_data = PlannerInfoFields._make(x for x in p_info)
+                    phase_dict[name] = [planner_data]
                     break
         except IndexError:
-            logging.debug(f'{name} - No best plan info. Most likely test had a timeout')
+            logging.debug('%s - No best plan info. Most likely test had a timeout', name)
             continue
 
-        # Make sure we got plan info for a       correct phase
-        if index != phasesDict[phase]:
-            logging.debug(f'{name} - No best plan info for a {phase} pass')
-            continue
-
-        try:
-            phaseDB[name].append(transformInfoFileds._make(x for x in transformInfoMatch[index]))
-        except IndexError:
-            logging.debug(f'{name} - No transforms info. Possible incorrect test params...')
+        # Make sure we got plan info for a correct phase
+        if index != phases_dict[phase]:
+            logging.debug('%s - No best plan info for a %s pass', name, phase)
             continue
 
         try:
-            phaseDB[name].append(partitionInfoFields._make(x for x in partitionInfoMatch[index]))
+            phase_dict[name].append(TransformInfoFields._make(x for x in match_transform_info[index]))
         except IndexError:
-            logging.debug(f'{name} - No partition info. Planner failed...')
+            logging.debug('%s - No transforms info. Possible incorrect test params...', name)
             continue
 
         try:
-            phaseDB[name].append(convParamsInfoFields._make(x for x in convParamsInfoMatch[index]))
+            phase_dict[name].append(PartitionInfoFields._make(x for x in match_partition_info[index]))
         except IndexError:
-            logging.debug(f'{name} - No convolution params info. Planner failed...')
+            logging.debug('%s - No partition info. Planner failed...', name)
+            continue
+
+        try:
+            phase_dict[name].append(ConvParamsInfoFields._make(x for x in match_conv_params_info[index]))
+        except IndexError:
+            logging.debug('%s - No convolution params info. Planner failed...', name)
             continue
 
         # Get transforms execution cycles from profile output
-        if executionProfileMatch:
-            valid, profileData = capture_exec_cycles(executionProfileMatch)
+        if match_execution_profile:
+            valid, profile_data = capture_exec_cycles(match_execution_profile)
             if valid:
-                phaseDB[name].append(profileData)
+                phase_dict[name].append(profile_data)
             else:
-                logging.debug(f'{name} - No transfroms markers found in profile output. Make sure you use next option: --convolution-options={{\"insertTransformsCycleCountProgs\":true}}')
+                logging.debug('%s - No transfroms markers found in profile output. Make sure you use next option: --convolution-options={{\"insertTransformsCycleCountProgs\":true}}', name)
                 continue
         else:
-            logging.debug(f'{name} - No profile info. Planner failed...')
+            logging.debug('%s - No profile info. Planner failed...', name)
             continue
 
         # Generate planner vs profiles diffs
-        phaseDB[name].append(calculate_diffs(plannerData, profileData))
+        phase_dict[name].append(calculate_diffs(planner_data, profile_data))
 
         # Debug printouts
-        if False:
+        printout_step = False
+        if printout_step is True:
             logging.error("Execution:")
-            for p in executionProfileMatch:
-                logging.error(p)
+            for profile_step in match_execution_profile:
+                logging.error(profile_step)
 
-        if False:
+        if printout_step is True:
             logging.error("Planner info:")
-            for phase, params in phaseDB.items():
-                logging.error(f'{phase}:')
-                for p in params:
-                    logging.error(f'{p}')
+            for phase, phase_info in phase_dict.items():
+                logging.error('%s:', phase)
+                for info in phase_info:
+                    logging.error('%s', info)
 
-        megaDB.update(phaseDB)
+        all_results.update(phase_dict)
 
-    return megaDB
+    return all_results
 
 
 # -----------------------------------------------------------------------------
 # Dump results
 # -----------------------------------------------------------------------------
-def dump_results(megaDB, filePath):
+def dump_results(all_results, file_path):
 
     header1 = ['Info Groups']
     header2 = ['Info Fields']
 
-    for p in plannerInfoFieldsNames:
-        header1.append('plannerInfo')
-    header2 += plannerInfoFieldsNames
+    header1 += ['plannerInfo'] * len(planner_info_fields_names)
+    header2 += planner_info_fields_names
 
-    for t in transformInfoFieldsNames:
-        header1.append('transform0')
-    header2 += transformInfoFieldsNames
+    header1 += ['transform0'] * len(transform_info_fields_names)
+    header2 += transform_info_fields_names
 
-    for t in partitionInfoFieldsNames:
-        header1.append('Partition0')
-    header2 += partitionInfoFieldsNames
+    header1 += ['Partition0'] * len(partition_info_fields_names)
+    header2 += partition_info_fields_names
 
-    for c in convParamsInfoFieldsNames:
-        header1.append('convParams')
-    header2 += convParamsInfoFieldsNames
+    header1 += ['convParams'] * len(conv_params_info_fields_names)
+    header2 += conv_params_info_fields_names
 
-    for e in executionFieldsNames:
-        for s in executionStepCycles:
+    for e_name in execution_fields_names:
+        for e_step in execution_step_cycles:
             header1.append('profileCycles')
-            header2.append(e + '_' + s)
+            header2.append(e_name + '_' + e_step)
 
-    for p in planner2ProfileRatioFieldsNames:
+    for p_name in planner_2_profile_ratio_fields_names:
         header1.append('Diff ratio')
-        header2.append(p)
+        header2.append(p_name)
 
-    if  len(header1) != len(header2):
-        raise ('Headers lengths don\'t match')
+    if len(header1) != len(header2):
+        raise 'Headers lengths don\'t match'
 
-    with open(filePath, 'w') as resultsFile:
-        resultsWriter = csv.writer(resultsFile,
+    with open(file_path, 'w') as results_file:
+        results_writer = csv.writer(results_file,
                                 delimiter=',',
                                 lineterminator=os.linesep)
 
-        resultsWriter.writerow(header2)
-        resultsWriter.writerow(header1)
-        for key, infos in megaDB.items():
+        results_writer.writerow(header2)
+        results_writer.writerow(header1)
+        for key, infos in all_results.items():
             data = tuple([key])
             for info in infos:
                 data += info
-            resultsWriter.writerow(data)
+            results_writer.writerow(data)
 
 
 # -----------------------------------------------------------------------------
@@ -623,18 +621,26 @@ def dump_results(megaDB, filePath):
 # -----------------------------------------------------------------------------
 def generate_ci_tests(workspace, test_binary):
     ci_test_dict = {}
-    for p in phasesDict:
-        test_name = f'ci_test_{p}'
+
+    if len(test_binary) == 0:
+        logging.error('--test-binary can\'t be empty. See help for more details')
+        sys.exit(1)
+    elif os.path.exists(test_binary) is False:
+        logging.error('Invalid path to test-binary - <%s>', test_binary)
+        sys.exit(1)
+
+    for phase in phases_dict:
+        test_name = f'ci_test_{phase}'
         ci_test_dict[test_name] = [test_binary,
                         '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
                         '--output-channels', '1', '--conv-groups', '64', '--batch-size', '2', '--bias', '0',
                         '--ignore-data', '--use-unstable-format', '--device-type=Hw', '--profile',
-                        f'--single-phase={p}', '--tiles-per-ipu=2',
+                        f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
-                        transform_constraints(p, 'true', '[]', '[]', '1')]
+                        transform_constraints(phase, 'true', '[]', '[]', '1')]
 
         # Remove ci-test logs to guarantee tests run
-        file_to_remove = os.path.join(workspace, test_name + extension)
+        file_to_remove = os.path.join(workspace, test_name + LOG_FILE_EXT)
         if os.path.exists(file_to_remove):
             os.remove(file_to_remove)
 
@@ -644,7 +650,6 @@ def generate_ci_tests(workspace, test_binary):
 # -----------------------------------------------------------------------------
 # MAIN
 # -----------------------------------------------------------------------------
-
 def main():
     parser = argparse.ArgumentParser(description='Collect convolution transforms data')
     parser.add_argument('--workspace', default=os.getcwd(), help='Absolute path to where to store tests log files and report. Default path is a current folder')
@@ -655,7 +660,7 @@ def main():
     parser.add_argument('--execution-timeout', type=int, default=45, help='Defines timeout for a single test execution')
     parser.add_argument('--test-file', default='', help='Shall contain list of '
          'single_conv_layers tests. File format shall be next: name:<test_name>, command:<test executable>. One command per line.')
-    parser.add_argument('--test-binary', default='', help='')
+    parser.add_argument('--test-binary', default='', help='Provides a path to the single_conv_layer tool')
     args = parser.parse_args()
 
     # Make sure workspace folder  exists
@@ -683,48 +688,48 @@ def main():
         ]
     )
 
-    reportFile = os.path.join(args.workspace, args.results_file)
+    report_file = os.path.join(args.workspace, args.results_file)
 
     # Get
     if args.ci_test is True:
         logging.info('Starting a test run')
-        testsDict = generate_ci_tests(args.workspace, args.test_binary)
+        tests_dict = generate_ci_tests(args.workspace, args.test_binary)
 
     elif os.path.exists(args.test_file):
         logging.info('Collecting benchmarks from a file')
-        testsDict = parse_test_file(args.test_file)
+        tests_dict = parse_test_file(args.test_file)
 
     else:
         logging.info('Collecting existent benchmarks')
-        testsDict = collect_standard_benchmarks(args.test_names)
+        tests_dict = collect_standard_benchmarks(args.test_names)
 
         # Speaks for itself
         logging.info('Generating plan constarints for the given benchmarks')
-        testsDict = add_permutations(testsDict)
+        tests_dict = add_permutations(tests_dict)
 
     # Run benchmarks
     logging.info('Processing...')
-    run_tests(testsDict, args.workspace, args.execution_timeout)
+    run_tests(tests_dict, args.workspace, args.execution_timeout)
 
     # Capture logs
     logging.info('Capturing results')
-    megaDB = capture_logs_info(testsDict, args.workspace, args.remove_files)
+    all_results = capture_logs_info(tests_dict, args.workspace, args.remove_files)
 
     # Dump results
     if args.ci_test is True:
         # Successful capture shall have - planner, transform0, partition0, conv params, profiles infos and a diff ratio
-        if len(megaDB) != len(phasesDict):
+        if len(all_results) != len(phases_dict):
             logging.error(' No valid test result for all phases')
-            logging.error(f'Only following present: {megaDB.keys()}')
+            logging.error('Only following present: %s', all_results.keys())
             sys.exit(1)
         else:
-            for k in megaDB.keys():
-                if len(megaDB[k]) != 6:
-                    logging.error(f'Not all test data found for {k} phase')
+            for k in all_results:
+                if len(all_results[k]) != 6:
+                    logging.error('Not all test data found for %s phase', k)
                     sys.exit(1)
     else:
         logging.info('Storing results into a file(s)')
-        dump_results(megaDB, reportFile)
+        dump_results(all_results, report_file)
 
 
 # -----------------------------------------------------------------------------
