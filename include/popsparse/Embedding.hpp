@@ -17,39 +17,44 @@ namespace dynamic {
  *  a tensor efficiently.
  *
  * \param graph       The Poplar graph.
- * \param dims        The dimensions of a tensor to be sliced/updated that will
- *                    be sliced/updated using these indices.
+ * \param params      Parameters for the fully connected layer which defines
+ *                    the embedding operation. Used to decide on layout for
+ *                    the indices.
+ * \param options     Implementation options for the fully connected layer.
  * \param numIndices  The number of indices this tensor should contain
  * \param debugPrefix The prefix prepended to debugging info.
  *
- * \returns A tensor of shape [numIndices]. Element type
+ * \returns A 1D tensor of shape [\p numIndices]. Element type
  *          is always UNSIGNED_INT.
  */
 poplar::Tensor createIndicesTensor(poplar::Graph &graph,
-                                   const std::vector<std::size_t> &dims,
+                                   const FullyConnectedParams &params,
                                    std::size_t numIndices,
+                                   const poplar::OptionFlags &options = {},
                                    const std::string &debugPrefix = "");
 
 /** Create and map a tensor to be updated from efficiently.
  *
- *  Memory layout is based on the planned split of the sparse tensor t
+ *  Memory layout is based on the planned split of the sparse tensor.
  *
  * \param graph          The Poplar graph.
- * \param t              The sparse tensor to be updated.
- * \param numIndices     The number of slices this tensor should contain.
+ * \param dataType       The data type of the returned tensor.
  * \param params         Parameters for the fully connected layer which will
  *                       provide the planned memory layout for the sparse tensor
  *                       being updated
+ * \param numIndices     The number of slices this tensor should contain.
  * \param debugPrefix    A string prepended to debugging info.
- * \param options        Implementation options for the  fully connected layer.
+ * \param options        Implementation options for the fully connected layer.
  * \param cache          Optional pointer to planning cache to use.
  *
- *  \returns             A tensor with shape [numIndices] mapped
- *                       appropriately to be sliced into/updated from.
+ *  \returns             A 2D tensor with shape [numIndices, \p
+ * params.getInputChannels()] with layout optimised for slicing into/updating
+ * from.
  */
-poplar::Tensor createSliceTensor(poplar::Graph &graph, const SparseTensor &t,
-                                 std::size_t numIndices,
+poplar::Tensor createSliceTensor(poplar::Graph &graph,
+                                 const poplar::Type &dataType,
                                  const FullyConnectedParams &params,
+                                 std::size_t numIndices,
                                  const std::string &debugPrefix = "",
                                  const poplar::OptionFlags &options = {},
                                  PlanningCache *cache = nullptr);
@@ -60,29 +65,30 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph, const SparseTensor &t,
  *
  * \param graph          The Poplar graph.
  * \param t              The sparse tensor being sliced.
- * \param offsets        The offsets within \p t to be sliced.
+ * \param indices        The indices of rows of \p t to be sliced.
  * \param prog           The program to be extended.
  * \param params         Parameters for the fully connected layer which will
  *                       provide the planned memory layout for the sparse tensor
- *                       being updated
+ *                       being sliced.
  * \param debugPrefix    The prefix prepended to debugging info.
  * \param options        Implementation options for the fully connected layer.
  * \param cache          Optional pointer to planning cache to use.
  */
 poplar::Tensor embeddingSlice(poplar::Graph &graph, const SparseTensor &t,
-                              const poplar::Tensor &offsets,
+                              const poplar::Tensor &indices,
                               poplar::program::Sequence &prog,
                               const FullyConnectedParams &params,
                               const std::string &debugPrefix = "",
                               const poplar::OptionFlags &options = {},
                               PlanningCache *cache = nullptr);
 
-/** Accumulate multiple slices in a tensor
+/** Update a sparse tensor with a set of slices at the given row indices.
  *
  * \param graph          The Poplar graph.
  * \param t              The sparse tensor being updated.
  * \param slices         The slices to accumulate.
- * \param offsets        The offsets within \p t to be accumulated.
+ * \param indices        The indices of rows of \p t to accumulate each slice in
+ *                       \p slices into.
  * \param scale          The scaling to apply to the update.
  * \param prog           The program to be extended.
  * \param params         Parameters for the fully connected layer which will
@@ -94,7 +100,7 @@ poplar::Tensor embeddingSlice(poplar::Graph &graph, const SparseTensor &t,
  */
 void embeddingUpdateAdd(
     poplar::Graph &graph, const SparseTensor &t, const poplar::Tensor &slices,
-    const poplar::Tensor &offsets, const poplar::Tensor &scale,
+    const poplar::Tensor &indices, const poplar::Tensor &scale,
     poplar::program::Sequence &prog, const FullyConnectedParams &params,
     const std::string &debugPrefix = "",
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);

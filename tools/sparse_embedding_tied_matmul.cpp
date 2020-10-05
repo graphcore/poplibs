@@ -82,7 +82,7 @@ int main(int argc, char **argv) try {
   constexpr unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
   std::string profileJsonPath;
-  unsigned groups = 1, m, k, n;
+  unsigned groups = 1, numEntries, embeddingSize, batchSize;
   double sparsityFactor;
   Type dataType = HALF;
   Type partialsType = FLOAT;
@@ -95,7 +95,7 @@ int main(int argc, char **argv) try {
   std::string matmulOptionsString;
 
   // Embedding options
-  ShapeOption<std::size_t> numIndices;
+  std::size_t numIndices;
   double scale = 1.0;
   Pass pass = Pass::BOTH;
   bool debugPrint = false;
@@ -114,9 +114,9 @@ int main(int argc, char **argv) try {
     ("ignore-data", "Don't validate results")
     ("data-type", po::value(&dataType)->default_value(dataType), "Data type of operands")
     ("groups", po::value(&groups)->default_value(groups), "Number of groups")
-    ("m", po::value(&m)->required(), "Rows in left-hand operand")
-    ("k", po::value(&k)->required(), "Columns in left-hand operand/Rows in right-hand operand")
-    ("n", po::value(&n)->required(), "Columns in right-hand operand")
+    ("num-entries", po::value(&numEntries)->required(), "Number of entries in embedding matrix")
+    ("embedding-size", po::value(&embeddingSize)->required(), "Embedding size of embedding matrix")
+    ("batch-size", po::value(&batchSize)->required(), "Batch size used for matmul")
     ("sparsity-factor", po::value(&sparsityFactor)->required(),
      "Proportion of elements of left-hand operand which are non-zero")
     ("block-size",
@@ -141,7 +141,7 @@ int main(int argc, char **argv) try {
 
     // Embedding options
     ("num-indices",
-     po::value<ShapeOption<std::size_t>>(&numIndices)->required(),
+     po::value<std::size_t>(&numIndices)->required(),
      "The number of indices to use for the embedding layer")
    ("pass",
      po::value<Pass>(&pass)->default_value(pass),
@@ -180,14 +180,15 @@ int main(int argc, char **argv) try {
       blockSize.val.size() == 1 ? blockRows : blockSize[1];
   const auto blockArea = blockRows * blockCols;
 
-  if (m % blockRows) {
-    throw poputil::poplibs_error("m must be an integer multiple of "
+  if (numEntries % blockRows) {
+    throw poputil::poplibs_error("--num-entries must be an integer multiple of "
                                  "rows in a block");
   }
 
-  if (k % blockCols) {
-    throw poputil::poplibs_error("k must be an integer multiple of "
-                                 "columns in a block");
+  if (embeddingSize % blockCols) {
+    throw poputil::poplibs_error(
+        "--embedding-size must be an integer multiple of "
+        "columns in a block");
   }
 
   // align weighted area to a block size grid
@@ -219,28 +220,30 @@ int main(int argc, char **argv) try {
   SparsityParams sparsityParams(sparsityType, SparsityStructure::Unstructured,
                                 {blockRows, blockCols});
   const auto params = FullyConnectedParams::createWithNzRatio(
-      sparsityParams, sparsityFactor, n, groups, k, m);
+      sparsityParams, sparsityFactor, batchSize, groups, embeddingSize,
+      numEntries);
   // No support for groups yet
   assert(groups == 1);
-  const SparseTensor lhs = createFullyConnectedWeights(
-      graph, dataType, params, "lhs", matmulOptions, &cache);
+  const SparseTensor embeddingMatrix = createFullyConnectedWeights(
+      graph, dataType, params, "embeddingMatrix", matmulOptions, &cache);
 
-  const auto rhs = createFullyConnectedInput(graph, dataType, params, "rhs",
-                                             matmulOptions, &cache);
-  const Tensor out = fullyConnectedFwd(graph, lhs, rhs, params, prog,
-                                       "multiply", matmulOptions, &cache);
+  const auto mulInput = createFullyConnectedInput(
+      graph, dataType, params, "mulInput", matmulOptions, &cache);
+  const Tensor mulOutput =
+      fullyConnectedFwd(graph, embeddingMatrix, mulInput, params, prog,
+                        "multiply", matmulOptions, &cache);
 
   std::vector<std::pair<std::string, char *>> tmap;
-  auto rawMetaInfo =
-      allocateHostMemoryForTensor(lhs.getMetaInfoTensor(), "lhs.meta", graph,
-                                  uploadProg, downloadProg, tmap);
-  auto rawNzInfo =
-      allocateHostMemoryForTensor(lhs.getNzValuesTensor(), "lhs.values", graph,
-                                  uploadProg, downloadProg, tmap);
-  auto rawRHS = allocateHostMemoryForTensor(rhs, "rhs", graph, uploadProg,
-                                            downloadProg, tmap);
-  auto rawOut = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
-                                            downloadProg, tmap);
+  auto rawMetaInfo = allocateHostMemoryForTensor(
+      embeddingMatrix.getMetaInfoTensor(), "embedding.meta", graph, uploadProg,
+      downloadProg, tmap);
+  auto rawNzInfo = allocateHostMemoryForTensor(
+      embeddingMatrix.getNzValuesTensor(), "embedding.values", graph,
+      uploadProg, downloadProg, tmap);
+  auto rawMulInput = allocateHostMemoryForTensor(
+      mulInput, "mulInput", graph, uploadProg, downloadProg, tmap);
+  auto rawOut = allocateHostMemoryForTensor(mulOutput, "mulOutput", graph,
+                                            uploadProg, downloadProg, tmap);
 
   using EType = float;
   Partitioner<EType> partitioner(params, dataType, target, matmulOptions,
@@ -248,12 +251,14 @@ int main(int argc, char **argv) try {
 
   // Create indices for the slice
   std::mt19937 randomEngine;
-  auto indices = createIndicesTensor(graph, {0}, numIndices[0], "indices");
+  auto indices =
+      createIndicesTensor(graph, params, numIndices, matmulOptions, "indices");
   std::vector<unsigned> hostIndices(indices.numElements());
-  writeRandomValues(target, UNSIGNED_INT, hostIndices, 0u, m - 1, randomEngine);
+  writeRandomValues(target, UNSIGNED_INT, hostIndices, 0u, numEntries - 1,
+                    randomEngine);
 
   boost::multi_array<double, 2> hostSlicedInput(
-      boost::extents[indices.dim(0)][k]);
+      boost::extents[indices.dim(0)][embeddingSize]);
   if (randomInput) {
     writeRandomBinaryValues(target, dataType, hostSlicedInput, -1.0, 1.0,
                             randomEngine);
@@ -261,7 +266,7 @@ int main(int argc, char **argv) try {
     // Easier to debug with unique values for slice
     double count = -1.0;
     for (unsigned i = 0; i < indices.dim(0); i++) {
-      for (unsigned j = 0; j < k; j++) {
+      for (unsigned j = 0; j < embeddingSize; j++) {
         hostSlicedInput[i][j] = count--;
       }
     }
@@ -269,17 +274,17 @@ int main(int argc, char **argv) try {
 
   Tensor slicedResult;
   if (passEnabled(pass, Pass::FWD)) {
-    slicedResult = embeddingSlice(graph, lhs, indices, prog, params,
-                                  "sparseEmbeddingTest", matmulOptions, &cache);
+    slicedResult = embeddingSlice(graph, embeddingMatrix, indices, prog, params,
+                                  "sliceEmbedding", matmulOptions, &cache);
   }
   Tensor updateSlices;
   if (passEnabled(pass, Pass::WU)) {
-    updateSlices = createSliceTensor(graph, lhs, indices.dim(0), params,
+    updateSlices = createSliceTensor(graph, dataType, params, indices.dim(0),
                                      "sliceTensor", matmulOptions, &cache);
     auto scaleT = graph.addConstant(dataType, {}, scale);
     graph.setTileMapping(scaleT, 0);
-    embeddingUpdateAdd(graph, lhs, updateSlices, indices, scaleT, prog, params,
-                       "sparseEmbeddingUpdateTest", matmulOptions, &cache);
+    embeddingUpdateAdd(graph, embeddingMatrix, updateSlices, indices, scaleT,
+                       prog, params, "updateEmbedding", matmulOptions, &cache);
   }
 
   auto rawIndices = allocateHostMemoryForTensor(indices, "indices", graph,
@@ -311,24 +316,27 @@ int main(int argc, char **argv) try {
     double weightedThreshold, remainingThreshold;
     std::tie(weightedThreshold, remainingThreshold) =
         poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
-            {m / blockRows, k / blockCols}, sparsityFactor,
+            {numEntries / blockRows, embeddingSize / blockCols}, sparsityFactor,
             {weightedAreaBegin[0] / blockRows,
              weightedAreaBegin[1] / blockCols},
             {weightedAreaEnd[0] / blockRows, weightedAreaEnd[1] / blockCols},
             weightedAreaWeighting);
-    const auto numWeightedK = (weightedAreaEnd[1] - weightedAreaBegin[1]);
-    const auto numWeightedM = (weightedAreaEnd[0] - weightedAreaBegin[0]);
-    std::size_t maxK = numWeightedK * weightedThreshold +
-                       (k - numWeightedK) * remainingThreshold;
-    std::size_t maxM = numWeightedM * weightedThreshold +
-                       (m - numWeightedM) * remainingThreshold;
-    maxM = roundDown(maxM, blockRows);
-    maxK = roundDown(maxK, blockCols);
+    const auto numWeightedEmbeddingSize =
+        (weightedAreaEnd[1] - weightedAreaBegin[1]);
+    const auto numWeightedEntries = (weightedAreaEnd[0] - weightedAreaBegin[0]);
+    std::size_t maxEmbeddingSize =
+        numWeightedEmbeddingSize * weightedThreshold +
+        (embeddingSize - numWeightedEmbeddingSize) * remainingThreshold;
+    std::size_t maxEntries =
+        numWeightedEntries * weightedThreshold +
+        (numEntries - numWeightedEntries) * remainingThreshold;
+    maxEntries = roundDown(maxEntries, blockRows);
+    maxEmbeddingSize = roundDown(maxEmbeddingSize, blockCols);
     const auto getOpsPerOutputElementEstimate = [&](const Pass &pass) -> int {
       // TODO: number of accumulations in weight update should be
       // given by the likely maximum number of indices that will be
       // equal.
-      const auto numAccumulations = pass == Pass::FWD ? maxK : 0;
+      const auto numAccumulations = pass == Pass::FWD ? maxEmbeddingSize : 0;
       assert(numAccumulations < std::numeric_limits<int>::max());
       return numAccumulations;
     };
@@ -357,16 +365,19 @@ int main(int argc, char **argv) try {
   CSRMatrix<EType> csrMatrix(blockDims);
   std::tie(csrMatrix.nzValues, csrMatrix.columnIndices, csrMatrix.rowIndices) =
       poplibs_test::sparse::buildCSRMatrix<EType, std::size_t>(
-          randomEngine, {m, k}, {blockRows, blockCols}, sparsityFactor,
-          weightedAreaBegin, weightedAreaEnd, weightedAreaWeighting,
-          useBipolarDistribution);
-  boost::multi_array<double, 2> hostRHS(boost::extents[rhs.dim(0)][rhs.dim(1)]);
+          randomEngine, {numEntries, embeddingSize}, {blockRows, blockCols},
+          sparsityFactor, weightedAreaBegin, weightedAreaEnd,
+          weightedAreaWeighting, useBipolarDistribution);
+  boost::multi_array<double, 2> hostMulInput(
+      boost::extents[mulInput.dim(0)][mulInput.dim(1)]);
   if (useBipolarDistribution) {
-    writeRandomBinaryValues(target, dataType, hostRHS, -1.0, 1.0, randomEngine);
+    writeRandomBinaryValues(target, dataType, hostMulInput, -1.0, 1.0,
+                            randomEngine);
   } else {
-    writeRandomValues(target, dataType, hostRHS, -3.0, 3.0, randomEngine);
+    writeRandomValues(target, dataType, hostMulInput, -3.0, 3.0, randomEngine);
   }
-  boost::multi_array<double, 2> hostOut(boost::extents[out.dim(0)][out.dim(1)]);
+  boost::multi_array<double, 2> hostMulOut(
+      boost::extents[mulOutput.dim(0)][mulOutput.dim(1)]);
 
   if (!randomInput) {
     // Create unique values for debug in the embedding layer
@@ -377,7 +388,7 @@ int main(int argc, char **argv) try {
   const auto buckets = partitioner.createSparsityDataImpl(csrMatrix);
 
   // Matmul input
-  copy(target, hostRHS, dataType, rawRHS.get());
+  copy(target, hostMulInput, dataType, rawMulInput.get());
   // Sparse data input to matmul and to embedding. Nz values are updated
   // if we use update
   copy(target, buckets.metaInfo, UNSIGNED_SHORT, rawMetaInfo.get());
@@ -392,63 +403,65 @@ int main(int argc, char **argv) try {
   bool matchesModel = true;
   if (!ignoreData) {
     const double relTolerance = dataType == HALF ? HALF_REL_TOL : FLOAT_REL_TOL;
-    copy(target, out.elementType(), rawOut.get(), hostOut);
-    boost::multi_array<double, 2> hostDenseLHS(boost::extents[m][k]);
-    boost::multi_array<double, 2> modelOut(
-        boost::extents[out.dim(0)][out.dim(1)]);
-    hostDenseLHS = poplibs_test::sparse::csrToDenseMatrix(
+    copy(target, mulOutput.elementType(), rawOut.get(), hostMulOut);
+    boost::multi_array<double, 2> hostDenseEmbeddingMatrix(
+        boost::extents[numEntries][embeddingSize]);
+    boost::multi_array<double, 2> modelMulOut(
+        boost::extents[mulOutput.dim(0)][mulOutput.dim(1)]);
+    hostDenseEmbeddingMatrix = poplibs_test::sparse::csrToDenseMatrix(
         csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
-        csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), m, k, blockRows,
-        blockCols);
-    poplibs_test::gemm::generalMatrixMultiply(hostRHS, hostDenseLHS, modelOut,
-                                              false, true);
+        csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), numEntries,
+        embeddingSize, blockRows, blockCols);
+    poplibs_test::gemm::generalMatrixMultiply(
+        hostMulInput, hostDenseEmbeddingMatrix, modelMulOut, false, true);
 
     // To check, for embedding slice, fetch the Slice values
     boost::multi_array<double, 2> hostSlicedResult(
-        boost::extents[indices.dim(0)][k]);
+        boost::extents[indices.dim(0)][embeddingSize]);
     if (passEnabled(pass, Pass::FWD)) {
-      copy(target, out.elementType(), rawSlicedResult.get(), hostSlicedResult);
+      copy(target, mulOutput.elementType(), rawSlicedResult.get(),
+           hostSlicedResult);
     }
     // To check, for embedding update, fetch the Nz values.  We can check they
     // haven't changed in other cases.
     std::vector<EType> hostNzResult(buckets.nzValues.size());
-    copy(target, out.elementType(), rawNzInfo.get(), &hostNzResult[0],
+    copy(target, mulOutput.elementType(), rawNzInfo.get(), &hostNzResult[0],
          hostNzResult.size());
     // Interpret the NZ values, along with the original meta info to create a
     // dense representation of the IPU result
     auto ipuCSR = partitioner.sparsityDataImplToCSRMatrix(
         {std::move(buckets.metaInfo), std::move(hostNzResult)});
-    auto ipuDenseLHS = poplibs_test::sparse::csrToDenseMatrix(
+    auto ipuDenseEmbeddingMatrix = poplibs_test::sparse::csrToDenseMatrix(
         ipuCSR.nzValues.data(), csrMatrix.columnIndices.data(),
-        ipuCSR.rowIndices.data(), ipuCSR.nzValues.size(), m, k, blockRows,
-        blockCols);
+        ipuCSR.rowIndices.data(), ipuCSR.nzValues.size(), numEntries,
+        embeddingSize, blockRows, blockCols);
 
     // So we can track which values are genuinely populated, make a
     // representation of the NZ values
     std::vector<float> nzFlags(ipuCSR.nzValues.size(), 1.0);
-    auto denseLHSFlags = poplibs_test::sparse::csrToDenseMatrix(
+    auto denseEmbeddingMatrixFlags = poplibs_test::sparse::csrToDenseMatrix(
         nzFlags.data(), csrMatrix.columnIndices.data(),
-        ipuCSR.rowIndices.data(), ipuCSR.nzValues.size(), m, k, blockRows,
-        blockCols);
+        ipuCSR.rowIndices.data(), ipuCSR.nzValues.size(), numEntries,
+        embeddingSize, blockRows, blockCols);
 
     // Model sliced result
     boost::multi_array<double, 2> modelSlicedResult(
-        boost::extents[indices.dim(0)][k]);
+        boost::extents[indices.dim(0)][embeddingSize]);
     if (passEnabled(pass, Pass::FWD)) {
-      poplibs_test::embedding::multiSlice(hostDenseLHS, hostIndices,
+      poplibs_test::embedding::multiSlice(hostDenseEmbeddingMatrix, hostIndices,
                                           modelSlicedResult);
     }
     if (passEnabled(pass, Pass::WU)) {
       for (unsigned i = 0; i < hostIndices.size(); i++) {
-        for (unsigned j = 0; j < k; j++) {
+        for (unsigned j = 0; j < embeddingSize; j++) {
           // Zero out the slices where the data in the result doesn't exist
-          if (denseLHSFlags[hostIndices[i]][j] == 0) {
+          if (denseEmbeddingMatrixFlags[hostIndices[i]][j] == 0) {
             hostSlicedInput[i][j] = 0;
           }
         }
       }
       poplibs_test::embedding::multiUpdateAdd(hostSlicedInput, hostIndices,
-                                              scale, hostDenseLHS);
+                                              scale, hostDenseEmbeddingMatrix);
     }
     if (debugPrint) {
       if (passEnabled(pass, Pass::FWD)) {
@@ -484,14 +497,14 @@ int main(int argc, char **argv) try {
       }
       if (passEnabled(pass, Pass::WU)) {
         std::cout << "Debug - sparse input expanded to dense data, updated";
-        for (unsigned i = 0; i < m; i++) {
+        for (unsigned i = 0; i < numEntries; i++) {
           std::cout << "\nRow host:" << i << "    ";
-          for (unsigned j = 0; j < k; j++) {
-            std::cout << hostDenseLHS[i][j] << ",";
+          for (unsigned j = 0; j < embeddingSize; j++) {
+            std::cout << hostDenseEmbeddingMatrix[i][j] << ",";
           }
           std::cout << "\nRow  ipu:" << i << "    ";
-          for (unsigned j = 0; j < k; j++) {
-            std::cout << ipuDenseLHS[i][j] << ",";
+          for (unsigned j = 0; j < embeddingSize; j++) {
+            std::cout << ipuDenseEmbeddingMatrix[i][j] << ",";
           }
         }
         std::cout << "\n";
@@ -503,12 +516,13 @@ int main(int argc, char **argv) try {
                                    modelSlicedResult, relTolerance);
     }
     if (passEnabled(pass, Pass::WU)) {
-      matchesModel &=
-          checkIsClose("updatedInput", ipuDenseLHS, hostDenseLHS, relTolerance);
+      matchesModel &= checkIsClose("updatedInput", ipuDenseEmbeddingMatrix,
+                                   hostDenseEmbeddingMatrix, relTolerance);
     }
     if (randomInput) {
       // verify matmul result too
-      matchesModel &= checkIsClose("out", hostOut, modelOut, relTolerance);
+      matchesModel &=
+          checkIsClose("mulOutput", hostMulOut, modelMulOut, relTolerance);
     }
   }
 

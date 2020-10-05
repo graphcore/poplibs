@@ -62,6 +62,12 @@ public:
 
   std::size_t getBatchSize() const { return batchSize; }
   std::size_t getNumGroups() const { return numGroups; }
+  std::size_t getInputChannels() const {
+    return numGroups * inputChannelsPerGroup;
+  }
+  std::size_t getOutputChannels() const {
+    return numGroups * outputChannelsPerGroup;
+  }
   std::size_t getInputChannelsPerGroup() const { return inputChannelsPerGroup; }
   std::size_t getOutputChannelsPerGroup() const {
     return outputChannelsPerGroup;

@@ -328,9 +328,9 @@ foreach(DATA_TYPE float half)
           NAME sparse_embedding_tied_matmul_${DATA_TYPE}_${ROWS}_${COLUMNS}_${INDICES}
           COMMAND sparse_embedding_tied_matmul
             --data-type=${DATA_TYPE}
-            --m=${ROWS}
-            --k=${COLUMNS}
-            --n=4
+            --num-entries=${ROWS}
+            --embedding-size=${COLUMNS}
+            --batch-size=4
             --tiles-per-ipu=8
             --num-indices=${INDICES}
             --sparsity-factor=0.25
@@ -348,9 +348,9 @@ foreach(DATA_TYPE float half)
           NAME sparse_embedding_tied_matmul_z_split_${DATA_TYPE}_${ROWS}_${COLUMNS}_${INDICES}
           COMMAND sparse_embedding_tied_matmul
             --data-type=${DATA_TYPE}
-            --m=${ROWS}
-            --k=${COLUMNS}
-            --n=128
+            --num-entries=${ROWS}
+            --embedding-size=${COLUMNS}
+            --batch-size=128
             --tiles-per-ipu=16
             --num-indices=${INDICES}
             --sparsity-factor=0.25
@@ -377,9 +377,9 @@ foreach(DATA_TYPE float half)
           NAME sparse_embedding_tied_matmul_spill_${DATA_TYPE}_${ROWS}_${COLUMNS}_${INDICES}_${WEIGHTED_COLUMN_END}
           COMMAND sparse_embedding_tied_matmul
             --data-type=${DATA_TYPE}
-            --m=${ROWS}
-            --k=${COLUMNS}
-            --n=128
+            --num-entries=${ROWS}
+            --embedding-size=${COLUMNS}
+            --batch-size=128
             --tiles-per-ipu=16
             --num-indices=${INDICES}
             --sparsity-factor=0.25

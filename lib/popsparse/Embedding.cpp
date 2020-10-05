@@ -670,12 +670,13 @@ std::tuple<std::vector<Sequence>, Tensor> createExchangeProg(
 }
 } // end anonymous namespace
 
-Tensor createIndicesTensor(Graph &graph, const std::vector<std::size_t> &dims,
+Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
                            const std::size_t numIndices,
+                           const OptionFlags &optionFlags,
                            const std::string &debugPrefix) {
-  logging::popsparse::info("createIndicesTensor for {} / {}", numIndices, dims);
-  const auto indices = graph.addVariable(
-      UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix + "/indices");
+  logging::popsparse::info("createIndicesTensor with {} indices", numIndices);
+  const auto indices =
+      graph.addVariable(UNSIGNED_INT, {numIndices}, debugPrefix + "/indices");
   mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
   return indices;
 }
@@ -842,7 +843,7 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
         splits.zSplits * splits.rowSplits * splits.slicesSplitRows;
     const auto paddedValue = std::numeric_limits<unsigned>::max();
     auto pad = graph.addConstant<unsigned>(
-        offsets_.elementType(), {paddedSize - offsets_.dim(0), 1}, paddedValue,
+        offsets_.elementType(), {paddedSize - offsets_.dim(0)}, paddedValue,
         debugPrefix + "/PadOffsets");
     graph.setTileMapping(pad, 0);
     return concat(offsets_, pad);
@@ -877,7 +878,7 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
       createSplitsAndShape(plannedSplits, offsets.dim(0), false, true);
   // Create a broadcast offsets tensor to spread over tiles with each
   // column split - a broadcast of the offsets over the planned splits
-  auto offsetsBroadcast = offsets;
+  auto offsetsBroadcast = offsets.expand({1});
   broadcastToMatch(offsetsBroadcast, broadcastOffsetsShape);
 
   // Create splits plan matching that of the slices, but containing the
@@ -1000,18 +1001,17 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
 
 // External function to be used to create the slice input for an update
 // operation
-Tensor createSliceTensor(Graph &graph, const SparseTensor &t,
-                         std::size_t numIndices,
+Tensor createSliceTensor(Graph &graph, const Type &dataType,
                          const FullyConnectedParams &params,
-                         const std::string &debugPrefix,
+                         std::size_t numIndices, const std::string &debugPrefix,
                          const OptionFlags &options, PlanningCache *cache) {
-  const auto plan = getFullyConnectedPlan(
-      graph, t.getNzValuesTensor().elementType(), params, options, cache);
+  const auto plan =
+      getFullyConnectedPlan(graph, dataType, params, options, cache);
   const PlannedSplits plannedSplits(numIndices, params, plan);
-  const auto inputType = t.getNzValuesTensor().elementType();
-  return createSliceTensor(graph, inputType,
-                           {plannedSplits.rows, plannedSplits.columns},
-                           numIndices, plannedSplits, false, debugPrefix);
+  const std::vector<std::size_t> tShape = {params.getOutputChannels(),
+                                           params.getInputChannels()};
+  return createSliceTensor(graph, dataType, tShape, numIndices, plannedSplits,
+                           false, debugPrefix);
 }
 
 } // end namespace dynamic
