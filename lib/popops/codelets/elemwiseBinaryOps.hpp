@@ -1,4 +1,4 @@
-/// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #ifndef POPLIBS_LIB_POPOPS_CODELETS_ELEMWISEBINARYOPS_HPP_
 #define POPLIBS_LIB_POPOPS_CODELETS_ELEMWISEBINARYOPS_HPP_
