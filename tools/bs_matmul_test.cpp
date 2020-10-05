@@ -411,7 +411,7 @@ int main(int argc, char **argv) {
   int rhsCols0 = 0;
   int lhsBlockCols0 = 0;
   int rhsNeedTranspose0 = 0;
-  IPUModel ipuModel;
+  boost::optional<unsigned> tilesPerIPU;
   Type dataType = FLOAT;
   float memoryCycleRatio = 1;
   int runs = 1;
@@ -452,13 +452,7 @@ int main(int argc, char **argv) {
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
       // tiles-per-ipu
-      ("tiles-per-ipu",
-       po::value<unsigned>(&ipuModel.tilesPerIPU)
-           ->default_value(ipuModel.tilesPerIPU),
-       "Number of tiles per IPU")("ipus",
-                                  po::value<unsigned>(&ipuModel.numIPUs)
-                                      ->default_value(ipuModel.numIPUs),
-                                  "Number of IPUs")
+      ("tiles-per-ipu", po::value(&tilesPerIPU), "Number of tiles per IPU")
       // data-type
       ("data-type", po::value<Type>(&dataType)->default_value(dataType),
        "matmul data type")
@@ -714,8 +708,11 @@ int main(int argc, char **argv) {
   bool compileIPUCode = false;
   if (isIpuModel(deviceType))
     compileIPUCode = true;
-  auto device = createTestDevice(deviceType, ipuModel.numIPUs,
-                                 ipuModel.tilesPerIPU, compileIPUCode);
+  const unsigned numIPUs = 1;
+  auto device =
+      tilesPerIPU
+          ? createTestDevice(deviceType, numIPUs, *tilesPerIPU, compileIPUCode)
+          : createTestDeviceFullSize(deviceType, numIPUs, compileIPUCode);
 
   bool checkResult = vm.count("check-result") > 0;
 

@@ -75,12 +75,23 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
     }
   }
 
+  auto target = graph.getTarget();
+  int convUnits = 0;
+  if (inDataType == poplar::FLOAT) {
+    convUnits = 8;
+  } else {
+    convUnits = partialDataType == poplar::FLOAT
+                    ? target.getFp16InFp32OutConvUnitsPerTile()
+                    : target.getFp16InFp16OutConvUnitsPerTile();
+  }
+
   std::vector<poplar::Tensor> out;
   out.push_back(output);
 
   poplar::VertexRef v = graph.addVertex(
-      mulCS, poputil::templateVertex("poplin::ConvPartial1x1Out", inDataType,
-                                     partialDataType, "true", "false", 8));
+      mulCS,
+      poputil::templateVertex("poplin::ConvPartial1x1Out", inDataType,
+                              partialDataType, "true", "false", convUnits));
 
   graph.connect(v["in"], inputA);
   graph.connect(v["out"], out);
@@ -93,10 +104,17 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
   graph.setInitialValue(v["numInGroups"], inputA.size());
   graph.setInitialValue(v["transformedInStride"], 1);
   graph.setInitialValue(v["numConvGroupsM1"], 0);
+
+  int extraOffset = 0;
+  if (convUnits > 8) {
+    extraOffset = 8;
+  }
   if (partialDataType == poplar::FLOAT)
-    graph.setInitialValue(v["transformedOutStride"], convOutChannels - 6);
+    graph.setInitialValue(v["transformedOutStride"],
+                          convOutChannels - 6 - extraOffset);
   else
-    graph.setInitialValue(v["transformedOutStride"], convOutChannels - 4);
+    graph.setInitialValue(v["transformedOutStride"],
+                          convOutChannels - 4 - extraOffset);
   graph.setTileMapping(v, tileId);
 }
 
