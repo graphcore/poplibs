@@ -1,7 +1,9 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #include "MatMulUtils.hpp"
+#include "MatMulTensorMetaData.hpp"
 #include "popsparse/MatMulParams.hpp"
+#include "popsparse/SparseTensor.hpp"
 
 using namespace poplar;
 
@@ -30,6 +32,16 @@ poplar::OptionFlags getFullyConnectedOptions(const MatMulOptions &options) {
        (options.partitioner.forceBucketSpills ? "true" : "false")},
       {"partitioner.useActualWorkerSplitCosts",
        (options.partitioner.useActualWorkerSplitCosts ? "true" : "false")}};
+}
+
+SparseTensor sparseMatrixToFCWeights(const SparseTensor &t) {
+  assert(
+      dynamic_cast<const MatMulTensorMetaData *>(t.getOpMetaData().getData()));
+  const auto &mmMetaData =
+      static_cast<const MatMulTensorMetaData *>(t.getOpMetaData().getData());
+
+  return SparseTensor(t.getMetaInfoTensor(), t.getNzValuesTensor(),
+                      mmMetaData->fc.clone());
 }
 
 } // end namespace dynamic

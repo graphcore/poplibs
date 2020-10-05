@@ -3,6 +3,7 @@
 
 #include "FullyConnectedTensorMetaData.hpp"
 #include "MatMulOptions.hpp"
+#include "MatMulTensorMetaData.hpp"
 #include "MatMulUtils.hpp"
 #include "TensorMetaDataBase.hpp"
 

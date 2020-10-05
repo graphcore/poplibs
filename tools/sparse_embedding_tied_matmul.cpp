@@ -92,8 +92,6 @@ int main(int argc, char **argv) try {
 
   weightedAreaBegin.val = weightedAreaEnd.val = {0, 0};
   double weightedAreaWeighting = 1.0;
-  bool transposeLHS = false;
-  bool transposeRHS = false;
   std::string matmulOptionsString;
 
   // Embedding options
@@ -124,11 +122,6 @@ int main(int argc, char **argv) try {
     ("block-size",
      po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(1),
      "Block size as rows and columns (only square blocks are supported)")
-    ("transpose-lhs", po::value(&transposeLHS),
-     "Transpose the left-hand operand of the matmul such that the matmul "
-     "becomes {k, m} * {m, n} = {k, n}")
-    ("transpose-rhs", po::value(&transposeRHS),
-     "Transpose the right-hand operand of the matmul")
     ("weighted-area-begin",
      po::value<ShapeOption<std::size_t>>(&weightedAreaBegin)->default_value(weightedAreaBegin),
      "Starting indices of an area of the sparse operand with a different "
@@ -188,12 +181,12 @@ int main(int argc, char **argv) try {
   const auto blockArea = blockRows * blockCols;
 
   if (m % blockRows) {
-    throw poputil::poplibs_error("Input size must be an integer multiple of "
+    throw poputil::poplibs_error("m must be an integer multiple of "
                                  "rows in a block");
   }
 
   if (k % blockCols) {
-    throw poputil::poplibs_error("output size must be an integer multiple of "
+    throw poputil::poplibs_error("k must be an integer multiple of "
                                  "columns in a block");
   }
 
@@ -225,35 +218,17 @@ int main(int argc, char **argv) try {
       blockArea == 1 ? SparsityType::Element : SparsityType::Block;
   SparsityParams sparsityParams(sparsityType, SparsityStructure::Unstructured,
                                 {blockRows, blockCols});
-  const auto params = MatMulParams::createWithNzRatio(
-      sparsityParams, sparsityFactor, groups, m, k, n);
+  const auto params = FullyConnectedParams::createWithNzRatio(
+      sparsityParams, sparsityFactor, n, groups, k, m);
   // No support for groups yet
   assert(groups == 1);
-  const SparseTensor lhs = createSparseDenseMatMulLHS(
+  const SparseTensor lhs = createFullyConnectedWeights(
       graph, dataType, params, "lhs", matmulOptions, &cache);
 
-  Tensor rhs;
-  if (transposeLHS) {
-    std::vector<std::size_t> rhsShape = {groups, m, n};
-    if (transposeRHS) {
-      std::swap(rhsShape.at(1), rhsShape.at(2));
-    }
-    // If the left-hand operand is to be transposed, the right-hand
-    // operand becomes of shape {m, n}. We don't have a way to allocate this
-    // correctly externally so just allocate linearly in this case.
-    rhs = graph.addVariable(dataType, rhsShape, "rhs");
-    poputil::mapTensorLinearly(graph, rhs);
-  } else {
-    rhs = createSparseDenseMatMulRHS(graph, dataType, params, "rhs",
-                                     matmulOptions, &cache);
-    if (transposeRHS) {
-      rhs = rhs.dimRoll(1, 2);
-    }
-  }
-
-  const Tensor out =
-      sparseDenseMatMul(graph, lhs, rhs, prog, transposeLHS, transposeRHS,
-                        "multiply", matmulOptions, &cache);
+  const auto rhs = createFullyConnectedInput(graph, dataType, params, "rhs",
+                                             matmulOptions, &cache);
+  const Tensor out = fullyConnectedFwd(graph, lhs, rhs, params, prog,
+                                       "multiply", matmulOptions, &cache);
 
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawMetaInfo =
@@ -292,24 +267,19 @@ int main(int argc, char **argv) try {
     }
   }
 
-  const auto fullyConnectedParams = FullyConnectedParams::createWithNzRatio(
-      sparsityParams, sparsityFactor, n, groups, k, m);
   Tensor slicedResult;
   if (passEnabled(pass, Pass::FWD)) {
-    slicedResult =
-        embeddingSlice(graph, lhs, indices, prog, fullyConnectedParams,
-                       "sparseEmbeddingTest", matmulOptions, &cache);
+    slicedResult = embeddingSlice(graph, lhs, indices, prog, params,
+                                  "sparseEmbeddingTest", matmulOptions, &cache);
   }
   Tensor updateSlices;
   if (passEnabled(pass, Pass::WU)) {
-    updateSlices =
-        createSliceTensor(graph, lhs, indices.dim(0), fullyConnectedParams,
-                          "sliceTensor", matmulOptions, &cache);
+    updateSlices = createSliceTensor(graph, lhs, indices.dim(0), params,
+                                     "sliceTensor", matmulOptions, &cache);
     auto scaleT = graph.addConstant(dataType, {}, scale);
     graph.setTileMapping(scaleT, 0);
-    embeddingUpdateAdd(graph, lhs, updateSlices, indices, scaleT, prog,
-                       fullyConnectedParams, "sparseEmbeddingUpdateTest",
-                       matmulOptions, &cache);
+    embeddingUpdateAdd(graph, lhs, updateSlices, indices, scaleT, prog, params,
+                       "sparseEmbeddingUpdateTest", matmulOptions, &cache);
   }
 
   auto rawIndices = allocateHostMemoryForTensor(indices, "indices", graph,
@@ -341,8 +311,7 @@ int main(int argc, char **argv) try {
     double weightedThreshold, remainingThreshold;
     std::tie(weightedThreshold, remainingThreshold) =
         poplibs_test::sparse::calculateWeightedVsRemainingSparsityFactor(
-            {params.getM() / blockRows, params.getK() / blockCols},
-            sparsityFactor,
+            {m / blockRows, k / blockCols}, sparsityFactor,
             {weightedAreaBegin[0] / blockRows,
              weightedAreaBegin[1] / blockCols},
             {weightedAreaEnd[0] / blockRows, weightedAreaEnd[1] / blockCols},
@@ -350,14 +319,16 @@ int main(int argc, char **argv) try {
     const auto numWeightedK = (weightedAreaEnd[1] - weightedAreaBegin[1]);
     const auto numWeightedM = (weightedAreaEnd[0] - weightedAreaBegin[0]);
     std::size_t maxK = numWeightedK * weightedThreshold +
-                       (params.getK() - numWeightedK) * remainingThreshold;
+                       (k - numWeightedK) * remainingThreshold;
     std::size_t maxM = numWeightedM * weightedThreshold +
-                       (params.getM() - numWeightedM) * remainingThreshold;
+                       (m - numWeightedM) * remainingThreshold;
     maxM = roundDown(maxM, blockRows);
     maxK = roundDown(maxK, blockCols);
-    const auto getOpsPerOutputElementEstimate =
-        [&](const bool lhsTransposed) -> int {
-      const auto numAccumulations = lhsTransposed ? maxM : maxK;
+    const auto getOpsPerOutputElementEstimate = [&](const Pass &pass) -> int {
+      // TODO: number of accumulations in weight update should be
+      // given by the likely maximum number of indices that will be
+      // equal.
+      const auto numAccumulations = pass == Pass::FWD ? maxK : 0;
       assert(numAccumulations < std::numeric_limits<int>::max());
       return numAccumulations;
     };
@@ -368,12 +339,19 @@ int main(int argc, char **argv) try {
     // We use another modifier to account for the chance that sparsity is not
     // perfectly evenly spread in this instant.
     constexpr double wiggleRoom = 1.3;
-    if (wiggleRoom * getOpsPerOutputElementEstimate(transposeLHS) >
-        maxVal * modifier) {
+    if (passEnabled(pass, Pass::FWD) &&
+        wiggleRoom * getOpsPerOutputElementEstimate(Pass::FWD) >
+            maxVal * modifier) {
+      return false;
+    }
+    if (passEnabled(pass, Pass::WU) &&
+        wiggleRoom * getOpsPerOutputElementEstimate(Pass::WU) >
+            maxVal * modifier) {
       return false;
     }
     return true;
   }();
+
   bool useBipolarDistribution = floatingPointCouldRepresentMaxAccum;
   std::array<std::size_t, 2> blockDims = {blockRows, blockCols};
   CSRMatrix<EType> csrMatrix(blockDims);
@@ -382,13 +360,13 @@ int main(int argc, char **argv) try {
           randomEngine, {m, k}, {blockRows, blockCols}, sparsityFactor,
           weightedAreaBegin, weightedAreaEnd, weightedAreaWeighting,
           useBipolarDistribution);
-  boost::multi_array<double, 2> hostRHS(boost::extents[rhs.dim(1)][rhs.dim(2)]);
+  boost::multi_array<double, 2> hostRHS(boost::extents[rhs.dim(0)][rhs.dim(1)]);
   if (useBipolarDistribution) {
     writeRandomBinaryValues(target, dataType, hostRHS, -1.0, 1.0, randomEngine);
   } else {
     writeRandomValues(target, dataType, hostRHS, -3.0, 3.0, randomEngine);
   }
-  boost::multi_array<double, 2> hostOut(boost::extents[out.dim(1)][out.dim(2)]);
+  boost::multi_array<double, 2> hostOut(boost::extents[out.dim(0)][out.dim(1)]);
 
   if (!randomInput) {
     // Create unique values for debug in the embedding layer
@@ -417,13 +395,13 @@ int main(int argc, char **argv) try {
     copy(target, out.elementType(), rawOut.get(), hostOut);
     boost::multi_array<double, 2> hostDenseLHS(boost::extents[m][k]);
     boost::multi_array<double, 2> modelOut(
-        boost::extents[out.dim(1)][out.dim(2)]);
+        boost::extents[out.dim(0)][out.dim(1)]);
     hostDenseLHS = poplibs_test::sparse::csrToDenseMatrix(
         csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
         csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), m, k, blockRows,
         blockCols);
-    poplibs_test::gemm::generalMatrixMultiply(hostDenseLHS, hostRHS, modelOut,
-                                              transposeLHS, transposeRHS);
+    poplibs_test::gemm::generalMatrixMultiply(hostRHS, hostDenseLHS, modelOut,
+                                              false, true);
 
     // To check, for embedding slice, fetch the Slice values
     boost::multi_array<double, 2> hostSlicedResult(
