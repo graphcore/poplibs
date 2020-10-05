@@ -198,6 +198,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryOps.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
