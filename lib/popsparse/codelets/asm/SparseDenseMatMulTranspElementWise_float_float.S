@@ -119,7 +119,7 @@ CheckFlag:
   st32              $w_numXm1, $mworker_base, w_StackEntry_numXm1/4
   // Load output entries for this output row (x dimension). 
   ldz16step         $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl               $w_offsetXInQ, $w_offsetXInQ, 2
+  shl               $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 
   // We divide each row in the FWD amongst available workers. And this means we

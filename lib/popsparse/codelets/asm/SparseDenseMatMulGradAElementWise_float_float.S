@@ -147,7 +147,7 @@ LxLoop:
 
   // Load output entries for this output row (x dimension). 
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 2
+  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
   add                   $w_numY, $w_numY, -1
   // metaInfo -> offset of column entries in 'y' dimension 
@@ -292,7 +292,7 @@ exitz                 $mzero
 LZEq4Sp: 
   // Load output entries for this output row (x dimension). 
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 2
+  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
   add                   $w_numY, $w_numY, -1
 
@@ -342,7 +342,7 @@ LEndYLoop4Sp:
   LZEq2Sp:
   // Load output entries for this output row (x dimension). 
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 2
+  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
   add                   $w_numY, $w_numY, -1 
 

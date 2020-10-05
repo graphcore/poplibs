@@ -140,6 +140,7 @@ ldz16step         $w_sparseOffset, $mzero, $w_metaInfo+=, $w_metaInfoOffsetOutpu
 ld32step          $mzero, $mzero, $w_rGradBase+=, $w_sparseOffset
 
 ldz16step         $w_offXInQ, $mzero, $w_metaInfo+=, 1 
+shl               $w_offXInQ, $w_offXInQ, 3
 ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1 
 
 // move meta info pointer by doing a dummy load
@@ -168,7 +169,10 @@ ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
 
 LMainLoopY:
 // Modify pointers to use pace instructions: stride increments are 1
-ld32              $w_sBaseLoop, $mvertex_base, W_S_BASE/4
+{
+  ld32              $w_sBaseLoop, $mvertex_base, W_S_BASE/4
+  fnop
+}
 {
   add               $w_qGradBaseLoop, $w_qGradBase, $w_offXInQ
   mov               $a6:7, $azeros
@@ -214,14 +218,14 @@ st32step          $a0, $mzero, $w_rGradBase+=, 1
 brnzdec           $w_numY, LMainLoopY
 ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 min               $w_numY, $w_numY, $w_totalNumY
-mov               $w_offXInQ, $w_offYInS
+shl               $w_offXInQ, $w_offYInS, 3
 brnz              $w_numY, LMainLoopX
 LEndWorker:
 exitz             $mzero
 
 // -----------------------------------------------------------------------------
 // processes z=8
-
+.align 8
 LZEq8Main:
 ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
 sub               $w_totalNumY, $w_totalNumY, $w_numY
@@ -229,10 +233,7 @@ add               $w_numY, $w_numY, -1
 
 ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
 ld64              $a2:3, $w_offXInQ, $w_qGradBase, 1
-{
-  ld64              $a4:5, $w_offYInS, $w_sBase, 0
-  fnop
-}
+ld64              $a4:5, $w_offYInS, $w_sBase, 0
 {
   ld64              $a4:5, $w_offYInS, $w_sBase, 1
   f16v4cmac         $a0:1, $a4:5
@@ -269,6 +270,7 @@ ld64              $a2:3, $w_offXInQ, $w_qGradBase, 1
   ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
   f32add            $a6, $a6, $a7
 }
+shl               $w_offXInQ, $w_offXInQ, 3
 ld32              $a7, $mzero, $w_rGradBase, 0
 {
   min               $w_numY, $w_totalNumY, $w_numY
@@ -286,10 +288,7 @@ ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
 sub               $w_totalNumY, $w_totalNumY, $w_numY
 add               $w_numY, $w_numY, -1
 ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
-{
-  ld64              $a4:5, $w_offYInS, $w_sBase, 0
-  fnop
-}
+ld64              $a4:5, $w_offYInS, $w_sBase, 0
 {
   rpt               $w_numY, 3
   f16v4cmac         $a0:1, $a4:5
@@ -319,6 +318,7 @@ ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
   f32add            $a6, $a6, $a7
 }
 ld32              $a7, $mzero, $w_rGradBase, 0
+shl               $w_offXInQ, $w_offXInQ, 3
 {  
   min               $w_numY, $w_totalNumY, $w_numY
   f32add            $a6, $a6, $a7

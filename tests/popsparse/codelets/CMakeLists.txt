@@ -161,7 +161,7 @@ add_multi_target_test_executable(SparseDenseMultiSliceElementWise
 foreach(TYPE half float)
   foreach(UPDATE true false)
     foreach(BUCKETS 1 2)
-      foreach(ZSIZE 4 8 33 128 1002)
+      foreach(ZSIZE 4 8 36 128 1000)
         add_multitarget_test(NAME SparseDenseMultiSliceElementWise_${TYPE}_${UPDATE}_${BUCKETS}_${ZSIZE}
           COMMAND SparseDenseMultiSliceElementWise
             --baseT-shape={10,16}

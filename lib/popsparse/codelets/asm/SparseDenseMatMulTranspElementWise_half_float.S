@@ -184,6 +184,7 @@ CheckFlag:
   st32              $w_numXm1, $mworker_base, w_StackEntry_numXm1/4
   // Load output entries for this output row (x dimension). 
   ldz16step         $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
+  shl               $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 
   // We divide each row in the FWD amongst available workers. And this means we
@@ -227,10 +228,7 @@ LyLoop:
     // process remainder.
     ld32              $w_numZDiv4, $mworker_base, w_StackEntry_numZDiv4/4
     brneg             $w_numZDiv4, LzRem
-    {
-      ld64step          $a0:1, $w_offsetXInQ, $w_qBaseLoop+=, 1
-      fnop
-    }
+    ld64step          $a0:1, $w_offsetXInQ, $w_qBaseLoop+=, 1
     {
       ld64              $a4:5, $w_delta, $w_sBaseLoop, 0
       f16v4mul          $a0:1, $a3:BL, $a0:1
@@ -315,6 +313,7 @@ LSpZEq8:
 ld32                  $w_temp, $mworker_base, w_StackEntry_wIdx2/4
 // Load output entries for this output row (x dimension)  
 ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
+shl                   $w_offsetXInQ, $w_offsetXInQ, 3
 ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
 
 LxLoopSp8:  
@@ -346,6 +345,7 @@ CheckFlagSp8:
 
   // Load output entries for this output row (x dimension)  
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
+  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
 
   // Ideally worker 0 shouldn't reach here. So this check should be
@@ -447,6 +447,7 @@ LyLoopEndSp8:
     st64              $a0:1, $w_delta, $w_sBase, 2
     f32v2gina         $a0:1, $azeros, 0
   }
+  shl                 $w_offsetXInQ, $w_offsetXInQ, 3
   st64                $a0:1, $w_delta, $w_sBase, 3
 
   brnz                   $w_temp, LxCheckSp8
@@ -473,6 +474,7 @@ CheckFlagSp4:
 
   // Load output entries for this output row (x dimension)  
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
+  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
 
   // mov  $w_deltaPtr, $w_metaInfo

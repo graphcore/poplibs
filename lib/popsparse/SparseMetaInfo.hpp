@@ -2,13 +2,13 @@
 
 namespace popsparse {
 
-// X offset is scaled by this given input type
-static inline unsigned getXOffsetTypeFactor(bool floatInput) {
-  return floatInput ? 1 : 2;
+// X offset is divided by this given input type
+static inline unsigned getXOffsetTypeDivFactor(bool floatInput) {
+  return floatInput ? 2 : 4;
 }
 
 // Y offset is scaled by this given input type
-static inline unsigned getYOffsetTypeFactor(bool floatInput) {
+static inline unsigned getYOffsetTypeScaleFactor(bool floatInput) {
   return floatInput ? 4 : 2;
 }
 
@@ -65,9 +65,9 @@ template <typename T> struct MetaInfo {
     T totalNumY;
   };
   struct OutputEntry {
-    // Offset in bytes to first element of dimension X to process in the
+    // Offset in 8-bytes to first element of dimension X to process in the
     // operand Q. Note due to expected layout this will essentially be
-    // offsetX * Z * bytesPerElement.
+    // offsetX * Z * bytesPerElements / 8
     T offsetXInQ;
     // Number of elements of dimension Y to process.
     T numY;

@@ -143,7 +143,7 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
 
   // Factor by which row and column offsets are scaled
   const auto yOffsetFactor = inputType == FLOAT ? 4 : 2;
-  const auto xOffsetFactor = inputType == FLOAT ? 1 : 2;
+  const auto xOffsetDivFactor = inputType == FLOAT ? 2 : 4;
 
   // Order indices of a by column then row
   std::sort(indices.begin(), indices.end());
@@ -263,7 +263,8 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
           // bColumns are inner-most dimension.
           const auto aRowOffsetInC = aRow * bColumns;
           outputEntryMetaInfoIndices[r] = metaInfo[bucket].size();
-          metaInfo[bucket].push_back(aRowOffsetInC * xOffsetFactor);
+          assert(aRowOffsetInC % xOffsetDivFactor == 0);
+          metaInfo[bucket].push_back(aRowOffsetInC / xOffsetDivFactor);
           // Use 1 less for float input type
           metaInfo[bucket].push_back(rowColumnCounts[r]);
           for (unsigned c = 0; c < rowColumnCounts[r]; ++c) {

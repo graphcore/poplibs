@@ -1154,9 +1154,9 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
                     std::size_t nzElemsBucketBlocks, std::size_t numWorkers,
                     std::size_t bucketsPerZ, const std::string &debugStr = "") {
   const std::size_t yOffsetTypeFactor =
-      popsparse::getYOffsetTypeFactor(dataType == poplar::FLOAT);
+      popsparse::getYOffsetTypeScaleFactor(dataType == poplar::FLOAT);
   const std::size_t xOffsetTypeFactor =
-      popsparse::getXOffsetTypeFactor(dataType == poplar::FLOAT);
+      popsparse::getXOffsetTypeDivFactor(dataType == poplar::FLOAT);
 
   const auto blockSize = grainX * grainY;
 
@@ -1415,7 +1415,11 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
 
       // fill in output entries followed by Y-offsets
       for (std::size_t row = 0; row != numRows; ++row) {
-        group.push_back(outputEntries[row].offsetXInQ * xOffsetTypeFactor);
+        if (outputEntries[row].offsetXInQ % xOffsetTypeFactor) {
+          throw poputil::poplibs_error("Offset X in meta info is invalid "
+                                       "for the given batch split");
+        }
+        group.push_back(outputEntries[row].offsetXInQ / xOffsetTypeFactor);
         group.push_back(outputEntries[row].numY);
 
         const auto &rowPos = sg.tileInfo.at(row);
@@ -1744,9 +1748,9 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
 
     // offsets are scaled depending on data type.
     const std::size_t yOffsetTypeFactor =
-        popsparse::getYOffsetTypeFactor(dataType == poplar::FLOAT);
+        popsparse::getYOffsetTypeScaleFactor(dataType == poplar::FLOAT);
     const std::size_t xOffsetTypeFactor =
-        popsparse::getXOffsetTypeFactor(dataType == poplar::FLOAT);
+        popsparse::getXOffsetTypeDivFactor(dataType == poplar::FLOAT);
 
     for (std::size_t b = 0, nzIndex = 0; b != numBuckets;
          ++b, miIndex += miBucketElemsPerPN, nzIndex += nzElemsBucketBlocks) {
@@ -1780,7 +1784,7 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
           index += miElems(MI::OutputEntry);
           const auto thisRow =
               xSplits[groupIndices.first] +
-              outputEntry->offsetXInQ / (xOffsetTypeFactor * zScale);
+              outputEntry->offsetXInQ * xOffsetTypeFactor / zScale;
           const auto *yOffset = reinterpret_cast<const U *>(&metaInfo[index]);
           if (outputEntry->numY > numY) {
             throw poputil::poplibs_error(

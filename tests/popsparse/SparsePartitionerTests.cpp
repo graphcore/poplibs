@@ -15,6 +15,12 @@
 using namespace poplibs_support;
 using namespace poplibs_test::util;
 
+// Used data types
+// TODO: We could make the testing of actual bucket creation by passing
+// this as a test option
+const poplar::Type dataType = poplar::FLOAT;
+const poplar::Type accumType = poplar::FLOAT;
+
 // Build CSR matrix
 static popsparse::CSRMatrix<double>
 buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor,
@@ -89,8 +95,6 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   // Set shared buckets so we don't have to deal with size of gradA impl
   // buckets.
   const bool sharedBuckets = true;
-  const poplar::Type dataType = poplar::FLOAT;
-  const poplar::Type accumType = poplar::FLOAT;
   // TODO: Test partitioner options
   const popsparse::PartitionerOptions options;
   popsparse::PartitionerImpl partitioner(
@@ -214,7 +218,8 @@ int main(int argc, char **argv) {
   ShapeOption<std::size_t> splitShape;
   ShapeOption<std::size_t> blockShape;
   blockShape.val = {1, 1};
-  std::size_t grainSizeZ = 1;
+  std::size_t minMultipleGrainSizeZ = dataType == poplar::FLOAT ? 2 : 4;
+  std::size_t grainSizeZ = minMultipleGrainSizeZ;
   std::size_t numBucketsZ = 1;
   bool includeGradW = true;
   bool includeGradA = true;
@@ -238,7 +243,8 @@ int main(int argc, char **argv) {
      "Pair representing block-size of sparse elements {BlockRows, BlockColumns}")
     ("batch-grain-size",
      po::value<std::size_t>(&grainSizeZ)->default_value(grainSizeZ),
-     "Number of grains in batch dimension")
+     "Number of grains in batch dimension (must be multiple of 2 for float, "
+     "and multiple of 4 for half")
     ("excess",
       po::value<double>(&excess)->default_value(excess),
       "Excess bucket size")
@@ -280,6 +286,12 @@ int main(int argc, char **argv) {
         "sparse matrix dimensions (" + std::to_string(matShape[0]) + "," +
         std::to_string(matShape[1]) + ") are not divisible by block size (" +
         std::to_string(blockShape[0]) + "," + std::to_string(blockShape[1]));
+  }
+
+  if (grainSizeZ % minMultipleGrainSizeZ) {
+    throw poputil::poplibs_error("Grain size must be a multiple of " +
+                                 std::to_string(minMultipleGrainSizeZ) +
+                                 " for data type");
   }
 
   if (matShape[2] % grainSizeZ) {

@@ -36,9 +36,9 @@ class [[poplar::constraint(
     rGrad += workerEntry->sparseOffset;
 
     const auto yOffTypeSize =
-        getYOffsetTypeFactor(std::is_same<FPType, float>::value);
+        getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
     const auto xOffTypeSize =
-        getXOffsetTypeFactor(std::is_same<FPType, float>::value);
+        getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
 
     const auto *it = reinterpret_cast<const MetaInfoType *>(workerEntry) +
                      workerEntry->metaInfoOffsetOutputEntry;
@@ -65,7 +65,7 @@ class [[poplar::constraint(
         AccumType sum = *rGrad;
         for (unsigned zIndex = 0; zIndex < numZ; ++zIndex) {
           const auto qGradIndex =
-              outputEntry->offsetXInQ / xOffTypeSize + zIndex;
+              outputEntry->offsetXInQ * xOffTypeSize + zIndex;
           const auto sIndex = (offsetsYOfS[yIndex] / yOffTypeSize) + zIndex;
           sum += AccumType(s[sIndex] * qGrad[qGradIndex]);
         }

@@ -39,9 +39,9 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
   // of 2, and can be combined with the shift in the expressions where they are
   // used below
   const auto yOffTypeSize =
-      getYOffsetTypeFactor(std::is_same<FPType, float>::value);
+      getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
   const auto xOffTypeSize =
-      getXOffsetTypeFactor(std::is_same<FPType, float>::value);
+      getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
 
   // Consider each row found in the metaInfo just once as searching that
   // is more complex than checking the content of `offsets`
@@ -69,7 +69,7 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
           // multiple offsets below, which therefore don't need scaling (which
           // could be done my multiplying the offset)
           const auto rowFound =
-              reciprocalMulDiv(*iter++, nzScaleFactor) / xOffTypeSize +
+              reciprocalMulDiv(xOffTypeSize * *iter++, nzScaleFactor) +
               rowOffset;
           const auto columnsInRow = *iter++;
           // Loop over the rows listed in the offsets, a row may be referenced
@@ -159,9 +159,9 @@ static bool computeUpdate(Input<Vector<unsigned>> &offsets,
   // of 2, and can be combined with the shift in the expressions where they are
   // used below
   const auto yOffTypeSize =
-      getYOffsetTypeFactor(std::is_same<FPType, float>::value);
+      getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
   const auto xOffTypeSize =
-      getXOffsetTypeFactor(std::is_same<FPType, float>::value);
+      getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
 
   // Consider each row found in the metaInfo just once as searching that
   // is more complex than checking the content of `offsets`
@@ -188,8 +188,9 @@ static bool computeUpdate(Input<Vector<unsigned>> &offsets,
           // multiple offsets below, which therefore don't need scaling (which
           // could be done my multiplying the offset)
           const auto rowFound =
-              reciprocalMulDiv(*iter++, nzScaleFactor) / xOffTypeSize +
+              reciprocalMulDiv(xOffTypeSize * *iter++, nzScaleFactor) +
               rowOffset;
+
           const auto columnsInRow = *iter++;
           // Loop over the rows listed in the offsets, a row may be referenced
           // multiple times

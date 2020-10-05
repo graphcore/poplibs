@@ -41,9 +41,9 @@ class [[poplar::constraint(
     s += workerEntry->offsetZ;
 
     const auto yOffTypeSize =
-        getYOffsetTypeFactor(std::is_same<FPType, float>::value);
+        getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
     const auto xOffTypeSize =
-        getXOffsetTypeFactor(std::is_same<FPType, float>::value);
+        getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
 
     unsigned numRemainingX = workerEntry->numXm1 + 1;
     const auto *it = reinterpret_cast<const MetaInfoType *>(workerEntry) +
@@ -54,7 +54,7 @@ class [[poplar::constraint(
       const auto *offsetsYOfS =
           reinterpret_cast<const MetaInfoType *>(outputEntry + 1);
       for (unsigned zIndex = 0; zIndex < workerEntry->numZ; ++zIndex) {
-        const auto qIndex = outputEntry->offsetXInQ / xOffTypeSize + zIndex;
+        const auto qIndex = outputEntry->offsetXInQ * xOffTypeSize + zIndex;
         AccumType sum = q[qIndex];
 
         for (unsigned yIndex = 0; yIndex < outputEntry->numY; ++yIndex) {

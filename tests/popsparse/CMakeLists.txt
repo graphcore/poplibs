@@ -263,12 +263,12 @@ add_test_executable(SparsePartitionerTest SparsePartitionerTests.cpp)
 foreach(BLOCK_XY 1 4)
   foreach(XSPLIT 2 4 7)
     foreach(YSPLIT 2 4 7)
-      foreach(ZSPLIT 1 2 4)
+      foreach(ZSPLIT 2 4)
         foreach(SPARSITY 0.1 .05)
           foreach(EXCESS .1 .01 .001)
             foreach(ROWS 100)
               foreach(COLS 100)
-                foreach(BATCH 4 12)
+                foreach(BATCH 8 16)
                   add_test(
                     NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}_small
                       COMMAND SparsePartitionerTest
@@ -285,7 +285,7 @@ foreach(BLOCK_XY 1 4)
             # we start to hit the limit for the data type currently used
             foreach(ROWS 1000 2400)
               foreach(COLS 1000 2400)
-                foreach(BATCH 12 64)
+                foreach(BATCH 16 64)
                   add_test(
                     NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}_large
                       COMMAND SparsePartitionerTest

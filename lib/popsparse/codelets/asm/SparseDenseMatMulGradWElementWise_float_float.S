@@ -105,7 +105,7 @@ brnz              $w_zEq2, LZEq2Main
 
 shr               $w_numZDiv2, $w_numZ, 1
 and               $w_numRem, $w_numZ, 0x1 
-shl               $w_offXInQ, $w_offXInQ, 2
+shl               $w_offXInQ, $w_offXInQ, 3
 
 LMainLoopX:
 add               $w_numY, $w_numY, -1
@@ -153,7 +153,7 @@ brnzdec           $w_numY, LMainLoopY
 
 ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 min               $w_numY, $w_numY, $w_totalNumY
-shl               $w_offXInQ, $w_offYInS, 2
+shl               $w_offXInQ, $w_offYInS, 3
 brnz              $w_numY, LMainLoopX
 LEndWorker:
 exitz             $mzero
@@ -162,7 +162,7 @@ exitz             $mzero
 // processes z=4
 LZEq4Main:            
 ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
-shl               $w_offXInQ, $w_offXInQ, 2
+shl               $w_offXInQ, $w_offXInQ, 3
 sub               $w_totalNumY, $w_totalNumY, $w_numY
 add               $w_numY, $w_numY, -1
 ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
@@ -221,7 +221,7 @@ LZEq2Main:
 ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
 sub               $w_totalNumY, $w_totalNumY, $w_numY
 add               $w_numY, $w_numY, -1
-shl               $w_offXInQ, $w_offXInQ, 2
+shl               $w_offXInQ, $w_offXInQ, 3
 ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
 ld64              $a2:3, $w_offYInS, $w_sBase, 0
 {
