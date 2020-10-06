@@ -252,21 +252,23 @@ int main(int argc, char **argv) try {
   graph.connect(v["baseTMetaInfo"], metaInfoBuckets);
   graph.connect(v["subT"], subT.flatten());
   graph.setInitialValue(v["nzScaleFactor"], reciprocalMulFactor(zSize));
+  graph.setInitialValue(v["rowsPerPartition"], rowsPerPartition);
 
   if (updateAdd) {
+    // Connect tensor for scale and yPartitionToProcess.  Due to the the use
+    // case where dense data is exchanged, yPartitionToProcess is a tensor for
+    // the Update vertex, but in the vertex state for the Slice vertex
     auto scaleT = graph.addConstant(inputType, {}, scale, "Scale");
     graph.setTileMapping(scaleT, 0);
     graph.connect(v["scale"], scaleT);
-    graph.setInitialValue(v["rowsPerPartition"], rowsPerPartition);
 
     auto yPartitionToProcessT = graph.addConstant(
-        metaInfoType, {}, yPartitionToProcess, "yPartitionToProcess");
+        UNSIGNED_INT, {}, yPartitionToProcess, "yPartitionToProcess");
     graph.setTileMapping(yPartitionToProcessT, 0);
 
     graph.connect(v["yPartitionToProcess"], yPartitionToProcessT);
   } else {
-    graph.setInitialValue(v["rowOffset"], rowOffset);
-    graph.setInitialValue(v["subGroupIdToProcess"], processedSubGroupId);
+    graph.setInitialValue(v["yPartitionToProcess"], yPartitionToProcess);
   }
 
   graph.setTileMapping(v, 0);
