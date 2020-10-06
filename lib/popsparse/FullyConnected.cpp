@@ -589,7 +589,9 @@ static Tensor groupActs(const Tensor &t, const Vector<unsigned> &grouping) {
     // Do we do it on-tile once all broadcasting of dense input is
     // complete?
     throw poputil::poplibs_error(
-        "Padding of input to meet grouping not yet handled");
+        "Padding of input to meet grouping not yet handled. "
+        "Please make sure the batch size is a multiple of 2 "
+        "if using fp32, and 4 for fp16.");
   }
   return factorDims(t, actGrouping);
 }
