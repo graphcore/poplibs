@@ -7,8 +7,8 @@
  *
  */
 
-#ifndef poplibs_support_OptionParsing_hpp
-#define poplibs_support_OptionParsing_hpp
+#ifndef poputil_OptionParsing_hpp
+#define poputil_OptionParsing_hpp
 
 #include <functional>
 #include <initializer_list>
@@ -168,4 +168,4 @@ public:
 
 } // end namespace poplibs
 
-#endif // poplibs_support_OptionParsing_hpp
+#endif // poputil_OptionParsing_hpp

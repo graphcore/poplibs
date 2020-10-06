@@ -1,7 +1,6 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poputil/TileMapping.hpp"
 #include "poplar/Program.hpp"
-#include "poplibs_support/gcd.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/functional/hash.hpp>
