@@ -1453,6 +1453,15 @@ static void addPropagationExchangesGradW(
       graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx);
   graph.setTileMapping(bufferIdxInitialVal, 0);
   progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
+  // WriteUndef the initial buffers. They may be partially written
+  // by the first copy of partitions from home locations if there
+  // is padding necessary.
+  writeUndefPartitions(progBuilder.prePropagation,
+                       inputBuffers.at(initialBufferIdx));
+  writeUndefPartitions(progBuilder.prePropagation,
+                       weightBuffers.at(initialBufferIdx));
+  writeUndefPartitions(progBuilder.prePropagation,
+                       subGroupIdBuffers.at(initialBufferIdx));
   getPropagationExchangeSources(graph, plan, options, homeOffset, inputs, {},
                                 inputHomeSources, debugPrefix);
   copyPartitions(graph, progBuilder.prePropagation, inputHomeSources,
@@ -1465,6 +1474,16 @@ static void addPropagationExchangesGradW(
                                 {}, subGroupIdHomeSources, debugPrefix);
   copyPartitions(graph, progBuilder.prePropagation, subGroupIdHomeSources,
                  subGroupIdBuffers.at(initialBufferIdx));
+  // WriteUndef the other buffers. We do this after the initial copy from
+  // home location to ensure these buffers aren't live at the same
+  // time as exchanging them above.
+  for (std::size_t buffer = (initialBufferIdx + 1) % numBuffers;
+       buffer != initialBufferIdx; buffer = (buffer + 1) % numBuffers) {
+    writeUndefPartitions(progBuilder.prePropagation, inputBuffers.at(buffer));
+    writeUndefPartitions(progBuilder.prePropagation, weightBuffers.at(buffer));
+    writeUndefPartitions(progBuilder.prePropagation,
+                         subGroupIdBuffers.at(buffer));
+  }
 
   // This is opposite direction to Fwd/GradA
   auto offsets = plan.propagationPartitions.asStdVector();
@@ -1738,6 +1757,17 @@ static void computeInitialDistributionGradW(
     }
     Sequence computeProg;
     bool zeroPartials = true;
+    // WriteUndef the buffers we use in the compute programs when Z is
+    // split. These may be partially written when copying partitions.
+    if (moveInputs) {
+      writeUndefPartitions(computeProg, inputBuffer);
+    }
+    if (moveWeights) {
+      writeUndefPartitions(computeProg, weightBuffer);
+    }
+    if (moveSubGroupIds) {
+      writeUndefPartitions(computeProg, subGroupIdBuffer);
+    }
     iteratePartitions(broadcastFactor, [&](const auto &i) {
       if (moveInputs) {
         std::vector<Tensor> broadcastInputSource;
@@ -1766,7 +1796,6 @@ static void computeInitialDistributionGradW(
       computeProg.add(Execute(computeCSs[zeroPartials]));
       zeroPartials = false;
     });
-
     prog.add(std::move(computeProg));
   }
 }
@@ -2000,12 +2029,6 @@ static Tensor fullyConnectedSparseGradWImpl(
         graph, inputType, shape, {}, plan, options, hierarchy, 0, subGroupIds,
         {}, subGroupIdPropagationBuffers.at(buffer),
         debugPrefix + "/subGroupIdPropagationBuffer" + std::to_string(buffer));
-    writeUndefPartitions(progBuilder.prePropagation,
-                         inputPropagationBuffers.at(buffer));
-    writeUndefPartitions(progBuilder.prePropagation,
-                         weightPropagationBuffers.at(buffer));
-    writeUndefPartitions(progBuilder.prePropagation,
-                         subGroupIdPropagationBuffers.at(buffer));
   }
 
   writeUndefPartitions(progBuilder.preDistribution, partials);
