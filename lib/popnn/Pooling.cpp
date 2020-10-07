@@ -737,8 +737,16 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
                        poolParams.numChannels, poolParams.stride);
 
   const auto poolingType = poolParams.poolingType;
-  assert(in_.dim(0) == poolParams.batchSize);
-  assert(in_.dim(1) == poolParams.numChannels);
+  if (in_.dim(0) != poolParams.batchSize ||
+      in_.dim(1) != poolParams.numChannels) {
+    throw poputil::poplibs_error(
+        "First 2 dimensions of pooling input Tensor don't "
+        "match poolParams.batchSize and poolParams.numChannels. "
+        "Expected " +
+        std::to_string(poolParams.batchSize) + ", " +
+        std::to_string(poolParams.numChannels) + "and got " +
+        std::to_string(in_.dim(0)) + ", " + std::to_string(in_.dim(1)));
+  }
 
   const auto dType = in_.elementType();
   ConvParams convParams = makeConvParams(poolParams);
