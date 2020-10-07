@@ -28,7 +28,8 @@
 // worker stack
 #define w_StackEntry_numZDiv4              0
 #define w_StackEntry_sBase                 4
-#define w_StackSize                        (w_StackEntry_sBase + 4)
+#define w_StackEntry_numZMul4              8
+#define w_StackSize                        (w_StackEntry_numZMul4 + 4)
 
 // worker registers
 #define w_metaInfo                         m0
@@ -55,6 +56,7 @@
 #define w_zEq4                             m10
 #define w_zEq2                             m10
 
+#define w_numZMul4                         m9
 #define w_numZRem                          m7
 #define w_numZTemp                         m3
 #define w_numZDiv4                         m3
@@ -102,6 +104,10 @@ ldz16                 $w_numXm1, $w_metaInfo, MetaInfoWorkerEntry_numXm1/2
 ldz16                 $w_metaInfoOffset, $w_metaInfo, MetaInfoWorkerEntry_metaInfoOffset/2
 ldz16                 $w_numZ, $w_metaInfo, MetaInfoWorkerEntry_numZ/2
 
+ld32                  $w_numZMul4, $mvertex_base, W_NUMZ/4
+shl                   $w_numZMul4, $w_numZMul4, 2
+st32                  $w_numZMul4, $mworker_base, w_StackEntry_numZMul4/4
+
 // Note: metaInfoOffset points to the start of output entries reserved for this
 //       worker. Utilise the fact that sparseOffset is the first entry in the
 //       worker table so that we can directly jump to the worker information.
@@ -147,7 +153,8 @@ LxLoop:
 
   // Load output entries for this output row (x dimension). 
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
+  ld32                  $w_numZMul4, $mworker_base, w_StackEntry_numZMul4/4
+  mul                   $w_offsetXInQ, $w_offsetXInQ, $w_numZMul4
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
   add                   $w_numY, $w_numY, -1
   // metaInfo -> offset of column entries in 'y' dimension 
@@ -292,7 +299,7 @@ exitz                 $mzero
 LZEq4Sp: 
   // Load output entries for this output row (x dimension). 
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
+  mul                   $w_offsetXInQ, $w_offsetXInQ, $w_numZMul4
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
   add                   $w_numY, $w_numY, -1
 
@@ -342,7 +349,7 @@ LEndYLoop4Sp:
   LZEq2Sp:
   // Load output entries for this output row (x dimension). 
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
+  mul                   $w_offsetXInQ, $w_offsetXInQ, $w_numZMul4
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
   add                   $w_numY, $w_numY, -1 
 

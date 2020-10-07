@@ -28,18 +28,16 @@ class [[poplar::constraint(
   using MetaInfoType = unsigned short;
   using MetaInfo = popsparse::MetaInfo<MetaInfoType>;
 
-  static void workerCompute(
-      unsigned wid, const MetaInfo::GradWWorkerEntry *workerEntries,
-      AccumType *rGrad, const FPType *s, const FPType *qGrad, unsigned numZ) {
+  static void workerCompute(unsigned wid, unsigned numZ,
+                            const MetaInfo::GradWWorkerEntry *workerEntries,
+                            AccumType *rGrad, const FPType *s,
+                            const FPType *qGrad) {
     const auto *workerEntry = workerEntries + wid;
 
     rGrad += workerEntry->sparseOffset;
 
     const auto yOffTypeSize =
         getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
-    const auto xOffTypeSize =
-        getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
-
     const auto *it = reinterpret_cast<const MetaInfoType *>(workerEntry) +
                      workerEntry->metaInfoOffsetOutputEntry;
     unsigned numYRemaining = workerEntry->totalNumY;
@@ -64,8 +62,7 @@ class [[poplar::constraint(
       for (unsigned yIndex = 0; yIndex < numY; ++yIndex) {
         AccumType sum = *rGrad;
         for (unsigned zIndex = 0; zIndex < numZ; ++zIndex) {
-          const auto qGradIndex =
-              outputEntry->offsetXInQ * xOffTypeSize + zIndex;
+          const auto qGradIndex = outputEntry->offsetXInQ * numZ + zIndex;
           const auto sIndex = (offsetsYOfS[yIndex] / yOffTypeSize) + zIndex;
           sum += AccumType(s[sIndex] * qGrad[qGradIndex]);
         }
@@ -129,7 +126,7 @@ public:
             reinterpret_cast<const MetaInfo::GradWWorkerEntry *>(&numWorkers +
                                                                  1);
         for (unsigned wid = 0; wid < numWorkers; ++wid) {
-          workerCompute(wid, workerEntries, rGradIt, &s[0], &qGrad[0], numZ);
+          workerCompute(wid, numZ, workerEntries, rGradIt, &s[0], &qGrad[0]);
         }
       }
       rGradIt += subGroupEntry->sparseElementCount;

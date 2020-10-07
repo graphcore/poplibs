@@ -109,7 +109,7 @@ static inline std::uint64_t sparseDenseGradWElementwiseMultiply(
       supervisorOverhead + supervisorCyclesWithBucketsNotForPN +
       supervisorCyclesWithBucketsForPN * numBucketsWithInfoForPN;
 
-  std::uint64_t workerCyclesOverhead = 26;
+  std::uint64_t workerCyclesOverhead = 28;
   std::uint64_t workerLoopCycles = 0;
 
   if (floatInput) {
@@ -122,7 +122,7 @@ static inline std::uint64_t sparseDenseGradWElementwiseMultiply(
       xOverhead = 7;
       workerCyclesOverhead += 4;
     } else {
-      xOverhead = 8;
+      xOverhead = 9;
       workerCyclesOverhead += 6;
     }
 
@@ -154,7 +154,7 @@ static inline std::uint64_t sparseDenseGradWElementwiseMultiply(
       xOverhead = 10;
     } else {
       workerCyclesOverhead += 7;
-      xOverhead = 7;
+      xOverhead = 8;
     }
     for (const auto &y : numY) {
       if (numZ == 8) {
@@ -542,7 +542,7 @@ static inline std::uint64_t sparseDenseElementwiseMultiply(
       static_cast<double>(averageSubgroupsPerBucket - 1) / 2;
 
   std::uint64_t supervisorCyclesWithBucketsForPN =
-      (avgSubgroupsForFirstMatch + 1) * 44 + 46;
+      (avgSubgroupsForFirstMatch + 1) * 47 + 46;
 
   std::uint64_t totalSupervisorCycles =
       supervisorOverhead + supervisorCyclesWithBucketsNotForPN +
@@ -555,14 +555,14 @@ static inline std::uint64_t sparseDenseElementwiseMultiply(
     std::uint64_t innerCycles = 0;
     std::uint64_t xOverhead = 0;
     if (numZ == 4) {
-      workerCyclesOverhead += 22;
+      workerCyclesOverhead += 25;
       xOverhead = 13;
     } else if (numZ == 2) {
-      workerCyclesOverhead += 24;
+      workerCyclesOverhead += 27;
       xOverhead = 11;
     } else {
-      workerCyclesOverhead += 27;
-      xOverhead = 12;
+      workerCyclesOverhead += 30;
+      xOverhead = 13;
     }
     for (const auto &y : numY) {
       if (numZ == 4) {
@@ -587,14 +587,14 @@ static inline std::uint64_t sparseDenseElementwiseMultiply(
     std::uint64_t innerCycles = 0;
     std::uint64_t xOverhead = 0;
     if (numZ == 8) {
-      workerCyclesOverhead += 25;
+      workerCyclesOverhead += 28;
       xOverhead = 15;
     } else if (numZ == 4) {
-      workerCyclesOverhead += 27;
-      xOverhead = 11;
-    } else {
       workerCyclesOverhead += 30;
       xOverhead = 11;
+    } else {
+      workerCyclesOverhead += 33;
+      xOverhead = 12;
     }
     for (const auto &y : numY) {
       if (numZ == 8) {
@@ -639,7 +639,7 @@ static inline std::uint64_t sparseDenseGradAElementwiseMultiply(
       static_cast<double>(averageSubgroupsPerBucket - 1) / 2;
 
   std::uint64_t supervisorCyclesWithBucketsForPN =
-      (avgSubgroupsForFirstMatch + 1) * 44 + 46;
+      (avgSubgroupsForFirstMatch + 1) * 46 + 46;
 
   std::uint64_t totalSupervisorCycles =
       supervisorOverhead + supervisorCyclesWithBucketsNotForPN +
@@ -652,14 +652,14 @@ static inline std::uint64_t sparseDenseGradAElementwiseMultiply(
     std::uint64_t innerCycles = 0;
     std::uint64_t xOverhead = 0;
     if (numZ == 4) {
-      workerCyclesOverhead += 20;
+      workerCyclesOverhead += 23;
       xOverhead = 13;
     } else if (numZ == 2) {
-      workerCyclesOverhead += 22;
+      workerCyclesOverhead += 25;
       xOverhead = 11;
     } else {
-      workerCyclesOverhead += 30;
-      xOverhead = 12;
+      workerCyclesOverhead += 33;
+      xOverhead = 13;
     }
     for (const auto &y : numY) {
       if (numZ == 4) {
@@ -684,14 +684,14 @@ static inline std::uint64_t sparseDenseGradAElementwiseMultiply(
     std::uint64_t innerCycles = 0;
     std::uint64_t xOverhead = 0;
     if (numZ == 8) {
-      workerCyclesOverhead += 23;
+      workerCyclesOverhead += 26;
       xOverhead = 15;
     } else if (numZ == 4) {
-      workerCyclesOverhead += 25;
+      workerCyclesOverhead += 28;
       xOverhead = 11;
     } else {
-      workerCyclesOverhead += 29;
-      xOverhead = 10;
+      workerCyclesOverhead += 32;
+      xOverhead = 11;
     }
     for (const auto &y : numY) {
       if (numZ == 8) {
@@ -750,9 +750,9 @@ static inline std::uint64_t sparseDenseTransposeElementwiseMultiply(
   if (floatInput) {
     std::uint64_t innerCycles = 0;
     std::uint64_t xOverhead = 0;
-    workerCyclesOverhead = 21;
+    workerCyclesOverhead = 23;
     for (const auto &yTotal : numY) {
-      xOverhead = 23;
+      xOverhead = 24;
       const auto y = (yTotal + numWorkerContexts - 1) / numWorkerContexts;
       innerCycles += 8;
       if (numZ / 2) {
@@ -767,14 +767,14 @@ static inline std::uint64_t sparseDenseTransposeElementwiseMultiply(
     std::uint64_t innerCycles = 0;
     std::uint64_t xOverhead = 0;
     if (numZ == 8) {
-      workerCyclesOverhead += 18;
-      xOverhead = 17;
+      workerCyclesOverhead += 20;
+      xOverhead = 18;
     } else if (numZ == 4) {
-      workerCyclesOverhead += 18;
-      xOverhead = 20;
-    } else {
-      workerCyclesOverhead += 24;
+      workerCyclesOverhead += 20;
       xOverhead = 21;
+    } else {
+      workerCyclesOverhead += 26;
+      xOverhead = 22;
     }
     for (const auto &yTotal : numY) {
       const auto y = (yTotal + numWorkerContexts - 1) / numWorkerContexts;

@@ -39,12 +39,17 @@
 #define w_qGradBaseLoop                    m10
 #define w_sBaseLoop                        m11
 #define w_packedPtr                        m10:11
+#define w_numZMul4                         m10
 
 #define w_offYInS                          m9
 
 #define fp_clr_reg                         a1
 
-DEF_STACK_USAGE 0 elemwiseSparseDenseMultiplyGradFF
+// worker stack
+#define w_StackEntry_numZMul4              0
+#define w_StackSize                        (w_StackEntry_numZMul4 + 8)
+
+DEF_STACK_USAGE w_StackSize elemwiseSparseDenseMultiplyGradFF
 .section ".text.elemwiseSparseDenseMultiplyGradFF", FUNCTION_IS_WORKER
 .type elemwiseSparseDenseMultiplyGradFF, @function
 .globl elemwiseSparseDenseMultiplyGradFF
@@ -58,6 +63,8 @@ ld32              $w_rGradBase, $mvertex_base, W_RGRAD_BASE/4
 ld32              $w_qGradBase, $mvertex_base, W_QGRAD_BASE/4
 ld32              $w_sBase, $mvertex_base, W_S_BASE/4
 ld32              $w_numZ, $mvertex_base, W_NUM_Z/4
+shl               $w_numZMul4, $w_numZ, 2
+st32              $w_numZMul4, $mworker_base, w_StackEntry_numZMul4/4
 
 // The number of workers is the first field
 // w_metaInfo -> worker entries
@@ -105,7 +112,7 @@ brnz              $w_zEq2, LZEq2Main
 
 shr               $w_numZDiv2, $w_numZ, 1
 and               $w_numRem, $w_numZ, 0x1 
-shl               $w_offXInQ, $w_offXInQ, 3
+mul               $w_offXInQ, $w_offXInQ, $w_numZMul4
 
 LMainLoopX:
 add               $w_numY, $w_numY, -1
@@ -153,7 +160,8 @@ brnzdec           $w_numY, LMainLoopY
 
 ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 min               $w_numY, $w_numY, $w_totalNumY
-shl               $w_offXInQ, $w_offYInS, 3
+ld32              $w_numZMul4, $mworker_base, w_StackEntry_numZMul4/4
+mul               $w_offXInQ, $w_offYInS, $w_numZMul4
 brnz              $w_numY, LMainLoopX
 LEndWorker:
 exitz             $mzero
@@ -162,12 +170,15 @@ exitz             $mzero
 // processes z=4
 LZEq4Main:            
 ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
-shl               $w_offXInQ, $w_offXInQ, 3
+mul               $w_offXInQ, $w_offXInQ, $w_numZMul4
 sub               $w_totalNumY, $w_totalNumY, $w_numY
 add               $w_numY, $w_numY, -1
 ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
 ld64              $a2:3, $w_offXInQ, $w_qGradBase, 1
-ld64              $a4:5, $w_offYInS, $w_sBase, 0
+{
+  ld64              $a4:5, $w_offYInS, $w_sBase, 0
+  fnop
+}
 {
   ld64              $a4:5, $w_offYInS, $w_sBase, 1
   f32v2mac          $a0:1, $a4:5
@@ -221,7 +232,7 @@ LZEq2Main:
 ldz16step         $w_offYInS, $mzero, $w_metaInfo+=, 1
 sub               $w_totalNumY, $w_totalNumY, $w_numY
 add               $w_numY, $w_numY, -1
-shl               $w_offXInQ, $w_offXInQ, 3
+mul               $w_offXInQ, $w_offXInQ, $w_numZMul4
 ld64              $a0:1, $w_offXInQ, $w_qGradBase, 0
 ld64              $a2:3, $w_offYInS, $w_sBase, 0
 {

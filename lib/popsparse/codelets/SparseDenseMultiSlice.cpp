@@ -41,8 +41,6 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
   // used below
   const auto yOffTypeSize =
       getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
-  const auto xOffTypeSize =
-      getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
 
   // Consider each row found in the metaInfo just once as searching that
   // is more complex than checking the content of `offsets`
@@ -59,20 +57,13 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
       if (subGroupEntry->yPartition == yPartitionToProcess) {
         // We aren't using the workerEntry information to divide work so
         // skip over the sub group and the worker entries.
-
         iter += subGroupEntry->offsetToFirstOutputEntryMetaInfo;
 
         const auto rowOffset = subGroupEntry->xPartition * rowsPerPartition;
         // Loop over the rows found in a sub-group
         for (unsigned sparseRow = 0; sparseRow <= subGroupEntry->numXm1;
              sparseRow++) {
-          // Although this could be maintained unscaled the reciprocal to divide
-          // method is fairly efficient and rowFound is used to compare to
-          // multiple offsets below, which therefore don't need scaling (which
-          // could be done my multiplying the offset)
-          const auto rowFound =
-              reciprocalMulDiv(xOffTypeSize * *iter++, nzScaleFactor) +
-              rowOffset;
+          const auto rowFound = *iter++ + rowOffset;
           const auto columnsInRow = *iter++;
           // Loop over the rows listed in the offsets, a row may be referenced
           // multiple times

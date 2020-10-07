@@ -35,8 +35,6 @@ class SparseDenseMatMulElementWiseTranspose
 
     const auto yOffTypeSize =
         getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
-    const auto xOffTypeSize =
-        getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
 
     unsigned numRemainingX = numX;
     const auto *it = firstOutputEntry;
@@ -46,7 +44,7 @@ class SparseDenseMatMulElementWiseTranspose
       const auto *offsetsYOfS =
           reinterpret_cast<const MetaInfoType *>(outputEntry + 1);
       for (unsigned zIndex = 0; zIndex < numZ; ++zIndex) {
-        const auto qIndex = outputEntry->offsetXInQ * xOffTypeSize + zIndex;
+        const auto qIndex = outputEntry->offsetXInQ * numZ + zIndex;
         for (unsigned yIndex = 0; yIndex < outputEntry->numY; ++yIndex) {
           const auto rIndex = yIndex;
           const auto sIndex = offsetsYOfS[yIndex] / yOffTypeSize + zIndex;

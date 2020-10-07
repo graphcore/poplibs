@@ -30,7 +30,7 @@ class [[poplar::constraint(
   using MetaInfo = popsparse::MetaInfo<MetaInfoType>;
   constexpr static std::size_t rAlignmentRequirement = alignof(FPType);
 
-  static void workerCompute(unsigned wid,
+  static void workerCompute(unsigned wid, unsigned numZ,
                             const MetaInfo::WorkerEntry *workerEntries,
                             AccumType *q, const FPType *r, const FPType *s) {
     const auto *workerEntry = workerEntries + wid;
@@ -41,9 +41,6 @@ class [[poplar::constraint(
 
     const auto yOffTypeSize =
         getYOffsetTypeScaleFactor(std::is_same<FPType, float>::value);
-    const auto xOffTypeSize =
-        getXOffsetTypeDivFactor(std::is_same<FPType, float>::value);
-
     unsigned numRemainingX = workerEntry->numXm1 + 1;
     const auto *it = reinterpret_cast<const MetaInfoType *>(workerEntry) +
                      workerEntry->metaInfoOffset;
@@ -53,7 +50,7 @@ class [[poplar::constraint(
       const auto *offsetsYOfS =
           reinterpret_cast<const MetaInfoType *>(outputEntry + 1);
       for (unsigned zIndex = 0; zIndex < workerEntry->numZ; ++zIndex) {
-        const auto qIndex = outputEntry->offsetXInQ * xOffTypeSize + zIndex;
+        const auto qIndex = outputEntry->offsetXInQ * numZ + zIndex;
         AccumType sum = q[qIndex];
 
         for (unsigned yIndex = 0; yIndex < outputEntry->numY; ++yIndex) {
@@ -114,11 +111,12 @@ public:
           // NOTE: In reality we will probably launch all workers and rely on
           // those above 'numWorkers' to not do any work.
           const auto numWorkers = subGroupEntry->numWorkers;
+          const auto numZ = subGroupEntry->numZ;
           const auto *workerEntries =
               reinterpret_cast<const MetaInfo::WorkerEntry *>(subGroupEntry +
                                                               1);
           for (unsigned wid = 0; wid < numWorkers; ++wid) {
-            workerCompute(wid, workerEntries, &q[0], rBucketIter, &s[0]);
+            workerCompute(wid, numZ, workerEntries, &q[0], rBucketIter, &s[0]);
           }
         }
         rBucketIter += subGroupEntry->sparseElementCount;

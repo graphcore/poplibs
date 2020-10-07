@@ -37,7 +37,8 @@
 #define W_Q_BASE                        4
 #define W_R_BASE                        8
 #define W_METAINFO                      12
-#define STACK_SIZE                      (W_METAINFO + 4)
+#define W_NUMZ                          16
+#define STACK_SIZE                      (W_METAINFO + 8)
 
 // =============================================================================
 
@@ -56,6 +57,7 @@
 #define s_subgroupId                 m7
 #define s_offsetToNextSubgroup       m8
 #define s_subgroupSparseElems        m9
+#define s_numZ                       m9
 #define s_match                      m7
 #define s_zeroWkrFunction            m7
 #define s_wTemp                      m7
@@ -111,6 +113,7 @@ LmetaInfoListLoop_\TYPE\():
   ld32step               $s_metaInfo, $mzero, $s_metaInfoList+=, 1
 LsubgroupLoop_\TYPE\():  
   ldz16                  $s_subgroupId, $s_metaInfo, MetaInfoSubGroupEntry_id/2
+  ldz16                  $s_numZ, $s_metaInfo, MetaInfoSubGroupEntry_numZ/2
 
   // s_metaInfo is at exactly where the numWorkers is so that it can be extracted 
   // by the worker (must be last field)
@@ -120,6 +123,9 @@ LsubgroupLoop_\TYPE\():
   sync                   TEXCH_SYNCZONE_LOCAL
   // base address for R for this PN
   st32                   $s_rBase, $sp, W_R_BASE/4
+
+  // numZ for the tile
+  st32                   $s_numZ, $sp, W_NUMZ/4
 
   // The pointer to sparse R Is offset
   ldz16                  $s_subgroupSparseElems, $s_metaInfo, MetaInfoSubGroupEntry_sparseElementCount/2

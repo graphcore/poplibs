@@ -2,11 +2,6 @@
 
 namespace popsparse {
 
-// X offset is divided by this given input type
-static inline unsigned getXOffsetTypeDivFactor(bool floatInput) {
-  return floatInput ? 2 : 4;
-}
-
 // Y offset is scaled by this given input type
 static inline unsigned getYOffsetTypeScaleFactor(bool floatInput) {
   return floatInput ? 4 : 2;

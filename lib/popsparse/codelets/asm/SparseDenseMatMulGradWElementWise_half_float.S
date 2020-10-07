@@ -94,14 +94,18 @@ exitz         $mzero
 #define w_qGradBaseLoop                    m6
 #define w_sBaseLoop                        m7
 #define w_packedPtr                        m6:7
-
+#define w_numZMul2                         m7
 #define w_offXInQ                          m11
 #define w_offYInS                          m9
 
 #define fp_clr_reg                         a1
 
+// worker stack
+#define w_StackEntry_numZMul2              0
+#define w_StackSize                        (w_StackEntry_numZMul2 + 8)
 
-DEF_STACK_USAGE 0 elemwiseSparseDenseMultiplyGradHF
+
+DEF_STACK_USAGE w_StackSize elemwiseSparseDenseMultiplyGradHF
 .section ".text.elemwiseSparseDenseMultiplyGradHF", FUNCTION_IS_WORKER
 .type elemwiseSparseDenseMultiplyGradHF, @function
 .align 8
@@ -139,8 +143,11 @@ ldz16step         $w_sparseOffset, $mzero, $w_metaInfo+=, $w_metaInfoOffsetOutpu
 // dummy load to move to gradient base for this worker
 ld32step          $mzero, $mzero, $w_rGradBase+=, $w_sparseOffset
 
+shl               $w_numZMul2, $w_numZ, 1
+st32              $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+
 ldz16step         $w_offXInQ, $mzero, $w_metaInfo+=, 1 
-shl               $w_offXInQ, $w_offXInQ, 3
+mul               $w_offXInQ, $w_offXInQ, $w_numZMul2
 ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1 
 
 // move meta info pointer by doing a dummy load
@@ -218,7 +225,8 @@ st32step          $a0, $mzero, $w_rGradBase+=, 1
 brnzdec           $w_numY, LMainLoopY
 ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 min               $w_numY, $w_numY, $w_totalNumY
-shl               $w_offXInQ, $w_offYInS, 3
+ld32              $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+mul               $w_offXInQ, $w_offYInS, $w_numZMul2
 brnz              $w_numY, LMainLoopX
 LEndWorker:
 exitz             $mzero
@@ -270,7 +278,7 @@ ld64              $a4:5, $w_offYInS, $w_sBase, 0
   ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
   f32add            $a6, $a6, $a7
 }
-shl               $w_offXInQ, $w_offXInQ, 3
+mul               $w_offXInQ, $w_offXInQ, $w_numZMul2
 ld32              $a7, $mzero, $w_rGradBase, 0
 {
   min               $w_numY, $w_totalNumY, $w_numY
@@ -318,7 +326,7 @@ ld64              $a4:5, $w_offYInS, $w_sBase, 0
   f32add            $a6, $a6, $a7
 }
 ld32              $a7, $mzero, $w_rGradBase, 0
-shl               $w_offXInQ, $w_offXInQ, 3
+mul               $w_offXInQ, $w_offXInQ, $w_numZMul2
 {  
   min               $w_numY, $w_totalNumY, $w_numY
   f32add            $a6, $a6, $a7

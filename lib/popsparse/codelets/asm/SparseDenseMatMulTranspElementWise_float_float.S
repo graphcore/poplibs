@@ -30,7 +30,8 @@
 #define w_StackEntry_6mwId                 16
 #define w_StackEntry_numXm1                20
 #define w_StackEntry_wIdx4                 24
-#define w_StackSize                        (w_StackEntry_wIdx2 + 8)
+#define w_StackEntry_numZMul4              28
+#define w_StackSize                        (w_StackEntry_numZMul4 + 4)
 
 // worker registers
 #define w_metaInfo                         m0
@@ -50,6 +51,7 @@
 #define w_qBaseLoop                        m4
 #define w_sBaseLoop                        m3
 #define w_rBaseLoop                        m8
+#define w_numZMul4                         m8
 
 #define w_deltaPtr                         m9
 #define w_delta                            m10
@@ -97,6 +99,9 @@ st32              $w_idm6, $mworker_base, w_StackEntry_6mwId/4
 st32              $w_qBase, $mworker_base, w_StackEntry_qBase/4
 st32              $w_sBase, $mworker_base, w_StackEntry_sBase/4
 
+shl               $w_numZMul4, $w_numZ, 2
+st32              $w_numZMul4, $mworker_base, w_StackEntry_numZMul4/4
+
 // We process  entries at a time if any and process the remainder if any.
 shr               $w_numZDiv2, $w_numZ, 1
 add               $w_numZDiv2, $w_numZDiv2, -1
@@ -119,7 +124,8 @@ CheckFlag:
   st32              $w_numXm1, $mworker_base, w_StackEntry_numXm1/4
   // Load output entries for this output row (x dimension). 
   ldz16step         $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl               $w_offsetXInQ, $w_offsetXInQ, 3
+  ld32              $w_numZMul4, $mworker_base, w_StackEntry_numZMul4/4
+  mul               $w_offsetXInQ, $w_offsetXInQ, $w_numZMul4
   ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 
   // We divide each row in the FWD amongst available workers. And this means we
@@ -167,10 +173,7 @@ LyLoop:
       ld64              $a4:5, $w_delta, $w_sBaseLoop, 0
       f32v2mul          $a6:7, $a3:B, $a0:1
     }
-    {
-      rpt               $w_numZDiv2, (LoopZEnd2 - LoopZStart2)/8 - 1
-      fnop
-    }
+    rpt               $w_numZDiv2, (LoopZEnd2 - LoopZStart2)/8 - 1
 LoopZStart2:
       {
         ld64step          $a0:1, $w_offsetXInQ, $w_qBaseLoop+=, 1

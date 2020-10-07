@@ -84,7 +84,8 @@ exitz         $mzero
 #define w_StackEntry_wIdx2                 12
 #define w_StackEntry_6mwId                 16
 #define w_StackEntry_numXm1                20
-#define w_StackSize                        (w_StackEntry_numXm1 + 4)
+#define w_StackEntry_numZMul2              24
+#define w_StackSize                        (w_StackEntry_numZMul2 + 8)
 
 // worker registers
 #define w_metaInfo                         m0
@@ -111,6 +112,7 @@ exitz         $mzero
 #define w_biaddr                           m8:9
 
 #define w_delta                            m10
+#define w_numZMul2                         m10
 
 #define w_numZDiv4                         m2
 #define w_Zeq8                             m11
@@ -143,6 +145,8 @@ sub               $w_idm6, 6, $w_id
 st32              $w_idm6, $mworker_base, w_StackEntry_6mwId/4
 
 ld32              $w_numZ, $mvertex_base, W_NUM_Z/4
+shl               $w_numZMul2, $w_numZ, 1
+st32              $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
 ld32              $w_numXm1, $mvertex_base, W_NUM_XM1/4
 
 // specialisations for numZ = 8 and numZ = 4
@@ -184,7 +188,8 @@ CheckFlag:
   st32              $w_numXm1, $mworker_base, w_StackEntry_numXm1/4
   // Load output entries for this output row (x dimension). 
   ldz16step         $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl               $w_offsetXInQ, $w_offsetXInQ, 3
+  ld32              $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+  mul               $w_offsetXInQ, $w_offsetXInQ, $w_numZMul2
   ldz16step         $w_numY, $mzero, $w_metaInfo+=, 1
 
   // We divide each row in the FWD amongst available workers. And this means we
@@ -228,7 +233,10 @@ LyLoop:
     // process remainder.
     ld32              $w_numZDiv4, $mworker_base, w_StackEntry_numZDiv4/4
     brneg             $w_numZDiv4, LzRem
-    ld64step          $a0:1, $w_offsetXInQ, $w_qBaseLoop+=, 1
+    {
+      ld64step          $a0:1, $w_offsetXInQ, $w_qBaseLoop+=, 1
+      fnop
+    }
     {
       ld64              $a4:5, $w_delta, $w_sBaseLoop, 0
       f16v4mul          $a0:1, $a3:BL, $a0:1
@@ -313,7 +321,8 @@ LSpZEq8:
 ld32                  $w_temp, $mworker_base, w_StackEntry_wIdx2/4
 // Load output entries for this output row (x dimension)  
 ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-shl                   $w_offsetXInQ, $w_offsetXInQ, 3
+ld32                  $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+mul                   $w_offsetXInQ, $w_offsetXInQ, $w_numZMul2
 ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
 
 LxLoopSp8:  
@@ -345,7 +354,8 @@ CheckFlagSp8:
 
   // Load output entries for this output row (x dimension)  
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
+  ld32                  $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+  mul                   $w_offsetXInQ, $w_offsetXInQ, $w_numZMul2
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
 
   // Ideally worker 0 shouldn't reach here. So this check should be
@@ -447,8 +457,9 @@ LyLoopEndSp8:
     st64              $a0:1, $w_delta, $w_sBase, 2
     f32v2gina         $a0:1, $azeros, 0
   }
-  shl                 $w_offsetXInQ, $w_offsetXInQ, 3
   st64                $a0:1, $w_delta, $w_sBase, 3
+  ld32                $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+  mul                 $w_offsetXInQ, $w_offsetXInQ, $w_numZMul2
 
   brnz                   $w_temp, LxCheckSp8
   st32                   $w_metaInfo, $mvertex_base, W_FLAG/4
@@ -474,7 +485,8 @@ CheckFlagSp4:
 
   // Load output entries for this output row (x dimension)  
   ldz16step             $w_offsetXInQ, $mzero, $w_metaInfo+=, 1
-  shl                   $w_offsetXInQ, $w_offsetXInQ, 3
+  ld32                  $w_numZMul2, $mworker_base, w_StackEntry_numZMul2/4
+  mul                   $w_offsetXInQ, $w_offsetXInQ, $w_numZMul2
   ldz16step             $w_numY, $mzero, $w_metaInfo+=, 1
 
   // mov  $w_deltaPtr, $w_metaInfo
