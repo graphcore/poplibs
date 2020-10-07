@@ -25,6 +25,8 @@ add_library(poplin SHARED
   ConvUtilInternal.hpp
   ConvValidation.cpp
   ConvValidation.hpp
+  ConvVertexType.cpp
+  ConvVertexType.hpp
   ConvVertices.cpp
   ConvVertices.hpp
   ExchangeEstimator.hpp

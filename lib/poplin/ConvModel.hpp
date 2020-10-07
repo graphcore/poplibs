@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "ConvPlan.hpp"
 #include "ConvPlanTypes.hpp"
+#include "ConvVertexType.hpp"
 #include "PlanningCache.hpp"
 #include "PlanningObjective.hpp"
 #include <poplar/Target.hpp>
