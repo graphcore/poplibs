@@ -24,6 +24,7 @@
 #include <poplin/MatMul.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
+#include <poputil/VarStructure.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -668,10 +669,11 @@ static void copyPartitions(Graph &graph, Sequence &prog,
 
 // Rearrange partitions and return a view of an already mapped tensor.
 static std::vector<Tensor> rearrangePartitions(
-    Graph &graph, const ComputeSet &cs, const std::vector<Tensor> &src,
-    const std::vector<Tensor> &dst, const std::vector<unsigned> &srcMemOrdering,
+    Graph &graph, const ComputeSet &cs, Sequence &preCopies,
+    const std::vector<Tensor> &src, const std::vector<Tensor> &dst,
+    const std::vector<unsigned> &srcMemOrdering,
     const std::vector<unsigned> &dstMemOrdering, unsigned grouping,
-    const std::string &debugPrefix) {
+    bool enableStructuredRearrangements, const std::string &debugPrefix) {
   std::vector<Tensor> dstView;
   dstView.resize(dst.size());
   // We only really know how to deal with 2D transposes and don't expect
@@ -679,8 +681,13 @@ static std::vector<Tensor> rearrangePartitions(
   assert(srcMemOrdering.at(0) == 0 && dstMemOrdering.at(0) == 0);
   assert(src.size() == dst.size());
   assert(grouping == 4 || grouping == 8 || grouping == 16);
-
   const auto inverseDstMemOrdering = inversePermutation(dstMemOrdering);
+
+  // Tensors which don't require a vertex to rearrange are copied in the
+  // preCopies program
+  std::vector<Tensor> copySrcTensors, copyDstTensors;
+  copySrcTensors.reserve(src.size());
+  copyDstTensors.reserve(dst.size());
 
   for (std::size_t i = 0; i < src.size(); ++i) {
     auto s = unfactorDims(src[i], 3);
@@ -688,48 +695,68 @@ static std::vector<Tensor> rearrangePartitions(
     assert(s.dim(0) == 1 && d.dim(0) == 1);
     assert(s.shape() == d.shape());
     s = s.dimShuffle(srcMemOrdering).squeeze({0});
+    const auto &dataType = s.elementType();
+    const auto blockSize = getRearrangementBlockSize(dataType);
+
+    // Detect innermost grouping on ordered source as that puts the
+    // innermost dimension with the block size
+    // TODO: the innermost grouping could be done in parallel
+    const auto innermostGrouping = poputil::detectInnermostGrouping(graph, s);
+
+    // A grouping of multiples given the data type as they are efficient to
+    // transpose
+    const auto groupingForVertex = dataType == FLOAT ? 2 : 4;
+    const bool useVertex = innermostGrouping % groupingForVertex == 0;
     d = d.dimShuffle(dstMemOrdering).squeeze({0});
-    const auto blockSize = getRearrangementBlockSize(s.elementType());
     assert(s.dim(0) % blockSize == 0);
     assert(s.dim(1) % grouping == 0);
-
-    unsigned maxSizePerTile =
-        (s.elementType() == FLOAT ? 2 : 4) *
-        ((1 << (graph.getTarget().getNumStrideBits() - 1)) - 1);
-    if (s.dim(1) > maxSizePerTile) {
-      throw poplibs_error("ASM vertex doesn't support dimension size. "
-                          "Consider adding an unlimited version");
-    }
-    const auto vertexClass =
-        templateVertex("popsparse::BlockTransposeGradW", s.elementType());
-    const auto v = graph.addVertex(cs, vertexClass,
-                                   {{"in", s.flatten()}, {"out", d.flatten()}});
-    graph.setInitialValue(v["blockSizeXOrY"], grouping);
-    const auto numBlocks = s.dim(1) / grouping;
-    graph.setInitialValue(v["numXOrYBlocks"], numBlocks);
-    graph.setInitialValue(v["numZ"], s.dim(0));
-    graph.setInitialValue(
-        v["maxXOrYBlocksPerWorker"],
-        ceildiv(numBlocks, graph.getTarget().getNumWorkerContexts()));
-    // assume whole tensor lives on the tile
-    const auto sliceTileMap = graph.getTileMapping(d.slice(0, 1, 0));
-    auto it = std::find_if(
-        sliceTileMap.begin(), sliceTileMap.end(),
-        [&](const std::vector<Interval> &regions) { return !regions.empty(); });
-    assert(it != sliceTileMap.end());
-    const auto tile = std::distance(sliceTileMap.begin(), it);
-    graph.setTileMapping(v, tile);
     auto dRearranged = d.reshape({d.dim(0) / grouping, d.dim(1) / blockSize,
                                   grouping, blockSize})
                            .dimShuffle({0, 2, 1, 3})
                            .reshape(d.shape())
                            .expand({0})
                            .dimShuffle(inverseDstMemOrdering);
-
     const auto dstShape = dst[i].shape();
     const std::vector<std::size_t> dstGroupings(dstShape.end() - 3,
                                                 dstShape.end());
     dstView.at(i) = factorDims(dRearranged, dstGroupings);
+    if (useVertex && enableStructuredRearrangements) {
+      unsigned maxSizePerTile =
+          (s.elementType() == FLOAT ? 2 : 4) *
+          ((1 << (graph.getTarget().getNumStrideBits() - 1)) - 1);
+      if (s.dim(1) > maxSizePerTile) {
+        throw poplibs_error("ASM vertex doesn't support dimension size. "
+                            "Consider adding an unlimited version");
+      }
+      const auto vertexClass =
+          templateVertex("popsparse::BlockTransposeGradW", s.elementType());
+      const auto v = graph.addVertex(
+          cs, vertexClass, {{"in", s.flatten()}, {"out", d.flatten()}});
+      graph.setInitialValue(v["blockSizeXOrY"], grouping);
+      const auto numBlocks = s.dim(1) / grouping;
+      graph.setInitialValue(v["numXOrYBlocks"], numBlocks);
+      graph.setInitialValue(v["numZ"], s.dim(0));
+      graph.setInitialValue(
+          v["maxXOrYBlocksPerWorker"],
+          ceildiv(numBlocks, graph.getTarget().getNumWorkerContexts()));
+      // assume whole tensor lives on the tile
+      const auto sliceTileMap = graph.getTileMapping(d.slice(0, 1, 0));
+      auto it = std::find_if(sliceTileMap.begin(), sliceTileMap.end(),
+                             [&](const std::vector<Interval> &regions) {
+                               return !regions.empty();
+                             });
+      assert(it != sliceTileMap.end());
+      const auto tile = std::distance(sliceTileMap.begin(), it);
+      graph.setTileMapping(v, tile);
+    } else {
+      copySrcTensors.push_back(src[i].flatten());
+      copyDstTensors.push_back(dstView.at(i).flatten());
+    }
+  }
+
+  if (!copySrcTensors.empty()) {
+    logging::popsparse::debug("copies added in GradW {}", debugPrefix);
+    preCopies.add(Copy(concat(copySrcTensors), concat(copyDstTensors)));
   }
   return dstView;
 }
@@ -1989,14 +2016,18 @@ static Tensor fullyConnectedSparseGradWImpl(
     // on the forward/grada plan.
     const auto transposeCS =
         graph.addComputeSet(debugPrefix + "/transposeInputs");
+    // If the transpose vertices are not generated then an explicit copy
+    // is done to the destination
+    Sequence rearrangePreCopies;
     if (inputSrcMemOrdering != inputDstMemOrdering) {
       std::vector<Tensor> perPartition;
       allocatePerPartitionInputs(graph, shape, {}, plan, true, inputType,
                                  hierarchy, 0, perPartition,
                                  debugPrefix + "/partitionedInputs");
       auto perPartitionView = rearrangePartitions(
-          graph, transposeCS, nextLevelInputs, perPartition,
+          graph, transposeCS, rearrangePreCopies, nextLevelInputs, perPartition,
           inputSrcMemOrdering, inputDstMemOrdering, plan.grouping.z,
+          options.enableStructuredRearrangements,
           debugPrefix + "/transposeInputs");
       std::swap(nextLevelInputs, perPartitionView);
     }
@@ -2006,11 +2037,13 @@ static Tensor fullyConnectedSparseGradWImpl(
                                  hierarchy, 0, perPartition,
                                  debugPrefix + "/partitionedWeights");
       auto perPartitionView = rearrangePartitions(
-          graph, transposeCS, nextLevelWeights, perPartition,
-          weightsSrcMemOrdering, weightsDstMemOrdering, plan.grouping.x,
+          graph, transposeCS, rearrangePreCopies, nextLevelWeights,
+          perPartition, weightsSrcMemOrdering, weightsDstMemOrdering,
+          plan.grouping.x, options.enableStructuredRearrangements,
           debugPrefix + "/transposeWeights");
       std::swap(nextLevelWeights, perPartitionView);
     }
+    progBuilder.preDistribution.add(rearrangePreCopies);
     progBuilder.preDistribution.add(Execute(transposeCS));
   }
 

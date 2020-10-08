@@ -262,7 +262,7 @@ endforeach()
 
 # Test when all dimensions overflow
 add_multitarget_test(
-  NAME sparse_fc_layer_all_half_1024in_1024out_4b_0.1sl_sb_true_exc_0.005
+  NAME sparse_fc_layer_all_half_1024in_1080out_4b_0.1sl_sb_true_exc_0.005
         COMMAND sparse_fc_layer
           --data-type=half --input-size=1024
           --output-size=1080
@@ -270,6 +270,19 @@ add_multitarget_test(
           --sparsity-factor=0.1
           --tiles-per-ipu=24
           --matmul-options={\"sharedBuckets\":\"true\",\"metaInfoBucketOversizeProportion\":\".005\"}
+          --single-phase=all)
+
+# Test to disable structure rearrangement
+add_multitarget_test(
+  NAME sparse_fc_layer_all_half_1024in_1088out_4b_0.1sl_sb_true_exc_0.2_wo_struct_rearr
+        COMMAND sparse_fc_layer
+          --data-type=half --input-size=512
+          --output-size=544
+          --batch-size=16
+          --sparsity-factor=0.1
+          --tiles-per-ipu=24
+          --block-size=16
+          --matmul-options={\"sharedBuckets\":\"true\",\"metaInfoBucketOversizeProportion\":\".2\",\"enableStructuredRearrangements\":\"false\"}
           --single-phase=all)
 
 add_test_executable(SparsePartitionerTest SparsePartitionerTests.cpp)

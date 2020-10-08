@@ -23,6 +23,8 @@ std::ostream &operator<<(std::ostream &os, const Options &o) {
      << ",\n doGradWPass: " << o.doGradWPass
      << ",\n partialsType: " << o.partialsType
      << ",\n sharedBuckets: " << o.sharedBuckets
+     << ",\n enableGradWStructuredRearrangements: "
+     << o.enableStructuredRearrangements
      << ",\n partitioner.optimiseForSpeed: " << o.partitioner.optimiseForSpeed
      << ",\n partitioner.forceBucketSpills: " << o.partitioner.forceBucketSpills
      << ",\n partitioner.useActualWorkerSplitCosts: "
@@ -96,6 +98,8 @@ Options parseOptionFlags(const OptionFlags &flags) {
       {"partialsType",
        OptionHandler::createWithEnum(options.partialsType, partialsTypeMap)},
       {"sharedBuckets", OptionHandler::createWithBool(options.sharedBuckets)},
+      {"enableStructuredRearrangements",
+       OptionHandler::createWithBool(options.enableStructuredRearrangements)},
       {"partitioner.optimiseForSpeed",
        OptionHandler::createWithBool(options.partitioner.optimiseForSpeed)},
       {"partitioner.forceBucketSpills",
@@ -115,7 +119,7 @@ static constexpr auto optionsHelper = poplibs_support::makeStructHelper(
     &Options::availableMemoryProportion,
     &Options::metaInfoBucketOversizeProportion, &Options::doGradAPass,
     &Options::doGradWPass, &Options::partialsType, &Options::sharedBuckets,
-    &Options::partitioner);
+    &Options::enableStructuredRearrangements, &Options::partitioner);
 
 bool operator<(const Options &a, const Options &b) {
   return optionsHelper.lt(a, b);

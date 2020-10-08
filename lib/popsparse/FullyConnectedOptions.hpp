@@ -32,6 +32,8 @@ struct Options {
   poplar::Type partialsType = poplar::FLOAT;
   // If set, forces the buckets to be used for all three passes to be the same
   bool sharedBuckets = true;
+  // Enable structured rearrangements
+  bool enableStructuredRearrangements = true;
   PartitionerOptions partitioner;
   // Constraints on the plan used
   poplibs_support::PlanConstraints planConstraints;
