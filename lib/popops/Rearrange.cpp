@@ -281,6 +281,7 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
   auto groupedFlat = grouped.flatten(0, grouped.rank() - 2).flatten(1, 3);
   const auto tMapping = graph.getTileMapping(groupedFlat);
   const auto numTiles = tMapping.size();
+  const auto numWorkers = graph.getTarget().getNumWorkerContexts();
   const auto tilesPerIPU = graph.getTarget().getTilesPerIPU();
   const auto numIPUs = numTiles / tilesPerIPU;
   std::vector<std::size_t> elemsPerIpu(numIPUs);
@@ -314,8 +315,10 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
     return true;
   };
 
-  // This limits the number of transpositions allowed on the IPU
-  const auto maxTranspositionsAllowedPerIpu = numTiles;
+  // This limits the number of transpositions allowed on the IPU to
+  // the number of transpositions required to saturate all threads on
+  // an IPU.
+  const auto maxTranspositionsAllowedPerIpu = tilesPerIPU * numWorkers;
 
   // actual transpose factor used. Initialise with 1 which means no additional
   // factor is applied
