@@ -176,15 +176,17 @@ struct Plan {
   unsigned slicWindowWidth;
   unsigned numConvUnitsRequired;
   enum class Method {
-    // Direction convolution using the MAC instruction.
-    MAC,
+    // Direction convolution using the HMAC instruction.
+    HMAC,
+    // Direction convolution using the VMAC instruction.
+    VMAC,
     // Direction convolution using the AMP instruction.
     AMP,
     // Direction convolution using the SLIC instruction.
     SLIC,
     // Outer product of two vectors.
     OUTER_PRODUCT,
-  } method = Method::MAC;
+  } method = Method::HMAC;
 
   enum class LinearizeTileOrder {
     STANDARD,

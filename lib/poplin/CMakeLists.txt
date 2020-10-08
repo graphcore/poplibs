@@ -79,6 +79,7 @@ set(IPU1_SOURCES
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_partial_nx1_half_half.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAdd.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceAddSingleInput.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_vmac_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_float_float.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/conv_hzmac_half_half.S
@@ -112,6 +113,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x1Out.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x4SLIC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialHorizontalMac.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialVerticalMac.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialnx1.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/InverseStdDeviation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.cpp

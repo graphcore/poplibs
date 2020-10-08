@@ -153,7 +153,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer) {
-  // Non-limited versions of MAC have same cycle counts as the limited ones.
+  // Non-limited versions of HMAC have same cycle counts as the limited ones.
   (void)useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned);
   CODELET_SCALAR_VAL(numOutGroupsM1, unsigned);
@@ -216,6 +216,55 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
                           numOutGroups, kernelSize, inChansPerGroup,
                           outChansPerGroup, numWorkerContexts, floatActivations,
                           floatPartials);
+}
+
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
+    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
+    const Type &accumType, bool useLimitedVer) {
+  (void)useLimitedVer;
+  CODELET_VECTOR_2D_VALS(worklists, unsigned short);
+  CODELET_SCALAR_VAL(numInGroups, unsigned);
+  CODELET_SCALAR_VAL(numConvGroupsM1, unsigned);
+  CODELET_SCALAR_VAL(zerosInfo, unsigned);
+  CODELET_FIELD(out);
+  CODELET_FIELD(in);
+  CODELET_FIELD(weights);
+  const unsigned inChansPerGroup = 1;
+  const unsigned outChansPerGroup = 1;
+  const auto numConvGroups = numConvGroupsM1 + 1;
+  const auto numOutGroups = 1;
+  const unsigned convGroupsPerGroup = 4;
+
+  assert(weights.size() == numInGroups * numConvGroups);
+  assert(out.size() == numConvGroups);
+  assert(in.size() == numInGroups * numConvGroups);
+
+  const auto numWorkerContexts = target.getNumWorkerContexts();
+  bool floatActivations = fpType == FLOAT;
+  bool floatPartials = accumType == FLOAT;
+  std::vector<std::vector<unsigned>> workerPartitions;
+  auto worklistSizeMax = std::max_element(worklists.begin(), worklists.end(),
+                                          [](auto const &lhs, auto const &rhs) {
+                                            return lhs.size() < rhs.size();
+                                          })
+                             ->size();
+  assert(worklistSizeMax > 0);
+
+  const auto usedContexts = worklists.size();
+  workerPartitions.reserve(usedContexts);
+  for (unsigned context = 0; context < usedContexts; ++context) {
+    workerPartitions.emplace_back();
+    const auto &wl = worklists[context];
+    workerPartitions.back().reserve(wl.size() / 3);
+    for (auto wi = 0U; wi < wl.size(); wi += 4) {
+      auto numFieldPos = wl[wi + 3];
+      workerPartitions.back().push_back(numFieldPos);
+    }
+  }
+  return getConvPartialVerticalMacSupervisorCycleEstimate(
+      workerPartitions, numConvGroups, numInGroups, numOutGroups,
+      worklistSizeMax, zerosInfo, inChansPerGroup, outChansPerGroup,
+      convGroupsPerGroup, numWorkerContexts, floatActivations, floatPartials);
 }
 
 // TODO: T12902 Add cost estimates for non-limited version?
@@ -478,6 +527,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
                             false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, HALF,
                             false),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false,
                             8),

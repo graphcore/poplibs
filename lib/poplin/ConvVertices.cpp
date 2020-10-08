@@ -20,17 +20,18 @@ using namespace poplibs_support;
 namespace poplin {
 
 struct ConvOutputSlice {
-  unsigned outXBegin;
-  unsigned outXEnd;
+  unsigned splitFactor;
+  unsigned splitBegin;
+  unsigned splitEnd;
   unsigned b;
-  std::vector<unsigned> outerFieldIndices;
+  std::vector<unsigned> outFieldIndices;
   unsigned outZGroup;
   unsigned cg;
-  ConvOutputSlice(unsigned outXBegin, unsigned outXEnd, unsigned b,
-                  std::vector<unsigned> outerFieldIndices, unsigned outZGroup,
-                  unsigned cg)
-      : outXBegin(outXBegin), outXEnd(outXEnd), b(b),
-        outerFieldIndices(std::move(outerFieldIndices)), outZGroup(outZGroup),
+  ConvOutputSlice(unsigned splitFactor, unsigned splitBegin, unsigned splitEnd,
+                  unsigned b, std::vector<unsigned> outFieldIndices,
+                  unsigned outZGroup, unsigned cg)
+      : splitFactor(splitFactor), splitBegin(splitBegin), splitEnd(splitEnd),
+        b(b), outFieldIndices(std::move(outFieldIndices)), outZGroup(outZGroup),
         cg(cg) {}
 };
 
@@ -95,16 +96,17 @@ partitionConvOutputBetweenWorkers(const Graph &graph, unsigned batchBegin,
                                   unsigned batchEnd,
                                   const std::vector<unsigned> &outFieldBegin,
                                   const std::vector<unsigned> &outFieldEnd,
+                                  unsigned numFieldDimsToPartition,
                                   unsigned outZGroupBegin,
                                   unsigned outZGroupEnd, unsigned cgBegin,
                                   unsigned cgEnd) {
-  const auto numFieldDims = outFieldBegin.size();
-  assert(outFieldEnd.size() == numFieldDims);
+  //  const auto numFieldDims = outFieldBegin.size();
+  assert(outFieldEnd.size() >= numFieldDimsToPartition);
   std::vector<std::vector<ConvOutputSlice>> perWorkerConvOutputSlices;
   const auto &target = graph.getTarget();
   std::vector<unsigned> rowIterationSpace = {
       outZGroupEnd - outZGroupBegin, batchEnd - batchBegin, cgEnd - cgBegin};
-  for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+  for (unsigned dim = 0; dim < numFieldDimsToPartition; ++dim) {
     rowIterationSpace.push_back(outFieldEnd[dim] - outFieldBegin[dim]);
   }
   const auto numRows = product(rowIterationSpace);
@@ -112,9 +114,6 @@ partitionConvOutputBetweenWorkers(const Graph &graph, unsigned batchBegin,
   unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
   rowIterationSpace.push_back(rowSplitFactor);
   const auto numPartRows = numRows * rowSplitFactor;
-  const auto outXBegin = outFieldBegin.back();
-  const auto outXEnd = outFieldEnd.back();
-  const auto outWidth = outXEnd - outXBegin;
   perWorkerConvOutputSlices.reserve(numWorkers);
   for (unsigned worker = 0; worker != numWorkers; ++worker) {
     const auto begin = (worker * numPartRows) / numWorkers;
@@ -125,27 +124,22 @@ partitionConvOutputBetweenWorkers(const Graph &graph, unsigned batchBegin,
       const auto ocg = outZGroupBegin + indices[0];
       const auto b = batchBegin + indices[1];
       const auto cg = cgBegin + indices[2];
-      std::vector<unsigned> outerFieldIndices;
-      for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-        outerFieldIndices.push_back(outFieldBegin[dim] + indices[dim + 3]);
+      std::vector<unsigned> outFieldIndices;
+      for (unsigned dim = 0; dim < numFieldDimsToPartition; ++dim) {
+        outFieldIndices.push_back(outFieldBegin[dim] + indices[dim + 3]);
       }
       const auto partInRow = indices.back();
-      const auto workerOutXBegin =
-          outXBegin + (partInRow * outWidth) / rowSplitFactor;
-      const auto workerOutXEnd =
-          outXBegin + ((partInRow + 1) * outWidth) / rowSplitFactor;
-      if (workerOutXBegin == workerOutXEnd)
-        continue;
       if (!perWorkerConvOutputSlices.back().empty() &&
           cg == perWorkerConvOutputSlices.back().back().cg &&
           b == perWorkerConvOutputSlices.back().back().b &&
           ocg == perWorkerConvOutputSlices.back().back().outZGroup &&
-          outerFieldIndices ==
-              perWorkerConvOutputSlices.back().back().outerFieldIndices) {
-        perWorkerConvOutputSlices.back().back().outXEnd = workerOutXEnd;
+          outFieldIndices ==
+              perWorkerConvOutputSlices.back().back().outFieldIndices) {
+        perWorkerConvOutputSlices.back().back().splitEnd = partInRow + 1;
       } else {
-        perWorkerConvOutputSlices.back().emplace_back(
-            workerOutXBegin, workerOutXEnd, b, outerFieldIndices, ocg, cg);
+        perWorkerConvOutputSlices.back().emplace_back(rowSplitFactor, partInRow,
+                                                      partInRow + 1, b,
+                                                      outFieldIndices, ocg, cg);
       }
     }
   }
@@ -1111,7 +1105,7 @@ static void createConvPartialHorizontalMacVertex(
   const unsigned inChansPerGroup = plan.inChansPerGroup;
   const unsigned outChansPerGroup = plan.partialChansPerGroup;
 
-  // MAC vertices only support having a single conv group per grouping.
+  // HMAC vertices only support having a single conv group per grouping.
   assert(plan.convGroupsPerGroup == 1);
 
   bool flipOut = params.inputTransform.flip[xDimIndex];
@@ -1197,12 +1191,17 @@ static void createConvPartialHorizontalMacVertex(
       auto outFieldEnd = convOutEnd;
       outFieldEnd.push_back(convOutXEnd);
       auto workerPartition = partitionConvOutputBetweenWorkers(
-          graph, 0, params.getBatchSize(), outFieldBegin, outFieldEnd, 0, 1, 0,
-          1);
+          graph, 0, params.getBatchSize(), outFieldBegin, outFieldEnd,
+          outFieldBegin.size() - 1, 0, 1, 0, 1);
       for (unsigned i = 0; i != contextsPerVertex; ++i) {
         for (const auto &workerSlice : workerPartition[i]) {
-          auto workerOutXBegin = workerSlice.outXBegin;
-          auto workerOutXEnd = workerSlice.outXEnd;
+          auto outWidth = outFieldEnd.back() - outFieldBegin.back();
+          auto workerOutXBegin =
+              outFieldBegin.back() +
+              (outWidth * workerSlice.splitBegin) / workerSlice.splitFactor;
+          auto workerOutXEnd =
+              outFieldBegin.back() +
+              (outWidth * workerSlice.splitEnd) / workerSlice.splitFactor;
           std::tie(workerOutXBegin, workerOutXEnd) =
               getOutputRangeForKernelIndex(
                   xDimIndex, {workerOutXBegin, workerOutXEnd}, kx, params);
@@ -1212,7 +1211,7 @@ static void createConvPartialHorizontalMacVertex(
           std::vector<std::size_t> workerIn;
           bool validRow = true;
           for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
-            auto outIndex = workerSlice.outerFieldIndices[dim];
+            auto outIndex = workerSlice.outFieldIndices[dim];
             auto inIndex = getInputIndex(dim, outIndex, kCoord[dim], params);
             if (inIndex == ~0U) {
               validRow = false;
@@ -1228,7 +1227,7 @@ static void createConvPartialHorizontalMacVertex(
           workerIn.push_back(workerInXBegin);
 
           auto workerOutFieldIndicesBegin =
-              vectorConvert<std::size_t>(workerSlice.outerFieldIndices);
+              vectorConvert<std::size_t>(workerSlice.outFieldIndices);
           workerOutFieldIndicesBegin.push_back(workerOutXBegin);
           const auto outBeginOffset =
               workerSlice.b * numOutFieldElems +
@@ -1258,7 +1257,7 @@ static void createConvPartialHorizontalMacVertex(
                               1) *
                              outChansPerGroup;
 
-  // Due to a fact that MAC codelet for half partials process 2 partials in one
+  // Due to a fact that HMAC codelet for half partials process 2 partials in one
   // loop iterration transformedOutStride need to be adjusted accordingly
   if (plan.types.back().partialType == poplar::HALF) {
     transformedOutStride /= 2;
@@ -1337,6 +1336,231 @@ static void createConvPartialHorizontalMacVertex(
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
+  graph.setInitialValue(v["zerosInfo"], zerosInfo);
+  graph.setTileMapping(v, tile);
+}
+
+static void createConvPartialVerticalMacVertex(
+    Graph &graph, const Plan &plan, unsigned tile, const ConvParams &params,
+    ComputeSet fwdCS, const Tensor &in, const Tensor &weights,
+    const Tensor &out, const std::string &debugPrefix) {
+  const auto &target = graph.getTarget();
+  const auto numFieldDims = params.getNumFieldDims();
+  const auto xDimIndex = numFieldDims - 1;
+  const unsigned numConvGroupGroups = out.dim(0);
+  const unsigned numOutChanGroups = out.dim(1);
+  const unsigned numInChanGroups = in.dim(1);
+
+  // VMAC vertices only support having 4 group per grouping.
+  assert(plan.convGroupsPerGroup == 4);
+
+  const auto outputFieldShape = params.getOutputFieldShape();
+  const unsigned numOutFieldElems = product(outputFieldShape);
+  if (numOutFieldElems == 0)
+    return;
+
+  std::vector<Tensor> outWindow;
+  std::vector<Tensor> inWindow;
+  std::vector<Tensor> weightsWindow;
+
+  outWindow.reserve(numConvGroupGroups * numOutChanGroups);
+  inWindow.reserve(numConvGroupGroups);
+  weightsWindow.reserve(numConvGroupGroups * numOutChanGroups);
+
+  for (unsigned cg = 0; cg != numConvGroupGroups; ++cg) {
+    // Output Tensor slices
+    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+      auto o = out[cg][ozg].flatten();
+      outWindow.push_back(o);
+    }
+    // Input tensor slices
+    for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+      auto i = in[cg][izg].flatten();
+      inWindow.push_back(i);
+    }
+    // kernel tensor slices
+    for (unsigned ozg = 0; ozg != numOutChanGroups; ++ozg) {
+      for (unsigned izg = 0; izg != numInChanGroups; ++izg) {
+        auto w = weights[cg][ozg][izg].flatten();
+        weightsWindow.push_back(w);
+      }
+    }
+  }
+
+  // The weight is strided by the input dilation factor and vice versa.
+  // However reduce the striding factors by their mutual gcd.
+  bool flipWeights = params.inputTransform.flip[xDimIndex];
+  flipWeights ^= params.kernelTransform.flip[xDimIndex];
+  signed short inStrideX = params.kernelTransform.dilation.back();
+  signed short weightStrideX = params.inputTransform.dilation.back();
+  const auto strideDivisor = gcd(inStrideX, weightStrideX);
+  if (flipWeights) {
+    weightStrideX *= -1;
+  }
+  inStrideX /= strideDivisor;
+  weightStrideX /= strideDivisor;
+  const unsigned numInFieldElems = product(params.inputFieldShape);
+  const unsigned numKernelFieldElems = product(params.kernelShape);
+  const unsigned kernelSizeX = params.kernelShape.back();
+  const auto contextsPerVertex = target.getNumWorkerContexts();
+  struct WorklistEntry {
+    unsigned inOffset;
+    unsigned weightOffset;
+    unsigned outOffset;
+    unsigned numElems;
+    WorklistEntry(unsigned inOffset, unsigned weightOffset, unsigned outOffset,
+                  unsigned numElems)
+        : inOffset(inOffset), weightOffset(weightOffset), outOffset(outOffset),
+          numElems(numElems){};
+  };
+  std::vector<std::vector<WorklistEntry>> worklistEntry(contextsPerVertex);
+  for (unsigned k = 0; k != numKernelFieldElems / kernelSizeX; ++k) {
+    // unflatten kernel index into a co-ordinate for the kernel
+    auto kCoord = unflattenIndex(params.kernelShape, k * kernelSizeX);
+    std::vector<unsigned> convOutBegin, convOutEnd;
+    for (auto dim = 0U; dim + 1 != numFieldDims; ++dim) {
+      unsigned begin, end;
+      std::tie(begin, end) = getOutputRangeForKernelIndex(
+          dim, {0, params.getOutputSize(dim)}, kCoord[dim], params);
+      convOutBegin.push_back(begin);
+      convOutEnd.push_back(end);
+    }
+    const auto convOutElems = getNumElementsInSlice(convOutBegin, convOutEnd);
+    if (convOutElems == 0)
+      continue;
+
+    convOutBegin.push_back(0);
+    convOutEnd.push_back(params.getOutputSize(xDimIndex));
+    auto workerPartition = partitionConvOutputBetweenWorkers(
+        graph, 0, params.getBatchSize(), convOutBegin, convOutEnd,
+        convOutBegin.size(), 0, 1, 0, 1);
+    for (unsigned context = 0; context != contextsPerVertex; ++context) {
+      for (const auto &workerSlice : workerPartition[context]) {
+        unsigned inOffsetXBegin, inOffsetXEnd;
+        std::tie(inOffsetXBegin, inOffsetXEnd) =
+            getInputRange(xDimIndex,
+                          {workerSlice.outFieldIndices[xDimIndex],
+                           workerSlice.outFieldIndices[xDimIndex] + 1},
+                          {0, params.kernelShape[xDimIndex]}, params);
+        auto width =
+            (inOffsetXEnd - inOffsetXBegin + inStrideX - 1) / inStrideX;
+        auto workerOffsetXBegin =
+            width * workerSlice.splitBegin / workerSlice.splitFactor;
+        auto workerOffsetXEnd =
+            width * workerSlice.splitEnd / workerSlice.splitFactor;
+        auto workerWidth = workerOffsetXEnd - workerOffsetXBegin;
+        if (workerWidth == 0)
+          continue;
+        inOffsetXBegin += workerOffsetXBegin * inStrideX;
+        inOffsetXEnd = inOffsetXBegin + ((workerWidth - 1) * inStrideX) + 1;
+        unsigned kOffsetXBegin, kOffsetXEnd;
+        std::tie(kOffsetXBegin, kOffsetXEnd) =
+            getKernelRange(xDimIndex,
+                           {workerSlice.outFieldIndices[xDimIndex],
+                            workerSlice.outFieldIndices[xDimIndex] + 1},
+                           {inOffsetXBegin, inOffsetXEnd}, params);
+
+        std::vector<std::size_t> workerIn;
+        bool validRow = true;
+        for (unsigned dim = 0; dim + 1 < numFieldDims; ++dim) {
+          auto outIndex = workerSlice.outFieldIndices[dim];
+          auto inIndex = getInputIndex(dim, outIndex, kCoord[dim], params);
+          if (inIndex == ~0U) {
+            validRow = false;
+            break;
+          }
+          workerIn.push_back(inIndex);
+        }
+        if (!validRow)
+          continue;
+        workerIn.push_back(inOffsetXBegin);
+        const auto inOffsetBegin =
+            workerSlice.b * numInFieldElems +
+            flattenIndex(params.inputFieldShape, workerIn);
+        auto workerK = kCoord;
+        workerK.back() += flipWeights ? (kOffsetXEnd - 1) : kOffsetXBegin;
+        const auto kOffsetBegin = flattenIndex(params.kernelShape, workerK);
+        auto workerOutFieldIndicesBegin =
+            vectorConvert<std::size_t>(workerSlice.outFieldIndices);
+        const auto outBeginOffset =
+            workerSlice.b * numOutFieldElems +
+            flattenIndex(outputFieldShape, workerOutFieldIndicesBegin);
+        worklistEntry[context].emplace_back(inOffsetBegin, kOffsetBegin,
+                                            outBeginOffset, workerWidth);
+      }
+    }
+  }
+
+  // sort by output offset in order to minimise reloading of accumulators
+  std::vector<std::vector<unsigned>> worklist(contextsPerVertex);
+  for (unsigned context = 0; context != contextsPerVertex; ++context) {
+    std::sort(worklistEntry[context].begin(), worklistEntry[context].end(),
+              [](const auto &lhs, const auto &rhs) {
+                return lhs.outOffset < rhs.outOffset;
+              });
+    for (auto wl : worklistEntry[context]) {
+      worklist[context].push_back(wl.outOffset);
+      worklist[context].push_back(wl.weightOffset);
+      worklist[context].push_back(wl.inOffset);
+      assert(wl.numElems > 0);
+      worklist[context].push_back(wl.numElems - 1);
+    }
+  }
+
+  // Limits for field and worklist elements
+  const auto unsignedMax = std::numeric_limits<unsigned short>::max();
+  const auto signedMax = std::numeric_limits<signed short>::max();
+  bool useLimitedVer = true;
+  if ((inStrideX > signedMax) || (weightStrideX > signedMax))
+    useLimitedVer = false;
+
+  // check if all worklist items meet range constraints
+  for (auto j = 0U; j != worklist.size() && useLimitedVer; ++j) {
+    const auto &vec = worklist[j];
+    for (auto j = 0U; j != vec.size(); ++j) {
+      if (vec[j] > unsignedMax) {
+        useLimitedVer = false;
+        break;
+      }
+      // check that the count is within rpt count limits.
+      if (j % 4 == 3) {
+        const auto maxRptCount = vec[j];
+        if (maxRptCount > target.getRptCountMax()) {
+          useLimitedVer = false;
+          break;
+        }
+      }
+    }
+  }
+
+  // Limits for field and worklist elements
+  const auto zerosInfo = outWindow[0].numElements();
+  const auto worklistEntryType = useLimitedVer ? UNSIGNED_SHORT : UNSIGNED_INT;
+
+  auto v = graph.addVertex(
+      fwdCS, templateVertex("poplin::ConvPartialVerticalMac", in.elementType(),
+                            plan.types.back().partialType,
+                            useLimitedVer ? "true" : "false"));
+  graph.connect(v["in"], inWindow);
+  graph.connect(v["out"], outWindow);
+  graph.connect(v["weights"], weightsWindow);
+  graph.setInitialValue(v["numInGroups"], numInChanGroups);
+  graph.setInitialValue(v["inStride"], inStrideX);
+  graph.setInitialValue(v["weightsStride"], weightStrideX);
+  graph.setInitialValue(v["numConvGroupsM1"], numConvGroupGroups - 1);
+  graph.setFieldSize(v["worklists"], worklist.size());
+
+  for (unsigned i = 0; i < worklist.size(); ++i) {
+    auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
+                               worklist[i].data(), debugPrefix + "/worklist");
+    graph.setTileMapping(t, 0);
+    graph.connect(v["worklists"][i], t);
+  }
+  auto partials = graph.addVariable(plan.types.back().partialType,
+                                    {contextsPerVertex * zerosInfo},
+                                    debugPrefix + "/partials");
+  graph.connect(v["partials"], partials);
+  graph.setTileMapping(partials, tile);
   graph.setInitialValue(v["zerosInfo"], zerosInfo);
   graph.setTileMapping(v, tile);
 }
@@ -1471,10 +1695,15 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                                  weights, out, use128BitConvUnitLoad,
                                  debugPrefix);
     break;
-  case Plan::Method::MAC:
+  case Plan::Method::HMAC:
     createConvPartialHorizontalMacVertex(graph, plan, tile, params,
                                          convolveCS.convolveCS, in, weights,
                                          out, debugPrefix);
+    break;
+  case Plan::Method::VMAC:
+    createConvPartialVerticalMacVertex(graph, plan, tile, params,
+                                       convolveCS.convolveCS, in, weights, out,
+                                       debugPrefix);
     break;
   case Plan::Method::SLIC:
     assert(plan.inChansPerGroup == plan.partialChansPerGroup);

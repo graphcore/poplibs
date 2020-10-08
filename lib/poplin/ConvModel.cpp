@@ -364,7 +364,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   floatPartials)};
         });
   }
-  case Plan::Method::MAC: {
+  case Plan::Method::HMAC: {
     const auto outputStrideX = transformedInputDilation.back();
     return m.call<unsigned>(
         convSizeVarsVector,
@@ -376,7 +376,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
                            inChansPerGroup, outChansPerGroup);
 
-          // MAC currently only expects a single convGroup grouping.
+          // HMAC currently only expects a single convGroup grouping.
           assert(convGroupsPerGroup == 1);
 
           const auto tileNumInGroups =
@@ -409,12 +409,62 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   target.getNumWorkerContexts(), floatActivations,
                   floatPartials, inChansPerGroup, outChansPerGroup,
                   target.getDataPathWidth());
-          return popsolver::DataType{
+          auto cycles = popsolver::DataType{
               getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
                   innerLoopCycles, tileNumConvGroups, tileNumInGroups,
                   tileNumOutGroups, target.getNumWorkerContexts(),
                   floatActivations, floatPartials) +
               zeroCycles};
+          return cycles;
+        },
+        debugName);
+  } break;
+  case Plan::Method::VMAC: {
+    return m.call<unsigned>(
+        convSizeVarsVector,
+        [&target, fieldGrainSize, inChansPerGroup, convGroupsPerGroup,
+         outChansPerGroup, transformedInputDilation, cache, floatActivations,
+         floatPartials, options](const std::vector<unsigned> &values)
+            -> boost::optional<popsolver::DataType> {
+          const auto convSize =
+              makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
+                           inChansPerGroup, outChansPerGroup);
+          if ((convSize.outChanSize > 1) || (outChansPerGroup > 1)) {
+            return boost::none;
+          }
+          const auto tileNumInGroups =
+              ceildiv(convSize.inChanSize, inChansPerGroup);
+          const auto tileNumConvGroups =
+              ceildiv(convSize.convGroupSize, convGroupsPerGroup);
+          const auto tileKernelElements = product(convSize.kernelSize);
+          const auto tileKernelWidth = convSize.kernelSize.back();
+          const auto tileOutFieldSize = product(convSize.fieldSize);
+          const auto tileOutWidth = convSize.fieldSize.back();
+          const auto tileOutHeight = tileOutFieldSize / tileOutWidth;
+          const auto numOutElems = tileOutHeight * tileOutWidth;
+          const auto innerLoopCycles =
+              cache->mEstimateConvPartialVerticalMacInnerLoopCycles(
+                  tileOutHeight, tileOutWidth, convSize.batchSize,
+                  tileKernelElements / tileKernelWidth, tileKernelWidth,
+                  target.getNumWorkerContexts(), floatActivations,
+                  floatPartials, inChansPerGroup, outChansPerGroup,
+                  convGroupsPerGroup);
+          // Temporary memory is used to store the partial outputs of each
+          // worker.  These partials are independent from each other and they
+          // are sized for the whole output. Since all the partials need to be
+          // intialised to zero by every worker, the Zeroing estimation does
+          // not need to take the number of worker contexts as an argument.
+          auto zeroCycles =
+              getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
+                  numOutElems);
+          auto reductionCycles =
+              getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
+                  numOutElems, target.getNumWorkerContexts());
+          auto cycles = popsolver::DataType{
+              getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
+                  innerLoopCycles, zeroCycles, reductionCycles,
+                  tileNumConvGroups, tileNumInGroups)};
+          return cycles;
         },
         debugName);
   } break;
@@ -426,8 +476,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
     return m.call<unsigned>(
         convSizeVarsVector,
         [fieldGrainSize, numContexts, convGroupsPerGroup, outChansPerGroup,
-         inChansPerGroup, floatActivations, outputIsFloat, dataPathWidth](
-            const std::vector<unsigned> &values) -> popsolver::DataType {
+         inChansPerGroup, floatActivations, outputIsFloat,
+         dataPathWidth](const std::vector<unsigned> &values)
+            -> boost::optional<popsolver::DataType> {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
                            inChansPerGroup, outChansPerGroup);
@@ -435,7 +486,9 @@ static popsolver::Variable addPartialCalcCycleEstimate(
           assert(convSize.inChanSize == 1);
 
           // OuterProduct currently only expects a single convGroup grouping.
-          assert(convGroupsPerGroup == 1);
+          if (convGroupsPerGroup > 1) {
+            return boost::none;
+          }
 
           const auto tileNumConvGroups =
               ceildiv(convSize.convGroupSize, convGroupsPerGroup);
@@ -463,7 +516,8 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
 
   auto vectorWidth = target.getVectorWidth(inputType);
   switch (convVertexType.method) {
-  case Plan::Method::MAC:
+  case Plan::Method::HMAC:
+  case Plan::Method::VMAC:
   case Plan::Method::OUTER_PRODUCT:
     return vectorWidth;
   case Plan::Method::SLIC:
@@ -747,7 +801,8 @@ addTileLevelTransformEstimates(
   const auto numConvUnitsRequired = convVertexType.numConvUnitsRequired;
 
   switch (convVertexType.method) {
-  case Plan::Method::MAC:
+  case Plan::Method::HMAC:
+  case Plan::Method::VMAC:
   case Plan::Method::OUTER_PRODUCT: {
     return std::make_pair(zero, zero);
   }
@@ -1873,7 +1928,7 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
 
 Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
   if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
-    return Plan::Method::MAC;
+    return Plan::Method::HMAC;
   }
   return fwdMethod;
 }
@@ -1975,7 +2030,7 @@ Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
     return Plan::Method::AMP;
   }
   if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
-    return Plan::Method::MAC;
+    return Plan::Method::HMAC;
   }
   return fwdMethod;
 }
@@ -2562,8 +2617,11 @@ static void addMethodConstraints(popsolver::Model &m, const Plan::Method method,
   // overly conserversative for the multi-IPU case.
   switch (method) {
   case Plan::Method::AMP:
-  case Plan::Method::MAC:
+  case Plan::Method::HMAC:
     // these methods have no individual constraint requirements.
+    break;
+  case Plan::Method::VMAC:
+    m.equal(s.numOutChanGrains, popsolver::DataType{1});
     break;
   case Plan::Method::SLIC:
     addSLICConstraints(m, p, s, lvl1Params);

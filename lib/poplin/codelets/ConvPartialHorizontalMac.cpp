@@ -22,7 +22,7 @@ constexpr bool hasAssembly() {
   return !(std::is_same<AccumType, half>() && std::is_same<FPType, float>());
 }
 
-/* Perform a series of 1x1 convolutions using the MAC instruction where the
+/* Perform a series of 1x1 convolutions using the HMAC instruction where the
  * axis of accumulation is across the vector.
  * useLimitedVer is "true" if there are constraints imposed on
  * - The number of input channels is a multiple of 2
@@ -56,7 +56,7 @@ public:
   // transformedOutStride =
   //   = (-1 * "actual output stride" - 1 * outChansPerGroup (if flip output)
   //   = +1 * "actual output stride" * outChansPerGroup
-  // Due to a fact that MAC codelet for half partials process 2 partials
+  // Due to a fact that HMAC codelet for half partials process 2 partials
   // in one loop iterration transformedOutStride was adjusted accordingly
   // e.g. if (AccumType == HALF) transformedOutStride /= 2
   const int transformedOutStride;

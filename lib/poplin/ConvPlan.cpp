@@ -47,8 +47,10 @@ static const char *asString(Plan::Method m) {
     return "AMP";
   case Plan::Method::SLIC:
     return "SLIC";
-  case Plan::Method::MAC:
-    return "MAC";
+  case Plan::Method::HMAC:
+    return "HMAC";
+  case Plan::Method::VMAC:
+    return "VMAC";
   case Plan::Method::OUTER_PRODUCT:
     return "OUTER_PRODUCT";
   }
@@ -142,8 +144,10 @@ std::ostream &operator<<(std::ostream &os, const Plan::Method &m) {
 std::istream &operator>>(std::istream &is, Plan::Method &m) {
   std::string token;
   is >> token;
-  if (token == "MAC") {
-    m = Plan::Method::MAC;
+  if (token == "HMAC") {
+    m = Plan::Method::HMAC;
+  } else if (token == "VMAC") {
+    m = Plan::Method::VMAC;
   } else if (token == "AMP") {
     m = Plan::Method::AMP;
   } else if (token == "SLIC") {
@@ -521,7 +525,7 @@ choosePlan(const poplar::Target &target,
   return {plan, cost, s.constraintsEvaluated()};
 }
 
-static void getConvVertexMACCandidates(
+static void getConvVertexHMACCandidates(
     const poplar::Target &target, const poplar::Type &inputType,
     const poplar::Type &outputType, const poplar::Type &partialType,
     const ConvParams &params, const ConvOptions &options, bool isJointPlan,
@@ -579,7 +583,7 @@ static void getConvVertexMACCandidates(
   }
 
   unsigned partialChansPerGroup = 1;
-  // MAC codelet for half partials processes 2 partials inside inner loop
+  // HMAC codelet for half partials processes 2 partials inside inner loop
   // to have most optimal load/store pipeline
   if (!floatPartials) {
     partialChansPerGroup = 2;
@@ -612,14 +616,42 @@ static void getConvVertexMACCandidates(
         continue;
     }
 
-    // The MAC vertex does not require a grouping of the conv groups.
+    // The HMAC vertex does not require a grouping of the conv groups.
     const unsigned convGroupsPerGroup = 1;
 
-    candidates.emplace_back(Plan::Method::MAC, inputType, partialType,
+    candidates.emplace_back(Plan::Method::HMAC, inputType, partialType,
                             convGroupsPerGroup, inChansPerGroup,
                             partialChansPerGroup, numConvUnits, numConvUnits,
                             useLimitedVersion);
     previousInChanGroups = inChanGroups;
+  }
+}
+
+static void getConvVertexVMACCandidates(
+    const poplar::Target &target, const poplar::Type &inputType,
+    const poplar::Type &outputType, const poplar::Type &partialType,
+    const ConvParams &params, const ConvOptions &options, bool isJointPlan,
+    std::vector<ConvVertexType> &candidates) {
+  bool floatActivations = inputType == poplar::FLOAT;
+  bool floatPartials = partialType == poplar::FLOAT;
+
+  // Assembly version only available for half activations and float partials
+  if (floatActivations || !floatPartials) {
+    return;
+  }
+
+  auto numConvUnits = getNumConvUnits(floatActivations, floatPartials, target);
+
+  // Every execution of the VMAC inner loop vertex processes a single input
+  // channel.
+  unsigned inChansPerGroup = 1;
+  unsigned partialChansPerGroup = 1;
+  std::vector<unsigned> convGroupsPerGroupOptions = {4};
+  for (auto convGroupsPerGroup : convGroupsPerGroupOptions) {
+    candidates.emplace_back(Plan::Method::VMAC, inputType, partialType,
+                            convGroupsPerGroup, inChansPerGroup,
+                            partialChansPerGroup, numConvUnits, numConvUnits,
+                            false);
   }
 }
 
@@ -918,12 +950,15 @@ getConvVertexTypeCandidates(const poplar::Target &target,
 
     // the order here should be in most-likely-best first for performance
     // because the planner constrains future models against the current best.
+    // clang-format off
     methodCandidates = {
         Plan::Method::AMP,
         Plan::Method::SLIC,
-        Plan::Method::MAC,
-        Plan::Method::OUTER_PRODUCT,
+        Plan::Method::HMAC,
+        Plan::Method::VMAC,
+        Plan::Method::OUTER_PRODUCT
     };
+    // clang-format on
 
     if (disableSLIC) {
       methodCandidates.erase(methodCandidates.begin() + 1);
@@ -937,10 +972,16 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   std::vector<ConvVertexType> convVertexTypeCandidates;
   for (const auto &method : methodCandidates) {
     switch (method) {
-    case Plan::Method::MAC: {
-      getConvVertexMACCandidates(target, inputType, outputType, partialType,
-                                 params, options, isJointPlan,
-                                 convVertexTypeCandidates);
+    case Plan::Method::HMAC: {
+      getConvVertexHMACCandidates(target, inputType, outputType, partialType,
+                                  params, options, isJointPlan,
+                                  convVertexTypeCandidates);
+      break;
+    }
+    case Plan::Method::VMAC: {
+      getConvVertexVMACCandidates(target, inputType, outputType, partialType,
+                                  params, options, isJointPlan,
+                                  convVertexTypeCandidates);
       break;
     }
     case Plan::Method::AMP: {

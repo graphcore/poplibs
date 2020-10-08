@@ -27,6 +27,9 @@ public:
     decltype(poplibs_support::memoize(
         estimateConvPartialHorizontalMacInnerLoopCycles))
         mEstimateConvPartialHorizontalMacInnerLoopCycles;
+    decltype(
+        poplibs_support::memoize(estimateConvPartialVerticalMacInnerLoopCycles))
+        mEstimateConvPartialVerticalMacInnerLoopCycles;
     decltype(poplibs_support::memoize(
         estimateConvReduceCycles)) mEstimateConvReduceCycles;
     decltype(poplibs_support::memoize(getNumberOfMACs)) mGetNumberOfMACs;
@@ -47,6 +50,8 @@ public:
               getConvPartialnx1InnerLoopCycleEstimate),
           mEstimateConvPartialHorizontalMacInnerLoopCycles(
               estimateConvPartialHorizontalMacInnerLoopCycles),
+          mEstimateConvPartialVerticalMacInnerLoopCycles(
+              estimateConvPartialVerticalMacInnerLoopCycles),
           mEstimateConvReduceCycles(estimateConvReduceCycles),
           mGetNumberOfMACs(getNumberOfMACs),
           mEstimateZeroSupervisorCycles(estimateZeroSupervisorCycles),

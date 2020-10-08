@@ -187,12 +187,128 @@ inline std::uint64_t getConvPartialHorizontalMacSupervisorCycleEstimate(
     unsigned kernelSize, unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup, unsigned numWorkerContexts,
     bool floatActivations, bool floatPartials) {
-  auto cycles = getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
-      workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
+  auto innerLoopCycles =
+      getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
+          workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
+          numWorkerContexts, floatActivations, floatPartials);
+  auto cycles = getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
+      innerLoopCycles, numConvGroups, numInGroups, numOutGroups,
       numWorkerContexts, floatActivations, floatPartials);
-  return getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
-      cycles, numConvGroups, numInGroups, numOutGroups, numWorkerContexts,
-      floatActivations, floatPartials);
+  return cycles;
+}
+
+inline std::uint64_t getVerticalMacDotProductCycles(bool floatActivations,
+                                                    bool floatPartials,
+                                                    unsigned size,
+                                                    unsigned numChannels) {
+  assert(!floatActivations && floatPartials);
+  const auto innerCyclesOverhead = 5;
+  return innerCyclesOverhead + (2 * (size - 1));
+}
+
+inline std::uint64_t getConvPartialVerticalMacCycleEstimate(
+    bool floatActivations, bool floatPartials, unsigned convGroupsPerGroup,
+    const std::vector<unsigned> &convSizes) {
+  uint64_t cycles =
+      6; // 10 (reload state)  + 1 (bri) - 5 (cmpn, brz, Store-Acc);
+  for (auto convSize : convSizes) {
+    cycles += 10;
+    cycles += 5; // Cycles to store accumulators and then reload. Note that
+                 // this is an overestimate since these cycles should only be
+                 // incurred  when the output differs from that of the
+                 // previous worklist.
+    auto dotProdCycles = getVerticalMacDotProductCycles(
+        floatActivations, floatPartials, convSize, convGroupsPerGroup);
+    cycles += dotProdCycles;
+  }
+  return cycles;
+}
+
+inline std::uint64_t
+getConvPartialVerticalReductionCycleEstimate(unsigned numElems,
+                                             unsigned numWorkers) {
+  const auto cyclesPerRpt = 2;
+  return 10 + ((9 + (cyclesPerRpt * (numWorkers - 1))) * numElems / 4);
+}
+
+inline std::uint64_t getConvPartialVerticalMacSupervisorInnerLoopCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned kernelHeight, unsigned convGroupsPerGroup,
+    unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
+  unsigned usedContexts = workerPartitions.size();
+  uint64_t cycles = 0;
+  uint64_t maxWorkerCycles = 0;
+  uint64_t minWorkerCycles = usedContexts < numWorkerContexts
+                                 ? 0
+                                 : std::numeric_limits<uint64_t>::max();
+  for (auto context = 0U; context != usedContexts; ++context) {
+    uint64_t thisWorkerCycles = getConvPartialVerticalMacCycleEstimate(
+        floatActivations, floatPartials, convGroupsPerGroup,
+        workerPartitions[context]);
+    maxWorkerCycles =
+        std::max(maxWorkerCycles, numWorkerContexts * thisWorkerCycles);
+    minWorkerCycles =
+        std::min(minWorkerCycles, numWorkerContexts * thisWorkerCycles);
+  }
+  cycles += std::max(maxWorkerCycles, minWorkerCycles);
+  return cycles;
+}
+
+// VMAC Zeroing is done on all the partials for each worker. Hence this
+// function does not require the number of workers to be passed as an argument.
+inline std::uint64_t
+getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
+    unsigned numOutElems) {
+  return 4 + numOutElems;
+}
+
+inline std::uint64_t
+getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
+    unsigned numOutElems, unsigned numWorkerContexts) {
+  auto numElemsPerWorker =
+      (numOutElems + numWorkerContexts - 1) / numWorkerContexts;
+  uint64_t cycles = getConvPartialVerticalReductionCycleEstimate(
+      numElemsPerWorker, numWorkerContexts);
+  return cycles;
+}
+
+inline std::uint64_t getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
+    std::uint64_t innerLoopCycles, std::uint64_t zeroInitInnerCycles,
+    std::uint64_t reductionInnerCycles, unsigned numConvGroups,
+    unsigned numInGroups) {
+  const auto supOverheadCycles = 61;
+  const auto wkrCoreVMACInit = 13;
+  const auto wkrStateRetentionInit = 26;
+  auto outerLoopCycles = 32 + numInGroups * (24 + innerLoopCycles);
+  return supOverheadCycles + wkrCoreVMACInit + wkrStateRetentionInit +
+         (zeroInitInnerCycles + outerLoopCycles + reductionInnerCycles) *
+             numConvGroups;
+}
+
+inline std::uint64_t getConvPartialVerticalMacSupervisorCycleEstimate(
+    const std::vector<std::vector<unsigned>> &workerPartitions,
+    unsigned numConvGroups, unsigned numInGroups, unsigned numOutGroups,
+    unsigned kernelHeight, unsigned numOutElems, unsigned numInChansPerGroup,
+    unsigned numOutChansPerGroup, unsigned convGroupsPerGroup,
+    unsigned numWorkerContexts, bool floatActivations, bool floatPartials) {
+  assert(numOutGroups == 1);
+  assert(numInChansPerGroup == 1);
+  assert(numOutChansPerGroup == 1);
+  uint64_t cycles = 0;
+  auto innerLoopCycles =
+      getConvPartialVerticalMacSupervisorInnerLoopCycleEstimate(
+          workerPartitions, kernelHeight, convGroupsPerGroup, numWorkerContexts,
+          floatActivations, floatPartials);
+  auto zeroInitCycles =
+      getConvPartialVerticalMacSupervisorZeroInnerLoopCycleEstimate(
+          numOutElems);
+  auto reductionCycles =
+      getConvPartialVerticalMacSupervisorReductionInnerLoopCycleEstimate(
+          numOutElems, numWorkerContexts);
+  cycles += getConvPartialVerticalMacSupervisorOuterLoopCycleEstimate(
+      innerLoopCycles, zeroInitCycles, reductionCycles, numConvGroups,
+      numInGroups);
+  return cycles;
 }
 
 inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
@@ -1153,10 +1269,43 @@ inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
       }
     }
   }
-
   return getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
       workerPartitions, kernelSize, inChansPerGroup, outChansPerGroup,
       numWorkers, floatActivations, floatPartials);
+}
+
+inline std::uint64_t estimateConvPartialVerticalMacInnerLoopCycles(
+    unsigned tileOutHeight, unsigned tileOutWidth, unsigned batchSize,
+    unsigned tileKernelHeight, unsigned tileKernelWidth, unsigned numWorkers,
+    bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
+    unsigned outChansPerGroup, unsigned convGroupsPerGroup) {
+  unsigned numRows = tileOutHeight * tileOutWidth * batchSize;
+  unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numRows);
+  unsigned numPartRows = numRows * rowSplitFactor;
+  const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
+  const auto workerWholeRows = maxPartRows / rowSplitFactor;
+  const auto workerPartRows = maxPartRows % rowSplitFactor;
+  std::vector<std::vector<unsigned>> workerPartitions;
+  workerPartitions.emplace_back();
+  unsigned wholeRowConvSize = tileKernelWidth;
+  for (auto k = 0U; k != tileKernelHeight; ++k) {
+    for (unsigned r = 0; r != workerWholeRows; ++r) {
+      workerPartitions.back().push_back(wholeRowConvSize);
+    }
+    if (workerPartRows) {
+      for (unsigned r = 0; r != workerPartRows; ++r) {
+        auto partRowConvSize =
+            (wholeRowConvSize + rowSplitFactor - 1) / rowSplitFactor;
+        workerPartitions.back().push_back(partRowConvSize);
+      }
+    }
+  }
+  assert(inChansPerGroup == 1);
+  assert(outChansPerGroup == 1);
+  auto cycles = getConvPartialVerticalMacSupervisorInnerLoopCycleEstimate(
+      workerPartitions, tileKernelHeight, convGroupsPerGroup, numWorkers,
+      floatActivations, floatPartials);
+  return cycles;
 }
 
 } // namespace poplin

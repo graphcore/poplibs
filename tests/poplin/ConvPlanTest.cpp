@@ -157,7 +157,7 @@ BOOST_AUTO_TEST_CASE(CompletelyConstrainPlan) {
   // Constrain this to a plan the planner is extremely unlikely to choose
   // on its own.
   ss << R"delim(
-    {"method": "MAC",
+    {"method": "HMAC",
      "inChansPerGroup": 1,
      "partialChansPerGroup": 1,
      "0":
@@ -245,10 +245,10 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
        "inChansPerGroup": 1,
        "partialChansPerGroup": 1}
     )delim");
-  // MAC method only supports 1 partial chan per group
+  // HMAC method only supports 1 partial chan per group
   testFails(
       R"delim(
-      {"method": "MAC",
+      {"method": "HMAC",
        "inChansPerGroup": 1,
        "partialChansPerGroup": 2}
     )delim");
@@ -262,28 +262,28 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
   // inChanSplit exceeds number of input channels.
   testFails(
       R"delim(
-      {"method": "MAC",
+      {"method": "HMAC",
        "0": {"partition":{"inChanSplit":{"parallel": 256, "serial": 256}}}
       }
     )delim");
   // Product of outChanSplits exceeds number of output channels.
   testFails(
       R"delim(
-      {"method": "MAC",
+      {"method": "HMAC",
        "0": {"partition":{"outChanSplit":{"parallel": 16, "serial": 16}}}
       }
     )delim");
   // Product of batch splits exceeds number of batches.
   testFails(
       R"delim(
-      {"method": "MAC",
+      {"method": "HMAC",
        "0": {"partition":{"batchSplit": 256}}
       }
     )delim");
   // Total split greater than the number of available tiles.
   testFails(
       R"delim(
-      {"method": "MAC",
+      {"method": "HMAC",
        "0": {"transform":{"swapOperands": false,
                           "expandDims": [],
                           "outChanFlattenDims": []},

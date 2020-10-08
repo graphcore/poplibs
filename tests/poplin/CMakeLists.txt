@@ -1557,7 +1557,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                 --fwd-plan-constraints={\"method\":\"MAC\"}
+                 --fwd-plan-constraints={\"method\":\"HMAC\"}
                  --bias=0)
 endforeach() # IN_CHANS
 
@@ -1572,7 +1572,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                 --fwd-plan-constraints={\"method\":\"MAC\"}
+                 --fwd-plan-constraints={\"method\":\"HMAC\"}
                  --bias=0)
 endforeach() # OUT_CHANS
 
@@ -1587,7 +1587,7 @@ add_multitarget_test(
                  --tiles-per-ipu=1
                  --single-phase=fwd
                  --convolution-options={\"partialsType\":\"${PARTIALS_TYPE}\"}
-                 --fwd-plan-constraints={"method":"MAC","0":{"transform":{"swapOperands":false}}}
+                 --fwd-plan-constraints={"method":"HMAC","0":{"transform":{"swapOperands":false}}}
                  --bias=0
                  --flip-input=${FLIP_INPUT}
                  --in-dilation={1,4}
@@ -1595,7 +1595,55 @@ add_multitarget_test(
 endforeach() # FLIP_INPUT
 endforeach() # PARTIALS_TYPE
 
-# Tests to target non-limited MAC codelets
+foreach(CONV_GROUPS 1 3 4 5 11)
+foreach(BATCH_SIZE 1 5 9)
+add_multitarget_test(
+         NAME "conv_vmac_cg_${CONV_GROUPS}_b_${BATCH_SIZE}"
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=1
+                 --field={10,7}
+                 --kernel-size={4,4}
+                 --conv-groups=${CONV_GROUPS}
+                 --batch-size=${BATCH_SIZE}
+                 --tiles-per-ipu=1
+                 --single-phase=wu
+                 --convolution-options={\"partialsType\":\"float\"}
+                 --wu-plan-constraints={"method":"VMAC","0":{"transform":{"swapOperands":false}}}
+                 --bias=0
+                 --flip-input=0
+                 --in-dilation={2,1}
+                 --kernel-dilation={3,2}
+                 --stride={3,5})
+endforeach() # BATCH_SIZE
+endforeach() # CONV_GROUPS
+
+foreach(FLIP_INPUT 0 1)
+foreach(CONV_GROUPS 5 11)
+foreach(BATCH_SIZE 3 7)
+add_multitarget_test(
+         NAME "conv_vmac_cg_${CONV_GROUPS}_b_${BATCH_SIZE}_flip_input_${FLIP_INPUT}"
+         COMMAND single_conv_layer
+                 --input-channels=1
+                 --output-channels=1
+                 --field={13,9}
+                 --kernel-size={5,4}
+                 --conv-groups=${CONV_GROUPS}
+                 --batch-size=${BATCH_SIZE}
+                 --tiles-per-ipu=1
+                 --single-phase=wu
+                 --convolution-options={\"partialsType\":\"float\"}
+                 --wu-plan-constraints={"method":"VMAC","0":{"transform":{"swapOperands":false}}}
+                 --bias=0
+                 --flip-input=${FLIP_INPUT}
+                 --in-dilation={2,3}
+                 --kernel-dilation={3,5}
+                 --stride={2,3})
+endforeach() # BATCH_SIZE
+endforeach() # CONV_GROUPS
+endforeach() # FLIP_INPUT
+
+# Tests to target non-limited HMAC codelets
 add_multitarget_test(
          NAME "conv_mac_half_half_non_limited"
          COMMAND single_conv_layer
@@ -1607,7 +1655,7 @@ add_multitarget_test(
                  --output-type=half
                  --convolution-options={"partialsType":"half"}
                  --single-phase=fwd
-                 --fwd-plan-constraints={"method":"MAC","useLimitedVersion":false}
+                 --fwd-plan-constraints={"method":"HMAC","useLimitedVersion":false}
                  --bias=0)
 
 add_multitarget_test(
@@ -1621,7 +1669,7 @@ add_multitarget_test(
                  --output-type=float
                  --convolution-options={"partialsType":"float"}
                  --single-phase=fwd
-                 --fwd-plan-constraints={"method":"MAC","useLimitedVersion":false}
+                 --fwd-plan-constraints={"method":"HMAC","useLimitedVersion":false}
                  --bias=0)
 
 add_multitarget_test(
@@ -1634,7 +1682,7 @@ add_multitarget_test(
                  --data-type=float
                  --convolution-options={"partialsType":"float"}
                  --single-phase=fwd
-                 --fwd-plan-constraints={"method":"MAC","useLimitedVersion":false}
+                 --fwd-plan-constraints={"method":"HMAC","useLimitedVersion":false}
                  --bias=0)
 
 foreach(CHANS 8 16 32 64)
