@@ -523,7 +523,8 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
     return vectorWidth;
   case Plan::Method::SLIC:
     assert(!floatActivations);
-    return vectorWidth * convVertexType.slicWindowWidth * 2;
+    return std::min(vectorWidth, convVertexType.inChansPerGroup) *
+           convVertexType.slicWindowWidth * 2;
   case Plan::Method::AMP: {
     unsigned numConvUnits;
     if (floatActivations) {
@@ -534,7 +535,9 @@ unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
     } else {
       numConvUnits = target.getFp16InFp16OutConvUnitsPerTile();
     }
-    return numConvUnits * vectorWidth;
+    auto usedConvUnits =
+        std::min(numConvUnits, convVertexType.partialChansPerGroup);
+    return usedConvUnits * vectorWidth;
   }
   }
   POPLIB_UNREACHABLE();
