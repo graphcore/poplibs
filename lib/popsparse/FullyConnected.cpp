@@ -138,17 +138,23 @@ volumeIsContiguousInFlattenedSpace(const std::vector<unsigned> &space,
   return true;
 }
 
-// Starting offset for propagation phase, result given in terms of
-// forward pass, and is the same for all passes hence 'canonical'
-static std::vector<unsigned>
-getPropagationStartingOffsetCanonical(const SinglePassPlan &plan) {
+static unsigned getPropagationStartingOffsetFlat(const SinglePassPlan &plan) {
   const auto partition =
       shuffleVector(plan.partition.asStdVector(), plan.dimShuffleToFwd);
   auto initialDistributionPartitions = shuffleVector(
       plan.initialDistributionPartitions.asStdVector(), plan.dimShuffleToFwd);
   assert(volumeIsContiguousInFlattenedSpace(partition,
                                             initialDistributionPartitions));
-  auto indexFlat = product(initialDistributionPartitions);
+  return product(initialDistributionPartitions);
+}
+
+// Starting offset for propagation phase, result given in terms of
+// forward pass, and is the same for all passes hence 'canonical'
+static std::vector<unsigned>
+getPropagationStartingOffsetCanonical(const SinglePassPlan &plan) {
+  const auto partition =
+      shuffleVector(plan.partition.asStdVector(), plan.dimShuffleToFwd);
+  const auto indexFlat = getPropagationStartingOffsetFlat(plan);
   auto indices = unflattenIndexBoundless(partition, indexFlat);
   // We ignore groups so just get rid of them for now.
   indices.at(1) +=
@@ -304,6 +310,7 @@ public:
           getOuterLoopIterationsToSkip(overflowInfo.get());
       const auto increments = getLoopIncrements(plan);
 
+      progs.emplace_back();
       progs.back().add(prePropagation);
 
       const auto indices = graph.clone(endIndices, debugPrefix + "/indices");
@@ -312,6 +319,7 @@ public:
       const auto initialIndices =
           graph.addConstant(UNSIGNED_INT, endIndices.shape(),
                             ArrayRef<unsigned>(startingIndices));
+      logging::popsparse::debug("startingIndices={}", startingIndices);
       graph.setTileMapping(zero, 0);
       graph.setTileMapping(one, 0);
       graph.setTileMapping(initialIndices, 0);
@@ -394,6 +402,33 @@ public:
           progs.back().add(Copy(zero, indices[*dimIt]));
         }
       }
+
+      // Wrap the whole program in a conditional to check if the dynamic steps
+      // are necessary at all.
+      if (dimsToIterate.size() >= 1) {
+        std::vector<Tensor> placeholderTs;
+        for (std::size_t i = 0; i < numDirections; ++i) {
+          placeholderTs.emplace_back(endIndices[i]);
+        }
+        popops::expr::Any endIndicesProductExpr = popops::expr::PlaceHolder(1);
+        for (std::size_t i = 1; i < numDirections; ++i) {
+          endIndicesProductExpr = popops::expr::Mul(
+              popops::expr::PlaceHolder(i + 1), endIndicesProductExpr);
+        }
+        const auto startingIndexFlat = getPropagationStartingOffsetFlat(plan);
+        const auto gtExpr = popops::expr::Gt(
+            endIndicesProductExpr, popops::expr::Const(startingIndexFlat));
+        Sequence condProg;
+        const auto doPropagation =
+            popops::map(graph, gtExpr, placeholderTs, condProg,
+                        debugPrefix + "/needPropagation");
+        progs.back() = Sequence(
+            condProg, If(doPropagation, std::move(progs.back()), Sequence()));
+      }
+
+      auto prog = std::move(progs.back());
+      progs.pop_back();
+      progs.back().add(std::move(prog));
 
       assert(progs.size() == 1);
       seq.add(std::move(progs.back()));
