@@ -632,6 +632,7 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
   }
 
   const auto inGrouping = detectDimGroupings(graph, in);
+  logging::popops::debug("  input     grouping={}", inGrouping);
   const auto preferredGrouping =
       GroupingInfo{in.rank() - 1, preferredGrouping_};
 

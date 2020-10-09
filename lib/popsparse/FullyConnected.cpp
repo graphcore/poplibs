@@ -1649,6 +1649,23 @@ static Tensor fullyConnectedImpl(
                                       options, nzValueBuckets, debugPrefix);
   }
 
+  // Transpose the inputs if they do not have an inner dimension compatible
+  // with the layout needed on-tile based on the plan.
+  {
+    auto actsUngrouped = unfactorDims(acts, 3);
+    const auto actsMemOrder = getOnTileActsOrdering(plan.method);
+    const std::size_t preferredGrouping =
+        actsUngrouped.dim(actsMemOrder.back());
+    actsUngrouped = popops::rearrange::regroupIfBeneficial(
+                        graph,
+                        actsUngrouped.dimRoll(actsMemOrder.back(),
+                                              actsUngrouped.rank() - 1),
+                        preferredGrouping, progBuilder.preDistribution,
+                        debugPrefix + "/regroupInput")
+                        .dimRoll(actsUngrouped.rank() - 1, actsMemOrder.back());
+    acts = groupActs(actsUngrouped, plan.grouping);
+  }
+
   // Gather/create all operands required by partition index
   std::vector<Tensor> nextLevelInputs;
   MetaInfoAndValues<std::vector<Tensor>> nextLevelDistributionBuckets;
