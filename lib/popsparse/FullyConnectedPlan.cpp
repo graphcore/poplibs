@@ -38,7 +38,9 @@ namespace fullyconnected {
 
 namespace {
 
-const static auto metaInfoType = UNSIGNED_SHORT;
+using MetaInfoType = unsigned short;
+static const auto deviceMetaInfoType =
+    poplar::equivalent_device_type<MetaInfoType>().value;
 
 using CostBreakdown = std::vector<std::pair<std::string, Cost>>;
 
@@ -290,7 +292,7 @@ struct PartitionVariables {
 static std::tuple<CostVariables, popsolver::Variable, popsolver::Variable>
 addDistributionExchangeCostSparseDense(
     popsolver::Model &m, const Target &target, const Type &inputType,
-    const Type &metaInfoType, const Options &options,
+    const Type &deviceMetaInfoType, const Options &options,
     const std::vector<unsigned> &hierarchy,
     const ExchangeEstimator &exchangeEstimator,
     const PartitionToPNMapping &mapping,
@@ -1029,7 +1031,7 @@ addEstimates(const Target &target, const Type &inputType,
 
   const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
   const auto mBytesPerMetaInfoElem =
-      m.addConstant(target.getTypeSize(metaInfoType));
+      m.addConstant(target.getTypeSize(deviceMetaInfoType));
   const auto &mRNonZeroBytesPerBucket =
       m.product({mRGroupsPerBucket, mRElemsPerGroup, mBytesPerInput});
   const auto &mRMetaInfoBytesPerBucket =
@@ -1051,7 +1053,7 @@ addEstimates(const Target &target, const Type &inputType,
   std::tie(mDistributionExchangeCost, mSTempBytesAfterExchange,
            mRTempBytesAfterExchange) =
       addDistributionExchangeCostSparseDense(
-          m, target, inputType, metaInfoType, options, hierarchy,
+          m, target, inputType, deviceMetaInfoType, options, hierarchy,
           exchangeEstimator, mapping, mGroups, mGrouping, mRBytesPerBucket, p);
   mDistributionExchangeCost.tempBytes =
       m.sum({mDistributionExchangeCost.tempBytes, mRTransposedBytes});
@@ -1265,10 +1267,10 @@ static popsolver::Variable addNumNonZeroGroupsPerBucket(
 // Given the meta-info is often shared between passes in some way, these
 // are calculated and returned jointly.
 static popsolver::Variable addMetaInfoElemsPerBucket(
-    popsolver::Model &m, const Target &target, const Type &metaInfoType,
+    popsolver::Model &m, const Target &target, const Type &deviceMetaInfoType,
     const double &nzRatio, const OnTileMethod &method,
     const Vector<popsolver::Variable> &mGroupsPerTile, const Options &options) {
-  const unsigned bytesPerMetaInfoElem = target.getTypeSize(metaInfoType);
+  const unsigned bytesPerMetaInfoElem = target.getTypeSize(deviceMetaInfoType);
   const unsigned exchangeAtomSize = target.getExchangeBytesPerCycle();
   const auto atomSizeInMetaInfoElems =
       lcm(bytesPerMetaInfoElem, exchangeAtomSize);
@@ -1420,6 +1422,40 @@ applyPartitionPlanConstraint(popsolver::Model &m, const Options &options,
   }
 }
 
+// Add limits in the model to account for the range limit of meta-info
+template <typename MetaInfoT>
+static void addMetaInfoRangeLimits(popsolver::Model &m,
+                                   const Vector<popsolver::Variable> &mGroups,
+                                   const Vector<popsolver::Variable> &mGrouping,
+                                   MetaInfoT, const Type &inputType,
+                                   bool isBlockMetaInfoFormat,
+                                   const Options &options) {
+  // TODO: This should really live alongside the meta-info, but currently use
+  // of the model prohibits this. We could add a wrapper for popsolver
+  // variables that provides operator overloads such that we can just template
+  // the calculation of the max value given the grouping etc.
+
+  // TODO: This is not complete and only accounts for the offsets encoded in
+  // meta-info for element-wise sparsity as these are the most likely to exceed
+  // the range of the encoding type for the meta-info.
+  //
+  if (!isBlockMetaInfoFormat) {
+    const auto mYOffsetFactor =
+        m.addConstant(getYOffsetTypeScaleFactor(inputType == FLOAT));
+    // Max offset Y in S on this tile is (Y - 1)
+    const auto mMaxYOffset =
+        m.sub(m.product({mGroups.y, mGrouping.y}), m.one());
+    const auto mMaxYOffsetEncoded =
+        m.product({mMaxYOffset, mGroups.z, mGrouping.z, mYOffsetFactor});
+    const auto mMaxXOffsetEncoded =
+        m.sub(m.product({mGroups.x, mGrouping.x}), m.one());
+    const auto mMaxOffset = m.max({mMaxYOffsetEncoded, mMaxXOffsetEncoded});
+    const auto mMaxEncodableValue =
+        m.addConstant(std::numeric_limits<MetaInfoT>::max());
+    m.lessOrEqual(mMaxOffset, mMaxEncodableValue);
+  }
+}
+
 static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
@@ -1476,6 +1512,13 @@ createPlan(const PlanningObjective &objective, const Target &target,
       m.equal(mFwdGroups[level + 1].groups, popsolver::DataType{1});
     }
   }
+  const auto mFwdGrouping = method.grouping.transform<popsolver::Variable>(
+      [&](const auto grouping) { return m.addConstant(grouping); });
+
+  const bool isBlockMetaInfoFormat =
+      params.getSparsityParams().type == SparsityType::Block;
+  addMetaInfoRangeLimits(m, mFwdGroups.back(), mFwdGrouping, MetaInfoType(),
+                         inputType, isBlockMetaInfoFormat, options);
 
   // Calculate size of buckets.
   const auto mRGroups = addNumNonZeroGroups(m, params, inputType);
@@ -1484,12 +1527,9 @@ createPlan(const PlanningObjective &objective, const Target &target,
   const auto mRGroupsPerBucket = addNumNonZeroGroupsPerBucket(
       m, target, inputType, mRGroups, rElemsPerGroup, fwdPartition, options);
   const auto mRElemsPerGroup = m.addConstant(rElemsPerGroup);
-  const auto mRFwdMetaInfoElemsPerBucket =
-      addMetaInfoElemsPerBucket(m, target, metaInfoType, params.getNzRatio(),
-                                method.fwd, mFwdGroups.back(), options);
-
-  const auto mFwdGrouping = method.grouping.transform<popsolver::Variable>(
-      [&](const auto grouping) { return m.addConstant(grouping); });
+  const auto mRFwdMetaInfoElemsPerBucket = addMetaInfoElemsPerBucket(
+      m, target, deviceMetaInfoType, params.getNzRatio(), method.fwd,
+      mFwdGroups.back(), options);
 
   ExchangeAndMappingPlan exchangePlan;
 
@@ -1548,9 +1588,16 @@ createPlan(const PlanningObjective &objective, const Target &target,
       return v;
     }();
     const auto mGradAGrouping = toGradA(mFwdGrouping);
-    mRGradAMetaInfoElemsPerBucket =
-        addMetaInfoElemsPerBucket(m, target, metaInfoType, params.getNzRatio(),
-                                  method.gradA, mGradAGroups.back(), options);
+
+    if (!options.sharedBuckets) {
+      addMetaInfoRangeLimits(m, mGradAGroups.back(), mGradAGrouping,
+                             MetaInfoType(), inputType, isBlockMetaInfoFormat,
+                             options);
+    }
+
+    mRGradAMetaInfoElemsPerBucket = addMetaInfoElemsPerBucket(
+        m, target, deviceMetaInfoType, params.getNzRatio(), method.gradA,
+        mGradAGroups.back(), options);
 
     std::tie(gradACost, gradACostBreakdown) = addEstimates(
         target, inputType, gradAShape, params.getSparsityParams(),
