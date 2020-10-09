@@ -428,7 +428,8 @@ struct ExchangeTensors {
   std::vector<Tensor> rowDst;
   std::vector<Tensor> columnDst;
 };
-ExchangeTensors createExchangeTensors(Graph &graph, Type dataType,
+ExchangeTensors createExchangeTensors(Graph &graph, Sequence &prog,
+                                      Type dataType,
                                       const PlannedSplits &plannedSplits,
                                       unsigned numBuffers, unsigned rows,
                                       bool isSlice,
@@ -440,7 +441,10 @@ ExchangeTensors createExchangeTensors(Graph &graph, Type dataType,
     // in our plannedSplits
     src[i] = createSliceTensor(graph, dataType, rows, plannedSplits,
                                debugPrefix + "/ExBuf" + std::to_string(i));
-
+    // Ensure that he exchange buffers don't remain always live. This can
+    // happen as they are not necessarily completely written, or it is not
+    // clear that they are completely written due to the dynamic program flow
+    prog.add(WriteUndef(src[i]));
     // Create views into the src tensors which become the destination
     // These are just a view into the source tensor but with the
     // rows circularly modified so that a tile's data gets copied to the
@@ -724,10 +728,10 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
 
   // Create exchange buffers for the NZ and metaInfo
   const auto metaInfoExBuf = createExchangeTensors(
-      graph, metaInfoBuckets.elementType(), metaInfoSplits, numBuffers,
+      graph, prog, metaInfoBuckets.elementType(), metaInfoSplits, numBuffers,
       metaInfoShape2D[0], true, debugPrefix + "/metaInfo");
   const auto nzExBuf =
-      createExchangeTensors(graph, inputType, nzSplits, numBuffers,
+      createExchangeTensors(graph, prog, inputType, nzSplits, numBuffers,
                             nzShape2D[0], true, debugPrefix + "/Nzero");
 
   // Create program fragments used below
@@ -925,16 +929,16 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   //                   per columnpartition. Needed when columns are spilled.
   const auto numBuffers = 2;
   const auto slicesExBuf =
-      createExchangeTensors(graph, inputType, plannedSplits, numBuffers,
+      createExchangeTensors(graph, prog, inputType, plannedSplits, numBuffers,
                             offsets.dim(0), false, debugPrefix + "/Slices");
 
   const auto offsetsExBuf = createExchangeTensors(
-      graph, offsets.elementType(), offsetsSplits, numBuffers, offsets.dim(0),
-      false, debugPrefix + "/Offsets");
+      graph, prog, offsets.elementType(), offsetsSplits, numBuffers,
+      offsets.dim(0), false, debugPrefix + "/Offsets");
 
   auto columnPartitionExBuf = createExchangeTensors(
-      graph, columnPartitionBroadcast.elementType(), columnPartitionSplits,
-      numBuffers,
+      graph, prog, columnPartitionBroadcast.elementType(),
+      columnPartitionSplits, numBuffers,
       columnPartitionBroadcast.dim(0) * columnPartitionBroadcast.dim(1), false,
       debugPrefix + "/ColumnPartition");
 
