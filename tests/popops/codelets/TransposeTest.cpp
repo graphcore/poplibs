@@ -1,19 +1,15 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 // Test for the transpose2d vertex
-//
-#include <poplar/Engine.hpp>
-#include <popops/Zero.hpp>
 
+#define BOOST_TEST_MODULE TransposeTest
 #include "poputil/VertexTemplates.hpp"
-
+#include <poplar/Engine.hpp>
+#include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/Rearrange.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
-
-#define BOOST_TEST_MODULE TransposeTest
-#include <poplibs_support/TestDevice.hpp>
 
 using namespace poplar;
 using namespace poplar::program;
@@ -82,8 +78,10 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
                          return (a.matrices < b.matrices);
                        })
           ->matrices;
+
   // Whole data array size
-  auto total_size = max_rows * max_cols * max_matrices;
+  auto test_size = max_rows * max_cols * max_matrices;
+  auto total_size = test_count * test_size;
 
   // Program generated test data
   std::vector<double> outTest(total_size);
@@ -93,13 +91,13 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
                      dataType == SHORT);
 
   // Initialise input pattern.
-  for (unsigned i = 0; i < total_size; i++) {
-    // We don't want numbers that are outside the 'half' precision (for
-    // integers):  -2048 <= HALF <= +2048
-    inTest[i] = (int(i) % 4096) - (signedType ? 2048 : 0);
-  }
+  std::generate_n(inTest.data(), inTest.size(), [i = 0, signedType]() mutable {
+    // We don't want numbers that are outside the 'half'
+    // precision (for integers):  -2048 <= HALF <= +2048
+    return (int(i++) % 4096) - (signedType ? 2048 : 0);
+  });
 
-  auto device = createTestDevice(TEST_TARGET);
+  auto device = createTestDevice(TEST_TARGET, 1, test_count);
   Target target = device.getTarget();
 
   // Create Graph object
@@ -108,14 +106,12 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
   poplin::addCodelets(graph);
 
   // Input data
-  Tensor in = graph.addVariable(dataType, {max_matrices, max_rows * max_cols},
-                                "Input Data");
-  graph.setTileMapping(in, 0);
+  Tensor in = graph.addVariable(
+      dataType, {test_count, max_matrices, max_rows * max_cols}, "Input Data");
 
   // Result data
-  Tensor out = graph.addVariable(dataType, {max_matrices, max_rows * max_cols},
-                                 "Output");
-  graph.setTileMapping(out, 0);
+  Tensor out = graph.addVariable(
+      dataType, {test_count, max_matrices, max_rows * max_cols}, "Output");
 
   // allocateHostMemoryForTensor
   Sequence uploadProg, downloadProg;
@@ -126,21 +122,27 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
   auto output = allocateHostMemoryForTensor(out, "out", graph, uploadProg,
                                             downloadProg, tmap);
 
-  // Make multiple programs to test Transpose 2D each using
-  // different input slices
-  std::vector<Program> programs(test_count);
+  Sequence prog;
+  ComputeSet cs = graph.addComputeSet("testTranpose");
 
-  for (std::size_t tests = 0; tests < test_count; tests++) {
-    auto matrices = testList[tests].matrices;
-    auto rows = testList[tests].rows;
-    auto cols = testList[tests].cols;
+  for (std::size_t test = 0; test < test_count; test++) {
+    // put each test on a different tile
+    graph.setTileMapping(in[test], test);
+    graph.setTileMapping(out[test], test);
 
-    Sequence sequence;
+    auto matrices = testList[test].matrices;
+    auto rows = testList[test].rows;
+    auto cols = testList[test].cols;
 
-    ComputeSet testComputeSet = graph.addComputeSet("computeTranspose2d");
+    // Zero output
+    const auto zero =
+        graph.addConstant(out.elementType(), out[test].shape(), 0);
+    graph.setTileMapping(zero, test);
+    prog.add(Copy(zero, out[test]));
+
     const auto fastVariant =
         canUseFastTranspose(target, dataType, rows, cols, matrices) &&
-        !testList[tests].force2d;
+        !testList[test].force2d;
 
     std::string vertexName = "popops::Transpose2d";
     if (fastVariant) {
@@ -150,12 +152,12 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
 
     const auto vertexClass = templateVertex(vertexName, dataType);
 
-    auto transVertex = graph.addVertex(testComputeSet, vertexClass);
-    graph.setTileMapping(transVertex, 0);
+    auto transVertex = graph.addVertex(cs, vertexClass);
+    graph.setTileMapping(transVertex, test);
 
     // Different slices of the same input data to test looping decisions
-    auto sliceIn = in.slice({0, 0}, {matrices, rows * cols});
-    auto sliceOut = out.slice({0, 0}, {matrices, rows * cols});
+    auto sliceIn = in[test].slice({0, 0}, {matrices, rows * cols});
+    auto sliceOut = out[test].slice({0, 0}, {matrices, rows * cols});
 
     if (fastVariant) {
       graph.connect(transVertex["src"], sliceIn.flatten());
@@ -193,14 +195,13 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
       graph.setInitialValue(transVertex["numSrcColumns"], cols);
       graph.setInitialValue(transVertex["numSrcRows"], rows);
     }
-
-    const auto zero = graph.addConstant(out.elementType(), out.shape(), 0);
-    graph.setTileMapping(zero, 0);
-    // Zero output
-    sequence.add(Copy(zero, out));
-    sequence.add(Execute(testComputeSet));
-    programs[tests] = sequence;
   }
+
+  prog.add(Execute(cs));
+
+  std::vector<Program> programs;
+  const auto testProgIndex = programs.size();
+  programs.push_back(prog);
   const auto uploadProgIndex = programs.size();
   programs.push_back(uploadProg);
   const auto downloadProgIndex = programs.size();
@@ -213,41 +214,47 @@ void TransposeTest(const Type &dataType, bool useSupervisorVertex,
   // Put test inputs into an array of the correct type ready to use
   std::vector<double> outHost(total_size);
 
-  for (std::size_t tests = 0; tests < test_count; tests++) {
-    auto matrices = testList[tests].matrices;
-    auto rows = testList[tests].rows;
-    auto cols = testList[tests].cols;
+  copy(target, inTest.data(), inTest.size(), dataType, input.get());
 
-    copy(target, inTest.data(), inTest.size(), dataType, input.get());
+  device.bind([&](const Device &d) {
+    engine.load(d);
+    engine.run(uploadProgIndex);
+    engine.run(testProgIndex);
+    engine.run(downloadProgIndex);
+  });
 
-    device.bind([&](const Device &d) {
-      engine.load(d);
-      engine.run(uploadProgIndex);
-      engine.run(tests);
-      engine.run(downloadProgIndex);
-    });
+  copy(target, dataType, output.get(), outHost.data(), outHost.size());
 
-    copy(target, dataType, output.get(), outHost.data(), outHost.size());
-    // Host generated result, start with zeros
-    for (unsigned i = 0; i < total_size; i++)
-      outTest[i] = 0;
+  // Host generated result, start with zeros
+  std::fill_n(outTest.data(), outTest.size(), 0);
+
+  for (std::size_t test = 0; test < test_count; test++) {
+    auto matrices = testList[test].matrices;
+    auto rows = testList[test].rows;
+    auto cols = testList[test].cols;
+
+    const int testIndex = test * test_size;
+
     // Then transpose the same portion of the input as the code under test
     for (unsigned k = 0; k < matrices; k++) {
-      int index = k * max_rows * max_cols;
+      int inIndex = k * max_rows * max_cols;
       for (unsigned i = 0; i < rows; i++) {
         for (unsigned j = 0; j < cols; j++) {
-          outTest[i + (j * rows) + (k * max_rows * max_cols)] = inTest[index++];
+          const int outIndex = i + (j * rows) + (k * max_rows * max_cols);
+          outTest[testIndex + outIndex] = inTest[testIndex + inIndex++];
         }
       }
     }
-    // Check the result, in the outTest array
-    // Always check the whole output memory to catch any overwrites
-    bool check = checkIsClose("Test_" + std::to_string(tests), outHost.data(),
-                              {outHost.size()}, outTest.data(), outTest.size(),
-                              0.0, 0.0);
-    BOOST_CHECK(check);
   }
+
+  // Check the result, in the outTest array
+  // Always check the whole output memory to catch any overwrites
+  bool check = checkIsClose("TestTranspose", outHost.data(), {outHost.size()},
+                            outTest.data(), outTest.size(), 0.0, 0.0);
+  BOOST_CHECK(check);
 }
+
+BOOST_AUTO_TEST_SUITE(Transpose2d)
 
 BOOST_AUTO_TEST_CASE(TransposeTest_half_true) {
   TransposeTest(HALF, true, SmallTestList);
@@ -259,24 +266,9 @@ BOOST_AUTO_TEST_CASE(TransposeTest_short_true) {
   TransposeTest(SHORT, true, SmallTestList);
 }
 
-BOOST_AUTO_TEST_CASE(TransposeTest_float_false) {
-  TransposeTest(FLOAT, false, SmallTestList);
-}
-BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false) {
-  TransposeTest(UNSIGNED_INT, false, SmallTestList);
-}
-BOOST_AUTO_TEST_CASE(TransposeTest_int_false) {
-  TransposeTest(INT, false, SmallTestList);
-}
-BOOST_AUTO_TEST_CASE(TransposeTest_float_false_T19548) {
-  TransposeTest(FLOAT, false, T19548TestList);
-}
-BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false_T19548) {
-  TransposeTest(UNSIGNED_INT, false, T19548TestList);
-}
-BOOST_AUTO_TEST_CASE(TransposeTest_int_false_T19548) {
-  TransposeTest(INT, false, T19548TestList);
-}
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(TransposeFast_16bit)
 
 BOOST_AUTO_TEST_CASE(TransposeTest_half_false) {
   TransposeTest(HALF, false, SmallTestList);
@@ -287,3 +279,38 @@ BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_short_false) {
 BOOST_AUTO_TEST_CASE(TransposeTest_short_false) {
   TransposeTest(SHORT, false, SmallTestList);
 }
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(TransposeFast_Float)
+
+BOOST_AUTO_TEST_CASE(TransposeTest_float_false) {
+  TransposeTest(FLOAT, false, SmallTestList);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(TransposeFast_Integral)
+
+BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false) {
+  TransposeTest(UNSIGNED_INT, false, SmallTestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_int_false) {
+  TransposeTest(INT, false, SmallTestList);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(T19548)
+
+BOOST_AUTO_TEST_CASE(TransposeTest_float_false_T19548) {
+  TransposeTest(FLOAT, false, T19548TestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false_T19548) {
+  TransposeTest(UNSIGNED_INT, false, T19548TestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_int_false_T19548) {
+  TransposeTest(INT, false, T19548TestList);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
