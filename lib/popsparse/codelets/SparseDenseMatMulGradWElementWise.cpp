@@ -100,8 +100,10 @@ public:
   IS_EXTERNAL_CODELET((hasAssemblyVersion<FPType, AccumType>()));
 
   bool compute() {
+    constexpr auto accumTypeSize = std::is_same<AccumType, float>() ? 4 : 2;
+
     // Zero outputs if requested.
-    for (unsigned i = 0; i < zeroInfo; ++i) {
+    for (unsigned i = 0; i < zeroInfo * (8 / accumTypeSize); ++i) {
       rGrad[i] = 0;
     }
 

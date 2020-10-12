@@ -259,6 +259,17 @@ int main(int argc, char **argv) try {
       templateVertex(vertexBaseClass, inputType, partialsType);
   const auto v = graph.addVertex(cs, vertexClass);
 
+  const auto getZeroInfo = [&](const std::size_t numElems,
+                               const Type &dataType) {
+    assert(8 % target.getTypeSize(dataType) == 0);
+    const auto elemsPer64Bits = 8 / target.getTypeSize(dataType);
+    // NOTE: We don't properly enforce this requirement for a multiple of
+    // 64-bits for the nz values in the buckets hence this assert will
+    // fire if it happens to be wrong.
+    assert(numElems % elemsPer64Bits == 0);
+    return numElems / elemsPer64Bits;
+  };
+
   if (vertexType == VertexType::GradW) {
     graph.connect(v["qGrad"], c.flatten());
     graph.connect(v["rGrad"], aBuckets.at(0));
@@ -269,8 +280,10 @@ int main(int argc, char **argv) try {
     graph.setTileMapping(deviceProcessedSubGroupId, 0);
     graph.connect(v["subGroupIdToProcess"], deviceProcessedSubGroupId);
     graph.setInitialValue(v["numZ"], bShape[1]);
-    graph.setInitialValue(v["zeroInfo"],
-                          zeroPartials ? aBuckets.at(0).numElements() : 0);
+    graph.setInitialValue(
+        v["zeroInfo"],
+        zeroPartials ? getZeroInfo(aBuckets.at(0).numElements(), partialsType)
+                     : 0);
   } else {
     graph.connect(v["q"], c.flatten());
     graph.connect(v["r"], aBuckets);
@@ -280,7 +293,9 @@ int main(int argc, char **argv) try {
     const auto numPartials = vertexType == VertexType::Transposed
                                  ? b.numElements()
                                  : c.numElements();
-    graph.setInitialValue(v["zeroInfo"], zeroPartials ? numPartials : 0);
+    graph.setInitialValue(v["zeroInfo"],
+                          zeroPartials ? getZeroInfo(numPartials, partialsType)
+                                       : 0);
   }
   graph.setTileMapping(v, 0);
 

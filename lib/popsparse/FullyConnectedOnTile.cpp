@@ -91,12 +91,6 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     }
   };
 
-  auto getZeroInfo = [&](std::size_t numElements, const Type &partialsType) {
-    std::size_t multipleOf = 8 / target.getTypeSize(partialsType);
-    auto valid = (numElements % multipleOf) == 0;
-    return std::make_pair(valid, numElements / multipleOf);
-  };
-
   switch (method) {
   case OnTileMethod::Forward:
   case OnTileMethod::GradA:
@@ -121,8 +115,6 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     graph.connect(v["metaInfo"], metaInfoBuckets);
     graph.setInitialValue(v["subGroupIdToProcess"],
                           boost::get<unsigned>(subGroupIdToProcess));
-    graph.setInitialValue(v["zeroInfo"],
-                          zeroPartials ? partials.numElements() : 0u);
     break;
   }
   case OnTileMethod::GradW: {
@@ -147,8 +139,6 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     graph.connect(v["s"], actsUngrouped.dimRoll(1, 2).flatten());
     graph.connect(v["subGroupIdToProcess"], subGroupIdToProcessScalar);
     graph.setInitialValue(v["numZ"], weightsUngrouped.dim(2));
-    graph.setInitialValue(v["zeroInfo"],
-                          zeroPartials ? partials.numElements() : 0u);
     break;
   }
   case OnTileMethod::ForwardAMPBlock:
@@ -194,12 +184,6 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     graph.setInitialValue(v["zStrideInQ"], zStrideInQ);
     graph.setInitialValue(v["zStrideInS"], zStrideInS);
     checkRptBounds(partials.numElements(), partialsType);
-    const auto zeroInfo = getZeroInfo(partials.numElements(), partialsType);
-    if (!zeroInfo.first) {
-      throw poputil::poplibs_error("Number of zero elements is not a "
-                                   "multiple of 64-bits ");
-    }
-    graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0u);
     break;
   }
   case OnTileMethod::GradWBlock:
@@ -248,12 +232,6 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
     graph.connect(v["s"], actsInCodeletOrder.flatten());
     graph.connect(v["subGroupIdToProcess"], subGroupIdToProcessScalar);
     checkRptBounds(partials.numElements(), partialsType);
-    const auto zeroInfo = getZeroInfo(partials.numElements(), partialsType);
-    if (!zeroInfo.first) {
-      throw poputil::poplibs_error("Number of zero elements is not a "
-                                   "multiple of 64-bits");
-    }
-    graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo.second : 0);
     graph.setInitialValue(v["numZ"], weightsUngrouped.dim(2));
     if (method == OnTileMethod::GradWBlock) {
       const auto inputElemsPer64Bits = 8 / target.getTypeSize(inputType);
@@ -267,6 +245,20 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
   default:
     throw poplibs_error("Unhandled OnTileMethod");
   }
+
+  const auto [wasEncodable, zeroInfo] = [&] {
+    const std::size_t multipleOf = 8 / target.getTypeSize(partialsType);
+    bool valid = (partials.numElements() % multipleOf) == 0;
+    return std::make_pair(valid, partials.numElements() / multipleOf);
+  }();
+  if (!wasEncodable) {
+    throw poputil::poplibs_error("Number of partial elements to zero (" +
+                                 std::to_string(partials.numElements()) +
+                                 ") of type " + partialsType.toString() +
+                                 " is not a multiple of 64-bits for codelet '" +
+                                 vertexClass + "'");
+  }
+  graph.setInitialValue(v["zeroInfo"], zeroPartials ? zeroInfo : 0);
   graph.setTileMapping(v, tile);
 }
 

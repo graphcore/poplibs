@@ -204,7 +204,7 @@ foreach(DATA_TYPE half float)
           --output-size=300
           --batch-size=16
           --sparsity-factor=0.1
-          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"}
+          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"metaInfoBucketOversizeProportion\":\"0.5\"}
           --single-phase=${PASS_TYPE}
           VARIANTS ${TimesOutOnSim})
 

@@ -1674,8 +1674,14 @@ createPlan(const PlanningObjective &objective, const Target &target,
   plan.gradWPropagationPartitions = Vector<unsigned>(1);
   plan.gradWPropagationPartitions.z =
       solution[mGradWPropagationNumZ.at(0)].getAs<unsigned>();
+  // We round up the number of nz values per bucket to a multiple of
+  // 64-bits when used as partials in the GradW pass.
+  assert(8 % target.getTypeSize(options.partialsType) == 0);
+  const auto nzElemGrainSize =
+      options.doGradWPass ? 8 / target.getTypeSize(options.partialsType) : 1;
   plan.nzElemsPerBucket =
-      solution[mRGroupsPerBucket].getAs<unsigned>() * rElemsPerGroup;
+      roundUp(solution[mRGroupsPerBucket].getAs<unsigned>() * rElemsPerGroup,
+              nzElemGrainSize);
   plan.fwdMetaInfoElemsPerBucket =
       solution[mRFwdMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.gradAMetaInfoElemsPerBucket =
