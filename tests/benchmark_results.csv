@@ -275,11 +275,11 @@ IpuModel2,default,fc_layer_16x1324x100,13002,4.0,2537579,0.0,213464,0.0
 IpuModel2,default,fc_layer_1_1000_1000_float,15456,0.0,11545394,-1.5,216088,0.0
 IpuModel2,default,fc_layer_1_1000_1000_half,15483,0.0,10473344,-1.6,215800,0.0
 IpuModel2,default,fc_layer_1_1000_5_float,6848,0.0,572277,0.0,213048,0.0
-IpuModel2,default,fc_layer_1_1000_5_half,7971,0.0,546162,-23.4,213048,0.0
+IpuModel2,default,fc_layer_1_1000_5_half,8060,1.1,582862,6.7,213048,0.0
 IpuModel2,default,fc_layer_4_1000_1000_float,15569,0.0,11559119,-1.5,216088,0.0
 IpuModel2,default,fc_layer_4_1000_1000_half,24863,0.0,16087724,-1.1,215800,0.0
 IpuModel2,default,fc_layer_4_1000_5_float,7972,1.8,794758,0.0,213080,0.0
-IpuModel2,default,fc_layer_4_1000_5_half,8540,0.0,754676,-17.9,213048,0.0
+IpuModel2,default,fc_layer_4_1000_5_half,8935,4.6,646810,-14.3,213048,0.0
 IpuModel2,default,fc_layer_80_1324_100,15053,0.0,7069387,0.0,214936,0.0
 IpuModel2,default,fc_layer_8_1000_1000_float,14794,0.0,11582861,-1.5,216088,0.0
 IpuModel2,default,fc_layer_8_1000_1000_half,16798,0.0,9572425,-2.0,215800,0.0

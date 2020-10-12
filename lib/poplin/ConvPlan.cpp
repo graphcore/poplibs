@@ -912,6 +912,18 @@ static void getConvVertexOuterProductCandidates(
     return;
   }
 
+  const auto isAll = [](const auto k, const auto &c) {
+    return std::all_of(std::begin(c), std::end(c),
+                       [k](const auto x) { return x == k; });
+  };
+  // The vertex output type is the same the input type. This only allowed to be
+  // smaller than the partial type if no reduction is required afterwards.
+  if (target.getTypeSize(inputType) < target.getTypeSize(partialType) &&
+      (params.inputChannelsPerConvGroup != 1 ||
+       !isAll(1U, params.getKernelShape()))) {
+    return;
+  }
+
   // The OuterProduct vertex does not require a grouping of the conv groups.
   const unsigned convGroupsPerGroup = 1;
 
