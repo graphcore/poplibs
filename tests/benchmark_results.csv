@@ -55,7 +55,7 @@ IpuModel,default,fc_layer_16x1324x100,11744,-1.3,2362855,0.0,131608,0.0
 IpuModel,default,fc_layer_1_1000_1000_float,34433,0.0,8682772,-1.5,32952,0.0
 IpuModel,default,fc_layer_1_1000_1000_half,12614,0.0,4517972,-2.7,32872,0.0
 IpuModel,default,fc_layer_1_1000_5_float,6773,0.0,547592,-17.6,131128,0.0
-IpuModel,default,fc_layer_1_1000_5_half,7974,0.0,498665,-21.4,131128,0.0
+IpuModel,default,fc_layer_1_1000_5_half,7348,-7.9,486665,-2.4,131128,0.0
 IpuModel,default,fc_layer_4_1000_1000_float,17627,0.0,11139013,-1.3,134936,0.0
 IpuModel,default,fc_layer_4_1000_1000_half,21573,0.0,12027966,-1.3,134488,0.0
 IpuModel,default,fc_layer_4_1000_5_float,9116,0.0,681469,-15.6,131160,0.0
@@ -273,9 +273,9 @@ IpuModel2,default,fc_layer_16_1000_5_float,9041,0.0,1062341,-12.9,213112,0.0
 IpuModel2,default,fc_layer_16_1000_5_half,8583,0.0,718995,-18.3,213080,0.0
 IpuModel2,default,fc_layer_16x1324x100,13002,4.0,2537579,0.0,213464,0.0
 IpuModel2,default,fc_layer_1_1000_1000_float,15456,0.0,11545394,-1.5,216088,0.0
-IpuModel2,default,fc_layer_1_1000_1000_half,15483,0.0,10473344,-1.6,215800,0.0
+IpuModel2,default,fc_layer_1_1000_1000_half,12463,-19.5,4519174,-56.9,32872,-84.8
 IpuModel2,default,fc_layer_1_1000_5_float,6848,0.0,572277,0.0,213048,0.0
-IpuModel2,default,fc_layer_1_1000_5_half,8060,1.1,582862,6.7,213048,0.0
+IpuModel2,default,fc_layer_1_1000_5_half,7434,-7.8,551860,-5.3,213048,0.0
 IpuModel2,default,fc_layer_4_1000_1000_float,15569,0.0,11559119,-1.5,216088,0.0
 IpuModel2,default,fc_layer_4_1000_1000_half,24863,0.0,16087724,-1.1,215800,0.0
 IpuModel2,default,fc_layer_4_1000_5_float,7972,1.8,794758,0.0,213080,0.0

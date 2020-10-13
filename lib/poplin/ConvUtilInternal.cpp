@@ -939,7 +939,32 @@ void log(unsigned indent, const ConvParams &params) {
 }
 
 ConvOptions getWeightUpdateOptions(ConvOptions fwdOptions) {
-  fwdOptions.pass = Pass::TRAINING_WU;
+  switch (fwdOptions.pass) {
+  case Pass::FC_TRAINING_FWD:
+  case Pass::FC_TRAINING_BWD:
+  case Pass::FC_TRAINING_WU:
+  case Pass::FC_INFERENCE_FWD:
+    fwdOptions.pass = Pass::FC_TRAINING_WU;
+    break;
+  default:
+    fwdOptions.pass = Pass::TRAINING_WU;
+    break;
+  }
+  return fwdOptions;
+}
+
+ConvOptions getGradientOptions(ConvOptions fwdOptions) {
+  switch (fwdOptions.pass) {
+  case Pass::FC_TRAINING_FWD:
+  case Pass::FC_TRAINING_BWD:
+  case Pass::FC_TRAINING_WU:
+  case Pass::FC_INFERENCE_FWD:
+    fwdOptions.pass = Pass::FC_TRAINING_BWD;
+    break;
+  default:
+    fwdOptions.pass = Pass::TRAINING_WU;
+    break;
+  }
   return fwdOptions;
 }
 

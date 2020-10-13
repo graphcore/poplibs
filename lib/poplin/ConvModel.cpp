@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "ConvModel.hpp"
 #include "ExchangeEstimator.hpp"
+#include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/popopsPerformanceEstimation.hpp"
 #include <poputil/exceptions.hpp>
 
@@ -1027,7 +1028,7 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
     auto remainingExchangeCycles = m.call<unsigned>(
         {numberOfPartialSums, reductionDepth},
         [exchangeEstimator, resultType, level,
-         &options](const std::vector<unsigned> &vars) -> popsolver::DataType {
+         options](const std::vector<unsigned> &vars) -> popsolver::DataType {
           const auto numPartialSums = vars[0];
           const auto reductionDepth = vars[1];
 
@@ -1108,7 +1109,7 @@ addReduceCycleEstimate(popsolver::Model &m,
          partitionVars[level].inChanSplit.serial},
         [floatOutput, floatPartials, numWorkers, dataPathWidth,
          partialsVectorWidth, outputVectorWidth, memoryElementOffsets,
-         bytesPerPartialsElement, &options,
+         bytesPerPartialsElement, options,
          cache](const std::vector<unsigned> &vars) -> popsolver::DataType {
           return popsolver::DataType{cache->mEstimateConvReduceCycles(
               vars[0], vars[1], vars[2], floatOutput, floatPartials, numWorkers,
@@ -1123,7 +1124,7 @@ addReduceCycleEstimate(popsolver::Model &m,
     const auto tempBytesEstimate = m.call<unsigned>(
         {outputsPerLevel.back(), reductionDepth},
         [elementBytes,
-         &options](const std::vector<unsigned> &vars) -> popsolver::DataType {
+         options](const std::vector<unsigned> &vars) -> popsolver::DataType {
           const auto numOutputs = vars[0];
           const auto reductionDepth = vars[1];
           if (reductionDepth <= 1) {
@@ -1933,32 +1934,99 @@ Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
   return fwdMethod;
 }
 
-static SinglePassEstimates<popsolver::Variable> addBwdEstimates(
-    popsolver::Model &m, ConvParams bwdUntransformedParams,
-    ConvParams bwdTransformedOnceParams,
-    ConvParams bwdTransformedOnceUnpaddedParams,
-    const unsigned numLevelsOfHierarchy,
-    const std::vector<PartitionVariables> &partitionVars,
-    const std::vector<ConvSizeVariables> &convSize,
-    const std::vector<ConvTransform> &transforms,
-    const ConvVertexType &convVertexType, const popsolver::Variable usedTiles,
-    const poplar::Target &target,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
-    const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const boost::optional<SinglePassCost> &referenceCost,
-    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
+std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
+                                    poplar::Type vertexOutputType,
+                                    poplar::Type resultType,
+                                    const ConvOptions &options) {
+  auto numLevels = poplibs::getTileHierarchy(target).size() + 1;
+  std::vector<ConvTypes> types(numLevels);
+  for (int level = numLevels - 1; level >= 0; --level) {
+    bool isTileLevel = static_cast<unsigned>(level) == numLevels - 1;
+    types[level].partialType =
+        isTileLevel ? vertexOutputType : options.partialsType;
+    if (level == 0) {
+      types[level].resultType = resultType;
+    } else {
+      auto levelResultType = isTileLevel ? options.interTilePartialsType
+                                         : options.interIpuPartialsType;
+      auto levelInputType =
+          isTileLevel ? vertexOutputType : types[level + 1].resultType;
+      // Use the result type of the previous level if it is smaller than the
+      // requested result type. If we picked a smaller output type for the
+      // vertex because no reduction is required this will propogate through
+      // the levels. It also means that if a user wants to use half partials
+      // they only need to set the option for the first level that should use
+      // half partials.
+      if (target.getTypeSize(levelResultType) >
+          target.getTypeSize(levelInputType)) {
+        levelResultType = levelInputType;
+      }
+      // There is no point in using a result type larger than the partial type.
+      if (target.getTypeSize(levelResultType) >
+          target.getTypeSize(types[level].partialType)) {
+        levelResultType = types[level].partialType;
+      }
+      types[level].resultType = levelResultType;
+    }
+  }
+  return types;
+}
+
+std::vector<ConvTypes> getConvTypesForDerivedJointPlan(
+    const poplar::Target &target, const ConvParams &params,
+    const ConvOptions &options, unsigned inChansPerGroup, Plan::Method method) {
+  auto vertexOutputType = options.partialsType;
+  // Check if we can use a smaller partial type without affecting the result.
+  if (vertexOutputType == poplar::FLOAT && params.outputType == poplar::HALF) {
+    switch (method) {
+    case Plan::Method::AMP:
+      // If the result type is half and all the reduction is done within a
+      // single pass of the AMP unit then there is no reason to use a higher
+      // precision partial type.
+      if (params.inputChannelsPerConvGroup == inChansPerGroup &&
+          target.getFp16InFp16OutConvUnitsPerTile() ==
+              target.getFp16InFp32OutConvUnitsPerTile()) {
+        vertexOutputType = poplar::HALF;
+      }
+      break;
+    case Plan::Method::OUTER_PRODUCT:
+      vertexOutputType = poplar::HALF;
+      break;
+    default:
+      break;
+    }
+  }
+  return getConvTypes(target, vertexOutputType, params.outputType, options);
+}
+
+static SinglePassEstimates<popsolver::Variable>
+addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
+                const ConvParams &fwdTransformedOnceParams,
+                const ConvParams &fwdTransformedOnceUnpaddedParams,
+                const unsigned numLevelsOfHierarchy,
+                const std::vector<PartitionVariables> &partitionVars,
+                const std::vector<ConvSizeVariables> &convSize,
+                const std::vector<ConvTransform> &transforms,
+                const ConvVertexType &fwdConvVertexType,
+                const popsolver::Variable usedTiles,
+                const poplar::Target &target,
+                const std::vector<double> &perLevelExchangeBytesPerCycle,
+                const bool isJointPlan,
+                const boost::optional<SinglePassCost> &referenceCost,
+                const ConvOptions &fwdOptions,
+                PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(transforms[0].swapOperands);
   // for the backwards pass the output shape will be Ci x Co (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the backwards pass is a no-op and we can return zero.
-  // note that, even though this is called the bwdTransformedOnceParams it is
-  // still the forward params atm as we have not swapped the input channels and
-  // field shape round yet (this happens after this check).
-  if (bwdTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
-      bwdTransformedOnceParams.outputChannelsPerConvGroup == 0) {
+  if (fwdUntransformedParams.inputChannelsPerConvGroup == 0 ||
+      fwdUntransformedParams.outputChannelsPerConvGroup == 0) {
     const auto zero = m.addConstant(0);
     return {zero, zero, zero, zero};
   }
+  auto bwdUntransformedParams = fwdUntransformedParams;
+  auto bwdTransformedOnceParams = fwdTransformedOnceParams;
+  auto bwdTransformedOnceUnpaddedParams = fwdTransformedOnceUnpaddedParams;
 
   std::swap(bwdUntransformedParams.outputChannelsPerConvGroup,
             bwdUntransformedParams.inputChannelsPerConvGroup);
@@ -1978,7 +2046,7 @@ static SinglePassEstimates<popsolver::Variable> addBwdEstimates(
       bwdP.fieldSplit.back() = p.inChanSplit.parallel;
       bwdP.inChanSplit.parallel = p.fieldSplit.back();
       bwdP.inChanGrainSize = p.fieldGrainSize.back();
-      bwdP.fieldGrainSize.back() = convVertexType.inChansPerGroup;
+      bwdP.fieldGrainSize.back() = fwdConvVertexType.inChansPerGroup;
       bwdPartitionVars.push_back(bwdP);
     }
 
@@ -1995,9 +2063,17 @@ static SinglePassEstimates<popsolver::Variable> addBwdEstimates(
     bwdTransformedConvSize.push_back(bwdTS);
   }
 
-  auto bwdConvVertexType = convVertexType;
+  auto bwdOptions = getGradientOptions(fwdOptions);
+  auto bwdConvVertexType = fwdConvVertexType;
   bwdConvVertexType.inChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
-  bwdConvVertexType.method = getFullyConnectedBwdMethod(convVertexType.method);
+  bwdConvVertexType.partialChansPerGroup =
+      bwdPartitionVars.back().outChanGrainSize;
+  bwdConvVertexType.method =
+      getFullyConnectedBwdMethod(fwdConvVertexType.method);
+  auto bwdTypes = getConvTypesForDerivedJointPlan(
+      target, bwdUntransformedParams, bwdOptions,
+      bwdConvVertexType.inChansPerGroup, bwdConvVertexType.method);
+  bwdConvVertexType.partialType = bwdTypes.back().partialType;
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
@@ -2005,9 +2081,9 @@ static SinglePassEstimates<popsolver::Variable> addBwdEstimates(
       m, bwdPartitionVars, bwdConvSize, bwdTransformedConvSize, usedTiles,
       transformedDims, target, perLevelExchangeBytesPerCycle,
       bwdUntransformedParams, bwdTransformedOnceParams,
-      bwdTransformedOnceUnpaddedParams, isJointPlan, bwdConvVertexType, types,
-      transforms, Plan::LinearizeTileOrder::FC_BWD_AS_CONV, referenceCost,
-      options, cache);
+      bwdTransformedOnceUnpaddedParams, isJointPlan, bwdConvVertexType,
+      bwdTypes, transforms, Plan::LinearizeTileOrder::FC_BWD_AS_CONV,
+      referenceCost, bwdOptions, cache);
 }
 
 Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
@@ -2035,35 +2111,37 @@ Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
   return fwdMethod;
 }
 
-static SinglePassEstimates<popsolver::Variable> addWuEstimates(
-    popsolver::Model &m, const ConvParams &untransformedParams,
-    ConvParams wuTransformedOnceParams,
-    ConvParams wuTransformedOnceUnpaddedParams,
-    const std::size_t numLevelsOfHierarchy,
-    const std::vector<PartitionVariables> &partitionVars,
-    const std::vector<ConvSizeVariables> &convSize,
-    const std::vector<ConvTransform> &transforms,
-    const ConvVertexType &convVertexType, const popsolver::Variable usedTiles,
-    const poplar::Target &target, const unsigned numFieldDims,
-    const std::vector<double> &perLevelExchangeBytesPerCycle,
-    const std::vector<ConvTypes> &types, const bool isJointPlan,
-    const boost::optional<SinglePassCost> &referenceCost,
-    const ConvOptions &options, PlanningCacheImpl::CycleEstimationImpl *cache) {
+static SinglePassEstimates<popsolver::Variable>
+addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
+               const ConvParams &fwdTransformedOnceParams,
+               const ConvParams &fwdTransformedOnceUnpaddedParams,
+               const std::size_t numLevelsOfHierarchy,
+               const std::vector<PartitionVariables> &partitionVars,
+               const std::vector<ConvSizeVariables> &convSize,
+               const std::vector<ConvTransform> &transforms,
+               const ConvVertexType &fwdConvVertexType,
+               const popsolver::Variable usedTiles,
+               const poplar::Target &target, const unsigned numFieldDims,
+               const std::vector<double> &perLevelExchangeBytesPerCycle,
+               const bool isJointPlan,
+               const boost::optional<SinglePassCost> &referenceCost,
+               const ConvOptions &fwdOptions,
+               PlanningCacheImpl::CycleEstimationImpl *cache) {
   assert(transforms[0].swapOperands);
   // for the wu pass the output shape will be Ci x Fs (as defined in the
   // forward pass parameters) -- therefore if either of these are zero then
   // the weight update pass is a no-op and we can return zero.
-  // note that, even though this is called the wuTransformedOnceParams it is
-  // still the forward params atm as we have not swapped the input channels and
-  // output channels round yet (this happens after this check).
-  assert(!wuTransformedOnceParams.inputFieldShape.empty());
-  if (wuTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
-      wuTransformedOnceParams.inputFieldShape.back() == 0) {
+  assert(!fwdTransformedOnceParams.inputFieldShape.empty());
+  if (fwdTransformedOnceParams.inputChannelsPerConvGroup == 0 ||
+      fwdTransformedOnceParams.inputFieldShape.back() == 0) {
     const auto zero = m.addConstant(0);
     return {zero, zero, zero, zero};
   }
 
-  auto wuUntransformedParams = untransformedParams;
+  auto wuUntransformedParams = fwdUntransformedParams;
+  auto wuTransformedOnceParams = fwdTransformedOnceParams;
+  auto wuTransformedOnceUnpaddedParams = fwdTransformedOnceUnpaddedParams;
+
   std::swap(wuUntransformedParams.inputChannelsPerConvGroup,
             wuUntransformedParams.batchSize);
   std::swap(wuTransformedOnceParams.inputChannelsPerConvGroup,
@@ -2118,12 +2196,18 @@ static SinglePassEstimates<popsolver::Variable> addWuEstimates(
     wuTransformedConvSize.push_back(wuTS);
   }
 
-  auto wuConvVertexType = convVertexType;
-  wuConvVertexType.inChansPerGroup = convVertexType.partialChansPerGroup;
-  wuConvVertexType.partialChansPerGroup = convVertexType.inChansPerGroup;
+  const auto wuOptions = getWeightUpdateOptions(fwdOptions);
+  auto wuConvVertexType = fwdConvVertexType;
+  wuConvVertexType.inChansPerGroup = fwdConvVertexType.partialChansPerGroup;
+  wuConvVertexType.partialChansPerGroup = fwdConvVertexType.inChansPerGroup;
   wuConvVertexType.method = getFullyConnectedWUMethod(
-      untransformedParams, convVertexType.method,
-      convVertexType.partialChansPerGroup, convVertexType.inChansPerGroup);
+      fwdUntransformedParams, fwdConvVertexType.method,
+      fwdConvVertexType.partialChansPerGroup,
+      fwdConvVertexType.inChansPerGroup);
+  const auto wuTypes = getConvTypesForDerivedJointPlan(
+      target, wuUntransformedParams, wuOptions,
+      wuConvVertexType.inChansPerGroup, wuConvVertexType.method);
+  wuConvVertexType.partialType = wuTypes.back().partialType;
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
       numLevelsOfHierarchy);
@@ -2131,8 +2215,8 @@ static SinglePassEstimates<popsolver::Variable> addWuEstimates(
                       usedTiles, transformedDims, target,
                       perLevelExchangeBytesPerCycle, wuUntransformedParams,
                       wuTransformedOnceParams, wuTransformedOnceUnpaddedParams,
-                      isJointPlan, wuConvVertexType, types, transforms,
-                      Plan::LinearizeTileOrder::FC_WU, referenceCost, options,
+                      isJointPlan, wuConvVertexType, wuTypes, transforms,
+                      Plan::LinearizeTileOrder::FC_WU, referenceCost, wuOptions,
                       cache);
 }
 
@@ -3105,15 +3189,15 @@ Estimates<popsolver::Variable> constructModel(
         addBwdEstimates(m, untransformedParams, transformedOnceParams,
                         transformedOnceUnpaddedParams, numLevelsOfHierarchy,
                         partitionVars, convSize, transforms, convVertexType,
-                        usedTiles, target, perLevelExchangeBytesPerCycle, types,
+                        usedTiles, target, perLevelExchangeBytesPerCycle,
                         isJointPlan, bwdReferenceCost, options, cache);
 
     e.jointPlanWuEstimates = addWuEstimates(
         m, untransformedParams, transformedOnceParams,
         transformedOnceUnpaddedParams, numLevelsOfHierarchy, partitionVars,
         convSize, transforms, convVertexType, usedTiles, target, numFieldDims,
-        perLevelExchangeBytesPerCycle, types, isJointPlan, wuReferenceCost,
-        options, cache);
+        perLevelExchangeBytesPerCycle, isJointPlan, wuReferenceCost, options,
+        cache);
 
     if (objective.getTileTempMemoryBound() > popsolver::DataType{0}) {
       auto bound = objective.getTileTempMemoryBound();

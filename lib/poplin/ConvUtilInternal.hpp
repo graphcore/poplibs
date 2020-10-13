@@ -281,6 +281,11 @@ void log(unsigned indent, const ConvParams &params);
 /// applicable for the weight update pass.
 ConvOptions getWeightUpdateOptions(ConvOptions fwdOptions);
 
+/// Given a set of convolution options for the forward pass modify them to be
+/// applicable for the convolution that calculates the input activation
+/// gradients from the output activation gradients.
+ConvOptions getGradientOptions(ConvOptions fwdOptions);
+
 std::string convSuffix(const CanonicalConvParams &params);
 
 } // End namespace poplin

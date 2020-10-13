@@ -40,4 +40,13 @@ Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
                                        unsigned fwdInChansPerGroup);
 Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod);
 
+std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
+                                    poplar::Type vertexOutputType,
+                                    poplar::Type resultType,
+                                    const ConvOptions &options);
+
+std::vector<ConvTypes> getConvTypesForDerivedJointPlan(
+    const poplar::Target &target, const ConvParams &params,
+    const ConvOptions &options, unsigned inChansPerGroup, Plan::Method method);
+
 } // namespace poplin

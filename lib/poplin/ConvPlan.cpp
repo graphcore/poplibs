@@ -1206,38 +1206,6 @@ static std::vector<bool> getSwapOperandCandidates(const ConvParams &params,
   return validValues;
 }
 
-static std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
-                                           unsigned numLevels,
-                                           poplar::Type resultType,
-                                           const ConvOptions &options) {
-  std::vector<ConvTypes> types(numLevels);
-  for (int level = numLevels - 1; level >= 0; --level) {
-    types[level].partialType = options.partialsType;
-    if (level == 0) {
-      types[level].resultType = resultType;
-    } else {
-      bool isTileLevel = static_cast<unsigned>(level) == numLevels - 1;
-      auto levelResultType = isTileLevel ? options.interTilePartialsType
-                                         : options.interIpuPartialsType;
-      // Use the result type of the previous level if it is smaller than the
-      // requested result type. This means that if a user wants to use half
-      // partials they only need to set the option for the first level that
-      // should use half partials.
-      if (!isTileLevel && target.getTypeSize(levelResultType) >
-                              target.getTypeSize(types[level + 1].resultType)) {
-        levelResultType = types[level + 1].resultType;
-      }
-      // There is no point in using a result type larger than the partial type.
-      if (target.getTypeSize(levelResultType) >
-          target.getTypeSize(types[level].partialType)) {
-        levelResultType = types[level].partialType;
-      }
-      types[level].resultType = levelResultType;
-    }
-  }
-  return types;
-}
-
 static std::vector<unsigned> getDilatePostConvDims(const ConvParams &params,
                                                    const ConvOptions &options) {
   const auto numFieldDims = params.getNumFieldDims();
@@ -1553,8 +1521,6 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   Cost bestCost = highestCost;
   Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
-  const auto convTypes =
-      getConvTypes(target, numLevels, params.outputType, options);
   const auto ipuLevel = transforms.size() - 2;
   unsigned addedFieldDims = 0;
   auto numFieldDims = params.getNumFieldDims();
@@ -1599,9 +1565,8 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
               flattenedParams, transforms[ipuLevel].combineConvGroupsFactor);
 
           const auto convVertexTypeCandidates = getConvVertexTypeCandidates(
-              target, params.inputType, params.outputType,
-              convTypes.back().partialType, groupedParams, options,
-              isJointPlan);
+              target, params.inputType, params.outputType, options.partialsType,
+              groupedParams, options, isJointPlan);
 
           for (const auto &convVertexType : convVertexTypeCandidates) {
             std::vector<unsigned> fieldGrainSize(numFieldDims, 1);
@@ -1627,15 +1592,11 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
             }
             Plan candidate;
             Cost candidateCost;
-            // Override the partials type at the tile level with that chosen
-            // for the vertex type as we may choose a lower precision to
-            // implement the operation if we know the vertex can effectively
-            // maintain the accuracy implied by the requested partials type.
-            auto newConvTypes = convTypes;
-            newConvTypes.back().partialType = convVertexType.partialType;
+            const auto convTypes = getConvTypes(
+                target, convVertexType.partialType, params.outputType, options);
             popsolver::ConstraintEvaluationSummary constraintsEvaluated{};
             std::tie(candidate, candidateCost, constraintsEvaluated) =
-                choosePlan(target, transforms, newConvTypes, hierarchy,
+                choosePlan(target, transforms, convTypes, hierarchy,
                            perLevelExchangeBytesPerCycle, fieldGrainSize,
                            convVertexType, params, isJointPlan, bestCost,
                            objective, startTileIdxForVirtualHierarchy,
@@ -2159,31 +2120,16 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
         target.getWeightsPerConvUnit(fwdParams->inputType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
   }
-
-  // If the result type is half and all the reduction is done within a single
-  // pass of the AMP unit then there is no reason to use a higher precision
-  // partial type.
-  if (fwdParams->outputType == poplar::HALF &&
-      fwdParams->batchSize == plan.inChansPerGroup &&
-      target.getFp16InFp16OutConvUnitsPerTile() ==
-          target.getFp16InFp32OutConvUnitsPerTile()) {
-    for (auto &x : plan.types) {
-      x.partialType = x.resultType = poplar::HALF;
-    }
-  }
-
-  // Set the partials type to the output type as there are no reductions
-  // required
-  if (fwdParams->outputType == poplar::HALF &&
-      plan.method == Plan::Method::OUTER_PRODUCT) {
-    for (auto &x : plan.types) {
-      x.partialType = x.resultType = poplar::HALF;
-    }
-  }
+  plan.types = getConvTypesForDerivedJointPlan(
+      target, getWeightUpdateParams(*fwdParams),
+      getWeightUpdateOptions(fwdOptions), plan.inChansPerGroup, plan.method);
   return plan;
 }
 
-static Plan getFullyConnectedBwdPlan(const Plan &fwdPlan) {
+static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
+                                     const CanonicalConvParams &fwdParams,
+                                     const ConvOptions &fwdOptions,
+                                     const Plan &fwdPlan) {
   assert(fwdPlan.isJointPlan);
   assert(fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
@@ -2196,6 +2142,9 @@ static Plan getFullyConnectedBwdPlan(const Plan &fwdPlan) {
     std::swap(partition.fieldAxisGrainSize.back(), partition.inChanGrainSize);
   }
   plan.inChansPerGroup = plan.partitions.back().inChanGrainSize;
+  plan.types = getConvTypesForDerivedJointPlan(
+      target, getGradientParams(*fwdParams), getGradientOptions(fwdOptions),
+      plan.inChansPerGroup, plan.method);
   return plan;
 }
 
@@ -2251,7 +2200,7 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
         return getFullyConnectedWUPlan(target, fwdParams, fwdOptions, fwdPlan);
       }
       assert(options.pass == Pass::FC_TRAINING_BWD);
-      return getFullyConnectedBwdPlan(fwdPlan);
+      return getFullyConnectedBwdPlan(target, fwdParams, fwdOptions, fwdPlan);
     }
   }
 
