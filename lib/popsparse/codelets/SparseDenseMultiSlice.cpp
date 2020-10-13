@@ -9,6 +9,8 @@
 #include "SparseCodeletMetaInfoScale.hpp"
 #include "SparseMetaInfo.hpp"
 
+#include <cassert>
+
 using namespace poplar;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -22,7 +24,8 @@ using BaseTMetaInfoType =
 
 template <typename FPType, typename BaseTNZType, typename SubTType,
           bool isUpdateAdd>
-static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
+static bool computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
+                         const unsigned short numOffsets, BaseTNZType &baseTNZ,
                          BaseTMetaInfoType &baseTMetaInfo, SubTType &subT,
                          const unsigned rowsPerPartition,
                          const MetaInfoType yPartitionToProcess,
@@ -67,7 +70,7 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
           const auto columnsInRow = *iter++;
           // Loop over the rows listed in the offsets, a row may be referenced
           // multiple times
-          for (unsigned idx = 0; idx < offsets.size(); idx++) {
+          for (unsigned idx = 0; idx < numOffsets; idx++) {
             if (rowFound == offsets[idx]) {
               // If found, copy the NZ values into the dense result or back into
               // the sparse result for update
@@ -105,33 +108,39 @@ static bool computeSlice(Input<Vector<unsigned>> &offsets, BaseTNZType &baseTNZ,
 // Use the `offsets` tensor which references rows within that sparse bucket
 // to populate a dense output tensor `subT`.
 template <typename FPType>
-class SparseDenseMultiSliceElementWise : public Vertex {
+class SparseDenseMultiSliceElementWise
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 
 public:
   using BaseTNZType = Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR>;
-  using SubTType = InOut<Vector<FPType, ONE_PTR>>;
+  using SubTType = InOut<Vector<FPType, ONE_PTR, 4>>;
   SparseDenseMultiSliceElementWise();
 
-  IS_EXTERNAL_CODELET(false);
+  IS_EXTERNAL_CODELET(true);
   // The rows to extract from baseT
-  Input<Vector<unsigned>> offsets;
+  Input<Vector<unsigned, ONE_PTR>> offsets;
   BaseTNZType baseTNZ;
   BaseTMetaInfoType baseTMetaInfo;
   SubTType subT;
   MetaInfoType nzScaleFactor;
-  // This vertex will process data with the given subGroupIdToProcess, that data
-  // had this rowOffset applied to its metadata
-  //  const unsigned rowOffset;
+  // This vertex will process data with the given yPartitionToProcess, that data
+  // has a row partition in its meta data, which is scaled by rowsPerPartition
   const unsigned short rowsPerPartition;
   const MetaInfoType yPartitionToProcess;
   const unsigned short subColumns; // The number of columns found in subT
+  const unsigned short numOffsets;
 
   bool compute() {
-
+    constexpr bool isHalf = std::is_same<FPType, half>::value;
+    // Assembler supports column widths that are 32 bit only.  This is
+    // beneficial in the poplibs functions too as it avoids copies. Ensure it is
+    // the case here
+    assert(!(isHalf && (subColumns % 2)));
     const auto function = computeSlice<FPType, BaseTNZType, SubTType, false>;
 
-    return function(offsets, baseTNZ, baseTMetaInfo, subT, rowsPerPartition,
-                    yPartitionToProcess, nzScaleFactor, subColumns, 1.0f);
+    return function(offsets, numOffsets, baseTNZ, baseTMetaInfo, subT,
+                    rowsPerPartition, yPartitionToProcess, nzScaleFactor,
+                    subColumns, 1.0f);
   }
 };
 template class SparseDenseMultiSliceElementWise<float>;
@@ -150,7 +159,7 @@ public:
 
   IS_EXTERNAL_CODELET(false);
   // The rows to update baseT with
-  Input<Vector<unsigned>> offsets;
+  Input<Vector<unsigned, ONE_PTR>> offsets;
   BaseTNZType baseTNZ;
   BaseTMetaInfoType baseTMetaInfo;
   SubTType subT;
@@ -163,13 +172,15 @@ public:
   // exchanging and using single 2-byte elements per tile has a copy cost
   // associated with it after exchange and uses 32 bit exchange anyhow
   Input<unsigned> yPartitionToProcess;
+  const unsigned short numOffsets;
   Input<FPType> scale;
 
   bool compute() {
 
     const auto function = computeSlice<FPType, BaseTNZType, SubTType, true>;
 
-    return function(offsets, baseTNZ, baseTMetaInfo, subT, rowsPerPartition,
+    return function(offsets, numOffsets, baseTNZ, baseTMetaInfo, subT,
+                    rowsPerPartition,
                     static_cast<MetaInfoType>(*yPartitionToProcess),
                     nzScaleFactor, subColumns, *scale);
   }

@@ -161,19 +161,21 @@ add_multi_target_test_executable(SparseDenseMultiSliceElementWise
 foreach(TYPE half float)
   foreach(UPDATE true false)
     foreach(BUCKETS 1 2)
-      foreach(ZSIZE 4 8 36 128 1000)
-        add_multitarget_test(NAME SparseDenseMultiSliceElementWise_${TYPE}_${UPDATE}_${BUCKETS}_${ZSIZE}
-          COMMAND SparseDenseMultiSliceElementWise
-            --baseT-shape={10,16}
-            --offsets=6
-            --sparsity-level=0.5
-            --num-other-sub-groups=20
-            --input-type=${TYPE}
-            --num-buckets=${BUCKETS}
-            --row-offset=2
-            --initialise-subT=true
-            --update-add=${UPDATE}
-            --z-size=${ZSIZE})
+      foreach(ZSIZE 4 36 108)
+        foreach(OFFSETS 1 2 3 4 5 6 12 13)
+          add_multitarget_test(NAME SparseDenseMultiSliceElementWise_${TYPE}_${UPDATE}_${BUCKETS}_${ZSIZE}_${OFFSETS}
+            COMMAND SparseDenseMultiSliceElementWise
+              --baseT-shape={41,32}
+              --offsets=${OFFSETS}
+              --sparsity-level=0.5
+              --num-other-sub-groups=3
+              --input-type=${TYPE}
+              --num-buckets=${BUCKETS}
+              --row-offset=2
+              --initialise-subT=true
+              --update-add=${UPDATE}
+              --z-size=${ZSIZE})
+        endforeach()
       endforeach()
     endforeach()
   endforeach()

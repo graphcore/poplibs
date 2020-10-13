@@ -5,6 +5,11 @@
 #ifndef _SparseDenseMatMulStructs_h_
 #define _SparseDenseMatMulStructs_h_
 
+// Y offset is scaled according to this left shift given input type
+#define YOffsetTypeDivShiftFloat                           2
+#define YOffsetTypeDivShiftHalf                            1
+
+
 // MetaInfo field offsets and sizes
 #define Sizeof_MIFwdWorkerEntry                            10
 #define Sizeof_MIGradWWorkerEntry                          8

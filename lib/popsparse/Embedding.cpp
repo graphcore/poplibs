@@ -186,6 +186,8 @@ void createSparseDenseTileVertices(
   graph.setInitialValue(vertex["subColumns"], columns);
   graph.setInitialValue(vertex["nzScaleFactor"], reciprocalMulFactor(splitZ));
   graph.setInitialValue(vertex["rowsPerPartition"], rowsPerPartition);
+  graph.setInitialValue(vertex["numOffsets"], offsets.numElements());
+
   if (scale) {
     graph.connect(vertex["scale"], scale.get().reshape({}));
   }
@@ -644,7 +646,7 @@ Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
 }
 
 // The method used here is that the dense slice data and the offsets remain
-// on the same tile throughout.  The sparse NZ,metadata are exchaged so that
+// on the same tile throughout.  The sparse NZ,metadata are exchanged so that
 // they "visit" the slice data.  On a visit the dense data is partially
 // poplulated with the NZ data that is relevant to its slice.
 // ** As the offsets are dynamic there is a further benefit to this approach
@@ -673,24 +675,54 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
                       const OptionFlags &options, PlanningCache *cache) {
   const auto inputType = baseT.getNzValuesTensor().elementType();
   const auto debugPrefix = debugPrefix_ + "/embeddingSlice";
-
+  const auto target = graph.getTarget();
   const auto plan =
       getFullyConnectedPlan(graph, inputType, params, options, cache);
-  const PlannedSplits plannedSplits(offsets.dim(0), params, plan, debugPrefix);
+
+  // Create the result tensor. If the data type is half and the number of
+  // columns in any partition is odd we need to pad so that each partition of
+  // the slices has an even number of columns.  This greatly simplifies the
+  // vertex implementation.  It has no real cost here.
+
+  // Create a plan based on the actual input and use that to find the number of
+  // columns that we would have with padding such that each partition is the
+  // same size and has an even number of columns
+
+  const PlannedSplits splits(offsets.dim(0), params, plan, debugPrefix);
+  const auto elementsPerWrite =
+      target.getAtomicStoreGranularity() / target.getTypeSize(inputType);
+  const auto requiredPadding = splits.splitColumns % elementsPerWrite;
+  const auto paddedColumns =
+      splits.columnSplits * (splits.splitColumns + requiredPadding);
+
+  // Create a result tensor with the padding and a plan to describe it
+  const PlannedSplits paddedSplits(offsets.dim(0), params, plan, debugPrefix,
+                                   paddedColumns);
+  const auto paddedSlices = createSliceTensor(graph, inputType, offsets.dim(0),
+                                              paddedSplits, debugPrefix);
+  // Create a result, based on slicing the padded tensor
+  const auto slices = [&]() {
+    // Remove the padding that was added to each partition to make its width
+    // even
+    auto slices =
+        paddedSlices.reshape({paddedSlices.dim(0), paddedSplits.columnSplits,
+                              paddedSplits.splitColumns});
+    slices = slices.slice(0, splits.splitColumns, 2);
+    // Remove padding that was added to make all the partitions the same width
+    slices =
+        slices.reshape({slices.dim(0), slices.numElements() / slices.dim(0)});
+    return slices.slice(0, splits.columns, 1);
+  }();
+
   const auto [overflowInfo, baseTBuckets] =
       getInternalSparseTensor(graph, baseT, plan);
 
-  // Create the result tensor. Padding is not needed as the
-  // dense data remains in place.
-  const auto slices = createSliceTensor(graph, inputType, offsets.dim(0),
-                                        plannedSplits, debugPrefix);
-
   auto metaInfoBuckets = fullyconnected::getBucketsByPartition(
-      baseTBuckets.getMetaInfoTensor(), plannedSplits.getPartitions());
+      baseTBuckets.getMetaInfoTensor(), paddedSplits.getPartitions());
   const auto metaInfoShape2D = getShape2D(metaInfoBuckets);
 
   auto nzBuckets = fullyconnected::getBucketsByPartition(
-      baseTBuckets.getNzValuesTensor(), plannedSplits.getPartitions());
+      baseTBuckets.getNzValuesTensor(), paddedSplits.getPartitions());
   const auto nzShape2D = getShape2D(nzBuckets);
   logging::popsparse::debug("Creating embedding slice exchange tensors "
                             "based on NZ-data shape {} and metaInfo shape {}",
@@ -704,7 +736,7 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   // Create splits plan matching that of the slices, but containing the
   // offsets (In other words the same, but with 1 column per split)
   auto [offsetsSplits, broadcastOffsetsShape] =
-      createSplitsAndShape(plannedSplits, offsets.dim(0), false, true);
+      createSplitsAndShape(paddedSplits, offsets.dim(0), false, true);
   // Create a broadcast offsets tensor to spread over tiles with each
   // column split - a broadcast of the offsets over the planned splits.
   auto offsetsBroadcast = offsets.expand({1});
@@ -747,9 +779,9 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
       graph, prog, numBuffers, {nzExBuf, metaInfoExBuf}, debugPrefix);
 
   const auto computeProg = createSliceComputeProg(
-      graph, prog, plannedSplits, slices, offsetsBroadcastPerTile, bufferSelect,
-      numBuffers, nzExBuf, nzSplits, metaInfoExBuf, metaInfoSplits,
-      debugPrefix);
+      graph, prog, paddedSplits, paddedSlices, offsetsBroadcastPerTile,
+      bufferSelect, numBuffers, nzExBuf, nzSplits, metaInfoExBuf,
+      metaInfoSplits, debugPrefix);
 
   // Prime the buffers.
   prog.add(Copy(metaInfoBuckets, metaInfoExBuf.src[0]));
@@ -758,7 +790,7 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
 
   // Zero the slices once as we'll gradually populate them with the sparse
   // NZ values on each call to the slice vertices.
-  zero(graph, slices, prog, debugPrefix);
+  zero(graph, paddedSlices, prog, debugPrefix);
 
   // Now use the programs and variables created to make the program below. The
   // switch program is used to select the computeProg or exchangeProg
@@ -790,7 +822,7 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   innerProg.add(
       Switch(bufferSelect, {{0, computeProg[0]}, {1, computeProg[1]}}));
   outerProg.add(
-      Repeat(plannedSplits.rowSplits * plannedSplits.zSplits, innerProg));
+      Repeat(paddedSplits.rowSplits * paddedSplits.zSplits, innerProg));
   outerProg.add(
       Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}));
   prog.add(RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg));

@@ -23,7 +23,10 @@
 // is sufficient for accuracy and that choice ensures that the intermediate
 // value a * reciprocalMulFactor fits into 32 bits
 
-static constexpr unsigned reciprocalMulShift = 16;
+// Define this so the value can be shared with the assembler implementation
+#define RECIPROCAL_MUL_SHIFT 16
+#ifndef INCLUDE_IN_ASSEMBLER
+static constexpr unsigned reciprocalMulShift = RECIPROCAL_MUL_SHIFT;
 
 // Compute the factor to multiply by
 static inline unsigned reciprocalMulFactor(unsigned zFactor) {
@@ -35,3 +38,4 @@ static inline unsigned reciprocalMulDiv(unsigned input,
                                         unsigned reciprocalMulFactor) {
   return (input * reciprocalMulFactor) >> reciprocalMulShift;
 }
+#endif

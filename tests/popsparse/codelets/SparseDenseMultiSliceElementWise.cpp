@@ -152,9 +152,12 @@ int main(int argc, char **argv) try {
     throw poplibs_error("shape of baseT must be 2-dimensional");
   }
   if (rowOffset >= baseTShape[0]) {
-    throw poplibs_error("Row offset cannot be gereater than rows in baseT");
+    throw poplibs_error("Row offset cannot be greater than rows in baseT");
   }
-
+  if (inputType == HALF && (baseTShape[1] % 2) && !updateAdd) {
+    throw poplibs_error("Slice vertex with data type half only supports an"
+                        " even number of columns in baseT.");
+  }
   const std::vector<std::size_t> subTShape = {numOffsets, baseTShape[1]};
   // With row offset the populated part of the baseT tensor is only this large,
   // generate sparse data to populate that piece
@@ -253,6 +256,7 @@ int main(int argc, char **argv) try {
   graph.connect(v["subT"], subT.flatten());
   graph.setInitialValue(v["nzScaleFactor"], reciprocalMulFactor(zSize));
   graph.setInitialValue(v["rowsPerPartition"], rowsPerPartition);
+  graph.setInitialValue(v["numOffsets"], numOffsets);
 
   if (updateAdd) {
     // Connect tensor for scale and yPartitionToProcess.  Due to the the use
