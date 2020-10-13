@@ -2101,7 +2101,7 @@ runPlanner(const ConvDescription &conv,
   const auto &params = ccParams.getParams();
   std::tie(plan, cost) = createPlan(
       params, options, objective, target, startTileIndicesForVirtualHierarchy,
-      referencePlan, referenceCost, cache, nullptr);
+      referencePlan, referenceCost, cache, additionalPlansToCache);
 
   if (cost.totalCycles == popsolver::DataType::max()) {
     throw poputil::poplibs_error("No base plan found for unbounded plan");
