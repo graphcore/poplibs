@@ -121,19 +121,30 @@
 .align 8
 .type worker_half, @function
 .worker
+  // Entry point to use after the 1st call the supervisor vertex makes to the
+  // workers.  Worker specific work division has been done and the result stored
+  // on each worker's stack, so no need to calculate it again.
+worker_stack_retained_half:
+  ld32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
+  brpos         $w_offsetLoops, worker_continue_half
+  // Exit if nothing to do
+  exitz         $mzero
+
+  // First time entry point - so use of state (stack) retention
 worker_half:
   WORKER_PREAMBLE half
   brnzdec       $w_offsetLoops, 1f
-  // Exit if nothing to do for this worker
+  // Exit if nothing to do for this worker. Store the loop count for when
+  // the stack retained entry is used.  Subtract 1 so it is consistent with
+  // what would have happened if the brnzdec branch was taken
+  sub           $w_offsetLoops, $w_offsetLoops, 1
+  st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
   exitz         $mzero
 1:
   // Using loops - 1 as we use brnzdec in the loop later
   st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
 
-  // Entry point to use after the 1st call the supervisor vertex makes to the
-  // workers.  Worker specific work division has been done and the result stored
-  // on each worker's stack, so no need to calculate it again.
-worker_stack_retained_half:
+worker_continue_half:
   ld32          $w_nzPtr, $mvertex_base, WOFF_NZ_PTR/4
   ld32          $w_metaPtr, $mvertex_base, WOFF_META_PTR/4
   ld32          $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
@@ -219,7 +230,7 @@ next_offsetH:
 
   exitz         $mzero
 
-.size worker_half, . - worker_half
+.size worker_half, . - worker_stack_retained_half
 
 //------------------------------------------------------------------------------
 // Worker float function
@@ -227,19 +238,36 @@ next_offsetH:
 .align 8
 .type worker_float, @function
 .worker
+  nop // Rpt align
+  // Entry point to use after the 1st call the supervisor vertex makes to the
+  // workers.  Worker specific work division has been done and the result stored
+  // on each worker's stack, so no need to calculate it again.
+worker_stack_retained_float:
+  ld32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
+  brpos         $w_offsetLoops, worker_continue_float
+  // Exit if nothing to do
+  exitz         $mzero
+
+ // First time entry point - so use of state (stack) retention
 worker_float:
   WORKER_PREAMBLE float
+  // Entry point to use after the 1st call the supervisor vertex makes to the
+  // workers.  Worker specific work division has been done and the result stored
+  // on each worker's stack, so no need to calculate it again.  We do need to
+  // check if the worker has anything to do though.
   brnzdec       $w_offsetLoops, 1f
-  // Exit if nothing to do for this worker
+  // Exit if nothing to do for this worker. Store the loop count for when
+  // the stack retained entry is used.  Subtract 1 so it is consistent with
+  // what would have happened if the brnzdec branch was taken
+  sub           $w_offsetLoops, $w_offsetLoops, 1
+  st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
   exitz         $mzero
 1:
   // Using loops - 1 as we use brnzdec in the loop later
   st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
 
-  // Entry point to use after the 1st call the supervisor vertex makes to the
-  // workers.  Worker specific work division has been done and the result stored
-  // on each worker's stack, so no need to calculate it again.
-worker_stack_retained_float:
+worker_continue_float:
+
   ld32          $w_nzPtr, $mvertex_base, WOFF_NZ_PTR/4
   ld32          $w_metaPtr, $mvertex_base, WOFF_META_PTR/4
   ld32          $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
@@ -301,7 +329,7 @@ next_offsetF:
   brnzdec       $w_numRowsM1, meta_info_row_loopF
 
   exitz          $mzero
-.size worker_float, . - worker_float
+.size worker_float, . - worker_stack_retained_float
 //------------------------------------------------------------------------------
 // Supervisor functions to divide work and parse meta information, calling
 // worker threads once information matching the subGroup ID is found
