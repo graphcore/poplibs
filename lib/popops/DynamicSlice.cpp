@@ -230,7 +230,7 @@ static void generateVertices(std::string vertexName, Graph &graph,
       t2dElems[i] = t2d[i];
       toRearrange.push_back(&t2dElems[i]);
     }
-    graph.reorderToSimplify(&s2dElems[0], toRearrange);
+    graph.reorderToSimplify(&s2dElems[0], toRearrange, false);
 
     // Reordering may cause the element size to change if there were repeated
     // elements in s2d.

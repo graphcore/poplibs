@@ -186,7 +186,7 @@ Tensor nonLinearityInputGradient(Graph &graph,
   auto outFlat = out.flatten();
   auto outGradFlat = outGradient.flatten();
   auto inGradFlat = inGradient.flatten();
-  graph.reorderToSimplify(&inGradFlat, {&outFlat, &outGradFlat});
+  graph.reorderToSimplify(&inGradFlat, {&outFlat, &outGradFlat}, false);
   // Use mapping of the output activations as the forward pass retains
   // tile mapping of the input tensor. This is useful for example in batchnorm
   // where exchange for some operations is avoided by having the same mapping
@@ -281,7 +281,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
                                  "written in parallel");
 
   t = t.flatten();
-  graph.reorderToSimplify(&t, {});
+  graph.reorderToSimplify(&t, {}, false);
   const auto dType = t.elementType();
   const auto &target = graph.getTarget();
   auto mapping = graph.getTileMapping(t);

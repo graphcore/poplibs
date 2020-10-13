@@ -474,14 +474,9 @@ bool validateRegionSizeForSupervisorVertex(
   if (maxRegionSize == UINT_MAX) {
     return true;
   }
-  for (std::size_t i = 0; i < intervals.size(); ++i) {
-    const auto &regions = intervals[i];
-    const unsigned regionElements = std::accumulate(
-        regions.begin(), regions.end(), 0,
-        [](std::size_t total, const Interval &i) { return total + i.size(); });
-    if (regionElements > maxRegionSize * numWorkers) {
-      return false;
-    }
+  const auto numElems = intervalSequenceNumElements(intervals);
+  if (numElems > maxRegionSize * numWorkers) {
+    return false;
   }
   return true;
 }
@@ -507,7 +502,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
 
   auto inFlat = in.flatten();
   auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {&inFlat});
+  graph.reorderToSimplify(&outFlat, {&inFlat}, false);
   const auto mapping = graph.getTileMapping(outFlat);
   const auto grainSize = std::max<unsigned>(target.getVectorWidth(inType),
                                             target.getAtomicStoreGranularity());
@@ -654,7 +649,7 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
-  graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat});
+  graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat}, false);
   const auto mapping = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
@@ -816,7 +811,7 @@ void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
   auto outFlat = out.flatten();
   const auto numTiles = graph.getTarget().getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
-  graph.reorderToSimplify(&outFlat, {&in1Flat});
+  graph.reorderToSimplify(&outFlat, {&in1Flat}, false);
   const auto mapping = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != numTiles; ++tile) {
@@ -1426,7 +1421,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
   in1 = in1.flatten();
   in2 = in2.flatten();
   out = out.flatten();
-  graph.reorderToSimplify(&out, {&in1, &in2});
+  graph.reorderToSimplify(&out, {&in1, &in2}, false);
   const auto outMapping = graph.getTileMapping(out);
 
   std::vector<std::vector<BroadcastPattern>> tilePatterns(numTiles),
@@ -1860,7 +1855,7 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
     if (in3Size > 1)
       toReorder.push_back(&in3Flat);
 
-    graph.reorderToSimplify(&outFlat, toReorder);
+    graph.reorderToSimplify(&outFlat, toReorder, false);
   }
 
   const auto mapping = graph.getTileMapping(outFlat);
@@ -2107,7 +2102,7 @@ inferType(const expr::Expr &expr, const std::vector<Tensor> &ts,
 boost::optional<unsigned> getLowestTileMapping(const Graph &graph,
                                                const Tensor &tensor) {
   auto tensorSimplified = tensor.flatten();
-  graph.reorderToSimplify(&tensorSimplified, {});
+  graph.reorderToSimplify(&tensorSimplified, {}, false);
   auto mapping = graph.getTileMapping(tensorSimplified, false);
   auto isNonEmpty = [](const std::vector<Interval> &intervals) {
     return !intervals.empty();

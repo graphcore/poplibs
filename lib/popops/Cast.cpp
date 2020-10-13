@@ -36,7 +36,7 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
   assert(src.shape() == dst.shape());
   src = src.flatten();
   dst = dst.flatten();
-  graph.reorderToSimplify(&dst, {&src});
+  graph.reorderToSimplify(&dst, {&src}, false);
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
   const auto &target = graph.getTarget();
@@ -52,10 +52,9 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
       VertexRef v;
       v = graph.addVertex(
           cs, templateVertex("popops::CastSupervisor", srcType, dstType));
-      const auto &region = tileContiguousRegions.front();
-      unsigned numElems = region[0].size();
-      graph.connect(v["src"], concat(src.slices(region)));
-      graph.connect(v["dst"], concat(dst.slices(region)));
+      const auto numElems = intervalSequenceNumElements(tileContiguousRegions);
+      graph.connect(v["src"], concat(src.slices(tileContiguousRegions)));
+      graph.connect(v["dst"], concat(dst.slices(tileContiguousRegions)));
       // The supervisor vertex will partition work to each worker in multiples
       // of 4 elements. This ensures alignment of at least 8 bytes. Needed
       // because the worker vertex requires 8 byte alignment.
@@ -95,12 +94,12 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
         assert(numRegions != 0);
         VertexRef v;
         if (numRegions == 1) {
+          const auto numElems = intervalSequenceNumElements(regions);
           v = graph.addVertex(cs,
                               templateVertex("popops::Cast", srcType, dstType));
-          const auto &region = regions.front();
-          graph.connect(v["src"], concat(src.slices(region)));
-          graph.connect(v["dst"], concat(dst.slices(region)));
-          graph.setInitialValue(v["numElems"], region[0].size());
+          graph.connect(v["src"], concat(src.slices(regions)));
+          graph.connect(v["dst"], concat(dst.slices(regions)));
+          graph.setInitialValue(v["numElems"], numElems);
         } else {
           v = graph.addVertex(
               cs, templateVertex("popops::Cast2d", srcType, dstType));

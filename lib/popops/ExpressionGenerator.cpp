@@ -257,7 +257,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto cs = graph.addComputeSet(debugPrefix);
-  graph.reorderToSimplify(&outFlat, asPtr);
+  graph.reorderToSimplify(&outFlat, asPtr, false);
   const auto mapping = graph.getTileMapping(outFlat);
   for (auto tile = 0U; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];

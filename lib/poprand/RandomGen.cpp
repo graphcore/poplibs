@@ -170,7 +170,7 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                                              prog, fnPrefix);
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {});
+  graph.reorderToSimplify(&outFlat, {}, false);
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   double scale, offset;
@@ -225,7 +225,7 @@ Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {});
+  graph.reorderToSimplify(&outFlat, {}, false);
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
@@ -261,7 +261,7 @@ Tensor normal(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {});
+  graph.reorderToSimplify(&outFlat, {}, false);
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   for (auto tile = 0U; tile != outFlatTileMap.size(); ++tile) {
@@ -296,7 +296,7 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
                                              prog, fnPrefix);
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
-  graph.reorderToSimplify(&outFlat, {});
+  graph.reorderToSimplify(&outFlat, {}, false);
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 
   const float logProb = -4.0;
@@ -357,7 +357,7 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
   auto cs = graph.addComputeSet(fnPrefix);
   auto outFlat = out.flatten();
   auto inFlat = in.flatten();
-  graph.reorderToSimplify(&inFlat, {&outFlat});
+  graph.reorderToSimplify(&inFlat, {&outFlat}, false);
 
   const auto outFlatTileMap = graph.getTileMapping(outFlat);
 

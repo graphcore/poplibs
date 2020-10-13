@@ -385,7 +385,7 @@ void reduceWithOutputProgOrCss(
     auto &fillCS = computeSets.front();
 
     auto outFlat = out.get().flatten();
-    graph.reorderToSimplify(&outFlat, {});
+    graph.reorderToSimplify(&outFlat, {}, false);
     popops::fill(graph, outFlat, graph.getTileMapping(outFlat), fillCS,
                  initVal);
     return;

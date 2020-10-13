@@ -36,7 +36,7 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
                                  "conversion.");
   }
 
-  graph.reorderToSimplify(&dst, {&src});
+  graph.reorderToSimplify(&dst, {&src}, false);
   const auto srcType = src.elementType();
   const auto dstType = dst.elementType();
   const auto &target = graph.getTarget();

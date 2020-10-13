@@ -28,14 +28,9 @@ bool validateRegionSizeForSupervisorVertex(
   if (maxRegionSize == UINT_MAX) {
     return true;
   }
-  for (std::size_t i = 0; i < intervals.size(); ++i) {
-    const auto &regions = intervals[i];
-    const unsigned regionElements = std::accumulate(
-        regions.begin(), regions.end(), 0,
-        [](std::size_t total, const Interval &i) { return total + i.size(); });
-    if (regionElements > maxRegionSize) {
-      return false;
-    }
+  const auto numElems = intervalSequenceNumElements(intervals);
+  if (numElems > maxRegionSize) {
+    return false;
   }
   return true;
 }
@@ -133,7 +128,7 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
-  graph.reorderToSimplify(&aFlat, {&bFlat});
+  graph.reorderToSimplify(&aFlat, {&bFlat}, false);
   const auto mapping = graph.getTileMapping(aFlat);
 
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -147,15 +142,14 @@ void scaledArithmeticConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
         graph.getSortedContiguousRegions(aFlat, mapping[tile]);
 
     if (tileContiguousRegions.size() == 1 &&
-        tileContiguousRegions[0].size() == 1 &&
         validateRegionSizeForSupervisorVertex(tileContiguousRegions,
                                               maxSupervisorElements)) {
-      const auto &region = tileContiguousRegions[0][0];
-      auto v = graph.addVertex(
-          cs, codeletNameSupervisor,
-          {{"A", aFlat.slice(region)}, {"B", bFlat.slice(region)}});
+      const auto aContiguous = concat(aFlat.slices(tileContiguousRegions));
+      const auto bContiguous = concat(bFlat.slices(tileContiguousRegions));
+      auto v = graph.addVertex(cs, codeletNameSupervisor,
+                               {{"A", aContiguous}, {"B", bContiguous}});
       graph.setTileMapping(v, tile);
-      graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
+      graph.setInitialValue(v["size"], aContiguous.numElements());
       if (scaleA == 1.0f) {
         graph.setInitialValue(v["scaleB"], scaleB);
       } else {
@@ -300,19 +294,19 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
     graph.setTileMapping(scaleB, tile);
 
     if (tileContiguousRegions.size() == 1 &&
-        tileContiguousRegions[0].size() == 1 &&
         validateRegionSizeForSupervisorVertex(tileContiguousRegions,
                                               maxSupervisorElements)) {
-      const auto &region = tileContiguousRegions[0][0];
+      const auto aContiguous = concat(aFlat.slices(tileContiguousRegions));
+      const auto bContiguous = concat(bFlat.slices(tileContiguousRegions));
       VertexRef v = graph.addVertex(cs, codeletNameSupervisor,
-                                    {{"A", aFlat.slice(region)},
-                                     {"B", bFlat.slice(region)},
+                                    {{"A", aContiguous},
+                                     {"B", bContiguous},
                                      {"scaleB", scaleB.reshape({1})}});
       if (doaXPlusbY) {
         graph.connect(v["scaleA"], scaleA.reshape({1}));
       }
 
-      graph.setInitialValue(v["size"], aFlat.slice(region).numElements());
+      graph.setInitialValue(v["size"], aContiguous.numElements());
       if (vertexHasTolerance) {
         graph.setInitialValue(v["tolerance"], opts.floatToHalfTolerance);
       }

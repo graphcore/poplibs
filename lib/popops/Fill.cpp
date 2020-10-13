@@ -71,7 +71,7 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
           const std::string &debugPrefix) {
   auto cs = graph.addComputeSet(debugPrefix + "/Fill");
   auto tFlat = t.flatten();
-  graph.reorderToSimplify(&tFlat, {});
+  graph.reorderToSimplify(&tFlat, {}, false);
   fill<FillValueType>(graph, tFlat, graph.getTileMapping(tFlat), cs, fillValue);
   prog.add(Execute(cs));
 }
