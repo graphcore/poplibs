@@ -17,12 +17,14 @@ namespace logging = poplibs_support::logging;
 namespace popsparse {
 namespace experimental {
 
-HyperGraphBlockNaive::HyperGraphBlockNaive(
-    BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
-    poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn, int nTileIn,
-    float memoryCycleRatioIn, int nMulsOnVNodeIn)
+HyperGraphBlockNaive::HyperGraphBlockNaive(BlockMatrix &A, BlockMatrix &B,
+                                           poplar::Type inDataTypeIn,
+                                           poplar::Type outDataTypeIn,
+                                           poplar::Type partialDataTypeIn,
+                                           int nTileIn,
+                                           int nTargetNodesVPerTileIn)
     : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,
-                      nTileIn, memoryCycleRatioIn, nMulsOnVNodeIn) {
+                      nTileIn, nTargetNodesVPerTileIn) {
 
   logging::popsparse::info("HyperGraphBlockNaive is created");
 }

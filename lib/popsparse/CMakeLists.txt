@@ -12,6 +12,8 @@ add_library(popsparse SHARED
   HyperGraphStrip.cpp
   HyperGraphBlockZoltan.cpp
   HyperGraphBlockNaive.cpp
+  HyperGraphBlockGroup.cpp
+  HyperGraphBlockGroup2.cpp
   HyperGraphPartitioner.cpp
   ZoltanPartitioner.cpp
   BalancedPartitioner.cpp

@@ -17,8 +17,7 @@ public:
   HyperGraphBlockNaive(BlockMatrix &A, BlockMatrix &B,
                        poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
                        poplar::Type partialDataTypeIn, int nTileIn,
-                       float memoryCycleRatioIn,
-                       int nMulsOnVNodeIn = MUL_ON_NODE_V);
+                       int nTargetNodesVPerTileIn = TARGET_V_NODES_PER_TILE);
 
   virtual ~HyperGraphBlockNaive() = default;
 

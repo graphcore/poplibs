@@ -21,8 +21,6 @@ using namespace poplar::program;
 using namespace popsparse::experimental;
 using namespace poplibs_support;
 
-static const float MEMORY_CYCLE_RATIO = 1.0f;
-
 // TODO: Move to some kind of utils
 void getSparseMatrixBlocks(int rows, int cols, int rowsInBlock, int colsInBlock,
                            std::vector<unsigned char> &sparsity,
@@ -350,9 +348,9 @@ public:
   HyperGraphBlockTest(BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
                       poplar::Type outDataTypeIn,
                       poplar::Type partialDataTypeIn, int nTileIn,
-                      int nMulNodesSplitFactorIn = MUL_ON_NODE_V)
+                      int nTargetNodesVPerTileIn = TARGET_V_NODES_PER_TILE)
       : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,
-                        nTileIn, MEMORY_CYCLE_RATIO, nMulNodesSplitFactorIn) {}
+                        nTileIn, nTargetNodesVPerTileIn) {}
 
   virtual ~HyperGraphBlockTest() = default;
 
@@ -360,10 +358,7 @@ protected:
   void partitionGraph() override {}
 
 private:
-  void
-  logTileAssignment(const poplar::Graph &graph,
-                    const std::vector<int> &tileAssignment,
-                    const std::vector<unsigned int> &nodeCTileId) override {}
+  void logTileAssignment(const std::vector<int> &tileAssignment) override {}
 };
 
 } // namespace experimental
@@ -923,11 +918,9 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
-  std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
   hg.setTileAssignment(tileAssignment);
-  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
-                            "test");
+  hg.createComputeSetMatMul(graph, tensorCParts, matMulProg, "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1061,17 +1054,14 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
-  std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
   hg.setTileAssignment(tileAssignment);
-  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
-                            "test");
+  hg.createComputeSetMatMul(graph, tensorCParts, matMulProg, "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == hg.getNodeV().size());
 
   poplar::program::Sequence reduceProg;
-  hg.createComputeSetReduce(graph, tensorCParts, nodeCTileId, reduceProg,
-                            "test");
+  hg.createComputeSetReduce(graph, tensorCParts, reduceProg, "test");
 
   std::vector<std::unique_ptr<char[]>> rawHostCParts;
 
@@ -1209,11 +1199,9 @@ void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
-  std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
   hg.setTileAssignment(tileAssignment);
-  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
-                            "test");
+  hg.createComputeSetMatMul(graph, tensorCParts, matMulProg, "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1399,11 +1387,9 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
-  std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
   hg.setTileAssignment(tileAssignment);
-  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
-                            "test");
+  hg.createComputeSetMatMul(graph, tensorCParts, matMulProg, "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1455,11 +1441,9 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
   std::vector<int> tileAssignment1(hg1.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts1;
-  std::vector<unsigned int> nodeCTileId1;
   poplar::program::Sequence matMulProg1;
   hg1.setTileAssignment(tileAssignment1);
-  hg1.createComputeSetMatMul(graph, tensorCParts1, nodeCTileId1, matMulProg1,
-                             "matMul1");
+  hg1.createComputeSetMatMul(graph, tensorCParts1, matMulProg1, "matMul1");
   std::size_t tensorCPartsLen1 = tensorCParts1.size();
   BOOST_TEST(tensorCPartsLen1 == outBlocks1);
 
@@ -1658,11 +1642,9 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   std::vector<int> tileAssignment(hg.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts;
-  std::vector<unsigned int> nodeCTileId;
   poplar::program::Sequence matMulProg;
   hg.setTileAssignment(tileAssignment);
-  hg.createComputeSetMatMul(graph, tensorCParts, nodeCTileId, matMulProg,
-                            "test");
+  hg.createComputeSetMatMul(graph, tensorCParts, matMulProg, "test");
   std::size_t tensorCPartsLen = tensorCParts.size();
   BOOST_TEST(tensorCPartsLen == outBlocks);
 
@@ -1709,11 +1691,9 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
   std::vector<int> tileAssignment1(hg1.getTotalNodes(), 0);
 
   std::map<unsigned int, poplar::Tensor> tensorCParts1;
-  std::vector<unsigned int> nodeCTileId1;
   poplar::program::Sequence matMulProg1;
   hg1.setTileAssignment(tileAssignment1);
-  hg1.createComputeSetMatMul(graph, tensorCParts1, nodeCTileId1, matMulProg1,
-                             "matMul1");
+  hg1.createComputeSetMatMul(graph, tensorCParts1, matMulProg1, "matMul1");
   std::size_t tensorCPartsLen1 = tensorCParts1.size();
   BOOST_TEST(tensorCPartsLen1 == outBlocks1);
 

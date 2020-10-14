@@ -15,9 +15,10 @@ namespace experimental {
 HyperGraphBlockZoltan::HyperGraphBlockZoltan(
     BlockMatrix &A, BlockMatrix &B, poplar::Type inDataTypeIn,
     poplar::Type outDataTypeIn, poplar::Type partialDataTypeIn, int nTileIn,
-    float memoryCycleRatioIn, int nMulNodesSplitFactorIn)
+    float memoryCycleRatioIn, int nTargetNodesVPerTileIn)
     : HyperGraphBlock(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn,
-                      nTileIn, memoryCycleRatioIn, nMulNodesSplitFactorIn) {
+                      nTileIn, nTargetNodesVPerTileIn),
+      memoryCycleRatio(memoryCycleRatioIn) {
 
   partitioner = std::make_unique<ZoltanPartitioner>(
       ZoltanPartitioner::PartitionType::HYPERGRAPH);
@@ -87,6 +88,31 @@ HyperGraphData HyperGraphBlockZoltan::getDataForPartitioner() {
   graph.weights = std::move(weights);
 
   return graph;
+}
+
+void HyperGraphBlockZoltan::setupWeights(const poplar::Graph &graph) {
+  float memA = matA.getBlockRow() * matA.getBlockCol() *
+               graph.getTarget().getTypeSize(inDataType);
+  float memB = matB.getBlockRow() * matB.getBlockCol() *
+               graph.getTarget().getTypeSize(inDataType);
+  float memV = matC->getBlockRow() * matC->getBlockCol() *
+               graph.getTarget().getTypeSize(partialDataType);
+  // set the weight for node
+  float memWeight =
+      1.0f / (memA * nodeA.size() + memB * nodeB.size() + memV * nodeV.size());
+  for (auto &n : nodeA) {
+    n.w = memA * memWeight * memoryCycleRatio;
+  }
+  for (auto &n : nodeB) {
+    n.w = memB * memWeight * memoryCycleRatio;
+  }
+  // We allocate nodes C manually later in the code.
+
+  for (auto &n : nodeV) {
+    float cycleWeight = static_cast<float>(n.idxA.size()) / numMuls;
+    n.w = memoryCycleRatio * memV * memWeight +
+          (1.0 - memoryCycleRatio) * cycleWeight;
+  }
 }
 
 void HyperGraphBlockZoltan::partitionGraph() {

@@ -29,11 +29,14 @@ HyperGraphBlock::HyperGraphBlock(BlockMatrix &A, BlockMatrix &B,
                                  poplar::Type inDataTypeIn,
                                  poplar::Type outDataTypeIn,
                                  poplar::Type partialDataTypeIn, int nTileIn,
-                                 float memoryCycleRatioIn,
-                                 int nMulNodesSplitFactorIn)
+                                 int nTargetNodesVPerTileIn)
     : HyperGraph(A, B, inDataTypeIn, outDataTypeIn, partialDataTypeIn, nTileIn),
-      gNodeId(0), gEdgeId(0), memoryCycleRatio(memoryCycleRatioIn),
-      nMulsOnVNode(nMulNodesSplitFactorIn) {}
+      gNodeId(0), gEdgeId(0), numMuls(0),
+      nTargetNodesVPerTile(nTargetNodesVPerTileIn) {
+
+  blockIdMatrixA = matA.getBlockIdMatrix();
+  blockIdMatrixB = matB.getBlockIdMatrix();
+}
 
 void HyperGraphBlock::createGraphMatMul(poplar::Graph &graph,
                                         const std::string &debugPrefix) {
@@ -62,22 +65,10 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
   assert(matA.getColCount() == matB.getRowCount());
   assert(matA.getBlockCol() == matB.getBlockRow());
 
-  // block id look up matrix for A
-  auto blockIdMatrixA = matA.getBlockIdMatrix();
-
-  const int nRowA = matA.getBlockRowCount();
-  const int nColA = matA.getBlockColCount();
-
-  // block id look up matrix for B
-  auto blockIdMatrixB = matB.getBlockIdMatrix();
-
-  const int nRowB = matB.getBlockRowCount();
-  const int nColB = matB.getBlockColCount();
-
   // hyper edge id look up matrix for A
-  auto hyperEdgeIdA = populateNodesA(nRowA, nColA, blockIdMatrixA);
+  populateNodesA();
   // hyper edge id look up matrix for B
-  auto hyperEdgeIdB = populateNodesB(nRowB, nColB, blockIdMatrixB);
+  populateNodesB();
 
   // Populate node and hyper edge for matrix C
   const int blockRowC = matA.getBlockRow();
@@ -86,6 +77,7 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
   const int colC = matB.getColCount();
   const int nRowC = rowC / blockRowC;
   const int nColC = colC / blockColC;
+  const int nColA = matA.getBlockColCount();
 
   std::unique_ptr<BlockDenseMatrix> matCDense(
       new BlockDenseMatrix(rowC, colC, blockRowC, blockColC, false));
@@ -93,7 +85,7 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
   // block id look up matrix for C
   auto blockIdMatrixC = matCDense->getBlockIdMatrix();
 
-  int numMuls = 0;
+  numMuls = 0;
   for (int i = 0; i < nRowC; i++) {
     for (int j = 0; j < nColC; j++) {
       for (int k = 0; k < nColA; k++) {
@@ -104,30 +96,34 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
       }
     }
   }
+  logging::popsparse::trace("Muls total: {}", numMuls);
 
   poplar::Tensor matCTensor =
       matCDense->createTensor(graph, outDataType, debugPrefix + "/matC");
   matCDense->setBlockTensor(matCTensor);
 
-  auto hyperEdgeIdC = populateNodesC(nRowC, nColC, blockIdMatrixC);
+  populateNodesC(nRowC, nColC, blockIdMatrixC);
 
+  // populate multiply nodes V
+  populateNodesV(nRowC, nColC, blockIdMatrixC);
+
+  // save the pointer to matrix C
+  matC = std::move(matCDense);
+  setupWeights(graph);
+}
+
+unsigned int HyperGraphBlock::getMulsPerVNode() const {
   // nArgV is the desired average number of muls per node V (vertex)
   // We use this number to group the block pairs that contribute to the same
   // block in the matrix C. If this number is too small, we need more time to
   // sum up the partials. If this number is too big, we may have load balance
   // issue.
-  unsigned int nAvgV = numMuls / nTile / nMulsOnVNode;
+  unsigned int nAvgV = numMuls / nTile / nTargetNodesVPerTile;
 
   logging::popsparse::info("Total number of muls: {}", numMuls);
+  logging::popsparse::info("nTargetNodesVPerTile: {}", nTargetNodesVPerTile);
   logging::popsparse::info("Average number of muls per node V: {}", nAvgV);
-
-  // populate multiply nodes V
-  populateNodesV(nRowC, nColC, nColA, nAvgV, blockIdMatrixA, blockIdMatrixB,
-                 blockIdMatrixC, hyperEdgeIdA, hyperEdgeIdB, hyperEdgeIdC);
-
-  // save the pointer to matrix C
-  matC = std::move(matCDense);
-  setupWeights(graph, numMuls);
+  return nAvgV;
 }
 
 void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
@@ -137,22 +133,13 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
   assert(matA.getColCount() == matB.getRowCount());
   assert(matA.getBlockCol() == matB.getBlockRow());
 
-  // block id look up matrix for A
-  auto blockIdMatrixA = matA.getBlockIdMatrix();
-
-  const int nRowA = matA.getBlockRowCount();
-  const int nColA = matA.getBlockColCount();
-
   // block id look up matrix for B
   auto blockIdMatrixB = matB.getBlockIdMatrix();
 
-  const int nRowB = matB.getBlockRowCount();
-  const int nColB = matB.getBlockColCount();
-
   // hyper edge id look up matrix for A
-  auto hyperEdgeIdA = populateNodesA(nRowA, nColA, blockIdMatrixA);
+  populateNodesA();
   // hyper edge id look up matrix for B
-  auto hyperEdgeIdB = populateNodesB(nRowB, nColB, blockIdMatrixB);
+  populateNodesB();
 
   // Populate node and hyper edge for matrix C
   const int blockRowC = matA.getBlockRow();
@@ -161,6 +148,7 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
   const int colC = matB.getColCount();
   const int nRowC = rowC / blockRowC;
   const int nColC = colC / blockColC;
+  const int nColA = matA.getBlockColCount();
   std::unique_ptr<BlockSparseMatrix> matCSparse(
       new BlockSparseMatrix(rowC, colC, blockRowC, blockColC, false, sparsity));
 
@@ -171,9 +159,9 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
       matCSparse->createTensor(graph, outDataType, debugPrefix + "/matC");
   matCSparse->setBlockTensor(matCTensor);
 
-  auto hyperEdgeIdC = populateNodesC(nRowC, nColC, blockIdMatrixC);
+  populateNodesC(nRowC, nColC, blockIdMatrixC);
 
-  int numMuls = 0;
+  numMuls = 0;
   for (int i = 0; i < nRowC; i++) {
     for (int j = 0; j < nColC; j++) {
       if (blockIdMatrixC[i][j] != -1) {
@@ -181,19 +169,14 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
       }
     }
   }
-
-  unsigned int nAvgV = numMuls / nTile / nMulsOnVNode;
-
-  logging::popsparse::info("Total number of muls: {}", numMuls);
-  logging::popsparse::info("Average number of muls per node V: {}", nAvgV);
+  logging::popsparse::trace("Muls total: {}", numMuls);
 
   // populate multiply nodes V
-  populateNodesV(nRowC, nColC, nColA, nAvgV, blockIdMatrixA, blockIdMatrixB,
-                 blockIdMatrixC, hyperEdgeIdA, hyperEdgeIdB, hyperEdgeIdC);
+  populateNodesV(nRowC, nColC, blockIdMatrixC);
 
   // save the pointer to matrix C
   matC = std::move(matCSparse);
-  setupWeights(graph, numMuls);
+  setupWeights(graph);
 }
 
 void HyperGraphBlock::setTileMappingLHS(poplar::Graph &graph,
@@ -230,31 +213,6 @@ void HyperGraphBlock::setTileMappingRHS(poplar::Graph &graph,
   }
 }
 
-void HyperGraphBlock::setupWeights(const poplar::Graph &graph, int numMuls) {
-  float memA = matA.getBlockRow() * matA.getBlockCol() *
-               graph.getTarget().getTypeSize(inDataType);
-  float memB = matB.getBlockRow() * matB.getBlockCol() *
-               graph.getTarget().getTypeSize(inDataType);
-  float memV = matC->getBlockRow() * matC->getBlockCol() *
-               graph.getTarget().getTypeSize(partialDataType);
-  // set the weight for node
-  float memWeight =
-      1.0f / (memA * nodeA.size() + memB * nodeB.size() + memV * nodeV.size());
-  for (auto &n : nodeA) {
-    n.w = memA * memWeight * memoryCycleRatio;
-  }
-  for (auto &n : nodeB) {
-    n.w = memB * memWeight * memoryCycleRatio;
-  }
-  // We allocate nodes C manually later in the code.
-
-  for (auto &n : nodeV) {
-    float cycleWeight = static_cast<float>(n.idxA.size()) / numMuls;
-    n.w = memoryCycleRatio * memV * memWeight +
-          (1.0 - memoryCycleRatio) * cycleWeight;
-  }
-}
-
 std::vector<std::vector<unsigned int>> HyperGraphBlock::populateDataNodes(
     int nRow, int nCol, const std::vector<std::vector<int>> &blockIdMatrix,
     std::vector<DataNode> &nodeGroup, std::vector<HyperEdge> &edgeGroup) {
@@ -264,7 +222,7 @@ std::vector<std::vector<unsigned int>> HyperGraphBlock::populateDataNodes(
   for (int i = 0; i < nRow; i++) {
     for (int j = 0; j < nCol; j++) {
       if (blockIdMatrix[i][j] != -1) {
-        nodeGroup.emplace_back(gNodeId, blockIdMatrix[i][j]);
+        nodeGroup.emplace_back(gNodeId, blockIdMatrix[i][j], i, j);
 
         edgeGroup.emplace_back(gEdgeId);
         HyperEdge &e = edgeGroup.back();
@@ -280,25 +238,26 @@ std::vector<std::vector<unsigned int>> HyperGraphBlock::populateDataNodes(
   return hyperEdgeId;
 }
 
-std::vector<std::vector<unsigned int>> HyperGraphBlock::populateNodesA(
-    int nRowA, int nColA, const std::vector<std::vector<int>> &blockIdMatrixA) {
-  return populateDataNodes(nRowA, nColA, blockIdMatrixA, nodeA, edgeA);
+void HyperGraphBlock::populateNodesA() {
+  const int nRowA = matA.getBlockRowCount();
+  const int nColA = matA.getBlockColCount();
+  hyperEdgeIdA = populateDataNodes(nRowA, nColA, blockIdMatrixA, nodeA, edgeA);
 }
 
-std::vector<std::vector<unsigned int>> HyperGraphBlock::populateNodesB(
-    int nRowB, int nColB, const std::vector<std::vector<int>> &blockIdMatrixB) {
-  return populateDataNodes(nRowB, nColB, blockIdMatrixB, nodeB, edgeB);
+void HyperGraphBlock::populateNodesB() {
+  const int nRowB = matB.getBlockRowCount();
+  const int nColB = matB.getBlockColCount();
+  hyperEdgeIdB = populateDataNodes(nRowB, nColB, blockIdMatrixB, nodeB, edgeB);
 }
 
-std::vector<std::vector<unsigned int>> HyperGraphBlock::populateNodesC(
+void HyperGraphBlock::populateNodesC(
     int nRowC, int nColC, const std::vector<std::vector<int>> &blockIdMatrixC) {
-  std::vector<std::vector<unsigned int>> hyperEdgeIdC(
-      nRowC, std::vector<unsigned int>(nColC));
+  hyperEdgeIdC.resize(nRowC, std::vector<unsigned int>(nColC));
   unsigned int edgeId = 0;
   for (int i = 0; i < nRowC; i++) {
     for (int j = 0; j < nColC; j++) {
       if (blockIdMatrixC[i][j] != -1) {
-        nodeC.emplace_back(gNodeId, blockIdMatrixC[i][j]);
+        nodeC.emplace_back(gNodeId, blockIdMatrixC[i][j], i, j);
         edgeC.emplace_back(gEdgeId);
         HyperEdge &e = edgeC.back();
         e.out.push_back(gNodeId);
@@ -308,17 +267,16 @@ std::vector<std::vector<unsigned int>> HyperGraphBlock::populateNodesC(
       }
     }
   }
-  return hyperEdgeIdC;
 }
 
 void HyperGraphBlock::populateNodesV(
-    int nRowC, int nColC, int nColA, unsigned int nAvgV,
-    const std::vector<std::vector<int>> &blockIdMatrixA,
-    const std::vector<std::vector<int>> &blockIdMatrixB,
-    const std::vector<std::vector<int>> &blockIdMatrixC,
-    const std::vector<std::vector<unsigned int>> &hyperEdgeIdA,
-    const std::vector<std::vector<unsigned int>> &hyperEdgeIdB,
-    const std::vector<std::vector<unsigned int>> &hyperEdgeIdC) {
+    int nRowC, int nColC, const std::vector<std::vector<int>> &blockIdMatrixC) {
+  const int nColA = matA.getBlockColCount();
+  unsigned int numMulsPerV = getMulsPerVNode();
+
+  nodeVLayout.resize(
+      nRowC, std::vector<std::unordered_map<unsigned, std::size_t>>(nColC));
+
   // populate multiply nodes V
   for (int i = 0; i < nRowC; i++) {
     for (int j = 0; j < nColC; j++) {
@@ -327,6 +285,7 @@ void HyperGraphBlock::populateNodesV(
       }
 
       std::vector<std::pair<unsigned int, unsigned int>> aList, bList;
+      unsigned int p = 0;
       for (int k = 0; k < nColA; k++) {
         if (blockIdMatrixA[i][k] == -1 || blockIdMatrixB[k][j] == -1) {
           continue;
@@ -335,18 +294,17 @@ void HyperGraphBlock::populateNodesV(
         aList.push_back(std::make_pair(i, k));
         bList.push_back(std::make_pair(k, j));
 
-        if (aList.size() >= nAvgV) {
-          populateNodeV(i, j, aList, bList, blockIdMatrixA, blockIdMatrixB,
-                        hyperEdgeIdA, hyperEdgeIdB, hyperEdgeIdC);
+        if (aList.size() >= numMulsPerV) {
+          populateNodeV(i, j, p, aList, bList);
           aList.clear();
           bList.clear();
+          ++p;
         }
       }
 
-      // handle the blocks less than vAvgN
+      // handle the blocks less than nAvgV
       if (aList.size() != 0) {
-        populateNodeV(i, j, aList, bList, blockIdMatrixA, blockIdMatrixB,
-                      hyperEdgeIdA, hyperEdgeIdB, hyperEdgeIdC);
+        populateNodeV(i, j, p, aList, bList);
         aList.clear();
         bList.clear();
       }
@@ -355,14 +313,9 @@ void HyperGraphBlock::populateNodesV(
 }
 
 void HyperGraphBlock::populateNodeV(
-    int row, int col,
+    int row, int col, unsigned int p,
     const std::vector<std::pair<unsigned int, unsigned int>> &aList,
-    const std::vector<std::pair<unsigned int, unsigned int>> &bList,
-    const std::vector<std::vector<int>> &blockIdMatrixA,
-    const std::vector<std::vector<int>> &blockIdMatrixB,
-    const std::vector<std::vector<unsigned int>> &hyperEdgeIdA,
-    const std::vector<std::vector<unsigned int>> &hyperEdgeIdB,
-    const std::vector<std::vector<unsigned int>> &hyperEdgeIdC) {
+    const std::vector<std::pair<unsigned int, unsigned int>> &bList) {
   std::vector<unsigned int> nodeAList, nodeBList;
   for (unsigned m = 0; m < aList.size(); m++) {
     unsigned int rmul = aList[m].first;
@@ -375,7 +328,9 @@ void HyperGraphBlock::populateNodeV(
     nodeBList.push_back(blockIdMatrixB[rmul][cmul]);
     edgeB[hyperEdgeIdB[rmul][cmul]].out.push_back(gNodeId);
   }
-  nodeV.emplace_back(gNodeId, nodeAList, nodeBList);
+  nodeVLayout[row][col][p] = nodeV.size();
+  nodeVIdxById[gNodeId] = nodeV.size();
+  nodeV.emplace_back(gNodeId, nodeAList, nodeBList, row, col, p);
   edgeC[hyperEdgeIdC[row][col]].in.push_back(gNodeId);
 
   gNodeId++;
@@ -391,11 +346,10 @@ void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
                                           poplar::program::Sequence &prog,
                                           const std::string &debugPrefix) {
   std::map<unsigned int, poplar::Tensor> partialData;
-  std::vector<unsigned int> nodeCTileId;
 
-  createComputeSetMatMul(graph, partialData, nodeCTileId, prog, debugPrefix);
+  createComputeSetMatMul(graph, partialData, prog, debugPrefix);
 
-  createComputeSetReduce(graph, partialData, nodeCTileId, prog, debugPrefix);
+  createComputeSetReduce(graph, partialData, prog, debugPrefix);
 
   if (subBlockMask != SubBlockMask::None) {
     applySubBlockMask(graph, subBlockMask, prog, debugPrefix);
@@ -410,39 +364,35 @@ void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
                                           const std::string &debugPrefix) {
 
   std::map<unsigned int, poplar::Tensor> partialData;
-  std::vector<unsigned int> nodeCTileId;
 
-  createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, transposeCS,
-                         prog, debugPrefix);
-
-  createComputeSetReduce(graph, partialData, nodeCTileId, reduceCS,
+  createComputeSetMatMul(graph, partialData, mulCS, transposeCS, prog,
                          debugPrefix);
+
+  createComputeSetReduce(graph, partialData, reduceCS, debugPrefix);
 }
 
 void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
-    std::vector<unsigned int> &nodeCTileId, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
   poplar::ComputeSet mulCS = graph.addComputeSet(debugPrefix + "/mulCS");
   if (!matB.getNeedTranspose()) {
     poplar::ComputeSet transposeCS =
         graph.addComputeSet(debugPrefix + "/transposeCS");
     prog.add(poplar::program::Execute(transposeCS));
-    createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, &transposeCS,
-                           prog, debugPrefix);
+    createComputeSetMatMul(graph, partialData, mulCS, &transposeCS, prog,
+                           debugPrefix);
   } else {
-    createComputeSetMatMul(graph, partialData, nodeCTileId, mulCS, nullptr,
-                           prog, debugPrefix);
+    createComputeSetMatMul(graph, partialData, mulCS, nullptr, prog,
+                           debugPrefix);
   }
   prog.add(poplar::program::Execute(mulCS));
 }
 
 void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
-    std::vector<unsigned int> &nodeCTileId, poplar::ComputeSet &mulCS,
-    poplar::ComputeSet *transposeCS, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    poplar::ComputeSet &mulCS, poplar::ComputeSet *transposeCS,
+    poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
   // set tile mapping for tensors in all nodes
   const std::vector<poplar::Tensor> &blockDataA = matA.getBlockTensor();
@@ -530,6 +480,38 @@ void HyperGraphBlock::createComputeSetMatMul(
                              maxBalance);
   }
 
+  mapCNodes(graph);
+
+  logTileAssignment(tileAssignment);
+
+  vNodeCount = 0;
+  for (const auto &n : nodeV) {
+    unsigned int nodeId = n.id;
+    std::vector<poplar::Tensor> inputA, inputB;
+    for (unsigned int i = 0; i < n.idxA.size(); i++) {
+      inputA.push_back(processedBlockDataA[n.idxA[i]]);
+      inputB.push_back(processedBlockDataB[n.idxB[i]]);
+    }
+
+    std::vector<poplar::Tensor> out;
+    out.push_back(partialData[nodeId]);
+
+    if (tileAssignment[nodeV[vNodeCount].id] < 0) {
+      throw poputil::poplibs_error(
+          "Invalid tile id: " +
+          std::to_string(tileAssignment[nodeV[vNodeCount].id]) + "For nodeV");
+    }
+    unsigned int tileId =
+        static_cast<unsigned int>(tileAssignment[nodeV[vNodeCount].id]);
+
+    vNodeCount++;
+
+    addConv1x1Vertex(graph, inputA, inputB, partialData[nodeId], tileId, mulCS,
+                     debugPrefix);
+  }
+}
+
+void HyperGraphBlock::mapCNodes(poplar::Graph &graph) {
   nodeCTileId.resize(nodeC.size());
   const std::vector<poplar::Tensor> &blockDataC = matC->getBlockTensor();
   for (std::size_t i = 0; i < nodeC.size(); i++) {
@@ -566,55 +548,22 @@ void HyperGraphBlock::createComputeSetMatMul(
     graph.setTileMapping(blockDataC[blockId], tileId);
     nodeCTileId[i] = tileId;
   }
-
-  logTileAssignment(graph, tileAssignment, nodeCTileId);
-
-  vNodeCount = 0;
-  for (const auto &n : nodeV) {
-    unsigned int nodeId = n.id;
-    std::vector<poplar::Tensor> inputA, inputB;
-    inputA.reserve(n.idxA.size());
-    inputB.reserve(n.idxA.size());
-    for (unsigned int i = 0; i < n.idxA.size(); i++) {
-      inputA.push_back(processedBlockDataA[n.idxA[i]]);
-      inputB.push_back(processedBlockDataB[n.idxB[i]]);
-    }
-
-    std::vector<poplar::Tensor> out;
-    out.push_back(partialData[nodeId]);
-
-    if (tileAssignment[nodeV[vNodeCount].id] < 0) {
-      throw poputil::poplibs_error(
-          "Invalid tile id: " +
-          std::to_string(tileAssignment[nodeV[vNodeCount].id]) + "For nodeV");
-    }
-    unsigned int tileId =
-        static_cast<unsigned int>(tileAssignment[nodeV[vNodeCount].id]);
-
-    vNodeCount++;
-
-    addConv1x1Vertex(graph, inputA, inputB, partialData[nodeId], tileId, mulCS,
-                     debugPrefix);
-  }
 }
 
 void HyperGraphBlock::createComputeSetReduce(
     poplar::Graph &graph,
     const std::map<unsigned int, poplar::Tensor> &partialDataIn,
-    const std::vector<unsigned int> &nodeCTileId,
     poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
   poplar::ComputeSet reduceCS = graph.addComputeSet(debugPrefix + "/reduceCS");
-  createComputeSetReduce(graph, partialDataIn, nodeCTileId, reduceCS,
-                         debugPrefix);
+  createComputeSetReduce(graph, partialDataIn, reduceCS, debugPrefix);
   prog.add(poplar::program::Execute(reduceCS));
 }
 
 void HyperGraphBlock::createComputeSetReduce(
     poplar::Graph &graph,
     const std::map<unsigned int, poplar::Tensor> &partialDataIn,
-    const std::vector<unsigned int> &nodeCTileId, poplar::ComputeSet &reduceCS,
-    const std::string &debugPrefix) {
+    poplar::ComputeSet &reduceCS, const std::string &debugPrefix) {
   unsigned int minC = INT_MAX, maxC = 0;
 
   for (unsigned int i = 0; i < edgeC.size(); i++) {
@@ -647,7 +596,6 @@ void HyperGraphBlock::createComputeSetReduce(
                            edgeC.size(), minC, maxC);
 }
 
-static const float KBf = 1024.0f;
 static const std::size_t KBu = 1024;
 
 // Knowing the variables and vertices to tile assignment,
@@ -746,8 +694,7 @@ static const std::size_t KBu = 1024;
  Minimum Kb on tile 1058=0: A=0, B=0, C=0, P=0, a=0, b=0, p=0
 */
 void HyperGraphBlock::logTileAssignment(
-    const poplar::Graph &graph, const std::vector<int> &tileAssignment,
-    const std::vector<unsigned int> &nodeCTileId) {
+    const std::vector<int> &tileAssignment) {
   if (!logging::popsparse::shouldLog(logging::Level::Debug)) {
     return;
   }
@@ -760,6 +707,11 @@ void HyperGraphBlock::logTileAssignment(
   }
 
   // Histogram by node numbers
+  std::vector<std::size_t> nodesAByTiles(nTile, 0);
+  std::vector<std::size_t> nodesBByTiles(nTile, 0);
+  std::vector<std::size_t> nodesVByTiles(nTile, 0);
+  std::vector<std::size_t> nodesCByTiles(nTile, 0);
+  std::vector<std::size_t> nodesTotalByTiles(nTile, 0);
   {
     const std::size_t MAX_BUCKETS = 10;
     const std::size_t MAX_BAR_SIZE = 120;
@@ -768,11 +720,6 @@ void HyperGraphBlock::logTileAssignment(
     std::size_t minNodesOnTile = 256 * 1024;
     int idxMaxOccupiedTile = 0;
     int idxMinOccupiedTile = 0;
-    std::vector<std::size_t> nodesAByTiles(nTile, 0);
-    std::vector<std::size_t> nodesBByTiles(nTile, 0);
-    std::vector<std::size_t> nodesVByTiles(nTile, 0);
-    std::vector<std::size_t> nodesCByTiles(nTile, 0);
-    std::vector<std::size_t> nodesTotalByTiles(nTile, 0);
 
     std::function<void(int, std::size_t)> updateMaxNodesTile =
         [&](int idxTile, std::size_t nodesOnTile) {
@@ -900,151 +847,17 @@ void HyperGraphBlock::logTileAssignment(
   }
 
   // Histogram by memory
+  MemoryStatistics stats;
   {
+    computeBytesByTile(stats);
+
     const std::size_t MAX_BUCKETS = 10;
     const std::size_t MAX_BAR_SIZE = 120;
 
-    const int memWeightA = matA.getBlockRow() * matA.getBlockCol() *
-                           graph.getTarget().getTypeSize(inDataType);
-    const int memWeightB = matB.getBlockRow() * matB.getBlockCol() *
-                           graph.getTarget().getTypeSize(inDataType);
-    const int memWeightC = matC->getBlockRow() * matC->getBlockCol() *
-                           graph.getTarget().getTypeSize(outDataType);
-    const int memWeightV = matC->getBlockRow() * matC->getBlockCol() *
-                           graph.getTarget().getTypeSize(partialDataType);
-
-    std::vector<std::size_t> bytesAByTiles(nTile, 0);
-    std::vector<std::size_t> bytesBByTiles(nTile, 0);
-    std::vector<std::size_t> bytesVaByTiles(nTile, 0);
-    std::vector<std::size_t> bytesVbByTiles(nTile, 0);
-    std::vector<std::size_t> bytesVpByTiles(nTile, 0);
-    std::vector<std::size_t> bytesCByTiles(nTile, 0);
-    std::vector<std::size_t> bytesCpByTiles(nTile, 0);
-    // For matmul we count A,B,C,P,a,b
-    std::vector<std::size_t> bytesByTilesMatmul(nTile, 0);
-    // For reduce we count A,B,C,P,p,B
-    std::vector<std::size_t> bytesByTilesReduce(nTile, 0);
-
-    for (std::size_t i = 0; i < nodeA.size(); ++i) {
-      const auto &n = nodeA[i];
-      int idxTile = tileAssignment[n.id];
-      assert(idxTile >= 0 && idxTile < nTile);
-      bytesAByTiles[idxTile] += memWeightA;
-      bytesByTilesMatmul[idxTile] += memWeightA;
-      bytesByTilesReduce[idxTile] += memWeightA;
-    }
-    for (std::size_t i = 0; i < nodeB.size(); ++i) {
-      const auto &n = nodeB[i];
-      int idxTile = tileAssignment[n.id];
-      assert(idxTile >= 0 && idxTile < nTile);
-      bytesBByTiles[idxTile] += memWeightB;
-      bytesByTilesMatmul[idxTile] += memWeightB;
-      bytesByTilesReduce[idxTile] += memWeightB;
-    }
-    for (std::size_t i = 0; i < nodeV.size(); ++i) {
-      const auto &n = nodeV[i];
-      int idxTile = tileAssignment[n.id];
-      assert(idxTile >= 0 && idxTile < nTile);
-      bytesVpByTiles[idxTile] += memWeightV;
-      bytesByTilesMatmul[idxTile] += memWeightV;
-      bytesByTilesReduce[idxTile] += memWeightV;
-    }
-    for (std::size_t i = 0; i < edgeA.size(); ++i) {
-      const auto &e = edgeA[i];
-      assert(e.in.size() == 1);
-      unsigned int idNodeA = e.in[0];
-      int idxTileA = tileAssignment[idNodeA];
-      assert(idxTileA >= 0 && idxTileA < nTile);
-      std::unordered_set<int> tilesToCopy;
-      for (std::size_t i_out = 0; i_out < e.out.size(); ++i_out) {
-        unsigned int idNodeV = e.out[i_out];
-        int idxTileV = tileAssignment[idNodeV];
-        assert(idxTileV >= 0 && idxTileV < nTile);
-        if (idxTileA != idxTileV) {
-          if (tilesToCopy.find(idxTileV) == tilesToCopy.end()) {
-            bytesVaByTiles[idxTileV] += memWeightA;
-            bytesByTilesMatmul[idxTileV] += memWeightA;
-            tilesToCopy.insert(idxTileV);
-          }
-        }
-      }
-    }
-    for (std::size_t i = 0; i < edgeB.size(); ++i) {
-      const auto &e = edgeB[i];
-      assert(e.in.size() == 1);
-      unsigned int idNodeB = e.in[0];
-      int idxTileB = tileAssignment[idNodeB];
-      assert(idxTileB >= 0 && idxTileB < nTile);
-      std::unordered_set<int> tilesToCopy;
-      for (std::size_t i_out = 0; i_out < e.out.size(); ++i_out) {
-        unsigned int idNodeV = e.out[i_out];
-        int idxTileV = tileAssignment[idNodeV];
-        assert(idxTileV >= 0 && idxTileV < nTile);
-        if (idxTileB != idxTileV) {
-          if (tilesToCopy.find(idxTileV) == tilesToCopy.end()) {
-            bytesVbByTiles[idxTileV] += memWeightB;
-            bytesByTilesMatmul[idxTileV] += memWeightB;
-            tilesToCopy.insert(idxTileV);
-          }
-        }
-      }
-    }
-
-    for (std::size_t i = 0; i < nodeC.size(); ++i) {
-      const auto &n = nodeC[i];
-      int idxTile = tileAssignmentC.at(n.id);
-      assert(idxTile >= 0 && idxTile < nTile);
-      bytesCByTiles[idxTile] += memWeightC;
-      bytesByTilesMatmul[idxTile] += memWeightC;
-      bytesByTilesReduce[idxTile] += memWeightC;
-    }
-    for (std::size_t i = 0; i < edgeC.size(); ++i) {
-      const auto &e = edgeC[i];
-      assert(e.out.size() == 1);
-      unsigned int idNodeC = e.out[0];
-      int idxTileC = tileAssignmentC.at(idNodeC);
-      assert(idxTileC >= 0 && idxTileC < nTile);
-      for (std::size_t i_in = 0; i_in < e.in.size(); ++i_in) {
-        unsigned int idNodeV = e.in[i_in];
-        int idxTileV = tileAssignment[idNodeV];
-        assert(idxTileV >= 0 && idxTileV < nTile);
-        if (idxTileV != idxTileC) {
-          bytesCpByTiles[idxTileC] += memWeightV;
-          bytesByTilesReduce[idxTileC] += memWeightV;
-        }
-      }
-    }
-
-    std::size_t maxBytesOnTileMatmul = 0;
-    std::size_t idxMaxOccupiedTileMatmul = 0;
-    std::size_t maxBytesOnTileReduce = 0;
-    std::size_t idxMaxOccupiedTileReduce = 0;
-
-    std::size_t minBytesOnTile = 256 * KBu;
-    std::size_t idxMinOccupiedTile = 0;
-    for (int i = 0; i < nTile; ++i) {
-      if (bytesByTilesMatmul[i] > maxBytesOnTileMatmul) {
-        maxBytesOnTileMatmul = bytesByTilesMatmul[i];
-        idxMaxOccupiedTileMatmul = i;
-      }
-      if (bytesByTilesReduce[i] > maxBytesOnTileReduce) {
-        maxBytesOnTileReduce = bytesByTilesReduce[i];
-        idxMaxOccupiedTileReduce = i;
-      }
-      std::size_t maxBytes =
-          std::max(bytesByTilesMatmul[i], bytesByTilesReduce[i]);
-      if (maxBytes < minBytesOnTile) {
-        minBytesOnTile = maxBytes;
-        idxMinOccupiedTile = i;
-      }
-    }
-    std::size_t maxBytesOnTile =
-        std::max(maxBytesOnTileMatmul, maxBytesOnTileReduce);
-
     const std::size_t numBuckets =
-        std::min(MAX_BUCKETS, maxBytesOnTile / KBu + 1);
+        std::min(MAX_BUCKETS, stats.maxBytesOnTile / KBu + 1);
     const std::size_t bucketSizeBytes =
-        std::max((maxBytesOnTile + numBuckets) / numBuckets, KBu);
+        std::max((stats.maxBytesOnTile + numBuckets) / numBuckets, KBu);
     std::vector<std::size_t> bytesAPerBucket(numBuckets, 0);
     std::vector<std::size_t> bytesBPerBucket(numBuckets, 0);
     std::vector<std::size_t> bytesVpPerBucket(numBuckets, 0);
@@ -1057,17 +870,17 @@ void HyperGraphBlock::logTileAssignment(
 
     std::size_t maxBytesPerBucket = 0;
     for (int idxTile = 0; idxTile < nTile; ++idxTile) {
-      std::size_t bytesOnTileMax =
-          std::max(bytesByTilesMatmul[idxTile], bytesByTilesReduce[idxTile]);
+      std::size_t bytesOnTileMax = std::max(stats.bytesByTilesMatmul[idxTile],
+                                            stats.bytesByTilesReduce[idxTile]);
       std::size_t idxBucket = bytesOnTileMax / bucketSizeBytes;
       assert(idxBucket < numBuckets);
-      bytesAPerBucket[idxBucket] += bytesAByTiles[idxTile];
-      bytesBPerBucket[idxBucket] += bytesBByTiles[idxTile];
-      bytesVpPerBucket[idxBucket] += bytesVpByTiles[idxTile];
-      bytesVaPerBucket[idxBucket] += bytesVaByTiles[idxTile];
-      bytesVbPerBucket[idxBucket] += bytesVbByTiles[idxTile];
-      bytesCPerBucket[idxBucket] += bytesCByTiles[idxTile];
-      bytesCpPerBucket[idxBucket] += bytesCpByTiles[idxTile];
+      bytesAPerBucket[idxBucket] += stats.bytesAByTiles[idxTile];
+      bytesBPerBucket[idxBucket] += stats.bytesBByTiles[idxTile];
+      bytesVpPerBucket[idxBucket] += stats.bytesVpByTiles[idxTile];
+      bytesVaPerBucket[idxBucket] += stats.bytesVaByTiles[idxTile];
+      bytesVbPerBucket[idxBucket] += stats.bytesVbByTiles[idxTile];
+      bytesCPerBucket[idxBucket] += stats.bytesCByTiles[idxTile];
+      bytesCpPerBucket[idxBucket] += stats.bytesCpByTiles[idxTile];
       bytesMatmulPerBucket[idxBucket] =
           bytesAPerBucket[idxBucket] + bytesBPerBucket[idxBucket] +
           bytesCPerBucket[idxBucket] + bytesVpPerBucket[idxBucket] +
@@ -1208,33 +1021,194 @@ void HyperGraphBlock::logTileAssignment(
       bytesLow += bucketSizeBytes;
     }
     logging::popsparse::debug(
-        "Maximum matmul Kb on tile {}={}: A={}, B={}, C={}, P={}, a={}, b={}",
-        idxMaxOccupiedTileMatmul, maxBytesOnTileMatmul / KBf,
-        bytesAByTiles[idxMaxOccupiedTileMatmul] / KBf,
-        bytesBByTiles[idxMaxOccupiedTileMatmul] / KBf,
-        bytesCByTiles[idxMaxOccupiedTileMatmul] / KBf,
-        bytesVpByTiles[idxMaxOccupiedTileMatmul] / KBf,
-        bytesVaByTiles[idxMaxOccupiedTileMatmul] / KBf,
-        bytesVbByTiles[idxMaxOccupiedTileMatmul] / KBf);
+        "Maximum matmul Kb on tile {}={}: A={}, B={}, C={}, P={}, "
+        "a={}, b={}; NA={}, NB={}, NV={}, NC={}",
+        stats.idxMaxOccupiedTileMatmul, stats.maxBytesOnTileMatmul / KBf,
+        stats.bytesAByTiles[stats.idxMaxOccupiedTileMatmul] / KBf,
+        stats.bytesBByTiles[stats.idxMaxOccupiedTileMatmul] / KBf,
+        stats.bytesCByTiles[stats.idxMaxOccupiedTileMatmul] / KBf,
+        stats.bytesVpByTiles[stats.idxMaxOccupiedTileMatmul] / KBf,
+        stats.bytesVaByTiles[stats.idxMaxOccupiedTileMatmul] / KBf,
+        stats.bytesVbByTiles[stats.idxMaxOccupiedTileMatmul] / KBf,
+        nodesAByTiles[stats.idxMaxOccupiedTileMatmul],
+        nodesBByTiles[stats.idxMaxOccupiedTileMatmul],
+        nodesVByTiles[stats.idxMaxOccupiedTileMatmul],
+        nodesCByTiles[stats.idxMaxOccupiedTileMatmul]);
     logging::popsparse::debug(
-        "Maximum reduce Kb on tile {}={}: B={}, P={}, C={}, p={}",
-        idxMaxOccupiedTileReduce, maxBytesOnTileReduce / KBf,
-        bytesAByTiles[idxMaxOccupiedTileReduce] / KBf,
-        bytesBByTiles[idxMaxOccupiedTileReduce] / KBf,
-        bytesCByTiles[idxMaxOccupiedTileReduce] / KBf,
-        bytesVpByTiles[idxMaxOccupiedTileReduce] / KBf,
-        bytesCpByTiles[idxMaxOccupiedTileReduce] / KBf);
+        "Maximum reduce Kb on tile {}={}: A={}, B={}, P={}, C={}, p={}",
+        stats.idxMaxOccupiedTileReduce, stats.maxBytesOnTileReduce / KBf,
+        stats.bytesAByTiles[stats.idxMaxOccupiedTileReduce] / KBf,
+        stats.bytesBByTiles[stats.idxMaxOccupiedTileReduce] / KBf,
+        stats.bytesCByTiles[stats.idxMaxOccupiedTileReduce] / KBf,
+        stats.bytesVpByTiles[stats.idxMaxOccupiedTileReduce] / KBf,
+        stats.bytesCpByTiles[stats.idxMaxOccupiedTileReduce] / KBf);
     logging::popsparse::debug(
-        "Minimum Kb on tile {}={}: A={}, B={}, C={}, P={}, a={}, b={}, p={}",
-        idxMinOccupiedTile, minBytesOnTile / KBf,
-        bytesAByTiles[idxMinOccupiedTile] / KBf,
-        bytesBByTiles[idxMinOccupiedTile] / KBf,
-        bytesCByTiles[idxMinOccupiedTile] / KBf,
-        bytesVpByTiles[idxMinOccupiedTile] / KBf,
-        bytesVaByTiles[idxMinOccupiedTile] / KBf,
-        bytesVbByTiles[idxMinOccupiedTile] / KBf,
-        bytesCpByTiles[idxMinOccupiedTile] / KBf);
+        "Minimum Kb on tile {}={}: A={}, B={}, C={}, P={}, a={}, b={}, p={}; "
+        "NA={}, NB={}, NV={}, NC={}",
+        stats.idxMinOccupiedTile, stats.minBytesOnTile / KBf,
+        stats.bytesAByTiles[stats.idxMinOccupiedTile] / KBf,
+        stats.bytesBByTiles[stats.idxMinOccupiedTile] / KBf,
+        stats.bytesCByTiles[stats.idxMinOccupiedTile] / KBf,
+        stats.bytesVpByTiles[stats.idxMinOccupiedTile] / KBf,
+        stats.bytesVaByTiles[stats.idxMinOccupiedTile] / KBf,
+        stats.bytesVbByTiles[stats.idxMinOccupiedTile] / KBf,
+        stats.bytesCpByTiles[stats.idxMinOccupiedTile] / KBf,
+        nodesAByTiles[stats.idxMinOccupiedTile],
+        nodesBByTiles[stats.idxMinOccupiedTile],
+        nodesVByTiles[stats.idxMinOccupiedTile],
+        nodesCByTiles[stats.idxMinOccupiedTile]);
   }
+}
+
+void HyperGraphBlock::computeBytesByTile(
+    HyperGraphBlock::MemoryStatistics &stats) {
+  stats.bytesAByTiles.resize(nTile, 0);
+  stats.bytesBByTiles.resize(nTile, 0);
+  stats.bytesVaByTiles.resize(nTile, 0);
+  stats.bytesVbByTiles.resize(nTile, 0);
+  stats.bytesVpByTiles.resize(nTile, 0);
+  stats.bytesCByTiles.resize(nTile, 0);
+  stats.bytesCpByTiles.resize(nTile, 0);
+  // For matmul we count A,B,C,P,a,b
+  stats.bytesByTilesMatmul.resize(nTile, 0);
+  // For reduce we count A,B,C,P,p,B
+  stats.bytesByTilesReduce.resize(nTile, 0);
+
+  const unsigned inDataTypeSize = (inDataType == poplar::FLOAT) ? 4 : 2;
+  const unsigned outDataTypeSize = (outDataType == poplar::FLOAT) ? 4 : 2;
+  const unsigned partialDataTypeSize =
+      (partialDataType == poplar::FLOAT) ? 4 : 2;
+
+  const int memWeightA =
+      matA.getBlockRow() * matA.getBlockCol() * inDataTypeSize;
+  const int memWeightB =
+      matB.getBlockRow() * matB.getBlockCol() * inDataTypeSize;
+  const int memWeightC =
+      matC->getBlockRow() * matC->getBlockCol() * outDataTypeSize;
+  const int memWeightV =
+      matC->getBlockRow() * matC->getBlockCol() * partialDataTypeSize;
+
+  std::unordered_map<unsigned int, int> tileAssignmentC;
+  for (std::size_t i = 0; i < nodeC.size(); ++i) {
+    const auto &n = nodeC[i];
+    tileAssignmentC[n.id] = nodeCTileId[i];
+  }
+
+  for (std::size_t i = 0; i < nodeA.size(); ++i) {
+    const auto &n = nodeA[i];
+    int idxTile = tileAssignment[n.id];
+    assert(idxTile >= 0 && idxTile < nTile);
+    stats.bytesAByTiles[idxTile] += memWeightA;
+    stats.bytesByTilesMatmul[idxTile] += memWeightA;
+    stats.bytesByTilesReduce[idxTile] += memWeightA;
+  }
+  for (std::size_t i = 0; i < nodeB.size(); ++i) {
+    const auto &n = nodeB[i];
+    int idxTile = tileAssignment[n.id];
+    assert(idxTile >= 0 && idxTile < nTile);
+    stats.bytesBByTiles[idxTile] += memWeightB;
+    stats.bytesByTilesMatmul[idxTile] += memWeightB;
+    stats.bytesByTilesReduce[idxTile] += memWeightB;
+  }
+  for (std::size_t i = 0; i < nodeV.size(); ++i) {
+    const auto &n = nodeV[i];
+    int idxTile = tileAssignment[n.id];
+    assert(idxTile >= 0 && idxTile < nTile);
+    stats.bytesVpByTiles[idxTile] += memWeightV;
+    stats.bytesByTilesMatmul[idxTile] += memWeightV;
+    stats.bytesByTilesReduce[idxTile] += memWeightV;
+  }
+  for (std::size_t i = 0; i < edgeA.size(); ++i) {
+    const auto &e = edgeA[i];
+    assert(e.in.size() == 1);
+    unsigned int idNodeA = e.in[0];
+    int idxTileA = tileAssignment[idNodeA];
+    assert(idxTileA >= 0 && idxTileA < nTile);
+    std::unordered_set<int> tilesToCopy;
+    for (std::size_t i_out = 0; i_out < e.out.size(); ++i_out) {
+      unsigned int idNodeV = e.out[i_out];
+      int idxTileV = tileAssignment[idNodeV];
+      assert(idxTileV >= 0 && idxTileV < nTile);
+      if (idxTileA != idxTileV) {
+        if (tilesToCopy.find(idxTileV) == tilesToCopy.end()) {
+          stats.bytesVaByTiles[idxTileV] += memWeightA;
+          stats.bytesByTilesMatmul[idxTileV] += memWeightA;
+          tilesToCopy.insert(idxTileV);
+        }
+      }
+    }
+  }
+  for (std::size_t i = 0; i < edgeB.size(); ++i) {
+    const auto &e = edgeB[i];
+    assert(e.in.size() == 1);
+    unsigned int idNodeB = e.in[0];
+    int idxTileB = tileAssignment[idNodeB];
+    assert(idxTileB >= 0 && idxTileB < nTile);
+    std::unordered_set<int> tilesToCopy;
+    for (std::size_t i_out = 0; i_out < e.out.size(); ++i_out) {
+      unsigned int idNodeV = e.out[i_out];
+      int idxTileV = tileAssignment[idNodeV];
+      assert(idxTileV >= 0 && idxTileV < nTile);
+      if (idxTileB != idxTileV) {
+        if (tilesToCopy.find(idxTileV) == tilesToCopy.end()) {
+          stats.bytesVbByTiles[idxTileV] += memWeightB;
+          stats.bytesByTilesMatmul[idxTileV] += memWeightB;
+          tilesToCopy.insert(idxTileV);
+        }
+      }
+    }
+  }
+
+  for (std::size_t i = 0; i < nodeC.size(); ++i) {
+    const auto &n = nodeC[i];
+    int idxTile = tileAssignmentC.at(n.id);
+    assert(idxTile >= 0 && idxTile < nTile);
+    stats.bytesCByTiles[idxTile] += memWeightC;
+    stats.bytesByTilesMatmul[idxTile] += memWeightC;
+    stats.bytesByTilesReduce[idxTile] += memWeightC;
+  }
+  for (std::size_t i = 0; i < edgeC.size(); ++i) {
+    const auto &e = edgeC[i];
+    assert(e.out.size() == 1);
+    unsigned int idNodeC = e.out[0];
+    int idxTileC = tileAssignmentC.at(idNodeC);
+    assert(idxTileC >= 0 && idxTileC < nTile);
+    for (std::size_t i_in = 0; i_in < e.in.size(); ++i_in) {
+      unsigned int idNodeV = e.in[i_in];
+      int idxTileV = tileAssignment[idNodeV];
+      assert(idxTileV >= 0 && idxTileV < nTile);
+      if (idxTileV != idxTileC) {
+        stats.bytesCpByTiles[idxTileC] += memWeightV;
+        stats.bytesByTilesReduce[idxTileC] += memWeightV;
+      }
+    }
+  }
+
+  stats.maxBytesOnTileMatmul = 0;
+  stats.idxMaxOccupiedTileMatmul = 0;
+  stats.maxBytesOnTileReduce = 0;
+  stats.idxMaxOccupiedTileReduce = 0;
+
+  stats.minBytesOnTile = 256 * KBu;
+  stats.idxMinOccupiedTile = 0;
+  for (int i = 0; i < nTile; ++i) {
+    if (stats.bytesByTilesMatmul[i] > stats.maxBytesOnTileMatmul) {
+      stats.maxBytesOnTileMatmul = stats.bytesByTilesMatmul[i];
+      stats.idxMaxOccupiedTileMatmul = i;
+    }
+    if (stats.bytesByTilesReduce[i] > stats.maxBytesOnTileReduce) {
+      stats.maxBytesOnTileReduce = stats.bytesByTilesReduce[i];
+      stats.idxMaxOccupiedTileReduce = i;
+    }
+    std::size_t maxBytes =
+        std::max(stats.bytesByTilesMatmul[i], stats.bytesByTilesReduce[i]);
+    if (maxBytes < stats.minBytesOnTile) {
+      stats.minBytesOnTile = maxBytes;
+      stats.idxMinOccupiedTile = i;
+    }
+  }
+  stats.maxBytesOnTile =
+      std::max(stats.maxBytesOnTileMatmul, stats.maxBytesOnTileReduce);
 }
 
 } // namespace experimental

@@ -3,6 +3,7 @@
 #include "popsparse/experimental/BlockSparseMatMul.hpp"
 #include "BSMatrix.hpp"
 #include "BSOps.hpp"
+#include "HyperGraphBlockGroup2.hpp"
 #include "HyperGraphBlockNaive.hpp"
 #include "HyperGraphBlockZoltan.hpp"
 #include "HyperGraphStrip.hpp"
@@ -214,6 +215,7 @@ void BSMatMulImpl::createPartitionPlan(poplar::Graph &graph,
     STRIP,
     BLOCK,
     BLOCK_NAIVE,
+    BLOCK_GROUP2,
   };
 
   PartitionMethod pm = PartitionMethod::STRIP;
@@ -223,6 +225,8 @@ void BSMatMulImpl::createPartitionPlan(poplar::Graph &graph,
     pm = PartitionMethod::BLOCK;
   } else if (partitionMethod.compare("block-naive") == 0) {
     pm = PartitionMethod::BLOCK_NAIVE;
+  } else if (partitionMethod.compare("block-group2") == 0) {
+    pm = PartitionMethod::BLOCK_GROUP2;
   } else if (partitionMethod.compare("stripv0") == 0) {
     pm = PartitionMethod::STRIPV0;
   } else if (partitionMethod.compare("strip") == 0) {
@@ -278,12 +282,15 @@ void BSMatMulImpl::createPartitionPlan(poplar::Graph &graph,
           break;
         case (PartitionMethod::BLOCK_NAIVE):
           hg = new HyperGraphBlockNaive(lhs, rhs, inDataType, outDataType,
-                                        partialDataType, numTiles,
-                                        static_cast<float>(memoryCycleRatio));
+                                        partialDataType, numTiles);
           break;
         case (PartitionMethod::STRIPV0):
           hg = new HyperGraphStripV0(lhs, rhs, inDataType, outDataType,
                                      partialDataType, numTiles, nPass);
+          break;
+        case (PartitionMethod::BLOCK_GROUP2):
+          hg = new HyperGraphBlockGroup2(lhs, rhs, inDataType, outDataType,
+                                         partialDataType, numTiles);
           break;
         default:
           hg = new HyperGraphStrip(lhs, rhs, inDataType, outDataType,
@@ -301,6 +308,11 @@ void BSMatMulImpl::createPartitionPlan(poplar::Graph &graph,
     auto &rhs = *rhsMatrices[0];
 
     unsigned numTiles = graph.getTarget().getTilesPerIPU();
+    logging::popsparse::debug(
+        "{}: {} x {} x {}, block: {} x {} x {}. Tiles: {}",
+        isResSparse ? "dds" : "dsd", lhs.getRowCount(), lhs.getColCount(),
+        rhs.getColCount(), lhs.getBlockRow(), lhs.getBlockCol(),
+        rhs.getBlockCol(), numTiles);
     HyperGraph *hg = createHyperGraph(lhs, rhs, numTiles);
 
     if (!isResSparse) {
@@ -523,6 +535,12 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
 
       lhs.setBlockTensor(lhsMatrix.slice(lhsBegin, lhsEnd, 0));
       rhs.setBlockTensor(rhsMatrix.slice(rhsBegin, rhsEnd, 0));
+
+      logging::popsparse::debug(
+          "dds: {} x {} x {}, block: {} x {} x {}, group: {}, num tiles: {}",
+          lhs.getRowCount(), lhs.getColCount(), rhs.getColCount(),
+          lhs.getBlockRow(), lhs.getBlockCol(), rhs.getBlockCol(), idxGroup,
+          numTilesTotal);
 
       HyperGraph *hg = bsMatMulImpl.hyperGraphs[idxGroup].get();
 

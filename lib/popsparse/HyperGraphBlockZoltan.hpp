@@ -19,14 +19,20 @@ public:
                         poplar::Type inDataTypeIn, poplar::Type outDataTypeIn,
                         poplar::Type partialDataTypeIn, int nTileIn,
                         float memoryCycleRatioIn,
-                        int nMulNodesSplitFactorIn = MUL_ON_NODE_V);
+                        int nTargetNodesVPerTileIn = TARGET_V_NODES_PER_TILE);
 
   virtual ~HyperGraphBlockZoltan() = default;
 
 protected:
+  // Set up weights for a graph
+  virtual void setupWeights(const poplar::Graph &graph) override;
+
   virtual void partitionGraph() override;
 
 private:
+  // Used to tune partitioning algorithm
+  float memoryCycleRatio;
+
   // Represents hypergraph in a Zoltan format
   HyperGraphData getDataForPartitioner();
 };
