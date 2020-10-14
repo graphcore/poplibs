@@ -132,8 +132,14 @@ add                   $w_qBase, $w_qBaseRetained, $w_xOffsetInQ
 blockSparseDenseMultiply_hf8x8_retained_yOff:
 brz                   $w_num_orig, LEndWorker
 
-ld32                  $w_yOffsetInS, $mvertex_base, W_YOFFSET/4
-shl                   $w_yOffsetInS, $w_yOffsetInS, 1
+{
+  ld32                  $w_yOffsetInS, $mvertex_base, W_YOFFSET/4
+  setzi                 $fp_clr_reg, 1 << CSR_W_FP_CLR__ZAACC__SHIFT
+}
+{
+  shl                   $w_yOffsetInS, $w_yOffsetInS, 1
+  uput                  $FP_CLR, $fp_clr_reg 
+}
 add                   $w_sBase, $w_sBaseRetained, $w_yOffsetInS
 
 tapack                $w_tripack, $w_sBase, $w_qBase, $w_qBase
