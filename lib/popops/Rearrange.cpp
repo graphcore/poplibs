@@ -297,7 +297,7 @@ updateGroupingInternal(const Graph &graph, const Tensor &t,
 
   // Minimum number of elements in a group. Groups are split by a multiple of
   // this
-  const unsigned minGroupsSize = 4;
+  const unsigned minGroupsSize = getMinimumRegroupGrainSize(t.elementType());
 
   // find entry with max elements
   auto maxIt = std::max_element(std::begin(elemsPerIpu), std::end(elemsPerIpu));
