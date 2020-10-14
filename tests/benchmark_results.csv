@@ -188,7 +188,7 @@ IpuModel,default,oct_resnet50_tr_bs4_bm64L0_a25,28730,-1.0,33163691,5.2,134584,0
 IpuModel,default,oct_resnet50_tr_bs4_bm64L0_projection_a25,65058,-0.4,67686469,3.4,143608,0.0
 IpuModel,default,oct_resnet50_tr_bs4_bm64L1A0_a25,59675,0.4,74356274,2.5,144440,0.0
 IpuModel,default,oct_resnet50_tr_bs4_cnv_ain0_aout25,148374,-0.0,99249061,0.1,154352,0.0
-IpuModel,default,resnet50_tr_bs1_bm128L0A0_reduce,2651,0.0,322561,-8.3,16440,0.0
+IpuModel,default,resnet50_tr_bs1_bm128L0A0_reduce,2611,-1.5,322463,-0.0,16440,0.0
 IpuModel,default,resnet50_tr_bs1_bm128L0_reduce,3125,0.0,944862,-3.0,16440,0.0
 IpuModel,default,resnet50_tr_bs1_bm64L0A0_reduce,2811,0.0,536151,-5.1,16440,0.0
 IpuModel,default,resnet50_tr_bs1_cnv_reduce,3232,0.0,2005998,-1.4,16440,0.0
@@ -408,7 +408,7 @@ IpuModel2,default,oct_resnet50_tr_bs4_bm64L0_a25,25143,0.0,33076203,-0.0,215928,
 IpuModel2,default,oct_resnet50_tr_bs4_bm64L0_projection_a25,57777,-0.5,61644488,3.7,223416,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_bm64L1A0_a25,53637,0.0,65132171,-0.0,224088,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_cnv_ain0_aout25,157034,0.1,137834881,0.0,249144,0.0
-IpuModel2,default,resnet50_tr_bs1_bm128L0A0_reduce,2830,0.0,371722,-8.8,16440,0.0
+IpuModel2,default,resnet50_tr_bs1_bm128L0A0_reduce,2536,-10.4,336424,-9.5,1008,-93.9
 IpuModel2,default,resnet50_tr_bs1_bm128L0_reduce,3357,0.0,978379,-3.5,16440,0.0
 IpuModel2,default,resnet50_tr_bs1_bm64L0A0_reduce,2811,0.0,545479,-5.0,16440,0.0
 IpuModel2,default,resnet50_tr_bs1_cnv_reduce,3040,0.0,2040736,-1.7,2080,-1.1

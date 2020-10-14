@@ -1,6 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #define BOOST_TEST_MODULE ReductionPatternsTest
-#include "popops/reduction/ReductionStages.hpp"
+#include "popops/reduction/ReductionIntrospection.hpp"
 #include <boost/test/unit_test.hpp>
 #include <poplar/Engine.hpp>
 #include <poplibs_support/TestDevice.hpp>
@@ -455,4 +455,225 @@ BOOST_AUTO_TEST_CASE(ReducePatternsDivideDifferentLengths) {
     expectedColumns[i].push_back(columns[i]);
   }
   BOOST_TEST(checkResult(dividedReductions, expected, expectedColumns));
+}
+
+// Testing functions to analyse column ordering
+//
+
+// We are only interested in column order so initialise patterns with the
+// columns provided by the test.
+// input dimensions [tile][region][columns]
+// [tile]:   Each tile can contain several regions, a column can feature on
+//           only 1 tile or many tiles
+// [region]  There may be several contiguous blocks on a tile, they will
+//           never contain the same column number as another block on that tile
+// [columns] A list of columns found in a contiguous block.
+TilePartialsDescription
+initialiseRegions(const std::vector<std::vector<std::vector<unsigned>>> &in) {
+  TilePartialsDescription result(in.size());
+  for (unsigned i = 0; i < in.size(); i++) {
+    for (unsigned j = 0; j < in[i].size(); j++) {
+      PartialsDescription pattern;
+      pattern.columns = in[i][j];
+      result[i].push_back(pattern);
+    }
+  }
+  return result;
+}
+
+void printResult(const boost::optional<std::vector<unsigned>> &result) {
+  if (result) {
+    std::cout << "Column order found:";
+    for (unsigned i = 0; i < result.get().size(); i++) {
+      std::cout << result.get()[i] << ",";
+    }
+  } else {
+    std::cout << "No result: Columns are consecutive";
+  }
+  std::cout << "\n";
+}
+
+bool checkResult(const boost::optional<std::vector<unsigned>> &result,
+                 const boost::optional<std::vector<unsigned>> &expected) {
+  if (expected) {
+    if (!result) {
+      return false;
+    }
+    return result.get() == expected.get();
+  }
+  if (result) {
+    return false;
+  }
+  return true;
+}
+
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrder) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 1, 2, 3}, {4, 5, 6, 7}}, // Tile 0
+      {{0, 1, 2, 3}},
+      {{4, 5, 6, 7, 8, 9}}, // Tile 1
+      {{4, 5, 6, 7, 8, 9}}, // Tile 2
+      {{4, 5, 6, 7}},       // Tile 3
+      {{10}}                // Tile 4
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 11);
+  printResult(result);
+  // All consistent and in numeric order so expect none
+  BOOST_TEST(checkResult(result, boost::none));
+}
+
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderShuffled) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 3, 1}},             // Tile 0
+      {{7, 0, 2, 3, 1, 4, 5, 6}}, // Tile 1
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 8);
+  printResult(result);
+  // Consistent ordering, all columns are associated with all others
+  std::vector<unsigned> expected = {7, 0, 2, 3, 1, 4, 5, 6};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderBackwards) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{3, 2, 1, 0}}, // Tile 0
+      {{3, 2, 1, 0}}, // Tile 1
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 4);
+  printResult(result);
+  std::vector<unsigned> expected = {3, 2, 1, 0};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderBackwardsForwards) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{3, 2, 1, 0}},             // Tile 0
+      {{3, 2, 1, 0, 4, 6, 5, 7}}, // Tile 1
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 8);
+  printResult(result);
+  std::vector<unsigned> expected = {3, 2, 1, 0, 4, 6, 5, 7};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderCircular) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 3}}, // Tile 0
+      {{3, 1, 4}}, // Tile 1
+      {{1, 4, 0}}  // Tile 2
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 5);
+  printResult(result);
+  // Consistent ordering as below, but circular (internal implementation detail)
+  // as column 4 is followed by column  0
+  // The internal algorithm will deliver circular groups with the lowest
+  // numbered column first.
+  std::vector<unsigned> expected = {0, 2, 3, 1, 4};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderIndependantGroups) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 3}, {4, 7, 6, 1}}, // Tile 0
+      {{3, 0, 2}},               // Tile 1
+      {{4, 7, 6}, {2, 3, 0}},    // Tile 2
+      {{5}, {9}, {7, 6}},        // Tile 3
+      {{8}, {9, 10}},
+      {{9, 10}}, // Tile 4
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 11);
+  printResult(result);
+  // Consistent ordering as below with:
+  // 0,2,3 as an independent circular group
+  // 4,7,6,1 grouped together
+  // 5 On its own
+  // 8 On its own
+  // 9,10 grouped together
+  // The internal algorithm will deliver circular groups with the lowest
+  // numbered column first, and will concatenate groups based on the lowest
+  // column number in the group (even if it is not first)
+  std::vector<unsigned> expected = {0, 2, 3, 4, 7, 6, 1, 5, 8, 9, 10};
+  BOOST_TEST(checkResult(result, expected));
+}
+
+// These tests provide an inconsistent ordering which doesn't happen that
+// often in practice.  This means that a column is found to have >1 columns
+// that follow it.  Picking an answer (with all columns represented once) is
+// correct, but the exact ordering is based on the implementation of the
+// function under test.
+
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderInconsistent1) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 4, 5}},             // Tile 0
+      {{0, 2, 3, 1, 4, 5, 6, 7}}, // Tile 1
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 8);
+  printResult(result);
+  // Inconsistent ordering but we pick out an order based on the 1st column
+  // noted to follow a column
+  std::vector<unsigned> expected = {0, 2, 4, 5, 6, 7, 3, 1};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderInconsistent2) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 3}}, // Tile 0
+      {{3, 1, 4}}, // Tile 1
+      {{1, 4, 0}}, // Tile 2
+      {{4, 6, 5}}, // Tile 3
+      {{6, 7, 8}}, // Tile 4
+      {{8, 4, 6}}, // Tile 5
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 9);
+  printResult(result);
+  // Inconsistent ordering - column 4 is followed by 0 and by 6.  This creates
+  // 2 linked rings for added complication
+  std::vector<unsigned> expected = {0, 2, 3, 1, 4, 6, 5, 7, 8};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderInconsistent3) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 4, 5}},             // Tile 0
+      {{1, 2, 4, 5}},             // Tile 1
+      {{0, 2, 3, 1, 4, 5, 6, 7}}, // Tile 2
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 8);
+  printResult(result);
+  // Inconsistent ordering but we pick out an order based on the 1st column
+  // noted to follow a column
+  std::vector<unsigned> expected = {0, 2, 4, 5, 6, 7, 3, 1};
+  BOOST_TEST(checkResult(result, expected));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderInconsistent4) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 1, 2, 3}}, // Tile 0
+      {{2, 4}},       // Tile 1
+      {{2, 5, 6, 7}}, // Tile 2
+      {{8, 2, 9, 10}} // Tile 3
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 11);
+  printResult(result);
+  // Inconsistent ordering but we pick out an order based on the 1st column
+  // noted to follow a column.  This turns out to be consecutive!
+  BOOST_TEST(checkResult(result, boost::none));
+}
+BOOST_AUTO_TEST_CASE(ReduceFindCommonColumnOrderInconsistent5) {
+  std::vector<std::vector<std::vector<unsigned>>> tileColumns = {
+      {{0, 2, 1, 3}}, // Tile 0
+      {{2, 4}},       // Tile 1
+      {{2, 5, 6, 7}}, // Tile 2
+      {{8, 2, 9, 10}} // Tile 3
+  };
+  const auto regions = initialiseRegions(tileColumns);
+  auto result = findCommonColumnOrder(regions, 11);
+  printResult(result);
+  // Inconsistent ordering but we pick out an order based on the 1st column
+  // noted to follow a column.
+  std::vector<unsigned> expected = {0, 2, 1, 3, 4, 5, 6, 7, 8, 9, 10};
+  BOOST_TEST(checkResult(result, expected));
 }
