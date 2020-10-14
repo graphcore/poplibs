@@ -128,7 +128,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *       If true, the output of the convolution is remapped if the output
  *       is detected to have a poor layout.
  *
- *    * `enableConvDithering`       (true, false) [=true]
+ *    * `enableConvDithering`       (true, false) [=false]
  *
  *       If true, then convolutions with different parameters will be laid out
  *       from different tiles in an effort to improve tile balance in models.
