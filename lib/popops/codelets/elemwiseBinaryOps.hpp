@@ -255,9 +255,9 @@ DEFINE_BINARY_OP_FN(
     expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
     return BinaryLibCall<expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV>{}(x, y);)
 
-// The Binary and BroadcastScalar '1DSupervisor' vertices that output a bool and
-// are not vectorised will be created as plain single Worker vertex instead of
-// a Supervisor one (despite the name).
+// The Binary '1DSupervisor' vertices that output a bool and are not vectorised
+// (i.e. those having inputs that are int, unsigned, bool) will be created as
+// plain single Worker vertex instead of a Supervisor one (despite the name).
 // This is because we don't want multiple workers, started by the supervisor,
 // each writing < 32 bits (i.e. calling __st8/__st16), which will potentially
 // overwrite each others' results.

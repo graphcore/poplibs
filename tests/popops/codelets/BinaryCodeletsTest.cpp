@@ -1,5 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE BinaryOpTest
+
 //
 // Tests one or more of the element-wise binary/broadcast codelets:
 //
@@ -20,6 +20,10 @@
 //
 // One or more combinations of operation/data type can be specified for the
 // vertices under test.
+//
+// There is also an option to compare cycles reported when running the vertex
+// on two different devices.
+//
 // See description string in main() for details and examples of usage.
 
 #include <poplar/Engine.hpp>
@@ -60,6 +64,9 @@ using namespace popops;
 using namespace poplibs_support;
 using popops::expr::BinaryOpType;
 using std::to_string;
+
+// The name of the compute set where we run the vertex under test.
+const static std::string computeSetName = "vertexComputeSet";
 
 // We use 'unsigned char' on the host instead of 'bool', because
 // std::vector<bool> gets specialised with 1 bit per element instead of 1 byte
@@ -317,7 +324,8 @@ const std::string allVerticesStr() {
 struct VertexDesc {
   std::string name;
 
-  std::string vClass; // full name with template params etc
+  std::string vClass;      // full name with template params foer addVertex()
+  std::string vClassShort; // vClass, abbreviated for display
 
   // Names of the two operand fields in the vertex
   std::string in1Name;
@@ -359,6 +367,24 @@ struct VertexDesc {
       in1Name = "data";
       in2Name = "B";
     }
+  }
+
+  void setVertexClass(const BinaryOpType op, const Type &dataType,
+                      const Type &outputType) {
+    // Get the vertex class
+    std::string vName = "popops::" + name;
+    if (isVectorOuter) {
+      vClass = templateVertex(vName, op, dataType, allowMisaligned);
+    } else if (is2Types) {
+      vClass = templateVertex(vName, op, dataType, outputType);
+    } else {
+      vClass = templateVertex(vName, op, dataType);
+    }
+
+    // Shorten the name for display, removing namespaces
+    vClassShort = vClass;
+    boost::erase_all(vClassShort, "popops::");
+    boost::erase_all(vClassShort, "expr::BinaryOpType::");
   }
 };
 
@@ -864,30 +890,31 @@ void fillBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
   fillBuffer(dataType, rndEng, buf1, 100, min1, max1, nonZero);
   fillBuffer(dataType, rndEng, buf2, 500, min2, max2, nonZero);
 
-  // If comparing for equality/disequality, we make sure we have a few values
+  // If comparing for equality/inequality, we make sure we have a few values
   // that are equal to test the 'equal' path
   if (rndEng && (op == BinaryOpType::EQUAL || op == BinaryOpType::NOT_EQUAL ||
                  op == BinaryOpType::GREATER_THAN_EQUAL ||
                  op == BinaryOpType::LESS_THAN_EQUAL)) {
-    std::uniform_int_distribution<int> d(1, 6);
+    // We want to make 1 in 5 elements the same
+    std::uniform_int_distribution<int> d(1, 5);
     unsigned n1 = buf1.size();
     unsigned n2 = buf2.size();
     if (n1 == n2) {
+      // Same number of elements, i.e. one of the BinaryOp vertices. Select
+      // random positions and copy the value from second operand into the first
       for (unsigned i = 0; i < n1; i++) {
         if (d(*rndEng) == 1)
           buf1[i] = buf2[i];
       }
-    } else if (n2 == 1) {
-      // Broadcast scalar (second operand is broadcasted)
+    } else {
+      // Second operand is smaller than the first, i.e. one of the broadcast
+      // vertices. We copy the first element of the second operand in random
+      // positions of the first. This works fine for broadcast scalar with a
+      // single element, while for BroadcastScalar2D and VectorOuter/Inner works
+      // only for the first row.
       for (unsigned i = 0; i < n1; i++) {
         if (d(*rndEng) == 1)
           buf1[i] = buf2[0];
-      }
-    } else if (n1 == 1) {
-      // Broadcast scalar (first operand is broadcasted)
-      for (unsigned i = 0; i < n2; i++) {
-        if (d(*rndEng) == 1)
-          buf2[i] = buf1[0];
       }
     }
   }
@@ -900,19 +927,23 @@ void fillBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
 /// \tparam HOST_OUT_TYPE    Type to use on the host for outputType.
 /// \param  deviceType       The device used.
 /// \param  vertex           Which vertex.
-/// \param  operation        Operation performed
+/// \param  op               Operation to perform
 /// \param  dataType         The data type used for operands.
-/// \param  sizes            Describes the sizes of the operands.
 /// \param  outputType       The type for the result of the operation.
-/// \param  doReport         Print poplar report.
+/// \param  sizes            Describes the sizes of the operands.
 /// \param  randomSeed       Random seed (0 = don't use random values).
 /// \param  ignoreData       Do not verify results.
+/// \param  doReport         Print poplar report on stdout.
+/// \param  cycles           If non-empty, will be populated with the cycles
+///                          used by the compute set that runs the vertex.
+///
+/// \return true if the results from the device passed verification
 template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
 static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
                    const BinaryOpType op, const Type &dataType,
                    const Type &outputType, const TensorSizes &sizes,
                    const unsigned randomSeed, const bool ignoreData,
-                   const bool doReport, std::ostream &reportStream) {
+                   const bool doReport, std::optional<uint64_t> &cycles) {
 
   // Check for various possible inconsistencies in the combinations of
   // parameters
@@ -964,7 +995,7 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   // === Make a program to run the vertex
   Sequence prog;
 
-  ComputeSet cs = graph.addComputeSet("computeOp");
+  ComputeSet cs = graph.addComputeSet(computeSetName);
 
   auto v = graph.addVertex(cs, vertex.vClass);
   graph.setTileMapping(v, 0);
@@ -1061,8 +1092,11 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   copyBuffer(dataType, in2Host, in2HostRaw);
 
   // === Run the program
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg),
-                {{"debug.instrumentCompute", "true"}});
+  OptionFlags engOpts;
+  if (doReport || cycles) {
+    engOpts.set("debug.instrumentCompute", "true");
+  }
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engOpts);
   attachStreams(engine, tmap);
 
   device.bind([&](const Device &d) {
@@ -1072,7 +1106,17 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
     if (doReport) {
       OptionFlags opt;
       opt.set("showExecutionSteps", "true");
-      engine.printProfileSummary(reportStream, opt);
+      engine.printProfileSummary(std::cout, opt);
+    }
+    if (cycles) {
+      // Get the cycles by searching the "simulation"/"steps" vector for an
+      // "OnTileExecute" element having the compute set name we used.
+      poplar::ProfileValue execProfile = engine.getExecutionProfile();
+      for (auto s : execProfile["simulation"]["steps"].asVector()) {
+        if (s["type"] == "OnTileExecute" && s["name"] == computeSetName) {
+          cycles = s["cycles"].asUint();
+        }
+      }
     }
   });
 
@@ -1092,12 +1136,13 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
 
 //*************************************************************************
 // Calls doTest with the appropriate template parameters for the
-// data/output types
+// data/output types.
+// See 'doTest()' for parameters
 static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
                          const BinaryOpType op, const Type &dataType,
                          const TensorSizes &sizes, const unsigned randomSeed,
-                         const bool ignoreData, const bool doReport,
-                         std::ostream &reportStream) {
+                         const bool verbose, const bool ignoreData,
+                         const bool doReport, std::optional<uint64_t> &cycles) {
   // Get right output type for vertex, operator and data type
   Type outputType = dataType;
   if (isComparisonOp(op))
@@ -1110,28 +1155,19 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
   TensorSizes sizesAdj = sizes;
   sizesAdj.adjustForVertex(vertex);
 
-  // Get the vertex class
-  std::string vName = "popops::" + vertex.name;
-  if (vertex.isVectorOuter) {
-    vertex.vClass = templateVertex(vName, op, dataType, vertex.allowMisaligned);
-  } else if (vertex.is2Types) {
-    vertex.vClass = templateVertex(vName, op, dataType, outputType);
-  } else {
-    vertex.vClass = templateVertex(vName, op, dataType);
-  }
+  vertex.setVertexClass(op, dataType, outputType);
 
-  // Shorten the name for display, removing namespaces
-  vName = vertex.vClass;
-  boost::replace_all(vName, "popops::", "");
-  boost::replace_all(vName, "expr::BinaryOpType::", "");
-  std::cout << boost::format("%-72s %s\n") % vName % sizesAdj.operandStr;
+  if (verbose) {
+    std::cout << boost::format("%-70s %s\n") % vertex.vClassShort %
+                     sizesAdj.operandStr;
+  }
 
   // Call the appropriate instantiation of the templated function
 #define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
   if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
     return doTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                              \
                deviceType, vertex, op, dataType, outputType, sizesAdj,         \
-               randomSeed, ignoreData, doReport, reportStream)                 \
+               randomSeed, ignoreData, doReport, cycles)                       \
                ? true                                                          \
                : false;                                                        \
   }
@@ -1161,6 +1197,45 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
   return false;
 }
 
+/// Compare cycles obtained by running the vertex with the two specified
+/// devices. Prints result on standard output.
+///
+/// \return true   if both run returned successfully and the difference is less
+///                than 'tolerance' % of the run with the first device.
+static bool compareCycles(const std::array<DeviceType, 2> devPair,
+                          VertexDesc &vertex, const BinaryOpType op,
+                          const Type &dataType, const TensorSizes &sizes,
+                          const unsigned randomSeed) {
+  const float tolerance = 10.0; // percent
+
+  std::stringstream devName[2]; // To get strings with the name of selected dev
+  bool ok[2];
+  uint64_t cycles[2];
+  // Run with the two devices and get the cycles
+  for (unsigned i = 0; i < 2; i++) {
+    devName[i] << devPair[i];
+    std::optional<uint64_t> cyclesOpt = uint64_t(0);
+    ok[i] = doVertexTest(devPair[i], vertex, op, dataType, sizes, randomSeed,
+                         false, false, false, cyclesOpt);
+    cycles[i] = *cyclesOpt;
+  }
+
+  float diffPerc = 0;
+  if (ok[0] && ok[1]) {
+    float diff = static_cast<float>(cycles[1]) - static_cast<float>(cycles[0]);
+    diffPerc = diff / cycles[0] * 100;
+    std::cout << boost::format(
+                     "%-70s - %s:%8u;  %s:%8u;   diff = %7.2f%%%s\n") %
+                     vertex.vClassShort % devName[0].str() % cycles[0] %
+                     devName[1].str() % cycles[1] % diffPerc %
+                     ((abs(diffPerc) < tolerance) ? "" : " <<====");
+  } else {
+    std::cout << boost::format("%-74s - Failed\n") % vertex.vClassShort;
+  }
+  return ok[0] && ok[1] && abs(diffPerc) < tolerance;
+  ;
+}
+
 //*************************************************************************
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
@@ -1176,6 +1251,7 @@ int main(int argc, char **argv) {
   bool doReport = false;
   bool ignoreData = false;
   unsigned randomSeed = 1; // we use '0' to mean 'not random'
+  boost::optional<DeviceType> cycleCompareDevice;
 
   // clang-format off
   const static std::string description =
@@ -1186,6 +1262,8 @@ int main(int argc, char **argv) {
   "Note that the size of the second operand does not need to be specified\n"
   "when it can be deducted from the vertex variant and the size of the first\n"
   "operand\n"
+  "Using the --compare-cycles option, cycles reported when running the vertex\n"
+  "on two different devices can be compared."
   "Examples of usages:\n"
   "\n"
   " A binary Supervisor vertex, with operands of 5000 floats; the second\n"
@@ -1193,7 +1271,7 @@ int main(int argc, char **argv) {
   "   BinaryCodeletsTest --vertex BinaryOp1DSupervisor --operation ADD \\\n"
   "                      --data-type float --size 5000\n"
   "\n"
-  " As abpve, but with multiple data types:\n"
+  " As above, but with multiple data types:\n"
   "   BinaryCodeletsTest --vertex BinaryOp1DSupervisor --operation ADD \\\n"
   "                      --data-type float half int --size 5000\n"
   "\n"
@@ -1217,6 +1295,12 @@ int main(int argc, char **argv) {
   " and second operand of [[10] [3] [5]] floats:\n"
   "   BinaryCodeletsTest --vertex BroadcastVectorInner2D --operation ADD\\\n"
   "                      --data-type float --size 300 48 100 --size2 10 3 5\n"
+  "\n"
+  "Compare cycles reported between Sim and IpuModel when running a specific\n"
+  "vertex:\n"
+  "   BinaryCodeletsTest --vertex BinaryOp1DSupervisor --operation ADD \\\n"
+  "                      --data-type float --size 5000 --device-type Sim \\\n"
+  "                      --compare-cycles IpuModel\n"
   "\n"
   "\n"
   "Details of options are:";
@@ -1254,6 +1338,11 @@ int main(int argc, char **argv) {
     ("columns",
      po::value<unsigned>(&sizes.columns)->default_value(sizes.columns),
      "Only for VectorOuter vertices: number of columns")
+    ("compare-cycles",
+     po::value<boost::optional<DeviceType>>(&cycleCompareDevice)->
+                                         implicit_value(DeviceType::IpuModel),
+     "Compare cycles reported for the vertex between the device specified by "
+     "--device-type and another device specified by this option")
     ("report",
      po::value<bool>(&doReport)->implicit_value(true),
      "Provide a poplar report")
@@ -1345,9 +1434,16 @@ int main(int argc, char **argv) {
 
   std::regex vertexRegEx(vertexRE);
 
+  // If we are comparing cycles, create an array with the 2 devices
+  std::array<DeviceType, 2> devPair;
+  if (cycleCompareDevice)
+    devPair = {deviceType, *cycleCompareDevice};
+
   // Loop over all vertices, operations, data types
   bool allOk = true;
   unsigned count = 0, errCount = 0;
+  std::optional<uint64_t> cycles =
+      std::nullopt; // not interested in cycles here
   for (std::string vertexName : vertices) {
     // If a regex was specified, see if it matches
     if (vertexRE.empty() || std::regex_search(vertexName, vertexRegEx)) {
@@ -1355,8 +1451,12 @@ int main(int argc, char **argv) {
       for (auto op : operations) {
         for (auto type : dataTypes) {
           if (isValidCombination(vertex, op, type)) {
-            bool ok = doVertexTest(deviceType, vertex, op, type, sizes,
-                                   randomSeed, ignoreData, doReport, std::cout);
+            bool ok = cycleCompareDevice
+                          ? compareCycles(devPair, vertex, op, type, sizes,
+                                          randomSeed)
+                          : doVertexTest(deviceType, vertex, op, type, sizes,
+                                         randomSeed, true, ignoreData, doReport,
+                                         cycles);
             allOk = allOk & ok;
             count++;
             errCount += ok ? 0 : 1;
@@ -1367,7 +1467,7 @@ int main(int argc, char **argv) {
   }
   if (count > 1) {
     std::cout << boost::format(
-                     "BinaryCodeletsTest: %u tests run in total %u Failed\n") %
+                     "BinaryCodeletsTest: %u tests run in total; %u Failed\n") %
                      count % errCount;
   }
   return allOk ? 0 : 1; // returning 1 means an error.

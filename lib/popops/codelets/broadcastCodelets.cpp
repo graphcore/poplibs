@@ -71,71 +71,107 @@ __attribute__((noinline)) unsigned divideWork(const unsigned size,
   return loopCount + static_cast<unsigned>(worker < remainder);
 }
 
-/// Perform the bulk of a *broadcast scalar* comparison operator
-/// [FLOAT, FLOAT] => BOOL, processing 2 'float2' in each cycle (i.e. 4 floats),
-/// so that we write 4 boolean results (1 full word) at a time, avoiding calls
+/// Performs the bulk of a *broadcast scalar* 'op' that has bool as output
+/// type:  T op T => BOOL (i.e. the comparison operator EQUAL, LESS_THAN etc
+/// plus LOGICAL_AND/OR).
+/// This processes 4 elements of type T in each cycle of the loop, and writes
+/// the 4 aggregated boolean results (1 full word) at a time, avoiding calls
 /// to __st8/__st16.
 /// This is run both by the '2DData' vertices and by the 1D workers started
-/// by the '1DSupervisor'
+/// by the '1DSupervisor'.
+/// Implemented as as a struct with a static function instead of a templated
+/// function because you cannot partially specialise a templated function
+/// (also, doesn't use operator() because it cannot be static)
 ///
-///  \tparam     op         Operation to perform. One of the comparison ops
+///  \tparam     op        Operation to perform. One of the comparison ops
 ///                        (EQUAL, LESS_THAN, ...)
 ///
-///  \tparam     stride    Stride (in units of 4 floats/4 bools) to advance
+///  \tparam     T         Type of the operands
+///
+///  \tparam     stride    Stride (in units of 4 elements) to advance
 ///                        in/out at each cycle of the loop.
 ///
-///  \param[in]  loopCount How many groups of 4 floats to process.
+///  \param[in]  loopCount How many groups of 4 elements to process.
 ///
-///  \param[in]  in        Pointer to an array of floats with the input data
-///                        (first operand)
+///  \param[in]  in        Pointer to an array of T with the input data
+///                        (first operand).
 ///
 ///  \param[out] out       Pointer to an array of boolean (1 byte each) that
 ///                        will be populated with the results
 ///
 ///  \param[in]  K         The second operand (the one that is broadcasted)
-template <BinaryOpType op, unsigned stride>
-void broadcastCompareOpBulk(unsigned loopCount, const float2 *in, int *out,
-                            const float K) {
-  const float2 K2 = {K, K};
-  for (unsigned j = 0; j < loopCount; j++) {
-    float2 load = ipu::load_postinc(&in, 1);
-    long2 calc_lo = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
-    load = ipu::load_postinc(&in, 2 * stride - 1);
-    long2 calc_hi = BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
-
-    // Pack the two pair of results as 4 bytes in a 32 bit word and keep
-    // only the least significant bit of each bytes
-    *out = copy_cast<int>(tochar4(calc_lo, calc_hi)) & 0x01010101;
-    out += stride;
+///
+template <BinaryOpType op, typename T, unsigned stride>
+struct broadcastBoolOpBulk {
+  static void compute(unsigned loopCount, const T *in, int *out, const T K) {
+    for (unsigned i = 0; i < loopCount; i++) {
+      unsigned result4 = 0;
+      // Accumulate in 'result4' the 4 bytes for this loop
+      for (unsigned j = 0, shifts = 0; j != 4; ++j, shifts += 8) {
+        bool res = BinaryOpFn<op, T, architecture::active>::fn(in[j], K);
+        result4 |= res << shifts;
+      }
+      in += 4 * stride;
+      *out = result4;
+      out += stride;
+    }
   }
-}
+};
 
-/// Same as for broadcastCompareOpBulk above but for [HALF, HALF] => BOOL,
-/// processing a 'half4' at each cycle in the loop.
+// Partial specialisation of 'broadcastBoolOpBulk' for float, to use vector
+// instructions
 template <BinaryOpType op, unsigned stride>
-void broadcastCompareOpBulk(unsigned loopCount, const half4 *in, int *out,
-                            const half K) {
-  const half4 K4 = {K, K, K, K};
-  for (unsigned j = 0; j < loopCount; j++) {
-    half4 load = ipu::load_postinc(&in, stride);
-    short4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
+struct broadcastBoolOpBulk<op, float, stride> {
+  static void compute(unsigned loopCount, const float *in, int *out,
+                      const float K) {
+    const float2 *in2 = reinterpret_cast<const float2 *>(in);
+    const float2 K2 = {K, K};
+    for (unsigned j = 0; j < loopCount; j++) {
+      float2 load = ipu::load_postinc(&in2, 1);
+      long2 calc_lo =
+          BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
+      load = ipu::load_postinc(&in2, 2 * stride - 1);
+      long2 calc_hi =
+          BinaryOpFn<op, float2, architecture::active>::fn(load, K2);
 
-    // Pack the four results as 4 bytes in a 32 bit word and keep only the
-    // least significant bit of each bytes
-    *out = copy_cast<int>(tochar4(calc)) & 0x01010101;
-    out += stride;
+      // Pack the two pair of results as 4 bytes in a 32 bit word and keep
+      // only the least significant bit of each bytes
+      *out = copy_cast<int>(tochar4(calc_lo, calc_hi)) & 0x01010101;
+      out += stride;
+    }
   }
-}
+};
 
-/// Performs the broadcast comparison operator ([FLOAT, FLOAT] => BOOL or
-/// [HALF, HALF] => BOOL) for the trailing 0..3 elements of the input data.
+// Partial specialisation of 'broadcastBoolOpBulk' for half, to use vector
+// instructions
+template <BinaryOpType op, unsigned stride>
+struct broadcastBoolOpBulk<op, half, stride> {
+  static void compute(unsigned loopCount, const half *in, int *out,
+                      const half K) {
+    const half4 *in4 = reinterpret_cast<const half4 *>(in);
+    const half4 K4 = {K, K, K, K};
+    for (unsigned j = 0; j < loopCount; j++) {
+      half4 load = ipu::load_postinc(&in4, stride);
+      short4 calc = BinaryOpFn<op, half4, architecture::active>::fn(load, K4);
+
+      // Pack the four results as 4 bytes in a 32 bit word and keep only the
+      // least significant bit of each bytes
+      *out = copy_cast<int>(tochar4(calc)) & 0x01010101;
+      out += stride;
+    }
+  }
+};
+
+/// Broadcast scalar 'op' for bool output type ( T op T => BOOL) for the
+/// trailing 0..3 elements of the input data (used in conjunction with
+/// 'broadcastBoolOpBulk')
 /// This is run both by the '2DData' vertices and by the 1D workers started
 /// by the '1DSupervisor'
 ///
 ///  \tparam     op        Operation to perform. One of the comparison ops
 ///                        (EQUAL, LESS_THAN, ...)
 ///
-///  \tparam     T         data type )(float or half)
+///  \tparam     T         data type (float or half)
 ///
 ///  \param[in]  size      Total number of elements contained in 'in'
 ///
@@ -147,10 +183,10 @@ void broadcastCompareOpBulk(unsigned loopCount, const half4 *in, int *out,
 ///
 ///  \param[in]  K         The second operand (the one that is broadcasted)
 template <BinaryOpType op, typename T>
-void broadcastCompareOpRemainder(unsigned size,
-                                 const __attribute__((align_value(8))) T *in,
-                                 __attribute__((align_value(8))) bool *out,
-                                 const T K) {
+void broadcastBoolOpRemainder(unsigned size,
+                              const __attribute__((align_value(8))) T *in,
+                              __attribute__((align_value(8))) bool *out,
+                              const T K) {
   unsigned remainder = size & 3;
   if (remainder) {
     unsigned offs = size - remainder;
@@ -172,46 +208,22 @@ void broadcastCompareOpRemainder(unsigned size,
   }
 }
 
-/// Processing for FLOAT, HALF operators returning BOOL (2D workers started by
-/// Supervisor vertices).
-///  \tparam  T    The data type (FLOAT or HALF)
-///  \tparam  VT   The type for a 64 bit vector of type T (i.e. float2 or half4)
-template <BinaryOpType op, typename T, typename VT, bool allowRemainder>
-static void computeBool(unsigned size,
-                        const __attribute__((align_value(8))) T *in,
-                        __attribute__((align_value(8))) bool *out, const T K) {
-  if (size >= 4) {
-    const unsigned loopCount = maskForRepeat(size / 4u);
-    broadcastCompareOpBulk<op, 1>(loopCount, reinterpret_cast<const VT *>(in),
-                                  reinterpret_cast<int *>(out), K);
-  }
-  if (allowRemainder) {
-    broadcastCompareOpRemainder<op, T>(size, in, out, K);
-  }
-}
-
-// Run by the 2D worker for the comparison operators (EQUAL, LESS_THAN, etc )
-// for float data (they return bool results).
-// Optimised to perform word writes.
-template <BinaryOpType op, bool allowRemainder>
-struct BroadcastOpDispatch<op, float, bool, false, allowRemainder> {
+// Run by the 2D worker for the *broadcast scalar* 'op' that has bool as output
+// type:  T op T => BOOL (i.e. the comparison operator EQUAL, LESS_THAN etc
+// plus LOGICAL_AND/OR)
+template <BinaryOpType op, typename T, bool allowRemainder>
+struct BroadcastOpDispatch<op, T, bool, false, allowRemainder> {
   static void compute(unsigned size,
-                      const __attribute__((align_value(8))) float *in,
-                      __attribute__((align_value(8))) bool *out,
-                      const float K) {
-    computeBool<op, float, float2, allowRemainder>(size, in, out, K);
-  }
-};
-
-// Run by the 2D worker for the comparison operators (EQUAL, LESS_THAN, etc )
-// for half data (they return bool results).
-// Optimised to perform word writes.
-template <BinaryOpType op, bool allowRemainder>
-struct BroadcastOpDispatch<op, half, bool, false, allowRemainder> {
-  static void compute(unsigned size,
-                      const __attribute__((align_value(8))) half *in,
-                      __attribute__((align_value(8))) bool *out, const half K) {
-    computeBool<op, half, half4, allowRemainder>(size, in, out, K);
+                      const __attribute__((align_value(8))) T *in,
+                      __attribute__((align_value(8))) bool *out, const T K) {
+    if (size >= 4) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      broadcastBoolOpBulk<op, T, 1>::compute(loopCount, in,
+                                             reinterpret_cast<int *>(out), K);
+    }
+    if (allowRemainder) {
+      broadcastBoolOpRemainder<op, T>(size, in, out, K);
+    }
   }
 };
 
@@ -346,64 +358,29 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
   }
 };
 
-/// Processing for FLOAT, HALF operators returning BOOL (for workers started by
-/// Supervisor vertices).
-///
-///  \tparam T              The data type (FLOAT or HALF)
-///  \tparam VT             Type for a 64 bit vector of type T (i.e.
-///                         float2 or half4)
-///  \tparam allowRemainder Same as defined in BroadcastOpDispatchSupervisor
-template <BinaryOpType op, typename T, typename VT, bool allowRemainder>
-static void computeBoolSupervisor(unsigned size, unsigned worker,
-                                  const __attribute__((align_value(8))) T *in,
-                                  __attribute__((align_value(8))) bool *out,
-                                  const T K) {
-  const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
-  // We need to process 4 values at a time; for float this means: 2 x float2
-  // while for half means: 1 x half4
-  constexpr unsigned multTo4 = std::is_same<T, float>::value ? 2 : 1;
-  broadcastCompareOpBulk<op, CTXT_WORKERS>(
-      loopCount, reinterpret_cast<const VT *>(in) + multTo4 * worker,
-      reinterpret_cast<int *>(out) + worker, K);
+/// Processing for operators that return a bool (comparison: EQUAL, LESS_THAN,
+/// etc plus LOGICAL_AND/OR), for workers started by Supervisor vertices.
+template <BinaryOpType op, typename T, bool allowRemainder>
+class BroadcastOpDispatchSupervisor<op, T, bool, false, allowRemainder> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(8))) T *in,
+                      __attribute__((align_value(8))) bool *out, const T K) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    broadcastBoolOpBulk<op, T, CTXT_WORKERS>::compute(
+        loopCount, in + 4 * worker, reinterpret_cast<int *>(out) + worker, K);
 
-  // To process the trailing elements (if any) use the last worker as it is
-  // most likely to have less to do than the others.
-  if (allowRemainder) {
-    if (worker == (CTXT_WORKERS - 1)) {
-      broadcastCompareOpRemainder<op, T>(size, in, out, K);
+    // To process the trailing elements (if any) use the last worker as it is
+    // most likely to have less to do than the others.
+    if (allowRemainder) {
+      if (worker == (CTXT_WORKERS - 1)) {
+        broadcastBoolOpRemainder<op, T>(size, in, out, K);
+      }
     }
   }
-}
-
-// Run by the worker (started by supervisor vertex) for the comparison
-// operators (EQUAL, LESS_THAN, etc that return bool results) for float data.
-template <BinaryOpType op, bool allowRemainder>
-class BroadcastOpDispatchSupervisor<op, float, bool, false, allowRemainder> {
-public:
-  static void compute(unsigned size, unsigned worker,
-                      const __attribute__((align_value(8))) float *in,
-                      __attribute__((align_value(8))) bool *out,
-                      const float K) {
-    computeBoolSupervisor<op, float, float2, allowRemainder>(size, worker, in,
-                                                             out, K);
-  }
 };
 
-// Run by the worker (started by supervisor vertex) for the comparison
-// operators (EQUAL, LESS_THAN, etc ) for half data (return bool results).
-template <BinaryOpType op, bool allowRemainder>
-struct BroadcastOpDispatchSupervisor<op, half, bool, false, allowRemainder> {
-public:
-  static void compute(unsigned size, unsigned worker,
-                      const __attribute__((align_value(8))) half *in,
-                      __attribute__((align_value(8))) bool *out, const half K) {
-    computeBoolSupervisor<op, half, half4, allowRemainder>(size, worker, in,
-                                                           out, K);
-  }
-};
-
-// Run by the worker (started by supervisor vertex) for the operators that
-// work on floats and return floats.
+// Specialisation of 'BroadcastOpDispatchSupervisor' for float, float => float.
 // Optimised to perform vector read/writes.
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
 class BroadcastOpDispatchSupervisor<op, float, float, allowUnaligned,
@@ -453,8 +430,7 @@ public:
   }
 };
 
-// Run by the worker (started by supervisor vertex) for the operators that
-// work on half data and return half.
+// Specialisation of 'BroadcastOpDispatchSupervisor' for half, half => float.
 // Optimised to perform vector read/writes.
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
 struct BroadcastOpDispatchSupervisor<op, half, half, allowUnaligned,
@@ -817,15 +793,14 @@ INSTANTIATE_VECTOR_OUTER(BroadcastVectorOuterByRowInPlaceSupervisor);
 
 template <BinaryOpType op, typename dType>
 class BroadcastScalar1DSupervisor
-    : public SupervisorVertexIf<binaryOp1DIsSupervisor<op, dType>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, dType>::type OutputType;
 
 public:
   Input<Vector<dType, SPAN, 8>> data;
   Output<Vector<OutputType, ONE_PTR, 8>> out;
   Input<dType> B;
-  IS_EXTERNAL_CODELET((binaryOp1DIsSupervisor<op, dType>()));
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
         data.size(), &data[0], &out[0], *B);
@@ -835,14 +810,13 @@ public:
 
 template <BinaryOpType op, typename dType>
 class BroadcastScalar1DInPlaceSupervisor
-    : public SupervisorVertexIf<binaryOp1DInPlaceIsSupervisor<op, dType>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, dType>::type OutputType;
 
 public:
   InOut<Vector<OutputType, SPAN, 8>> data;
   Input<dType> B;
-  IS_EXTERNAL_CODELET((binaryOp1DInPlaceIsSupervisor<op, dType>()));
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     BroadcastOpDispatch<op, dType, OutputType, false, true>::compute(
         data.size(), &data[0], &data[0], *B);
@@ -928,6 +902,7 @@ template class BroadcastScalar1DInPlace<BinaryOpType::INV_STD_DEV_TO_VARIANCE,
 INSTANTIATE_SCALAR(BroadcastScalar1D);
 INSTANTIATE_SCALAR_RELOP(BroadcastScalar1D);
 INSTANTIATE_SCALAR(BroadcastScalar1DInPlace);
+INSTANTIATE_SCALAR_RELOP_IN_PLACE(BroadcastScalar1DInPlace);
 
 #define DEF_BROADCAST_VECT_OUTER_BY_COLUMN_WK_VERTEX(                          \
     vertexName, inOutType, outDef, outName, isInPlace)                         \

@@ -1,5 +1,4 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE BinaryOpTest
 //
 // Performs a binary operation between two tensors with any desired shape, each
 // mapped in any desired way among tiles.

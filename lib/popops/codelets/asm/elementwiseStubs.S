@@ -36,7 +36,7 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPE
 // The number of parameters (types)can be varied
 //************************************************
 
- .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4"
+ .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4" TYPE5="void5"
 
  // Macro expansion for first type
   .ifnc "\TYPE1","void1"
@@ -46,24 +46,28 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPE
 // Macro expansion for 2nd type (optional parameter)
   .ifnc "\TYPE2","void2"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE2
- .endif
+  .endif
 
 // Macro expansion for 3rd type (optional parameter)
   .ifnc "\TYPE3","void3"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE3
- .endif
+  .endif
 
 // Macro expansion for 4th type (optional parameter)
   .ifnc "\TYPE4","void4"
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE4
- .endif
+  .endif
+
+// Macro expansion for 5th type (optional parameter)
+  .ifnc "\TYPE5","void5"
+  MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE5
+  .endif
 
 .endm
 
 //************************************************
 // Create a supervisor stub for each operation
 // Note _ is mangled to ___
-// omit those that list bool as an input/output type
 //************************************************
 
 // outputting bool :
@@ -179,12 +183,14 @@ INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___LEFT, int, unsigned_int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___RIGHT, int, unsigned_int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SUBTRACT, half, float, int, unsigned_int
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, EQUAL, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, NOT___EQUAL, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN___EQUAL, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN, half, float
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN___EQUAL, half, float
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, EQUAL, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, NOT___EQUAL, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN___EQUAL, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN___EQUAL, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LOGICAL___AND, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LOGICAL___OR, bool
 
 // Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, INV___STD___DEV___TO___VARIANCE, float
@@ -214,6 +220,14 @@ INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SHIFT___LEFT, int, unsigned_i
 INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SHIFT___RIGHT, int, unsigned_int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, SUBTRACT, half, float, int, unsigned_int
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, EQUAL, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, NOT___EQUAL, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, GREATER___THAN, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, GREATER___THAN___EQUAL, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, LESS___THAN, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, LESS___THAN___EQUAL, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, LOGICAL___AND, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, LOGICAL___OR, bool
 
 // Note INV___STD___DEV___TO___VARIANCE has an assembly implementation for half
 INSTANTIATE_OP BinaryOp, BroadcastScalar1DInPlace, INV___STD___DEV___TO___VARIANCE, float
