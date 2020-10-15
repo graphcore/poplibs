@@ -826,25 +826,8 @@ static void generatePlannedMultiUpdateAdd(
     const auto cumulativeUpdate =
         graph.clone(twoStagePartialType, base, {dnai, "sumUpdates"});
 
-    // Given we know that partials for a set of columns on each tile are always
-    // contiguous in the same way, we can use our knowledge to reorder the
-    // columns and make the reduction library's job easier. This could go
-    // away once T15113 is done.
-    std::vector<Tensor> stage0OutputReordered, cumulativeUpdateReordered;
-    iterateTensorPartitions(
-        stage0Output, {1, slicedSplit, unslicedSplit},
-        [&](const std::vector<std::size_t> &, const Tensor &s) {
-          stage0OutputReordered.emplace_back(s.flatten(1, 3));
-        });
-    iterateTensorPartitions(
-        cumulativeUpdate, {slicedSplit, unslicedSplit},
-        [&](const std::vector<std::size_t> &, const Tensor &s) {
-          cumulativeUpdateReordered.emplace_back(s.flatten());
-        });
-
-    reduceWithOutput(graph, concat(stage0OutputReordered, 1u),
-                     concat(cumulativeUpdateReordered), {0}, {Operation::ADD},
-                     seq, {dnai, "Reduce"});
+    reduceWithOutput(graph, stage0Output, cumulativeUpdate, {0},
+                     {Operation::ADD}, seq, {dnai, "Reduce"});
 
     // Add the sum of the partials to the base tensor
     bool baseCastRequired = base.elementType() != twoStagePartialType;
