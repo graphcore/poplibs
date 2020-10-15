@@ -531,11 +531,13 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
                              vertexTemplate);
       auto v =
           inPlace
-              ? graph.addVertex(cs, vertexTemplate,
-                                {{"inOut", concat(inFlat.slices(thisTileMap))}})
-              : graph.addVertex(cs, vertexTemplate,
-                                {{"in", concat(inFlat.slices(thisTileMap))},
-                                 {"out", concat(outFlat.slices(thisTileMap))}});
+              ? graph.addVertex(
+                    cs, vertexTemplate,
+                    {{"inOut", concat(inFlat.slices(tileContiguousRegions))}})
+              : graph.addVertex(
+                    cs, vertexTemplate,
+                    {{"in", concat(inFlat.slices(tileContiguousRegions))},
+                     {"out", concat(outFlat.slices(tileContiguousRegions))}});
       graph.setTileMapping(v, tile);
     } else {
       const auto vertexTemplate = templateVertex(

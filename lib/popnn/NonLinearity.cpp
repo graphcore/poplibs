@@ -217,14 +217,15 @@ Tensor nonLinearityInputGradient(Graph &graph,
     // single variable, gather all the inputs to the non-linearity into
     // a single edge
     if (tileContiguousRegions.size() == 1) {
-      const auto outGradTile = concat(outGradFlat.slices(thisTileMap));
+      const auto outGradTile =
+          concat(outGradFlat.slices(tileContiguousRegions));
       const auto numElements = outGradTile.numElements();
       if (numElements <= maxSupervisorElements) {
         auto v = graph.addVertex(
             cs, codeletNameSupervisor,
-            {{"out", concat(outFlat.slices(thisTileMap))},
+            {{"out", concat(outFlat.slices(tileContiguousRegions))},
              {"outGrad", outGradTile},
-             {"inGrad", concat(inGradFlat.slices(thisTileMap))}});
+             {"inGrad", concat(inGradFlat.slices(tileContiguousRegions))}});
         graph.setInitialValue(v["n"], numElements);
         graph.setTileMapping(v, tile);
         continue;
@@ -311,7 +312,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
     // single variable, gather all the inputs to the non-linearity into
     // a single edge
     if (tileContiguousRegions.size() == 1) {
-      const auto tThisTile = concat(tFlat.slices(thisTileMap));
+      const auto tThisTile = concat(tFlat.slices(tileContiguousRegions));
       const auto numElements = tThisTile.numElements();
       if (numElements <= maxSupervisorElements) {
         auto v =
