@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "popsparse/Embedding.hpp"
+#include "FullyConnectedOptions.hpp"
 #include "FullyConnectedPNMapping.hpp"
 #include "FullyConnectedPlan.hpp"
 #include "FullyConnectedUtils.hpp"
@@ -8,6 +9,7 @@
 #include "poplibs_support/logging.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/ScaledAdd.hpp"
 #include "popops/Zero.hpp"
 #include "popsparse/MatMul.hpp"
 #include "popsparse/SparsePartitioner.hpp"
@@ -161,19 +163,8 @@ void createSparseDenseTileVertices(
     unsigned rowsPerPartition, unsigned splitZ,
     const std::variant<unsigned, Tensor> &yPartitionToProcess,
     const boost::optional<Tensor> &scale) {
-  // TODO - split the indices between workers (At least for slice)
-  // Or do we use the worker information in the metainformation?
-  // An issue with this is sub-word writes for the "half" case.
-  // If indices are split between workers (As a worker vertex) then each
-  // worker's region is "safe" and it can sub-word write freely.
-  // If a supervisor vertex we could align subT and share work by index: with
-  // an even number of indices per worker. Or even connect to "workers"
-  // subT edges.
-  //
-  // For update we'll be writing into a contiguous area of NZValues with
-  // updates based on the indices and metadata.  There seems no way to
-  // avoid sub word writes clashing between workers. The solution will
-  // be to cast the NZ values to float, update and cast back.
+
+  // Using supervisor vertices, so work division is done in the vertex.
   const auto vertex = graph.addVertex(computeSet, vertexClass);
   graph.setTileMapping(vertex, tile);
 
@@ -271,21 +262,16 @@ void generateSparseDenseMultiSliceVertices(
 
 void generateSparseDenseMultiUpdateVertices(
     Graph &graph, Sequence &prog, const Tensor &offsets,
-    const Tensor &columnPartition, const SparseTensor &base,
-    const Tensor &slices, const Tensor &scale,
+    const Tensor &columnPartition, const Tensor &metaInfoBuckets,
+    const Tensor &nzBuckets, const Tensor &slices, const Tensor &scale,
     const PlannedSplits &plannedSplits, const std::string &debugStr) {
 
   auto computeSet = graph.addComputeSet(debugStr);
-  const auto inputType = base.getNzValuesTensor().elementType();
+  const auto inputType = slices.elementType();
   const auto vertexClass = templateVertex(
       "popsparse::SparseDenseMultiUpdateAddElementWise", inputType);
 
   logging::popsparse::debug("creating {} vertices", vertexClass);
-
-  auto metaInfoBuckets = fullyconnected::getBucketsByPartition(
-      base.getMetaInfoTensor(), plannedSplits.getPartitions());
-  auto nzBuckets = fullyconnected::getBucketsByPartition(
-      base.getNzValuesTensor(), plannedSplits.getPartitions());
 
   // Make a plan variable that represents the layout, but with only 1 column
   // per partition
@@ -520,8 +506,8 @@ void bufferIndexUpdate(Graph &graph, const Tensor &index, Sequence &prog,
 // buffer select variable
 std::vector<Sequence> createUpdateComputeProg(
     Graph &graph, Sequence &prog, const PlannedSplits &plannedSplits,
-    const SparseTensor &baseTBuckets, const Tensor &bufferSelect,
-    const Tensor &scale, unsigned numBuffers,
+    const Tensor &metaInfoBuckets, const Tensor &nzBuckets,
+    const Tensor &bufferSelect, const Tensor &scale, unsigned numBuffers,
     const ExchangeTensors &slicesExBuf, const ExchangeTensors &offsetsExBuf,
     const ExchangeTensors &columnPartitionExBuf,
     const std::string &debugPrefix) {
@@ -534,8 +520,8 @@ std::vector<Sequence> createUpdateComputeProg(
     // copied
     generateSparseDenseMultiUpdateVertices(
         graph, loopBodyProg[srcBuf], offsetsExBuf.src[srcBuf],
-        columnPartitionExBuf.src[srcBuf], baseTBuckets, slicesExBuf.src[srcBuf],
-        scale, plannedSplits, debugPrefix);
+        columnPartitionExBuf.src[srcBuf], metaInfoBuckets, nzBuckets,
+        slicesExBuf.src[srcBuf], scale, plannedSplits, debugPrefix);
 
     // Exchange for next time
     loopBodyProg[srcBuf].add(
@@ -863,6 +849,11 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   const auto plan =
       getFullyConnectedPlan(graph, inputType, params, options, cache);
 
+  const auto &opts = fullyconnected::parseOptionFlags(options);
+  if (!opts.doGradWPass) {
+    throw poputil::poplibs_error("popsparse embeddingUpdateAdd requires "
+                                 "the doGradWPass option to be set.");
+  }
   // Pad offsets to a consistent shape, otherwise when exchanging
   // and processing every step needs to be customised to the number of
   // offsets on each tile.  The pad is initialised with max unsigned to
@@ -982,6 +973,18 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
     columnPartitionExBuf.columnDst[i] =
         columnPartitionExBuf.columnDst[i].reshape(shape);
   }
+  // Extract the tensors from the SparseTensor. Make a partials tensor of
+  // type float which is mapped the same as the NZ data, zeroed and updated with
+  // scaled inputs.  It is added to the original NZ data to complete the update.
+  // This maintains resolution while potentially accumulating many updates.
+  const auto metaInfoBuckets = fullyconnected::getBucketsByPartition(
+      baseTBuckets.getMetaInfoTensor(), plannedSplits.getPartitions());
+  const auto nzBuckets = fullyconnected::getBucketsByPartition(
+      baseTBuckets.getNzValuesTensor(), plannedSplits.getPartitions());
+
+  const auto nzVertexOutput =
+      graph.clone(FLOAT, nzBuckets, debugPrefix + "/nzPartials");
+  zero(graph, nzVertexOutput, prog, debugPrefix);
 
   // Create program fragments used below
 
@@ -997,8 +1000,9 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
       {slicesExBuf, offsetsExBuf, columnPartitionExBuf}, debugPrefix);
 
   const auto computeProg = createUpdateComputeProg(
-      graph, prog, plannedSplits, baseTBuckets, bufferSelect, scale, numBuffers,
-      slicesExBuf, offsetsExBuf, columnPartitionExBuf, debugPrefix);
+      graph, prog, plannedSplits, metaInfoBuckets, nzVertexOutput, bufferSelect,
+      scale, numBuffers, slicesExBuf, offsetsExBuf, columnPartitionExBuf,
+      debugPrefix);
 
   // Prime the 1st buffer (Only the existing slices rows go in, although the
   // buffer can be larger if padding slices rows)
@@ -1045,6 +1049,10 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
       Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}));
 
   prog.add(RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg));
+
+  // Add the partials to the Nz-data. Scale was already applied
+  // while adding to the partial result.
+  scaledAddTo(graph, nzBuckets, nzVertexOutput, 1.0, prog, debugPrefix);
 }
 
 // External function to be used to create the slice input for an update

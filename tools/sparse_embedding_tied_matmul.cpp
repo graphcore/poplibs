@@ -200,6 +200,12 @@ int main(int argc, char **argv) try {
   PlanningCache cache;
 
   OptionFlags matmulOptions;
+  // Plan and generate meta info for the gradW pass if we want to run the
+  // embedding update.  This will produce the metainfo for the fully connected
+  // gradW pass, which is used in embedding update vertex to divide work.
+  // However we only run `fullyConnectedFwd`
+  matmulOptions.set("doGradWPass",
+                    passEnabled(pass, Pass::WU) ? "true" : "false");
   // User options specified via --matmul-options override defaults
   if (!matmulOptionsString.empty()) {
     poplar::readJSON(matmulOptionsString, matmulOptions);
@@ -281,7 +287,7 @@ int main(int argc, char **argv) try {
   if (passEnabled(pass, Pass::WU)) {
     updateSlices = createSliceTensor(graph, dataType, params, indices.dim(0),
                                      "sliceTensor", matmulOptions, &cache);
-    auto scaleT = graph.addConstant(dataType, {}, scale);
+    auto scaleT = graph.addConstant(FLOAT, {}, scale);
     graph.setTileMapping(scaleT, 0);
     embeddingUpdateAdd(graph, embeddingMatrix, updateSlices, indices, scaleT,
                        prog, params, "updateEmbedding", matmulOptions, &cache);

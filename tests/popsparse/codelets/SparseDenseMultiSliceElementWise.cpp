@@ -206,8 +206,7 @@ int main(int argc, char **argv) try {
       randomEngine, sparseIndices, offsetBaseTShape,
       {offsetBaseTShape[1], zSize}, numBuckets, processedSubGroupId,
       otherSubGroupIds, processedSubGroupIndices, subGroupNumElems, target,
-      inputType, inputType, VertexType::Forward, rowOffset,
-      yPartitionToProcess);
+      inputType, inputType, VertexType::GradW, rowOffset, yPartitionToProcess);
 
   // Check values in meta-info to ensure they are representable by this type
   const auto metaInfoType = UNSIGNED_SHORT;
@@ -221,11 +220,17 @@ int main(int argc, char **argv) try {
   }
 
   // Allocate operands
+
+  // When the input type is HALF, Update add will write to an Nz "partial" of
+  // type FLOAT, giving the possibility of maintaining greater resolution
+  // when accumulating multiple updates.
+  const auto nzType = (updateAdd && inputType == HALF) ? FLOAT : inputType;
+
   std::vector<Tensor> nzBuckets(numBuckets);
   std::vector<Tensor> metaInfoBuckets(numBuckets);
   for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
     nzBuckets[bucket] =
-        graph.addVariable(inputType, {sum(subGroupNumElems[bucket])},
+        graph.addVariable(nzType, {sum(subGroupNumElems[bucket])},
                           "NonZero (bucket " + std::to_string(bucket) + ")");
     metaInfoBuckets[bucket] =
         graph.addVariable(metaInfoType, {hostMetaInfoBuckets[bucket].size()},
@@ -262,7 +267,7 @@ int main(int argc, char **argv) try {
     // Connect tensor for scale and yPartitionToProcess.  Due to the the use
     // case where dense data is exchanged, yPartitionToProcess is a tensor for
     // the Update vertex, but in the vertex state for the Slice vertex
-    auto scaleT = graph.addConstant(inputType, {}, scale, "Scale");
+    auto scaleT = graph.addConstant(FLOAT, {}, scale, "Scale");
     graph.setTileMapping(scaleT, 0);
     graph.connect(v["scale"], scaleT);
 
@@ -311,10 +316,9 @@ int main(int argc, char **argv) try {
       boost::extents[subTShape[0]][subTShape[1]]);
 
   for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
-    writeRandomValues(target, inputType, hostNZBuckets[bucket], -1.0, +1.0,
+    writeRandomValues(target, nzType, hostNZBuckets[bucket], -1.0, +1.0,
                       randomEngine);
-    copy(target, hostNZBuckets[bucket], inputType,
-         rawHostNZBuckets[bucket].get());
+    copy(target, hostNZBuckets[bucket], nzType, rawHostNZBuckets[bucket].get());
   }
   writeRandomValues(target, inputType, hostOffsets, 0u,
                     static_cast<unsigned>(baseTShape[0]) - 1, randomEngine);
@@ -340,7 +344,7 @@ int main(int argc, char **argv) try {
   // Get the raw NZ data - used to check the updateAdd vertex
   auto ipuResultNZBuckets = hostNZBuckets;
   for (unsigned i = 0; i < numBuckets; i++) {
-    copy(target, inputType, rawHostNZBuckets.at(i).get(),
+    copy(target, nzType, rawHostNZBuckets.at(i).get(),
          ipuResultNZBuckets.at(i));
   }
   // Get the extracted dense row data

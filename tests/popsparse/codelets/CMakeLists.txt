@@ -174,8 +174,33 @@ foreach(TYPE half float)
               --row-offset=2
               --initialise-subT=true
               --update-add=${UPDATE}
-              --z-size=${ZSIZE})
+              --z-size=${ZSIZE}
+              LABELS codelet)
         endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+# Tests specific to update add, where it helps to vary the size of baseT
+# due to that controlling the work division
+foreach(TYPE half float)
+  foreach(ROWS 7 8 20 45 67)
+    foreach(COLUMNS 1 2 9 5 78 100)
+      foreach(OFFSETS 10 16)
+        add_multitarget_test(NAME SparseDenseMultiSliceElementWise_${TYPE}_${ROWS}_${COLUMNS}_${OFFSETS}
+            COMMAND SparseDenseMultiSliceElementWise
+              --baseT-shape={${ROWS},${COLUMNS}}
+              --offsets=${OFFSETS}
+              --sparsity-level=0.5
+              --num-other-sub-groups=3
+              --input-type=${TYPE}
+              --num-buckets=2
+              --row-offset=0
+              --initialise-subT=true
+              --update-add=true
+              --z-size=4
+              LABELS codelet)
       endforeach()
     endforeach()
   endforeach()

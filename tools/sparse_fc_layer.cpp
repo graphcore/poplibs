@@ -137,7 +137,7 @@ int main(int argc, char **argv) try {
      "Batch size")
     ("block-size",
      po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(1),
-     "Block size as rows and columns (only square blocks are supported)")     
+     "Block size as rows and columns (only square blocks are supported)")
     ("single-phase",
      po::value<Pass>(&pass)->default_value(pass),
      "Run phase all | fwd | bwd | wu")

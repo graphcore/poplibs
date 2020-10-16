@@ -107,7 +107,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseDenseMultiSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SparseGather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Utils.cpp
-      
+
 
 
   ASM_SOURCES
@@ -115,6 +115,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulElementWise_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseGatherElementWise.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMultiSlice.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMultiUpdateAdd.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradWElementWise_float_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradWElementWise_half_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/SparseDenseMatMulGradAElementWise_half_float.S

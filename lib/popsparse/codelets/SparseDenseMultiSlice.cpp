@@ -30,14 +30,13 @@ static bool computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
                          const unsigned rowsPerPartition,
                          const MetaInfoType yPartitionToProcess,
                          const unsigned nzScaleFactor,
-                         const unsigned short subColumns, FPType scale) {
+                         const unsigned short subColumns, float scale) {
 
   using MetaInfo = popsparse::MetaInfo<MetaInfoType>;
   // For halves, accumulate in float so that stochastic rounding will take
   // effect.
   using ScaleType =
       std::conditional_t<std::is_same<FPType, half>::value, float, FPType>;
-  const auto scaleVal = ScaleType(scale);
 
   // Note that in practice these sizes are used to divide but are all powers
   // of 2, and can be combined with the shift in the expressions where they are
@@ -81,7 +80,7 @@ static bool computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
                 const unsigned column =
                     reciprocalMulDiv(*colIter, nzScaleFactor) / yOffTypeSize;
                 if constexpr (isUpdateAdd) {
-                  *colNZIter += scaleVal * ScaleType(subT[offset + column]);
+                  *colNZIter += scale * ScaleType(subT[offset + column]);
                 } else {
                   subT[offset + column] = *colNZIter;
                 }
@@ -151,20 +150,20 @@ template class SparseDenseMultiSliceElementWise<half>;
 // to update the NZ values in the bucket based on a dense input tensor `subT`
 // by applying nzValue = nzValue + scale*subT
 template <typename FPType>
-class SparseDenseMultiUpdateAddElementWise : public Vertex {
+class SparseDenseMultiUpdateAddElementWise
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  using BaseTNZType = Vector<InOut<Vector<FPType, ONE_PTR>>, ONE_PTR>;
+  using BaseTNZType = Vector<InOut<Vector<float, ONE_PTR>>, ONE_PTR>;
   using SubTType = Input<Vector<FPType, ONE_PTR>>;
   SparseDenseMultiUpdateAddElementWise();
 
-  IS_EXTERNAL_CODELET(false);
+  IS_EXTERNAL_CODELET(true);
   // The rows to update baseT with
   Input<Vector<unsigned, ONE_PTR>> offsets;
   BaseTNZType baseTNZ;
   BaseTMetaInfoType baseTMetaInfo;
   SubTType subT;
   MetaInfoType nzScaleFactor;
-  const unsigned short subColumns; // The number of columns found in subT
   // This vertex will process data with the given yPartitionToProcess, that data
   // has a row partition in its meta data, which is scaled by rowsPerPartition
   const unsigned short rowsPerPartition;
@@ -172,8 +171,9 @@ public:
   // exchanging and using single 2-byte elements per tile has a copy cost
   // associated with it after exchange and uses 32 bit exchange anyhow
   Input<unsigned> yPartitionToProcess;
+  const unsigned short subColumns; // The number of columns found in subT
   const unsigned short numOffsets;
-  Input<FPType> scale;
+  Input<float> scale;
 
   bool compute() {
 
