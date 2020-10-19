@@ -26,7 +26,7 @@
 #include <popsparse/codelets.hpp>
 
 #include "../lib/popsparse/SparseCodeletMetaInfoScale.hpp"
-#include "SparseDensePartition.hpp"
+#include "SparseDensePartitionElementWise.hpp"
 #include "SparseDenseUtils.hpp"
 
 #include <poputil/Util.hpp>

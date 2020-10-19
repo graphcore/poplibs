@@ -1209,10 +1209,13 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
   nzBucket.reserve(nzElemsBucketBlocks * blockSize);
 
   if (useBlockMetaInfoFormat) {
+    BlockMetaInfo<std::size_t>::SubGroupEntry sgEntry;
     for (const auto &sg : bucket.subGroups) {
-      const auto sgId = formSubgroupId(
+      sgEntry.id = formSubgroupId(
           sg.tileIndex, {xSplits.size(), ySplits.size(), zSplits.size()},
           genForGradA);
+      sgEntry.xPartition = std::get<0>(sg.tileIndex);
+      sgEntry.yPartition = std::get<1>(sg.tileIndex);
       const auto numRows = sg.tileInfo.size();
       if (numRows == 0) {
         continue;
@@ -1238,7 +1241,10 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
           sizeof(std::size_t);
 
       // BMI::SubGroupEntry
-      group.push_back(sgId);
+      group.push_back(sgEntry.id);
+      group.push_back(sgEntry.xPartition);
+      group.push_back(sgEntry.yPartition);
+
       group.push_back(offsetToNextSubGroupSparseEntries);
       group.push_back(offsetToNextSubGroupMetaInfo);
       group.push_back(numRows - 1);

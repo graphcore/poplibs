@@ -1,14 +1,14 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
-#ifndef _popsparse_SparseDensePartition_hpp
-#define _popsparse_SparseDensePartition_hpp
+#ifndef _popsparse_SparseDensePartitionElementWise_hpp
+#define _popsparse_SparseDensePartitionElementWise_hpp
 
 #include "SparseDenseUtils.hpp"
 #include <poplar/Graph.hpp>
 #include <random>
 
-// Test functions to generate sparse tensor data and metadata for codelet
-// testing
+// Test functions to generate sparse tensor data and metadata for testing
+// codelets that use elementwise sparse data
 
 template <typename RandomEngine>
 std::vector<std::array<unsigned, 2>>
@@ -39,4 +39,4 @@ std::vector<std::vector<unsigned>> generateMetaInfoAndPartition(
     const poplar::Type &partialType, VertexType vertexType,
     unsigned xPartition = 0, unsigned yPartition = 0);
 
-#endif // _popsparse_SparseDensePartition_hpp
+#endif // _popsparse_SparseDensePartitionElementWise_hpp

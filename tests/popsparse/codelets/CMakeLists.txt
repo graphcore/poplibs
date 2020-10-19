@@ -1,6 +1,7 @@
 add_multi_target_test_executable(SparseDenseMatMulElementWise
                       SparseDenseMatMulElementWise.cpp
-                      SparseDensePartition.cpp SparseDensePartition.hpp
+                      SparseDensePartitionElementWise.cpp
+                      SparseDensePartitionElementWise.hpp
                       SparseDenseUtils.cpp SparseDenseUtils.hpp)
 
 set(SPARSE_DENSE_VERTEX_TYPES Forward GradA GradW Transposed)
@@ -62,7 +63,10 @@ foreach(M 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 40 1
 endforeach()
 
 add_multi_target_test_executable(SparseDenseMatMulBlock
-                                 SparseDenseMatMulBlock.cpp SparseDenseUtils.cpp SparseDenseUtils.hpp)
+                                 SparseDenseMatMulBlock.cpp
+                                 SparseDensePartitionBlock.cpp
+                                 SparseDensePartitionBlock.hpp
+                                 SparseDenseUtils.cpp SparseDenseUtils.hpp)
 
 set(SPARSE_DENSE_BLOCK_VERTEX_TYPES Forward GradA GradW GradWAmp)
 foreach(ZERO_PARTIALS "" "ZeroPartials")
@@ -156,7 +160,8 @@ endforeach()
 
 add_multi_target_test_executable(SparseDenseMultiSliceElementWise
                       SparseDenseMultiSliceElementWise.cpp
-                      SparseDensePartition.cpp SparseDensePartition.hpp
+                      SparseDensePartitionElementWise.cpp
+                      SparseDensePartitionElementWise.hpp
                       SparseDenseUtils.cpp SparseDenseUtils.hpp)
 foreach(TYPE half float)
   foreach(UPDATE true false)

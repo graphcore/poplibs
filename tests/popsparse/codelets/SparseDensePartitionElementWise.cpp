@@ -11,7 +11,7 @@
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 
-#include "SparseDensePartition.hpp"
+#include "SparseDensePartitionElementWise.hpp"
 #include <popsolver/Model.hpp>
 #include <poputil/Util.hpp>
 

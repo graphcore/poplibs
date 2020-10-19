@@ -75,6 +75,12 @@ template <typename T> struct BlockMetaInfo {
   struct SubGroupEntry {
     // ID of the sub-group
     T id;
+    // The partition in the X dimension that this sub-group's information
+    // belongs to
+    T xPartition;
+    // The partition in the Y dimension that this sub-group's information
+    // belongs to
+    T yPartition;
     // Offset in elements to next sub-group's non-zero values from
     // the end of the last sub-groups' non-zero values.
     T offsetToNextSubGroupSparseEntries;
