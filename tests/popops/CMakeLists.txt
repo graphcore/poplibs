@@ -565,46 +565,6 @@ foreach(type half float)
   endforeach()
 endforeach()
 
-# Check that various cases of reduction with shuffled columns are correct.
-# The tests should produce the named sequence of stages
-foreach(withOutput true false)
-    add_multitarget_test(
-      NAME reduce_op_shuffle_inter_output_${withOutput}
-      COMMAND $<TARGET_FILE:reduce_op>
-      "--type=half"
-      "--operation=ADD"
-      "--withoutput=${withOutput}"
-      "--shape=1024,4,32"
-      "--dims=0"
-      "--initial-shape=1024,4,32"
-      "--shuffle=0,2,1"
-       VARIANTS "${IPUMODEL_VARIANTS}")
-
-    add_multitarget_test(
-      NAME reduce_op_shuffle_in_inter_output_${withOutput}
-      COMMAND $<TARGET_FILE:reduce_op>
-      "--type=half"
-      "--operation=ADD"
-      "--withoutput=${withOutput}"
-      "--shape=200,2,2"
-      "--dims=0"
-      "--initial-shape=200,2,2"
-      "--shuffle=0,2,1"
-       VARIANTS "${IPUMODEL_VARIANTS}")
-
-   add_multitarget_test(
-      NAME reduce_op_shuffle_output_${withOutput}
-      COMMAND $<TARGET_FILE:reduce_op>
-      "--type=half"
-      "--operation=ADD"
-      "--withoutput=${withOutput}"
-      "--shape=2,4,32"
-      "--dims=0"
-      "--initial-shape=2,4,32"
-      "--shuffle=0,2,1"
-       VARIANTS "${IPUMODEL_VARIANTS}")
-endforeach()
-
 # Random reduce_op tests with fixed seed.
 set(NUM_REDUCE_RANDOM_TESTS 150)
 foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
