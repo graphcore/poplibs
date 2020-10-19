@@ -7,7 +7,16 @@ add_unit_test(SparseFormatsTest SparseFormatsTest.cpp VARIANTS ${IPUMODEL_VARIAN
 add_unit_test(BlockSparseTest BlockSparseTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 add_unit_test(BlockSparseOpsTest BlockSparseOpsTest.cpp VARIANTS "${IPUMODEL_VARIANTS};Hw")
 
+
 add_unit_test(SparseFormatsValidateTest SparseFormatsValidateTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
+
+add_test_executable(ShardedSparseMatMul ShardedSparseMatMul.cpp)
+
+add_multitarget_test(
+    NAME ShardedSparseMatMulTest}
+    COMMAND ShardedSparseMatMul
+    VARIANTS "Hw;${IPUMODEL_VARIANTS}")
+
 
 set(SPARSITY_MATRIX ${CMAKE_SOURCE_DIR}/tests/popsparse/bs-m8x8_0.8_nr.txt)
 foreach(PART_METHOD "block" "block-naive" "strip" "stripv0" "block-group2")
