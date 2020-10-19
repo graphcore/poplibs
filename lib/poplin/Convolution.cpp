@@ -60,29 +60,6 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
                                 const std::string &name, const Plan &plan,
                                 const ConvOptions &options);
 
-// Reorder the underlying memory regions of a tensor to make sliced regions
-// contiguous on each tile.
-static Tensor
-remapTensorToContiguousTileRegions(Graph &graph, Tensor t,
-                                   const std::vector<std::size_t> &shape,
-                                   const unsigned grouping) {
-  // TODO: T12871 Implement poplibs_expensive_assert like in poplar.
-  // This could be used to check, for example:
-  // poplibs_expensive_assert(t.getContiguousRegions().size() == 1);
-  auto mapping = graph.getTileMapping(t);
-  auto inverseMapping = poplibs::getInverseMapping(mapping);
-  t = t.flatten();
-  std::vector<Tensor> toConcat;
-  toConcat.reserve(inverseMapping.size());
-  for (const auto &i : inverseMapping) {
-    assert(i.begin() % grouping == 0 && i.end() % grouping == 0);
-    toConcat.push_back(t.slice(i.begin(), i.end()));
-  }
-  t = concat(toConcat).reshape(shape);
-  graph.setTileMapping(t, mapping);
-  return t;
-}
-
 static std::string getCapitalizedFieldDimName(unsigned dim,
                                               unsigned numFieldDims) {
   assert(dim < numFieldDims);
@@ -1406,16 +1383,8 @@ static Tensor createInputImpl(Graph &graph, const CanonicalConvParams &params,
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
   if (inChanSerialSplit > 1) {
-    // Recover original shape (that is contiguous in memory).
-    t = splitActivationIntoGroups(t, convGroupsPerGroup, inChansPerGroup)
-            .reshapePartial(
-                1, 2,
-                {inChanSerialSplit,
-                 numInChans / (inChansPerGroup * inChanSerialSplit)})
-            .dimRoll(1, 0);
-    t = remapTensorToContiguousTileRegions(graph, t, tensorShape,
-                                           inChansPerGroup);
-    t = unsplitActivationFromGroups(t.dimRoll(0, 1).flatten(1, 3));
+    t = graph.clone(
+        t, name, TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
   }
   return t;
 }
@@ -1531,33 +1500,10 @@ static Tensor createWeightsImpl(Graph &graph, const CanonicalConvParams &params,
   // If we're splitting serially then reorder underlying memory regions
   // to make sliced regions contiguous on each tile respecting existing
   // grain size etc.
-  auto remapSplitTensorToContiguousTileRegions =
-      [&](const Tensor &weightsTensor, const unsigned chanIndex,
-          const unsigned splitFactor, const unsigned weightsPerSplit) {
-        // Recover original shape (that is contiguous in memory).
-        Tensor t = splitWeightsIntoGroups(
-                       weightsTensor, weightConvGroupsPerGroup,
-                       weightInChansPerGroup, weightOutChansPerGroup)
-                       .reshapePartial(chanIndex, chanIndex + 1,
-                                       {splitFactor, weightsPerSplit})
-                       .dimRoll(chanIndex, 0);
-        auto grouping = weightConvGroupsPerGroup * weightOutChansPerGroup *
-                        weightInChansPerGroup;
-        t = remapTensorToContiguousTileRegions(graph, t, weightsShape,
-                                               grouping);
-        t = unsplitWeightsFromGroups(
-            t.dimRoll(0, chanIndex).flatten(chanIndex, chanIndex + 2));
-        return t;
-      };
-  if (inChanSerialSplit > 1) {
-    weights = remapSplitTensorToContiguousTileRegions(
-        weights, serialSplitIndex, inChanSerialSplit,
-        weightNumInChanGroupsPerSerialSplit);
-  }
-  if (outChanSerialSplit > 1) {
-    weights = remapSplitTensorToContiguousTileRegions(
-        weights, serialSplitIndex, outChanSerialSplit,
-        weightNumOutChanGroupsPerSerialSplit);
+  if (inChanSerialSplit * outChanSerialSplit > 1) {
+    weights = graph.clone(
+        weights, name,
+        TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES);
   }
   return weights;
 }

@@ -314,16 +314,6 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
   return copy;
 }
 
-poplar::Tensor cloneN(poplar::Graph &graph, const poplar::Tensor &t, unsigned N,
-                      poplar::StringRef name,
-                      poplar::TensorCloneMethod method) {
-  auto out = graph.clone(t, name, method).expand({0});
-  for (unsigned i = 1; i < N; ++i) {
-    out = append(out, graph.clone(t, name, method));
-  }
-  return out;
-}
-
 std::vector<int> balancedPartition(int rangeUpperBound, int splitCount) {
   // Start off by an even split.
   std::vector<int> result(splitCount, rangeUpperBound / splitCount);
