@@ -341,7 +341,7 @@ foreach(BLOCK_XY 1 4)
   endforeach()
 endforeach()
 
-# Sparse embedding
+# Sparse embedding (elementwise sparsity)
 foreach(DATA_TYPE float half)
   foreach(ROWS 4 67 126)
     foreach(COLUMNS 8 65 127)
@@ -357,7 +357,7 @@ foreach(DATA_TYPE float half)
         endif()
         foreach(INDICES 1 2 3 4 5 15 16 17 40)
           add_multitarget_test(
-            NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_B${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}
+            NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_Ba${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}
             COMMAND sparse_embedding_tied_matmul
               --data-type=${DATA_TYPE}
               --num-entries=${ROWS}
@@ -365,9 +365,54 @@ foreach(DATA_TYPE float half)
               --batch-size=${BATCH_SIZE}
               --tiles-per-ipu=16
               --num-indices=${INDICES}
+              --block-size=1
               --sparsity-factor=0.2
               --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
               --weighted-area-weighting=1.0)
+        endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+# Sparse embedding (block sparsity) - dims need to be a multiple of the block
+# size
+foreach(DATA_TYPE float half)
+  foreach(ROWS 24 120)
+    foreach(COLUMNS 8 24 56)
+      foreach(BATCH_SIZE 4 128)
+        foreach(BLOCK_ROWS 4 8)
+          if(${COLUMNS} STREQUAL 8)
+            set(WEIGHTED_COLUMN_END 4)
+          endif()
+          if(${COLUMNS} STREQUAL 24)
+            set(WEIGHTED_COLUMN_END 8)
+          endif()
+          if(${COLUMNS} STREQUAL 56)
+            set(WEIGHTED_COLUMN_END 16)
+          endif()
+          if(${BLOCK_ROWS} STREQUAL 4)
+            set(BLOCK_COLUMNS 2)
+          endif()
+          if(${BLOCK_ROWS} STREQUAL 8)
+            set(BLOCK_COLUMNS 4)
+          endif()
+          foreach(INDICES 1 2 17 40)
+            add_multitarget_test(
+              NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_Ba${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}_Br${BLOCK_ROWS}_Bc${BLOCK_COLUMNS}
+              COMMAND sparse_embedding_tied_matmul
+                --data-type=${DATA_TYPE}
+                --num-entries=${ROWS}
+                --embedding-size=${COLUMNS}
+                --batch-size=${BATCH_SIZE}
+                --tiles-per-ipu=32
+                --num-indices=${INDICES}
+                --block-size={${BLOCK_ROWS},${BLOCK_COLUMNS}}
+                --test-matmul=false
+                --sparsity-factor=0.1
+                --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
+                --weighted-area-weighting=1.0)
+          endforeach()
         endforeach()
       endforeach()
     endforeach()

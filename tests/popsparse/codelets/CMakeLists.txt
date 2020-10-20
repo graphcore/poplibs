@@ -158,18 +158,20 @@ foreach(BLOCKSIZE 4 8 16)
   endforeach()
 endforeach()
 
-add_multi_target_test_executable(SparseDenseMultiSliceElementWise
-                      SparseDenseMultiSliceElementWise.cpp
+add_multi_target_test_executable(SparseDenseMultiSlice
+                      SparseDenseMultiSlice.cpp
                       SparseDensePartitionElementWise.cpp
                       SparseDensePartitionElementWise.hpp
+                      SparseDensePartitionBlock.cpp
+                      SparseDensePartitionBlock.hpp
                       SparseDenseUtils.cpp SparseDenseUtils.hpp)
 foreach(TYPE half float)
   foreach(UPDATE true false)
     foreach(BUCKETS 1 2)
       foreach(ZSIZE 4 36 108)
         foreach(OFFSETS 1 2 3 4 5 6 12 13)
-          add_multitarget_test(NAME SparseDenseMultiSliceElementWise_${TYPE}_${UPDATE}_${BUCKETS}_${ZSIZE}_${OFFSETS}
-            COMMAND SparseDenseMultiSliceElementWise
+          add_multitarget_test(NAME SparseDenseMultiSlice_${TYPE}_${UPDATE}_${BUCKETS}_${ZSIZE}_${OFFSETS}
+            COMMAND SparseDenseMultiSlice
               --baseT-shape={41,32}
               --offsets=${OFFSETS}
               --sparsity-level=0.5
@@ -193,8 +195,8 @@ foreach(TYPE half float)
   foreach(ROWS 7 8 20 45 67)
     foreach(COLUMNS 1 2 9 5 78 100)
       foreach(OFFSETS 10 16)
-        add_multitarget_test(NAME SparseDenseMultiSliceElementWise_${TYPE}_${ROWS}_${COLUMNS}_${OFFSETS}
-            COMMAND SparseDenseMultiSliceElementWise
+        add_multitarget_test(NAME SparseDenseMultiSlice_${TYPE}_${ROWS}_${COLUMNS}_${OFFSETS}
+            COMMAND SparseDenseMultiSlice
               --baseT-shape={${ROWS},${COLUMNS}}
               --offsets=${OFFSETS}
               --sparsity-level=0.5
@@ -206,6 +208,32 @@ foreach(TYPE half float)
               --update-add=true
               --z-size=4
               LABELS codelet)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+# Basic tests for the block-sparse multislice codelets, to make more comprehensive
+# or tailored to checking assembler once that is written
+foreach(TYPE half float)
+  foreach(UPDATE true false)
+    foreach(BLOCK_ROWS 2 8)
+      foreach(BLOCK_COLUMNS 4 5)
+        foreach(OFFSETS 10 16)
+          add_multitarget_test(NAME SparseDenseMultiSliceBlock_${TYPE}_${OFFSETS}_${UPDATE}_${BLOCK_ROWS}_${BLOCK_COLUMNS}
+              COMMAND SparseDenseMultiSlice
+                --baseT-shape={64,100}
+                --offsets=${OFFSETS}
+                --sparsity-level=0.5
+                --num-other-sub-groups=3
+                --input-type=${TYPE}
+                --num-buckets=2
+                --row-offset=2
+                --initialise-subT=true
+                --update-add=${UPDATE}
+                --block-size={${BLOCK_ROWS},${BLOCK_COLUMNS}}
+                LABELS codelet)
+        endforeach()
       endforeach()
     endforeach()
   endforeach()

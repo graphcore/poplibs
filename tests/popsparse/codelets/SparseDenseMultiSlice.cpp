@@ -1,5 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE SparseDenseMultiSliceElementWise
+#define BOOST_TEST_MODULE SparseDenseMultiSlice
 #include <poplibs_support/TestDevice.hpp>
 
 // Default tolerances used in tests
@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
 #include <boost/program_options.hpp>
 #include <boost/random.hpp>
 #include <boost/range/algorithm/random_shuffle.hpp>
@@ -26,6 +27,7 @@
 #include <popsparse/codelets.hpp>
 
 #include "../lib/popsparse/SparseCodeletMetaInfoScale.hpp"
+#include "SparseDensePartitionBlock.hpp"
 #include "SparseDensePartitionElementWise.hpp"
 #include "SparseDenseUtils.hpp"
 
@@ -47,6 +49,8 @@ int main(int argc, char **argv) try {
   DeviceType deviceType = DeviceType::IpuModel2;
   Type inputType = HALF;
   ShapeOption<std::size_t> baseTShape;
+  auto blockSize = ShapeOption<std::size_t>(1);
+
   unsigned numOffsets;
   double sparsityLevel = 0.1;
   double scale = 0.5;
@@ -85,6 +89,10 @@ int main(int argc, char **argv) try {
     ("baseT-shape",
      po::value<ShapeOption<std::size_t>>(&baseTShape)->required(),
      "Shape of baseT input tensor ")
+    ("block-size",
+     po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(blockSize),
+     "Shape of block (rows per block, columns per block). Default(1,1) denotes"
+     " elementwise sparsity")
     ("row-offset",
       po::value<unsigned>(&rowOffset)->default_value(rowOffset),
       "Row offset - attatch rows from row-offet onward to the vertex")
@@ -142,6 +150,13 @@ int main(int argc, char **argv) try {
   bool ignoreData = vm.count("ignore-data");
   bool showExecutionSteps = vm.count("show-execution-steps");
   bool showVarStorage = vm.count("show-var-storage");
+  bool doElementWiseTest =
+      std::all_of(blockSize.val.begin(), blockSize.val.end(),
+                  [](std::size_t dim) { return dim == 1; });
+
+  if (blockSize.val.size() == 1) {
+    blockSize.val.push_back(blockSize[0]);
+  }
 
   if (sparsityLevel <= 0 || sparsityLevel >= 1) {
     throw poplibs_error("sparsity-level must be in range (0, 1) but " +
@@ -165,8 +180,9 @@ int main(int argc, char **argv) try {
                                                baseTShape[1]};
 
   const auto baseTNumElems = product(offsetBaseTShape);
-  const auto baseTNumNonZeroElems =
-      static_cast<std::size_t>(std::ceil(baseTNumElems * sparsityLevel));
+  const auto blockElems = product(blockSize.val);
+  const auto baseTNumNonZeroElems = static_cast<std::size_t>(
+      std::ceil(baseTNumElems / blockElems * sparsityLevel));
 
   if (baseTNumNonZeroElems / numBuckets / numSplitsPerBucket == 0) {
     throw poplibs_error("Splitting " + std::to_string(baseTNumNonZeroElems) +
@@ -181,8 +197,15 @@ int main(int argc, char **argv) try {
   popsparse::addCodelets(graph);
 
   std::mt19937 randomEngine;
-  auto sparseIndices = generateSparseIndices(randomEngine, offsetBaseTShape,
-                                             baseTNumNonZeroElems);
+  auto sparseIndices = [&]() {
+    if (doElementWiseTest) {
+      return generateSparseIndices(randomEngine, offsetBaseTShape,
+                                   baseTNumNonZeroElems);
+    } else {
+      return generateBlockSparseIndices(randomEngine, offsetBaseTShape,
+                                        blockSize.val, baseTNumNonZeroElems);
+    }
+  }();
 
   unsigned processedSubGroupId;
   std::vector<unsigned> otherSubGroupIds;
@@ -202,11 +225,23 @@ int main(int argc, char **argv) try {
       randomEngine, sparseIndices.size(), numBuckets, numSplitsPerBucket,
       numOtherSubGroups, numOtherSubGroupElems);
 
-  const auto hostMetaInfoBuckets = generateMetaInfoAndPartition(
-      randomEngine, sparseIndices, offsetBaseTShape,
-      {offsetBaseTShape[1], zSize}, numBuckets, processedSubGroupId,
-      otherSubGroupIds, processedSubGroupIndices, subGroupNumElems, target,
-      inputType, inputType, VertexType::GradW, rowOffset, yPartitionToProcess);
+  const auto hostMetaInfoBuckets = [&]() {
+    if (doElementWiseTest) {
+      return generateMetaInfoAndPartition(
+          randomEngine, sparseIndices, offsetBaseTShape,
+          {offsetBaseTShape[1], zSize}, numBuckets, processedSubGroupId,
+          otherSubGroupIds, processedSubGroupIndices, subGroupNumElems, target,
+          inputType, inputType, VertexType::GradW, rowOffset,
+          yPartitionToProcess);
+    } else {
+      return generateMetaInfoAndPartition(
+          randomEngine, sparseIndices, offsetBaseTShape,
+          {offsetBaseTShape[1], zSize}, blockSize.val, numBuckets,
+          processedSubGroupId, otherSubGroupIds, processedSubGroupIndices,
+          subGroupNumElems, target, inputType, FLOAT, VertexType::Forward,
+          rowOffset, yPartitionToProcess);
+    }
+  }();
 
   // Check values in meta-info to ensure they are representable by this type
   const auto metaInfoType = UNSIGNED_SHORT;
@@ -230,7 +265,7 @@ int main(int argc, char **argv) try {
   std::vector<Tensor> metaInfoBuckets(numBuckets);
   for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
     nzBuckets[bucket] =
-        graph.addVariable(nzType, {sum(subGroupNumElems[bucket])},
+        graph.addVariable(nzType, {blockElems * sum(subGroupNumElems[bucket])},
                           "NonZero (bucket " + std::to_string(bucket) + ")");
     metaInfoBuckets[bucket] =
         graph.addVariable(metaInfoType, {hostMetaInfoBuckets[bucket].size()},
@@ -247,10 +282,17 @@ int main(int argc, char **argv) try {
   const auto cs = graph.addComputeSet("cs0");
 
   std::string vertexBaseClass =
-      updateAdd ? "popsparse::SparseDenseMultiUpdateAddElementWise"
-                : "popsparse::SparseDenseMultiSliceElementWise";
+      doElementWiseTest
+          ? (updateAdd ? "popsparse::SparseDenseMultiUpdateAddElementWise"
+                       : "popsparse::SparseDenseMultiSliceElementWise")
+          : (updateAdd ? "popsparse::SparseDenseMultiUpdateAddBlock"
+                       : "popsparse::SparseDenseMultiSliceBlock");
 
-  const auto vertexClass = templateVertex(vertexBaseClass, inputType);
+  const bool vectorise =
+      (blockSize.val[1] % target.getVectorWidth(inputType)) == 0;
+  const auto vertexClass =
+      doElementWiseTest ? templateVertex(vertexBaseClass, inputType)
+                        : templateVertex(vertexBaseClass, inputType, vectorise);
   const auto v = graph.addVertex(cs, vertexClass);
 
   graph.setInitialValue(v["subColumns"], baseTShape[1]);
@@ -259,10 +301,15 @@ int main(int argc, char **argv) try {
   graph.connect(v["baseTNZ"], nzBuckets);
   graph.connect(v["baseTMetaInfo"], metaInfoBuckets);
   graph.connect(v["subT"], subT.flatten());
-  graph.setInitialValue(v["nzScaleFactor"], reciprocalMulFactor(zSize));
-  graph.setInitialValue(v["rowsPerPartition"], rowsPerPartition);
   graph.setInitialValue(v["numOffsets"], numOffsets);
+  graph.setInitialValue(v["rowsPerPartition"], rowsPerPartition);
 
+  if (doElementWiseTest) {
+    graph.setInitialValue(v["nzScaleFactor"], reciprocalMulFactor(zSize));
+  } else {
+    graph.setInitialValue(v["blockRows"], blockSize.val[0]);
+    graph.setInitialValue(v["blockColumns"], blockSize.val[1]);
+  }
   if (updateAdd) {
     // Connect tensor for scale and yPartitionToProcess.  Due to the the use
     // case where dense data is exchanged, yPartitionToProcess is a tensor for
@@ -309,7 +356,8 @@ int main(int argc, char **argv) try {
 
   std::vector<boost::multi_array<double, 1>> hostNZBuckets;
   for (std::size_t bucket = 0; bucket < numBuckets; ++bucket) {
-    hostNZBuckets.emplace_back(boost::extents[sum(subGroupNumElems[bucket])]);
+    hostNZBuckets.emplace_back(
+        boost::extents[blockElems * sum(subGroupNumElems[bucket])]);
   }
   boost::multi_array<unsigned, 1> hostOffsets(boost::extents[numOffsets]);
   boost::multi_array<double, 2> hostSubT(
@@ -365,31 +413,43 @@ int main(int argc, char **argv) try {
 
   // We use a dense matrix a to model this - expand out the whole sparse input,
   // keep track of which are genuine NZ values (Don't rely on them being != 0)
-  struct DenseElement {
-    bool nzExists;
-    double value;
-  };
-
   auto sparseToDense =
       [&](const std::vector<boost::multi_array<double, 1>> &inputNZBuckets) {
-        boost::multi_array<DenseElement, 2> dense(
+        boost::multi_array<boost::optional<double>, 2> dense(
             boost::extents[baseTShape[0]][baseTShape[1]]);
 
         std::size_t nzOffset = 0;
         for (unsigned bucket = 0; bucket < numBuckets; ++bucket) {
           for (const auto &idx : processedSubGroupIndices[bucket]) {
             assert(idx < subGroupNumElems[bucket].size());
-            const auto bucketNzOffset = std::accumulate(
-                subGroupNumElems[bucket].begin(),
-                subGroupNumElems[bucket].begin() + idx, std::size_t(0));
+            const auto bucketNzOffset =
+                blockElems *
+                std::accumulate(subGroupNumElems[bucket].begin(),
+                                subGroupNumElems[bucket].begin() + idx,
+                                std::size_t(0));
             for (std::size_t i = 0; i < subGroupNumElems[bucket][idx]; ++i) {
               assert(bucketNzOffset + i <
                      inputNZBuckets[bucket].num_elements());
-              const auto row = sparseIndices.at(nzOffset + i)[0] + rowOffset;
-              if (row < baseTShape[0]) {
-                dense[row][sparseIndices.at(nzOffset + i)[1]].nzExists = true;
-                dense[row][sparseIndices.at(nzOffset + i)[1]].value =
-                    inputNZBuckets[bucket][bucketNzOffset + i];
+
+              if (doElementWiseTest) {
+                const auto row = sparseIndices.at(nzOffset + i)[0] + rowOffset;
+                if (row < baseTShape[0]) {
+                  dense[row][sparseIndices.at(nzOffset + i)[1]] =
+                      inputNZBuckets[bucket][bucketNzOffset + i];
+                }
+              } else {
+                for (unsigned j = 0; j != blockSize.val[0]; ++j) {
+                  for (unsigned k = 0; k != blockSize.val[1]; ++k) {
+                    const auto row =
+                        sparseIndices.at(nzOffset + i)[0] + j + rowOffset;
+                    if (row < baseTShape[0]) {
+                      auto srcOffset = bucketNzOffset + i * blockElems +
+                                       j * blockSize.val[1] + k;
+                      dense[row][sparseIndices.at(nzOffset + i)[1] + k] =
+                          inputNZBuckets[bucket][srcOffset];
+                    }
+                  }
+                }
               }
             }
             nzOffset += subGroupNumElems.at(bucket).at(idx);
@@ -417,31 +477,32 @@ int main(int argc, char **argv) try {
   auto ipuBaseTDense = sparseToDense(ipuResultNZBuckets);
   for (unsigned index = 0; index < numOffsets; index++) {
     for (unsigned i = 0; i < subTShape[1]; i++) {
-      if (hostBaseTDense[hostOffsets[index]][i].nzExists) {
+      if (hostBaseTDense[hostOffsets[index]][i]) {
         if (updateAdd) {
-          hostBaseTDense[hostOffsets[index]][i].value +=
+          hostBaseTDense[hostOffsets[index]][i].get() +=
               scale * hostSubT[index][i];
         } else {
-          hostSubT[index][i] = hostBaseTDense[hostOffsets[index]][i].value;
+          hostSubT[index][i] = hostBaseTDense[hostOffsets[index]][i].get();
         }
       }
     }
   }
 
   if (debugPrint) {
-    auto printDense = [=](boost::multi_array<DenseElement, 2> &dense) {
-      for (unsigned i = 0; i < baseTShape[0]; i++) {
-        std::cout << "[" << i << "]:";
-        for (unsigned j = 0; j < baseTShape[1]; j++) {
-          if (dense[i][j].nzExists) {
-            std::cout << dense[i][j].value << ",";
-          } else {
-            std::cout << "x,";
+    auto printDense =
+        [=](boost::multi_array<boost::optional<double>, 2> &dense) {
+          for (unsigned i = 0; i < baseTShape[0]; i++) {
+            std::cout << "[" << i << "]:";
+            for (unsigned j = 0; j < baseTShape[1]; j++) {
+              if (dense[i][j]) {
+                std::cout << dense[i][j].get() << ",";
+              } else {
+                std::cout << "x,";
+              }
+            }
+            std::cout << "\n";
           }
-        }
-        std::cout << "\n";
-      }
-    };
+        };
     if (updateAdd) {
       std::cout << "\nDense ipu updated baseT:\n";
       printDense(ipuBaseTDense);
@@ -453,16 +514,17 @@ int main(int argc, char **argv) try {
     }
   }
 
-  auto extractData = [=](boost::multi_array<DenseElement, 2> &dense) {
-    boost::multi_array<double, 2> dataOnly(
-        boost::extents[baseTShape[0]][baseTShape[1]]);
-    for (unsigned i = 0; i < baseTShape[0]; i++) {
-      for (unsigned j = 0; j < baseTShape[1]; j++) {
-        dataOnly[i][j] = dense[i][j].nzExists ? dense[i][j].value : 0.0;
-      }
-    }
-    return dataOnly;
-  };
+  auto extractData =
+      [=](boost::multi_array<boost::optional<double>, 2> &dense) {
+        boost::multi_array<double, 2> dataOnly(
+            boost::extents[baseTShape[0]][baseTShape[1]]);
+        for (unsigned i = 0; i < baseTShape[0]; i++) {
+          for (unsigned j = 0; j < baseTShape[1]; j++) {
+            dataOnly[i][j] = dense[i][j] ? dense[i][j].get() : 0.0;
+          }
+        }
+        return dataOnly;
+      };
 
   if (profile) {
     engine.printProfileSummary(

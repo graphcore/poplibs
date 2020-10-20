@@ -64,9 +64,18 @@ struct PlannedSplits {
   std::size_t slicesSplitIndices;
   unsigned slicesIndicesSplits;
 
+  // BlockSizes (both =1 for elementWise sparsity)
+  unsigned blockRows;
+  unsigned blockColumns;
+
   PlannedSplits(std::size_t numSlices, const FullyConnectedParams &params,
                 const fullyconnected::Plan &plan, const std::string &debugStr,
-                boost::optional<std::size_t> plannedColumns = boost::none) {
+                boost::optional<std::size_t> plannedColumns = boost::none,
+                bool respectBlockSize = true) {
+
+    blockRows = plan.method.grouping.x;
+    blockColumns = plan.method.grouping.y;
+
     rows = params.getOutputChannelsPerGroup();
     if (plannedColumns) {
       columns = plannedColumns.get();
@@ -74,13 +83,28 @@ struct PlannedSplits {
       columns = params.getInputChannelsPerGroup();
     }
     z = params.getBatchSize();
+
+    // Where we are planning the layout of slices we need to round up any split
+    // to the next multiple of the block size.  Where we are using
+    // `PlannedSplits` to plan exchange buffers we need to use the sizes given
+    // with no rounding up.
+    const auto planningBlockRows = respectBlockSize ? blockRows : 1;
+    const auto planningBlockColumns = respectBlockSize ? blockColumns : 1;
+
     // Just note the splits from the plan, and find the number of elements
     rowSplits = plan.partition.x;
-    splitRows = (rows + rowSplits - 1) / rowSplits;
+
+    const auto splitRowBlocks = (rows + rowSplits * planningBlockRows - 1) /
+                                (rowSplits * planningBlockRows);
+    splitRows = planningBlockRows * splitRowBlocks;
 
     columnSplits = plan.partition.y;
-    splitColumns = (columns + columnSplits - 1) / columnSplits;
+    const auto splitColumnBlocks =
+        (columns + columnSplits * planningBlockColumns - 1) /
+        (columnSplits * planningBlockColumns);
+    splitColumns = planningBlockColumns * splitColumnBlocks;
 
+    // Unlike X,Y the splitting of Z is not subject to block size boundaries
     zSplits = plan.partition.z;
     splitZ = (z + zSplits - 1) / zSplits;
 
@@ -114,6 +138,8 @@ struct PlannedSplits {
     if (logging::popsparse::shouldLog(logging::Level::Debug)) {
       logging::popsparse::debug("Sparse Dense Embedding plan for {}:",
                                 debugStr);
+      logging::popsparse::debug("Sparse tensor has block size {},{}", blockRows,
+                                blockColumns);
       logging::popsparse::debug(
           "    baseT rows:{} rowSplits:{} rowsPerSplit:{}", rows, rowSplits,
           splitRows);
@@ -136,6 +162,8 @@ struct PlannedSplits {
   fullyconnected::Vector<unsigned> getPartitions(void) const {
     return {groups, rowSplits, columnSplits, zSplits};
   }
+
+  bool isElementWise(void) const { return blockRows == 1 && blockColumns == 1; }
 };
 // Find the range of columns for a given column split
 Interval columnRange(unsigned cs, const PlannedSplits &plannedSplits,
@@ -160,9 +188,9 @@ void createSparseDenseTileVertices(
     Graph &graph, ComputeSet &computeSet, const std::string &vertexClass,
     unsigned tile, const Tensor &offsets, const std::vector<Tensor> &baseTNZ,
     const std::vector<Tensor> &baseTMeta, const Tensor &subT, unsigned columns,
-    unsigned rowsPerPartition, unsigned splitZ,
+    const PlannedSplits &plannedSplits,
     const std::variant<unsigned, Tensor> &yPartitionToProcess,
-    const boost::optional<Tensor> &scale) {
+    const boost::optional<Tensor> &scale = boost::none) {
 
   // Using supervisor vertices, so work division is done in the vertex.
   const auto vertex = graph.addVertex(computeSet, vertexClass);
@@ -173,15 +201,22 @@ void createSparseDenseTileVertices(
 
   graph.connect(vertex["baseTMetaInfo"], baseTMeta);
   graph.connect(vertex["baseTNZ"], baseTNZ);
-
   graph.setInitialValue(vertex["subColumns"], columns);
-  graph.setInitialValue(vertex["nzScaleFactor"], reciprocalMulFactor(splitZ));
-  graph.setInitialValue(vertex["rowsPerPartition"], rowsPerPartition);
+  graph.setInitialValue(vertex["rowsPerPartition"], plannedSplits.splitRows);
   graph.setInitialValue(vertex["numOffsets"], offsets.numElements());
+
+  if (plannedSplits.isElementWise()) {
+    graph.setInitialValue(vertex["nzScaleFactor"],
+                          reciprocalMulFactor(plannedSplits.splitZ));
+  } else {
+    graph.setInitialValue(vertex["blockRows"], plannedSplits.blockRows);
+    graph.setInitialValue(vertex["blockColumns"], plannedSplits.blockColumns);
+  }
 
   if (scale) {
     graph.connect(vertex["scale"], scale.get().reshape({}));
   }
+
   if (std::get_if<Tensor>(&yPartitionToProcess)) {
     graph.connect(vertex["yPartitionToProcess"],
                   std::get<Tensor>(yPartitionToProcess));
@@ -200,8 +235,15 @@ void generateSparseDenseMultiSliceVertices(
 
   auto computeSet = graph.addComputeSet(debugStr);
   const auto inputType = nzBuckets.elementType();
+  bool vectorise = (plannedSplits.blockColumns %
+                    graph.getTarget().getVectorWidth(inputType)) == 0;
   const auto vertexClass =
-      templateVertex("popsparse::SparseDenseMultiSliceElementWise", inputType);
+      plannedSplits.isElementWise()
+          ? templateVertex("popsparse::SparseDenseMultiSliceElementWise",
+                           inputType)
+          : templateVertex("popsparse::SparseDenseMultiSliceBlock", inputType,
+                           vectorise);
+
   logging::popsparse::debug("creating {} vertices", vertexClass);
 
   // Loop and create vertices based on the existence of offsets to process
@@ -250,10 +292,9 @@ void generateSparseDenseMultiSliceVertices(
         const auto iTile = plannedSplits.mappingOrder.getPNIdForPartition(
             plannedSplits.getPartitions(), {0, rs, cs, is});
 
-        createSparseDenseTileVertices(
-            graph, computeSet, vertexClass, iTile, offsetsSlice, {baseTNZ},
-            {baseTMeta}, subT, columns.size(), plannedSplits.splitRows,
-            plannedSplits.splitZ, cs, boost::none);
+        createSparseDenseTileVertices(graph, computeSet, vertexClass, iTile,
+                                      offsetsSlice, {baseTNZ}, {baseTMeta},
+                                      subT, columns.size(), plannedSplits, cs);
       }
     }
   }
@@ -267,9 +308,20 @@ void generateSparseDenseMultiUpdateVertices(
     const PlannedSplits &plannedSplits, const std::string &debugStr) {
 
   auto computeSet = graph.addComputeSet(debugStr);
+  const auto target = graph.getTarget();
   const auto inputType = slices.elementType();
-  const auto vertexClass = templateVertex(
-      "popsparse::SparseDenseMultiUpdateAddElementWise", inputType);
+  const auto inputVectorWidth = target.getVectorWidth(inputType);
+  const auto outputVectorWidth = target.getVectorWidth(nzBuckets.elementType());
+  bool inOutTypesVectorise = inputVectorWidth >= outputVectorWidth &&
+                             (inputVectorWidth % outputVectorWidth == 0);
+  bool vectorise = inOutTypesVectorise &&
+                   (plannedSplits.blockColumns % outputVectorWidth) == 0;
+  const auto vertexClass =
+      plannedSplits.isElementWise()
+          ? templateVertex("popsparse::SparseDenseMultiUpdateAddElementWise",
+                           inputType)
+          : templateVertex("popsparse::SparseDenseMultiUpdateAddBlock",
+                           inputType, vectorise);
 
   logging::popsparse::debug("creating {} vertices", vertexClass);
 
@@ -310,10 +362,10 @@ void generateSparseDenseMultiUpdateVertices(
                                      {gatherRows.end(), columns.end()})
                               .flatten();
 
-        createSparseDenseTileVertices(
-            graph, computeSet, vertexClass, zTile, offsetsSlice, {baseTNZ},
-            {baseTMeta}, subT, columns.size(), plannedSplits.splitRows,
-            plannedSplits.splitZ, columnPartition[zSplit][rs][cs], scale);
+        createSparseDenseTileVertices(graph, computeSet, vertexClass, zTile,
+                                      offsetsSlice, {baseTNZ}, {baseTMeta},
+                                      subT, columns.size(), plannedSplits,
+                                      columnPartition[zSplit][rs][cs], scale);
       }
     }
   }
@@ -545,7 +597,6 @@ std::vector<Sequence> createSliceComputeProg(
     const Tensor &slices, const Tensor &offsets, const Tensor &bufferSelect,
     unsigned numBuffers, const ExchangeTensors &nzExBuf,
     const PlannedSplits &nzSplits, const ExchangeTensors &metaInfoExBuf,
-
     const PlannedSplits &metaInfoSplits, const std::string &debugPrefix) {
 
   // Create programs to run in a loop, alternately on each pass
@@ -618,6 +669,7 @@ void to2DShape(Tensor &input) {
   const auto shape2D = getShape2D(input);
   input = input.dimRoll(3, 1).reshape(shape2D);
 }
+
 } // end anonymous namespace
 
 Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
@@ -738,11 +790,12 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   // and the 2D shape, plus a view into the buffer representing the exchange
   // patterns required to propogate over rows (z and row splits) and columns.
   const auto numBuffers = 2;
-  auto metaInfoSplits =
-      PlannedSplits(metaInfoShape2D[0], params, plan,
-                    debugPrefix + "/metainfoExchange", metaInfoShape2D[1]);
-  auto nzSplits = PlannedSplits(nzShape2D[0], params, plan,
-                                debugPrefix + "/nzExchange", nzShape2D[1]);
+  auto metaInfoSplits = PlannedSplits(metaInfoShape2D[0], params, plan,
+                                      debugPrefix + "/metainfoExchange",
+                                      metaInfoShape2D[1], false);
+  auto nzSplits =
+      PlannedSplits(nzShape2D[0], params, plan, debugPrefix + "/nzExchange",
+                    nzShape2D[1], false);
 
   // Create exchange buffers for the NZ and metaInfo
   const auto metaInfoExBuf = createExchangeTensors(
@@ -848,12 +901,12 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   const auto debugPrefix = debugPrefix_ + "/embeddingUpdateAdd";
   const auto plan =
       getFullyConnectedPlan(graph, inputType, params, options, cache);
-
   const auto &opts = fullyconnected::parseOptionFlags(options);
   if (!opts.doGradWPass) {
     throw poputil::poplibs_error("popsparse embeddingUpdateAdd requires "
                                  "the doGradWPass option to be set.");
   }
+
   // Pad offsets to a consistent shape, otherwise when exchanging
   // and processing every step needs to be customised to the number of
   // offsets on each tile.  The pad is initialised with max unsigned to

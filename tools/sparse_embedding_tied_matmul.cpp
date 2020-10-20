@@ -93,6 +93,7 @@ int main(int argc, char **argv) try {
   weightedAreaBegin.val = weightedAreaEnd.val = {0, 0};
   double weightedAreaWeighting = 1.0;
   std::string matmulOptionsString;
+  bool testMatmul = true;
 
   // Embedding options
   std::size_t numIndices;
@@ -109,36 +110,47 @@ int main(int argc, char **argv) try {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
     ("profile", "Enable profiling and print profiling report")
-    ("profile-json", po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
+    ("profile-json",
+        po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
      "Path to a file into which the profiling report will be output in json format")
     ("ignore-data", "Don't validate results")
-    ("data-type", po::value(&dataType)->default_value(dataType), "Data type of operands")
-    ("groups", po::value(&groups)->default_value(groups), "Number of groups")
-    ("num-entries", po::value(&numEntries)->required(), "Number of entries in embedding matrix")
-    ("embedding-size", po::value(&embeddingSize)->required(), "Embedding size of embedding matrix")
-    ("batch-size", po::value(&batchSize)->required(), "Batch size used for matmul")
+    ("data-type", po::value(&dataType)->default_value(dataType),
+      "Data type of operands")
+    ("groups", po::value(&groups)->default_value(groups),
+      "Number of groups")
+    ("num-entries", po::value(&numEntries)->required(),
+      "Number of entries in embedding matrix")
+    ("embedding-size", po::value(&embeddingSize)->required(),
+      "Embedding size of embedding matrix")
+    ("batch-size", po::value(&batchSize)->required(),
+      "Batch size used for matmul")
     ("sparsity-factor", po::value(&sparsityFactor)->required(),
      "Proportion of elements of left-hand operand which are non-zero")
     ("block-size",
      po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(1),
      "Block size as rows and columns (only square blocks are supported)")
     ("weighted-area-begin",
-     po::value<ShapeOption<std::size_t>>(&weightedAreaBegin)->default_value(weightedAreaBegin),
+     po::value<ShapeOption<std::size_t>>
+        (&weightedAreaBegin)->default_value(weightedAreaBegin),
      "Starting indices of an area of the sparse operand with a different "
      "level of sparsity to the rest")
     ("weighted-area-end",
-     po::value<ShapeOption<std::size_t>>(&weightedAreaEnd)->default_value(weightedAreaEnd),
+     po::value<ShapeOption<std::size_t>>
+        (&weightedAreaEnd)->default_value(weightedAreaEnd),
      "Ending indices of an area of the sparse operand with a different "
      "level of sparsity to the rest")
     ("weighted-area-weighting",
-     po::value<double>(&weightedAreaWeighting)->default_value(weightedAreaWeighting),
+     po::value<double>
+        (&weightedAreaWeighting)->default_value(weightedAreaWeighting),
      "Weighting for probability that a sparse element resides within the "
      "specified area (Not itself a probability - values > 1 are OK)")
     ("tiles-per-ipu", po::value(&tilesPerIPU), "Number of tiles per IPU")
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
      "Options to use for the matrix multiplication, specified as a JSON "
      "string, e.g. {\"key\":\"value\"}")
-
+    ("test-matmul", po::value(&testMatmul)->default_value(testMatmul),
+     "Run the matmul and fetch/compare results.  Can be disabled to test "
+     "block sizes that are allowed for embedding but not currently for matmul")
     // Embedding options
     ("num-indices",
      po::value<std::size_t>(&numIndices)->required(),
@@ -235,10 +247,11 @@ int main(int argc, char **argv) try {
 
   const auto mulInput = createFullyConnectedInput(
       graph, dataType, params, "mulInput", matmulOptions, &cache);
-  const Tensor mulOutput =
-      fullyConnectedFwd(graph, embeddingMatrix, mulInput, params, prog,
-                        "multiply", matmulOptions, &cache);
-
+  Tensor mulOutput;
+  if (testMatmul) {
+    mulOutput = fullyConnectedFwd(graph, embeddingMatrix, mulInput, params,
+                                  prog, "multiply", matmulOptions, &cache);
+  }
   std::vector<std::pair<std::string, char *>> tmap;
   auto rawMetaInfo = allocateHostMemoryForTensor(
       embeddingMatrix.getMetaInfoTensor(), "embedding.meta", graph, uploadProg,
@@ -248,9 +261,12 @@ int main(int argc, char **argv) try {
       uploadProg, downloadProg, tmap);
   auto rawMulInput = allocateHostMemoryForTensor(
       mulInput, "mulInput", graph, uploadProg, downloadProg, tmap);
-  auto rawOut = allocateHostMemoryForTensor(mulOutput, "mulOutput", graph,
-                                            uploadProg, downloadProg, tmap);
 
+  std::unique_ptr<char[]> rawOut;
+  if (testMatmul) {
+    rawOut = allocateHostMemoryForTensor(mulOutput, "mulOutput", graph,
+                                         uploadProg, downloadProg, tmap);
+  }
   using EType = float;
   Partitioner<EType> partitioner(params, dataType, target, matmulOptions,
                                  &cache);
@@ -383,8 +399,7 @@ int main(int argc, char **argv) try {
     writeRandomValues(target, dataType, hostMulInput, -3.0, 3.0, randomEngine);
   }
   boost::multi_array<double, 2> hostMulOut(
-      boost::extents[mulOutput.dim(0)][mulOutput.dim(1)]);
-
+      boost::extents[batchSize][numEntries]);
   if (!randomInput) {
     // Create unique values for debug in the embedding layer
     for (unsigned i = 0; i < csrMatrix.nzValues.size(); i++) {
@@ -405,15 +420,16 @@ int main(int argc, char **argv) try {
     copy(target, hostSlicedInput, dataType, rawUpdateSlices.get());
   }
   device.bind([&](const Device &d) { engine.loadAndRun(d); });
-
   bool matchesModel = true;
   if (!ignoreData) {
     const double relTolerance = dataType == HALF ? HALF_REL_TOL : FLOAT_REL_TOL;
-    copy(target, mulOutput.elementType(), rawOut.get(), hostMulOut);
+    if (testMatmul) {
+      copy(target, mulOutput.elementType(), rawOut.get(), hostMulOut);
+    }
     boost::multi_array<double, 2> hostDenseEmbeddingMatrix(
         boost::extents[numEntries][embeddingSize]);
     boost::multi_array<double, 2> modelMulOut(
-        boost::extents[mulOutput.dim(0)][mulOutput.dim(1)]);
+        boost::extents[batchSize][numEntries]);
     hostDenseEmbeddingMatrix = poplibs_test::sparse::csrToDenseMatrix(
         csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
         csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), numEntries,
@@ -425,13 +441,12 @@ int main(int argc, char **argv) try {
     boost::multi_array<double, 2> hostSlicedResult(
         boost::extents[indices.dim(0)][embeddingSize]);
     if (passEnabled(pass, Pass::FWD)) {
-      copy(target, mulOutput.elementType(), rawSlicedResult.get(),
-           hostSlicedResult);
+      copy(target, dataType, rawSlicedResult.get(), hostSlicedResult);
     }
     // To check, for embedding update, fetch the Nz values.  We can check they
     // haven't changed in other cases.
     std::vector<EType> hostNzResult(buckets.nzValues.size());
-    copy(target, mulOutput.elementType(), rawNzInfo.get(), &hostNzResult[0],
+    copy(target, dataType, rawNzInfo.get(), &hostNzResult[0],
          hostNzResult.size());
     // Interpret the NZ values, along with the original meta info to create a
     // dense representation of the IPU result
@@ -472,10 +487,10 @@ int main(int argc, char **argv) try {
     if (debugPrint) {
       if (passEnabled(pass, Pass::FWD)) {
         std::cout << "Debug - sliced results";
-        const auto printSize = std::min(slicedResult.dim(1), 70ul);
+        const auto printSize = std::min(embeddingSize, 70u);
         std::cout << "\nSliced results, " << printSize << " columns of "
-                  << slicedResult.dim(1);
-        for (unsigned i = 0; i < slicedResult.dim(0); i++) {
+                  << embeddingSize;
+        for (unsigned i = 0; i < numIndices; i++) {
           std::cout << "\nRow:" << i << " index:" << hostIndices[i]
                     << "    ipu:";
           for (unsigned j = 0; j < printSize; j++) {
@@ -525,7 +540,7 @@ int main(int argc, char **argv) try {
       matchesModel &= checkIsClose("updatedInput", ipuDenseEmbeddingMatrix,
                                    hostDenseEmbeddingMatrix, relTolerance);
     }
-    if (randomInput) {
+    if (testMatmul && randomInput) {
       // verify matmul result too
       matchesModel &=
           checkIsClose("mulOutput", hostMulOut, modelMulOut, relTolerance);
