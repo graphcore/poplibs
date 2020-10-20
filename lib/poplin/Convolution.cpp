@@ -2189,6 +2189,7 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
                     !plan.transforms[ipuLevel].outChanFlattenDims.empty();
     rearrangeWeights = weightRearrangementIsExpensive(options) ||
                        (weightsNumDests > weightViewMaxBroadcastDests) ||
+                       !plan.transforms[ipuLevel].expandDims.empty() ||
                        !plan.transforms[ipuLevel].outChanFlattenDims.empty();
     // Check if the input/weights respect the desired grainSize at this level
     // in the correct dimension. If not we should probably rearrange prior to
