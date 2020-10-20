@@ -436,8 +436,8 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_, float k,
                const poplar::OptionFlags &options_,
                matmul::PlanningCache *cache) {
   const auto options = parseMatMulOptions(options_);
-  logging::poplin::info("matMulAcc {} x {} + {}{}, pass={}, name={}",
-                        A_.shape(), B_.shape(), k, C_.shape(),
+  logging::poplin::info("matMulAcc {} += {} x {} x {}, pass={}, name={}",
+                        C_.shape(), k, A_.shape(), B_.shape(),
                         options.fullyConnectedPass, debugPrefix);
 
   matMulDimChecks(A_.shape(), B_.shape());
@@ -468,9 +468,9 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C_,
                matmul::PlanningCache *cache) {
   scaleTensorChecks(k, A_.elementType());
   const auto options = parseMatMulOptions(options_);
-  logging::poplin::info("matMulAcc {} x {} + k{}, pass={}, name={}", A_.shape(),
-                        B_.shape(), C_.shape(), options.fullyConnectedPass,
-                        debugPrefix);
+  logging::poplin::info("matMulAcc {} += k x {} x {}, pass={}, name={}",
+                        C_.shape(), A_.shape(), B_.shape(),
+                        options.fullyConnectedPass, debugPrefix);
 
   matMulDimChecks(A_.shape(), B_.shape());
   const auto A = A_.expand({0});
