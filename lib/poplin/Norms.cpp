@@ -133,18 +133,27 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
       acts.shape(), eps, unbiasedVarEstimate, partialsType,
       debugContext.getPathName() + "/" + layer);
 
-  const auto actsShape = acts.shape();
-  const auto numElements = acts.numElements() / acts.dim(1);
-  const float scaleVar =
-      unbiasedVarEstimate ? static_cast<float>(numElements) / (numElements - 1)
-                          : 1.0f;
+  size_t numElements = acts.numElements();
+
+  // Avoid a possible divide by zero FP exception.
+  // Note that numElements will be 0 if acts.dim(1) is 0.
+  if (acts.dim(1) > 0)
+    numElements /= acts.dim(1);
+
+  float scale = 1.0f;
+  float scaleVar = 1.0f;
+  if (numElements > 1) {
+    scale /= numElements;
+    if (unbiasedVarEstimate)
+      scaleVar = static_cast<float>(numElements) / (numElements - 1);
+  }
+
   const auto powerOutputType = partialsType;
   const auto meanOutputType = acts.elementType();
 
   std::vector<ComputeSet> css;
-  auto mean =
-      normReduce(graph, acts, 1.0f / numElements, false, css, partialsType,
-                 meanOutputType, nullptr, {di, layer + "/mean"});
+  auto mean = normReduce(graph, acts, scale, false, css, partialsType,
+                         meanOutputType, nullptr, {di, layer + "/mean"});
 
   auto maybeZeroMeanActs = acts;
   if (stableAlgo) {
@@ -163,8 +172,8 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   // gathered from training experiments. For now keep it at reduced precision
   // to save memory
   auto power =
-      normReduce(graph, maybeZeroMeanActs, 1.0f / numElements, true, css,
-                 partialsType, powerOutputType, &mean, {di, layer + "/power"});
+      normReduce(graph, maybeZeroMeanActs, scale, true, css, partialsType,
+                 powerOutputType, &mean, {di, layer + "/power"});
 
   for (const auto &cs : css) {
     prog.add(Execute(cs, {di}));

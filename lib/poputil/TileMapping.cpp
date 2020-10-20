@@ -237,11 +237,16 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
       }
     }
   }
-  const auto grainSize =
-      target.getDataPathWidth() / (8 * target.getTypeSize(type));
-  useTracker.mapTensorsByUse(
-      graph, grainSize, 0, false,
-      TensorUseTracker::MappingMethod::ConstrainMappingToUsedTiles);
+
+  if (useTracker.empty()) {
+    mapTensorLinearly(graph, out);
+  } else {
+    const auto grainSize =
+        target.getDataPathWidth() / (8 * target.getTypeSize(type));
+    useTracker.mapTensorsByUse(
+        graph, grainSize, 0, false,
+        TensorUseTracker::MappingMethod::ConstrainMappingToUsedTiles);
+  }
 
   // remap with dithering
   if (ditherMapping) {

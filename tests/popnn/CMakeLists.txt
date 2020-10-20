@@ -823,3 +823,8 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --cell-order=${CELL_ORDER}
                         VARIANTS ${TimesOutOnSim})
 endforeach()
+
+add_unit_test(NormStatisticsTest
+              NormStatisticsTest.cpp
+              VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS}
+              LABELS T28462)
