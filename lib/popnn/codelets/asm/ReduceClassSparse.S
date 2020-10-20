@@ -12,8 +12,8 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define VERTEX(inOutType,labelType) \
-  __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassSparse___ ## inOutType ## _ ## labelType
+#define VERTEX(FP_TYPE, LABEL_TYPE) \
+  __runCodelet_popnn__Reduce\MIN_OR_MAX\()ClassSparse___##FP_TYPE##_##LABEL_TYPE
 
 // Constants
 #define ACTS_VOFFSET 0
@@ -32,6 +32,8 @@
 #define ACT a0
 #define MAX a1
 #define ASCRATCH a6
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_FLOAT MIN_OR_MAX COMPARE_OP MIN_OR_MAX_LOWER
 
 DEF_STACK_USAGE 0 .text.VERTEX(float,unsigned_int)
 .section .text.VERTEX(float,unsigned_int)
@@ -64,9 +66,9 @@ VERTEX(float,int):
   { ld32step $ACT, $mzero, $ACTS_PTR+=, 1
     fnop }
   { atom $MSCRATCH, $ASCRATCH
-    f32@COMPARE_OP@ $ASCRATCH, $ACT, $MAX }
+    f32\COMPARE_OP $ASCRATCH, $ACT, $MAX }
   { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
-    f32@MIN_OR_MAX_LOWER@ $MAX, $ACT, $MAX }
+    f32\MIN_OR_MAX_LOWER $MAX, $ACT, $MAX }
 2:
   ld32step $azero, $mzero, $ACTS_PTR+=, 1
   atom $MSCRATCH, $ASCRATCH
@@ -92,5 +94,12 @@ VERTEX(float,int):
 
 // Only set the size for the int version so we don't count it twice.
 .size VERTEX(float,int), .-VERTEX(float,int)
+.endm
+//------------------------------------------------------------------------------
+// Use the macros above to instantiate the vertex variants
+
+INSTANTIATE_FLOAT Max cmpgt max
+INSTANTIATE_FLOAT Min cmplt min
+
 
 #endif // __IPU__

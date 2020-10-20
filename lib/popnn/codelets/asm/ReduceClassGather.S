@@ -12,8 +12,8 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define VERTEX(fpType,labelType) \
-  __runCodelet_popnn__Reduce@MIN_OR_MAX@ClassGather___ ## fpType ## _ ## labelType
+#define VERTEX(FP_TYPE, LABEL_TYPE) \
+  __runCodelet_popnn__Reduce\MIN_OR_MAX\()ClassGather___##FP_TYPE##_## LABEL_TYPE
 
 // Constants
 #define ACTS_VOFFSET 0
@@ -44,6 +44,9 @@
 #define ACT a0
 #define MAX a1
 #define ASCRATCH a6
+//------------------------------------------------------------------------------
+
+.macro INSTANTIATE_FLOAT MIN_OR_MAX COMPARE_OP MIN_OR_MAX_LOWER
 
 DEF_STACK_USAGE 0 .text.VERTEX(float, unsigned_int)
 .section .text.VERTEX(float, unsigned_int)
@@ -58,12 +61,12 @@ DEF_STACK_USAGE 0 .text.VERTEX(float, unsigned_int)
   nop
 VERTEX(float, unsigned_int):
 VERTEX(float, int):
-  setzi $WORKER_ENTRY, .Lfloat_worker
+  setzi $WORKER_ENTRY, .Lfloat_worker\@
   runall $WORKER_ENTRY, $SUPER_BASE, 0
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
 
-.Lfloat_worker:
+.Lfloat_worker\@:
 .worker
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
@@ -85,7 +88,7 @@ VERTEX(float, int):
   add $N, $N, -1
 
   // If there is no actual work for this worker, early exit
-  brneg $N, .Lfloat_end
+  brneg $N, .Lfloat_end\@
 
   // Offset pointer
   ld32step $azero, $mzero, $ACTS_PTR+=, $OFFSET
@@ -102,9 +105,9 @@ VERTEX(float, int):
   { ld32step $ACT, $mzero, $ACTS_PTR+=, 1
     fnop }
   { atom $MSCRATCH, $ASCRATCH
-    f32@COMPARE_OP@ $ASCRATCH, $ACT, $MAX }
+    f32\COMPARE_OP $ASCRATCH, $ACT, $MAX }
   { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
-    f32@MIN_OR_MAX_LOWER@ $MAX, $ACT, $MAX }
+    f32\MIN_OR_MAX_LOWER $MAX, $ACT, $MAX }
 2:
   // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
   ld32step $azero, $mzero, $ACTS_PTR+=, 1
@@ -127,11 +130,15 @@ VERTEX(float, int):
   ld32 $MSCRATCH, $mvertex_base, $mzero, MAXINDEX_VOFFSET
   stm32 $MAX_PTR, $MSCRATCH, $WORKER_ID
 
-.Lfloat_end:
+.Lfloat_end\@:
   exitz $mzero
 
 // Only set the size for the int version so we don't count it twice.
 .size VERTEX(float, int), .-VERTEX(float, int)
+.endm
+
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_HALF MIN_OR_MAX COMPARE_OP MIN_OR_MAX_LOWER
 
 DEF_STACK_USAGE 0 .text.VERTEX(half, unsigned_int)
 .section .text.VERTEX(half, unsigned_int)
@@ -146,12 +153,12 @@ DEF_STACK_USAGE 0 .text.VERTEX(half, unsigned_int)
 .supervisor
 VERTEX(half, unsigned_int):
 VERTEX(half, int):
-  setzi $WORKER_ENTRY, .Lhalf_worker
+  setzi $WORKER_ENTRY, .Lhalf_worker\@
   runall $WORKER_ENTRY, $SUPER_BASE, 0
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
 
-.Lhalf_worker:
+.Lhalf_worker\@:
 .worker
   // Load starting vertex state
   ld32 $ACTS_PTR, $mvertex_base, $mzero, ACTS_VOFFSET
@@ -173,7 +180,7 @@ VERTEX(half, int):
   add $N, $N, -1
 
   // If there is no actual work for this worker, early exit
-  brneg $N, .Lhalf_end
+  brneg $N, .Lhalf_end\@
 
   // Offset pointer
   ldb16step $azero, $mzero, $ACTS_PTR+=, $OFFSET
@@ -190,9 +197,9 @@ VERTEX(half, int):
   { ldb16step $ACT, $mzero, $ACTS_PTR+=, 1
     fnop }
   { atom $MSCRATCH, $ASCRATCH
-    f16v2@COMPARE_OP@ $ASCRATCH, $ACT, $MAX }
+    f16v2\COMPARE_OP $ASCRATCH, $ACT, $MAX }
   { movz $MAX_PTR, $MSCRATCH, $ACTS_PTR
-    f16v2@MIN_OR_MAX_LOWER@ $MAX, $ACT, $MAX }
+    f16v2\MIN_OR_MAX_LOWER $MAX, $ACT, $MAX }
 2:
   // Handle remaining conditional set for the MAX_PTR, MAX is already handled.
   ldb16step $azero, $mzero, $ACTS_PTR+=, 1
@@ -216,10 +223,19 @@ VERTEX(half, int):
   ld32 $MSCRATCH, $mvertex_base, $mzero, MAXINDEX_VOFFSET
   stm32 $MAX_PTR, $MSCRATCH, $WORKER_ID
 
-.Lhalf_end:
+.Lhalf_end\@:
   exitz $mzero
 
 // Only set the size for the int version so we don't count it twice.
 .size VERTEX(half, int), .-VERTEX(half, int)
+.endm
+
+//------------------------------------------------------------------------------
+// Use the macros above to instantiate the vertex variants
+
+INSTANTIATE_FLOAT Max cmpgt max
+INSTANTIATE_FLOAT Min cmplt min
+INSTANTIATE_HALF Max cmpgt max
+INSTANTIATE_HALF Min cmplt min
 
 #endif // __IPU__
