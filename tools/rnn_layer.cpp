@@ -95,7 +95,7 @@ std::istream &operator>>(std::istream &in, NonLinearityType &type) {
 
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   unsigned sequenceSize, inputSize = 1, outputSize;
   unsigned batchSize = 1;
 
@@ -116,7 +116,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
+     deviceTypeHelp)
     ("profile", "Output profiling report")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)

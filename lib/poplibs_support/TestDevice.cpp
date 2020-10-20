@@ -21,8 +21,8 @@ namespace poplibs_support {
 
 const char *deviceTypeToIPUName(DeviceType d) {
   switch (d) {
-  case DeviceType::Sim:
-  case DeviceType::IpuModel:
+  case DeviceType::Sim1:
+  case DeviceType::IpuModel1:
     return "ipu1";
 
   case DeviceType::Sim2:
@@ -83,7 +83,7 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
   switch (deviceType) {
   case DeviceType::Cpu:
     return poplar::Device::createCPUDevice();
-  case DeviceType::Sim:
+  case DeviceType::Sim1:
   case DeviceType::Sim2: {
     auto targetName = deviceTypeToIPUName(deviceType);
     auto target = requestedTilesPerIPU.has_value()
@@ -113,7 +113,7 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
 
     return std::move(devices);
   }
-  case DeviceType::IpuModel:
+  case DeviceType::IpuModel1:
   case DeviceType::IpuModel2: {
     auto targetName = deviceTypeToIPUName(deviceType);
     poplar::IPUModel model(targetName);
@@ -125,7 +125,7 @@ createTestDevice(const DeviceType deviceType, const unsigned numIPUs,
   }
   default:
     throw std::logic_error(
-        R"XX(deviceType must be "Cpu", "IpuModel", "IpuModel2", "Sim", "Sim2" or "Hw")XX");
+        R"XX(deviceType must be "Cpu", "IpuModel1", "IpuModel2", "Sim1", "Sim2" or "Hw")XX");
   }
 }
 
@@ -134,12 +134,12 @@ std::istream &operator>>(std::istream &is, DeviceType &type) {
   is >> token;
   if (token == "Cpu")
     type = DeviceType::Cpu;
-  else if (token == "IpuModel")
-    type = DeviceType::IpuModel;
+  else if (token == "IpuModel1")
+    type = DeviceType::IpuModel1;
   else if (token == "IpuModel2")
     type = DeviceType::IpuModel2;
-  else if (token == "Sim")
-    type = DeviceType::Sim;
+  else if (token == "Sim1")
+    type = DeviceType::Sim1;
   else if (token == "Sim2")
     type = DeviceType::Sim2;
   else if (token == "Hw")
@@ -148,7 +148,7 @@ std::istream &operator>>(std::istream &is, DeviceType &type) {
     throw std::logic_error(
         "Unsupported device type <" + token +
         ">; must be one of "
-        R"XX("Cpu", "IpuModel", "IpuModel2", "Sim", "Sim2" or "Hw")XX");
+        R"XX("Cpu", "IpuModel1", "IpuModel2", "Sim1", "Sim2" or "Hw")XX");
   return is;
 }
 
@@ -161,12 +161,12 @@ const char *asString(const DeviceType &deviceType) {
   switch (deviceType) {
   case DeviceType::Cpu:
     return "Cpu";
-  case DeviceType::IpuModel:
-    return "IpuModel";
+  case DeviceType::IpuModel1:
+    return "IpuModel1";
   case DeviceType::IpuModel2:
     return "IpuModel2";
-  case DeviceType::Sim:
-    return "Sim";
+  case DeviceType::Sim1:
+    return "Sim1";
   case DeviceType::Sim2:
     return "Sim2";
   case DeviceType::Hw:
@@ -180,12 +180,12 @@ const char *asString(const DeviceType &deviceType) {
 DeviceType getDeviceType(const std::string &deviceString) {
   if (deviceString == "Cpu")
     return DeviceType::Cpu;
-  if (deviceString == "IpuModel")
-    return DeviceType::IpuModel;
+  if (deviceString == "IpuModel1")
+    return DeviceType::IpuModel1;
   if (deviceString == "IpuModel2")
     return DeviceType::IpuModel2;
-  if (deviceString == "Sim")
-    return DeviceType::Sim;
+  if (deviceString == "Sim1")
+    return DeviceType::Sim1;
   if (deviceString == "Sim2")
     return DeviceType::Sim2;
   if (deviceString == "Hw")

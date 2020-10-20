@@ -78,7 +78,7 @@ static Tensor createGenericConvInput(Graph &graph,
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   unsigned fwdInChansPerConvGroup;
   unsigned fwdOutChansPerConvGroup;
   ShapeOption<std::size_t> inputFieldSizeOption;

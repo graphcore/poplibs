@@ -187,7 +187,7 @@ static double getLinkBandwidthCorrectionFactor(CollectiveOp op,
 }
 
 int main(int argc, char **argv) {
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   unsigned numIPUs = 4;
   boost::optional<unsigned> tilesPerIPU;
   unsigned numElements = 1024;
@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
+       deviceTypeHelp)
     ("measure-overall-cycles", "Measure overall cycles")
     ("profile", "Output profiling report")
     ("use-replicated-implementation",

@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
+     deviceTypeHelp)
     ("tiles-per-ipu",
       po::value(&tilesPerIPU),
      "Number of tiles per IPU")
