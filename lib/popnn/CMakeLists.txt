@@ -5,6 +5,7 @@ add_library(popnn SHARED
   codelets.cpp
   BatchNorm.cpp
   GroupNorm.cpp
+  LogSoftmax.cpp
   Loss.cpp
   Lstm.cpp
   Gru.cpp
@@ -27,6 +28,7 @@ add_library(popnn SHARED
   ${CMAKE_SOURCE_DIR}/include/popnn/GroupNorm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/InstanceNorm.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/LayerNorm.hpp
+  ${CMAKE_SOURCE_DIR}/include/popnn/LogSoftmax.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Loss.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/LstmDef.hpp
   ${CMAKE_SOURCE_DIR}/include/popnn/Lstm.hpp
