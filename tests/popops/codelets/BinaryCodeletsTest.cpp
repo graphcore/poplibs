@@ -1310,7 +1310,7 @@ int main(int argc, char **argv) {
   desc.add_options()
     ("help", "Print help")
     ("device-type",
-     po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim),
+     po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim2),
      "Device type")
     ("vertex",
      po::value<std::vector<std::string>>(&vertices)->multitoken(),
@@ -1340,7 +1340,7 @@ int main(int argc, char **argv) {
      "Only for VectorOuter vertices: number of columns")
     ("compare-cycles",
      po::value<boost::optional<DeviceType>>(&cycleCompareDevice)->
-                                         implicit_value(DeviceType::IpuModel),
+                                         implicit_value(DeviceType::IpuModel2),
      "Compare cycles reported for the vertex between the device specified by "
      "--device-type and another device specified by this option")
     ("report",

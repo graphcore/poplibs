@@ -195,7 +195,7 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
 }
 
 int main(int argc, char **argv) {
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   // Default input parameters.
   Type dataType = FLOAT;
   bool isAbsolute = false;
@@ -217,7 +217,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
+       deviceTypeHelp)
     ("profile", "Output profiling report")
     ("type", po::value(&dataType)->default_value(dataType),
       "Data type of data and limits")

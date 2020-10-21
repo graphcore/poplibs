@@ -440,7 +440,7 @@ BOOST_AUTO_TEST_CASE(ReducePatternsDivideDifferentLengths) {
   reductions[0].patterns.push_back({12, (8 * 2 * 3), (12 * 2), 6, 0});
   printResult(reductions);
 
-  auto device = createTestDevice(DeviceType::IpuModel);
+  auto device = createTestDevice(DeviceType::IpuModel2);
   Graph graph(device.getTarget());
   auto dividedReductions =
       dividePartials(reductions, graph, HALF, popops::Operation::ADD);

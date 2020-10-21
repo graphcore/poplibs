@@ -45,7 +45,7 @@ foreach (FIELD 8 9 10 11 12)
             --pooling-type=${POOLING_TYPE}
             --data-type=${DATA_TYPE}
           LABELS codelet
-          VARIANTS "Sim;IpuModel")
+          VARIANTS "Sim2;IpuModel2")
         endforeach()
       endforeach()
     endforeach()

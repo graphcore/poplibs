@@ -50,7 +50,7 @@ using namespace poplibs_support;
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   Type inputType = HALF;
   Type partialsType = FLOAT;
   ShapeOption<std::size_t> aShape;

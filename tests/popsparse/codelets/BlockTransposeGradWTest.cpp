@@ -59,7 +59,7 @@ static bool supportedBlockSize(unsigned blockSize) {
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   Type dataType = FLOAT;
   unsigned numXOrY, numZ, blockSize;
 

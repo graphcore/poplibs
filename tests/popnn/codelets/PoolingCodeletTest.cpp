@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
   ShapeOption<std::size_t> kernelSizeOption;
   ShapeOption<unsigned> strideOption;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   PoolingType poolingType = PoolingType::MAX;
 
   OptionFlags engineOptions;
@@ -92,9 +92,9 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
-    ("device-type: Cpu | Sim | Hw | IpuModel",
+    ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     "Device type")
+     deviceTypeHelp)
     ("profile", "Output profiling report")
     ("debug", "Output debug information - in, out, vertex state")
     ("channels", po::value<unsigned>(&chans)->required(),

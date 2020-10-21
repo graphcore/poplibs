@@ -625,7 +625,7 @@ BOOST_AUTO_TEST_CASE(GetAMP4Plan,
                                               options, &cache));
 
   BOOST_CHECK(plan.method == poplin::Plan::Method::AMP);
-  if (TEST_TARGET == DeviceType::IpuModel)
+  if (TEST_TARGET == DeviceType::IpuModel1)
     BOOST_CHECK(plan.numConvUnitsRequired == 4);
   BOOST_TEST_MESSAGE(plan << "\n");
 }

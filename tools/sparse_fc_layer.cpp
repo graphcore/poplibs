@@ -88,7 +88,7 @@ static void logBucketStatistics(std::vector<PNBucket> &buckets,
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   unsigned numGroups = 1;
   unsigned inputSize;
   unsigned outputSize;
@@ -115,7 +115,7 @@ int main(int argc, char **argv) try {
     ("help", "Produce help message")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     "Device type: Cpu | Sim | Hw | IpuModel")
+     deviceTypeHelp)
     ("input-size", po::value<unsigned>(&inputSize)->required(),
      "Number of inputs")
     ("output-size", po::value<unsigned>(&outputSize)->required(),

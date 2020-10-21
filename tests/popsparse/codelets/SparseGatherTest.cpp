@@ -50,7 +50,7 @@ workDivision(unsigned short numIndices, Type type, unsigned numWorkers) {
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   Type dataType = HALF;
   std::size_t numIndices;
 

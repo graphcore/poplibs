@@ -882,7 +882,7 @@ int main(int argc, char **argv) {
      "Do not check correctness of result, useful for benchmarking without "
      "overhead of host-side computation")
     ("device-type",
-     po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim),
+     po::value<DeviceType>(&deviceType)->default_value(DeviceType::Sim2),
      "Device Type")
     ("data-type",
      po::value<Type>(&dataType)->default_value(HALF),

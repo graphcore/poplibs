@@ -98,9 +98,9 @@ int main(int argc, char **argv) {
     bool showVarStorage = false;
     boost::optional<std::string> jsonProfileOut;
 
-    DeviceType deviceType = DeviceType::IpuModel;
-    unsigned numIPUs = IPUModel{}.numIPUs;
-    unsigned tilesPerIPU = IPUModel{}.tilesPerIPU;
+    DeviceType deviceType = DeviceType::IpuModel2;
+    unsigned numIPUs = 1;
+    boost::optional<unsigned> tilesPerIPU = boost::none;
 
     Type dataType = HALF;
     Type indicesType = UNSIGNED_INT;
@@ -141,12 +141,12 @@ int main(int argc, char **argv) {
      "Show variable liveness (requires profiling)")
     ("device-type",
      po::value<DeviceType>(&opts.deviceType)->default_value(opts.deviceType),
-     "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
+     deviceTypeHelp)
     ("ipus",
      po::value<unsigned>(&opts.numIPUs)->default_value(opts.numIPUs),
      "Number of IPUs")
     ("tiles-per-ipu",
-     po::value<unsigned>(&opts.tilesPerIPU)->default_value(opts.tilesPerIPU),
+     po::value<boost::optional<unsigned>>(&opts.tilesPerIPU),
      "Number of tiles per IPU")
     ("data-type",
      po::value<Type>(&opts.dataType)->default_value(opts.dataType),

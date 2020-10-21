@@ -129,7 +129,7 @@ add_unit_test(collective-control-code
               VARIANTS Hw
               LABELS multicard;CE_reproducers;Collectives)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
-add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim;IpuModel)
+add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim2;IpuModel2)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
                      MultiUpdate MultiUpdateSingles MultiUpdateMultiples)

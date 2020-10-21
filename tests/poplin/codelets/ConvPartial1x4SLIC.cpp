@@ -52,7 +52,7 @@ unsigned stridedDimSize(unsigned inputSize, unsigned kernelSize,
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   unsigned convGroupsPerGroup = 1;
   unsigned chansPerGroup = 4;
 

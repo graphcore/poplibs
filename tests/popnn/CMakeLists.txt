@@ -546,7 +546,7 @@ foreach(OPTIMIZE_FOR_SPEED true false)
                   --pooling-type=avg
                   --data-type=half
                   --optimize-for-speed=${OPTIMIZE_FOR_SPEED}
-                  VARIANTS ${IPUMODEL_VARIANTS};IpuModel)
+                  VARIANTS ${IPUMODEL_VARIANTS})
 endforeach() # OPTIMISE_FOR_SPEED
 
 add_multitarget_test(

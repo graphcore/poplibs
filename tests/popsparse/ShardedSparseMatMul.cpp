@@ -48,7 +48,7 @@ using namespace poputil;
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel;
+  DeviceType deviceType = DeviceType::IpuModel2;
   unsigned numShards = 2;
   boost::optional<unsigned> tilesPerIPU;
   std::string profileJsonPath;
@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     "Device type: Hw | IpuModel")
+     deviceTypeHelp)
     ("profile", "Enable profiling and print profiling report")
     ("profile-json", po::value<std::string>(&profileJsonPath)->default_value(profileJsonPath),
      "Path to a file into which the profiling report will be output in json format")

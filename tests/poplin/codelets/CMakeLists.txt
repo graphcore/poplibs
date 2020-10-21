@@ -25,7 +25,7 @@ foreach(MODE 0 1 2)
         set(SLIC_TEST_VARIANTS "Cpu;IpuModel2;Sim2")
       else()
         set(CONV_UNIT_VARIANTS "8")
-        set(SLIC_TEST_VARIANTS "Cpu;IpuModel;Sim;Hw")
+        set(SLIC_TEST_VARIANTS "Cpu;IpuModel1;Sim1;Hw")
       endif()
 
       foreach(CONV_UNITS ${CONV_UNIT_VARIANTS})

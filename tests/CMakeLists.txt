@@ -43,14 +43,14 @@ function(sanitise_variants variant_name test_ipumodel_always labels)
     endif()
   endforeach()
 
-  # If a Sim or Sim2 variant exists, exclude the IpuModel or IpuModel2 variant
+  # If a Sim1 or Sim2 variant exists, exclude the IpuModel1 or IpuModel2 variant
   # to reduce test time. This can be overridden if required for testing
   SET(test_ipumodel "true")
   SET(test_ipumodel2 "true")
   if(${codelet_label} STREQUAL "true")
     if(NOT ${test_ipumodel_always})
       foreach(variant ${old_variants})
-        if(${variant} STREQUAL "Sim")
+        if(${variant} STREQUAL "Sim1")
           SET(test_ipumodel "false")
         endif()
         if(${variant} STREQUAL "Sim2")
@@ -71,7 +71,7 @@ function(sanitise_variants variant_name test_ipumodel_always labels)
       set(variant_to_match ${variant})
     endif()
     set(add_variant "true")
-    if(${variant} STREQUAL "IpuModel" AND ${test_ipumodel} STREQUAL "false")
+    if(${variant} STREQUAL "IpuModel1" AND ${test_ipumodel} STREQUAL "false")
       set(add_variant "false")
     endif()
     if(${variant} STREQUAL "IpuModel2" AND ${test_ipumodel2} STREQUAL "false")
@@ -201,7 +201,7 @@ endfunction()
 #
 # A variation specification must be of the form "target:[config]"
 #
-# Currently supported targets are "Cpu;IpuModel;IpuModel2;Sim;Sim2;Hw;Hw1;Hw2"
+# Currently supported targets are "Cpu;IpuModel1;IpuModel2;Sim1;Sim2;Hw;Hw1;Hw2"
 # Hw variants are attached to specific fixture tests that check the availability of hardware
 # Hw variant works with any architecture version, while Hw1 and Hw2 require particular ones
 # Note that ENABLED_TEST_VARIANTS (AND DEFAULT_TEST_VARIANTS) do not specify particular hardware versions
