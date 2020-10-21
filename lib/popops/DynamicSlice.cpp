@@ -1511,7 +1511,6 @@ Tensor createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
                                       const std::string &debugPrefix) {
   validateParams("createSliceableTensorFromSlice", {}, {}, s.shape(), {}, dims,
                  numSlices, false, true, true);
-
   std::vector<std::size_t> sizes(dims.size());
   for (std::size_t i = 0; i < dims.size(); ++i) {
     sizes[i] = s.dim(dims[i]);
@@ -1532,16 +1531,39 @@ Tensor createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
     createShape.insert(createShape.begin(), numSlices[idx]);
   }
 
+  auto t =
+      graph.addVariable(s.elementType(), createShape, debugPrefix).flatten();
+
   const auto totalNumSlices =
       std::accumulate(numSlices.begin(), numSlices.end(), std::size_t(1),
                       std::multiplies<std::size_t>());
+  // We build up the memory regions of the sliceable tensor
+  // based on the given slice such that each slice/update operation
+  // operates on contiguous memory and produces contiguous memory.
+  const auto sBroadcast = s.expand({0}).broadcast(totalNumSlices, 0);
+  const auto mapping = graph.getTileMapping(sBroadcast);
+  const auto contiguousRegionsByTile =
+      getSortedContiguousRegionsByTile(graph, sBroadcast, mapping);
 
-  auto t = graph.cloneN(
-      s, totalNumSlices, debugPrefix,
-      TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES,
-      TensorCloneDuplicationMethod::DUPLICATE_BY_TILE_CONTIGUOUS_REGION);
+  std::size_t offset = 0;
+  for (unsigned tile = 0; tile < contiguousRegionsByTile.size(); ++tile) {
+    const auto numElems =
+        intervalSequenceNumElements(contiguousRegionsByTile[tile]);
+    graph.setTileMapping(t.slice(offset, offset + numElems), tile);
+    offset += numElems;
+  }
 
-  t = t.reshape(createShape);
+  const auto mappingOrderedContiguously =
+      flattenInnermostRegions(contiguousRegionsByTile);
+  const auto inverseMapping = getInverseMapping(mappingOrderedContiguously);
+
+  std::vector<Tensor> toConcat;
+  toConcat.reserve(inverseMapping.size());
+  for (const auto &i : inverseMapping) {
+    toConcat.push_back(t.slice(i.begin(), i.end()));
+  }
+
+  t = concat(toConcat).reshape(createShape);
 
   for (std::size_t i = 0; i < dims.size(); ++i) {
     const auto dim = dims.size() - i + dims[idxOrder[i]];
