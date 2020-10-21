@@ -1,6 +1,4 @@
 add_unit_test(BroadcastToMatchTest BroadcastToMatchTest.cpp)
-add_unit_test(CloneNTest CloneNTest.cpp
-              VARIANTS ${IPUMODEL_VARIANTS} ${SIM_VARIANTS})
 add_unit_test(CopyToIpu CopyToIpu.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DuplicateTensor DuplicateTensor.cpp VARIANTS ${IPUMODEL_VARIANTS})
 # GraphFunctionTest is variant-independent
