@@ -252,7 +252,7 @@ std::vector<std::size_t> getReducedShape(const std::vector<std::size_t> &shape,
 }
 
 int main(int argc, char **argv) {
-  DeviceType deviceType = DeviceType::IpuModel2;
+  DeviceType deviceType = DeviceType::IpuModel;
   // Default input parameters.
   Type dataType = FLOAT;
   popops::Operation op = popops::Operation::ADD;
@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
      "overhead of upload/download of tensors and slow host-side computation")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       deviceTypeHelp)
+       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("profile", "Output profiling report")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)

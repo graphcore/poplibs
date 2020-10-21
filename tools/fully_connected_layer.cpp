@@ -51,7 +51,7 @@ const OptionFlags defaultEngineOptions;
 int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel2;
+  DeviceType deviceType = DeviceType::IpuModel;
   unsigned numGroups;
   unsigned inputSize;
   unsigned outputSize;
@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     ("help", "Produce help message")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     deviceTypeHelp)
+     "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("profile", "Output profiling report")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)

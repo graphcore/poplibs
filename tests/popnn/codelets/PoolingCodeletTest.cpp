@@ -92,9 +92,9 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
-    ("device-type",
+    ("device-type: Cpu | Sim | Hw | IpuModel",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     deviceTypeHelp)
+     "Device type")
     ("profile", "Output profiling report")
     ("debug", "Output debug information - in, out, vertex state")
     ("channels", po::value<unsigned>(&chans)->required(),

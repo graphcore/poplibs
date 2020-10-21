@@ -730,7 +730,7 @@ multipleCheckIsClose(const std::vector<std::shared_ptr<OctConvData>> &data,
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
 
-  DeviceType deviceType = DeviceType::IpuModel2;
+  DeviceType deviceType = DeviceType::IpuModel;
   bool doPrintTensors = false;
   unsigned fwdInChansPerConvGroup;
   unsigned fwdOutChansPerConvGroup;

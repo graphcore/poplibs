@@ -26,8 +26,8 @@ int main(int argc, char **argv) try {
   desc.add_options()
     ("help,h", "produce help message")
     ("device-type",
-      po::value<DeviceType>(&deviceType)->default_value(DeviceType::IpuModel2),
-      deviceTypeHelp)
+      po::value<DeviceType>(&deviceType)->default_value(DeviceType::IpuModel),
+      "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
     ("profile", "Output profiling report to standard output")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")

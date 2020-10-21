@@ -36,11 +36,14 @@ set(POPLIBS_ENABLE_CPP_TEST_VARIANTS OFF CACHE STRING
     "Whether to include cpp tests for codelets that otherwise have an assembly implentation")
 message("cpp tests enabled: ${POPLIBS_ENABLE_CPP_TEST_VARIANTS}")
 
+# ipu1 is our default arch, so convert ipu1->ipu
+string(REPLACE "ipu1" "ipu" ABBREV_TARGETS "${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS}")
+
 set(CPU_VARIANTS "")
 set(IPUMODEL_VARIANTS "")
 set(SIM_VARIANTS "")
 set(SIMCPP_VARIANTS "")
-foreach(IPU_ARCH_TEST_VARIANT ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS})
+foreach(IPU_ARCH_TEST_VARIANT ${ABBREV_TARGETS})
   if (IPU_ARCH_TEST_VARIANT STREQUAL "cpu")
     list(APPEND CPU_VARIANTS "Cpu")
   elseif(IPU_ARCH_TEST_VARIANT MATCHES "^ipu")
@@ -57,7 +60,7 @@ foreach(IPU_ARCH_TEST_VARIANT ${POPLIBS_ENABLED_IPU_ARCH_TEST_VARIANTS})
   endif()
 endforeach()
 
-set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel1;IpuModel2;Sim1;Sim2;Sim1:cpp;Sim2:cpp;Hw")
+set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel;IpuModel2;Sim;Sim2;Sim:cpp;Sim2:cpp;Hw")
 
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")

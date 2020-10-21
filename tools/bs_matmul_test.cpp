@@ -450,7 +450,7 @@ int main(int argc, char **argv) {
       // device-type
       ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
-       deviceTypeHelp)
+       "Device type: Cpu | Sim | Sim2 | Hw | IpuModel | IpuModel2")
       // tiles-per-ipu
       ("tiles-per-ipu", po::value(&tilesPerIPU), "Number of tiles per IPU")
       // data-type

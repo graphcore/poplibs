@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
   ShapeOption<int> paddingLowerOption;
   ShapeOption<int> paddingUpperOption;
 
-  DeviceType deviceType = DeviceType::IpuModel2;
+  DeviceType deviceType = DeviceType::IpuModel;
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
   PoolingType poolingType = PoolingType::MAX;
@@ -106,9 +106,9 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
-    ("device-type",
+    ("device-type: Cpu | Sim | Hw | IpuModel",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
-     deviceTypeHelp)
+     "Device type")
     ("profile", "Output profiling report")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
