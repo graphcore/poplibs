@@ -116,9 +116,7 @@ Sparse block shape:
 
 */
 BOOST_AUTO_TEST_CASE(slice_test) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
 
@@ -215,9 +213,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                  unsigned blockCols, const std::vector<unsigned char> &sparsity,
                  const Type &dataType, bool filterUpperTriangle, bool inPlace,
                  float multiplier = 1.0f) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
@@ -527,9 +523,7 @@ void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                      unsigned blockCols,
                      const std::vector<unsigned char> &sparsity,
                      const Type &outType, const Type &outGradType) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
