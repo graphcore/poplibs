@@ -380,9 +380,7 @@ id  idxA_ idxB_
 
 */
 BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulNoReduction) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
 
@@ -681,9 +679,7 @@ id  idxA_ idxB_
 
 */
 BOOST_AUTO_TEST_CASE(HyperGraph_testMatMulOuterNoReduction) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
 
@@ -839,10 +835,7 @@ void TestMatMul(const poplar::Type &dataType, int blockSize, int batchBlockSize,
                 int blockRowsA, int blockColsA, int blockColsB,
                 int rowInBlockNzA, int colInBlockNzA, int blockRowNzA,
                 int blockColNzA) {
-
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   HyperGraphBlock::addCodelets(graph);
@@ -976,9 +969,7 @@ Testing MatMul and Reduce vertices
 */
 void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
                       int batchSize) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   HyperGraphBlock::addCodelets(graph);
@@ -1047,7 +1038,7 @@ void TestMatMulReduce(const poplar::Type &dataType, int blockSize,
 
   // Reduction
   HyperGraphBlockTest hg(A, B, dataType, dataType, dataType,
-                         ipuModel.tilesPerIPU);
+                         target.getTilesPerIPU());
   hg.createGraphMatMul(graph, "C");
 
   // Put everything on tile 0
@@ -1114,9 +1105,7 @@ BOOST_AUTO_TEST_CASE(MatMulOuterTranspose_testF32) {
 Testing MatMulOuter vertex - no reduction case
 */
 void TestMatMulOuter(const poplar::Type &dataType, bool needTranspose) {
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   HyperGraphBlock::addCodelets(graph);
@@ -1278,10 +1267,7 @@ void TestSparseTensorReuse4Transpose(const poplar::Type &dataType,
                                      int blockColsA, int blockColsB,
                                      int rowInBlockNzA, int colInBlockNzA,
                                      int blockRowNzA, int blockColNzA) {
-
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   HyperGraphBlock::addCodelets(graph);
@@ -1530,10 +1516,7 @@ void TestDenseTensorReuse4Transpose(const poplar::Type &dataType, int blockSize,
                                     int blockColsB, int rowInBlockNzA,
                                     int colInBlockNzA, int blockRowNzA,
                                     int blockColNzA) {
-
-  IPUModel ipuModel;
-  auto device =
-      createTestDevice(TEST_TARGET, ipuModel.numIPUs, ipuModel.tilesPerIPU);
+  auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
   HyperGraphBlock::addCodelets(graph);
@@ -1765,7 +1748,6 @@ dense x sparse = dense case
 */
 void TestDSDAPI(const poplar::Type &dataType, int blockSize, int batchSize,
                 const std::string &partitionMethod = "block-naive") {
-  IPUModel ipuModel;
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -1867,7 +1849,6 @@ dense x dense = sparse case
 */
 void TestDDSAPI(const poplar::Type &dataType, int blockSize, int batchSize,
                 const std::string &partitionMethod = "block-naive") {
-  IPUModel ipuModel;
   auto device = createTestDevice(TEST_TARGET, 1, 16);
   const auto &target = device.getTarget();
   Graph graph(target);
