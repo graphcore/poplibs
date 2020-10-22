@@ -113,6 +113,7 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/EncodeOneHot.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/HasNaN.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiSlice.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/MultiUpdateAdd.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01Acc.S

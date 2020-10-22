@@ -6,6 +6,7 @@
 #include "popops/ElementWise.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/TileMapping.hpp"
+#include "poputil/Util.hpp"
 #include <boost/multi_array.hpp>
 #include <boost/random.hpp>
 #include <boost/test/unit_test.hpp>
@@ -22,7 +23,8 @@ static constexpr std::size_t D1 = 5;
 static constexpr std::size_t D2 = 4;
 static constexpr std::size_t D3 = 3;
 
-void hasNaNTest(const bool introduceNaN, const Type &type) {
+void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
+                unsigned numTiles) {
   std::mt19937 randomEngine;
   boost::random::uniform_real_distribution<double> dist(0., 10.);
 
@@ -32,11 +34,18 @@ void hasNaNTest(const bool introduceNaN, const Type &type) {
     *(input.data() + i) = dist(randomEngine);
   }
 
+  // Fill last element
+  const std::vector<std::size_t> shape = {D0, D1, D2, D3};
+  auto indices = poputil::unflattenIndex(shape, testSize - 1);
+
   if (introduceNaN) {
-    input[0][1][2][2] = NAN;
+    input[indices[0]][indices[1]][indices[2]][indices[3]] = NAN;
   }
 
-  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  // fill NANs outside
+  std::fill(input.data() + testSize, input.data() + input.num_elements(), NAN);
+
+  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
   const auto &target = device.getTarget();
 
   Graph graph(target);
@@ -53,7 +62,8 @@ void hasNaNTest(const bool introduceNaN, const Type &type) {
   copy(target, input, type, rawHostInput.get());
 
   Sequence prog;
-  const auto out = popops::hasNaN(graph, inputT, prog);
+  const auto out =
+      popops::hasNaN(graph, inputT.flatten().slice(0, testSize), prog);
   auto rawHostOutput = allocateHostMemoryForTensor(
       out, "out", graph, uploadProg, downloadProg, tmap);
 
@@ -72,10 +82,38 @@ void hasNaNTest(const bool introduceNaN, const Type &type) {
   BOOST_TEST(result[0] == introduceNaN);
 }
 
-BOOST_AUTO_TEST_CASE(HasNaN_Float_False) { hasNaNTest(false, FLOAT); }
+#define ENUMERATE_FULL_TEST(dType, addNaN)                                     \
+  BOOST_AUTO_TEST_SUITE(HasNaN##_suite)                                        \
+  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_full) {                   \
+    const auto sizeToTest = D0 * D1 * D2 * D3;                                 \
+    hasNaNTest(addNaN, dType, sizeToTest, 4);                                  \
+  }                                                                            \
+  BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_CASE(HasNaN_Float_True) { hasNaNTest(true, FLOAT); }
+#define ENUMERATE_REM_TESTS(dType, addNaN, startOffset)                        \
+  BOOST_AUTO_TEST_SUITE(HasNaN##_suite)                                        \
+                                                                               \
+  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem1) {   \
+    hasNaNTest(addNaN, dType, startOffset + 1, 1);                             \
+  }                                                                            \
+                                                                               \
+  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem2) {   \
+    hasNaNTest(addNaN, dType, startOffset + 2, 1);                             \
+  }                                                                            \
+                                                                               \
+  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem3) {   \
+    hasNaNTest(addNaN, dType, startOffset + 3, 1);                             \
+  }                                                                            \
+  BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_CASE(HasNaN_Half_False) { hasNaNTest(false, HALF); }
-
-BOOST_AUTO_TEST_CASE(HasNaN_Half_True) { hasNaNTest(true, HALF); }
+// Enumerate tests
+ENUMERATE_FULL_TEST(FLOAT, true)
+ENUMERATE_FULL_TEST(FLOAT, false)
+ENUMERATE_FULL_TEST(HALF, true)
+ENUMERATE_FULL_TEST(HALF, false)
+ENUMERATE_REM_TESTS(FLOAT, true, 0)
+ENUMERATE_REM_TESTS(FLOAT, false, 0)
+ENUMERATE_REM_TESTS(HALF, true, 0)
+ENUMERATE_REM_TESTS(HALF, false, 0)
+ENUMERATE_REM_TESTS(HALF, true, 4)
+ENUMERATE_REM_TESTS(HALF, false, 4)

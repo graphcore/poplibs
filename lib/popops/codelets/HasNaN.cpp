@@ -1,4 +1,5 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
+#include "poplibs_support/ExternalCodelet.hpp"
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
@@ -7,15 +8,15 @@
 
 using namespace poplar;
 
-static constexpr auto ONE_PTR = VectorLayout::ONE_PTR;
+static constexpr auto SPAN = VectorLayout::SPAN;
 
 namespace popops {
 
 template <typename FPType> class HasNaN : public Vertex {
 public:
   HasNaN();
-
-  Vector<Input<Vector<FPType>>> in;
+  IS_EXTERNAL_CODELET(true);
+  Vector<Input<Vector<FPType, SPAN, 8>>> in;
 
   bool compute() {
     for (unsigned i = 0; i < in.size(); ++i) {
@@ -25,7 +26,6 @@ public:
         }
       }
     }
-
     return true;
   }
 };

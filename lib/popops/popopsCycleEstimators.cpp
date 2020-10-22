@@ -2005,37 +2005,55 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectFromRowsInColumns)(
                                              paramsType == HALF);
 }
 
-// cycles derived from inspecting the compiler output. the cycle cost is data
-// dependent and therefore this estimate assumes the worst case (ie. no NaN's)
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
                                   const Target &target, const Type &inType) {
   CODELET_FIELD(in);
-
   // initial overhead + exitz
-  std::uint64_t cycles = 4;
+  std::uint64_t cycles = 6;
   if (in.size() == 0) {
     return cycles;
   }
 
   // post-zero check overhead.
-  cycles += 2;
+  cycles += 1;
 
   for (unsigned i = 0; i < in.size(); ++i) {
-    // outer loop overhead pre-zero size check.
-    cycles += 3;
-    if (in[i].size() == 0) {
+    // overall overhead which is executed even for 0 size
+    cycles += inType == FLOAT ? 10 : 12;
+    const auto inSize = in[i].size();
+    if (inSize == 0) {
       continue;
     }
 
     // inner loop cost.
-    cycles += (inType == FLOAT ? 9 : 10) * in[i].size();
-
-    // outer loop post-overhead.
-    cycles += 3;
+    if (inType == FLOAT) {
+      const auto numVectors = inSize / 4;
+      cycles += 2 * numVectors;
+      if (inSize & 0x2) {
+        cycles += 2;
+      }
+      if (inSize & 0x1) {
+        cycles += 1;
+      }
+    } else {
+      const auto numVectors = inSize / 8;
+      cycles += 2 * numVectors;
+      if (inSize & 0x4) {
+        cycles += 2;
+      }
+      if (inSize & 0x2) {
+        cycles += 2;
+      }
+      if (inSize & 0x1) {
+        cycles += 2;
+      }
+    }
   }
 
-  return cycles;
+  // Nan checking
+  cycles += inType == FLOAT ? 7 : 11;
+  return cycles * target.getNumWorkerContexts();
 }
 
 std::uint64_t
