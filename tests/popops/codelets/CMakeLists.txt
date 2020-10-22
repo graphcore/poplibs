@@ -764,6 +764,8 @@ foreach(SUPER true false)
   endforeach()
 endforeach()
 
+add_multi_target_test_executable(UnaryCodeletsTest UnaryCodeletsTest.cpp)
+
 # Test all the BroadcastScalar codelets with all possible operations and
 # data types.
 # This is run with 6 different commands to avoid timeouts when running.

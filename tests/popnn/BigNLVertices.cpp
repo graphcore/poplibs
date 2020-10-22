@@ -49,6 +49,7 @@ void testReluWithTensorOfSize(size_t nElms, bool alwaysFits) {
 
   poplar::Graph graph(device.getTarget());
   popnn::addCodelets(graph);
+  popops::addCodelets(graph);
 
   std::vector<float> hPre(nElms);
   std::vector<float> hPost(nElms);

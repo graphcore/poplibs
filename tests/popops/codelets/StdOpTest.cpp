@@ -98,6 +98,11 @@ bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
     } else {
       graph.connect(vertex["inOut"], in);
     }
+    if (operation == expr::UnaryOpType::TANH ||
+        operation == expr::UnaryOpType::SIGMOID ||
+        operation == expr::UnaryOpType::RELU) {
+      graph.setInitialValue(vertex["n"], in.numElements());
+    }
   } else {
     if (rows == 1) {
       graph.connect(vertex["in"], in.reshape({columns}));
@@ -511,6 +516,10 @@ int main(int argc, char **argv) {
     unaryOp = 1;
     unaryOperation = expr::UnaryOpType::RSQRT;
     unaryHostFn = [](double x) -> double { return 1.0 / std::sqrt(x); };
+  } else if (operation == "RELU") {
+    unaryOp = 1;
+    unaryOperation = expr::UnaryOpType::RELU;
+    unaryHostFn = [](double x) -> double { return (x > 0) ? x : 0; };
   }
 
   // Binary operations

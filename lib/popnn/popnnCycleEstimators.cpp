@@ -17,6 +17,10 @@ using namespace poplar;
 
 // Macro to create entries in cycle estimator table
 #define INSTANTIATE_NL_CYCLE_ESTIMATOR(v)                                      \
+  CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::GELU),       \
+      CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU)
+
+#define INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(v)                                 \
   CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::SIGMOID),    \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::SIGMOID), \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::RELU),   \
@@ -652,9 +656,9 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),
 
-      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
+      INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),
-      INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearityGrad2D),
+      INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGrad2D),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearity2D)};
 }
 

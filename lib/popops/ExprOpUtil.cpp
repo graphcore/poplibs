@@ -41,6 +41,8 @@ std::string unaryOpTypeToString(UnaryOpType op) {
     return "NEGATE";
   case UnaryOpType::POPCOUNT:
     return "POPCOUNT";
+  case UnaryOpType::RELU:
+    return "RELU";
   case UnaryOpType::ROUND:
     return "ROUND";
   case UnaryOpType::SIGNUM:

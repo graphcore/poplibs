@@ -75,22 +75,26 @@ struct OpPerformanceInfo {
 // bundled pair of instructions, hence are faster than int types. In these
 // cases the cycle time can be found by viewing the assembly output.
 //
-// logarithm, sqrt, divide have float instructions (not int), but they are not
-// single cycle.
+// Floating point logarithm, sqrt, divide, sigm, tanh, exp are single
+// instructions, but they are NOT single cycle and NOT even constant cycle
+// number (the number of cycles depend on the data, especially for 32 bit
+// floats).
 //
 // Cycles for many library operations can be *hugely* data dependent.
 // This includes unary floating point operations like ASIN, COS, SIN,
 // LOGARITHM_ONE_PLUS; binary floating point operations ATAN2, POWER, REMAINDER;
 // and also int/unsigned DIVIDE and REMAINDER.
-// In these cases the simulator was used to make an estimate of the execution
-// time.
+//
+// In all the cases of data dependency, the simulator was used to make an
+// estimate of then average execution time, using a random distribution of
+// input values.
 // For SIN and COS we use input range -PI, PI when simulating to get a better
 // approximation of the cycle estimate.
 // For the binary operators, cycles values are from a random distribution of
 // input values obtained by running BinaryOpTest
 
-// Some of the operations which produce a bool output use the _st8 function to
-// store the result, this adds to the cycle count considerably.
+// Some of the BinaryOp operations which produce a bool output use the _st8
+// function to store the result, this adds to the cycle count considerably.
 
 using UnaryOpPerfTable =
     std::map<std::pair<UnaryOpType, poplar::Type>, OpPerformanceInfo>;
@@ -173,6 +177,8 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     {{UnaryOpType::SIGMOID, HALF}, {2, true}},
     {{UnaryOpType::RSQRT, FLOAT}, {1, false}},
     {{UnaryOpType::RSQRT, HALF}, {3, true}},
+    {{UnaryOpType::RELU, FLOAT}, {3, false, 2}},
+    {{UnaryOpType::RELU, HALF}, {3, false, 4}},
 };
 
 inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
@@ -226,12 +232,14 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::SQUARE, UNSIGNED_INT}, {1, true}},
     {{UnaryOpType::TAN, FLOAT}, {3900, false}},
     {{UnaryOpType::TAN, HALF}, {3900, true}},
-    {{UnaryOpType::TANH, FLOAT}, {1, false}},
-    {{UnaryOpType::TANH, HALF}, {2, true}},
-    {{UnaryOpType::SIGMOID, FLOAT}, {1, false}},
-    {{UnaryOpType::SIGMOID, HALF}, {2, true}},
+    {{UnaryOpType::TANH, FLOAT}, {6, false, 2}},
+    {{UnaryOpType::TANH, HALF}, {2, false, 4}},
+    {{UnaryOpType::SIGMOID, FLOAT}, {9, false, 2}},
+    {{UnaryOpType::SIGMOID, HALF}, {3, false, 4}},
     {{UnaryOpType::RSQRT, FLOAT}, {1, false}},
     {{UnaryOpType::RSQRT, HALF}, {3, true}},
+    {{UnaryOpType::RELU, FLOAT}, {2, false, 2}},
+    {{UnaryOpType::RELU, HALF}, {2, false, 4}},
 };
 
 inline const BinaryOpPerfTable binaryOpPerfInfo = {

@@ -171,6 +171,8 @@ DEFINE_UNARY_OP_FN(expr::UnaryOpType::TAN,
                    return std::tan(PromoteHalfsToFloats(x));
                    , return ipu::sin(x) / ipu::cos(x);)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::TANH, tanh)
+DEFINE_UNARY_OP_FN(expr::UnaryOpType::RELU,
+                   return (x > decltype(x){0}) ? x : decltype(x){0};)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::ROUND, round)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::SQRT,
                    return std::sqrt(PromoteHalfsToFloats(x));
@@ -395,6 +397,41 @@ public:
     return true;
   }
 };
+
+// The 3 non-linearity operators TANH, SIGMOID, RELU have their vertex state
+// fields defined differently from the rest of the operators, so require
+// separate templates
+#define DEFINE_UNARY_OP_NL_2D(op, LAYOUT)                                      \
+  template <typename T> class UnaryOp2DInPlace<op, T> : public Vertex {        \
+    typedef typename UnaryOpOutputType<op, T>::type outputType;                \
+    static_assert(std::is_same<T, outputType>::value,                          \
+                  "In, Out types must match for in place operations");         \
+                                                                               \
+  public:                                                                      \
+    InOut<VectorList<T, poplar::VectorListLayout::LAYOUT>> inOut;              \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      using arch =                                                             \
+          typename popops::UnaryOpFn<op, T, architecture::active>::arch;       \
+      unsigned limI = inOut.size();                                            \
+      for (unsigned i = 0; i != limI; ++i) {                                   \
+        popops::UnaryOpDispatch<op, T, outputType, arch>::compute(             \
+            inOut[i].size(), &inOut[i][0], &inOut[i][0]);                      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+#if defined(VECTORLIST_AVAIL_DELTAN)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::TANH, DELTAN)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::SIGMOID, DELTAN)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::RELU, DELTAN)
+#else
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::TANH, DELTANELEMENTS)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::SIGMOID, DELTANELEMENTS)
+DEFINE_UNARY_OP_NL_2D(expr::UnaryOpType::RELU, DELTANELEMENTS)
+#endif
+
 //******************************************************************************
 // Dispatch for use with Unary Operation supervisor vertices
 //******************************************************************************
@@ -579,6 +616,7 @@ public:
     return true;
   }
 };
+
 template <expr::UnaryOpType op, typename T>
 class UnaryOp1DInPlaceSupervisor
     : public SupervisorVertexIf<unaryOp1DIsSupervisor<T>() &&
@@ -599,6 +637,39 @@ public:
     return true;
   }
 };
+
+// The 3 non-linearity operators TANH, SIGMOID, RELU have their vertex state
+// fields defined differently from the rest of the operators, so require
+// separate templates
+#define DEF_UNARY_OP_NL_SV(op, PTR_TYPE)                                       \
+  template <typename T>                                                        \
+  class UnaryOp1DInPlaceSupervisor<op, T> : public SupervisorVertex {          \
+    typedef typename UnaryOpOutputType<op, T>::type outputType;                \
+    static_assert(std::is_same<T, outputType>::value,                          \
+                  "In, Out types must match for in place operations");         \
+                                                                               \
+  public:                                                                      \
+    UnaryOp1DInPlaceSupervisor();                                              \
+    InOut<Vector<T, PTR_TYPE>> inOut;                                          \
+    const unsigned short n;                                                    \
+    IS_EXTERNAL_CODELET(true);                                                 \
+    bool compute() {                                                           \
+      for (unsigned j = 0; j != n; ++j) {                                      \
+        inOut[j] = UnaryOpFn<op, T, architecture::generic>::fn(inOut[j]);      \
+      }                                                                        \
+      return true;                                                             \
+    }                                                                          \
+  };
+
+#ifdef VECTOR_AVAIL_SCALED_PTR32
+DEF_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, SCALED_PTR32)
+DEF_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, SCALED_PTR32)
+DEF_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, SCALED_PTR32)
+#else
+DEF_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, ONE_PTR)
+DEF_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, ONE_PTR)
+DEF_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
+#endif
 
 //******************************************************************************
 // Worker vertex to actually do the work of the operation for the
@@ -676,6 +747,7 @@ INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
@@ -712,6 +784,7 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::SQUARE, float, half, int,
@@ -741,6 +814,7 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
@@ -769,6 +843,7 @@ INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::SQUARE, float, half, int,
@@ -811,6 +886,7 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIGNUM, float,
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::TAN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::TANH, float, half)
+INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ROUND, float,
                half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::SQRT, float, half,
@@ -844,11 +920,9 @@ INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TAN, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::TANH, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SQUARE, float, half, int,
                unsigned)
-INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::RSQRT, float, half)
 } // namespace popops

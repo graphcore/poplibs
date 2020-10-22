@@ -1214,6 +1214,9 @@ static std::uint64_t unaryOpInnerLoopCycles(const Target &target,
                                             const Type &type,
                                             const OpPerformanceInfo &perfInfo,
                                             unsigned numElems) {
+  if (perfInfo.naturalVectorWidth == false && perfInfo.loopUnrollFactor > 0) {
+    return iceil(numElems, perfInfo.loopUnrollFactor) * perfInfo.cyclesPerLoop;
+  }
   unsigned vectorWidth = 1;
   if (perfInfo.naturalVectorWidth) {
     vectorWidth = target.getVectorWidth(type);

@@ -33,6 +33,6 @@ public:
   }
 };
 
-INSTANTIATE_NL(NonLinearityGrad2D)
+INSTANTIATE_NL_GRAD(NonLinearityGrad2D)
 
 } // namespace popnn

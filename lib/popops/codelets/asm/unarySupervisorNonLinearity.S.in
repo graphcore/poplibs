@@ -1,7 +1,8 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of popnn::NonLinearitySupervisor vertex template variations.
+// Assembly implementation of popops::UnaryOp1DInPlaceSupervisor vertices for
+// the three non linearities SIGMOID RELU, TANH.
 
 // Restrictions
 //
@@ -13,9 +14,10 @@
 
 // Symbols
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearitySupervisor___half_popnn__NonLinearityType__@NL_TYPE_UPPER@
+  __runCodelet_popops__UnaryOp1DInPlaceSupervisor___popops__expr__UnaryOpType__@NL_TYPE_UPPER@_half
+  
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearitySupervisor___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
+  __runCodelet_popops__UnaryOp1DInPlaceSupervisor___popops__expr__UnaryOpType__@NL_TYPE_UPPER@_float
 
 // Constants
 #if defined(VECTOR_AVAIL_SCALED_PTR32)

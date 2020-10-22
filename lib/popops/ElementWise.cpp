@@ -159,6 +159,8 @@ std::string debugName(UnaryOpType op) {
     return "Negate";
   case UnaryOpType::POPCOUNT:
     return "Popcount";
+  case UnaryOpType::RELU:
+    return "Relu";
   case UnaryOpType::ROUND:
     return "Round";
   case UnaryOpType::SIGNUM:
@@ -410,7 +412,7 @@ unsigned maxVertexElementsPerRegion(const Target &target, const Type &outType,
     } else if (eType == FLOAT) {
       return 3;
     } else {
-      throw poplibs_error("Requested type to index convertion doesn't exist");
+      throw poplibs_error("Requested type to index conversion doesn't exist");
     }
   };
 
@@ -529,15 +531,19 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
                          op, inType);
       logging::popops::trace("  Tile: {} Producing: 1 {} vertex", tile,
                              vertexTemplate);
+      auto inData = concat(inFlat.slices(tileContiguousRegions));
       auto v =
           inPlace
-              ? graph.addVertex(
-                    cs, vertexTemplate,
-                    {{"inOut", concat(inFlat.slices(tileContiguousRegions))}})
+              ? graph.addVertex(cs, vertexTemplate, {{"inOut", inData}})
               : graph.addVertex(
                     cs, vertexTemplate,
-                    {{"in", concat(inFlat.slices(tileContiguousRegions))},
+                    {{"in", inData},
                      {"out", concat(outFlat.slices(tileContiguousRegions))}});
+      // Vertices for these ops have an extra field
+      if (inPlace && (op == UnaryOpType::RELU || op == UnaryOpType::TANH ||
+                      op == UnaryOpType::SIGMOID)) {
+        graph.setInitialValue(v["n"], inData.numElements());
+      }
       graph.setTileMapping(v, tile);
     } else {
       const auto vertexTemplate = templateVertex(

@@ -41,6 +41,7 @@ BOOST_AUTO_TEST_CASE(
   auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
+  popops::addCodelets(graph);
   // layer parameters
 
   const unsigned zNGroups = 1;

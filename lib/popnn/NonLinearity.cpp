@@ -1,5 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popnn/NonLinearity.hpp"
+#include "../popops/ExprOpUtil.hpp"
 #include "NonLinearityInternal.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/MatMul.hpp"
@@ -291,10 +292,34 @@ void nonLinearityInPlace(poplar::Graph &graph,
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
 
-  const auto codeletName2D =
+  auto codeletName2D =
       templateVertex("popnn::NonLinearity2D", dType, nonLinearityType);
-  const auto codeletNameSupervisor =
+  auto codeletNameSupervisor =
       templateVertex("popnn::NonLinearitySupervisor", dType, nonLinearityType);
+  auto dataName = "data";
+
+  // Three of the non linearities are popops vertices; if using them we convert
+  // nonLinearityType to popops type and get the right name for the data field.
+  std::optional<expr::UnaryOpType> unaryOp;
+  switch (nonLinearityType) {
+  case NonLinearityType::TANH:
+    unaryOp = expr::UnaryOpType::TANH;
+    break;
+  case NonLinearityType::SIGMOID:
+    unaryOp = expr::UnaryOpType::SIGMOID;
+    break;
+  case NonLinearityType::RELU:
+    unaryOp = expr::UnaryOpType::RELU;
+    break;
+  default:;
+  }
+  if (unaryOp.has_value()) {
+    dataName = "inOut";
+    codeletName2D =
+        templateVertex("popops::UnaryOp2DInPlace", unaryOp.value(), dType);
+    codeletNameSupervisor = templateVertex("popops::UnaryOp1DInPlaceSupervisor",
+                                           unaryOp.value(), dType);
+  }
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
@@ -302,7 +327,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
       graph.getMaxVertexFieldValue(codeletNameSupervisor, "n"),
       target.getRptCountMax() * numWorkers * vectorWidth);
   const auto max2DElements =
-      std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, "data", 1),
+      std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, dataName, 1),
                             target.getRptCountMax() * vectorWidth);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
@@ -316,7 +341,7 @@ void nonLinearityInPlace(poplar::Graph &graph,
       const auto numElements = tThisTile.numElements();
       if (numElements <= maxSupervisorElements) {
         auto v =
-            graph.addVertex(cs, codeletNameSupervisor, {{"data", tThisTile}});
+            graph.addVertex(cs, codeletNameSupervisor, {{dataName, tThisTile}});
         graph.setInitialValue(v["n"], numElements);
         graph.setTileMapping(v, tile);
         continue;
@@ -335,8 +360,8 @@ void nonLinearityInPlace(poplar::Graph &graph,
                                    minVectors * vectorWidth, max2DElements);
 
     for (const auto &regions : vertexRegions) {
-      auto v =
-          graph.addVertex(cs, codeletName2D, {{"data", tFlat.slices(regions)}});
+      auto v = graph.addVertex(cs, codeletName2D,
+                               {{dataName, tFlat.slices(regions)}});
       graph.setTileMapping(v, tile);
     }
   }

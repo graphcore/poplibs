@@ -75,7 +75,7 @@ set(codelet_asm_sources
 )
 
 # Generate non-linearity assembly implementation variants
-foreach(VERTEX_TYPE Supervisor 2D GradSupervisor Grad2D)
+foreach(VERTEX_TYPE GradSupervisor Grad2D)
   set(VARIANT_TEMPLATE "codelets/asm/NonLinearity${VERTEX_TYPE}.S.in")
   foreach(NL_TYPE sigmoid relu tanh)
     set(VARIANT_NAME "NonLinearity${VERTEX_TYPE}_${NL_TYPE}")

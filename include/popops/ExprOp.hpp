@@ -63,6 +63,7 @@ enum class UnaryOpType {
   LOGICAL_NOT,
   NEGATE,
   POPCOUNT,
+  RELU,
   SIGNUM,
   SIN,
   TAN,

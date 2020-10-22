@@ -19,8 +19,12 @@ static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
 #endif
 static constexpr auto DELTANELEMENTS = poplar::VectorListLayout::DELTANELEMENTS;
 
-// Macro to instantiate a template class for non linear operations
+// Macros to instantiate a template class for non linear operations
 #define INSTANTIATE_NL(v)                                                      \
+  template class v<float, popnn::NonLinearityType::GELU>;                      \
+  template class v<half, popnn::NonLinearityType::GELU>;
+
+#define INSTANTIATE_NL_GRAD(v)                                                 \
   template class v<float, popnn::NonLinearityType::SIGMOID>;                   \
   template class v<half, popnn::NonLinearityType::SIGMOID>;                    \
   template class v<float, popnn::NonLinearityType::RELU>;                      \

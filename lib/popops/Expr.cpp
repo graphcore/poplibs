@@ -158,7 +158,8 @@ const std::vector<std::string> UnaryOp::UnaryOpNames = {
     "NOT",    "NEG",       "POPCOUNT",
     "SIGNUM", "SIN",       "TAN",
     "TANH",   "ROUND",     "SQRT",
-    "SQU",    "SIGMOID",   "RSQRT"};
+    "SQU",    "SIGMOID",   "RSQRT",
+    "RELU"};
 
 const std::vector<std::string> BinaryOp::BinaryOpNames = {
     "ADD",
