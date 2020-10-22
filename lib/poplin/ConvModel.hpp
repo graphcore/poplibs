@@ -50,4 +50,7 @@ std::vector<ConvTypes> getConvTypesForDerivedJointPlan(
     const poplar::Target &target, const ConvParams &params,
     const ConvOptions &options, unsigned inChansPerGroup, Plan::Method method);
 
+unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
+                                   const ConvVertexType &convVertexType);
+
 } // namespace poplin

@@ -389,7 +389,7 @@ IpuModel2,default,mobilenet_depthwise_4,22018,0.0,24226388,-0.0,218600,0.0
 IpuModel2,default,mobilenet_depthwise_5,14417,0.0,21770984,-0.0,218600,0.0
 IpuModel2,default,mobilenet_depthwise_6,16089,0.0,15319700,-0.0,215912,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_bm128L0A0_a25,42265,0.6,57666423,-0.9,219096,0.0
-IpuModel2,default,oct_resnet50_tr_bs4_bm128L0A1_a25,76943,0.1,63176938,-0.4,220184,0.0
+IpuModel2,default,oct_resnet50_tr_bs4_bm128L0A1_a25,77027,0.1,62570511,-1.0,220184,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_bm128L0A2_a25,50149,-0.0,51659487,-3.4,221464,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_bm128L0_projection_a25,88018,1.2,95717596,-0.7,226200,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_bm128L1A0_a25,47667,0.4,53383218,-2.3,221528,0.0

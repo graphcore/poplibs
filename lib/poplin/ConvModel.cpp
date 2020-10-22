@@ -507,15 +507,11 @@ static popsolver::Variable addPartialCalcCycleEstimate(
 }
 
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
-                                   poplar::Type partialType,
-                                   poplar::Type inputType,
                                    const ConvVertexType &convVertexType) {
-  assert(partialType == poplar::HALF || partialType == poplar::FLOAT);
-  assert(inputType == poplar::HALF || inputType == poplar::FLOAT);
-  const bool floatActivations = inputType == poplar::FLOAT;
-  const bool floatPartials = partialType == poplar::FLOAT;
+  const bool floatActivations = convVertexType.inputType == poplar::FLOAT;
+  const bool floatPartials = convVertexType.partialType == poplar::FLOAT;
 
-  auto vectorWidth = target.getVectorWidth(inputType);
+  auto vectorWidth = target.getVectorWidth(convVertexType.inputType);
   switch (convVertexType.method) {
   case Plan::Method::HMAC:
   case Plan::Method::VMAC:
@@ -1814,9 +1810,8 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
   // constraint isn't necessary it provides an easy to calculate lower bound
   // on the number of cycles required that can be used to prune the search
   // space.
-  const auto maxMACsPerCyclePerTile = getMaxMACsPerCyclePerTile(
-      target, types.back().partialType, transformedOnceParams.inputType,
-      convVertexType);
+  const auto maxMACsPerCyclePerTile =
+      getMaxMACsPerCyclePerTile(target, convVertexType);
   const auto totalMacs = cache->mGetNumberOfMACs(transformedOnceParams);
   m.lessOrEqual(popsolver::DataType{totalMacs / maxMACsPerCyclePerTile},
                 m.product({usedTiles, e.partialCalcCycles, serialSplits}));

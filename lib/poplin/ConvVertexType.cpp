@@ -480,6 +480,64 @@ static void getConvVertexOuterProductCandidates(
                           partialChansPerGroup, 0, 0, true);
 }
 
+// Order the candidates from most promising to least.
+static void
+sortConvVertexTypeCandidates(const poplar::Target &target,
+                             const ConvParams &params,
+                             std::vector<ConvVertexType> &candidates) {
+  auto numCandidates = candidates.size();
+  struct ConvVertexTypeInfo {
+    // Percentage of elements that are padding.
+    double paddingRatio;
+    // Maximum number of useful FLOPs on non-padding elements.
+    double effectiveMaxFLOPs;
+    // Partial type size.
+    unsigned partialTypeSize;
+    unsigned index;
+  };
+  std::vector<ConvVertexTypeInfo> candidatesInfo(numCandidates);
+  for (std::size_t i = 0; i != numCandidates; ++i) {
+    const auto &candidate = candidates[i];
+    auto &candidateInfo = candidatesInfo[i];
+    auto maxMACsPerCycle = getMaxMACsPerCyclePerTile(target, candidate);
+    auto inChans = params.inputChannelsPerConvGroup;
+    auto paddedInChans = roundUp(inChans, candidate.inChansPerGroup);
+    auto outChans = params.outputChannelsPerConvGroup;
+    auto paddedOutChans = roundUp(outChans, candidate.partialChansPerGroup);
+    auto size = inChans * outChans;
+    auto paddedSize = paddedInChans * paddedOutChans;
+    candidateInfo.index = i;
+    candidateInfo.paddingRatio =
+        static_cast<double>(paddedSize - size) / paddedSize;
+    candidateInfo.effectiveMaxFLOPs =
+        maxMACsPerCycle * (1 - candidateInfo.paddingRatio);
+    candidateInfo.partialTypeSize = target.getTypeSize(candidate.partialType);
+  }
+  std::sort(candidatesInfo.begin(), candidatesInfo.end(),
+            [](const ConvVertexTypeInfo &a, const ConvVertexTypeInfo &b) {
+              // Prefer candidates with more theoretical FLOPs
+              if (a.effectiveMaxFLOPs != b.effectiveMaxFLOPs) {
+                return a.effectiveMaxFLOPs > b.effectiveMaxFLOPs;
+              }
+              // Prefer candidates with less padding.
+              if (a.paddingRatio != b.paddingRatio) {
+                return a.paddingRatio < b.paddingRatio;
+              }
+              // Prefer candidates with a smaller partial size.
+              if (a.partialTypeSize != b.partialTypeSize) {
+                return a.partialTypeSize < b.partialTypeSize;
+              }
+              // Break ties with the index to ensure the sort is stable.
+              return a.index < b.index;
+            });
+  std::vector<ConvVertexType> sortedCandidates;
+  sortedCandidates.reserve(numCandidates);
+  for (auto &entry : candidatesInfo) {
+    sortedCandidates.push_back(std::move(candidates[entry.index]));
+  }
+  candidates = std::move(sortedCandidates);
+}
+
 std::vector<ConvVertexType>
 getConvVertexTypeCandidates(const poplar::Target &target,
                             poplar::Type inputType, poplar::Type outputType,
@@ -567,6 +625,7 @@ getConvVertexTypeCandidates(const poplar::Target &target,
     }
     }
   }
+  sortConvVertexTypeCandidates(target, params, convVertexTypeCandidates);
   return convVertexTypeCandidates;
 }
 
