@@ -118,6 +118,8 @@ int main(int argc, char **argv) {
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
   bool outputAllSequence = true;
+  bool withAttention = false;
+  bool withRealTimeSteps = false;
   poplibs_test::Pass pass = poplibs_test::Pass::FWD;
   unsigned runs = 1;
   std::string profileDir = ".";
@@ -167,6 +169,12 @@ int main(int argc, char **argv) {
     ("ipus",
      po::value<unsigned>(&numIPUs)->default_value(numIPUs),
      "Number of IPUs")
+    ("with-attention",
+     po::value<bool>(&withAttention)->default_value(withAttention),
+     "true with attention, otherwise without")
+    ("with-real-time-steps",
+     po::value<bool>(&withRealTimeSteps)->default_value(withRealTimeSteps),
+     "true with realTimeSteps, otherwise without")
     ("output-all-sequence",
        po::value<bool>(&outputAllSequence)->default_value(outputAllSequence),
      "output the data from all cells (1 / 0)")
@@ -265,44 +273,125 @@ int main(int argc, char **argv) {
 
   auto weights = gru::createWeights(graph, params, "weights", options, &cache);
 
+  Tensor realTimeSteps;
+  if (withRealTimeSteps) {
+    realTimeSteps = graph.addVariable(INT, {params.batchSize}, "realTimeSteps");
+    graph.setTileMapping(realTimeSteps, 0);
+  }
+
+  Tensor attScores;
+  if (withAttention) {
+    attScores = gru::createAttention(graph, params, "attScores");
+  }
+
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
 
   Tensor fwdOutputSeq, fwdIntermediates;
   Tensor *fwdIntermediatesPtr =
       (doBwdPass || doWuPass) ? &fwdIntermediates : nullptr;
-  fwdOutputSeq =
-      popnn::gru::gruFwd(graph, params, outputInit, input, weights,
-                         fwdIntermediatesPtr, prog, "fwd", options, &cache);
+
+  if ((!withAttention) && (!withRealTimeSteps)) {
+    fwdOutputSeq =
+        popnn::gru::gruFwd(graph, params, outputInit, input, weights,
+                           fwdIntermediatesPtr, prog, "fwd", options, &cache);
+  } else if ((!withAttention) && (withRealTimeSteps)) {
+    fwdOutputSeq = popnn::gru::gruFwd(
+        graph, params, outputInit, input, realTimeSteps, weights,
+        fwdIntermediatesPtr, prog, "fwd", options, &cache);
+  } else if (withAttention && (!withRealTimeSteps)) {
+    fwdOutputSeq = popnn::gru::auGruFwd(graph, params, outputInit, input,
+                                        weights, fwdIntermediatesPtr, attScores,
+                                        prog, "fwd", options, &cache);
+  } else if (withAttention && withRealTimeSteps) {
+    fwdOutputSeq = popnn::gru::auGruFwd(
+        graph, params, outputInit, input, realTimeSteps, weights,
+        fwdIntermediatesPtr, attScores, prog, "fwd", options, &cache);
+  }
 
   auto nextLayerGrads = graph.addVariable(
       dataType, {sequenceSize, batchSize, outputSize}, "nextLayerGrads");
   mapTensorLinearly(graph, nextLayerGrads);
 
+  Tensor attScoresGrads;
   Tensor prevLayerGrads;
   gru::GruWeights weightGrads =
       gru::createWeights(graph, params, "weightGrad", options, &cache);
   if (doBwdPass || doWuPass) {
     if (doWuPass) {
-      if (params.outputFullSequence)
-        gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
-                          weights, input, fwdOutputSeq, nextLayerGrads,
-                          &prevLayerGrads, weightGrads, "bwd", options, &cache);
-      else
+      if (params.outputFullSequence) {
+        if ((!withAttention) && (!withRealTimeSteps)) {
+          gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
+                            weights, input, fwdOutputSeq, nextLayerGrads,
+                            &prevLayerGrads, weightGrads, "bwd", options,
+                            &cache);
+        } else if ((!withAttention) && withRealTimeSteps) {
+          gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
+                            weights, input, realTimeSteps, fwdOutputSeq,
+                            nextLayerGrads, &prevLayerGrads, weightGrads, "bwd",
+                            options, &cache);
+        } else if (withAttention && (!withRealTimeSteps)) {
+          gru::auGruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
+                              weights, input, fwdOutputSeq, nextLayerGrads,
+                              &prevLayerGrads, weightGrads, attScores,
+                              &attScoresGrads, "bwd", options, &cache);
+        } else if (withAttention && withRealTimeSteps) {
+          gru::auGruBwdWithWU(
+              graph, params, prog, outputInit, fwdIntermediates, weights, input,
+              realTimeSteps, fwdOutputSeq, nextLayerGrads, &prevLayerGrads,
+              weightGrads, attScores, &attScoresGrads, "bwd", options, &cache);
+        }
+      } else {
         // If only output the last cell, nextLayerGrads only contains the
         // gradient for the last cell.
-        gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
-                          weights, input, fwdOutputSeq, nextLayerGrads[0],
-                          &prevLayerGrads, weightGrads, "bwd", options, &cache);
+        if ((!withAttention) && (!withRealTimeSteps)) {
+          gru::gruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
+                            weights, input, fwdOutputSeq, nextLayerGrads[0],
+                            &prevLayerGrads, weightGrads, "bwd", options,
+                            &cache);
+        } else if (withAttention && (!withRealTimeSteps)) {
+          gru::auGruBwdWithWU(graph, params, prog, outputInit, fwdIntermediates,
+                              weights, input, fwdOutputSeq, nextLayerGrads[0],
+                              &prevLayerGrads, weightGrads, attScores,
+                              &attScoresGrads, "bwd", options, &cache);
+        }
+      }
     } else {
-      if (params.outputFullSequence)
-        gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates, weights,
-                    input, fwdOutputSeq, nextLayerGrads, &prevLayerGrads,
-                    nullptr, "bwd", options, &cache);
-      else
-        gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates, weights,
-                    input, fwdOutputSeq, nextLayerGrads[0], &prevLayerGrads,
-                    nullptr, "bwd", options, &cache);
+      if (params.outputFullSequence) {
+        if ((!withAttention) && (!withRealTimeSteps)) {
+          gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates,
+                      weights, input, fwdOutputSeq, nextLayerGrads,
+                      &prevLayerGrads, nullptr, "bwd", options, &cache);
+        } else if ((!withAttention) && withRealTimeSteps) {
+          gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates,
+                      weights, input, realTimeSteps, fwdOutputSeq,
+                      nextLayerGrads, &prevLayerGrads, nullptr, "bwd", options,
+                      &cache);
+        } else if (withAttention && (!withRealTimeSteps)) {
+          gru::auGruBwd(graph, params, prog, outputInit, fwdIntermediates,
+                        weights, input, fwdOutputSeq, nextLayerGrads,
+                        &prevLayerGrads, nullptr, attScores, &attScoresGrads,
+                        "bwd", options, &cache);
+        } else if (withAttention && withRealTimeSteps) {
+          gru::auGruBwd(graph, params, prog, outputInit, fwdIntermediates,
+                        weights, input, realTimeSteps, fwdOutputSeq,
+                        nextLayerGrads, &prevLayerGrads, nullptr, attScores,
+                        &attScoresGrads, "bwd", options, &cache);
+        }
+      }
+
+      else {
+        if ((!withAttention) && (!withRealTimeSteps)) {
+          gru::gruBwd(graph, params, prog, outputInit, fwdIntermediates,
+                      weights, input, fwdOutputSeq, nextLayerGrads[0],
+                      &prevLayerGrads, nullptr, "bwd", options, &cache);
+        } else if (withAttention && (!withRealTimeSteps)) {
+          gru::auGruBwd(graph, params, prog, outputInit, fwdIntermediates,
+                        weights, input, fwdOutputSeq, nextLayerGrads[0],
+                        &prevLayerGrads, nullptr, attScores, &attScoresGrads,
+                        "bwd", options, &cache);
+        }
+      }
     }
   }
 
@@ -311,6 +400,11 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostPrevLayerAct;
   std::unique_ptr<char[]> rawHostBiases;
   std::unique_ptr<char[]> rawHostOutputInit;
+
+  std::unique_ptr<char[]> rawHostRealTimeSteps;
+  std::unique_ptr<char[]> rawHostAttScores;
+  std::unique_ptr<char[]> rawHostAttGrads;
+
   std::unique_ptr<char[]> rawHostNextLayerGrads;
   std::unique_ptr<char[]> rawHostPrevLayerGrads;
   std::unique_ptr<char[]> rawHostWeightsInputDeltas;
@@ -332,6 +426,17 @@ int main(int argc, char **argv) {
                                                 uploadProg, downloadProg, tmap);
     rawHostOutputInit = allocateHostMemoryForTensor(
         outputInit, "outputInit", graph, uploadProg, downloadProg, tmap);
+
+    if (withRealTimeSteps) {
+      rawHostRealTimeSteps =
+          allocateHostMemoryForTensor(realTimeSteps, "realTimeSteps", graph,
+                                      uploadProg, downloadProg, tmap);
+    }
+    if (withAttention) {
+      rawHostAttScores = allocateHostMemoryForTensor(
+          attScores, "attScores", graph, uploadProg, downloadProg, tmap);
+    }
+
     if (doBwdPass) {
       rawHostNextLayerGrads =
           allocateHostMemoryForTensor(nextLayerGrads, "nextLayerGrads", graph,
@@ -339,6 +444,12 @@ int main(int argc, char **argv) {
       rawHostPrevLayerGrads =
           allocateHostMemoryForTensor(prevLayerGrads, "prevLayerGrads", graph,
                                       uploadProg, downloadProg, tmap);
+
+      if (withAttention) {
+        rawHostAttGrads =
+            allocateHostMemoryForTensor(attScoresGrads, "attScoresGrads", graph,
+                                        uploadProg, downloadProg, tmap);
+      }
     }
     if (doWuPass) {
       rawHostWeightsInputDeltas = allocateHostMemoryForTensor(
@@ -387,6 +498,15 @@ int main(int argc, char **argv) {
       boost::extents[batchSize][outputSize]);
   boost::multi_array<double, 4> modelFwdState(
       boost::extents[GRU_NUM_FWD_STATES][sequenceSize][batchSize][outputSize]);
+
+  boost::multi_array<int, 1> hostRealTimeSteps(boost::extents[batchSize]);
+  boost::multi_array<double, 2> hostAttScores(
+      boost::extents[batchSize][sequenceSize]);
+  boost::multi_array<double, 2> hostAttScoresGrads(
+      boost::extents[batchSize][sequenceSize]);
+  boost::multi_array<double, 2> modelAttScoresGrads(
+      boost::extents[batchSize][sequenceSize]);
+
   boost::multi_array<double, 3> hostNextLayerGrads(
       boost::extents[sequenceSize][batchSize][outputSize]);
   boost::multi_array<double, 3> hostPrevLayerGrads(
@@ -416,6 +536,16 @@ int main(int argc, char **argv) {
                       randomEngine);
     writeRandomValues(target, dataType, hostBiases, -1.0, 1.0, randomEngine);
 
+    if (withRealTimeSteps) {
+      writeRandomValues(target, poplar::INT, hostRealTimeSteps, 1,
+                        int(sequenceSize), randomEngine);
+    }
+
+    if (withAttention) {
+      writeRandomValues(target, dataType, hostAttScores, 0.0, 1.0,
+                        randomEngine);
+    }
+
     if (doBwdPass) {
       writeRandomValues(target, dataType, hostNextLayerGrads, -2.0, 2.0,
                         randomEngine);
@@ -426,6 +556,14 @@ int main(int argc, char **argv) {
     copy(target, hostBiases, dataType, rawHostBiases.get());
     copy(target, hostWeightsInput, dataType, rawHostWeightsInput.get());
     copy(target, hostWeightsOutput, dataType, rawHostWeightsOutput.get());
+
+    if (withRealTimeSteps) {
+      copy(target, hostRealTimeSteps, poplar::INT, rawHostRealTimeSteps.get());
+    }
+
+    if (withAttention) {
+      copy(target, hostAttScores, dataType, rawHostAttScores.get());
+    }
 
     if (doBwdPass) {
       copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
@@ -458,17 +596,36 @@ int main(int argc, char **argv) {
     }
   }
 
+  boost::optional<boost::multi_array_ref<double, 2>> hostAttScoresOpt;
+  boost::optional<boost::multi_array_ref<int, 1>> hostRealTimeStepsOpt;
+  boost::optional<boost::multi_array_ref<double, 2>> hostAttScoresGradsOpt;
+
   bool matchesModel = true;
   if (!ignoreData) {
+    if ((!withAttention) && (!withRealTimeSteps)) {
+      ;
+    } else if ((!withAttention) && withRealTimeSteps) {
+      hostRealTimeStepsOpt = hostRealTimeSteps;
+    } else if (withAttention && (!withRealTimeSteps)) {
+      hostAttScoresOpt = hostAttScores;
+      hostAttScoresGradsOpt = modelAttScoresGrads;
+    } else if (withAttention && withRealTimeSteps) {
+      hostAttScoresOpt = hostAttScores;
+      hostRealTimeStepsOpt = hostRealTimeSteps;
+      hostAttScoresGradsOpt = modelAttScoresGrads;
+    }
+
     poplibs_test::gru::basicGruCellForwardPass(
-        hostPrevLayerAct, hostBiases, hostOutputInit, hostWeightsInput,
-        hostWeightsOutput, modelFwdState, params.cellOrder);
+        params.outputFullSequence, hostPrevLayerAct, hostBiases, hostOutputInit,
+        hostWeightsInput, hostWeightsOutput, hostAttScoresOpt,
+        hostRealTimeStepsOpt, modelFwdState, params.cellOrder);
 
     if (doBwdPass) {
       poplibs_test::gru::basicGruCellBackwardPass(
           params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
-          hostNextLayerGrads, modelFwdState, hostOutputInit, modelBwdState,
-          modelPrevLayerGrads, params.cellOrder);
+          hostNextLayerGrads, modelFwdState, hostOutputInit,
+          hostRealTimeStepsOpt, hostAttScoresOpt, hostAttScoresGradsOpt,
+          modelBwdState, modelPrevLayerGrads, params.cellOrder);
     }
 
     if (params.outputFullSequence) {
@@ -488,6 +645,7 @@ int main(int argc, char **argv) {
       boost::multi_array<double, 2> subMatImp(
           boost::extents[batchSize][outputSize]);
       copy(target, dataType, rawHostNextAct[0].get(), subMatImp);
+
       boost::multi_array<double, 2> subMatRef =
           modelFwdState[GRU_FWD_STATE_ACTS_IDX][sequenceSize - 1];
       matchesModel &= checkIsClose("nextLayerAct", subMatImp, subMatRef,
@@ -500,6 +658,12 @@ int main(int argc, char **argv) {
       matchesModel &= checkIsClose("prevLayerGrads", hostPrevLayerGrads,
                                    modelPrevLayerGrads, relativeTolerance,
                                    absoluteTolerance);
+      if (withAttention) {
+        copy(target, dataType, rawHostAttGrads.get(), hostAttScoresGrads);
+        matchesModel &= checkIsClose("attScoresGrads", hostAttScoresGrads,
+                                     modelAttScoresGrads, relativeTolerance,
+                                     absoluteTolerance);
+      }
     }
 
     if (doWuPass) {

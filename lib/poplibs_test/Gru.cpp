@@ -11,6 +11,7 @@
 
 using IndexRange = boost::multi_array_types::index_range;
 using Array1dRef = boost::multi_array_ref<double, 1>;
+using Array1dRefINT = boost::multi_array_ref<int, 1>;
 using Array2dRef = boost::multi_array_ref<double, 2>;
 using Array2d = boost::multi_array<double, 2>;
 using Array3dRef = boost::multi_array_ref<double, 3>;
@@ -89,6 +90,64 @@ getCellMapping(const std::vector<BasicGruCellUnit> &cellOrder) {
   return cellMapping;
 }
 
+/**
+ * Apply mask to gates.
+ */
+static void applySeqMask(const boost::optional<Array1dRefINT> &realTimeSteps,
+                         const int step, bool outputFullSequence,
+                         Array2dRef ionput) {
+  if (realTimeSteps) {
+    assert(outputFullSequence);
+
+    const auto batchSize = ionput.shape()[0];
+    const auto outputSize = ionput.shape()[1];
+
+    for (auto b = 0U; b != batchSize; ++b) {
+      for (auto i = 0U; i != outputSize; ++i) {
+        if ((*realTimeSteps)[b] <= step) {
+          ionput[b][i] = 0;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Apply attention to update gate.
+ */
+static void applyAtt(const boost::optional<Array2dRef> attScores,
+                     const int step, Array2dRef ionput) {
+  if (attScores) {
+    const auto batchSize = ionput.shape()[0];
+    const auto outputSize = ionput.shape()[1];
+    for (auto b = 0U; b != batchSize; ++b) {
+      auto score = 1.0 - (*attScores)[b][step];
+      for (auto i = 0U; i != outputSize; ++i) {
+        ionput[b][i] *= score;
+      }
+    }
+  }
+}
+
+static void applyAttBwd(const boost::optional<Array2dRef> attScores,
+                        const Array2dRef u, const int step, Array2dRef d_u,
+                        Array2dRef u0, Array2dRef attGrad) {
+  if (attScores) {
+    const auto batchSize = d_u.shape()[0];
+    const auto outputSize = d_u.shape()[1];
+    for (auto b = 0U; b != batchSize; ++b) {
+      auto d_u_scale = 1.0f - (*attScores)[b][step];
+      auto u0_scale = 1.0 / d_u_scale;
+      attGrad[b][step] = 0;
+      for (auto i = 0U; i != outputSize; ++i) {
+        u0[b][i] = u[b][i] * u0_scale;
+        attGrad[b][step] -= u0[b][i] * d_u[b][i];
+        d_u[b][i] *= d_u_scale;
+      }
+    }
+  }
+}
+
 static void printMatrix2d(FILE *fp, std::string msg, Array2dRef in) {
   if (!fp)
     return;
@@ -135,10 +194,12 @@ static void printMatrix3d(FILE *fp, std::string msg, Array3dRef in) {
 }
 
 void poplibs_test::gru::basicGruCellForwardPass(
-    const Array3dRef input, const Array2dRef biases,
+    bool outputFullSequence, const Array3dRef input, const Array2dRef biases,
     const Array2dRef prevOutput, const Array3dRef weightsInput,
-    const Array3dRef weightsOutput, Array4dRef state,
-    const std::vector<BasicGruCellUnit> &cellOrder) {
+    const Array3dRef weightsOutput,
+    const boost::optional<boost::multi_array_ref<double, 2>> &attScoresOpt,
+    const boost::optional<boost::multi_array_ref<int, 1>> &realTimeStepsOpt,
+    Array4dRef state, const std::vector<BasicGruCellUnit> &cellOrder) {
   const auto sequenceSize = state.shape()[1];
   const auto batchSize = state.shape()[2];
   const auto outputSize = state.shape()[3];
@@ -163,6 +224,7 @@ void poplibs_test::gru::basicGruCellForwardPass(
 #ifdef DEBUG_TENSOR
   fp = fopen("fwd.txt", "w");
 #endif
+
   printMatrix3d(fp, "fwd weightsInput", weightsInput);
   printMatrix3d(fp, "fwd weightsOutput", weightsOutput);
   printMatrix2d(fp, "fwd bias", biases);
@@ -183,6 +245,8 @@ void poplibs_test::gru::basicGruCellForwardPass(
                         weightsOutput, biases, updateGate,
                         cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE),
                         popnn::NonLinearityType::SIGMOID);
+    applyAtt(attScoresOpt, s, updateGate);
+    applySeqMask(realTimeStepsOpt, s, outputFullSequence, updateGate);
     state[GRU_FWD_STATE_UPDATE_GATE_IDX][s] = updateGate;
 
     /* reset gate */
@@ -191,6 +255,7 @@ void poplibs_test::gru::basicGruCellForwardPass(
                         weightsOutput, biases, resetGate,
                         cellMapping.at(BASIC_GRU_CELL_RESET_GATE),
                         popnn::NonLinearityType::SIGMOID);
+    applySeqMask(realTimeStepsOpt, s, outputFullSequence, resetGate);
     state[GRU_FWD_STATE_RESET_GATE_IDX][s] = resetGate;
 
     /* candidate */
@@ -201,6 +266,7 @@ void poplibs_test::gru::basicGruCellForwardPass(
                         biases, candidate,
                         cellMapping.at(BASIC_GRU_CELL_CANDIDATE),
                         popnn::NonLinearityType::TANH);
+    applySeqMask(realTimeStepsOpt, s, outputFullSequence, candidate);
     state[GRU_FWD_STATE_CANDIDATE_IDX][s] = candidate;
 
     printMatrix2d(fp, "fwd resetGate", resetGate);
@@ -220,6 +286,7 @@ void poplibs_test::gru::basicGruCellForwardPass(
 
     Array2d outputThisStep(boost::extents[batchSize][outputSize]);
     poplibs_test::axpby::add(s1, s2, outputThisStep);
+    applySeqMask(realTimeStepsOpt, s, outputFullSequence, outputThisStep);
 
     state[GRU_FWD_STATE_ACTS_IDX][s] = outputThisStep;
     printMatrix2d(fp, "fwd output", outputThisStep);
@@ -292,8 +359,10 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     bool outputFullSequence, const Array3dRef weightsInput,
     const Array3dRef weightsOutput, const Array3dRef gradsNextLayer,
     const Array4dRef fwdState, const Array2dRef outputActsInit,
-    Array4dRef bwdState, Array3dRef gradsPrevLayer,
-    const std::vector<BasicGruCellUnit> &cellOrder) {
+    const boost::optional<Array1dRefINT> &realTimeStepsOpt,
+    const boost::optional<Array2dRef> &attScoresOpt,
+    const boost::optional<Array2dRef> &attScoresGradsOpt, Array4dRef bwdState,
+    Array3dRef gradsPrevLayer, const std::vector<BasicGruCellUnit> &cellOrder) {
   const auto sequenceSize = fwdState.shape()[1];
   const auto batchSize = fwdState.shape()[2];
   const auto outputSize = fwdState.shape()[3];
@@ -343,10 +412,11 @@ void poplibs_test::gru::basicGruCellBackwardPass(
 #ifdef DEBUG_TENSOR
   fp = fopen("bwd.txt", "w");
 #endif
+
   for (auto i = sequenceSize; i != 0; --i) {
     const auto s = i - 1;
     if (fp)
-      fprintf(fp, "bwd Loop: {%ld}\n", s);
+      fprintf(fp, "bwd Loop: {%ld}\n", (long int)s);
 
     Array2d d_h(boost::extents[batchSize][outputSize]);
     Array2d gradOut(boost::extents[batchSize][outputSize]);
@@ -361,8 +431,10 @@ void poplibs_test::gru::basicGruCellBackwardPass(
         matrixZero(gradOut);
       }
     }
-    axpby::add(gradOut, gradOutput, d_h);
+
     printMatrix2d(fp, "bwd outGrad", gradOutput);
+    printMatrix2d(fp, "bwd gradNextLayer", gradOut);
+    axpby::add(gradOut, gradOutput, d_h);
 
     Array2d u = fwdState[GRU_FWD_STATE_UPDATE_GATE][s];
     Array2d r = fwdState[GRU_FWD_STATE_RESET_GATE][s];
@@ -378,6 +450,7 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     Array2d d_c(boost::extents[batchSize][outputSize]);
     gemm::hadamardProduct(u_comp, d_h, d_c);
     bwdNonLinearity(popnn::NonLinearityType::TANH, c, d_c);
+    applySeqMask(realTimeStepsOpt, s, outputFullSequence, d_c);
 
     Array2d h_prev(boost::extents[batchSize][outputSize]);
     if (s == 0) {
@@ -392,7 +465,17 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     poplibs_test::axpby::add(h_prev, c, h_prev_c, 1.0, -1.0);
     Array2d d_u(boost::extents[batchSize][outputSize]);
     gemm::hadamardProduct(d_h, h_prev_c, d_u);
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, u, d_u);
+
+    if (attScoresOpt) {
+      Array2d u0(boost::extents[batchSize][outputSize]);
+      applyAttBwd(attScoresOpt, u, s, d_u, u0, *attScoresGradsOpt);
+      bwdNonLinearity(popnn::NonLinearityType::SIGMOID, u0, d_u);
+      printMatrix2d(fp, "bwd d_u", d_u);
+      printMatrix2d(fp, "bwd attGrad", *attScoresGradsOpt);
+    } else {
+      bwdNonLinearity(popnn::NonLinearityType::SIGMOID, u, d_u);
+      printMatrix2d(fp, "bwd d_u", d_u);
+    }
 
     Array2d d_x2_h_prevr(boost::extents[batchSize][inputSize + outputSize]);
     // [2nd_component_of_d_x d_h_prevr] = d_c X w_c^T

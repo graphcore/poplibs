@@ -4,6 +4,7 @@
 #define poplibs_test_Gru_hpp
 
 #include <boost/multi_array.hpp>
+#include <boost/optional.hpp>
 #include <popnn/GruDef.hpp>
 
 namespace poplibs_test {
@@ -43,11 +44,13 @@ namespace gru {
  *                            stored in the input.
  */
 void basicGruCellForwardPass(
-    const boost::multi_array_ref<double, 3> input,
+    bool outputFullSequence, const boost::multi_array_ref<double, 3> input,
     const boost::multi_array_ref<double, 2> biases,
     const boost::multi_array_ref<double, 2> prevOutput,
     const boost::multi_array_ref<double, 3> weightsInput,
     const boost::multi_array_ref<double, 3> weightsOutput,
+    const boost::optional<boost::multi_array_ref<double, 2>> &attScoresOpt,
+    const boost::optional<boost::multi_array_ref<int, 1>> &realTimeStepsOpt,
     boost::multi_array_ref<double, 4> state,
     const std::vector<BasicGruCellUnit> &cellOrder);
 
@@ -83,6 +86,9 @@ void basicGruCellBackwardPass(
     const boost::multi_array_ref<double, 3> gradsNextLayer,
     const boost::multi_array_ref<double, 4> fwdState,
     const boost::multi_array_ref<double, 2> outputActsInit,
+    const boost::optional<boost::multi_array_ref<int, 1>> &realTimeStepsOpt,
+    const boost::optional<boost::multi_array_ref<double, 2>> &attScoresOpt,
+    const boost::optional<boost::multi_array_ref<double, 2>> &attScoresGradsOpt,
     boost::multi_array_ref<double, 4> bwdState,
     boost::multi_array_ref<double, 3> gradsPrevLayer,
     const std::vector<BasicGruCellUnit> &cellOrder);

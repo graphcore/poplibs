@@ -144,6 +144,10 @@ template void writeRandomValues<unsigned>(const Target &target,
                                           unsigned max,
                                           std::mt19937 &randomEngine);
 
+template void writeRandomValues<int>(const Target &target, const Type &type,
+                                     int *begin, int *end, int min, int max,
+                                     std::mt19937 &randomEngine);
+
 size_t maxContiguousInteger(const Type &t) {
   if (t == HALF)
     // https://en.wikipedia.org/wiki/Half-precision_floating-point_format

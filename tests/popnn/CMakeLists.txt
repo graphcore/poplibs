@@ -750,4 +750,58 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --runs 2
                         --cell-order=${CELL_ORDER}
                         VARIANTS ${TimesOutOnSim})
+
+        add_multitarget_test(
+                NAME augru_40x4x38_seq_2_half_data_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --with-attention true
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
+
+        add_multitarget_test(
+                NAME augru_40x4x38_seq_2_float_data_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --with-attention true
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
+
+        add_multitarget_test(
+                NAME augru_with_real_time_steps_40x4x38_seq_2_half_data_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --with-attention true
+                        --with-real-time-steps true
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
+
+        add_multitarget_test(
+                NAME augru_with_real_time_steps_40x4x38_seq_2_float_data_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --with-attention true
+                        --with-real-time-steps true
+                        --output-size 38
+                        --tiles-per-ipu=16
+                        --phase all
+                        --sequence-size 2
+                        --cell-order=${CELL_ORDER}
+                        VARIANTS ${TimesOutOnSim})
 endforeach()
