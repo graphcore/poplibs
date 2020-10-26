@@ -205,40 +205,6 @@ static void generateVertices(std::string vertexName, Graph &graph,
   // Build vertices assuming all sliced dimensions have the same mapping as
   // the first one.
   auto mapping = graph.getTileMapping(t2d[0]);
-  auto numVarRegions = t2d[0].getVarRegions().size();
-  unsigned numUsedTiles = 0;
-  for (const auto &e : mapping) {
-    if (e.size() != 0)
-      ++numUsedTiles;
-  }
-  // If there are multiple regions on a tile try reordering to simplify vertex
-  // state. Reordering can be expensive when there are many elements so don't
-  // reorder if it is unnecessary
-  if (numVarRegions > numUsedTiles) {
-    // Reorder to minimize the number of contiguous regions.
-    std::vector<Tensor *> toRearrange;
-    std::vector<Tensor> s2dElems(numSubElements), t2dElems(numBaseElements);
-
-    const size_t n = numSubElements > 0 ? numSubElements - 1 : 0;
-    toRearrange.reserve(n + numBaseElements);
-    for (unsigned i = 0; i != numSubElements; ++i) {
-      s2dElems[i] = s2d[i];
-      if (i != 0)
-        toRearrange.push_back(&s2dElems[i]);
-    }
-    for (unsigned i = 0; i != numBaseElements; ++i) {
-      t2dElems[i] = t2d[i];
-      toRearrange.push_back(&t2dElems[i]);
-    }
-    graph.reorderToSimplify(&s2dElems[0], toRearrange, false);
-
-    // Reordering may cause the element size to change if there were repeated
-    // elements in s2d.
-    unsigned elemSize = s2dElems[0].numElements();
-    s2d = concat(s2dElems).reshape({numSubElements, elemSize});
-    t2d = concat(t2dElems).reshape({numBaseElements, elemSize});
-    mapping = graph.getTileMapping(t2d[0]);
-  }
 
   // instantiate vertices following the mapping of t's first slice
   for (unsigned tile = 0; tile != numTiles; ++tile) {
@@ -255,12 +221,12 @@ static void generateVertices(std::string vertexName, Graph &graph,
       auto &regions = tileContiguousRegions[0];
       for (const auto &region : regions) {
         regionSize += region.size();
-        baseSlices.emplace_back(t2d.transpose().slice(region));
-        subSlices.emplace_back(s2d.transpose().slice(region));
+        baseSlices.emplace_back(t2d.slice(region, 1));
+        subSlices.emplace_back(s2d.slice(region, 1));
       }
 
-      Tensor tileBase = concat(baseSlices).transpose().flatten();
-      Tensor tileSub = concat(subSlices).transpose().flatten();
+      Tensor tileBase = concat(baseSlices, 1).flatten();
+      Tensor tileSub = concat(subSlices, 1).flatten();
 
       if (tileBase.isContiguous()) {
         auto v = graph.addVertex(
