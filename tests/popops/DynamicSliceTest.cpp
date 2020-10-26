@@ -453,6 +453,71 @@ BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(Misc)
 
+// Two large contiguous regions which exceed the maximum size allowed by the
+// 2D vertex fields. Only creates additional vertices for IPU2.
+void largeRegions() {
+  constexpr static unsigned tilesPerIPU = 1;
+  const auto dataType = poplar::HALF;
+
+  auto device =
+      createTestDevice(TEST_TARGET, 1, tilesPerIPU,
+                       /* compileIPUCode */ true /* for exchange code size */);
+  const auto &target = device.getTarget();
+  Graph graph(target);
+  popops::addCodelets(graph);
+  popops::addCodelets(graph);
+  Sequence uploadProg, prog, downloadProg;
+
+  const auto numColumns = 32000U;
+
+  const auto sliceOffset = 1;
+  auto offset = graph.addConstant(UNSIGNED_INT, {1}, sliceOffset);
+  graph.setTileMapping(offset, 0);
+  auto t1 = graph.addVariable(dataType, {1, numColumns}, "Base tensor1");
+  auto t2 = graph.addVariable(dataType, {1, numColumns}, "Base tensor2");
+  auto baseTensor = concat({t1, t2});
+  graph.setTileMapping(baseTensor, 0);
+  auto subTensor = popops::dynamicSlice(graph, baseTensor, offset, {0}, {1},
+                                        prog, "dynamicSlice");
+
+  const auto numElements = baseTensor.numElements();
+  const auto firstSliceData = 1.0;
+  const auto secondSliceData = -1.0;
+  graph.createHostWrite("baseTWr", baseTensor, true);
+  graph.createHostWrite("subTWr", subTensor, true);
+  graph.createHostRead("subTRd", subTensor, true);
+
+  std::vector<float> hIn(numElements);
+  std::fill(hIn.begin(), hIn.begin() + numElements / 2, firstSliceData);
+  std::fill(hIn.begin() + numElements / 2, hIn.end(), secondSliceData);
+  std::vector<char> rawIn(target.getTypeSize(HALF) * hIn.size());
+  poplar::copyFloatToDeviceHalf(target, hIn.data(), rawIn.data(), hIn.size());
+
+  std::vector<float> hOut(subTensor.numElements());
+  std::vector<char> rawOut(target.getTypeSize(HALF) * hOut.size());
+
+  Engine e(graph, std::move(prog), options);
+
+  device.bind([&](const Device &d) {
+    e.load(d);
+    e.writeTensor("baseTWr", rawIn.data(), rawIn.data() + rawIn.size());
+    e.writeTensor("subTWr", rawOut.data(), rawOut.data() + rawOut.size());
+    e.run();
+    e.readTensor("subTRd", rawOut.data(), rawOut.data() + rawOut.size());
+  });
+
+  poplar::copyDeviceHalfToFloat(target, rawOut.data(), hOut.data(),
+                                hOut.size());
+
+  // Now check tensor
+  const auto value = sliceOffset == 1 ? secondSliceData : firstSliceData;
+  for (unsigned i = 0; i != hOut.size(); ++i) {
+    BOOST_CHECK_EQUAL(hOut[i], value);
+  }
+}
+
+BOOST_AUTO_TEST_CASE(LargeRegionsToSplitTest) { largeRegions(); }
+
 // Check that slices happen in the best order possible. Note that this currently
 // abuses Graph::outputComputeGraph(). If this test breaks because of changes
 // there I suggest you just delete this test.

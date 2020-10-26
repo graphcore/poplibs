@@ -280,8 +280,21 @@ static void generateVertices(std::string vertexName, Graph &graph,
       }
     }
 
-    auto vertexSeqs = splitRegionsBetweenWorkers(target, tileContiguousRegions,
-                                                 grainSize, 2 * grainSize);
+    const auto templatedVertexName =
+        templateVertex(vertexName + "2d", t2d.elementType());
+
+    // Get the minimum of the maximum field sizes for base and sub edges
+    const auto maxBaseTRegionSize =
+        graph.getMaxFieldDim(templatedVertexName, "baseT", 1);
+    const auto maxSubTRegionSize =
+        graph.getMaxFieldDim(templatedVertexName, "subT", 1);
+    const auto maxRegionSize = std::min(maxBaseTRegionSize, maxSubTRegionSize);
+
+    // Limit the vector size the vertex deals with to meet edge size
+    // constraints. This could create more vertices than the number
+    // of workers.
+    auto vertexSeqs = splitRegionsBetweenWorkers(
+        target, tileContiguousRegions, grainSize, 2 * grainSize, maxRegionSize);
     for (const auto &sequences : vertexSeqs) {
       // vector of sequences per vertex
       std::vector<Tensor> base, sub;
@@ -296,9 +309,10 @@ static void generateVertices(std::string vertexName, Graph &graph,
           }
         }
       }
-      auto v = graph.addVertex(
-          cs, templateVertex(vertexName + "2d", t2d.elementType()),
-          {{"offset", offset}, {"baseT", base}, {"subT", sub}});
+
+      auto v =
+          graph.addVertex(cs, templatedVertexName,
+                          {{"offset", offset}, {"baseT", base}, {"subT", sub}});
       graph.setInitialValue(v["numBaseElements"], numBaseElements);
       graph.setInitialValue(v["numSubElements"], numSubElements);
       graph.setInitialValue(v["numRegions"], base.size() / numBaseElements);
