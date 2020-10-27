@@ -220,7 +220,7 @@ benchmarks_info = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([
 # -----------------------------------------------------------------------------
 # Benchmarks collector
 # -----------------------------------------------------------------------------
-def get_list_of_tests(cmd):
+def get_list_of_tests(cmd, device_type):
     nproc = f'-j{os.cpu_count()}'
     cmd.append(nproc)
     tests_dict = {}
@@ -237,15 +237,15 @@ def get_list_of_tests(cmd):
                     # NOTE: Ideally need to search through the matches in case a test already has  conv options and append it
                     test_cmd.append(r'--convolution-options={"insertTransformsCycleCountProgs":true}')
                     test_cmd.insert(0, match.group(5))
-                    test_cmd.append(r'--device-type=Hw')
+                    test_cmd.append(f'--device-type={device_type}')
                     test_cmd.append(r'--profile')
                     tests_dict[match.group(2)] = test_cmd
     return tests_dict
 
 
-def collect_standard_benchmarks(names):
+def collect_standard_benchmarks(names, device_type):
     cmd = [r'./test.sh', 'poplibs', '-L', 'benchmarks', '-N', '-V'] # dry run
-    all_benchmarks = get_list_of_tests(cmd)
+    all_benchmarks = get_list_of_tests(cmd, device_type)
 
     tests_dict = {}
     if names:
@@ -619,7 +619,7 @@ def dump_results(all_results, file_path):
 # -----------------------------------------------------------------------------
 # Generate CI tests
 # -----------------------------------------------------------------------------
-def generate_ci_tests(workspace, test_binary):
+def generate_ci_tests(workspace, test_binary, device_type):
     ci_test_dict = {}
 
     if len(test_binary) == 0:
@@ -634,7 +634,7 @@ def generate_ci_tests(workspace, test_binary):
         ci_test_dict[test_name] = [test_binary,
                         '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
                         '--output-channels', '1', '--conv-groups', '64', '--batch-size', '2', '--bias', '0',
-                        '--ignore-data', '--use-unstable-format', '--device-type=Hw', '--profile',
+                        '--ignore-data', '--use-unstable-format', f'--device-type={device_type}', '--profile',
                         f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
                         transform_constraints(phase, 'true', '[]', '[]', '1')]
@@ -661,6 +661,7 @@ def main():
     parser.add_argument('--test-file', default='', help='Shall contain list of '
          'single_conv_layers tests. File format shall be next: name:<test_name>, command:<test executable>. One command per line.')
     parser.add_argument('--test-binary', default='', help='Provides a path to the single_conv_layer tool')
+    parser.add_argument("--device-type", choices=("Hw"), default="Hw", help="Only Hw is supported")
     args = parser.parse_args()
 
     # Make sure workspace folder  exists
@@ -693,7 +694,7 @@ def main():
     # Get
     if args.ci_test is True:
         logging.info('Starting a test run')
-        tests_dict = generate_ci_tests(args.workspace, args.test_binary)
+        tests_dict = generate_ci_tests(args.workspace, args.test_binary, args.device_type)
 
     elif os.path.exists(args.test_file):
         logging.info('Collecting benchmarks from a file')
@@ -701,7 +702,7 @@ def main():
 
     else:
         logging.info('Collecting existent benchmarks')
-        tests_dict = collect_standard_benchmarks(args.test_names)
+        tests_dict = collect_standard_benchmarks(args.test_names, args.device_type)
 
         # Speaks for itself
         logging.info('Generating plan constarints for the given benchmarks')

@@ -2,7 +2,7 @@
 # When possible use more than one compiler to get better conformance coverage.
 set(COMPILERS ${CMAKE_CXX_COMPILER})
 find_program(CLANGPP clang++)
-if(NOT CLANGPP STREQUAL CLANGPP-NOTFOUND AND 
+if(NOT CLANGPP STREQUAL CLANGPP-NOTFOUND AND
    NOT CLANGPP STREQUAL ${CMAKE_CXX_COMPILER})
   list(APPEND COMPILERS ${CLANGPP})
 endif()
@@ -46,3 +46,14 @@ if (NOT "asan" IN_LIST SANITIZERS)
   # See T13392.
   add_unit_test(ParallelTest ParallelTest.cpp)
 endif()
+
+# Stop transforms.py from rotting.
+add_multitarget_test(
+  NAME transformsTool
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/transforms.py
+          --ci-test
+          --remove-files
+          --test-binary $<TARGET_FILE:single_conv_layer>
+  VARIANTS "Hw"
+  LABELS "python_tool")
