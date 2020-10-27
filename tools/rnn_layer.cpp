@@ -114,6 +114,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
@@ -375,6 +376,10 @@ int main(int argc, char **argv) {
     engineOptions.set("debug.instrumentCompute", "true");
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
+
   attachStreams(engine, tmap);
 
   boost::multi_array<double, 3> hostPrevAct(

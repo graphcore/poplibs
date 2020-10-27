@@ -362,6 +362,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
       ("help", "Produce help message")
+      ("compile-only", "Stop after compilation; don't run the program")
       ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        deviceTypeHelp)
@@ -507,6 +508,9 @@ int main(int argc, char **argv) {
                   {"debug.nanOverflowException", "false"},
                   {"prng.enableStochasticRounding", prng ? "true" : "false"},
                   {"prng.seed", std::to_string(seed)}});
+
+  if (vm.count("compile-only"))
+    return 0;
 
   engine.connectStream("InputVector", hInput.get());
 

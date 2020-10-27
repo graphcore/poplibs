@@ -278,6 +278,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("seed", po::value(&seed),
       "Do a random reduction with the given seed. No other options "
       "are required, if they are specified they override the randomly chosen"
@@ -683,6 +684,10 @@ int main(int argc, char **argv) {
     }
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
+
   attachStreams(engine, tmap);
   device.bind([&](const Device &d) {
     engine.load(d);

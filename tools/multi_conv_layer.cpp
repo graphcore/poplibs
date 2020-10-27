@@ -25,6 +25,7 @@ int main(int argc, char **argv) try {
   // clang-format off
   desc.add_options()
     ("help,h", "produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
       po::value<DeviceType>(&deviceType)->default_value(DeviceType::IpuModel2),
       deviceTypeHelp)
@@ -138,6 +139,9 @@ int main(int argc, char **argv) try {
 
   const poplar::OptionFlags engineOptions;
   poplar::Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
 
   std::vector<boost::multi_array<double, 3>> hostInputs;
   std::vector<boost::multi_array<double, 4>> hostWeights;

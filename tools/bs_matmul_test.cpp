@@ -447,6 +447,8 @@ int main(int argc, char **argv) {
        "dimensions used)\n"
        "smd-bwd = compute dense softmax gradient on a dense matrix (LHS "
        "dimensions used)\n")
+      // compile-only
+      ("compile-only", "Stop after compilation; don't run the program")
       // device-type
       ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
@@ -1401,6 +1403,9 @@ int main(int argc, char **argv) {
   }
 
   Engine engine(graph, allSequence, engineOptions);
+
+  if (vm.count("compile-only"))
+    std::exit(0);
 
   std::cout << "Start " << runs << " runs of " << numReps << " rep(s)..."
             << std::endl;

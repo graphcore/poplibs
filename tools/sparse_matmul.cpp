@@ -68,6 +68,7 @@ int main(int argc, char **argv) try {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
@@ -84,7 +85,7 @@ int main(int argc, char **argv) try {
      "Proportion of elements of left-hand operand which are non-zero")
     ("block-size",
      po::value<ShapeOption<std::size_t>>(&blockSize)->default_value(1),
-     "Block size as rows and columns (only square blocks are supported)")     
+     "Block size as rows and columns (only square blocks are supported)")
     ("transpose-lhs", po::value(&transposeLHS),
      "Transpose the left-hand operand of the matmul such that the matmul "
      "becomes {k, m} * {m, n} = {k, n}")
@@ -225,6 +226,10 @@ int main(int argc, char **argv) try {
     engineOptions.set("debug.instrument", "true");
   }
   Engine engine(graph, std::move(controlProg), engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
+
   attachStreams(engine, tmap);
 
   std::mt19937 randomEngine;

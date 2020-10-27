@@ -124,6 +124,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("profile",
      po::value<bool>(&opts.profile)->default_value(opts.profile),
      "Output profiling report")
@@ -363,6 +364,9 @@ int main(int argc, char **argv) {
 
   logging::poplibs::info("Create engine");
   Engine engine(graph, ctrlProg, engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
 
   const auto embeddingMatrixExtents =
       boost::extents[opts.shape->at(0)][opts.shape->at(1)];

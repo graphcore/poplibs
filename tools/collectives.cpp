@@ -283,6 +283,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
        po::value<DeviceType>(&deviceType)->default_value(deviceType),
        deviceTypeHelp)
@@ -410,6 +411,9 @@ int main(int argc, char **argv) {
         cycleCount, "cycleCount", graph, uploadProg, downloadProg, tmap);
   }
   Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
 
   const auto numIpus = device.getTarget().getNumIPUs();
   const auto numPartials = numIpus / ipusPerRank;

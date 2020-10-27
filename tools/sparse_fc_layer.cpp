@@ -113,6 +113,7 @@ int main(int argc, char **argv) try {
   // clang-format off
   desc.add_options()
     ("help", "Produce help message")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      deviceTypeHelp)
@@ -504,6 +505,10 @@ int main(int argc, char **argv) try {
     engineOptions.set("debug.instrument", "true");
   }
   Engine engine(graph, std::move(controlProg), engineOptions);
+
+  if (vm.count("compile-only"))
+    return 0;
+
   attachStreams(engine, tmap);
 
   std::cerr << "Done\n";

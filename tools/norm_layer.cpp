@@ -190,7 +190,8 @@ static bool normTest(const DeviceType &deviceType,
                      const Type &dataType, bool unbiasedVarEstimate,
                      bool stableAlgo, const Type &partialsType,
                      poplibs_test::norm::NormType normType, unsigned numGroups,
-                     bool groupNormStridedChannelGrouping, bool dumpProfile) {
+                     bool groupNormStridedChannelGrouping, bool dumpProfile,
+                     bool compile_only) {
   assert(dims.size() >= 2);
   poplar::OptionFlags options = {
       {"groupNormStridedChannelGrouping",
@@ -314,6 +315,10 @@ static bool normTest(const DeviceType &deviceType,
   copy(target, hostGradsIn, dataType, rawHostGradsIn.get());
 
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);
+
+  if (compile_only)
+    return 0;
+
   device.bind([&](const Device &d) {
     engine.load(d);
     attachStreams(engine, tmap);
@@ -401,6 +406,7 @@ int main(int argc, char **argv) {
   // clang-format off
   desc.add_options()
     ("help", "Print help")
+    ("compile-only", "Stop after compilation; don't run the program")
     ("device-type",
      po::value<DeviceType>(&deviceType)->required(),
      "Device Type")
@@ -466,9 +472,9 @@ int main(int argc, char **argv) {
     std::cerr << "error: norm test must have tensor dimensions of at least 2";
     return 1;
   }
-  auto matchesModel =
-      normTest(deviceType, dims.val, eps, learningRate, tilesPerIPU, dataType,
-               unbiasedVarEstimate, stableAlgo, partialsType, normType, groups,
-               groupNormStridedChannelGrouping, dumpProfile);
+  auto matchesModel = normTest(
+      deviceType, dims.val, eps, learningRate, tilesPerIPU, dataType,
+      unbiasedVarEstimate, stableAlgo, partialsType, normType, groups,
+      groupNormStridedChannelGrouping, dumpProfile, vm.count("compile-only"));
   return matchesModel ? 0 : 1;
 }
