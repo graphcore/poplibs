@@ -1051,7 +1051,7 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
            const boost::optional<const Tensor &> &attScoresOpt,
            Tensor *attScoresGrads, const std::string &debugPrefix,
            const GruOpts &options, poplin::matmul::PlanningCache *cache) {
-  logging::popnn::info("gruBwd(steps={}, batch {} x layers {}, name {}",
+  logging::popnn::info("gruBwdImpl(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
                        debugPrefix);
 
@@ -1263,7 +1263,7 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-              const GruWeights &weights, const Tensor &fwdInputSeq,
+              const GruWeights &weights_, const Tensor &fwdInputSeq,
               const Tensor &fwdOutput, const Tensor &gradLayerNext,
               Tensor *inputGrad, Tensor *bwdIntermediates,
               const std::string &debugPrefix, const OptionFlags &options_,
@@ -1277,6 +1277,8 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         (inputGrad ? "true" : "false"));
   }
 
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
   boost::optional<const Tensor &> realTimeStepsOpt(boost::none);
   boost::optional<const Tensor &> attScoresOpt(boost::none);
   return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
@@ -1287,7 +1289,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-              const GruWeights &weights, const Tensor &fwdInputSeq,
+              const GruWeights &weights_, const Tensor &fwdInputSeq,
               const Tensor &realTimeSteps, const Tensor &fwdOutput,
               const Tensor &gradLayerNext, Tensor *inputGrad,
               Tensor *bwdIntermediates, const std::string &debugPrefix,
@@ -1302,6 +1304,8 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         (inputGrad ? "true" : "false"));
   }
 
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
   boost::optional<const Tensor &> realTimeStepsOpt(realTimeSteps);
   boost::optional<const Tensor &> attScoresOpt(boost::none);
   return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
@@ -1312,7 +1316,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-                const GruWeights &weights, const Tensor &fwdInputSeq,
+                const GruWeights &weights_, const Tensor &fwdInputSeq,
                 const Tensor &fwdOutput, const Tensor &gradLayerNext,
                 Tensor *inputGrad, Tensor *bwdIntermediates,
                 const Tensor &attentions, Tensor *attentionsGrad,
@@ -1327,6 +1331,8 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         (inputGrad ? "true" : "false"));
   }
 
+  auto weights = fromCellOrder(weights_, params.cellOrder);
+
   boost::optional<const Tensor &> timeSteps;
   boost::optional<const Tensor &> attScores(attentions);
   return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
@@ -1338,7 +1344,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-                const GruWeights &weights, const Tensor &fwdInputSeq,
+                const GruWeights &weights_, const Tensor &fwdInputSeq,
                 const Tensor &realTimeSteps, const Tensor &fwdOutput,
                 const Tensor &gradLayerNext, Tensor *inputGrad,
                 Tensor *bwdIntermediates, const Tensor &attentions,
@@ -1353,6 +1359,8 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
+
+  auto weights = fromCellOrder(weights_, params.cellOrder);
 
   boost::optional<const Tensor &> timeSteps(realTimeSteps);
   boost::optional<const Tensor &> attScores(attentions);
