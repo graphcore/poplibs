@@ -50,17 +50,19 @@ namespace dynamic {
  * \param graph The Poplar graph.
  * \param inputType The type for inputs to the operation.
  * \param params Parameters for the fully connected layer.
- * \param debugPrefix Optional prefix for all debug names added to the graph.
+ * \param debugContext Optional debug information.
  * \param options Implementation options for the fully connected layer.
  * \param cache Optional pointer to planning cache to use.
  *
  * \returns A tensor with sparse representation of weights for the fully
  *          connected layer.
  */
-SparseTensor createFullyConnectedWeights(
-    poplar::Graph &graph, const poplar::Type &inputType,
-    const FullyConnectedParams &params, const std::string &debugName = "",
-    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
+SparseTensor
+createFullyConnectedWeights(poplar::Graph &graph, const poplar::Type &inputType,
+                            const FullyConnectedParams &params,
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {},
+                            PlanningCache *cache = nullptr);
 
 /**
  * Create a dense tensor that is used as the input activations for a fully
@@ -70,15 +72,17 @@ SparseTensor createFullyConnectedWeights(
  * \param graph The Poplar graph.
  * \param inputType The type for inputs to the operation.
  * \param params Parameters for the fully connected layer.
- * \param debugPrefix Optional prefix for all debug names added to the graph.
+ * \param debugContext    Optional debug information.
  * \param options Implementation options for the fully connected layer.
  *        See createFullyConnectedWeights() for details.
  * \param cache Optional pointer to planning cache to use.
  */
-poplar::Tensor createFullyConnectedInput(
-    poplar::Graph &graph, const poplar::Type &inputType,
-    const FullyConnectedParams &params, const std::string &debugName = "",
-    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
+poplar::Tensor
+createFullyConnectedInput(poplar::Graph &graph, const poplar::Type &inputType,
+                          const FullyConnectedParams &params,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {},
+                          PlanningCache *cache = nullptr);
 
 /** Run a fully connected forward (or inference) pass.
  *
@@ -98,8 +102,7 @@ poplar::Tensor createFullyConnectedInput(
  *  \param prog            A reference to a program sequence which will
  *                         be appended with the code to perform the
  *                         forward operation.
- *  \param debugPrefix     A debug prefix added to compute set and tensor
- *                         names.
+ *  \param debugContext    Optional debug information.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
  *                         See createFullyConnectedWeights() for details.
@@ -109,11 +112,14 @@ poplar::Tensor createFullyConnectedInput(
  *                         mapped to tiles. The result tensor is of shape
  *                         [batchSize][outputChannelsPerGroup * numGroups]
  */
-poplar::Tensor fullyConnectedFwd(
-    poplar::Graph &graph, const SparseTensor &weights,
-    const poplar::Tensor &activations, const FullyConnectedParams &fcParams,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
+poplar::Tensor fullyConnectedFwd(poplar::Graph &graph,
+                                 const SparseTensor &weights,
+                                 const poplar::Tensor &activations,
+                                 const FullyConnectedParams &fcParams,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {},
+                                 PlanningCache *cache = nullptr);
 
 /** Run a fully connected GradA pass.
  *
@@ -135,8 +141,7 @@ poplar::Tensor fullyConnectedFwd(
  *  \param prog            A reference to a program sequence which will
  *                         be appended with the code to perform the
  *                         GradA operation.
- *  \param debugPrefix     A debug prefix added to compute set and tensor
- *                         names.
+ *  \param debugContext    Optional debug information.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
  *                         See createFullyConnectedWeights() for details.
@@ -150,7 +155,8 @@ poplar::Tensor fullyConnectedFwd(
 poplar::Tensor fullyConnectedGradA(
     poplar::Graph &graph, const SparseTensor &weights,
     const poplar::Tensor &gradients, const FullyConnectedParams &fcParams,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /** Run a fully connected GradW pass to compute sparse gradients. The layout
@@ -173,8 +179,7 @@ poplar::Tensor fullyConnectedGradA(
  *  \param prog            A reference to a program sequence which will
  *                         be appended with the code to perform the
  *                         GradW operation.
- *  \param debugPrefix     A debug prefix added to compute set and tensor
- *                         names.
+ *  \param debugContext    Optional debug information.
  *  \param options         The structure describing options on how the
  *                         operation should be implemented.
  *                         See createFullyConnectedWeights() for details.
@@ -187,7 +192,7 @@ poplar::Tensor fullyConnectedSparseGradW(
     poplar::Graph &graph, const poplar::Tensor sparsityMetaInfo,
     const poplar::Tensor &gradA, const poplar::Tensor &activations,
     const FullyConnectedParams &fcParams, poplar::program::Sequence &prog,
-    const std::string &debugPrefix = "",
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /** Report the serial splitting of a dense gradW output given the memory

@@ -389,7 +389,9 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::size_t indexVectorDim, std::vector<unsigned> updateWindowDims,
              std::vector<std::size_t> insertWindowDims,
              std::vector<unsigned> scatterDimsToOperandDims,
-             poplar::program::Sequence &prog, const std::string &debugPrefix) {
+             poplar::program::Sequence &prog,
+             const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   return scatterInternal(graph, operand, indices, updates, indexVectorDim,
                          updateWindowDims, insertWindowDims,
                          scatterDimsToOperandDims, boost::none, prog,
@@ -402,7 +404,9 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<std::size_t> insertWindowDims,
              std::vector<unsigned> scatterDimsToOperandDims,
              UpdateComputationFunc &updateComputation,
-             poplar::program::Sequence &prog, const std::string &debugPrefix) {
+             poplar::program::Sequence &prog,
+             const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   return scatterInternal(graph, operand, indices, updates, indexVectorDim,
                          updateWindowDims, insertWindowDims,
                          scatterDimsToOperandDims, {updateComputation}, prog,

@@ -435,8 +435,9 @@ bool specialisedVertexExists(const Tensor &A, const Tensor &B,
 
 } // namespace
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
-                 Sequence &prog, const std::string &debugPrefix,
+                 Sequence &prog, const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledAdd";
 
@@ -473,8 +474,9 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
-                 const std::string &debugPrefix,
+                 const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
 
@@ -504,8 +506,10 @@ void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
-                        Sequence &prog, const std::string &debugPrefix,
+                        Sequence &prog,
+                        const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
   const auto castPrefix = debugPrefix + "/scaledSub";
@@ -531,8 +535,10 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
-                        Sequence &prog, const std::string &debugPrefix,
+                        Sequence &prog,
+                        const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto opts = parseOptionFlags(options);
   const auto targetType = A.elementType();
   bool regroupBeforeCast =
@@ -564,34 +570,35 @@ void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, float scaleB,
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
-                 Sequence &prog, const std::string &debugPrefix,
+                 Sequence &prog, const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false,
                        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor scaleA, Tensor B, Tensor scaleB,
                  Sequence &prog, const ScaledAddSpecialisation speciality,
-                 const std::string &debugPrefix,
+                 const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, false, speciality,
                        debugPrefix, options);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
-                 Sequence &prog, const std::string &debugPrefix,
+                 Sequence &prog, const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, false,
                       ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }
 
 void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
                  Sequence &prog, const ScaledAddSpecialisation speciality,
-                 const std::string &debugPrefix,
+                 const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, false, speciality,
                       debugPrefix, options);
 }
@@ -599,9 +606,9 @@ void scaledAddTo(Graph &graph, Tensor A, float scaleA, Tensor B, float scaleB,
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
                         poplar::Tensor scaleA, poplar::Tensor B,
                         poplar::Tensor scaleB, poplar::program::Sequence &prog,
-                        const std::string &debugPrefix,
+                        const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   scaledAritTensorImpl(graph, A, scaleA, B, scaleB, prog, true,
                        ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }
@@ -609,9 +616,9 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                         poplar::Tensor B, float scaleB,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix,
+                        const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   scaledAritConstImpl(graph, A, scaleA, B, scaleB, prog, true,
                       ScaledAddSpecialisation::DEFAULT, debugPrefix, options);
 }

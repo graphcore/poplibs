@@ -245,7 +245,8 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::vector<std::size_t> &inputShape,
                                  const std::vector<std::size_t> &sliceSizes,
                                  std::vector<unsigned> startIndexMap,
-                                 const std::string &name) {
+                                 const poplar::DebugContext &debugContext) {
+  const auto name = debugContext.getPathName();
   std::vector<unsigned> permutation(inputShape.size());
   boost::iota(permutation, 0);
 
@@ -287,7 +288,9 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               const std::vector<std::size_t> &sliceSizes,
               const std::vector<std::size_t> &collapsedSliceDims,
               const std::vector<unsigned> &startIndexMap,
-              program::Sequence &prog, const std::string &debugPrefix) {
+              program::Sequence &prog,
+              const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("gather input={}, indices={}, name={}", input.shape(),
                         indices.shape(), debugPrefix);
 
@@ -324,7 +327,8 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
 Tensor createGatherInput(Graph &graph, const Type &type,
                          const std::vector<std::size_t> &operandShape,
                          unsigned axis, GatherParams params,
-                         const std::string &name) {
+                         const poplar::DebugContext &debugContext) {
+  const auto name = debugContext.getPathName();
   if (operandShape[axis] > params.maxElementsPerTile) {
     std::vector<std::size_t> newOperandShape = operandShape;
     if (operandShape[axis] % 2 == 1) {
@@ -360,7 +364,8 @@ Tensor createGatherInput(Graph &graph, const Type &type,
 
 Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               unsigned axis, program::Sequence &prog, GatherParams params,
-              const std::string &debugPrefix) {
+              const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (input.dim(axis) > params.maxElementsPerTile) {
     if (input.dim(axis) % 2 == 1) {
       return gather(graph, pad(graph, input, 0, 1, axis), indices, axis, prog,

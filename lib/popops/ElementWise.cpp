@@ -2199,12 +2199,12 @@ inferTile(const Graph &graph, const expr::Expr &expr,
 // transforming the operations.
 std::pair<Tensor, bool>
 map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
-    program::Sequence &prog, const std::string &debugPrefix,
+    program::Sequence &prog, const poplar::DebugContext &debugContext,
     const std::unordered_map<const expr::Expr *, Type> constTypes,
     const std::unordered_map<const expr::Expr *, unsigned> constTiles,
     bool topLevel, bool constructGraph, bool inPlace,
     const expr::Expr *&inPlaceExpr, const MapOptions &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   if (!constructGraph)
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
@@ -2412,8 +2412,9 @@ ExprAndType optimise(const expr::Expr &expr,
 } // end anonymous namespace
 
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
-           program::Sequence &prog, const std::string &debugPrefix,
+           program::Sequence &prog, const poplar::DebugContext &debugContext,
            const OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   auto opts = parseOptionFlags(options);
 
   std::unique_ptr<expr::Expr> newExpr;
@@ -2443,7 +2444,9 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
-                const std::string &debugPrefix, const OptionFlags &options) {
+                const poplar::DebugContext &debugContext,
+                const OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   auto opts = parseOptionFlags(options);
   std::unique_ptr<expr::Expr> newExpr;
   if (opts.enableExpressionOptimizations) {

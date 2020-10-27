@@ -63,7 +63,7 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
  * \param params            Pooling parameters
  * \param in                Input tensor
  * \param prog              Program sequence to append the operation to
- * \param debugPrefix       Debug name for the operation
+ * \param debugContext      Optional debug information.
  * \param options           Pooling options (not currently used)
  * \return                  A tensor with the results of the pooling operation
  */
@@ -78,7 +78,7 @@ double getBwdPerfectCycleCount(const poplar::Graph &graph,
  */
 poplar::Tensor pool(poplar::Graph &graph, const PoolParams &params,
                     const poplar::Tensor &in, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {});
 
 /** For MAX, AVG or SUM pooling.
@@ -98,7 +98,7 @@ poplar::Tensor pool(poplar::Graph &graph, const PoolParams &params,
  *                          gradient is propagated to all the positions which
  *                          matched pooled value in forward pass.
  * \param prog              Program sequence to append the operation to
- * \param debugPrefix       Debug name for the operation
+ * \param debugContext      Optional debug information.
  * \param options           Pooling options. See pool().
  * \return                  A tensor with the results of the pooling operation
  */
@@ -108,7 +108,7 @@ poplar::Tensor poolInputGradient(poplar::Graph &graph, const PoolParams &params,
                                  const poplar::Tensor &pooledGradient,
                                  bool useScaledGradient,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {});
 /** For AVG and SUM pooling
  *  Calculate the gradient w.r.t. to the input of a pooling operation given
@@ -122,7 +122,7 @@ poplar::Tensor poolInputGradient(poplar::Graph &graph, const PoolParams &params,
  * \param fwdChansPerGroup  Used in creating the output tensor
  * \param pooledGradient    Gradients to the pooling operation
  * \param prog              Program sequence to append the operation to
- * \param debugPrefix       Debug name for the operation
+ * \param debugContext      Optional debug information.
  * \param options           Pooling options. See pool().
  * \return                  A tensor with the results of the pooling operation
  */
@@ -130,7 +130,7 @@ poplar::Tensor poolInputGradient(poplar::Graph &graph, const PoolParams &params,
                                  const unsigned fwdChansPerGroup,
                                  const poplar::Tensor &pooledGradient,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {});
 
 } // namespace pooling

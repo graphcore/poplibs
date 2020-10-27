@@ -87,13 +87,13 @@ struct ReduceParams {
 /// \param outType The output type of the reduce operation.
 /// \param dims The dimensions to reduce in.
 /// \param prog The program sequence to add the operation to.
-/// \param debugPrefix Identifying prefix for debugging information.
+/// \param debugContext Optional debug information.
 ///
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {});
 
 /// \copybrief reduce
@@ -104,7 +104,7 @@ poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {});
 
 /// \copybrief reduce
@@ -118,7 +118,7 @@ void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Tensor &out,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {});
 
 /// \copybrief reduce
@@ -146,20 +146,20 @@ poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Type &outType,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {});
 
 poplar::Tensor reduce(poplar::Graph &graph, const poplar::Tensor &in,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {});
 
 void reduceWithOutput(poplar::Graph &graph, const poplar::Tensor &in,
                       const poplar::Tensor &out,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<poplar::ComputeSet> &css,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {});
 /// @}
 

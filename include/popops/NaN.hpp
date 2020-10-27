@@ -21,11 +21,11 @@ namespace popops {
  *  \param graph        The graph to add the tensor and any vertices to.
  *  \param src          The input tensor, the type must be floating point.
  *  \param prog         Sequence to add programs to, which perform the check.
- *  \param debugPrefix  Optional debug prefix for programs/variables.
+ *  \param debugContext Optional debug information.
  */
 poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

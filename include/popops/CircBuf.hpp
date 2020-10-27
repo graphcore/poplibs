@@ -25,31 +25,30 @@ public:
    * \param dataType          Datatype of the tensor elements in buffer.
    * \param size              Size of the circular buffer.
    * \param shape             Shape of the tensor elements in buffer.
-   * \param debugPrefix       Prefix of the circular buffer tensor,
-   *                          for debugging.
+   * \param debugContext      Optional debug information.
    */
   CircBuf(poplar::Graph &graph, const poplar::Type &dataType, unsigned size,
           const std::vector<std::size_t> &shape,
-          const std::string &debugPrefix = "");
+          const poplar::DebugContext &debugContext = {});
 
   /** Return elements \p i entries old. \p i must be less \p size.
    *
    * \param i             Index into the circular buffer.
    * \param seq           Program to add the operation to.
-   * \param debugPrefix   Name of the operation, for debugging.
+   * \param debugContext  Optional debug information.
    * \return              Tensor returned from the circular buffer.
    */
   poplar::Tensor prev(unsigned i, poplar::program::Sequence &seq,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
   /** Append an element to the end of the circular buffer.
    *
    * \param t             Tensor to append to the circular buffer
    * \param seq           Program to add the operation to.
-   * \param debugPrefix   Name of the operation, for debugging.
+   * \param debugContext  Optional debug information.
    */
   void add(poplar::Tensor t, poplar::program::Sequence &seq,
-           const std::string &debugPrefix = "");
+           const poplar::DebugContext &debugContext = {});
 
   /// Tensor representing the index into the circular buffer.
   poplar::Tensor getIndex() const;

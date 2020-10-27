@@ -42,8 +42,7 @@ namespace popops {
  *                        calculated before comparison to the \p levels data.
  * \param prog            A sequence program to which the code performing the
  *                        histogram will be appended.
- * \param debugPrefix     A debug prefix to add to any tensors/compute set
- *                        names.
+ * \param debugContext    Optional debug information.
  * \param options         A list of options to control the operation of the
  *                        histogram function.
  *
@@ -56,7 +55,7 @@ namespace popops {
 poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
                          const poplar::Tensor &levels, bool absoluteOfInput,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {});
 
 /** Fill a tensor with a histogram representing the statistics of the input
@@ -84,14 +83,13 @@ poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
  *                        calculated before comparison to the \p levels data.
  * \param prog            A sequence program to which the code performing the
  *                        histogram will be appended.
- * \param debugPrefix     A debug prefix to add to any tensors/compute set
- *                        names.
+ * \param debugContext    Optional debug information.
  */
 void histogram(poplar::Graph &graph, const poplar::Tensor &input,
                poplar::Tensor &output, bool updateOutput,
                const poplar::Tensor &levels, bool absoluteOfInput,
                poplar::program::Sequence &prog,
-               const std::string &debugPrefix = "");
+               const poplar::DebugContext &debugContext = {});
 } // namespace popops
 
 #endif // popops_GatherStatistics_hpp

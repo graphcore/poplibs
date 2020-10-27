@@ -2226,11 +2226,11 @@ fullyConnectedDenseGradWSerialSplits(const Graph &graph, const Type &inputType,
       matMulOptions);
 }
 
-SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
-                                         const FullyConnectedParams &params,
-                                         const std::string &debugName,
-                                         const OptionFlags &optionFlags,
-                                         PlanningCache *cache) {
+SparseTensor createFullyConnectedWeights(
+    Graph &graph, const Type &inputType, const FullyConnectedParams &params,
+    const poplar::DebugContext &debugContext, const OptionFlags &optionFlags,
+    PlanningCache *cache) {
+  const auto debugName = debugContext.getPathName();
   const auto &options = parseOptionFlags(optionFlags);
   logging::popsparse::debug(
       "popsparse::createFullyConnectedWeights: '{}' params={}, options={}",
@@ -2284,9 +2284,10 @@ SparseTensor createFullyConnectedWeights(Graph &graph, const Type &inputType,
 
 Tensor createFullyConnectedInput(Graph &graph, const Type &inputType,
                                  const FullyConnectedParams &params,
-                                 const std::string &debugName,
+                                 const poplar::DebugContext &debugContext,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
+  const auto debugName = debugContext.getPathName();
   const auto &options = parseOptionFlags(optionFlags);
   logging::popsparse::debug(
       "popsparse::createFullyConnectedInput: '{}' params={}, options={}",
@@ -2353,8 +2354,9 @@ static void validateSparseOperandMetaData(const SparseTensor &weights,
 Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                          const Tensor &activations,
                          const FullyConnectedParams &params, Sequence &prog,
-                         const std::string &debugPrefix,
+                         const poplar::DebugContext &debugContext,
                          const OptionFlags &optionFlags, PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   // TODO: Parameter validation - shapes/sizes match given params etc.
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
@@ -2405,9 +2407,10 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
 Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
                            const Tensor &activations,
                            const FullyConnectedParams &params, Sequence &prog,
-                           const std::string &debugPrefix,
+                           const poplar::DebugContext &debugContext,
                            const OptionFlags &optionFlags,
                            PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);
@@ -2473,12 +2476,13 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
 Tensor fullyConnectedSparseGradW(Graph &graph, const Tensor sparsityMetaInfo,
                                  const Tensor &gradA, const Tensor &activations,
                                  const FullyConnectedParams &params,
-                                 Sequence &prog, const std::string &debugPrefix,
+                                 Sequence &prog,
+                                 const poplar::DebugContext &debugContext,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
   // TODO: Should this take meta-data for sparse tensor for validation?
   // Validation is the only purpose this serves right now.
-
+  const auto debugPrefix = debugContext.getPathName();
   const auto &target = graph.getTarget();
   const auto &inputType = activations.elementType();
   const auto &options = parseOptionFlags(optionFlags);

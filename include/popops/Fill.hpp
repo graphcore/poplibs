@@ -69,12 +69,12 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
  *  \param t             The tensor whose elements are to be filled.
  *  \param prog          Poplar program sequence to append the operation onto.
  *  \param fillValue     The value to fill \p t with.
- *  \param debugPrefix   Name of the operation, for debugging.
+ *  \param debugContext  Optional debug information.
  */
 template <typename FillValueType>
 void fill(poplar::Graph &graph, const poplar::Tensor &t,
           poplar::program::Sequence &prog, FillValueType fillValue,
-          const std::string &debugPrefix = "");
+          const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

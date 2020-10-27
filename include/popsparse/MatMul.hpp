@@ -43,19 +43,17 @@ class MatMulParams;
  * \param graph     The Poplar graph.
  * \param inputType The type for inputs to the operation.
  * \param params    Parameters for the matrix multiplication.
- * \param debugName Optional debug name for the tensors added to the graph.
+ * \param debugContext Optional debug information.
  * \param options   Implementation options for the matrix multiplication.
  * \param cache     Optional pointer to planning cache to use.
  *
  * \returns         A sparse tensor with sparse representation of left-hand
  *                  operand for the matrix multiplication.
  */
-SparseTensor createSparseDenseMatMulLHS(poplar::Graph &graph,
-                                        const poplar::Type &inputType,
-                                        const MatMulParams &params,
-                                        const std::string &debugName = "",
-                                        const poplar::OptionFlags &options = {},
-                                        PlanningCache *cache = nullptr);
+SparseTensor createSparseDenseMatMulLHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const MatMulParams &params, const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /**
  * Create a dense tensor that is used as the right-hand operand in a
@@ -64,7 +62,7 @@ SparseTensor createSparseDenseMatMulLHS(poplar::Graph &graph,
  * \param graph     The Poplar graph.
  * \param inputType The type for inputs to the operation.
  * \param params    Parameters for the matrix multiplication.
- * \param debugName Optional debug name for the tensors added to the graph.
+ * \param debugContext Optional debug information.
  * \param options   Implementation options for the matrix multiplication.
  * \param cache     Optional pointer to planning cache to use.
  *
@@ -73,7 +71,7 @@ SparseTensor createSparseDenseMatMulLHS(poplar::Graph &graph,
  */
 poplar::Tensor createSparseDenseMatMulRHS(
     poplar::Graph &graph, const poplar::Type &inputType,
-    const MatMulParams &params, const std::string &debugName = "",
+    const MatMulParams &params, const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /**
@@ -108,8 +106,7 @@ poplar::Tensor createSparseDenseMatMulRHS(
  *                      before multiplying.
  * \param transposeRHS  Whether or not to transpose the right-hand operand
  *                      before multiplying.
- * \param debugPrefix   Optional debug prefix added to compute set and tensor
- *                      names.
+ * \param debugContext  Optional debug information.
  * \param options       Implementation options for the matrix multiplication.
  * \param cache         Optional pointer to planning cache to use.
  *
@@ -120,7 +117,7 @@ poplar::Tensor createSparseDenseMatMulRHS(
 poplar::Tensor sparseDenseMatMul(
     poplar::Graph &graph, const SparseTensor &lhs, const poplar::Tensor &rhs,
     poplar::program::Sequence &prog, bool transposeLHS = false,
-    bool transposeRHS = false, const std::string &debugPrefix = "",
+    bool transposeRHS = false, const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 } // end namespace dynamic

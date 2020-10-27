@@ -89,7 +89,8 @@ static inline void permute(const std::vector<std::vector<std::size_t>> &params,
 Tensor createPartitionableTensor(Graph &graph, const Type &type,
                                  const std::vector<std::size_t> &shape,
                                  const std::vector<std::size_t> &nPartitions,
-                                 const std::string &debugName) {
+                                 const poplar::DebugContext &debugContext) {
+  const auto debugName = debugContext.getPathName();
   logging::poputil::debug("createPartitionableTensor '{}' with shape={} and "
                           "nPartitions={}",
                           debugName, shape, nPartitions);

@@ -105,7 +105,8 @@ std::size_t intervalSequenceNumElements(
 /// tile mapping as the original tensor.
 poplar::Tensor
 duplicate(poplar::Graph &graph, const poplar::Tensor &in,
-          poplar::program::Sequence &p, const std::string &name = "",
+          poplar::program::Sequence &p,
+          const poplar::DebugContext &debugContext = {},
           poplar::TensorCloneMethod method =
               poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 

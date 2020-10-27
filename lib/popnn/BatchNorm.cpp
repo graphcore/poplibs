@@ -28,8 +28,10 @@ namespace bn {
 std::pair<Tensor, Tensor>
 batchNormStatistics(Graph &graph, const Tensor acts, float eps, Sequence &prog,
                     bool unbiasedVarEstimate, bool stableAlgo,
-                    const Type &partialsType, const std::string &debugPrefix,
+                    const Type &partialsType,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(acts);
   return poplin::normStatistics(graph, acts, eps, prog, unbiasedVarEstimate,
                                 stableAlgo, partialsType, debugPrefix);
@@ -37,8 +39,9 @@ batchNormStatistics(Graph &graph, const Tensor acts, float eps, Sequence &prog,
 
 Tensor batchNormWhiten(Graph &graph, const Tensor &acts_, const Tensor &mean,
                        const Tensor &iStdDev, Sequence &prog,
-                       const std::string &debugPrefix,
+                       const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto rank = acts_.rank();
   auto acts = preProcessNormActs(acts_);
   auto whitenedActs =
@@ -46,12 +49,12 @@ Tensor batchNormWhiten(Graph &graph, const Tensor &acts_, const Tensor &mean,
   return postProcessNormActs(whitenedActs, rank);
 }
 
-std::pair<Tensor, Tensor> batchNormalise(Graph &graph, const Tensor &acts,
-                                         const Tensor &gamma,
-                                         const Tensor &beta, const Tensor &mean,
-                                         const Tensor &iStdDev, Sequence &prog,
-                                         const std::string &debugPrefix,
-                                         const poplar::OptionFlags &options) {
+std::pair<Tensor, Tensor>
+batchNormalise(Graph &graph, const Tensor &acts, const Tensor &gamma,
+               const Tensor &beta, const Tensor &mean, const Tensor &iStdDev,
+               Sequence &prog, const poplar::DebugContext &debugContext,
+               const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto rank = acts.rank();
   checkTensorShape(acts);
   auto preProcessActs = preProcessNormActs(acts);
@@ -65,8 +68,9 @@ std::pair<Tensor, Tensor> batchNormalise(Graph &graph, const Tensor &acts,
 
 Tensor batchNormalise(Graph &graph, const Tensor &acts,
                       const Tensor &combinedMultiplicand, const Tensor &addend,
-                      Sequence &prog, const std::string &debugPrefix,
+                      Sequence &prog, const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto rank = acts.rank();
   checkTensorShape(acts);
   auto preProcessedActs = preProcessNormActs(acts);
@@ -75,20 +79,26 @@ Tensor batchNormalise(Graph &graph, const Tensor &acts,
   return postProcessNormActs(actsNormalised, rank);
 }
 
-std::pair<Tensor, Tensor> batchNormParamGradients(
-    Graph &graph, const Tensor &actsWhitened, const Tensor &gradsIn,
-    Sequence &prog, const Type &partialsType, const std::string &debugPrefix,
-    const poplar::OptionFlags &options) {
+std::pair<Tensor, Tensor>
+batchNormParamGradients(Graph &graph, const Tensor &actsWhitened,
+                        const Tensor &gradsIn, Sequence &prog,
+                        const Type &partialsType,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(gradsIn);
   checkTensorShape(actsWhitened);
   return poplin::normParamGradients(graph, actsWhitened, gradsIn, prog,
                                     partialsType, debugPrefix);
 }
 
-std::pair<Tensor, Tensor> batchNormParamGradients(
-    Graph &graph, const Tensor &acts, const Tensor &gradsIn, const Tensor &mean,
-    const Tensor &iStdDev, Sequence &prog, const Type &partialsType,
-    const std::string &debugPrefix, const poplar::OptionFlags &options) {
+std::pair<Tensor, Tensor>
+batchNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
+                        const Tensor &mean, const Tensor &iStdDev,
+                        Sequence &prog, const Type &partialsType,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(gradsIn);
   checkTensorShape(acts);
   auto actsWhitened =
@@ -101,8 +111,9 @@ Tensor batchNormGradients(Graph &graph, const Tensor &actsWhitened_,
                           const Tensor &gradsIn_, const Tensor &iStdDev,
                           const Tensor &gamma, Sequence &prog,
                           const Type &partialsType,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto rank = actsWhitened_.rank();
   checkTensorShape(actsWhitened_);
   checkTensorShape(gradsIn_);
@@ -119,8 +130,9 @@ Tensor batchNormGradients(Graph &graph, const Tensor &acts_,
                           const Tensor &gradsIn_, const Tensor &mean,
                           const Tensor &iStdDev, const Tensor &gamma,
                           Sequence &prog, const Type &partialsType,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(acts_);
   auto actsWhitened =
       batchNormWhiten(graph, acts_, mean, iStdDev, prog, debugPrefix);
@@ -131,8 +143,9 @@ Tensor batchNormGradients(Graph &graph, const Tensor &acts_,
 void batchNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           const Tensor &betaDelta, float scale, Tensor &gamma,
                           Tensor &beta, Sequence &prog,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
   // Do update of beta and gamma together
   scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta), scale,
@@ -142,8 +155,9 @@ void batchNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
 void batchNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           const Tensor &betaDelta, const Tensor &scale,
                           Tensor &gamma, Tensor &beta, Sequence &prog,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const std::string fnPrefix = debugPrefix + "/BN/paramUpdate";
   // Do update of beta and gamma together
   scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta), scale,

@@ -11,7 +11,8 @@ using namespace poputil;
 namespace popops {
 
 Tensor allTrue(Graph &graph, Tensor in, Sequence &prog,
-               const std::string &debugPrefix) {
+               const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto inType = in.elementType();
 
   if (inType != BOOL) {

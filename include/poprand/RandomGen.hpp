@@ -35,7 +35,7 @@ namespace poprand {
  *  \param scale            Scales the output tensor. This is typically the
  *                          inverse of the dropout probability, (1 / P(1)).
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  *
  *  \returns A tensor with elements randomly set to either zero or the scaled
  *           input value.
@@ -44,7 +44,7 @@ poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
                        const uint32_t seedModifier, const poplar::Tensor &input,
                        const poplar::Tensor &reference, double keepProbability,
                        double scale, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "");
+                       const poplar::DebugContext &debugContext = {});
 
 /** Apply shaped dropout to a tensor.
  *
@@ -72,7 +72,7 @@ poplar::Tensor dropout(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param scale            Scales the output tensor. This is typically the
  *                          inverse of the dropout probability, (1 / P(1)).
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  *
  *  \returns A tensor with elements randomly set to either zero or the scaled
  *           input value.
@@ -83,7 +83,7 @@ poplar::Tensor shapedDropout(poplar::Graph &graph, const poplar::Tensor *seed,
                              const poplar::Tensor &reference,
                              double keepProbability, double scale,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "");
+                             const poplar::DebugContext &debugContext = {});
 
 /** Uniform distribution in a given interval with \p maxVal > \p minVal.
  *
@@ -108,7 +108,7 @@ poplar::Tensor shapedDropout(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param minVal           The minimum value of the distribution.
  *  \param maxVal           The maximum value of the distribution.
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  *
  *  \returns A tensor with elements having a uniform distribution of random
  *           values.
@@ -118,7 +118,7 @@ poplar::Tensor uniform(poplar::Graph &graph, const poplar::Tensor *seed,
                        uint32_t seedModifier, const poplar::Tensor &reference,
                        const poplar::Type &outType, double minVal,
                        double maxVal, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "");
+                       const poplar::DebugContext &debugContext = {});
 
 /** Bernoulli distribution which has the value 1 with the specified probability.
  *
@@ -136,7 +136,7 @@ poplar::Tensor uniform(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          or \c int.
  *  \param prob             Probability of an element being 1.
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  *
  *  \returns A tensor with elements randomly set to either zero or the scaled
  *           input value.
@@ -145,7 +145,7 @@ poplar::Tensor bernoulli(poplar::Graph &graph, const poplar::Tensor *seed,
                          uint32_t seedModifier, const poplar::Tensor &reference,
                          const poplar::Type &outType, double prob,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "");
+                         const poplar::DebugContext &debugContext = {});
 
 /** Normal distribution with given mean and standard deviation.
  *
@@ -165,7 +165,7 @@ poplar::Tensor bernoulli(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param mean             The mean value of the distribution.
  *  \param stdDev           The standard deviation of the distribution.
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  *
  *  \returns A tensor with elements randomly set to either zero or the scaled
  *           input value.
@@ -174,7 +174,7 @@ poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
                       uint32_t seedModifier, const poplar::Tensor &reference,
                       const poplar::Type &outType, double mean, double stdDev,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 /** Truncated normal distribution.
  *
@@ -198,7 +198,7 @@ poplar::Tensor normal(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \param alpha            Defines the minimum and maximum values of the
  *                          distribution.
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  *
  *  \returns A tensor with elements randomly set to either zero or the scaled
  *           input value.
@@ -209,7 +209,7 @@ poplar::Tensor truncatedNormal(poplar::Graph &graph, const poplar::Tensor *seed,
                                const poplar::Type &outType, double mean,
                                double stdDev, double alpha,
                                poplar::program::Sequence &prog,
-                               const std::string &debugPrefix = "");
+                               const poplar::DebugContext &debugContext = {});
 
 /** Sets the random number generator seed on all tiles.
  *
@@ -218,11 +218,11 @@ poplar::Tensor truncatedNormal(poplar::Graph &graph, const poplar::Tensor *seed,
  *                          on every tile.
  *  \param seedModifier     Provides a further modification of the seed value.
  *  \param prog             The program to add this operation to.
- *  \param debugPrefix      A prefix string for debugging.
+ *  \param debugContext     Optional debug information.
  */
 void setSeed(poplar::Graph &graph, const poplar::Tensor &masterSeed,
              uint32_t seedModifier, poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
+             const poplar::DebugContext &debugContext = {});
 
 } // namespace poprand
 

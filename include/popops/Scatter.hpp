@@ -35,7 +35,7 @@ namespace popops {
  *                                      \p scatterDimsToOperandDims[i]. It has
  *                                      to be one-to-one and total.
  *  \param prog                         The program to be extended.
- *  \param debugPrefix                  The prefix prepended to debugging info.
+ *  \param debugContext                 Optional debug information.
  *
  *  \note This is a near direct port of
  * https://www.tensorflow.org/xla/operation_semantics#scatter from
@@ -47,7 +47,7 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<std::size_t> insertWindowDims,
              std::vector<unsigned> scatterDimsToOperandDims,
              poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
+             const poplar::DebugContext &debugContext = {});
 
 using UpdateComputationFunc = std::function<poplar::Tensor(
     poplar::Graph &, poplar::Tensor &, poplar::Tensor &,
@@ -79,7 +79,7 @@ using UpdateComputationFunc = std::function<poplar::Tensor(
  *                           values in the input tensor and the updates during
  *                           scatter.
  *  \param prog                         The program to be extended.
- *  \param debugPrefix                  The prefix prepended to debugging info.
+ *  \param debugContext                 Optional debug information.
  *
  *  \note The first tensor parameter that is passed into the updateComputation
  *        will always be the current value from the operand tensor and the
@@ -94,7 +94,7 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<unsigned> scatterDimsToOperandDims,
              UpdateComputationFunc &updateComputation,
              poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
+             const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

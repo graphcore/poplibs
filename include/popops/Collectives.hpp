@@ -84,7 +84,7 @@ struct Chunks {
  *                 identically to the others across the IPUs within the rank.
  * \param op The reduction operator (for example, poplar::Operation::ADD).
  * \param prog The program sequence to add operations to.
- * \param debugPrefix String used as a prefix for compute sets.
+ * \param debugContext Optional debug information.
  * \param options Collective options (not currently used).
  * \return A vector of chunks, where chunk \c i resides on IPU \c i.
  *        The chunks may have different numbers of elements (for example, when
@@ -92,7 +92,7 @@ struct Chunks {
  */
 Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
                      popops::Operation op, poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "",
+                     const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {});
 
 /** Broadcast data distributed over all IPUs. This function assumes
@@ -101,7 +101,7 @@ Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
  *  \param graph The graph.
  *  \param toGather The chunks to gather.
  *  \param prog The program sequence to add operations to.
- *  \param debugPrefix String used as a prefix for compute sets.
+ *  \param debugContext Optional debug information.
  *  \param options Collective options. See reduceScatter().
  *  \return A 2D tensor that contains a copy of the data for each IPU.
  *          Index \c i in the outermost dimension of the result is mapped
@@ -109,7 +109,7 @@ Chunks reduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
  */
 poplar::Tensor allGather(poplar::Graph &graph, const Chunks &toGather,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {});
 
 /** Perform an all-reduce operation on the specified tensor. This operation
@@ -125,7 +125,7 @@ poplar::Tensor allGather(poplar::Graph &graph, const Chunks &toGather,
  *                  identically to the others across the ipus within the rank.
  *  \param op The reduction operator (for example, poplar::Operation::ADD).
  *  \param prog The program sequence to add operations to.
- *  \param debugPrefix String used as a prefix for compute sets.
+ *  \param debugContext Optional debug information.
  *  \param options Collective options. See reduceScatter().
  *  \return A tensor with the same shape as \p toReduce, where the innermost
  *          dimension is the result of the reduction and the outermost dimension
@@ -133,7 +133,7 @@ poplar::Tensor allGather(poplar::Graph &graph, const Chunks &toGather,
  */
 poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          popops::Operation op, poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {});
 
 /** Perform an all-reduce operation on the specified replicated tensor.
@@ -149,16 +149,15 @@ poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
  *  \param data The replicated tensor to reduce.
  *  \param op The reduction operator (for example, poplar::Operation::ADD).
  *  \param prog The program sequence to add operations to.
- *  \param debugPrefix String used as a prefix for compute sets.
+ *  \param debugContext Optional debug information.
  *  \param options Collective options. See reduceScatter().
  *  \return A replicated tensor with the reduction of \p data.
  */
-poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
-                                   const poplar::Tensor &data,
-                                   popops::Operation op,
-                                   poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix = "",
-                                   const poplar::OptionFlags &options = {});
+poplar::Tensor
+replicatedAllReduce(poplar::Graph &graph, const poplar::Tensor &data,
+                    popops::Operation op, poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {},
+                    const poplar::OptionFlags &options = {});
 
 /** Perform an all-reduce operation on the specified replicated tensor.
  *  This operation reduces across the tensors that the replicated tensor is a
@@ -177,15 +176,14 @@ poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
  *  \param output The result of the reduction of \p data.
  *  \param op The reduction operator (for example, poplar::Operation::ADD).
  *  \param prog The program sequence to add operations to.
- *  \param debugPrefix String used as a prefix for compute sets.
+ *  \param debugContext Optional debug information.
  *  \param options Collective options. See reduceScatter().
  */
-void replicatedAllReduceWithOutput(poplar::Graph &graph,
-                                   const poplar::Tensor &data,
-                                   poplar::Tensor &output, popops::Operation op,
-                                   poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix = "",
-                                   const poplar::OptionFlags &options = {});
+void replicatedAllReduceWithOutput(
+    poplar::Graph &graph, const poplar::Tensor &data, poplar::Tensor &output,
+    popops::Operation op, poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {});
 
 /** Perform an all-reduce operation on the specified replicated tensor.
  *  This operation reduces across the tensors the replicated tensor is a handle
@@ -200,13 +198,13 @@ void replicatedAllReduceWithOutput(poplar::Graph &graph,
  *  \param data The replicated tensor to reduce and written to.
  *  \param op The reduction operator (for example, `Operation::ADD`)
  *  \param prog The program sequence to add operations to.
- *  \param debugPrefix String used as a prefix for compute sets.
+ *  \param debugContext Optional debug information.
  *  \param options Collective options. See reduceScatter().
  */
 void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
                                 popops::Operation op,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix = "",
+                                const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {});
 
 /** Perform an all-reduce operation on the specified replicated tensor.
@@ -216,13 +214,12 @@ void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
  * **Deprecated:** This function is deprecated and will be removed in a future
  * release. Use gcl::allReduce instead.
  */
-poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
-                                   poplar::Graph &parentGraph,
-                                   const poplar::Tensor &data,
-                                   popops::Operation op,
-                                   poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix = "",
-                                   const poplar::OptionFlags &options = {});
+poplar::Tensor
+replicatedAllReduce(poplar::Graph &graph, poplar::Graph &parentGraph,
+                    const poplar::Tensor &data, popops::Operation op,
+                    poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {},
+                    const poplar::OptionFlags &options = {});
 
 /** Reduce the replicated rank-1 tensor \p toReduce with the result scattered
  *  across the replicas.
@@ -263,12 +260,11 @@ poplar::Tensor replicatedAllReduce(poplar::Graph &graph,
  * **Deprecated:** This function is deprecated and will be removed in a future
  * release. Use gcl::reduceScatter instead.
  */
-poplar::Tensor replicatedReduceScatter(poplar::Graph &graph,
-                                       const poplar::Tensor &toReduce,
-                                       popops::Operation op,
-                                       poplar::program::Sequence &prog,
-                                       const std::string &debugPrefix = "",
-                                       const poplar::OptionFlags &options = {});
+poplar::Tensor
+replicatedReduceScatter(poplar::Graph &graph, const poplar::Tensor &toReduce,
+                        popops::Operation op, poplar::program::Sequence &prog,
+                        const poplar::DebugContext &debugContext = {},
+                        const poplar::OptionFlags &options = {});
 
 /** Gather the replicated tensor \p toGather and return the result so each
  *  replica will have a copy of **all** other replicas' \p toGather tensors. For
@@ -292,11 +288,11 @@ poplar::Tensor replicatedReduceScatter(poplar::Graph &graph,
  * **Deprecated:** This function is deprecated and will be removed in a future
  * release. Use gcl::allGather instead.
  */
-poplar::Tensor replicatedAllGather(poplar::Graph &graph,
-                                   const poplar::Tensor &toGather,
-                                   poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix = "",
-                                   const poplar::OptionFlags &options = {});
+poplar::Tensor
+replicatedAllGather(poplar::Graph &graph, const poplar::Tensor &toGather,
+                    poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {},
+                    const poplar::OptionFlags &options = {});
 
 /** Perform an all-to-all exchange of the elements of the input tensor based on
  *  replica ID. The shape of the input must have the number of replicas in the
@@ -325,7 +321,7 @@ poplar::Tensor replicatedAllGather(poplar::Graph &graph,
 poplar::Tensor
 allToAllPersonalizedExchange(poplar::Graph &graph, const poplar::Tensor &input,
                              poplar::program::Sequence &sequence,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {});
 
 } // End namespace popops

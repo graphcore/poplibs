@@ -14,7 +14,8 @@ namespace logging = poplibs_support::logging;
 
 poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix) {
+                      const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("hasNaN src={}, name={}", src.shape(), debugPrefix);
 
   const auto cs = graph.addComputeSet(debugPrefix + "/hasNaN");

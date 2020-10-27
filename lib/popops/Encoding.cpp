@@ -174,8 +174,8 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
 } // Namespace
 
 void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
-                  Sequence &prog, const std::string &debugPrefix) {
-
+                  Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   // Mark "on" and "off" as null as we want to go down the default path which
   // has them hardcoded to 1 and 0 respectively.
   encodeOneHotBase(graph, indices, encoded, prog, nullptr, nullptr,
@@ -184,7 +184,8 @@ void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
 
 void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
                   Sequence &prog, const Tensor &on, const Tensor &off,
-                  const std::string &debugPrefix) {
+                  const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   encodeOneHotBase(graph, indices, encoded, prog, &on, &off, debugPrefix);
 }
 
@@ -250,7 +251,8 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
 }
 
 void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
-          const std::string &debugPrefix) {
+          const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (t.elementType() != UNSIGNED_INT) {
     throw poputil::poplibs_error("Tensor element type doesn't match start "
                                  "integer type");
@@ -259,7 +261,8 @@ void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
 }
 
 void iota(Graph &graph, const Tensor &t, int startInteger, Sequence &prog,
-          const std::string &debugPrefix) {
+          const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (t.elementType() != INT) {
     throw poputil::poplibs_error("Tensor element type doesn't match start "
                                  "integer type");

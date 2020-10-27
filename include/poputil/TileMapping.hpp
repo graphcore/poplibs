@@ -337,15 +337,15 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
  *                    size of the created tensor.
  * \param ditherMapping Enable dithering to be applied to the mapping of the
  *                    output tensor.
- * \param name        Name of the tensor for debugging.
+ * \param debugContext Optional debug information.
  *
  * \returns           The created output tensor.
  */
-poplar::Tensor createBroadcastOperand(poplar::Graph &graph,
-                                      const poplar::Tensor &fullTensor,
-                                      const poplar::Type &type, unsigned dim,
-                                      bool ditherMapping = false,
-                                      const std::string &name = "");
+poplar::Tensor
+createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
+                       const poplar::Type &type, unsigned dim,
+                       bool ditherMapping = false,
+                       const poplar::DebugContext &debugContext = {});
 
 } // namespace poputil
 

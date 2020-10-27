@@ -528,8 +528,9 @@ void reduceWithOutputProgOrCss(
 void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       const std::vector<std::size_t> &dims, ReduceParams params,
                       std::vector<ComputeSet> &css,
-                      const std::string &debugPrefix,
+                      const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
                             css, debugPrefix, options);
@@ -537,8 +538,10 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
 
 void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       const std::vector<std::size_t> &dims, ReduceParams params,
-                      program::Sequence &prog, const std::string &debugPrefix,
+                      program::Sequence &prog,
+                      const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
                             prog, debugPrefix, options);
@@ -546,24 +549,29 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
 
 Tensor reduce(Graph &graph, const Tensor &in,
               const std::vector<std::size_t> &dims, ReduceParams params,
-              program::Sequence &prog, const std::string &debugPrefix,
+              program::Sequence &prog, const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   return reduce(graph, in, in.elementType(), dims, params, prog, debugPrefix,
                 options);
 }
 
 Tensor reduce(Graph &graph, const Tensor &in,
               const std::vector<std::size_t> &dims, ReduceParams params,
-              std::vector<ComputeSet> &css, const std::string &debugPrefix,
+              std::vector<ComputeSet> &css,
+              const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   return reduce(graph, in, in.elementType(), dims, params, css, debugPrefix,
                 options);
 }
 
 Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
               const std::vector<std::size_t> &dims, ReduceParams params,
-              std::vector<ComputeSet> &css, const std::string &debugPrefix,
+              std::vector<ComputeSet> &css,
+              const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");
@@ -575,8 +583,9 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
 
 Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
               const std::vector<std::size_t> &dims, ReduceParams params,
-              program::Sequence &prog, const std::string &debugPrefix,
+              program::Sequence &prog, const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");

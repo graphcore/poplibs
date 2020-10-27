@@ -144,7 +144,7 @@ public:
  *                        sparsity mask, the matrix size, the block size,
  *                        and the data type.
  *
- * \param name            The debug name of the created matrix.
+ * \param debugContext    Optional debug information.
  *
  * \param options         matmul options, see bsMatmul for details
  *
@@ -160,7 +160,7 @@ public:
  */
 poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
-                                      const std::string &name,
+                                      const poplar::DebugContext &debugContext,
                                       const poplar::OptionFlags &options = {});
 
 /**
@@ -173,7 +173,7 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
  *                        sparsity mask, the matrix size, the block size,
  *                        and the data type.
  *
- * \param name            The debug name of the created matrix.
+ * \param debugContext    Optional debug information.
  *
  * \param options         matmul options, see bsMatmul for details
  *
@@ -189,7 +189,7 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
  */
 poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
-                                      const std::string &name,
+                                      const poplar::DebugContext &debugContext,
                                       const poplar::OptionFlags &options = {});
 
 /* This function multiplies the left-hand matrix by the right-hand matrix.
@@ -240,8 +240,7 @@ poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
  *                          if it is "strip", the graph is created for columns
  *                          or rows.
  *
- * \param debugPrefix     A debug prefix added to compute set and tensor
- *                        names.
+ * \param debugContext    Optional debug information.
  * \returns               The tensor holding the result of the
  *                        multiplication. This tensor will be created, added to
  *                        the graph and mapped to tiles.
@@ -254,7 +253,7 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         const poplar::Tensor &lhsMatrix,
                         const poplar::Tensor &rhsMatrix,
                         const poplar::OptionFlags &options = {},
-                        const std::string &debugPrefix = "");
+                        const poplar::DebugContext &debugContext = {});
 
 } // namespace experimental
 } // namespace popsparse

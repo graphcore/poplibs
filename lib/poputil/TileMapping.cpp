@@ -187,11 +187,12 @@ bool dimIsSplitOverIPUs(const poplar::Graph &graph, const poplar::Tensor &t,
   return false;
 }
 
-poplar::Tensor createBroadcastOperand(poplar::Graph &graph,
-                                      const poplar::Tensor &fullTensor,
-                                      const poplar::Type &type, unsigned dim,
-                                      bool ditherMapping,
-                                      const std::string &name) {
+poplar::Tensor
+createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
+                       const poplar::Type &type, unsigned dim,
+                       bool ditherMapping,
+                       const poplar::DebugContext &debugContext) {
+  const auto name = debugContext.getPathName();
   assert(dim < fullTensor.rank());
   const auto &target = graph.getTarget();
   auto t = fullTensor.dimRoll(dim, fullTensor.rank() - 1);

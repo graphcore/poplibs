@@ -62,7 +62,7 @@ std::vector<GroupingInfo> detectDimGroupings(const poplar::Graph &graph,
  *  \param shape        The shape of the returned tensor.
  *  \param nPartitions  The number of partitions the shape will be partitioned
  *                      into in each dimension.
- *  \param debugName    The debug name associated with the returned tensor.
+ *  \param debugContext Optional debug information.
  *
  *  \return A tensor with the given shape where each partition is contiguous.
  * \throw poputil::poplibs_error If the size of \p shape and \p nPartitions are
@@ -72,7 +72,7 @@ poplar::Tensor
 createPartitionableTensor(poplar::Graph &graph, const poplar::Type &type,
                           const std::vector<std::size_t> &shape,
                           const std::vector<std::size_t> &nPartitions,
-                          const std::string &debugName = "");
+                          const poplar::DebugContext &debugContext = {});
 
 /** Iterate a function over the partitions of a tensor.
  *

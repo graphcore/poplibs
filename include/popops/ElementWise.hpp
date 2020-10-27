@@ -43,9 +43,7 @@ namespace popops {
  *  \param prog    The sequence to extend with the execution of conversion.
  *  \param dstType The type of the tensor to be output. Must be \c HALF
  *                 or equal to the input type.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *
  *  \returns       A tensor where each element is the inverse of standard
  *  deviation. Each element is the result of `b = sqrt(1 / a)`, where \c a and
@@ -54,19 +52,18 @@ namespace popops {
  *
  * @{
  */
-poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,
-                                   const poplar::Tensor &src,
-                                   const poplar::Tensor &epsilon,
-                                   poplar::program::Sequence &prog,
-                                   const poplar::Type dstType = poplar::HALF,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &src,
+                    const poplar::Tensor &epsilon,
+                    poplar::program::Sequence &prog,
+                    const poplar::Type dstType = poplar::HALF,
+                    const poplar::DebugContext &debugContext = {});
 
-poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,
-                                   const poplar::Tensor &src,
-                                   const float epsilon,
-                                   poplar::program::Sequence &prog,
-                                   const poplar::Type dstType = poplar::HALF,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &src,
+                    const float epsilon, poplar::program::Sequence &prog,
+                    const poplar::Type dstType = poplar::HALF,
+                    const poplar::DebugContext &debugContext = {});
 /** @} */
 
 /** Convert inverse standard deviation to variance.
@@ -80,9 +77,7 @@ poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,
  *  \param prog    The sequence to extend with the execution of conversion.
  *  \param dstType The type of the tensor to be output. Must be \c FLOAT
  *                 or equal to the input type.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *
  *  \returns       A tensor where each element is the variance. Each element is
  *  the result of `b = (1 / a) ^ 2`, where \c a and \c b are the corresponding
@@ -90,19 +85,18 @@ poplar::Tensor varianceToInvStdDev(poplar::Graph &graph,
  *
  * @{
  */
-poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
-                                   const poplar::Tensor &src,
-                                   const poplar::Tensor &epsilon,
-                                   poplar::program::Sequence &prog,
-                                   const poplar::Type dstType = poplar::FLOAT,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &src,
+                    const poplar::Tensor &epsilon,
+                    poplar::program::Sequence &prog,
+                    const poplar::Type dstType = poplar::FLOAT,
+                    const poplar::DebugContext &debugContext = {});
 
-poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
-                                   const poplar::Tensor &src,
-                                   const float epsilon,
-                                   poplar::program::Sequence &prog,
-                                   const poplar::Type dstType = poplar::FLOAT,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &src,
+                    const float epsilon, poplar::program::Sequence &prog,
+                    const poplar::Type dstType = poplar::FLOAT,
+                    const poplar::DebugContext &debugContext = {});
 /** @} */
 
 /** Map an expression across tensors.
@@ -143,9 +137,7 @@ poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
  *                 poputil::broadcastToMatch()).
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function
+ *  \param debugContext Optional debug information
  *  \param options A list of flags to pass to the expression evaluator.
  *
  *  \returns A tensor containing the elements resulting from the application of
@@ -156,35 +148,35 @@ poplar::Tensor invStdDevToVariance(poplar::Graph &graph,
 poplar::Tensor map(poplar::Graph &graph, const expr::Expr &expr,
                    const std::vector<poplar::Tensor> &ts,
                    poplar::program::Sequence &prog,
-                   const std::string &debugPrefix = "",
+                   const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {});
 
 inline poplar::Tensor map(poplar::Graph &graph, expr::UnaryOpType op,
                           const poplar::Tensor &t,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOp(op, expr::_1), {t}, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOp(op, expr::_1), {t}, prog,
+             debugContext.getPathName(), options);
 }
 
 inline poplar::Tensor map(poplar::Graph &graph, expr::BinaryOpType op,
                           const poplar::Tensor &a, const poplar::Tensor &b,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
                           const poplar::Tensor &a, const poplar::Tensor &b,
                           const poplar::Tensor &c,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   return map(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
-             {a, b, c}, prog, debugPrefix, options);
+             {a, b, c}, prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -195,33 +187,33 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
 void mapInPlace(poplar::Graph &graph, const expr::Expr &expr,
                 const std::vector<poplar::Tensor> &ts,
                 poplar::program::Sequence &prog,
-                const std::string &debugPrefix = "",
+                const poplar::DebugContext &debugContext = {},
                 const poplar::OptionFlags &options = {});
 
 inline void mapInPlace(poplar::Graph &graph, expr::UnaryOpType op,
                        const poplar::Tensor &t, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOp(op, expr::_1), {t}, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::UnaryOp(op, expr::_1), {t}, prog,
+             debugContext.getPathName(), options);
 }
 
 inline void mapInPlace(poplar::Graph &graph, expr::BinaryOpType op,
                        const poplar::Tensor &a, const poplar::Tensor &b,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
                        const poplar::Tensor &a, const poplar::Tensor &b,
                        const poplar::Tensor &c, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
-             {a, b, c}, prog, debugPrefix, options);
+             {a, b, c}, prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -233,9 +225,7 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -245,18 +235,20 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
  */
 inline poplar::Tensor abs(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::ABSOLUTE, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::ABSOLUTE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of abs().
  */
 inline void absInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::ABSOLUTE, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::ABSOLUTE, A, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -266,9 +258,7 @@ inline void absInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -276,18 +266,20 @@ inline void absInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor asin(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::ASIN, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::ASIN, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of asin().
  */
 inline void asinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::ASIN, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::ASIN, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the bitwise NOT operation for each element in \p A.
@@ -296,9 +288,7 @@ inline void asinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -306,20 +296,20 @@ inline void asinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor bitwiseNot(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::BITWISE_NOT, A, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOpType::BITWISE_NOT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of bitwiseNot().
  */
 inline void bitwiseNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::BITWISE_NOT, A, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::UnaryOpType::BITWISE_NOT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the ceiling of each element in \p A.
@@ -328,9 +318,7 @@ inline void bitwiseNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -338,18 +326,20 @@ inline void bitwiseNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor ceil(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::CEIL, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::CEIL, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of ceil().
  */
 inline void ceilInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::CEIL, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::CEIL, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the number of binary leading zeros of each element in \p A.
@@ -360,9 +350,7 @@ inline void ceilInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -371,21 +359,21 @@ inline void ceilInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor
 countLeadingZeros(poplar::Graph &graph, const poplar::Tensor &A,
                   poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "",
+                  const poplar::DebugContext &debugContext = {},
                   const poplar::OptionFlags &options = {}) {
   return map(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of countLeadingZeros().
  */
-inline void countLeadingZerosInPlace(poplar::Graph &graph,
-                                     const poplar::Tensor &A,
-                                     poplar::program::Sequence &prog,
-                                     const std::string &debugPrefix = "",
-                                     const poplar::OptionFlags &options = {}) {
+inline void
+countLeadingZerosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugContext &debugContext = {},
+                         const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 /** Compute the cosine of each element in \p A.
@@ -394,9 +382,7 @@ inline void countLeadingZerosInPlace(poplar::Graph &graph,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -404,18 +390,20 @@ inline void countLeadingZerosInPlace(poplar::Graph &graph,
  */
 inline poplar::Tensor cos(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::COS, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::COS, A, prog, debugContext.getPathName(),
+             options);
 }
 
 /** Update the input tensor with the result of cos().
  */
 inline void cosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::COS, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::COS, A, prog, debugContext.getPathName(),
+             options);
 }
 
 /** Compute the exponential of each element in \p A.
@@ -424,9 +412,7 @@ inline void cosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -434,18 +420,20 @@ inline void cosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor exp(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::EXPONENT, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::EXPONENT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of exp().
  */
 inline void expInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::EXPONENT, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the exponential of each element in \p A minus one.
@@ -454,9 +442,7 @@ inline void expInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -464,20 +450,20 @@ inline void expInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor expm1(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of expm1().
  */
 inline void expm1InPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the floor of each element in \p A.
@@ -486,9 +472,7 @@ inline void expm1InPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -496,18 +480,20 @@ inline void expm1InPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor floor(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::FLOOR, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::FLOOR, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of floor().
  */
 inline void floorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::FLOOR, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::FLOOR, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the inverse of each element in \p A.
@@ -516,9 +502,7 @@ inline void floorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -526,18 +510,20 @@ inline void floorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor inv(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::INVERSE, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::INVERSE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of inv().
  */
 inline void invInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::INVERSE, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::INVERSE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the log base-e of each element in \p A.
@@ -546,9 +532,7 @@ inline void invInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -556,20 +540,20 @@ inline void invInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor log(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::LOGARITHM, A, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOpType::LOGARITHM, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of log().
  */
 inline void logInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::LOGARITHM, A, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::UnaryOpType::LOGARITHM, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the log base-e of each element in \p A plus one.
@@ -578,9 +562,7 @@ inline void logInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -588,20 +570,20 @@ inline void logInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor log1p(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of log1p().
  */
 inline void log1pInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the logical NOT of each element in \p A.
@@ -610,9 +592,7 @@ inline void log1pInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -620,20 +600,20 @@ inline void log1pInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor logicalNot(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of logicalNot().
  */
 inline void logicalNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the negation of each element in \p A.
@@ -642,9 +622,7 @@ inline void logicalNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -652,18 +630,20 @@ inline void logicalNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor neg(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::NEGATE, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::NEGATE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of neg().
  */
 inline void negInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::NEGATE, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::NEGATE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the number of 1 bits in each element of \p A.
@@ -672,9 +652,7 @@ inline void negInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -682,18 +660,20 @@ inline void negInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor popcount(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
-                               const std::string &debugPrefix = "",
+                               const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::POPCOUNT, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::POPCOUNT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of popcount().
  */
 inline void popcountInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::POPCOUNT, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::POPCOUNT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the signum of each element in \p A.
@@ -702,9 +682,7 @@ inline void popcountInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is one of -1, 0 or +1 if the
@@ -713,18 +691,20 @@ inline void popcountInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor signum(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SIGNUM, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::SIGNUM, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of signum().
  */
 inline void signumInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SIGNUM, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::SIGNUM, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the sine of each element in \p A.
@@ -733,9 +713,7 @@ inline void signumInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -743,18 +721,20 @@ inline void signumInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor sin(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SIN, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::SIN, A, prog, debugContext.getPathName(),
+             options);
 }
 
 /** Update the input tensor with the result of sin().
  */
 inline void sinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SIN, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::SIN, A, prog, debugContext.getPathName(),
+             options);
 }
 
 /** Compute the tangent of each element in \p A.
@@ -763,9 +743,7 @@ inline void sinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -773,18 +751,20 @@ inline void sinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor tan(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::TAN, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::TAN, A, prog, debugContext.getPathName(),
+             options);
 }
 
 /** Update the input tensor with the result of tan().
  */
 inline void tanInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::TAN, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::TAN, A, prog, debugContext.getPathName(),
+             options);
 }
 
 /** Compute the hyperbolic tangent of each element in \p A.
@@ -793,9 +773,7 @@ inline void tanInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -803,18 +781,20 @@ inline void tanInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor tanh(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::TANH, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::TANH, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of tanh().
  */
 inline void tanhInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::TANH, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::TANH, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Round each element in \p A.
@@ -823,9 +803,7 @@ inline void tanhInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -833,18 +811,20 @@ inline void tanhInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor round(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::ROUND, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::ROUND, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of round().
  */
 inline void roundInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::ROUND, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::ROUND, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the square-root for each element in \p A.
@@ -853,9 +833,7 @@ inline void roundInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -863,18 +841,20 @@ inline void roundInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor sqrt(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SQRT, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::SQRT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of sqrt().
  */
 inline void sqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SQRT, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::SQRT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the square for each element in \p A.
@@ -883,9 +863,7 @@ inline void sqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -893,18 +871,20 @@ inline void sqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor square(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SQUARE, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::SQUARE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of square().
  */
 inline void squareInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SQUARE, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::SQUARE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the sigmoid (logistic) function for each element in \p A.
@@ -913,9 +893,7 @@ inline void squareInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -923,18 +901,20 @@ inline void squareInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor sigmoid(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SIGMOID, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::SIGMOID, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of sigmoid().
  */
 inline void sigmoidInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SIGMOID, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::SIGMOID, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Compute the reciprocal square root for each element in \p A.
@@ -943,9 +923,7 @@ inline void sigmoidInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -953,18 +931,20 @@ inline void sigmoidInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor rsqrt(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::RSQRT, A, prog, debugPrefix, options);
+  return map(graph, expr::UnaryOpType::RSQRT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of rsqrt().
  */
 inline void rsqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::RSQRT, A, prog, debugPrefix, options);
+  mapInPlace(graph, expr::UnaryOpType::RSQRT, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Check if each element in \p A is finite.
@@ -973,9 +953,7 @@ inline void rsqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equivalent to the result of
@@ -983,10 +961,10 @@ inline void rsqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  */
 inline poplar::Tensor isFinite(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
-                               const std::string &debugPrefix = "",
+                               const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::IS_FINITE, A, prog, debugPrefix,
-             options);
+  return map(graph, expr::UnaryOpType::IS_FINITE, A, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Check that the host compile-time type \p constType
@@ -1036,9 +1014,7 @@ inline void checkTypes<double>(poplar::Type elementType, double constant) {
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a + b`, where \c a
@@ -1050,33 +1026,35 @@ inline void checkTypes<double>(poplar::Type elementType, double constant) {
 inline poplar::Tensor add(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::ADD, A, B, prog, debugPrefix, options);
+  return map(graph, expr::BinaryOpType::ADD, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor add(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::ADD, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::ADD, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-add(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor add(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::ADD, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::ADD, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1086,21 +1064,22 @@ add(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::ADD, A, B, prog, debugPrefix, options);
+  mapInPlace(graph, expr::BinaryOpType::ADD, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::ADD, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::ADD, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1112,9 +1091,7 @@ inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `atan2(a, b)`, where
@@ -1126,34 +1103,35 @@ inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor atan2(poplar::Graph &graph, const poplar::Tensor &A,
                             const poplar::Tensor &B,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::ATAN2, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::ATAN2, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor atan2(poplar::Graph &graph, const poplar::Tensor &A,
                             const constType B, poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-atan2(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-      poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-      const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor atan2(poplar::Graph &graph, const constType A,
+                            const poplar::Tensor &B,
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::ATAN2, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::ATAN2, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1164,22 +1142,22 @@ atan2(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          const poplar::Tensor &B,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1191,9 +1169,7 @@ inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  * \returns A tensor where each element is the result of `a & b`, where \c a
@@ -1204,34 +1180,36 @@ inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A,
                                  const poplar::Tensor &B,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const constType B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-bitwiseAnd(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const constType A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_AND, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1242,23 +1220,23 @@ bitwiseAnd(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const poplar::Tensor &B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const constType B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1270,9 +1248,7 @@ inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  * \returns A tensor where each element is the result of `a | b`, where \c a
@@ -1284,34 +1260,36 @@ inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A,
                                 const poplar::Tensor &B,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix = "",
+                                const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A,
+                                const constType B,
+                                poplar::program::Sequence &prog,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-bitwiseOr(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const constType A,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_OR, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1322,22 +1300,22 @@ bitwiseOr(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Tensor &B,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const constType B, poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1349,9 +1327,7 @@ inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a ^ b`, where \c a
@@ -1363,34 +1339,36 @@ inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A,
                                  const poplar::Tensor &B,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const constType B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-bitwiseXor(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const constType A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_XOR, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1401,23 +1379,23 @@ bitwiseXor(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const poplar::Tensor &B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const constType B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1429,9 +1407,7 @@ inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `!(a ^ b)`, where \c a
@@ -1443,36 +1419,36 @@ inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const poplar::Tensor &A,
                                   const poplar::Tensor &B,
                                   poplar::program::Sequence &prog,
-                                  const std::string &debugPrefix = "",
+                                  const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const poplar::Tensor &A,
                                   const constType B,
                                   poplar::program::Sequence &prog,
-                                  const std::string &debugPrefix = "",
+                                  const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const constType A,
                                   const poplar::Tensor &B,
                                   poplar::program::Sequence &prog,
-                                  const std::string &debugPrefix = "",
+                                  const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::BITWISE_XNOR, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1483,23 +1459,23 @@ inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const constType A,
 inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                                const poplar::Tensor &B,
                                poplar::program::Sequence &prog,
-                               const std::string &debugPrefix = "",
+                               const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                                const constType B,
                                poplar::program::Sequence &prog,
-                               const std::string &debugPrefix = "",
+                               const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1510,9 +1486,7 @@ inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       The tensor of divisors.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a / b`, where \c a
@@ -1524,34 +1498,35 @@ inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor div(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::DIVIDE, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::DIVIDE, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor div(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-div(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor div(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::DIVIDE, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::DIVIDE, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1561,22 +1536,22 @@ div(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1587,9 +1562,7 @@ inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a == b`, where
@@ -1601,34 +1574,35 @@ inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor eq(poplar::Graph &graph, const poplar::Tensor &A,
                          const poplar::Tensor &B,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::EQUAL, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::EQUAL, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor eq(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-eq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-   poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-   const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor eq(poplar::Graph &graph, const constType A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugContext &debugContext = {},
+                         const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::EQUAL, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::EQUAL, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1638,22 +1612,22 @@ eq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const constType B, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1665,9 +1639,7 @@ inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a >= b`, where
@@ -1679,34 +1651,35 @@ inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor gteq(poplar::Graph &graph, const poplar::Tensor &A,
                            const poplar::Tensor &B,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor gteq(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-gteq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-     const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor gteq(poplar::Graph &graph, const constType A,
+                           const poplar::Tensor &B,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1717,22 +1690,22 @@ gteq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         const poplar::Tensor &B,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         const constType B, poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1744,9 +1717,7 @@ inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a > b`, where \c a
@@ -1758,34 +1729,35 @@ inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor gt(poplar::Graph &graph, const poplar::Tensor &A,
                          const poplar::Tensor &B,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor gt(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-gt(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-   poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-   const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor gt(poplar::Graph &graph, const constType A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugContext &debugContext = {},
+                         const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::GREATER_THAN, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1795,22 +1767,22 @@ gt(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const constType B, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1820,9 +1792,7 @@ inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       The source tensor.
  *  \param B       The destination tensor.
  *  \param prog    The sequence to extend with the execution of conversion.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options A list of flags to pass to the expression evaluator.
  *
  *  \returns       A tensor where each element is the variance.
@@ -1836,36 +1806,36 @@ inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor
 invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor
 invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
                     const constType B, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor
 invStdDevToVariance(poplar::Graph &graph, const constType A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, ATensor, B,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1873,25 +1843,27 @@ invStdDevToVariance(poplar::Graph &graph, const constType A,
  *
  * @{
  */
-inline void invStdDevToVarianceInPlace(
-    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline void
+invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                           const poplar::Tensor &B,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void
 invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1903,9 +1875,7 @@ invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a <= b`, where
@@ -1917,34 +1887,35 @@ invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor lteq(poplar::Graph &graph, const poplar::Tensor &A,
                            const poplar::Tensor &B,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor lteq(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-lteq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-     poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-     const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor lteq(poplar::Graph &graph, const constType A,
+                           const poplar::Tensor &B,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1955,22 +1926,22 @@ lteq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         const poplar::Tensor &B,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         const constType B, poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -1982,9 +1953,7 @@ inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a && b`, where
@@ -1996,34 +1965,36 @@ inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor logicalAnd(poplar::Graph &graph, const poplar::Tensor &A,
                                  const poplar::Tensor &B,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-logicalAnd(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor logicalAnd(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const constType B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-logicalAnd(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor logicalAnd(poplar::Graph &graph, const constType A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::LOGICAL_AND, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2034,23 +2005,23 @@ logicalAnd(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const poplar::Tensor &B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const constType B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2062,9 +2033,7 @@ inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a || b`, where
@@ -2076,34 +2045,36 @@ inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor logicalOr(poplar::Graph &graph, const poplar::Tensor &A,
                                 const poplar::Tensor &B,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix = "",
+                                const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-logicalOr(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor logicalOr(poplar::Graph &graph, const poplar::Tensor &A,
+                                const constType B,
+                                poplar::program::Sequence &prog,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-logicalOr(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor logicalOr(poplar::Graph &graph, const constType A,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::LOGICAL_OR, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2114,22 +2085,22 @@ logicalOr(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Tensor &B,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const constType B, poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2141,9 +2112,7 @@ inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a < b`, where \c a
@@ -2155,34 +2124,35 @@ inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor lt(poplar::Graph &graph, const poplar::Tensor &A,
                          const poplar::Tensor &B,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LESS_THAN, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::LESS_THAN, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor lt(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-lt(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-   poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-   const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor lt(poplar::Graph &graph, const constType A,
+                         const poplar::Tensor &B,
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugContext &debugContext = {},
+                         const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::LESS_THAN, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2192,22 +2162,22 @@ lt(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const constType B, poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2219,9 +2189,7 @@ inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `max(a, b)`, where
@@ -2233,34 +2201,35 @@ inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor max(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::MAXIMUM, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MAXIMUM, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor max(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-max(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor max(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::MAXIMUM, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MAXIMUM, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2270,22 +2239,22 @@ max(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2297,9 +2266,7 @@ inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `min(a, b)`, where
@@ -2311,34 +2278,35 @@ inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor min(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::MINIMUM, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MINIMUM, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor min(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-min(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor min(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::MINIMUM, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MINIMUM, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2348,22 +2316,22 @@ min(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2374,9 +2342,7 @@ inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a * b`, where \c a
@@ -2388,34 +2354,35 @@ inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor mul(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::MULTIPLY, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MULTIPLY, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor mul(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-mul(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor mul(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::MULTIPLY, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::MULTIPLY, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2425,22 +2392,22 @@ mul(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2452,9 +2419,7 @@ inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       A tensor of elements.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is the result of `a != b`, where \c a
@@ -2466,34 +2431,35 @@ inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor neq(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor neq(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-neq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor neq(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::NOT_EQUAL, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2503,22 +2469,22 @@ neq(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2530,9 +2496,7 @@ inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       The tensor of exponents.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equal to `pow(a, b)`, where \c a and
@@ -2543,34 +2507,35 @@ inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor pow(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::POWER, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::POWER, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor pow(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::POWER, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::POWER, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-pow(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor pow(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::POWER, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::POWER, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2580,22 +2545,22 @@ pow(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::POWER, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::POWER, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::POWER, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::POWER, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2607,9 +2572,7 @@ inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       The tensor of divisors.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equal to a % b, where \c a and \c b
@@ -2620,34 +2583,35 @@ inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor rem(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::REMAINDER, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::REMAINDER, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor rem(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-rem(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor rem(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::REMAINDER, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2657,22 +2621,22 @@ rem(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2684,9 +2648,7 @@ inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *                 \p A by.
  *  \param prog    The sequence to extend with the execution of the
  *                 expression evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equal to a << b, where \c a and \c b
@@ -2697,34 +2659,36 @@ inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor shiftLeft(poplar::Graph &graph, const poplar::Tensor &A,
                                 const poplar::Tensor &B,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix = "",
+                                const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-shiftLeft(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor shiftLeft(poplar::Graph &graph, const poplar::Tensor &A,
+                                const constType B,
+                                poplar::program::Sequence &prog,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-shiftLeft(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-          const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor shiftLeft(poplar::Graph &graph, const constType A,
+                                const poplar::Tensor &B,
+                                poplar::program::Sequence &prog,
+                                const poplar::DebugContext &debugContext = {},
+                                const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::SHIFT_LEFT, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2735,22 +2699,22 @@ shiftLeft(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Tensor &B,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const constType B, poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2762,9 +2726,7 @@ inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *                 right-shift by. \p A.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equal to a >> b (without sign
@@ -2776,34 +2738,36 @@ inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor shiftRight(poplar::Graph &graph, const poplar::Tensor &A,
                                  const poplar::Tensor &B,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-shiftRight(poplar::Graph &graph, const poplar::Tensor &A, const constType B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor shiftRight(poplar::Graph &graph, const poplar::Tensor &A,
+                                 const constType B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-shiftRight(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-           poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-           const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor shiftRight(poplar::Graph &graph, const constType A,
+                                 const poplar::Tensor &B,
+                                 poplar::program::Sequence &prog,
+                                 const poplar::DebugContext &debugContext = {},
+                                 const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::SHIFT_RIGHT, ATensor, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2814,23 +2778,23 @@ shiftRight(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
 inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const poplar::Tensor &B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               const constType B,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2843,9 +2807,7 @@ inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *                 right-shift \p A by.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equal to `a >> b` with sign
@@ -2857,36 +2819,36 @@ inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor
 shiftRightSignExtend(poplar::Graph &graph, const poplar::Tensor &A,
                      const poplar::Tensor &B, poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "",
+                     const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor
 shiftRightSignExtend(poplar::Graph &graph, const poplar::Tensor &A,
                      const constType B, poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "",
+                     const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, BTensor,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor
 shiftRightSignExtend(poplar::Graph &graph, const constType A,
                      const poplar::Tensor &B, poplar::program::Sequence &prog,
-                     const std::string &debugPrefix = "",
+                     const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, ATensor, B,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2894,25 +2856,27 @@ shiftRightSignExtend(poplar::Graph &graph, const constType A,
  *
  * @{
  */
-inline void shiftRightSignExtendInPlace(
-    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline void
+shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                            const poplar::Tensor &B,
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext = {},
+                            const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void
 shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                             const constType B, poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, BTensor,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2924,9 +2888,7 @@ shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param B       The tensor of elements to subtract from \p A.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor where each element is equal to a - b, where \c a and \c b
@@ -2937,34 +2899,35 @@ shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor sub(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SUBTRACT, A, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::SUBTRACT, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor sub(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
-inline poplar::Tensor
-sub(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline poplar::Tensor sub(poplar::Graph &graph, const constType A,
+                          const poplar::Tensor &B,
+                          poplar::program::Sequence &prog,
+                          const poplar::DebugContext &debugContext = {},
+                          const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::SUBTRACT, ATensor, B, prog, debugPrefix,
-             options);
+  return map(graph, expr::BinaryOpType::SUBTRACT, ATensor, B, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2974,22 +2937,22 @@ sub(poplar::Graph &graph, const constType A, const poplar::Tensor &B,
  */
 inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, B, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, B, prog,
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "",
+                       const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog,
+             debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -2999,9 +2962,7 @@ inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param A       The source tensor.
  *  \param B       The destination tensor.
  *  \param prog    The sequence to extend with the execution of conversion.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *
  *  \returns       A tensor where each element is the inverse of standard
  *  deviation. Each element is the result of
@@ -3014,36 +2975,36 @@ inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor
 varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
   return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor
 varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
                     const constType B, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline poplar::Tensor
 varianceToInvStdDev(poplar::Graph &graph, const constType A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
   checkTypes(B.elementType(), A);
   const auto ATensor = graph.addConstant(B.elementType(), {}, A);
   graph.setTileMapping(ATensor, 0);
   return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, ATensor, B,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -3051,25 +3012,27 @@ varianceToInvStdDev(poplar::Graph &graph, const constType A,
  *
  * @{
  */
-inline void varianceToInvStdDevInPlace(
-    poplar::Graph &graph, const poplar::Tensor &A, const poplar::Tensor &B,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}) {
+inline void
+varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
+                           const poplar::Tensor &B,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext = {},
+                           const poplar::OptionFlags &options = {}) {
   mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
-             debugPrefix, options);
+             debugContext.getPathName(), options);
 }
 
 template <typename constType>
 inline void
 varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
   checkTypes(A.elementType(), B);
   const auto BTensor = graph.addConstant(A.elementType(), {}, B);
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
-             prog, debugPrefix, options);
+             prog, debugContext.getPathName(), options);
 }
 /** @} */
 
@@ -3088,9 +3051,7 @@ varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param C       The tensor containing the elements to use as predicates.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor containing the elements from \p A where the corresponding
@@ -3100,10 +3061,10 @@ varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor select(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Tensor &B, const poplar::Tensor &C,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::TernaryOpType::SELECT, A, B, C, prog, debugPrefix,
-             options);
+  return map(graph, expr::TernaryOpType::SELECT, A, B, C, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of select().
@@ -3111,10 +3072,10 @@ inline poplar::Tensor select(poplar::Graph &graph, const poplar::Tensor &A,
 inline void selectInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                           const poplar::Tensor &B, const poplar::Tensor &C,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, C, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, C, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Populate the returned tensor with elements from \p A but clamp them such
@@ -3131,9 +3092,7 @@ inline void selectInPlace(poplar::Graph &graph, const poplar::Tensor &A,
  *  \param C       The tensor containing the elements to use as maximums.
  *  \param prog    The sequence to extend with the execution of the expression
  *                 evaluation.
- *  \param debugPrefix
- *                 A debug prefix to be added to debug strings in compute sets
- *                 and variables created by this function.
+ *  \param debugContext Optional debug information.
  *  \param options Element-wise options. See map().
  *
  *  \returns A tensor containing the elements resulting from the application of
@@ -3142,10 +3101,10 @@ inline void selectInPlace(poplar::Graph &graph, const poplar::Tensor &A,
 inline poplar::Tensor clamp(poplar::Graph &graph, const poplar::Tensor &A,
                             const poplar::Tensor &B, const poplar::Tensor &C,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "",
+                            const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, debugPrefix,
-             options);
+  return map(graph, expr::TernaryOpType::CLAMP, A, B, C, prog,
+             debugContext.getPathName(), options);
 }
 
 /** Update the input tensor with the result of clamp().
@@ -3153,10 +3112,10 @@ inline poplar::Tensor clamp(poplar::Graph &graph, const poplar::Tensor &A,
 inline void clampInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          const poplar::Tensor &B, const poplar::Tensor &C,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "",
+                         const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, debugPrefix,
-             options);
+  mapInPlace(graph, expr::TernaryOpType::CLAMP, A, B, C, prog,
+             debugContext.getPathName(), options);
 }
 
 } // end namespace popops

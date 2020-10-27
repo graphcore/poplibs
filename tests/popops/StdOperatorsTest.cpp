@@ -204,9 +204,9 @@ template <> void convertToPositive(float array[DIM_SIZE][DIM_SIZE]) {
   }
 }
 
-using UnaryOpFn =
-    std::function<Tensor(Graph &, const Tensor &, Sequence &,
-                         const std::string &, const poplar::OptionFlags &)>;
+using UnaryOpFn = std::function<Tensor(Graph &, const Tensor &, Sequence &,
+                                       const poplar::DebugContext &,
+                                       const poplar::OptionFlags &)>;
 
 template <typename T, typename TestT>
 void unaryOpTest(const UnaryOpFn &op, const std::function<TestT(T)> &testFn,
@@ -251,9 +251,9 @@ void unaryOpTest(const UnaryOpFn &op, const std::function<TestT(T)> &testFn,
   }
 }
 
-using BinaryOpFn =
-    std::function<Tensor(Graph &, const Tensor &, const Tensor &, Sequence &,
-                         const std::string &, const poplar::OptionFlags &)>;
+using BinaryOpFn = std::function<Tensor(
+    Graph &, const Tensor &, const Tensor &, Sequence &,
+    const poplar::DebugContext &, const poplar::OptionFlags &)>;
 
 template <typename BinaryOpFn> struct BinaryOpFnPtr;
 
@@ -1207,7 +1207,8 @@ void unaryMapExprTest(const expr::Expr &expr,
                       const std::function<TestT(T)> &testFn,
                       bool positiveInputs = false) {
   auto op = [&](Graph &graph, const Tensor &t, Sequence &prog,
-                const std::string &, const poplar::OptionFlags &) -> Tensor {
+                const poplar::DebugContext &,
+                const poplar::OptionFlags &) -> Tensor {
     return map(graph, expr, {t}, prog);
   };
   return unaryOpTest(op, testFn, positiveInputs);
@@ -1218,7 +1219,7 @@ void binaryMapExprTest(const expr::Expr &expr,
                        const std::function<TestT(T, T)> &testFn,
                        bool positiveInputs = false) {
   auto op = [&](Graph &graph, const Tensor &t0, const Tensor &t1,
-                Sequence &prog, const std::string &,
+                Sequence &prog, const poplar::DebugContext &,
                 const poplar::OptionFlags &) -> Tensor {
     return map(graph, expr, {t0, t1}, prog);
   };

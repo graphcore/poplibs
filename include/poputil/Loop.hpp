@@ -23,11 +23,12 @@ using CountedLoopBodyType =
 /// This function creates a loop with counter set to initial value of \p begin,
 /// and iterate up to the value of \p end (exclusive). \p step must be greater
 /// than 0.
-inline poplar::program::Sequence countedLoop(poplar::Graph &graph,
-                                             std::size_t begin, std::size_t end,
-                                             size_t step,
-                                             const std::string &debugPrefix,
-                                             const CountedLoopBodyType &body) {
+inline poplar::program::Sequence
+countedLoop(poplar::Graph &graph, std::size_t begin, std::size_t end,
+            size_t step, const poplar::DebugContext &debugContext,
+            const CountedLoopBodyType &body) {
+  const auto debugPrefix = debugContext.getPathName();
+
   if (step == 0) {
     throw poputil::poplibs_error(
         "countedLoop: step must be greater than zero.");
@@ -63,11 +64,11 @@ inline poplar::program::Sequence countedLoop(poplar::Graph &graph,
 
 /// This function repeats \p body \p count times. This is a shortcut for
 /// `countedLoop(graph, 0, count, 1, debugPrefix, body)`.
-inline poplar::program::Sequence countedLoop(poplar::Graph &graph,
-                                             std::size_t count,
-                                             const std::string &debugPrefix,
-                                             const CountedLoopBodyType &body) {
-  return countedLoop(graph, 0, count, 1, debugPrefix, body);
+inline poplar::program::Sequence
+countedLoop(poplar::Graph &graph, std::size_t count,
+            const poplar::DebugContext &debugContext,
+            const CountedLoopBodyType &body) {
+  return countedLoop(graph, 0, count, 1, debugContext.getPathName(), body);
 }
 
 } // namespace poputil

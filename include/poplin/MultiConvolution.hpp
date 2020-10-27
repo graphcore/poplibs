@@ -119,7 +119,7 @@ struct ConvolutionArgs {
  *                    specifying each convolution in the multiconvolution.
  * \param transposeAndFlipWeights Prepare the weights for the backwards pass.
  * \param prog        Poplar program sequence to append the operations onto.
- * \param debugPrefix Name of the operation, for debugging.
+ * \param debugContext Optional debug information.
  * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  * \return            Set of convolved output tensors.
@@ -127,7 +127,7 @@ struct ConvolutionArgs {
 std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args,
             bool transposeAndFlipWeights, poplar::program::Sequence &prog,
-            const std::string &debugPrefix = "",
+            const poplar::DebugContext &debugContext = {},
             const poplar::OptionFlags &options = {},
             poplin::PlanningCache *cache = nullptr);
 
@@ -155,16 +155,18 @@ struct CalculateWeightDeltasArgs {
  *                    parameters specifying each convolution in the
  *                    multiconvolution.
  * \param prog        Poplar program sequence to append the operations onto.
- * \param debugPrefix Name of the operation, for debugging.
+ * \param debugContext Optional debug information.
  * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  * \return            Set of weight deltas.
  */
-std::vector<poplar::Tensor> calculateWeightDeltas(
-    poplar::Graph &graph, const std::vector<CalculateWeightDeltasArgs> &args,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {},
-    poplin::PlanningCache *cache = nullptr);
+std::vector<poplar::Tensor>
+calculateWeightDeltas(poplar::Graph &graph,
+                      const std::vector<CalculateWeightDeltasArgs> &args,
+                      poplar::program::Sequence &prog,
+                      const poplar::DebugContext &debugContext = {},
+                      const poplar::OptionFlags &options = {},
+                      poplin::PlanningCache *cache = nullptr);
 
 /**
  * \param zDeltas       Tensor containing gradients with respect to the output
@@ -189,18 +191,18 @@ struct ConvWeightUpdateArgs {
  *
  * See Convolution.hpp for more information.
  *
- * \param graph       The graph that the operations will be added to.
- * \param args        Collection of zDeltas, activations, scale, and convolution
- *                    parameters for the weight updates in the multiconvolution.
- * \param prog        Poplar program sequence to append the operations onto.
- * \param debugPrefix Name of the operation, for debugging.
- * \param options     Options controlling the implementation.
- * \param cache       Optional pointer to a planning cache to use.
+ * \param graph        The graph that the operations will be added to.
+ * \param args         Collection of zDeltas, activations, scale, and
+ * convolution parameters for the weight updates in the multiconvolution. \param
+ * prog         Poplar program sequence to append the operations onto. \param
+ * debugContext Optional debug information. \param options      Options
+ * controlling the implementation. \param cache        Optional pointer to a
+ * planning cache to use.
  */
 void convolutionWeightUpdate(poplar::Graph &graph,
                              const std::vector<ConvWeightUpdateArgs> &args,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix = "",
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {},
                              poplin::PlanningCache *cache = nullptr);
 
@@ -231,13 +233,14 @@ struct ConvWeightUpdateArgsScalar {
  * \param args        Collection of zDeltas, activations, scale, and convolution
  *                    parameters for the weight updates in the multiconvolution.
  * \param prog        Poplar program sequence to append the operations onto.
- * \param debugPrefix Name of the operation, for debugging.
+ * \param debugContext Optional debug information.
  * \param options     Options controlling the implementation.
  * \param cache       Optional pointer to a planning cache to use.
  */
 void convolutionWeightUpdate(
     poplar::Graph &graph, const std::vector<ConvWeightUpdateArgsScalar> &args,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
+    poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {},
     poplin::PlanningCache *cache = nullptr);
 

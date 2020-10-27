@@ -8,6 +8,7 @@
 #ifndef poplin_Convolution_hpp
 #define poplin_Convolution_hpp
 #include "ConvParams.hpp"
+
 #include <poplar/Graph.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
@@ -199,7 +200,7 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  * \return        The weights tensor suitable for use with convolution().
  */
 poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
-                             const std::string &name,
+                             const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {},
                              PlanningCache *cache = nullptr);
 
@@ -213,9 +214,9 @@ poplar::Tensor createWeights(poplar::Graph &graph, const ConvParams &params,
  * \param name          Debugging name for the tensor.
  * \return              The tensor of biases.
  */
-poplar::Tensor createBiases(poplar::Graph &graph,
-                            const poplar::Tensor &activations,
-                            const std::string &name = "biases");
+poplar::Tensor
+createBiases(poplar::Graph &graph, const poplar::Tensor &activations,
+             const poplar::DebugContext &debugContext = {"biases"});
 
 /** Create an input tensor for a convolution.
  *
@@ -233,7 +234,7 @@ poplar::Tensor createBiases(poplar::Graph &graph,
  * \return         The allocated input tensor.
  */
 poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
-                           const std::string &name,
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {},
                            PlanningCache *cache = nullptr);
 
@@ -255,7 +256,7 @@ poplar::Tensor createInput(poplar::Graph &graph, const ConvParams &params,
  * \param transposeAndFlipWeights For the weight update pass.
  * \param prog                    Poplar program sequence to append the
  *                                operation onto.
- * \param debugPrefix             Name of the operation, for debugging.
+ * \param debugContext            Optional debug information.
  * \param options                 Options that control the implementation. See
  *                                createWeights().
  * \param cache                   Optional pointer to planning cache to use.
@@ -266,7 +267,7 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const ConvParams &params,
                            bool transposeAndFlipWeights,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "",
+                           const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {},
                            PlanningCache *cache = nullptr);
 
@@ -296,13 +297,13 @@ void preplanConvolutions(const std::set<ConvPlanParams> &convs,
  * \param weightsIn     The input weights tensor.
  * \param weightsOut    The output weights tensor.
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  */
 void weightsTransposeChansFlipXY(poplar::Graph &graph,
                                  const poplar::Tensor &weightsIn,
                                  const poplar::Tensor &weightsOut,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix = "");
+                                 const poplar::DebugContext &debugContext = {});
 
 /** Copy the weights in \p weightsIn into \p weightsOut such that
  * each element of the kernel is transposed with respect to the input and
@@ -317,7 +318,7 @@ void weightsTransposeChansFlipXY(poplar::Graph &graph,
  * \param weightsIn     The input weights tensor.
  * \param weightsOut    The output weights tensor.
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  */
 void weightsTransposeChansFlipXY(
     poplar::Graph &graph, const poplar::Tensor &weightsInUnGrouped,
@@ -325,7 +326,7 @@ void weightsTransposeChansFlipXY(
     std::vector<poplar::program::Copy> &preTranspose,
     poplar::ComputeSet transposeCS,
     std::vector<poplar::program::Copy> &postTranspose,
-    const std::string &debugPrefix = "");
+    const poplar::DebugContext &debugContext = {});
 
 /** Append an operation to a poplar::Program to generate the tensor of
  *  weight deltas.
@@ -337,7 +338,7 @@ void weightsTransposeChansFlipXY(
  *                      forward pass.
  * \param params        Parameters of the convolution.
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  * \param options       Options controlling the implementation.
  *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
@@ -346,11 +347,13 @@ void weightsTransposeChansFlipXY(
  *                      weights of the convolution. These are populated when the
  *                      operation runs.
  */
-poplar::Tensor calculateWeightDeltas(
-    poplar::Graph &graph, const poplar::Tensor &zDeltas,
-    const poplar::Tensor &activations, const ConvParams &params,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
+poplar::Tensor
+calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas,
+                      const poplar::Tensor &activations,
+                      const ConvParams &params, poplar::program::Sequence &prog,
+                      const poplar::DebugContext &debugContext = {},
+                      const poplar::OptionFlags &options = {},
+                      PlanningCache *cache = nullptr);
 
 /** Append operations to a poplar::Program to generate and apply the
  *  weight update.
@@ -366,17 +369,20 @@ poplar::Tensor calculateWeightDeltas(
  * \param params        Parameters of the convolution.
  * \param scale         Scale to apply to the \p zDeltas.
  * \param prog          Poplar program sequence to append the operations onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  * \param options       Options controlling the implementation.
  *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
  */
-void convolutionWeightUpdate(
-    poplar::Graph &graph, const poplar::Tensor &zDeltas,
-    const poplar::Tensor &weights, const poplar::Tensor &activations,
-    ConvParams params, const poplar::Tensor &scale,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
+void convolutionWeightUpdate(poplar::Graph &graph,
+                             const poplar::Tensor &zDeltas,
+                             const poplar::Tensor &weights,
+                             const poplar::Tensor &activations,
+                             ConvParams params, const poplar::Tensor &scale,
+                             poplar::program::Sequence &prog,
+                             const poplar::DebugContext &debugContext = {},
+                             const poplar::OptionFlags &options = {},
+                             PlanningCache *cache = nullptr);
 
 /** Append operations to a poplar::Program to generate and apply the
  *  weight update.
@@ -392,7 +398,7 @@ void convolutionWeightUpdate(
  * \param params        Parameters of the convolution.
  * \param scale         Scale to apply to the zDeltas.
  * \param prog          Poplar program sequence to append the operations onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  * \param options       Options controlling the implementation.
  *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
@@ -401,7 +407,7 @@ void convolutionWeightUpdate(
     poplar::Graph &graph, const poplar::Tensor &zDeltas,
     const poplar::Tensor &weights, const poplar::Tensor &activations,
     ConvParams params, float scale, poplar::program::Sequence &prog,
-    const std::string &debugPrefix = "",
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 /** Add a program to update \p biases tensor with the gradients derived from
@@ -415,14 +421,14 @@ void convolutionWeightUpdate(
  * \param options       Options controlling the implementation.
  *                      See createWeights().
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  */
 void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                            const poplar::Tensor &biases,
                            const poplar::Tensor &scale,
                            const poplar::OptionFlags &options,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "");
+                           const poplar::DebugContext &debugContext = {});
 
 /** Add a program to update \p biases tensor with the gradients derived from
  * the \p zDeltas tensor.
@@ -435,13 +441,13 @@ void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
  * \param options       Options controlling the implementation.
  *                      See createWeights().
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  */
 void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
                            const poplar::Tensor &biases, float scale,
                            const poplar::OptionFlags &options,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix = "");
+                           const poplar::DebugContext &debugContext = {});
 
 /** Adds a program to \p prog which adds \p biases to \p activations tensor.
  *
@@ -449,11 +455,11 @@ void convolutionBiasUpdate(poplar::Graph &graph, const poplar::Tensor &zDeltas,
  * \param input         Tensor containing values which to add the biases.
  * \param biases        Biases to add to the \p input tensor.
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  */
 void addBias(poplar::Graph &graph, const poplar::Tensor &in,
              const poplar::Tensor &biases, poplar::program::Sequence &prog,
-             const std::string &debugPrefix = "");
+             const poplar::DebugContext &debugContext = {});
 
 /** Report the convolution plan corresponding to the \p params and \p options
  * provided.
@@ -514,7 +520,7 @@ void reportWeightUpdatePlanInfo(std::ostream &out, const poplar::Graph &graph,
  * \param activations   Tensor containing the inputs to the convolution.
  * \param params        Parameters of the convolution.
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  * \param options       Options controlling the implementation.
  *                      See createWeights().
  * \param cache         Optional pointer to planning cache to use.
@@ -522,8 +528,9 @@ void reportWeightUpdatePlanInfo(std::ostream &out, const poplar::Graph &graph,
  */
 poplar::Tensor fullyConnectedWeightTranspose(
     poplar::Graph &graph, poplar::Tensor weights, const ConvParams &params,
-    poplar::program::Sequence &prog, const std::string &debugPrefix,
-    const poplar::OptionFlags &options, PlanningCache *cache = nullptr);
+    poplar::program::Sequence &prog,
+    const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 struct Plan;
 

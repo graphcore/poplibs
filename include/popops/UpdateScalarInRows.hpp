@@ -38,12 +38,12 @@ namespace popops {
  * float or half.
  * \param indices 1D tensor, the element-type must be unsigned integer.
  * \param program    The program to be extended.
- * \param debugPrefix The prefix prepended to debugging info.
+ * \param debugContext Optional debug information.
  */
 void updateScalarInRows(poplar::Graph &graph, const poplar::Tensor &params,
                         const poplar::Tensor &indices,
                         poplar::program::Sequence &program,
-                        const std::string &debugPrefix = "");
+                        const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

@@ -351,7 +351,8 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &expected, const Tensor &loss,
                  const Tensor &deltas, const Tensor &_deltasScale,
                  const Tensor &_modelOutputScaling, LossType lossType,
-                 const std::string &debugPrefix) {
+                 const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   boost::optional<Tensor> deltasScale = _deltasScale;
   boost::optional<Tensor> modelOutputScaling = _modelOutputScaling;
   return calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
@@ -361,7 +362,8 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
 Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &expected, const Tensor &loss,
                  const Tensor &deltas, LossType lossType,
-                 const std::string &debugPrefix) {
+                 const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   boost::optional<Tensor> deltasScale, modelOutputScaling;
   return calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,
                   modelOutputScaling, lossType, debugPrefix);
@@ -662,7 +664,9 @@ static Tensor TopKImpl(Graph &graph, const poplar::Tensor &input,
 }
 
 Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
-            bool sort, Sequence &prog, const std::string &debugPrefix) {
+            bool sort, Sequence &prog,
+            const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popnn::info("topK input={}, k={}, sort={}, name={}", input.shape(),
                        K, sort, debugPrefix);
 
@@ -688,7 +692,8 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
 }
 
 Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
-              const std::string &debugPrefix) {
+              const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popnn::info("argMax input={}, name={}", input.shape(), debugPrefix);
 
   // TODO: T12906 Map the output tensor.
@@ -709,7 +714,8 @@ Tensor argMax(Graph &graph, const Tensor &input, Sequence &prog,
 }
 
 Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
-              const std::string &debugPrefix) {
+              const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popnn::info("argMax input={}, name={}", input.shape(), debugPrefix);
 
   // TODO: T12906 Map the output tensor.
@@ -745,7 +751,8 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
 /// \param[in] debugPrefix  as the name says
 Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
                      const Tensor &expected, const Tensor &numCorrect,
-                     const std::string &debugPrefix) {
+                     const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto layerPrefix = debugPrefix + "/Accuracy";
   logging::popnn::info(
       "calcAccuracy modelOutputs={}, expected={}, numCorrect={}, name={}",
@@ -806,7 +813,8 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &expected, const Tensor &loss,
                  const Tensor &deltas, const Tensor &_deltasScale,
                  const Tensor &_modelOutputScaling, const Tensor &numCorrect,
-                 LossType lossType, const std::string &debugPrefix) {
+                 LossType lossType, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   boost::optional<Tensor> deltasScale = _deltasScale;
   boost::optional<Tensor> modelOutputScaling = _modelOutputScaling;
   Sequence prog(
@@ -819,7 +827,8 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
 Program calcLoss(Graph &graph, const Tensor &modelOutputs,
                  const Tensor &expected, const Tensor &loss,
                  const Tensor &deltas, const Tensor &numCorrect,
-                 LossType lossType, const std::string &debugPrefix) {
+                 LossType lossType, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   boost::optional<Tensor> deltasScale, modelOutputScaling;
   Sequence prog(
       calcLoss(graph, modelOutputs, expected, loss, deltas, deltasScale,

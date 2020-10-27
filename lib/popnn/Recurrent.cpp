@@ -124,8 +124,10 @@ uint64_t getWuFlops(unsigned sequenceSize, unsigned batchSize,
 
 Tensor createFwdState(Graph &graph, const Type &dType, unsigned batchSize,
                       unsigned outputSize, Sequence &prog, bool initState,
-                      bool inferenceOnly, const std::string &name,
+                      bool inferenceOnly,
+                      const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   OptionFlags mmOpt{
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
   auto state = createMatMulInputLHS(graph, dType, {batchSize, outputSize},
@@ -144,7 +146,9 @@ Tensor getOutputFromFwdState(const Tensor &fwdState) {
 
 Tensor createBwdState(Graph &graph, const Type &dType, unsigned batchSize,
                       unsigned outputSize, Sequence &prog,
-                      const std::string &name, matmul::PlanningCache *cache) {
+                      const poplar::DebugContext &debugContext,
+                      matmul::PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   OptionFlags mmOpt{{"fullyConnectedPass", "TRAINING_BWD"}};
   auto state = createMatMulInputLHS(graph, dType, {batchSize, outputSize},
                                     {outputSize, outputSize},
@@ -156,7 +160,9 @@ Tensor createBwdState(Graph &graph, const Type &dType, unsigned batchSize,
 Tensor createInput(Graph &graph, unsigned sequenceSize, unsigned batchSize,
                    unsigned inputSize, unsigned outputSize, const Type &dType,
                    const Type &partialsType, bool inferenceOnly,
-                   const std::string &name, matmul::PlanningCache *cache) {
+                   const poplar::DebugContext &debugContext,
+                   matmul::PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
@@ -176,8 +182,9 @@ poplar::Tensor createWeightsInput(Graph &graph, unsigned /* sequenceSize */,
                                   unsigned batchSize, unsigned inputSize,
                                   unsigned outputSize, const Type &dType,
                                   const Type &partialsType, bool inferenceOnly,
-                                  const std::string &namePrefix,
+                                  const poplar::DebugContext &debugContext,
                                   matmul::PlanningCache *cache) {
+  const auto namePrefix = debugContext.getPathName();
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
@@ -190,8 +197,9 @@ poplar::Tensor createWeightsFeedback(Graph &graph, unsigned batchSize,
                                      unsigned outputSize, const Type &dType,
                                      const Type &partialsType,
                                      bool inferenceOnly,
-                                     const std::string &namePrefix,
+                                     const poplar::DebugContext &debugContext,
                                      matmul::PlanningCache *cache) {
+  const auto namePrefix = debugContext.getPathName();
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
@@ -203,8 +211,9 @@ poplar::Tensor createWeightsFeedback(Graph &graph, unsigned batchSize,
 Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const Tensor &weights, Sequence &prog,
                           const Type &partialsType, bool inferenceOnly,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const unsigned sequenceSize = actIn.dim(0);
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
@@ -220,8 +229,9 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
                       const Tensor &biases, Sequence &prog,
                       popnn::NonLinearityType nonLinearityType,
                       const Type &partialsType, bool inferenceOnly,
-                      const std::string &debugPrefix,
+                      const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const unsigned sequenceSize = feedFwdIn.dim(0);
   const unsigned batchSize = feedFwdIn.dim(1);
   const unsigned outputSize = feedFwdIn.dim(2);
@@ -268,7 +278,8 @@ poplar::Tensor rnnFwdSequence(
     const poplar::Tensor &feedbackWeights, const poplar::Tensor &prevLayerActs,
     const popnn::NonLinearityType &nonLinearityType,
     const poplar::Type &partialsType, bool inferenceOnly,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+    const poplar::DebugContext &debugContext, matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popnn::info(
       "rnnFwdSequence fwdStateInit={}, weightedIn={}, biases={}, "
       "feedFwdWeights={} feedbackWeights={}, prevLayerActs={}, "
@@ -353,13 +364,13 @@ std::pair<Tensor, Tensor> backwardGradientStepImpl(
   return std::make_pair(gradientAtInput, newBwdState);
 }
 
-std::pair<Tensor, Tensor>
-backwardGradientStep(Graph &graph, const Tensor &gradientOut,
-                     const Tensor &bwdState, const Tensor &actOut,
-                     const Tensor &weightsInput, const Tensor &weightsFeedback,
-                     Sequence &prog, popnn::NonLinearityType nonLinearityType,
-                     const Type &partialsType, const std::string &debugPrefix,
-                     matmul::PlanningCache *cache) {
+std::pair<Tensor, Tensor> backwardGradientStep(
+    Graph &graph, const Tensor &gradientOut, const Tensor &bwdState,
+    const Tensor &actOut, const Tensor &weightsInput,
+    const Tensor &weightsFeedback, Sequence &prog,
+    popnn::NonLinearityType nonLinearityType, const Type &partialsType,
+    const poplar::DebugContext &debugContext, matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   return backwardGradientStepImpl(
       graph, gradientOut, bwdState, actOut, &weightsInput, &weightsFeedback,
       prog, nonLinearityType, partialsType, debugPrefix, cache);
@@ -370,8 +381,9 @@ Tensor backwardGradientStep(Graph &graph, const Tensor &gradientOut,
                             const Tensor &weightsFeedback, Sequence &prog,
                             popnn::NonLinearityType nonLinearityType,
                             const Type &partialsType,
-                            const std::string &debugPrefix,
+                            const poplar::DebugContext &debugContext,
                             matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   Tensor gradAtInput, state;
   std::tie(gradAtInput, state) = backwardGradientStepImpl(
       graph, gradientOut, bwdState, actOut, nullptr, &weightsFeedback, prog,
@@ -383,8 +395,9 @@ void paramDeltaUpdate(Graph &graph, const Tensor &bwdState, const Tensor &actIn,
                       const Tensor &prevOut, Tensor &weightsInputDeltasAcc,
                       Tensor &weightsFeedbackDeltasAcc, Tensor &biasDeltasAcc,
                       Sequence &prog, const Type &partialsType,
-                      const std::string &debugPrefix,
+                      const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/RnDeltas";
   OptionFlags mmOpt{{"partialsType", partialsType.toString()},
                     {"fullyConnectedPass", "TRAINING_WU"}};
@@ -413,8 +426,10 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const poplar::Tensor &feedbackWeights,
                const poplar::Tensor &outGradient, const poplar::Tensor &actIn,
                const popnn::NonLinearityType &nonLinearityType,
-               const poplar::Type &partialsType, const std::string &debugPrefix,
+               const poplar::Type &partialsType,
+               const poplar::DebugContext &debugContext,
                matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popnn::info(
       "rnnBwdSequence fwdStateInit={}, fwdState={}, biases={}, "
       "feedFwdWeights={} feedbackWeights={}, outGradient={}, "

@@ -22,11 +22,11 @@ using namespace poplibs_support;
 namespace popsparse {
 namespace dynamic {
 
-SparseTensor createSparseDenseMatMulLHS(Graph &graph, const Type &inputType,
-                                        const MatMulParams &params,
-                                        const std::string &debugName,
-                                        const OptionFlags &optionFlags,
-                                        PlanningCache *cache) {
+SparseTensor createSparseDenseMatMulLHS(
+    Graph &graph, const Type &inputType, const MatMulParams &params,
+    const poplar::DebugContext &debugContext, const OptionFlags &optionFlags,
+    PlanningCache *cache) {
+  const auto debugName = debugContext.getPathName();
   const auto options = parseMatMulOptionFlags(optionFlags);
   logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulLHS: '{}' params={}, options={}",
@@ -53,9 +53,10 @@ SparseTensor createSparseDenseMatMulLHS(Graph &graph, const Type &inputType,
 
 Tensor createSparseDenseMatMulRHS(Graph &graph, const Type &inputType,
                                   const MatMulParams &params,
-                                  const std::string &debugName,
+                                  const poplar::DebugContext &debugContext,
                                   const OptionFlags &optionFlags,
                                   PlanningCache *cache) {
+  const auto debugName = debugContext.getPathName();
   const auto options = parseMatMulOptionFlags(optionFlags);
   logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulRHS: '{}' params={}, options={}",
@@ -114,9 +115,10 @@ static void validateParameters(const SparseTensor &lhs, const Tensor &rhs,
 poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
                                  const Tensor &rhs_, Sequence &prog,
                                  bool transposeLHS, bool transposeRHS,
-                                 const std::string &debugPrefix,
+                                 const poplar::DebugContext &debugContext,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   auto lhs = lhs_;
   auto rhs = rhs_;
   const auto options = parseMatMulOptionFlags(optionFlags);

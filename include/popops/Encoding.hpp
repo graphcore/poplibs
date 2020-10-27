@@ -32,8 +32,7 @@ namespace popops {
  *                      that the encoding is not done for that index.
  *  \param prog         Sequence which the programs that perform the
  *                      encoding are added to.
- *  \param debugPrefix  Optional debug prefix for programs/variables
- *                      used to perform the encoding.
+ * \param debugContext  Optional debug information.
  *  \throw poputil::poplibs_error If \p encoded is not two dimensional.
  *  \throw poputil::poplibs_error If \p indices and \p encoded do not
  *         have the same number of rows.
@@ -43,7 +42,7 @@ namespace popops {
 void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
                   const poplar::Tensor &encoded,
                   poplar::program::Sequence &prog,
-                  const std::string &debugPrefix = "");
+                  const poplar::DebugContext &debugContext = {});
 
 /** Encode a given set of indices as a set of one-hot vectors
  * per-index with a hot element at that index.
@@ -60,8 +59,7 @@ void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
  *                      as one-hot vectors.
  *  \param prog         Sequence which the programs that perform the
  *                      encoding are added to.
- *  \param debugPrefix  Optional debug prefix for programs/variables
- *                      used to perform the encoding.
+ * \param debugContext  Optional debug information.
  *  \param on           Value which represents the "On" state in the one hot
  *                      encoded output.
  *  \param off          Value which represents the "Off" state.
@@ -75,7 +73,7 @@ void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
                   const poplar::Tensor &encoded,
                   poplar::program::Sequence &prog, const poplar::Tensor &on,
                   const poplar::Tensor &off,
-                  const std::string &debugPrefix = "");
+                  const poplar::DebugContext &debugContext = {});
 
 /** Fill a tensor with a right-open range of unsigned integers:
  *         [startInteger, startInteger + length),
@@ -89,13 +87,13 @@ void encodeOneHot(poplar::Graph &graph, const poplar::Tensor &indices,
  *  \param startInteger The start value in the output range.
  *  \param prog         Sequence which the programs that perform the
  *                      encoding are added to.
- *  \param debugPrefix  Optional debug prefix for programs/variables
- *                      used to perform the encoding.
+ * \param debugContext  Optional debug information.
  * \throw poputil::poplibs_error If the rank of \p t is greater than 1.
  * \throw poputil::poplibs_error If the type of \p t is not UNSIGNED_INT.
  */
 void iota(poplar::Graph &graph, const poplar::Tensor &t, unsigned startInteger,
-          poplar::program::Sequence &prog, const std::string &debugPrefix);
+          poplar::program::Sequence &prog,
+          const poplar::DebugContext &debugContext = {});
 
 /** Fill a tensor with a right-open range of signed integers:
  *         [startInteger, startInteger + length),
@@ -109,13 +107,13 @@ void iota(poplar::Graph &graph, const poplar::Tensor &t, unsigned startInteger,
  *  \param startInteger The start value in the output range.
  *  \param prog         Sequence which the programs that perform the
  *                      encoding are added to.
- *  \param debugPrefix  Optional debug prefix for programs/variables
- *                      used to perform the encoding.
+ * \param debugContext  Optional debug information.
  * \throw poputil::poplibs_error If the rank of \p t is greater than 1.
  * \throw poputil::poplibs_error If the type of \p t is not INT.
  */
 void iota(poplar::Graph &graph, const poplar::Tensor &t, int startInteger,
-          poplar::program::Sequence &prog, const std::string &debugPrefix);
+          poplar::program::Sequence &prog,
+          const poplar::DebugContext &debugContext = {});
 
 } // end namespace popops
 

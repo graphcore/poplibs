@@ -27,15 +27,14 @@ class PlanningCache;
  *                        be 1 and not accessed.
  *  \param prog           A reference to a program sequence which the code
  *                        to perform the arrangement will be appended to.
- *  \param debugPrefix    A debug prefix added to compute set and tensor
- *                        names.
+ *  \param debugContext   Optional debug information.
  *  \returns              A tensor with the same shape as \p a with all unused
  *                        values masked.
  */
 poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
                               bool lower, bool unitDiagonal,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix = "");
+                              const poplar::DebugContext &debugContext = {});
 
 /**
  * Solves systems of linear equations with lower or upper triangular
@@ -52,19 +51,21 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
  *  \param blockSize      Block size for blocked solver.
  *  \param prog           A reference to a program sequence which the code
  *                        to perform the arrangement will be appended to.
- *  \param debugPrefix    A debug prefix added to compute set and tensor
- *                        names.
+ *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
  *                        multiplication should be implemented.
  *                        See matMul() for details.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              Tensor with shape of \p b with linear system solution.
  */
-poplar::Tensor triangularSolve(
-    poplar::Graph &graph, const poplar::Tensor &a, const poplar::Tensor &b,
-    bool leftSide, bool lower, bool unitDiagonal, std::size_t blockSize,
-    poplar::program::Sequence &prog, const std::string &debugPrefix = "",
-    poplar::OptionFlags options = {}, matmul::PlanningCache *cache = nullptr);
+poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
+                               const poplar::Tensor &b, bool leftSide,
+                               bool lower, bool unitDiagonal,
+                               std::size_t blockSize,
+                               poplar::program::Sequence &prog,
+                               const poplar::DebugContext &debugContext = {},
+                               poplar::OptionFlags options = {},
+                               matmul::PlanningCache *cache = nullptr);
 
 } // namespace poplin
 

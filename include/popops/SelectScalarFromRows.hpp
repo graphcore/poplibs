@@ -20,7 +20,7 @@ namespace popops {
  * \param params    A 2D tensor, the element type must be either float or half.
  * \param indices   A 1D tensor, the element type must be unsigned integer.
  * \param prog      The program to be extended.
- * \param debugPrefix The prefix prepended to debugging info.
+ * \param debugContext Optional debug information.
  *
  * The size of the \p indices tensor must be equal to the size of dimension 0 of
  * \p params. The ith element of \p indices represents an index in the ith row
@@ -35,11 +35,11 @@ namespace popops {
  * `params[indices[i]]`.
  *
  */
-poplar::Tensor selectScalarFromRows(poplar::Graph &graph,
-                                    const poplar::Tensor &params,
-                                    const poplar::Tensor &indices,
-                                    poplar::program::Sequence &prog,
-                                    const std::string &debugPrefix = "");
+poplar::Tensor
+selectScalarFromRows(poplar::Graph &graph, const poplar::Tensor &params,
+                     const poplar::Tensor &indices,
+                     poplar::program::Sequence &prog,
+                     const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

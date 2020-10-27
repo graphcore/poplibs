@@ -1185,8 +1185,9 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
 
 poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
                                        popops::Operation op, Sequence &prog,
-                                       const std::string &debugPrefix,
+                                       const poplar::DebugContext &debugContext,
                                        const OptionFlags &optionFlags) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("replicatedReduceScatter data={}, op={}, name={}",
                         toReduce.shape(), op, debugPrefix);
   logging::popops::debug("Replicated reduce scatter begin ({}B)",
@@ -1220,8 +1221,9 @@ noCheckReplicatedAllGather(Graph &graph, const Tensor &toGather,
 
 poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
                                    Sequence &prog,
-                                   const std::string &debugPrefix,
+                                   const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &optionFlags) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("replicatedAllGather data={}, name={}",
                         toGather.shape(), debugPrefix);
   logging::popops::debug("Replicated all gather begin ({}B)",
@@ -1438,8 +1440,9 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
 void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
                                    poplar::Tensor &result, popops::Operation op,
                                    program::Sequence &prog,
-                                   const std::string &debugPrefix,
+                                   const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &optionFlags) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info(
       "replicatedAllReduceWithOutput data={}, result={}, op={}, name={}",
       data.shape(), result.shape(), op, debugPrefix);
@@ -1479,16 +1482,18 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
 void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
                                 popops::Operation op,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix,
+                                const poplar::DebugContext &debugContext,
                                 const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   return replicatedAllReduceWithOutput(graph, data, data, op, prog, debugPrefix,
                                        options);
 }
 
 Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
-                           const std::string &debugPrefix,
+                           const poplar::DebugContext &debugContext,
                            const poplar::OptionFlags &optionFlags) {
+  const auto debugPrefix = debugContext.getPathName();
 
   logging::popops::info("replicatedAllReduce data={}, op={}, name={}",
                         data.shape(), op, debugPrefix);
@@ -1506,9 +1511,9 @@ Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
 Tensor replicatedAllReduce(Graph &graph, Graph &parentGraph,
                            const poplar::Tensor &data, popops::Operation op,
                            program::Sequence &prog,
-                           const std::string &debugPrefix,
+                           const poplar::DebugContext &debugContext,
                            const poplar::OptionFlags &optionFlags) {
-
+  const auto debugPrefix = debugContext.getPathName();
   auto parentGraphReplicationFactor = parentGraph.getReplicationFactor();
   if (parentGraphReplicationFactor != 1) {
     throw poputil::poplibs_error("replicatedAllReduce() does not support "
@@ -1547,8 +1552,9 @@ createCommunicationMap(unsigned replicationFactor) {
 
 Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
                                     program::Sequence &sequence,
-                                    const std::string &debugPrefix,
+                                    const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   // Options are currently not supported.
   (void)options;
   using namespace popops::expr;

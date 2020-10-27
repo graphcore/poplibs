@@ -68,7 +68,7 @@ void addTransposeVertices(
 /// other group sizes.
 poplar::Tensor partialTranspose(poplar::Graph &graph, const poplar::Tensor &in,
                                 const poplar::ComputeSet &cs,
-                                const std::string &debugPrefix = "");
+                                const poplar::DebugContext &debugContext = {});
 
 /** Get the smallest grouping we can transpose between for the given type
  *  using fast transposition codelets.
@@ -92,8 +92,7 @@ unsigned getMinimumRegroupGrainSize(const poplar::Type &type);
  *  \param from        A grouping that is applied to the given tensor \p t to
  *                     rearrange from.
  *  \param to          A grouping wanted on the returned tensor.
- *  \param debugPrefix An optional string to be prepended to any debug
- *                     info.
+ *  \param debugContext Optional debug information.
  *
  *  \returns A tensor with the contents of \p t but laid out such that
  *           it has the grouping specified in \p to.
@@ -103,7 +102,7 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
                              const poplar::ComputeSet &transposeCS,
                              const poputil::GroupingInfo &from,
                              const poputil::GroupingInfo &to,
-                             const std::string &debugPrefix);
+                             const poplar::DebugContext &debugContext = {});
 
 /** Insert copies or other operations into the given programs/compute sets
  *  to transform the grouping found on the given tensor from \p from to
@@ -119,8 +118,7 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
  *  \param from        A grouping that is applied to the given tensor \p t to
  *                     rearrange from.
  *  \param to          A grouping wanted on the returned tensor.
- *  \param debugPrefix An optional string to be prepended to any debug
- *                     info.
+ *  \param debugContext Optional debug information.
  *
  *  \returns A tensor with the contents of \p t but laid out such that
  *           it has the grouping specified in \p to.
@@ -130,7 +128,7 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
                              const poplar::ComputeSet &transposeCS,
                              const poputil::GroupingInfo &from,
                              const poputil::GroupingInfo &to,
-                             const std::string &debugPrefix);
+                             const poplar::DebugContext &debugContext = {});
 
 /** If possible and runtime efficient, add an operation to rearrange the given
  *  tensor in memory such that the grouping of the resulting tensor matches
@@ -142,16 +140,15 @@ poplar::Tensor regroupTensor(poplar::Graph &graph, const poplar::Tensor &t,
  *  \param ref         A reference tensor which will be introspected to find a
  *                     grouping to apply to the returned tensor.
  *  \param prog        A poplar sequence to add the regrouping operation to.
- *  \param debugPrefix An optional string to be prepended to any debug info.
+ *  \param debugContext Optional debug information.
  *
  *  \returns A tensor with the contents of the given tensor \p in rearranged in
  *           memory to have a grouping matching \p ref.
  */
-poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
-                                   const poplar::Tensor &in,
-                                   const poplar::Tensor &ref,
-                                   poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+regroupIfBeneficial(poplar::Graph &graph, const poplar::Tensor &in,
+                    const poplar::Tensor &ref, poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {});
 
 /** If possible and runtime efficient, add an operation to rearrange the given
  *  tensor in memory such that the grouping of the resulting tensor matches
@@ -165,17 +162,15 @@ poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
  *  \param ref         A reference tensor which will be introspected to find a
  *                     grouping to apply to the returned tensor.
  *  \param copies      A vector to add pre-arranging copies to.
- *  \param debugPrefix An optional string to be prepended to any debug info.
+ *  \param debugContext Optional debug information.
  *
  *  \returns A tensor with the contents of the given tensor \p in rearranged in
  *           memory to have a grouping matching \p ref.
  */
-poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
-                                   const poplar::Tensor &in,
-                                   const poplar::Tensor &ref,
-                                   std::vector<poplar::program::Copy> &copies,
-                                   poplar::ComputeSet transposeCS,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor regroupIfBeneficial(
+    poplar::Graph &graph, const poplar::Tensor &in, const poplar::Tensor &ref,
+    std::vector<poplar::program::Copy> &copies, poplar::ComputeSet transposeCS,
+    const poplar::DebugContext &debugContext = {});
 
 /** If possible and runtime efficient, add an operation to rearrange the given
  *  tensor in memory such that the resulting tensor has a grouping in the
@@ -188,17 +183,16 @@ poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
  *                           the given tensor to regroup to.
  *  \param prog              A poplar sequence to add the regrouping operation
  *                           to.
- *  \param debugPrefix       An optional string to be prepended to any debug
- * info.
+ *  \param debugContext      Optional debug information.
  *
  *  \returns A tensor with the contents of the given tensor \p in rearranged in
  *           memory to have a grouping matching \p ref.
  */
-poplar::Tensor regroupIfBeneficial(poplar::Graph &graph,
-                                   const poplar::Tensor &in,
-                                   std::size_t preferredGrouping,
-                                   poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+regroupIfBeneficial(poplar::Graph &graph, const poplar::Tensor &in,
+                    std::size_t preferredGrouping,
+                    poplar::program::Sequence &prog,
+                    const poplar::DebugContext &debugContext = {});
 
 } // end namespace rearrange
 } // end namespace popops

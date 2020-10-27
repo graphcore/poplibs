@@ -29,14 +29,16 @@ namespace popops {
  *  \param inputs           List of input tensors for the element-wise
  *                          operation.
  *  \param outputType       The element type of the tensor.
- *  \param debugName        Debug name given to the tensor.
+ *  \param debugContext     Optional debug information.
  *
  *  \return A tensor with the same shape as the given inputs, with a complete
  *          tile mapping.
  */
-poplar::Tensor createOutputForElementWiseOp(
-    poplar::Graph &graph, const std::vector<poplar::Tensor> &inputs,
-    const poplar::Type &outputType, const std::string &debugName = "");
+poplar::Tensor
+createOutputForElementWiseOp(poplar::Graph &graph,
+                             const std::vector<poplar::Tensor> &inputs,
+                             const poplar::Type &outputType,
+                             const poplar::DebugContext &debugContext = {});
 
 } // end namespace popops
 

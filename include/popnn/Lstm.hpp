@@ -118,7 +118,7 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params);
  *
  * \param graph           Graph object.
  * \param params          The LSTM parameters.
- * \param name            String annotation.
+ * \param debugContext    Debug information.
  * \param options         Any implementation/debug options for the LSTM.
  * \param planningCache   A poplin matrix multiply planning cache.
  *
@@ -127,7 +127,8 @@ uint64_t getBasicLstmCellWuFlops(const LstmParams &params);
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, const LstmParams &params,
-            const std::string &name, const poplar::OptionFlags &options = {},
+            const poplar::DebugContext &debugContext,
+            const poplar::OptionFlags &options = {},
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create the initial output that can be combined with the initial cell state
@@ -136,7 +137,7 @@ createInput(poplar::Graph &graph, const LstmParams &params,
  *
  * \param graph           Graph object.
  * \param params          The LSTM parameters.
- * \param name            String annotation.
+ * \param debugContext    Debug information.
  * \param options         Any implementation/debug options for the LSTM. See
  *                        createInput().
  * \param planningCache   A poplin matrix multiply planning cache.
@@ -146,7 +147,7 @@ createInput(poplar::Graph &graph, const LstmParams &params,
  */
 poplar::Tensor
 createInitialOutput(poplar::Graph &graph, const LstmParams &params,
-                    const std::string &name,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -156,7 +157,7 @@ createInitialOutput(poplar::Graph &graph, const LstmParams &params,
  *
  * \param graph           Graph object.
  * \param params          The LSTM parameters.
- * \param name            String annotation.
+ * \param debugContext    Debug information.
  * \param options         Any implementation/debug options for the LSTM. See
  *                        createInput().
  * \param planningCache   A poplin matrix multiply planning cache.
@@ -166,7 +167,7 @@ createInitialOutput(poplar::Graph &graph, const LstmParams &params,
  */
 poplar::Tensor
 createInitialCellState(poplar::Graph &graph, const LstmParams &params,
-                       const std::string &name,
+                       const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options = {},
                        poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -176,7 +177,7 @@ createInitialCellState(poplar::Graph &graph, const LstmParams &params,
  *
  * \param graph           Graph object.
  * \param params          The LSTM parameters.
- * \param name            String annotation.
+ * \param debugContext    Debug information.
  * \param options         Any implementation/debug options for the LSTM. See
  *                        createInput().
  * \param planningCache   A poplin matrix multiply planning cache.
@@ -186,7 +187,7 @@ createInitialCellState(poplar::Graph &graph, const LstmParams &params,
  */
 LstmState
 createInitialState(poplar::Graph &graph, const LstmParams &params,
-                   const std::string &name,
+                   const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options = {},
                    poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -196,12 +197,11 @@ createInitialState(poplar::Graph &graph, const LstmParams &params,
  *  \param initialState      The initial state to zero.
  *  \param prog              The program to extend with the initialization
  *                           code
- *  \param debugPrefix       A debug string to prepend to debug indentifiers
- *                           in the added code.
+ *  \param debugContext      Optional debug information.
  */
 void zeroInitialState(poplar::Graph &graph, const LstmState &initialState,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 /**
  * Structure holding all the parameters of an LSTM cell, or the
@@ -218,7 +218,7 @@ struct LstmWeights {
  */
 std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
-                    const std::string &name,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -226,7 +226,7 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
  */
 poplar::Tensor
 createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
-                    const std::string &name,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -235,7 +235,8 @@ createWeightsBiases(poplar::Graph &graph, const LstmParams &params,
  */
 LstmWeights
 createWeights(poplar::Graph &graph, const LstmParams &params,
-              const std::string &name, const poplar::OptionFlags &options = {},
+              const poplar::DebugContext &debugContext,
+              const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Calculate the result of applying an LSTM across a sequence.
@@ -256,7 +257,7 @@ createWeights(poplar::Graph &graph, const LstmParams &params,
  *                           null if we are only doing inference.
  * \param weights            The LSTM weights structure.
  * \param fwdProg            Program sequence.
- * \param debugPrefix        String used as prefix for compute sets.
+ *  \param debugContext       Optional debug information.
  * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -270,7 +271,8 @@ std::pair<poplar::Tensor, poplar::Tensor>
 lstmFwd(poplar::Graph &graph, const LstmParams &params,
         const LstmState &stateInit, const poplar::Tensor &in,
         const LstmWeights &weights, poplar::Tensor *intermediates,
-        poplar::program::Sequence &fwdProg, const std::string &debugPrefix = "",
+        poplar::program::Sequence &fwdProg,
+        const poplar::DebugContext &debugContext = {},
         const poplar::OptionFlags &options = {},
         poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -305,22 +307,24 @@ lstmFwd(poplar::Graph &graph, const LstmParams &params,
  *                           the backward pass of training for use in the
  *                           weight update. This argument should be set to null
  *                           if you do not need to calculate weight deltas.
- * \param debugPrefix        String used as prefix for compute sets.
+ *  \param debugContext       Optional debug information.
  * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial state.
  */
-LstmState
-lstmBwd(poplar::Graph &graph, const LstmParams &params,
-        poplar::program::Sequence &prog, const LstmState &fwdStateInit,
-        const poplar::Tensor &fwdIntermediates, const LstmWeights &weights,
-        const poplar::Tensor &input, const poplar::Tensor &output,
-        const poplar::Tensor &outputGrad,
-        const poplar::Tensor *lastCellStateGrad, poplar::Tensor *inputGrad,
-        poplar::Tensor *bwdIntermediates, const std::string &debugPrefix = "",
-        const poplar::OptionFlags &options = {},
-        poplin::matmul::PlanningCache *planningCache = nullptr);
+LstmState lstmBwd(poplar::Graph &graph, const LstmParams &params,
+                  poplar::program::Sequence &prog,
+                  const LstmState &fwdStateInit,
+                  const poplar::Tensor &fwdIntermediates,
+                  const LstmWeights &weights, const poplar::Tensor &input,
+                  const poplar::Tensor &output,
+                  const poplar::Tensor &outputGrad,
+                  const poplar::Tensor *lastCellStateGrad,
+                  poplar::Tensor *inputGrad, poplar::Tensor *bwdIntermediates,
+                  const poplar::DebugContext &debugContext = {},
+                  const poplar::OptionFlags &options = {},
+                  poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /**
  *  Run a standalone weight update pass. Takes intermediates and gradients
@@ -339,8 +343,7 @@ lstmBwd(poplar::Graph &graph, const LstmParams &params,
  *                          on the outputFullSequence parameter this is either
  *                          the output for the last timestep or it is a
  *                          sequence of outputs for each timestep.
- *  \param debugPrefix      String used as a prefix to compute sets and
- *                          tensors added to the graph.
+ *  \param debugContext     Optional debug information.
  *  \param options          LSTM implementation options. See createInput().
  *  \param planningCache    The matmul planning cache.
  *
@@ -353,7 +356,7 @@ LstmWeights lstmWU(poplar::Graph &graph, const LstmParams &params,
                    const poplar::Tensor &bwdIntermediates,
                    const LstmWeights &weights, const poplar::Tensor &input,
                    const poplar::Tensor &output,
-                   const std::string &debugPrefix = "",
+                   const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {},
                    poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -385,7 +388,7 @@ LstmWeights lstmWU(poplar::Graph &graph, const LstmParams &params,
  * \param[out] *inputSeqGrad The gradients of the inputs. May be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
- * \param debugPrefix        String used as prefix for compute sets
+ * \param debugContext       Optional debug information.
  * \param options            LSTM implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -400,7 +403,7 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         const poplar::Tensor &outputGrad,
                         const poplar::Tensor *lastCellStateGrad,
                         poplar::Tensor *inputGrad, LstmWeights &weightsGrad,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {},
                         poplin::matmul::PlanningCache *planningCache = nullptr);
 

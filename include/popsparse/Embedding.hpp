@@ -22,16 +22,16 @@ namespace dynamic {
  *                    the indices.
  * \param options     Implementation options for the fully connected layer.
  * \param numIndices  The number of indices this tensor should contain
- * \param debugPrefix The prefix prepended to debugging info.
+ * \param debugContext   Optional debug information.
  *
  * \returns A 1D tensor of shape [\p numIndices]. Element type
  *          is always UNSIGNED_INT.
  */
-poplar::Tensor createIndicesTensor(poplar::Graph &graph,
-                                   const FullyConnectedParams &params,
-                                   std::size_t numIndices,
-                                   const poplar::OptionFlags &options = {},
-                                   const std::string &debugPrefix = "");
+poplar::Tensor
+createIndicesTensor(poplar::Graph &graph, const FullyConnectedParams &params,
+                    std::size_t numIndices,
+                    const poplar::OptionFlags &options = {},
+                    const poplar::DebugContext &debugContext = {});
 
 /** Create and map a tensor to be updated from efficiently.
  *
@@ -43,7 +43,7 @@ poplar::Tensor createIndicesTensor(poplar::Graph &graph,
  *                       provide the planned memory layout for the sparse tensor
  *                       being updated
  * \param numIndices     The number of slices this tensor should contain.
- * \param debugPrefix    A string prepended to debugging info.
+ * \param debugContext   Optional debug information.
  * \param options        Implementation options for the fully connected layer.
  * \param cache          Optional pointer to planning cache to use.
  *
@@ -55,7 +55,7 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph,
                                  const poplar::Type &dataType,
                                  const FullyConnectedParams &params,
                                  std::size_t numIndices,
-                                 const std::string &debugPrefix = "",
+                                 const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {},
                                  PlanningCache *cache = nullptr);
 
@@ -70,7 +70,7 @@ poplar::Tensor createSliceTensor(poplar::Graph &graph,
  * \param params         Parameters for the fully connected layer which will
  *                       provide the planned memory layout for the sparse tensor
  *                       being sliced.
- * \param debugPrefix    The prefix prepended to debugging info.
+ * \param debugContext   Optional debug information.
  * \param options        Implementation options for the fully connected layer.
  * \param cache          Optional pointer to planning cache to use.
  */
@@ -78,7 +78,7 @@ poplar::Tensor embeddingSlice(poplar::Graph &graph, const SparseTensor &t,
                               const poplar::Tensor &indices,
                               poplar::program::Sequence &prog,
                               const FullyConnectedParams &params,
-                              const std::string &debugPrefix = "",
+                              const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {},
                               PlanningCache *cache = nullptr);
 
@@ -94,7 +94,7 @@ poplar::Tensor embeddingSlice(poplar::Graph &graph, const SparseTensor &t,
  * \param params         Parameters for the fully connected layer which will
  *                       provide the planned memory layout for the sparse tensor
  *                       being updated
- * \param debugPrefix    The prefix prepended to debugging info.
+ * \param debugContext   Optional debug information.
  * \param options        Implementation options for the fully connected layer.
  * \param cache          Optional pointer to planning cache to use.
  */
@@ -102,7 +102,7 @@ void embeddingUpdateAdd(
     poplar::Graph &graph, const SparseTensor &t, const poplar::Tensor &slices,
     const poplar::Tensor &indices, const poplar::Tensor &scale,
     poplar::program::Sequence &prog, const FullyConnectedParams &params,
-    const std::string &debugPrefix = "",
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}, PlanningCache *cache = nullptr);
 
 } // end namespace dynamic

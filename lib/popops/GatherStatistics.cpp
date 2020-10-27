@@ -192,9 +192,9 @@ constexpr unsigned maxElementsForFloatReduction = 16777216u;
 poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
                          const poplar::Tensor &levels, bool absoluteOfInput,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix,
+                         const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
-
+  const auto debugPrefix = debugContext.getPathName();
   const auto opts = parseOptionFlags(options);
   auto histogramResult =
       histogramImpl(graph, input, levels, absoluteOfInput, prog, debugPrefix);
@@ -222,8 +222,8 @@ void histogram(poplar::Graph &graph, const poplar::Tensor &input,
                poplar::Tensor &output, bool updateOutput,
                const poplar::Tensor &levels, bool absoluteOfInput,
                poplar::program::Sequence &prog,
-               const std::string &debugPrefix) {
-
+               const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto useFloatArithmetic = (output.elementType() == FLOAT);
   auto histogramResult =
       histogramImpl(graph, input, levels, absoluteOfInput, prog, debugPrefix);

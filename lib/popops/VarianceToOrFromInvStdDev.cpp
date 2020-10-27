@@ -84,7 +84,9 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
 
 Tensor varianceToInvStdDev(Graph &graph, const Tensor &src,
                            const Tensor &epsilon, Sequence &prog,
-                           const Type dstType, const std::string &debugPrefix) {
+                           const Type dstType,
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto srcType = src.elementType();
   if (dstType != srcType && dstType != HALF) {
     throw poputil::poplibs_error("Cannot convert variance to inverse standard "
@@ -99,7 +101,9 @@ Tensor varianceToInvStdDev(Graph &graph, const Tensor &src,
 
 Tensor invStdDevToVariance(Graph &graph, const Tensor &src,
                            const Tensor &epsilon, Sequence &prog,
-                           const Type dstType, const std::string &debugPrefix) {
+                           const Type dstType,
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto srcType = src.elementType();
   if (dstType != srcType && dstType != FLOAT) {
     throw poputil::poplibs_error("Cannot convert inverse standard deviation to"
@@ -114,7 +118,8 @@ Tensor invStdDevToVariance(Graph &graph, const Tensor &src,
 
 Tensor varianceToInvStdDev(Graph &graph, const Tensor &src, const float epsilon,
                            Sequence &prog, const Type dstType,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto eps = graph.addConstant(src.elementType(), {}, epsilon);
   graph.setTileMapping(eps, 0);
   return varianceToInvStdDev(graph, src, eps, prog, dstType, debugPrefix);
@@ -122,7 +127,8 @@ Tensor varianceToInvStdDev(Graph &graph, const Tensor &src, const float epsilon,
 
 Tensor invStdDevToVariance(Graph &graph, const Tensor &src, const float epsilon,
                            Sequence &prog, const Type dstType,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto eps = graph.addConstant(src.elementType(), {}, epsilon);
   graph.setTileMapping(eps, 0);
   return invStdDevToVariance(graph, src, eps, prog, dstType, debugPrefix);

@@ -27,7 +27,7 @@ namespace popnn {
  *                       is {F, H, W} where F is the number of fields).
  * \param temperature    Initial value for the softmax scaling/normalisation
  *                       parameter.
- * \param name           Optional name used as prefix for introduced variables.
+ * \param debugContext   Optional debug information.
  * \param disableSoftmax Turns off softmax computation in this function. This is
  *                       useful if you have already computed a softmax over all
  *                       the fields due to other processing or for test/debug.
@@ -38,7 +38,8 @@ namespace popnn {
 std::pair<poplar::Tensor, poplar::Tensor>
 spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
                  const poplar::Tensor &fields, float temperature,
-                 bool disableSoftmax = false, const std::string &name = "");
+                 bool disableSoftmax = false,
+                 const poplar::DebugContext &debugContext = {});
 
 } // end namespace popnn
 

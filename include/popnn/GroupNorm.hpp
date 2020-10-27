@@ -36,7 +36,7 @@ groupNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     poplar::program::Sequence &prog, unsigned numGroups,
                     bool unbiasedVarEstimate, bool stableAlgo = false,
                     const poplar::Type &partialsType = poplar::FLOAT,
-                    const std::string &debugPrefix = "",
+                    const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {});
 
 /// Whiten activations given mean and standard deviation.
@@ -44,7 +44,7 @@ poplar::Tensor groupNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                                const poplar::Tensor &mean,
                                const poplar::Tensor &invStdDev,
                                poplar::program::Sequence &prog,
-                               const std::string &debugPrefix = "",
+                               const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {});
 
 /// Group normalise activations given mean, standard deviation and batch norm
@@ -58,7 +58,7 @@ groupNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                const poplar::Tensor &gamma, const poplar::Tensor &beta,
                const poplar::Tensor &mean, const poplar::Tensor &invStdDev,
                poplar::program::Sequence &prog,
-               const std::string &debugPrefix = "",
+               const poplar::DebugContext &debugContext = {},
                const poplar::OptionFlags &options = {});
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -67,7 +67,7 @@ std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
     const poplar::Tensor &gradsIn, const poplar::Tensor &mean,
     const poplar::Tensor &iStdDev, poplar::program::Sequence &prog,
     const poplar::Type &partialsType = poplar::FLOAT,
-    const std::string &debugPrefix = "",
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {});
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -75,7 +75,7 @@ std::pair<poplar::Tensor, poplar::Tensor> groupNormParamGradients(
     poplar::Graph &graph, const poplar::Tensor &actsWhitened,
     const poplar::Tensor &gradsIn, poplar::program::Sequence &prog,
     const poplar::Type &partialsType = poplar::FLOAT,
-    const std::string &debugPrefix = "",
+    const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {});
 
 /// Compute gradients w.r.t input activations for the group norm layer.
@@ -87,7 +87,7 @@ groupNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::Tensor &invStdDev, const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
                    const poplar::Type &partialsType = poplar::FLOAT,
-                   const std::string &debugPrefix = "",
+                   const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {});
 
 /// Compute gradients w.r.t input activations for the group norm layer.
@@ -99,7 +99,7 @@ groupNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Tensor &invStdDev, const poplar::Tensor &gamma,
                    poplar::program::Sequence &prog,
                    const poplar::Type &partialsType = poplar::FLOAT,
-                   const std::string &debugPrefix = "",
+                   const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {});
 
 void groupNormParamUpdate(poplar::Graph &graph,
@@ -107,7 +107,7 @@ void groupNormParamUpdate(poplar::Graph &graph,
                           const poplar::Tensor &betaDelta, float scale,
                           poplar::Tensor &gamma, poplar::Tensor &beta,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {});
 
 void groupNormParamUpdate(poplar::Graph &graph,
@@ -115,7 +115,7 @@ void groupNormParamUpdate(poplar::Graph &graph,
                           const poplar::Tensor &betaDelta,
                           const poplar::Tensor &scale, poplar::Tensor &gamma,
                           poplar::Tensor &beta, poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "",
+                          const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {});
 } // namespace gn
 } // namespace popnn

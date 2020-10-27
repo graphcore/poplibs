@@ -211,7 +211,8 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 
 Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
                                     const Tensor &indices, Sequence &program,
-                                    const std::string &debugPrefix) {
+                                    const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   // Check preconditions.
   expect(indices.rank() == 1, "indices must have rank 1");
   expect(indices.elementType() == UNSIGNED_INT,

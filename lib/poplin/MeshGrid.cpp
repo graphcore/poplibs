@@ -23,7 +23,8 @@ namespace logging = poplibs_support::logging;
 
 poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
                         float left, float right, size_t count,
-                        const std::string &debugPrefix) {
+                        const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/linspace";
   logging::poplin::info(
       "linspace type={}, left={}, right={}, count={}, name={}", type, left,

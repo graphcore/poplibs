@@ -20,13 +20,13 @@ namespace popops {
  * \param graph         The Poplar graph.
  * \param A             The boolean tensor.
  * \param prog          The program sequence to add this operation to.
- * \param debugPrefix   A debug name for the operation,
+ * \param debugContext  Optional debug information.
  * \returns             A variable that holds the result of the operation.
  * \throw poputil::poplibs_error If the elements of \p A are not booleans.
  */
 poplar::Tensor allTrue(poplar::Graph &graph, poplar::Tensor A,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "");
+                       const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

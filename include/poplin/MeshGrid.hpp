@@ -14,15 +14,16 @@ namespace poplin {
 
 /** Create a constant variable that contains values equally spaced in the
  *  specified closed range [\p left, \p right].
- * \param graph Graph to which the variable is added.
- * \param left The first value in the range.
- * \param right The last value in the range.
- * \param type Data type of variable to create. Must be \c FLOAT or \c HALF.
- * \return Constant Tensor of rank 1 (vector) containing the linspace values.
+ * \param graph         Graph to which the variable is added.
+ * \param left          The first value in the range.
+ * \param right         The last value in the range.
+ * \param type          Data type of variable to create. Must be \c FLOAT or \c
+ * HALF. \param debugContext  Optional debug information. \return Constant
+ * Tensor of rank 1 (vector) containing the linspace values.
  */
 poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
                         float left, float right, size_t count,
-                        const std::string &debugPrefix = "");
+                        const poplar::DebugContext &debugContext = {});
 
 /** Create a coordinate grid for each axis by broadcasting the input tensors.
  * This 2D specialisation only supports two inputs that must be of rank 1

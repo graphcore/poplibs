@@ -264,7 +264,8 @@ poplar::program::Sequence createOddExchange(poplar::Graph &graph,
 
 poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                     poplar::program::Sequence &prog,
-                    const std::string &debugPrefix) {
+                    const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   poplar::Tensor result = graph.clone(t);
   prog.add(poplar::program::Copy(t, result));
 
@@ -275,7 +276,8 @@ poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
 
 void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix) {
+                 const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (dim >= t.rank()) {
     throw poputil::poplibs_error(
         "Chosen sort dimension does not refer to a valid "
@@ -308,7 +310,8 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
 poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
                             const poplar::Tensor &v, unsigned dim,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix) {
+                            const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   poplar::Tensor key = graph.clone(k);
   poplar::Tensor value = graph.clone(v);
 
@@ -323,7 +326,8 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
 void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
                          const poplar::Tensor &v, unsigned dim,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix) {
+                         const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (k.shape() != v.shape()) {
     throw poputil::poplibs_error(
         "Key and Value arguments to sortKeyValue must be the same shape");

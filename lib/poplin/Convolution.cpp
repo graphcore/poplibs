@@ -1402,8 +1402,9 @@ Tensor createInput(Graph &graph, const Plan &plan,
 }
 
 Tensor createInput(Graph &graph, const ConvParams &params_,
-                   const std::string &name, const poplar::OptionFlags &options_,
-                   PlanningCache *cache) {
+                   const poplar::DebugContext &debugContext,
+                   const poplar::OptionFlags &options_, PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   const CanonicalConvParams params(params_);
   const ConvOptions options(options_);
 
@@ -1520,9 +1521,10 @@ Tensor createWeights(Graph &graph, const Plan &plan,
 }
 
 Tensor createWeights(Graph &graph, const ConvParams &params_,
-                     const std::string &name,
+                     const poplar::DebugContext &debugContext,
                      const poplar::OptionFlags &options_,
                      PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   const CanonicalConvParams params(params_);
   const ConvOptions options(options_);
 
@@ -1567,7 +1569,8 @@ static void mapBiases(poplar::Graph &graph, const poplar::Tensor &biases,
 }
 
 poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts_,
-                            const std::string &name) {
+                            const poplar::DebugContext &debugContext) {
+  const auto name = debugContext.getPathName();
   const auto acts = actsToInternalShape(acts_, 1, acts_.dim(1));
   const auto numOutChans = acts.dim(acts.rank() - 1);
   const auto dType = acts.elementType();
@@ -2592,8 +2595,9 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
 Tensor convolution(Graph &graph, const poplar::Tensor &in,
                    const poplar::Tensor &weights, const ConvParams &params_,
                    bool transposeAndFlipWeights, Sequence &prog,
-                   const std::string &debugPrefix,
+                   const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const CanonicalConvParams params(params_);
   const ConvOptions options(options_);
 
@@ -2659,8 +2663,9 @@ void weightsTransposeChansFlipXY(
     std::vector<poplar::program::Copy> &preTranspose,
     poplar::ComputeSet transposeCS,
     std::vector<poplar::program::Copy> &postTranspose,
-    const std::string &debugPrefix) {
+    const poplar::DebugContext &debugContext) {
   assert(weightsInUnGrouped.rank() >= 3);
+  const auto debugPrefix = debugContext.getPathName();
   const auto numFieldDims = weightsInUnGrouped.rank() - 3;
 
   const auto weightsIn =
@@ -2758,7 +2763,8 @@ void weightsTransposeChansFlipXY(
 void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,
                                  const Tensor &weightsOutUnGrouped,
                                  Sequence &prog,
-                                 const std::string &debugPrefix) {
+                                 const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   std::vector<Copy> preTranspose, postTranspose;
   auto transposeCS = graph.addComputeSet(debugPrefix + "/WeightTranspose");
   weightsTransposeChansFlipXY(graph, weightsInUnGrouped, weightsOutUnGrouped,
@@ -2864,9 +2870,10 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
 Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
                              const Tensor &activations_,
                              const ConvParams &fwdParams_, Sequence &prog,
-                             const std::string &debugPrefix,
+                             const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const CanonicalConvParams wuParams = getWeightUpdateParams(fwdParams_);
   const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
   const auto wuPlan = getPlan(graph.getTarget(), wuParams, wuOptions, cache);
@@ -2900,9 +2907,11 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
                              ConvParams fwdParams, const Tensor &scale,
-                             Sequence &prog, const std::string &debugPrefix,
+                             Sequence &prog,
+                             const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   // Adjust params so that weightDelta is of inputType without needing to cast.
   fwdParams.outputType = fwdParams.inputType;
 
@@ -2943,9 +2952,10 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
                              const Tensor &weights, const Tensor &activations,
                              ConvParams fwdParams, float scale, Sequence &prog,
-                             const std::string &debugPrefix,
+                             const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &fwdOptions_,
                              PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   // Adjust params so that weightDelta is of inputType without needing to cast.
   fwdParams.outputType = fwdParams.inputType;
 
@@ -2967,7 +2977,8 @@ void convolutionWeightUpdate(Graph &graph, const Tensor &zDeltas,
 void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, const Tensor &scale,
                            const poplar::OptionFlags &options_, Sequence &prog,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const ConvOptions options(options_);
   if (zDeltasUngrouped.rank() < 2)
     throw poplibs_error("convolutionBiasUpdate with rank " +
@@ -2986,7 +2997,8 @@ void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
 void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
                            const Tensor &biases, float scale,
                            const poplar::OptionFlags &options_, Sequence &prog,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto scaleTensor =
       graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
   graph.setTileMapping(scaleTensor, 0);
@@ -2995,7 +3007,8 @@ void convolutionBiasUpdate(Graph &graph, const Tensor &zDeltasUngrouped,
 }
 
 void addBias(Graph &graph, const Tensor &acts, const Tensor &biases,
-             Sequence &prog, const std::string &debugPrefix) {
+             Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (acts.rank() < 2) {
     throw poplibs_error("Expected at least a batch size and channel dimension");
   }
@@ -3259,9 +3272,10 @@ static Tensor fullyConnectedWeightTranspose(
 
 Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor weights,
                                      const ConvParams &params_, Sequence &prog,
-                                     const std::string &debugPrefix,
+                                     const poplar::DebugContext &debugContext,
                                      const poplar::OptionFlags &options_,
                                      PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const ConvOptions options(options_);
   return fullyConnectedWeightTranspose(graph, weights, params_, prog,
                                        debugPrefix, options, cache);

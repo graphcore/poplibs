@@ -261,8 +261,9 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
 }
 
 Tensor createInput(Graph &graph, const LstmParams &params,
-                   const std::string &name, const OptionFlags &options,
-                   matmul::PlanningCache *cache) {
+                   const poplar::DebugContext &debugContext,
+                   const OptionFlags &options, matmul::PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   return createInput(graph, params, name,
                      parseOptions(options, params.dataType), cache);
 }
@@ -276,25 +277,28 @@ static poplar::Tensor createStateTensor(Graph &graph, const LstmParams &params,
 }
 
 poplar::Tensor createInitialOutput(Graph &graph, const LstmParams &params,
-                                   const std::string &debugPrefix,
+                                   const poplar::DebugContext &debugContext,
                                    const OptionFlags &options,
                                    matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   return createStateTensor(graph, params, debugPrefix + "/initialOutput",
                            options, cache);
 }
 
 poplar::Tensor createInitialCellState(Graph &graph, const LstmParams &params,
-                                      const std::string &debugPrefix,
+                                      const poplar::DebugContext &debugContext,
                                       const OptionFlags &options,
                                       matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   return createStateTensor(graph, params, debugPrefix + "/initialCellState",
                            options, cache);
 }
 
 LstmState createInitialState(Graph &graph, const LstmParams &params,
-                             const std::string &debugPrefix,
+                             const poplar::DebugContext &debugContext,
                              const OptionFlags &options,
                              matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   auto initialOutput =
       createInitialOutput(graph, params, debugPrefix, options, cache);
   auto initialCellState =
@@ -303,14 +307,17 @@ LstmState createInitialState(Graph &graph, const LstmParams &params,
 }
 
 void zeroInitialState(Graph &graph, const LstmState &state, Sequence &prog,
-                      const std::string &debugPrefix) {
+                      const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   zero(graph, concat(state.output, state.cellState), prog, debugPrefix);
 }
 
 std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
-                    const std::string &name, const poplar::OptionFlags &options,
+                    const poplar::DebugContext &debugContext,
+                    const poplar::OptionFlags &options,
                     poplin::matmul::PlanningCache *cache) {
+  const auto name = debugContext.getPathName();
   validateParams(params);
   auto opt = parseOptions(options, params.dataType);
   auto mmOpt = getMMOpts(opt);
@@ -356,8 +363,10 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
  */
 poplar::Tensor createWeightsBiases(poplar::Graph &graph,
                                    const LstmParams &params,
-                                   const std::string &name, const OptionFlags &,
+                                   const poplar::DebugContext &debugContext,
+                                   const OptionFlags &,
                                    poplin::matmul::PlanningCache *) {
+  const auto name = debugContext.getPathName();
   validateParams(params);
   auto outputSize = params.layerSizes[1];
   auto biases = graph.addVariable(params.dataType,
@@ -368,9 +377,10 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
 }
 
 LstmWeights createWeights(Graph &graph, const LstmParams &params,
-                          const std::string &name, const OptionFlags &options,
+                          const poplar::DebugContext &debugContext,
+                          const OptionFlags &options,
                           poplin::matmul::PlanningCache *cache) {
-
+  const auto name = debugContext.getPathName();
   LstmWeights lstmWeights;
   std::tie(lstmWeights.inputWeights, lstmWeights.outputWeights) =
       createWeightsKernel(graph, params, name, options, cache);
@@ -718,8 +728,9 @@ std::pair<Tensor, Tensor>
 lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         const Tensor &prevLayerActs, const LstmWeights &weights,
         Tensor *intermediatesSeq, program::Sequence &fwdProg,
-        const std::string &debugPrefix, const OptionFlags &options,
+        const poplar::DebugContext &debugContext, const OptionFlags &options,
         poplin::matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   validateParams(params);
   auto opt = parseOptions(options, params.dataType);
 
@@ -1405,9 +1416,11 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                   const Tensor &fwdInputSeq, const Tensor &fwdOutput,
                   const Tensor &gradLayerNext,
                   const Tensor *lastCellStateGradPtr, Tensor *inputGrad,
-                  Tensor *bwdIntermediates, const std::string &debugPrefix,
+                  Tensor *bwdIntermediates,
+                  const poplar::DebugContext &debugContext,
                   const OptionFlags &options_,
                   poplin::matmul::PlanningCache *planningCache) {
+  const auto debugPrefix = debugContext.getPathName();
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
 
@@ -1505,9 +1518,10 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                    const Tensor &fwdIntermediates,
                    const Tensor &bwdIntermediates, const LstmWeights &weights,
                    const Tensor &input, const Tensor &output,
-                   const std::string &debugPrefix,
+                   const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
+  const auto debugPrefix = debugContext.getPathName();
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
 
@@ -1516,15 +1530,19 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                     std::move(options), planningCache);
 }
 
-LstmState lstmBwdWithWU(
-    poplar::Graph &graph, const LstmParams &params,
-    poplar::program::Sequence &prog, const LstmState &fwdStateInit,
-    const poplar::Tensor &fwdIntermediates, const LstmWeights &weights,
-    const poplar::Tensor &input, const poplar::Tensor &output,
-    const poplar::Tensor &outputGrad, const poplar::Tensor *lastCellStateGrad,
-    poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
-    const std::string &debugPrefix, const poplar::OptionFlags &options_,
-    poplin::matmul::PlanningCache *planningCache) {
+LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
+                        poplar::program::Sequence &prog,
+                        const LstmState &fwdStateInit,
+                        const poplar::Tensor &fwdIntermediates,
+                        const LstmWeights &weights, const poplar::Tensor &input,
+                        const poplar::Tensor &output,
+                        const poplar::Tensor &outputGrad,
+                        const poplar::Tensor *lastCellStateGrad,
+                        poplar::Tensor *inputGrad, LstmWeights &weightsGrad_,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options_,
+                        poplin::matmul::PlanningCache *planningCache) {
+  const auto debugPrefix = debugContext.getPathName();
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
 

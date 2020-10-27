@@ -16,7 +16,8 @@ using namespace poplibs_support;
 namespace popops {
 
 Program cast(Graph &graph, Tensor src, Tensor dst,
-             const std::string &debugPrefix) {
+             const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   // Casting one type into itself, or int<->unsigned, is just a copy.
   // We use the '.reinterpret(dstType)' to bypass type checking in Copy for the
   // int<->unsigned case
@@ -113,14 +114,16 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
 }
 
 Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
-            const std::string &debugPrefix) {
+            const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto dst = graph.clone(dstType, src, debugPrefix + "/cast");
   cast(graph, src, dst, cs);
   return dst;
 }
 
 poplar::Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
-                    Sequence &prog, const std::string &debugPrefix) {
+                    Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto dst = graph.clone(dstType, src, debugPrefix + "/cast");
   prog.add(cast(graph, src, dst, debugPrefix));
   return dst;
@@ -129,7 +132,8 @@ poplar::Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
 poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
                                      Type outputType, double tolerance,
                                      poplar::program::Sequence &prog,
-                                     const std::string &debugPrefix) {
+                                     const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if ((input.elementType() != FLOAT && outputType != HALF) ||
       input.numElements() != 1) {
     throw poputil::poplibs_error(

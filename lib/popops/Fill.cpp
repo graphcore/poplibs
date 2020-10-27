@@ -68,7 +68,8 @@ void fill(Graph &graph, const Tensor &t,
 template <typename FillValueType>
 void fill(poplar::Graph &graph, const poplar::Tensor &t,
           poplar::program::Sequence &prog, FillValueType fillValue,
-          const std::string &debugPrefix) {
+          const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   auto cs = graph.addComputeSet(debugPrefix + "/Fill");
   auto tFlat = t.flatten();
   graph.reorderToSimplify(&tFlat, {}, false);
@@ -87,7 +88,7 @@ void fill(poplar::Graph &graph, const poplar::Tensor &t,
                            poplar::ComputeSet, Type);                          \
   template void fill<Type>(poplar::Graph &, const poplar::Tensor &,            \
                            poplar::program::Sequence &, Type,                  \
-                           const std::string &)
+                           const poplar::DebugContext &)
 
 FILL_EXPLICIT_INSTANTIATIONS(float);
 FILL_EXPLICIT_INSTANTIATIONS(int);

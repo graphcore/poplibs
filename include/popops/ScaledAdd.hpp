@@ -48,12 +48,12 @@ enum class ScaledAddSpecialisation { DEFAULT, X_MINUS_AX_PLUS_BY };
  *                     addition.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations.
  */
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
                  float scaleB, poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "",
+                 const poplar::DebugContext &debugContext = {},
                  const poplar::OptionFlags &options = {});
 
 /** Add the elements of one tensor each multiplied by a (scalar) tensor to
@@ -72,13 +72,13 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
  *                     before addition.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
                  poplar::Tensor scaleB, poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "",
+                 const poplar::DebugContext &debugContext = {},
                  const poplar::OptionFlags &options = {});
 
 /** Subtract the elements of one tensor multiplied by a scalar from another
@@ -96,14 +96,14 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor B,
  *                     subtraction.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
                         poplar::Tensor B, float scaleB,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {});
 
 /** Subtract the elements of one tensor each multiplied by a (scalar) tensor
@@ -122,14 +122,14 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
  *                     before subtraction.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
                         poplar::Tensor B, poplar::Tensor scaleB,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
@@ -150,14 +150,14 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
  *                     before addition.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
                  poplar::Tensor B, poplar::Tensor scaleB,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "",
+                 const poplar::DebugContext &debugContext = {},
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
@@ -180,7 +180,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param speciality   Choice of ScaledAdd expression formulation
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
@@ -188,7 +188,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
                  poplar::Tensor B, poplar::Tensor scaleB,
                  poplar::program::Sequence &prog,
                  const ScaledAddSpecialisation speciality,
-                 const std::string &debugPrefix = "",
+                 const poplar::DebugContext &debugContext = {},
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
@@ -209,14 +209,14 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, poplar::Tensor scaleA,
  *                     addition.
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                  poplar::Tensor B, float scaleB,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "",
+                 const poplar::DebugContext &debugContext = {},
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and add the scaled elements of another
@@ -239,7 +239,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
  * \param prog         A sequence program to which the code performing the
  *                     add will be appended.
  * \param speciality   Choice of ScaledAdd expression formulation
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
@@ -247,7 +247,7 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                  poplar::Tensor B, float scaleB,
                  poplar::program::Sequence &prog,
                  const ScaledAddSpecialisation speciality,
-                 const std::string &debugPrefix = "",
+                 const poplar::DebugContext &debugContext = {},
                  const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and subtract the scaled elements of another
@@ -268,14 +268,14 @@ void scaledAddTo(poplar::Graph &graph, poplar::Tensor A, float scaleA,
  *                     before subtraction.
  * \param prog         A sequence program to which the code performing the
  *                     subtract will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
                         poplar::Tensor scaleA, poplar::Tensor B,
                         poplar::Tensor scaleB, poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {});
 
 /** Scale the elements of one tensor and subtract the scaled elements of
@@ -297,14 +297,14 @@ void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A,
  *                     subtraction.
  * \param prog         A sequence program to which the code performing the
  *                     subtract will be appended.
- * \param debugPrefix  A debug prefix to add to any tensors/compute set names.
+ * \param debugContext Optional debug information.
  * \param options      A list of flags to control optimizations. See
  *                     scaledAddTo().
  */
 void scaledSubtractFrom(poplar::Graph &graph, poplar::Tensor A, float scaleA,
                         poplar::Tensor B, float scaleB,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {});
 } // namespace popops
 

@@ -165,8 +165,9 @@ poplar::Tensor createInput(poplar::Graph &graph,
 std::vector<poplar::Tensor>
 convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
             const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
-            const std::string &debugPrefix, const poplar::OptionFlags &options,
-            PlanningCache *cache) {
+            const poplar::DebugContext &debugContext,
+            const poplar::OptionFlags &options, PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   log("multiconv::convolution", args_);
 
   const auto args = convertToConvOptions(graph, args_);
@@ -208,8 +209,9 @@ static std::vector<T> getWeightUpdateArgs(std::vector<T> args) {
 
 std::vector<poplar::Tensor> calculateWeightDeltas(
     poplar::Graph &graph, const std::vector<CalculateWeightDeltasArgs> &args_,
-    poplar::program::Sequence &prog, const std::string &debugPrefix,
+    poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto args = getWeightUpdateArgs(convertToConvOptions(graph, args_));
 
   const auto layerName = getLayerName(debugPrefix, args);
@@ -279,16 +281,18 @@ void convolutionWeightUpdateImpl(poplar::Graph &graph,
 void convolutionWeightUpdate(poplar::Graph &graph,
                              const std::vector<ConvWeightUpdateArgs> &args,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix,
+                             const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &options,
                              PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   convolutionWeightUpdateImpl(graph, args, prog, debugPrefix, options, cache);
 }
 
 void convolutionWeightUpdate(
     poplar::Graph &graph, const std::vector<ConvWeightUpdateArgsScalar> &args,
-    poplar::program::Sequence &prog, const std::string &debugPrefix,
+    poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   convolutionWeightUpdateImpl(graph, args, prog, debugPrefix, options, cache);
 }
 

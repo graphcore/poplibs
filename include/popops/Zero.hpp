@@ -57,10 +57,11 @@ void zero(poplar::Graph &graph, const poplar::Tensor &t,
  * \param graph         The graph that the operation will be added to.
  * \param t             The tensor whose elements are to be set to zero.
  * \param prog          Poplar program sequence to append the operation onto.
- * \param debugPrefix   Name of the operation, for debugging.
+ * \param debugContext  Optional debug information.
  */
 void zero(poplar::Graph &graph, const poplar::Tensor &t,
-          poplar::program::Sequence &prog, const std::string &debugPrefix = "");
+          poplar::program::Sequence &prog,
+          const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

@@ -74,7 +74,7 @@ uint64_t getBasicGruCellWuFlops(const GruParams &params);
  *
  * \param graph           Graph object
  * \param params          The GRU parameters
- * \param name            String annotation
+ * \param debugContext    Optional debug information.
  * \param options         Any implementation/debug options for the GRU
  * \param planningCache   A poplin matrix multiply planning cache
  *
@@ -83,11 +83,12 @@ uint64_t getBasicGruCellWuFlops(const GruParams &params);
  */
 poplar::Tensor
 createInput(poplar::Graph &graph, const GruParams &params,
-            const std::string &name, const poplar::OptionFlags &options = {},
+            const poplar::DebugContext &debugContext,
+            const poplar::OptionFlags &options = {},
             poplin::matmul::PlanningCache *planningCache = nullptr);
 
 poplar::Tensor createInitialState(poplar::Graph &graph, const GruParams &params,
-                                  const std::string &debugPrefix,
+                                  const poplar::DebugContext &debugContext,
                                   const poplar::OptionFlags &options,
                                   poplin::matmul::PlanningCache *cache);
 /**
@@ -105,7 +106,7 @@ struct GruWeights {
  */
 std::pair<poplar::Tensor, poplar::Tensor>
 createWeightsKernel(poplar::Graph &graph, const GruParams &params,
-                    const std::string &name,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -113,7 +114,7 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
  */
 poplar::Tensor
 createWeightsBiases(poplar::Graph &graph, const GruParams &params,
-                    const std::string &name,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options = {},
                     poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -122,13 +123,14 @@ createWeightsBiases(poplar::Graph &graph, const GruParams &params,
  */
 GruWeights
 createWeights(poplar::Graph &graph, const GruParams &params,
-              const std::string &name, const poplar::OptionFlags &options = {},
+              const poplar::DebugContext &debugContext,
+              const poplar::OptionFlags &options = {},
               poplin::matmul::PlanningCache *planningCache = nullptr);
 
 /** Create attention tensor for augru.
  */
 poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
-                               const std::string &name);
+                               const poplar::DebugContext &debugContext);
 
 /** Calculate the result of applying a GRU across a sequence
  *
@@ -160,7 +162,7 @@ poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
  *                           is false. This argument should be set to null if we
  *                           are only doing inference.
  * \param fwdProg            Program sequence.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -174,7 +176,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::Tensor &stateInit, const poplar::Tensor &in,
                       const GruWeights &weights, poplar::Tensor *intermediates,
                       poplar::program::Sequence &fwdProg,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -210,7 +212,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
  *                           is false. This argument should be set to null if we
  *                           are only doing inference.
  * \param fwdProg            Program sequence.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -225,7 +227,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
                       const poplar::Tensor &realTimeSteps,
                       const GruWeights &weights, poplar::Tensor *intermediates,
                       poplar::program::Sequence &fwdProg,
-                      const std::string &debugPrefix = "",
+                      const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {},
                       poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -262,7 +264,7 @@ poplar::Tensor gruFwd(poplar::Graph &graph, const GruParams &params,
  *                           are only doing inference.
  * \param attScores          Attention for each time step.
  * \param fwdProg            Program sequence.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -278,7 +280,7 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
                         poplar::Tensor *intermediates,
                         const poplar::Tensor &attScores,
                         poplar::program::Sequence &fwdProg,
-                        const std::string &debugPrefix = "",
+                        const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {},
                         poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -317,7 +319,7 @@ poplar::Tensor auGruFwd(poplar::Graph &graph, const GruParams &params,
  *                           are only doing inference.
  * \param attScores          Attention for each time step.
  * \param fwdProg            Program sequence.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -333,7 +335,7 @@ auGruFwd(poplar::Graph &graph, const GruParams &params,
          const poplar::Tensor &realTimeSteps, const GruWeights &weights,
          poplar::Tensor *intermediates, const poplar::Tensor &attScores,
          poplar::program::Sequence &fwdProg,
-         const std::string &debugPrefix = "",
+         const poplar::DebugContext &debugContext = {},
          const poplar::OptionFlags &options = {},
          poplin::matmul::PlanningCache *planningCache = nullptr);
 
@@ -368,7 +370,7 @@ auGruFwd(poplar::Graph &graph, const GruParams &params,
  *                           reset gate, update gate, and candidate.
  *                           This argument should be set to null if you do not
  *                           need to calculate weight deltas.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -380,7 +382,8 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
        const poplar::Tensor &fwdIntermediatesSeq, const GruWeights &weights,
        const poplar::Tensor &fwdInputSeq, const poplar::Tensor &fwdOutput,
        const poplar::Tensor &gradLayerNext, poplar::Tensor *inputGrad,
-       poplar::Tensor *bwdIntermediates, const std::string &debugPrefix,
+       poplar::Tensor *bwdIntermediates,
+       const poplar::DebugContext &debugContext,
        const poplar::OptionFlags &options_,
        poplin::matmul::PlanningCache *planningCache);
 
@@ -417,7 +420,7 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
  *                           reset gate, update gate, and candidate.
  *                           This argument should be set to null if you do not
  *                           need to calculate weight deltas.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -430,7 +433,8 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
        const poplar::Tensor &fwdInputSeq, const poplar::Tensor &realTimeSteps,
        const poplar::Tensor &fwdOutput, const poplar::Tensor &gradLayerNext,
        poplar::Tensor *inputGrad, poplar::Tensor *bwdIntermediates,
-       const std::string &debugPrefix, const poplar::OptionFlags &options_,
+       const poplar::DebugContext &debugContext,
+       const poplar::OptionFlags &options_,
        poplin::matmul::PlanningCache *planningCache);
 
 /**
@@ -466,7 +470,7 @@ gruBwd(poplar::Graph &graph, const GruParams &params,
  *                           need to calculate weight deltas.
  * \param attentions         Attentions for each time step.
  * \param[out] attentionsGrad Gradients for attentions.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -479,7 +483,8 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
          const poplar::Tensor &fwdInputSeq, const poplar::Tensor &fwdOutput,
          const poplar::Tensor &gradLayerNext, poplar::Tensor *inputGrad,
          poplar::Tensor *bwdIntermediates, const poplar::Tensor &attentions,
-         poplar::Tensor *attentionsGrad, const std::string &debugPrefix,
+         poplar::Tensor *attentionsGrad,
+         const poplar::DebugContext &debugContext,
          const poplar::OptionFlags &options_,
          poplin::matmul::PlanningCache *planningCache);
 
@@ -518,7 +523,7 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  *                           need to calculate weight deltas.
  * \param attentions         Attentions for each time step.
  * \param[out] attentionsGrad Gradients for attentions.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -532,7 +537,8 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
          const poplar::Tensor &fwdOutput, const poplar::Tensor &gradLayerNext,
          poplar::Tensor *inputGrad, poplar::Tensor *bwdIntermediates,
          const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
-         const std::string &debugPrefix, const poplar::OptionFlags &options_,
+         const poplar::DebugContext &debugContext,
+         const poplar::OptionFlags &options_,
          poplin::matmul::PlanningCache *planningCache);
 
 /**
@@ -552,8 +558,7 @@ auGruBwd(poplar::Graph &graph, const GruParams &params,
  *                         on the outputFullSequence parameter this is either
  *                         the output for the last timestep or it is a
  *                         sequence of outputs for each timestep.
- * \param debugPrefix      String used as a prefix to compute sets and
- *                         tensors added to the graph.
+ * \param debugContext     Optional debug information.
  * \param options          GRU implementation options. See createInput().
  * \param planningCache    The matmul planning cache.
  *
@@ -565,7 +570,8 @@ GruWeights gruWU(poplar::Graph &graph, const GruParams &params,
                  const poplar::Tensor &fwdIntermediates,
                  const poplar::Tensor &bwdIntermediates,
                  const GruWeights &weights, const poplar::Tensor &input,
-                 const poplar::Tensor &output, const std::string &debugPrefix,
+                 const poplar::Tensor &output,
+                 const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options_,
                  poplin::matmul::PlanningCache *planningCache);
 
@@ -586,8 +592,7 @@ GruWeights gruWU(poplar::Graph &graph, const GruParams &params,
  *                         on the outputFullSequence parameter this is either
  *                         the output for the last timestep or it is a
  *                         sequence of outputs for each timestep.
- * \param debugPrefix      String used as a prefix to compute sets and
- *                         tensors added to the graph.
+ * \param debugContext      Optional debug information.
  * \param options          GRU implementation options. See createInput().
  * \param planningCache    The matmul planning cache.
  *
@@ -599,7 +604,8 @@ GruWeights auGruWU(poplar::Graph &graph, const GruParams &params,
                    const poplar::Tensor &fwdIntermediates,
                    const poplar::Tensor &bwdIntermediates,
                    const GruWeights &weights, const poplar::Tensor &input,
-                   const poplar::Tensor &output, const std::string &debugPrefix,
+                   const poplar::Tensor &output,
+                   const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache);
 
@@ -628,7 +634,7 @@ GruWeights auGruWU(poplar::Graph &graph, const GruParams &params,
  * \param[out] *inputGrad    The gradients of the inputs - may be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -641,7 +647,7 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
              const poplar::Tensor &input, const poplar::Tensor &output,
              const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
-             GruWeights &weightsGrad, const std::string &debugPrefix,
+             GruWeights &weightsGrad, const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache);
 
@@ -672,21 +678,23 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
  * \param[out] *inputGrad    The gradients of the inputs - may be null if
  *                           this information is not required.
  * \param weightsGrad        A set of weight deltas to sum with weights.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
  * \return The gradient of the initial output.
  */
-poplar::Tensor gruBwdWithWU(
-    poplar::Graph &graph, const GruParams &params,
-    poplar::program::Sequence &prog, const poplar::Tensor &fwdOutputInit,
-    const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
-    const poplar::Tensor &input, const poplar::Tensor &realTimeSteps,
-    const poplar::Tensor &output, const poplar::Tensor &outputGrad,
-    poplar::Tensor *inputGrad, GruWeights &weightsGrad,
-    const std::string &debugPrefix, const poplar::OptionFlags &options_,
-    poplin::matmul::PlanningCache *planningCache);
+poplar::Tensor
+gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
+             poplar::program::Sequence &prog,
+             const poplar::Tensor &fwdOutputInit,
+             const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
+             const poplar::Tensor &input, const poplar::Tensor &realTimeSteps,
+             const poplar::Tensor &output, const poplar::Tensor &outputGrad,
+             poplar::Tensor *inputGrad, GruWeights &weightsGrad,
+             const poplar::DebugContext &debugContext,
+             const poplar::OptionFlags &options_,
+             poplin::matmul::PlanningCache *planningCache);
 
 /**
  * Run a combined AUGRU backward and weight update pass. Use this combined
@@ -715,7 +723,7 @@ poplar::Tensor gruBwdWithWU(
  * \param weightsGrad        A set of weight deltas to sum with weights.
  * \param attentions         Attention for each time step.
  * \param[out] attentionsGrad Gradients for attentions.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -728,7 +736,7 @@ poplar::Tensor auGruBwdWithWU(
     const poplar::Tensor &input, const poplar::Tensor &output,
     const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
     GruWeights &weightsGrad, const poplar::Tensor &attentions,
-    poplar::Tensor *attentionsGrad, const std::string &debugPrefix,
+    poplar::Tensor *attentionsGrad, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options_,
     poplin::matmul::PlanningCache *planningCache);
 
@@ -761,7 +769,7 @@ poplar::Tensor auGruBwdWithWU(
  * \param weightsGrad        A set of weight deltas to sum with weights.
  * \param attentions         Attention for each time step.
  * \param[out] attentionsGrad Gradients for attentions.
- * \param debugPrefix        String used as prefix for compute sets.
+ * \param debugContext       Optional debug information.
  * \param options            GRU implementation options. See createInput().
  * \param planningCache      The matmul planning cache.
  *
@@ -775,7 +783,8 @@ poplar::Tensor auGruBwdWithWU(
     const poplar::Tensor &output, const poplar::Tensor &outputGrad,
     poplar::Tensor *inputGrad, GruWeights &weightsGrad,
     const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
-    const std::string &debugPrefix, const poplar::OptionFlags &options_,
+    const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options_,
     poplin::matmul::PlanningCache *planningCache);
 
 } // namespace gru

@@ -1113,8 +1113,9 @@ static Tensor internalAllGather(Graph &graph, const Chunks &toGather,
 }
 
 Chunks reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
-                     Sequence &prog, const std::string &debugPrefix,
+                     Sequence &prog, const poplar::DebugContext &debugContext,
                      const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("reduceScatter toReduce={}, op={}, name={}",
                         toReduce.shape(), op, debugPrefix);
 
@@ -1127,8 +1128,9 @@ Chunks reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
 }
 
 Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
-                 const std::string &debugPrefix,
+                 const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("allGather toGather={}x{}, name={}",
                         toGather.chunks.size(), toGather.originalInput.shape(),
                         debugPrefix);
@@ -1143,8 +1145,9 @@ Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
 
 poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
                          popops::Operation op, poplar::program::Sequence &prog,
-                         const std::string &debugPrefix,
+                         const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("allReduce toReduce={}, op={}, name={}",
                         toReduce.shape(), op, debugPrefix);
   auto flattened = toReduce.flatten(1, toReduce.rank());

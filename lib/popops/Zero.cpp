@@ -23,7 +23,9 @@ void zero(poplar::Graph &graph, const poplar::Tensor &t,
 }
 
 void zero(poplar::Graph &graph, const poplar::Tensor &t,
-          poplar::program::Sequence &prog, const std::string &debugPrefix) {
+          poplar::program::Sequence &prog,
+          const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   fill(graph, t, prog, 0, debugPrefix);
 }
 

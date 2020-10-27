@@ -45,21 +45,20 @@ namespace popnn {
  *                            is specified a default will be created
  *                            initialised with 1.0.
  *  \param lossType           Method for calculating loss measurement.
- *  \param debugPrefix        Optional debug prefix for operations and tensors
- *                            for this operation.
+ *  \param debugContext       Optional debug information.
  */
 poplar::program::Program
 calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
          const poplar::Tensor &expected, const poplar::Tensor &loss,
          const poplar::Tensor &deltas, const poplar::Tensor &deltasScale,
          const poplar::Tensor &modelOutputScaling, LossType lossType,
-         const std::string &debugPrefix = "");
+         const poplar::DebugContext &debugContext = {});
 
 poplar::program::Program
 calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
          const poplar::Tensor &expected, const poplar::Tensor &loss,
          const poplar::Tensor &deltas, LossType lossType,
-         const std::string &debugPrefix = "");
+         const poplar::DebugContext &debugContext = {});
 
 /** Calculate loss, gradient, and number of correct classifications
  *  per-batch for a set of activations and expected labels.
@@ -76,13 +75,13 @@ calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
          const poplar::Tensor &deltas, const poplar::Tensor &deltasScale,
          const poplar::Tensor &modelOutputScaling,
          const poplar::Tensor &numCorrect, LossType lossType,
-         const std::string &debugPrefix = "");
+         const poplar::DebugContext &debugContext = {});
 
 poplar::program::Program
 calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
          const poplar::Tensor &expected, const poplar::Tensor &loss,
          const poplar::Tensor &deltas, const poplar::Tensor &numCorrect,
-         LossType lossType, const std::string &debugPrefix = "");
+         LossType lossType, const poplar::DebugContext &debugContext = {});
 
 /** Calculate the number of correct classifications for a set of
  *  activations and expected labels.
@@ -100,14 +99,12 @@ calcLoss(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
  *                        Tensor.
  *  \param activationType Device type used for activations.
  *  \param expectedType   Device type used for expected labels.
- *  \param debugPrefix    Optional debug prefix for operations and tensors
- *                        for this operation.
+ *  \param debugContext   Optional debug information.
  */
-poplar::program::Program calcAccuracy(poplar::Graph &graph,
-                                      const poplar::Tensor &modelOutputs,
-                                      const poplar::Tensor &expected,
-                                      const poplar::Tensor &numCorrect,
-                                      const std::string &debugPrefix = "");
+poplar::program::Program
+calcAccuracy(poplar::Graph &graph, const poplar::Tensor &modelOutputs,
+             const poplar::Tensor &expected, const poplar::Tensor &numCorrect,
+             const poplar::DebugContext &debugContext = {});
 
 /** Compute argmax for each of the outer dimensions of \p input tensor.
  *
@@ -117,12 +114,11 @@ poplar::program::Program calcAccuracy(poplar::Graph &graph,
  *  \param graph          Graph to add operations and tensors to.
  *  \param input          2D tensor of inputs
  *  \param prog           Program to which the graph for this operation is added
- *  \param debugPrefix    Optional debug prefix for operations and tensors
- *                        for this operation.
+ *  \param debugContext   Optional debug information.
  */
 poplar::Tensor argMax(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 /** Compute argmin for each of the outer dimensions of \p input tensor.
  *
@@ -132,12 +128,11 @@ poplar::Tensor argMax(poplar::Graph &graph, const poplar::Tensor &input,
  *  \param graph          Graph to add operations and tensors to.
  *  \param input          2D tensor of inputs
  *  \param prog           Program to which the graph for this operation is added
- *  \param debugPrefix    Optional debug prefix for operations and tensors
- *                        for this operation.
+ *  \param debugContext   Optional debug information.
  */
 poplar::Tensor argMin(poplar::Graph &graph, const poplar::Tensor &input,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 /** Find the top K elements of |input|. Takes a 2D tensor in the form of
  * [batch][values] and will return a tensor in the shape of [batch][K] where K
@@ -149,13 +144,12 @@ poplar::Tensor argMin(poplar::Graph &graph, const poplar::Tensor &input,
  *  \param K              The number of values to return.
  *  \param sort           If true values will be sorted in descending order.
  *  \param prog           Program to which the graph for this operation is added
- *  \param debugPrefix    Optional debug prefix for operations and tensors
- *                        for this operation.
+ *  \param debugContext   Optional debug information.
  */
 poplar::Tensor topK(poplar::Graph &graph, const poplar::Tensor &input,
                     poplar::Tensor &indices, unsigned K, bool sort,
                     poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "");
+                    const poplar::DebugContext &debugContext = {});
 
 } // end namespace popnn
 

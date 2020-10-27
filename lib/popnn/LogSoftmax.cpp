@@ -84,12 +84,14 @@ Tensor logSoftmaxImpl(Graph &graph, Tensor t, bool inPlace, Sequence &prog,
 namespace popnn {
 
 void logSoftmaxInPlace(Graph &graph, Tensor t, Sequence &prog,
-                       const std::string &debugPrefix) {
+                       const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logSoftmaxImpl(graph, t, true, prog, debugPrefix);
 }
 
 Tensor logSoftmax(Graph &graph, Tensor t, Sequence &prog,
-                  const std::string &debugPrefix) {
+                  const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   return logSoftmaxImpl(graph, t, false, prog, debugPrefix);
 }
 

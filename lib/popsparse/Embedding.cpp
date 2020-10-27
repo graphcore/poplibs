@@ -675,7 +675,8 @@ void to2DShape(Tensor &input) {
 Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
                            const std::size_t numIndices,
                            const OptionFlags &optionFlags,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popsparse::info("createIndicesTensor with {} indices", numIndices);
   const auto indices =
       graph.addVariable(UNSIGNED_INT, {numIndices}, debugPrefix + "/indices");
@@ -709,8 +710,9 @@ Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
 Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
                       const Tensor &offsets, Sequence &prog,
                       const FullyConnectedParams &params,
-                      const std::string &debugPrefix_,
+                      const poplar::DebugContext &debugContext,
                       const OptionFlags &options, PlanningCache *cache) {
+  const auto debugPrefix_ = debugContext.getPathName();
   const auto inputType = baseT.getNzValuesTensor().elementType();
   const auto debugPrefix = debugPrefix_ + "/embeddingSlice";
   const auto target = graph.getTarget();
@@ -894,9 +896,9 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
                         const Tensor &slices_, const Tensor &offsets_,
                         const Tensor &scale, Sequence &prog,
                         const FullyConnectedParams &params,
-                        const std::string &debugPrefix_,
+                        const poplar::DebugContext &debugContext,
                         const OptionFlags &options, PlanningCache *cache) {
-
+  const auto debugPrefix_ = debugContext.getPathName();
   const auto inputType = baseT.getNzValuesTensor().elementType();
   const auto debugPrefix = debugPrefix_ + "/embeddingUpdateAdd";
   const auto plan =
@@ -1112,8 +1114,10 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
 // operation
 Tensor createSliceTensor(Graph &graph, const Type &dataType,
                          const FullyConnectedParams &params,
-                         std::size_t numIndices, const std::string &debugPrefix,
+                         std::size_t numIndices,
+                         const poplar::DebugContext &debugContext,
                          const OptionFlags &options, PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto plan =
       getFullyConnectedPlan(graph, dataType, params, options, cache);
   const PlannedSplits plannedSplits(numIndices, params, plan, debugPrefix);

@@ -717,8 +717,9 @@ static bool substPoolingWithReduction(const ConvParams &params) {
 }
 
 Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
-            Sequence &prog, const std::string &debugPrefix,
+            Sequence &prog, const poplar::DebugContext &debugContext,
             const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto poolOptions = parsePoolOptions(options);
   checkWindowParameters(poolParams);
 
@@ -909,8 +910,10 @@ void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
 Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
                          const Tensor &in_, const Tensor &pooled_,
                          const Tensor &pooledGradient_, bool useScaledGradient,
-                         Sequence &prog, const std::string &debugPrefix,
+                         Sequence &prog,
+                         const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   // create the output tensor, based on the input
   auto output = graph.clone(in_);
   poolInputGradientImpl(graph, poolParams, in_, pooled_, pooledGradient_,
@@ -921,8 +924,9 @@ Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
 Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
                          const unsigned fwdChansPerGroup,
                          const Tensor &pooledGradient_, Sequence &prog,
-                         const std::string &debugPrefix,
+                         const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   assert(poolParams.poolingType != PoolingType::MAX);
 
   // Create the output tensor, based on the parameters provided

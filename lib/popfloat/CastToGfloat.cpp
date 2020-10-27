@@ -825,18 +825,20 @@ void GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs) {
   castOpParamSet = true;
 }
 
-void GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
-                                          const std::string &debugPrefix) {
+void GfloatCast::createCastOpParamsTensor(
+    Graph &graph, Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   auto cs = graph.addComputeSet(debugPrefix + "/gfloatParams");
   createCastOpParamsTensor(graph, cs);
 
   prog.add(Execute(cs));
 }
 
-Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
-                                            Type calculationType,
-                                            Tensor gfStruct,
-                                            const std::string &debugPrefix) {
+Tensor
+GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
+                                     Type calculationType, Tensor gfStruct,
+                                     const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   std::string csName = "/gfloat" +
                        std::to_string((calculationType == HALF) ? 16 : 32) +
                        "/params";
@@ -849,10 +851,10 @@ Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
   return param;
 }
 
-Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
-                                            Type calculationType,
-                                            const unsigned gfPacked,
-                                            const std::string &debugPrefix) {
+Tensor GfloatCast::createCastOpParamsTensor(
+    Graph &graph, Sequence &prog, Type calculationType, const unsigned gfPacked,
+    const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   std::string csName = "/gfloat" +
                        std::to_string((calculationType == HALF) ? 16 : 32) +
                        "/params";
@@ -967,7 +969,8 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
 static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
                                   const Tensor &param, Sequence &prog,
                                   const GfloatCast::CastConfig &gfCastCfg,
-                                  const std::string &debugPrefix) {
+                                  const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   const auto cs =
       graph.addComputeSet(debugPrefix + "/gfloatAsInt/" +
                           formatTypeToString(gfCastCfg.getFormatType()));
@@ -978,10 +981,11 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
   return output;
 }
 
-Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
-                                      const Tensor &param, Sequence &prog,
-                                      const CastConfig &gfCastCfg,
-                                      const std::string &debugPrefix) {
+Tensor
+GfloatCast::castNativeToGfloat(Graph &graph, Tensor input, const Tensor &param,
+                               Sequence &prog, const CastConfig &gfCastCfg,
+                               const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   const auto cs =
       graph.addComputeSet(debugPrefix + "/castNativeToGfloat/" +
                           formatTypeToString(gfCastCfg.getFormatType()));
@@ -998,9 +1002,10 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
   }
 }
 
-Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
-                                      Sequence &prog,
-                                      const std::string &debugPrefix) {
+Tensor
+GfloatCast::castNativeToGfloat(Graph &graph, Tensor input, Sequence &prog,
+                               const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   return castNativeToGfloat(graph, input, *gfParams, prog, nativeToGFCastCfg,
                             debugPrefix);
 }
@@ -1048,10 +1053,10 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
   castNativeToGfloatInPlace(graph, input, *gfParams, cs, nativeToGFCastCfg);
 }
 
-void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
-                                           const Tensor &param, Sequence &prog,
-                                           const CastConfig &gfCastCfg,
-                                           const std::string &debugPrefix) {
+void GfloatCast::castNativeToGfloatInPlace(
+    Graph &graph, Tensor input, const Tensor &param, Sequence &prog,
+    const CastConfig &gfCastCfg, const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   const auto cs =
       graph.addComputeSet(debugPrefix + "/castNativeToGfloatInPlace/");
 
@@ -1060,9 +1065,10 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
   prog.add(Execute(cs));
 }
 
-void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
-                                           Sequence &prog,
-                                           const std::string &debugPrefix) {
+void GfloatCast::castNativeToGfloatInPlace(
+    Graph &graph, Tensor input, Sequence &prog,
+    const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   castNativeToGfloatInPlace(graph, input, *gfParams, prog, nativeToGFCastCfg,
                             debugPrefix);
 }
@@ -1119,10 +1125,11 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
   return castGfloatToNative(graph, input, *gfParams, cs, gfToNativeCastCfg);
 }
 
-Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
-                                      const Tensor &param, Sequence &prog,
-                                      const CastConfig &gfCastCfg,
-                                      const std::string &debugPrefix) {
+Tensor
+GfloatCast::castGfloatToNative(Graph &graph, Tensor input, const Tensor &param,
+                               Sequence &prog, const CastConfig &gfCastCfg,
+                               const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   const auto cs =
       graph.addComputeSet(debugPrefix + "/castGfloatToNative/" +
                           formatTypeToString(gfCastCfg.getFormatType()));
@@ -1138,9 +1145,10 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
   return output;
 }
 
-Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
-                                      Sequence &prog,
-                                      const std::string &debugPrefix) {
+Tensor
+GfloatCast::castGfloatToNative(Graph &graph, Tensor input, Sequence &prog,
+                               const poplar::DebugContext &debugContext) {
+  const auto &debugPrefix = debugContext.getPathName();
   return castGfloatToNative(graph, input, *gfParams, prog, gfToNativeCastCfg,
                             debugPrefix);
 }

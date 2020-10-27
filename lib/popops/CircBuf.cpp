@@ -16,8 +16,9 @@ namespace popops {
 
 CircBuf::CircBuf(Graph &graph, const Type &dataType, unsigned size,
                  const std::vector<std::size_t> &shape,
-                 const std::string &debugPrefix)
+                 const poplar::DebugContext &debugContext)
     : graph(graph), size_(size), shape(shape) {
+  const auto debugPrefix = debugContext.getPathName();
   auto N = std::accumulate(shape.begin(), shape.end(), 1UL,
                            std::multiplies<std::size_t>());
   unsigned grainSize = 4; // to allow 64bits/cycle for half/short
@@ -45,7 +46,8 @@ Graph::TileToTensorMapping CircBuf::getTileMapping() {
 }
 
 Tensor CircBuf::prev(unsigned i, Sequence &seq,
-                     const std::string &debugPrefix) {
+                     const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (i >= size_)
     std::abort();
   // compute required offset into an internal Tensor, prevIdx
@@ -68,7 +70,9 @@ Tensor CircBuf::prev(unsigned i, Sequence &seq,
   return t.reshape(shape);
 }
 
-void CircBuf::add(Tensor in, Sequence &seq, const std::string &debugPrefix) {
+void CircBuf::add(Tensor in, Sequence &seq,
+                  const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   assert(in.shape() == shape);
   ComputeSet csIndexIncr = graph.addComputeSet(debugPrefix + "/CircBufSet");
   auto v = graph.addVertex(csIndexIncr, "popops::CircBufIncrIndex",

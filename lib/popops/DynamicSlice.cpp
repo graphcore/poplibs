@@ -1258,7 +1258,8 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
                              const std::vector<std::size_t> &dims,
                              const std::vector<std::size_t> &sizes,
                              std::size_t minGrainSize,
-                             const std::string &debugPrefix) {
+                             const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("createSliceableTensor/NoPlan for {} / {} / {}", shape,
                         dims, sizes);
   validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes, false,
@@ -1279,7 +1280,8 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
                              const std::vector<std::size_t> &dims,
                              const std::vector<std::size_t> &sizes,
                              const SlicePlan &plan, const OptionFlags &options,
-                             const std::string &debugName) {
+                             const poplar::DebugContext &debugContext) {
+  const auto debugName = debugContext.getPathName();
   logging::popops::info("createSliceableTensor for {} / {} / {}; nullplan? {}",
                         shape, dims, sizes, plan.getImpl().isNull);
   if (plan.getImpl().isNull) {
@@ -1414,7 +1416,8 @@ Tensor createSliceTensor(Graph &graph, const Type &type,
                          const std::vector<std::size_t> &sizes,
                          const std::size_t numIndices, const SlicePlan &plan,
                          const OptionFlags &options,
-                         const std::string &debugName) {
+                         const poplar::DebugContext &debugContext) {
+  const auto debugName = debugContext.getPathName();
   validateParams("createSliceTensor", plan, options, shape, {}, dims, sizes,
                  false);
   const auto &p = plan.getImpl();
@@ -1435,7 +1438,8 @@ Tensor createSliceTensor(Graph &graph, const Tensor &t,
                          const std::vector<std::size_t> &dims,
                          const std::vector<std::size_t> &sizes,
                          const std::size_t numIndices,
-                         const std::string &debugPrefix) {
+                         const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   validateParams("createSliceTensor", {}, {}, t.shape(), {}, dims, sizes,
                  false);
   // Special case for 1 index, we just clone the input tensor's first slice.
@@ -1462,7 +1466,8 @@ poplar::Tensor createIndicesTensor(Graph &graph,
                                    const std::size_t numIndices,
                                    const SlicePlan & /* plan */,
                                    const OptionFlags & /* options */,
-                                   const std::string &debugPrefix) {
+                                   const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("createIndicesTensor for {} / {}", numIndices, dims);
   const auto indices =
       graph.addVariable(UNSIGNED_INT, {numIndices, dims.size()}, debugPrefix);
@@ -1485,10 +1490,12 @@ std::vector<std::vector<T>> flattenInnermostRegions(
   return result;
 }
 
-Tensor createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
-                                      const std::vector<std::size_t> &dims,
-                                      const std::vector<std::size_t> &numSlices,
-                                      const std::string &debugPrefix) {
+Tensor
+createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
+                               const std::vector<std::size_t> &dims,
+                               const std::vector<std::size_t> &numSlices,
+                               const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   validateParams("createSliceableTensorFromSlice", {}, {}, s.shape(), {}, dims,
                  numSlices, false, true, true);
 
@@ -1576,7 +1583,8 @@ Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes,
                     poplar::program::Sequence &prog,
-                    const std::string &debugPrefix) {
+                    const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   return dynamicSlice(graph, t, offset, dims, sizes, &prog, debugPrefix);
 }
 
@@ -1594,7 +1602,8 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
                    const Tensor &offset, const std::vector<std::size_t> &dims,
                    const std::vector<std::size_t> &sizes,
                    poplar::program::Sequence &prog,
-                   const std::string &debugPrefix) {
+                   const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info(
       "dynamicUpdate t={}, s={}, offset={}, dims={}, sizes={}, name={}",
       t.shape(), s.shape(), offset.shape(), dims, sizes, debugPrefix);
@@ -1901,7 +1910,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                   const std::vector<std::size_t> &dims,
                   const std::vector<std::size_t> &sizes, Sequence &prog,
                   const SlicePlan &plan, const OptionFlags &options,
-                  const std::string &debugPrefix) {
+                  const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   // small number of slices are instantiated individually
   // large number of slices are sliced by a specialisation or in a loop
   std::string dName = debugPrefix + "/multiSlice";
@@ -1985,7 +1995,8 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
                  const Tensor &offset, const std::vector<std::size_t> &dims,
                  const std::vector<std::size_t> &sizes, Sequence &prog,
                  const SlicePlan &plan, const OptionFlags &options,
-                 const std::string &debugPrefix) {
+                 const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("multiUpdate {} into {}, name={}", sMulti.shape(),
                         t.shape(), debugPrefix);
   // small number of slices are updated individually
@@ -2052,7 +2063,8 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
                     const std::vector<std::size_t> &dims,
                     const std::vector<std::size_t> &sizes, Sequence &prog,
                     const SlicePlan &plan, const OptionFlags &options,
-                    const std::string &debugPrefix) {
+                    const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("multiUpdateAdd {} into {}, name={}, nullplan={}",
                         sMulti.shape(), t.shape(), debugPrefix,
                         plan.getImpl().isNull);

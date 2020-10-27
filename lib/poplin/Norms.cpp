@@ -118,7 +118,9 @@ static Tensor broadcastChannelToMatch(const Tensor &ref, const Tensor &t) {
 std::pair<Tensor, Tensor>
 normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
                bool unbiasedVarEstimate, bool stableAlgo,
-               const Type &partialsType, const std::string &debugPrefix) {
+               const Type &partialsType,
+               const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/Norm/statistics";
   logging::poplin::info(
       "normStatistics acts={}, eps={}, unbiasedVarEstimate={}, "
@@ -191,7 +193,8 @@ std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
 
 Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                   const Tensor &iStdDev, Sequence &prog,
-                  const std::string &debugPrefix) {
+                  const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/Whiten";
   logging::poplin::info("normWhiten acts={}, mean={}, iStdDev={}, name={}",
                         acts.shape(), mean.shape(), iStdDev.shape(), fnPrefix);
@@ -206,7 +209,8 @@ Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
 
 Tensor normalise(Graph &graph, const Tensor &actsWhitened, const Tensor &gamma,
                  const Tensor &beta, Sequence &prog,
-                 const std::string &debugPrefix) {
+                 const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/Norm/normalise";
   logging::poplin::info("normalise actsWhitened={}, gamma={}, beta={}, name={}",
                         actsWhitened.shape(), gamma.shape(), beta.shape(),
@@ -225,7 +229,6 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
                    const Tensor &gradsIn, float scale, Sequence &prog,
                    const Type &partialsType, bool attemptRegroup,
                    const std::string &debugPrefix) {
-
   const auto fnPrefix = debugPrefix + "/Norm/deltas";
   logging::poplin::info(
       "normParamGradients actsWhitened={}, gradsIn={}, scale={}, "
@@ -271,13 +274,16 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
 std::pair<Tensor, Tensor>
 normParamGradients(Graph &graph, const Tensor &actsWhitened,
                    const Tensor &gradsIn, Sequence &prog,
-                   const Type &partialsType, const std::string &debugPrefix) {
+                   const Type &partialsType,
+                   const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   return normParamGradients(graph, actsWhitened, gradsIn, 1.0, prog,
                             partialsType, true, debugPrefix);
 }
 
 Tensor normGradients(Graph &graph, const Tensor &gradsIn, const Tensor &gamma,
-                     Sequence &prog, const std::string &debugPrefix) {
+                     Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/NormGrad";
   logging::poplin::info("normGradients gradsIn={}, gamma={}, name={}",
                         gradsIn.shape(), gamma.shape(), fnPrefix);
@@ -289,7 +295,8 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
                                const Tensor &gradsIn, const Tensor &invStdDev,
                                Sequence &prog,
                                const Type &partialsType, // currently unused
-                               const std::string &debugPrefix) {
+                               const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto fnPrefix = debugPrefix + "/Norm/gradients";
   logging::poplin::info("normStatisticsGradients actsWhitened={}, gradsIn={}, "
                         "invStdDev={}, name={}",

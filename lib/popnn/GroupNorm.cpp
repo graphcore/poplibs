@@ -83,8 +83,9 @@ std::pair<Tensor, Tensor>
 groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
                     unsigned numGroups, bool unbiasedVarEstimate,
                     bool stableAlgo, const Type &partialsType,
-                    const std::string &debugPrefix,
+                    const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(acts_);
   const auto optionFlags = parseOptions(options);
 
@@ -106,8 +107,9 @@ groupNormStatistics(Graph &graph, const Tensor acts_, float eps, Sequence &prog,
 
 Tensor groupNormWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                        const Tensor &iStdDev, Sequence &prog,
-                       const std::string &debugPrefix,
+                       const poplar::DebugContext &debugContext,
                        const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto optionFlags = parseOptions(options);
   const auto rank = acts.rank();
   const auto numChannels = acts.dim(1);
@@ -124,12 +126,12 @@ Tensor groupNormWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                              rank);
 }
 
-std::pair<Tensor, Tensor> groupNormalise(Graph &graph, const Tensor &acts,
-                                         const Tensor &gamma,
-                                         const Tensor &beta, const Tensor &mean,
-                                         const Tensor &iStdDev, Sequence &prog,
-                                         const std::string &debugPrefix,
-                                         const poplar::OptionFlags &options) {
+std::pair<Tensor, Tensor>
+groupNormalise(Graph &graph, const Tensor &acts, const Tensor &gamma,
+               const Tensor &beta, const Tensor &mean, const Tensor &iStdDev,
+               Sequence &prog, const poplar::DebugContext &debugContext,
+               const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto rank = acts.rank();
   checkTensorShape(acts);
 #ifndef NDEBUG
@@ -145,20 +147,26 @@ std::pair<Tensor, Tensor> groupNormalise(Graph &graph, const Tensor &acts,
                         postProcessNormActs(whitenedActs, rank));
 }
 
-std::pair<Tensor, Tensor> groupNormParamGradients(
-    Graph &graph, const Tensor &actsWhitened, const Tensor &gradsIn,
-    Sequence &prog, const Type &partialsType, const std::string &debugPrefix,
-    const poplar::OptionFlags &options) {
+std::pair<Tensor, Tensor>
+groupNormParamGradients(Graph &graph, const Tensor &actsWhitened,
+                        const Tensor &gradsIn, Sequence &prog,
+                        const Type &partialsType,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(gradsIn);
   checkTensorShape(actsWhitened);
   return poplin::normParamGradients(graph, actsWhitened, gradsIn, prog,
                                     partialsType, debugPrefix);
 }
 
-std::pair<Tensor, Tensor> groupNormParamGradients(
-    Graph &graph, const Tensor &acts, const Tensor &gradsIn, const Tensor &mean,
-    const Tensor &iStdDev, Sequence &prog, const Type &partialsType,
-    const std::string &debugPrefix, const poplar::OptionFlags &options) {
+std::pair<Tensor, Tensor>
+groupNormParamGradients(Graph &graph, const Tensor &acts, const Tensor &gradsIn,
+                        const Tensor &mean, const Tensor &iStdDev,
+                        Sequence &prog, const Type &partialsType,
+                        const poplar::DebugContext &debugContext,
+                        const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(acts);
   auto actsWhitened =
       groupNormWhiten(graph, acts, mean, iStdDev, prog, debugPrefix, options);
@@ -170,8 +178,9 @@ Tensor groupNormGradients(Graph &graph, const Tensor &actsWhitened_,
                           const Tensor &gradsIn_, const Tensor &iStdDev,
                           const Tensor &gamma, Sequence &prog,
                           const Type &partialsType,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const auto optionFlags = parseOptions(options);
   const auto rank = actsWhitened_.rank();
   const auto numChans = actsWhitened_.dim(1);
@@ -200,8 +209,9 @@ Tensor groupNormGradients(Graph &graph, const Tensor &acts_,
                           const Tensor &gradsIn_, const Tensor &mean,
                           const Tensor &iStdDev, const Tensor &gamma,
                           Sequence &prog, const Type &partialsType,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   checkTensorShape(acts_);
   auto actsWhitened =
       groupNormWhiten(graph, acts_, mean, iStdDev, prog, debugPrefix, options);
@@ -212,8 +222,9 @@ Tensor groupNormGradients(Graph &graph, const Tensor &acts_,
 void groupNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           const Tensor &betaDelta, float scale, Tensor &gamma,
                           Tensor &beta, Sequence &prog,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const std::string fnPrefix = debugPrefix + "/GN/paramUpdate";
   // Do update of beta and gamma together
   scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta), scale,
@@ -223,8 +234,9 @@ void groupNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
 void groupNormParamUpdate(Graph &graph, const Tensor &gammaDelta,
                           const Tensor &betaDelta, const Tensor &scale,
                           Tensor &gamma, Tensor &beta, Sequence &prog,
-                          const std::string &debugPrefix,
+                          const poplar::DebugContext &debugContext,
                           const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
   const std::string fnPrefix = debugPrefix + "/GN/paramUpdate";
   // Do update of beta and gamma together
   scaledAddTo(graph, concat(beta, gamma), concat(betaDelta, gammaDelta), scale,

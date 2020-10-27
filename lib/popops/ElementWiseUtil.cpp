@@ -34,7 +34,8 @@ namespace popops {
 Tensor createOutputForElementWiseOp(Graph &graph,
                                     const std::vector<Tensor> &inputs,
                                     const Type &outputType,
-                                    const std::string &debugName) {
+                                    const poplar::DebugContext &debugContext) {
+  const auto debugName = debugContext.getPathName();
   if (inputs.size() < 1) {
     throw poplibs_error("createOutputForElementWiseOp: Must provide at "
                         "least one input tensor as a reference but none "

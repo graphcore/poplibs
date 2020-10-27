@@ -157,7 +157,9 @@ static void maybeRestoreHwSeeds(Graph &graph,
 
 Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                const Tensor &reference, const Type &outType, double minVal,
-               double maxVal, Sequence &prog, const std::string &debugPrefix) {
+               double maxVal, Sequence &prog,
+               const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (outType != FLOAT && outType != HALF && outType != INT)
     throw poputil::poplibs_error(
         "uniform only supported for FLOAT/HALF/INT, '" + outType.toString() +
@@ -215,7 +217,8 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
 Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                  const Tensor &reference, const Type &outType, double prob,
-                 Sequence &prog, const std::string &debugPrefix) {
+                 Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   seedTensorChecks(masterSeed);
 
   auto fnPrefix = debugPrefix + "/bernoulli";
@@ -252,7 +255,9 @@ Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
 Tensor normal(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
               const Tensor &reference, const Type &outType, double mean,
-              double stdDev, Sequence &prog, const std::string &debugPrefix) {
+              double stdDev, Sequence &prog,
+              const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   seedTensorChecks(masterSeed);
   auto fnPrefix = debugPrefix + "/normal";
   auto out = graph.clone(outType, reference, fnPrefix + "/out");
@@ -288,7 +293,8 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
                        uint32_t seedModifier, const Tensor &reference,
                        const Type &outType, double mean, double stdDev,
                        double alpha, Sequence &prog,
-                       const std::string &debugPrefix) {
+                       const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   seedTensorChecks(masterSeed);
   auto fnPrefix = debugPrefix + "/truncatedNormal";
   auto out = graph.clone(outType, reference, fnPrefix + "/out");
@@ -328,7 +334,8 @@ Tensor truncatedNormal(Graph &graph, const Tensor *masterSeed,
 Tensor dropout(Graph &graph, const Tensor *masterSeed,
                const uint32_t seedModifier, const Tensor &in,
                const Tensor &reference, double keepProbability, double scale,
-               Sequence &prog, const std::string &debugPrefix) {
+               Sequence &prog, const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   seedTensorChecks(masterSeed);
   static const unsigned maxProbInHw = 65536;
   auto fnPrefix = debugPrefix + "/dropout";
@@ -396,7 +403,8 @@ Tensor shapedDropout(Graph &graph, const Tensor *masterSeed,
                      const uint32_t seedModifier, const Tensor &in,
                      const Tensor &reference, double keepProbability,
                      double scale, Sequence &prog,
-                     const std::string &debugPrefix) {
+                     const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   seedTensorChecks(masterSeed);
   static const unsigned maxProbInHw = 65536;
   auto fnPrefix = debugPrefix + "/shaped_dropout";
@@ -428,7 +436,8 @@ Tensor shapedDropout(Graph &graph, const Tensor *masterSeed,
 
 void setSeed(poplar::Graph &graph, const poplar::Tensor &masterSeed,
              uint32_t seedModifier, poplar::program::Sequence &prog,
-             const std::string &debugPrefix) {
+             const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   seedTensorChecks(&masterSeed);
   auto cs = graph.addComputeSet(debugPrefix + "/setMasterSeed");
   const auto &target = graph.getTarget();

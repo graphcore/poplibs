@@ -296,7 +296,8 @@ void validateInput(poplar::Graph &graph, const poplar::Tensor &a) {
 poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
                               bool lower, bool unitDiagonal,
                               poplar::program::Sequence &prog,
-                              const std::string &debugPrefix) {
+                              const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   validateInput(graph, a);
 
   SolveParams params(0, lower, unitDiagonal, 0, {}, nullptr);
@@ -309,12 +310,12 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
       .reshape(a.shape());
 }
 
-poplar::Tensor
-triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
-                const poplar::Tensor &b, bool leftSide, bool lower,
-                bool unitDiagonal, std::size_t blockSize,
-                poplar::program::Sequence &prog, const std::string &debugPrefix,
-                poplar::OptionFlags options, matmul::PlanningCache *cache) {
+poplar::Tensor triangularSolve(
+    poplar::Graph &graph, const poplar::Tensor &a, const poplar::Tensor &b,
+    bool leftSide, bool lower, bool unitDiagonal, std::size_t blockSize,
+    poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
+    poplar::OptionFlags options, matmul::PlanningCache *cache) {
+  const auto debugPrefix = debugContext.getPathName();
   validateInput(graph, a);
   if (blockSize == 0) {
     throw poputil::poplibs_error("blockSize must be greater than zero");

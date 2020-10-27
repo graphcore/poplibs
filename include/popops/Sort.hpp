@@ -26,7 +26,7 @@ namespace popops {
  *  \param t           The source tensor.
  *  \param dim         The dimension to sort on.
  *  \param prog        The program to be extended.
- *  \param debugPrefix The prefix prepended to debugging info.
+ *  \param debugContext Optional debug information.
  *
  *  \returns           A tensor which is a permutation of \p t such that all
  *                     elements in the given dimension are in order.
@@ -35,7 +35,7 @@ namespace popops {
  */
 poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                     poplar::program::Sequence &prog,
-                    const std::string &debugPrefix = "");
+                    const poplar::DebugContext &debugContext = {});
 
 /** In-place sort a tensor along the given dimension.
  *
@@ -46,13 +46,13 @@ poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
  *  \param t           The source tensor to be sorted.
  *  \param dim         The dimension to sort on.
  *  \param prog        The program to be extended.
- *  \param debugPrefix The prefix prepended to debugging info.
+ *  \param debugContext Optional debug information.
  *
  *  \throw poputil::poplibs_error If \p dim is not a valid dimension of \p v.
  */
 void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                  poplar::program::Sequence &prog,
-                 const std::string &debugPrefix = "");
+                 const poplar::DebugContext &debugContext = {});
 
 /** Sort a tensor by a key tensor along the given dimension.
  *
@@ -68,7 +68,7 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
  *  \param v           The value tensor to be sorted.
  *  \param dim         The dimension to sort on.
  *  \param prog        The program to be extended.
- *  \param debugPrefix The prefix prepended to debugging info.
+ *  \param debugContext Optional debug information.
  *  \returns           A tensor which is a permutation of \p v such that it is
  *                     in order with respect to the tensor \p k in the given
  *                     dimension.
@@ -81,7 +81,7 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
 poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
                             const poplar::Tensor &v, unsigned dim,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix = "");
+                            const poplar::DebugContext &debugContext = {});
 
 /** In-place sort a given tensor by a key tensor along the given dimension.
  *
@@ -94,7 +94,7 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
  *  \param v           The value tensor to be sorted.
  *  \param dim         The dimension to sort on.
  *  \param prog        The program to be extended.
- *  \param debugPrefix The prefix prepended to debugging info.
+ *  \param debugContext Optional debug information.
  *
  * \note The \p k tensor is also sorted by this in-place operation.
  * \note If the \p k tensor and the \p v tensor alias, the result is undefined.
@@ -105,7 +105,7 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
 void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
                          const poplar::Tensor &v, unsigned dim,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix = "");
+                         const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

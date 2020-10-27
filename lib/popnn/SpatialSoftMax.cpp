@@ -11,7 +11,9 @@ namespace popnn {
 std::pair<poplar::Tensor, poplar::Tensor>
 spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
                  const poplar::Tensor &fields, float initialTemperature,
-                 bool disableSoftmax, const std::string &name) {
+                 bool disableSoftmax,
+                 const poplar::DebugContext &debugContext) {
+  const auto name = debugContext.getPathName();
   if (fields.rank() != 3) {
     throw poplar::poplar_error("In spatialSoftMax2D "
                                "fields tensor must have rank 3");

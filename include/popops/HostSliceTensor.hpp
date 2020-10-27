@@ -38,11 +38,10 @@ struct IndicesAndTensor {
 ///               true, tile imbalance is likely to be greater.
 /// \return Two tensors: the indices, which will have size shape[0] and the
 ///         tensor that will be written to.
-IndicesAndTensor createHostSliceableTensor(poplar::Graph &graph,
-                                           const poplar::Type &type,
-                                           const std::vector<size_t> &shape,
-                                           const bool isRead,
-                                           const std::string &debugPrefix = "");
+IndicesAndTensor
+createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
+                          const std::vector<size_t> &shape, const bool isRead,
+                          const poplar::DebugContext &debugContext = {});
 
 /// Create a tensor that is well laid out for a host exchange copy.
 /// \param graph  The graph to add the tensor to.
@@ -57,7 +56,7 @@ IndicesAndTensor createHostSliceableTensor(poplar::Graph &graph,
 poplar::Tensor
 createHostTransferableTensor(poplar::Graph &graph, const poplar::Type &type,
                              const std::vector<size_t> &shape, bool isRead,
-                             const std::string &debugPrefix = "");
+                             const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 #endif

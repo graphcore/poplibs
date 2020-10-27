@@ -361,8 +361,9 @@ void BSMatMulImpl::createPartitionPlan(poplar::Graph &graph,
 
 poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
-                                      const std::string &name,
+                                      const poplar::DebugContext &debugContext,
                                       const poplar::OptionFlags &options) {
+  const auto name = debugContext.getPathName();
   BSMatMulImpl *impl = bsMatMul.impl.get();
   if (impl->hyperGraphs.empty()) {
     impl->createPartitionPlan(graph, options);
@@ -406,8 +407,9 @@ poplar::Tensor createBSMatMulInputLHS(poplar::Graph &graph,
 
 poplar::Tensor createBSMatMulInputRHS(poplar::Graph &graph,
                                       const BSMatMulParams &bsMatMul,
-                                      const std::string &name,
+                                      const poplar::DebugContext &debugContext,
                                       const poplar::OptionFlags &options) {
+  const auto name = debugContext.getPathName();
   BSMatMulImpl *impl = bsMatMul.impl.get();
   if (impl->hyperGraphs.empty()) {
     impl->createPartitionPlan(graph, options);
@@ -454,7 +456,8 @@ poplar::Tensor bsMatMul(poplar::Graph &graph, const BSMatMulParams &bsMatMul,
                         const poplar::Tensor &lhsMatrixIn,
                         const poplar::Tensor &rhsMatrixIn,
                         const poplar::OptionFlags &options,
-                        const std::string &debugPrefix) {
+                        const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
   if (lhsMatrixIn.rank() != 2 || rhsMatrixIn.rank() != 2) {
     throw poputil::poplibs_error("The rank of both input matrices must be 2");
   }

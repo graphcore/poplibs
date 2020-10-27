@@ -33,14 +33,14 @@ struct GatherParams {
  *  \param operandShape The desired shape of the input.
  *  \param axis         The axis that will be gathered on.
  *  \param params       The same parameters as used by the gather().
- *  \param name         The name of the tensor.
+ *  \param debugContext Optional debug information.
  *
  *  \returns A tensor with the desired shape.
  */
 poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::vector<std::size_t> &operandShape,
                                  unsigned axis, GatherParams params = {},
-                                 const std::string &name = "");
+                                 const poplar::DebugContext &debugContext = {});
 
 /**
  *  The gather operation stitches together several slices (each slice at a
@@ -55,7 +55,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *  \param axis        The axis to gather on. The axis must be less than x.
  *  \param prog        The program sequence to add this operation to.
  *  \param params      Parameters for the form of the gather.
- *  \param debugPrefix A debug name for the operation.
+ *  \param debugContext Optional debug information.
  *
  *  \note The indices are treated as offsets along the chosen axis. At this
  *        offset a slice of depth 1 in the axis dimension is taken.
@@ -65,7 +65,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
 poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices, unsigned axis,
                       poplar::program::Sequence &prog, GatherParams params,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 /**
  *  Create the input of the gather given a start index map. This is
@@ -79,7 +79,7 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
  *                        the slice on dimension \c i.
  *  \param startIndexMap A map that describes how to map indices in
  *                       \p indices in gather() to legal indices into the input.
- *  \param name          The name of the tensor.
+ *  \param debugContext  Optional debug information.
  *
  *  \returns A tensor with the desired shape.
  */
@@ -87,7 +87,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::vector<std::size_t> &inputShape,
                                  const std::vector<std::size_t> &sliceSizes,
                                  std::vector<unsigned> startIndexMap,
-                                 const std::string &name = "");
+                                 const poplar::DebugContext &debugContext = {});
 
 /**
  *  The gather operation stitches together several slices (each slice at a
@@ -110,7 +110,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
  *  \param startIndexMap      A map that describes how to map indices in
  *                            \p indices to legal indices into \p input.
  *  \param prog               The program sequence to add this operation to.
- *  \param debugPrefix        A debug name for the operation.
+ *  \param debugContext       Optional debug information.
  *
  *  \note When `indexVectorDim == indices.rank()`, the indices are interpreted
  *        as scalar values.
@@ -165,7 +165,7 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const std::vector<std::size_t> &collapsedSliceDims,
                       const std::vector<unsigned> &startIndexMap,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugContext &debugContext = {});
 
 } // namespace popops
 

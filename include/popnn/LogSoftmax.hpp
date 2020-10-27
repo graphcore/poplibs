@@ -13,27 +13,25 @@ namespace popnn {
  * \param graph             The graph to add the operation to.
  * \param t                 The tensor to apply the log of softmax to.
  * \param prog              The sequence to add the operation to.
- * \param debugPrefix       Optional string to use as a prefix to debug
- *                          information.
+ * \param debugContext      Optional debug information.
  */
 void logSoftmaxInPlace(poplar::Graph &graph, poplar::Tensor t,
                        poplar::program::Sequence &prog,
-                       const std::string &debugPrefix = "");
+                       const poplar::DebugContext &debugContext = {});
 
 /** Compute the log of the softmax to tensor \p t and return the result.
  *
  * \param graph             The graph to add the operation to.
  * \param t                 The tensor to apply the non-linearity to.
  * \param prog              The sequence to add the operation to.
- * \param debugPrefix       Optional string to use as a prefix to debug
- *                          information.
+ * \param debugContext      Optional debug information.
  *
  * \returns A new tensor containing the contents of \p t with the given
  *          log of the softmax applied.
  */
 poplar::Tensor logSoftmax(poplar::Graph &graph, poplar::Tensor t,
                           poplar::program::Sequence &prog,
-                          const std::string &debugPrefix = "");
+                          const poplar::DebugContext &debugContext = {});
 
 } // end namespace popnn
 
