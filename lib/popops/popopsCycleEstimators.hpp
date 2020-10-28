@@ -185,6 +185,8 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     {{UnaryOpType::ABSOLUTE, FLOAT}, {1, true}},
     {{UnaryOpType::ABSOLUTE, HALF}, {1, true}},
     {{UnaryOpType::ABSOLUTE, INT}, {2}},
+    {{UnaryOpType::ASIN, HALF}, {102, false}},
+    {{UnaryOpType::ASIN, FLOAT}, {102, false}},
     // NOT on AUX side, ldst64pace
     {{UnaryOpType::BITWISE_NOT, INT}, {1, true}},
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_INT}, {1, true}},
