@@ -57,3 +57,101 @@ add_multitarget_test(
           --test-binary $<TARGET_FILE:single_conv_layer>
   VARIANTS "Hw"
   LABELS "python_tool")
+
+# Check that compilation is deterministic.
+add_multitarget_test(
+  NAME determinism_single_conv_layer
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
+          $<TARGET_FILE:single_conv_layer>
+          --input-channels=16
+          --output-channels=16
+          --field={1}
+          --kernel-size=1
+          --tiles-per-ipu=16
+          --compile-only
+  LABELS "python_tool"
+  VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(
+  NAME determinism_general_matrix_multiply
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
+          $<TARGET_FILE:general_matrix_multiply>
+          --m 0
+          --k 3
+          --n 4
+          --alpha 1
+          --beta 1
+          --tiles-per-ipu=1
+          --left-matrix-op=transpose
+          --right-matrix-op=transpose
+          --compile-only
+  LABELS "python_tool"
+  VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME determinism_replicated_collectives
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
+          $<TARGET_FILE:replicated_collectives>
+          --use-replicated-implementation
+          --reduction-operator=ADD
+          --collective=all_reduce
+          --ipus-per-rank=2
+          --ipus=4
+          --tiles-per-ipu=4
+          --elements=1
+          --shuffle-mapping=false
+          --force-mapping=0
+          --compile-only
+  LABELS "python_tool;Collectives"
+  VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME determinism_pooling_layer
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
+          $<TARGET_FILE:pooling_layer>
+          --channels 16
+          --field={9,14}
+          --kernel-size=2
+          --tiles-per-ipu=16
+          --stride=2
+          --data-type=half
+          --use-introspection=1
+          --compile-only
+  LABELS "python_tool"
+  VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME determinism_rnn_layer
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
+          $<TARGET_FILE:rnn_layer>
+          --sequence-size 3
+          --input-size 16
+          --output-size 16
+          --batch-size=2
+          --phase all
+          --tiles-per-ipu=16
+          --nonlinearity-type sigmoid
+          --apply-feedforward-weights
+          --compile-only
+  LABELS "python_tool"
+  VARIANTS ${SIM_VARIANTS})
+
+add_multitarget_test(NAME determinism_sparse_fc_layer
+  COMMAND ${PYTHON_EXECUTABLE}
+          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
+          $<TARGET_FILE:sparse_fc_layer>
+          --data-type=float
+          --partials-type=float
+          --input-size=128
+          --output-size=128
+          --batch-size=4
+          --block-size=8
+          --sparsity-factor=0.1
+          --tiles-per-ipu=24
+          --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+          --single-phase=all
+          --compile-only
+  LABELS "python_tool"
+  VARIANTS ${SIM_VARIANTS})
