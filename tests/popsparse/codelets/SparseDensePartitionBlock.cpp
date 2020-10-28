@@ -77,7 +77,7 @@ std::vector<unsigned int> getForwardWorkerPartition(const Target &target,
   std::vector<unsigned int> worklist(target.getNumWorkerContexts() * 2);
 
   unsigned index = 0;
-  for (const auto split : splits) {
+  for (const auto &split : splits) {
     for (const auto interval : split) {
       worklist.at(index) = interval.begin();
       worklist.at(index + 1) = interval.size();

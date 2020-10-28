@@ -1077,12 +1077,12 @@ int main(int argc, char **argv) try {
           {"weights", weightsFailed},
           {"biases", biasesFailed},
       };
-      for (const auto result : results) { // Report all failures
+      for (const auto &result : results) { // Report all failures
         if (result.second) {
           errs << result.first << " validation failed\n";
         }
       }
-      for (const auto result : results) { // Abort if any failed
+      for (const auto &result : results) { // Abort if any failed
         if (result.second) {
           rc = EXIT_FAILURE;
         }
