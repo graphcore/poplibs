@@ -274,6 +274,7 @@ int main(int argc, char **argv) {
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
   boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileFormat;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -294,7 +295,11 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Use the unstable profile format")
+    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
+    ("profile-format",
+     po::value<decltype(profileFormat)>(&profileFormat)
+      ->default_value(boost::none),
+     "Profile formats: v1 | experimental | unstable")
     ("file", po::value(&file),
       "If specified, load the input and optionally output tensors from "
       "a file. The file must be a binary serialisation of the tensors "
@@ -364,7 +369,10 @@ int main(int argc, char **argv) {
   randomEngine.seed(seed);
 
   const bool ignoreData = vm.count("ignore-data");
-  const bool useUnstableFormat = vm.count("use-unstable-format");
+  if (vm.count("use-unstable-format")) {
+    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
+                                 "\"--profile-format experimental\" instead");
+  }
 
   // Set the random model parameters if --seed was specified and they
   // weren't overridden with --tiles-per-ipu or --ipus.
@@ -679,8 +687,8 @@ int main(int argc, char **argv) {
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (useUnstableFormat) {
-      engineOptions.set("profiler.useUnstableFormat", "true");
+    if (profileFormat) {
+      engineOptions.set("profiler.format", *profileFormat);
     }
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);

@@ -115,7 +115,7 @@ int main(int argc, char **argv) {
 
     Pass pass = Pass::BOTH;
     bool ignoreData;
-    bool useUnstableFormat;
+    boost::optional<std::string> profileFormat;
   };
 
   Options opts;
@@ -132,7 +132,11 @@ int main(int argc, char **argv) {
      po::value<decltype(opts.jsonProfileOut)>(&opts.jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Use the unstable profile format")
+    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
+    ("profile-format",
+     po::value<decltype(opts.profileFormat)>(&opts.profileFormat)
+      ->default_value(boost::none),
+     "Profile formats: v1 | experimental | unstable")
     ("show-execution-steps",
      po::value<bool>(&opts.showExecutionSteps)
        ->default_value(opts.showExecutionSteps),
@@ -227,7 +231,10 @@ int main(int argc, char **argv) {
   }
 
   opts.ignoreData = vm.count("ignore-data");
-  opts.useUnstableFormat = vm.count("use-unstable-format");
+  if (vm.count("use-unstable-format")) {
+    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
+                                 "\"--profile-format experimental\" instead");
+  }
 
   const std::vector<std::size_t> &numIndices = opts.numIndices;
 
@@ -357,8 +364,8 @@ int main(int argc, char **argv) {
   if (opts.profile || opts.jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
     engineOptions.set("debug.computeInstrumentationLevel", "device");
-    if (opts.useUnstableFormat) {
-      engineOptions.set("profiler.useUnstableFormat", "true");
+    if (opts.profileFormat) {
+      engineOptions.set("profiler.format", *opts.profileFormat);
     }
   }
 

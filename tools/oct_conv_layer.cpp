@@ -772,6 +772,7 @@ int main(int argc, char **argv) try {
   poplin::PlanningCache cache;
 
   boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileFormat;
 
   po::options_description desc("Options");
   // clang-format off
@@ -782,7 +783,11 @@ int main(int argc, char **argv) try {
      po::value<DeviceType>(&deviceType)->default_value(deviceType),
      "Device type")
     ("profile", "Output profiling report")
-    ("use-unstable-format", "Use the unstable profile format")
+    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
+    ("profile-format",
+     po::value<decltype(profileFormat)>(&profileFormat)
+      ->default_value(boost::none),
+     "Profile formats: v1 | experimental | unstable")
     ("profile-json",
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
@@ -1047,7 +1052,10 @@ int main(int argc, char **argv) try {
   const bool planOnly = vm.count("plan-only");
   const bool inferenceOnly = vm.count("inference-only");
   const bool ignoreData = vm.count("ignore-data");
-  const bool useUnstableFormat = vm.count("use-unstable-format");
+  if (vm.count("use-unstable-format")) {
+    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
+                                 "\"--profile-format experimental\" instead");
+  }
 
   bool doFwdPass = pass == Pass::ALL || pass == Pass::FWD;
   bool doBwdPass = !inferenceOnly && (pass == Pass::ALL || pass == Pass::BWD);
@@ -1308,8 +1316,8 @@ int main(int argc, char **argv) try {
   OptionFlags engineOptions;
   if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (useUnstableFormat) {
-      engineOptions.set("profiler.useUnstableFormat", "true");
+    if (profileFormat) {
+      engineOptions.set("profiler.format", *profileFormat);
     }
   }
 

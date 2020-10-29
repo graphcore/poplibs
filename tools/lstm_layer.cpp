@@ -132,6 +132,7 @@ int main(int argc, char **argv) {
   double availableMemoryProportion;
   ShapeOption<std::string> cellOrder;
   boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileFormat;
 
   po::options_description desc("Options");
   // clang-format off
@@ -149,7 +150,11 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Use the unstable profile format")
+    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
+    ("profile-format",
+     po::value<decltype(profileFormat)>(&profileFormat)
+      ->default_value(boost::none),
+     "Profile formats: v1 | experimental | unstable")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
@@ -232,7 +237,10 @@ int main(int argc, char **argv) {
   }
 
   bool ignoreData = vm.count("ignore-data");
-  const bool useUnstableFormat = vm.count("use-unstable-format");
+  if (vm.count("use-unstable-format")) {
+    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
+                                 "\"--profile-format experimental\" instead");
+  }
 
   auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
@@ -378,8 +386,8 @@ int main(int argc, char **argv) {
   auto engineOptions = defaultEngineOptions;
   if (vm.count("profile") || jsonProfileOut) {
     engineOptions.set("debug.instrumentCompute", "true");
-    if (useUnstableFormat) {
-      engineOptions.set("profiler.useUnstableFormat", "true");
+    if (profileFormat) {
+      engineOptions.set("profiler.format", *profileFormat);
     }
   }
   Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engineOptions);

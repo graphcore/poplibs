@@ -373,7 +373,7 @@ function(add_benchmark)
   endif()
 
   # common args used by all the benchmarks
-  list(APPEND BENCHMARK_PARAMS --ignore-data --use-unstable-format)
+  list(APPEND BENCHMARK_PARAMS --ignore-data --profile-format experimental)
 
   add_multitarget_test(
     NAME "${BENCHMARK_NAME}_benchmark"

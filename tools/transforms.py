@@ -211,7 +211,7 @@ Planner2ProfileRatioFields = collections.namedtuple(
 # Benchmark names and params capture
 # 407: Test command: /usr/bin/python3 "/scratch/oleksiik/poplar/poplibs/tools/bench.py" "--name" "resnet50_tr_bs1_cnv_reduce" "--config" "default"
 #                                      "--expected_csv" "/scratch/oleksiik/poplar/poplibs/tests/benchmark_results.csv" "/scratch/oleksiik/poplar/build_release/build/poplibs/tools/reduce_op"
-#                                      "--shape=4,25088,8" "--dims=1" "--type=half" "--scale=1.0" "--update=false" "--operation=SQUARE_ADD" "--ignore-data" "--use-unstable-format" "--device-type=IpuModel"
+#                                      "--shape=4,25088,8" "--dims=1" "--type=half" "--scale=1.0" "--update=false" "--operation=SQUARE_ADD" "--ignore-data" "--profile-format" "experimental" "--device-type=IpuModel"
 # Labels: benchmarks python3
 #   Test #407: IpuModel_default_resnet50_tr_bs1_cnv_reduce_benchmark
 benchmarks_info = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([a-zA-z]+)\"\s\"--expected_csv\"\s\"(\S+)\"\s\"(\S+)\"\s(.+)$")
@@ -634,7 +634,7 @@ def generate_ci_tests(workspace, test_binary, device_type):
         ci_test_dict[test_name] = [test_binary,
                         '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
                         '--output-channels', '1', '--conv-groups', '64', '--batch-size', '2', '--bias', '0',
-                        '--ignore-data', '--use-unstable-format', f'--device-type={device_type}', '--profile',
+                        '--ignore-data', '--profile-format', 'experimental', f'--device-type={device_type}', '--profile',
                         f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
                         transform_constraints(phase, 'true', '[]', '[]', '1')]

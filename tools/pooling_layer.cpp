@@ -101,6 +101,7 @@ int main(int argc, char **argv) {
   bool optimizeForSpeed;
 
   boost::optional<std::string> jsonProfileOut;
+  boost::optional<std::string> profileFormat;
 
   po::options_description desc("Options");
   // clang-format off
@@ -115,7 +116,11 @@ int main(int argc, char **argv) {
      po::value<decltype(jsonProfileOut)>(&jsonProfileOut)
       ->default_value(boost::none),
      "Write the profile report as JSON to the specified file.")
-    ("use-unstable-format", "Use the unstable profile format")
+    ("use-unstable-format", "Deprecated: use \"--profile-format experimental\"")
+    ("profile-format",
+     po::value<decltype(profileFormat)>(&profileFormat)
+      ->default_value(boost::none),
+     "Profile formats: v1 | experimental | unstable")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("channels", po::value<unsigned>(&chans)->required(),
@@ -191,11 +196,10 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    const bool useUnstableFormat = vm.count("use-unstable-format");
     if (vm.count("profile") || jsonProfileOut) {
       engineOptions.set("debug.instrumentCompute", "true");
-      if (useUnstableFormat) {
-        engineOptions.set("profiler.useUnstableFormat", "true");
+      if (profileFormat) {
+        engineOptions.set("profiler.format", *profileFormat);
       }
     }
 
@@ -226,6 +230,10 @@ int main(int argc, char **argv) {
 
   const bool inferenceOnly = vm.count("inference-only");
   const bool ignoreData = vm.count("ignore-data");
+  if (vm.count("use-unstable-format")) {
+    throw poputil::poplibs_error("\"--use-unstable-format\" is deprecated. Use "
+                                 "\"--profile-format experimental\" instead");
+  }
 
   auto device = tilesPerIPU
                     ? createTestDevice(deviceType, numIPUs, *tilesPerIPU)
