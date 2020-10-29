@@ -235,14 +235,17 @@ void generateSparseDenseMultiSliceVertices(
 
   auto computeSet = graph.addComputeSet(debugStr);
   const auto inputType = nzBuckets.elementType();
-  bool vectorise = (plannedSplits.blockColumns %
-                    graph.getTarget().getVectorWidth(inputType)) == 0;
+
+  auto bytesPerBlockRow =
+      graph.getTarget().getTypeSize(inputType) * plannedSplits.blockColumns;
+  const unsigned vectorWidthInBytes =
+      (bytesPerBlockRow % 8 == 0) ? 8 : ((bytesPerBlockRow % 4 == 0) ? 4 : 2);
   const auto vertexClass =
       plannedSplits.isElementWise()
           ? templateVertex("popsparse::SparseDenseMultiSliceElementWise",
                            inputType)
           : templateVertex("popsparse::SparseDenseMultiSliceBlock", inputType,
-                           vectorise);
+                           vectorWidthInBytes);
 
   logging::popsparse::debug("creating {} vertices", vertexClass);
 

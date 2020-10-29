@@ -145,6 +145,9 @@ int main(int argc, char **argv) try {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+  if (numOtherSubGroups == 0) {
+    numOtherSubGroupElems = 0;
+  }
 
   bool profile = vm.count("profile");
   bool ignoreData = vm.count("ignore-data");
@@ -238,7 +241,7 @@ int main(int argc, char **argv) try {
           randomEngine, sparseIndices, offsetBaseTShape,
           {offsetBaseTShape[1], zSize}, blockSize.val, numBuckets,
           processedSubGroupId, otherSubGroupIds, processedSubGroupIndices,
-          subGroupNumElems, target, inputType, FLOAT, VertexType::Forward,
+          subGroupNumElems, target, inputType, FLOAT, VertexType::GradW,
           rowOffset, yPartitionToProcess);
     }
   }();
@@ -290,9 +293,16 @@ int main(int argc, char **argv) try {
 
   const bool vectorise =
       (blockSize.val[1] % target.getVectorWidth(inputType)) == 0;
+
+  auto bytesPerBlockRow = target.getTypeSize(nzType) * blockSize.val[1];
+  const unsigned vectorWidthInBytes =
+      (bytesPerBlockRow % 8 == 0) ? 8 : ((bytesPerBlockRow % 4 == 0) ? 4 : 2);
+
   const auto vertexClass =
       doElementWiseTest ? templateVertex(vertexBaseClass, inputType)
-                        : templateVertex(vertexBaseClass, inputType, vectorise);
+      : updateAdd
+          ? templateVertex(vertexBaseClass, inputType, vectorise)
+          : templateVertex(vertexBaseClass, inputType, vectorWidthInBytes);
   const auto v = graph.addVertex(cs, vertexClass);
 
   graph.setInitialValue(v["subColumns"], baseTShape[1]);

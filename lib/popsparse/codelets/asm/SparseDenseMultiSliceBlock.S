@@ -9,43 +9,47 @@
 //    have columns which are 32 bits in length so that each row is also 32-bit
 //    aligned. (This constrains half vertices to have an even number of columns)
 
-#include "SparseDenseMatMulStructs.h.S"
+#include "BlockSparseMatMulStructs.h.S"
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplar/StackSizeDefs.hpp"
 
-#define INCLUDE_IN_ASSEMBLER
-#include "../../SparseCodeletMetaInfoScale.hpp"
-
 // Symbols
-#define CODELET_SLICE_HALF __runCodelet_popsparse__SparseDenseMultiSliceElementWise___half
-#define CODELET_SLICE_FLOAT __runCodelet_popsparse__SparseDenseMultiSliceElementWise___float
+#define VERTEX_NAME __runCodelet_popsparse__SparseDenseMultiSliceBlock___\TYPE\()_\BYTES_PER_VECTOR
 
+// Size constants
+#define LOG2_SIZEOF_FLOAT          2
+#define LOG2_SIZEOF_HALF           1
 
 // Vertex state (Offsets in bytes)
 #define VOFF_OFFSET_PTR           0
 #define VOFF_BASET_NZ_PTR         4
 #define VOFF_BASET_META_PTR       8 // Short span (20 lsbs address)
 #define VOFF_SUBT_PTR             12
-#define VOFF_NZ_SCALE_FACTOR      16
-#define VOFF_ROWS_PER_PARTITION   18
-#define VOFF_Y_PARTITION          20
-#define VOFF_SUBT_COLUMNS         22
-#define VOFF_OFFSET_SIZE          24
+#define VOFF_BLOCK_ROWS           16
+#define VOFF_BLOCK_COLUMNS        18
+#define VOFF_ROWS_PER_PARTITION   20
+#define VOFF_Y_PARTITION          22
+#define VOFF_SUBT_COLUMNS         24
+#define VOFF_OFFSET_SIZE          26
 
 // Vertex state created by the supervisor on the stack and passed to workers
 #define WOFF_NZ_PTR                0
 #define WOFF_META_PTR              4
 #define WOFF_OFFSET_PTR            8
 #define WOFF_ROW_OFFSET            12
-#define WOFF_NZ_SCALE_FACTOR       16
+#define WOFF_BLOCK_ROWS            16
 #define WOFF_SUBT_COLUMNS          20
 #define WOFF_SUBT_PTR              24
 #define WOFF_OFFSET_SIZE           28
 #define WOFF_NUM_ROWS_M1           32
 #define WOFF_SUBT_COLUMNSxWORKERS  36
-#define WOFF_SUPER_LR_STORE        40
-#define WOFF_SUPER_FP_STORE        44
+#define WOFF_BLOCK_COLUMN_LOOPS    40
+#define WOFF_BLOCK_ELEMENTS        44
+#define WOFF_BLOCK_ELEMS_MINUS_ROW 48
+#define WOFF_BLOCK_BYTES_PER_ROW   52
+#define WOFF_SUPER_LR_STORE        56
+#define WOFF_SUPER_FP_STORE        60
 #define STACK_SIZE                (WOFF_SUPER_FP_STORE+4)
 
 // Worker stack
@@ -57,25 +61,29 @@
 
 // worker register aliases
 #define w_subTStride              m0
-#define w_nzScaleFactor           m0
+#define w_subTColumnOffset        m0
 
 #define w_nzPtr                   m1
 #define w_metaPtr                 m2
 #define w_offsetLoops             m3
 #define w_subTPtr                 m4
 
-#define w_metaRow                 m5
-#define w_offset32Bit             m5
+#define w_metaRowStart            m5
+#define w_columnsLoops            m5
 
 #define w_metaColumns             m6
 
 #define w_numRowsM1               m7
+#define w_temp2                   m7
 
 #define w_offsetPtr               m8
+
 #define w_temp                    m9
+#define w_columnCopyLoops         m9
+
 #define w_nzPtrTemp               m10
 #define w_metaPtrTemp             m11
-
+#define w_metaRowsInBlock         m11
 // -----------------------------------------------------------------------------
 // Preamble macro to pre-process worker state specific to each worker
 
@@ -114,143 +122,113 @@
 .endm
 #undef w_id
 
-
 //------------------------------------------------------------------------------
-// Worker Half function
-.section .text.worker_half
-.align 8
-.type worker_half, @function
-.worker
-  // Entry point to use after the 1st call the supervisor vertex makes to the
-  // workers.  Worker specific work division has been done and the result stored
-  // on each worker's stack, so no need to calculate it again.
-worker_stack_retained_half:
-  ld32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
-  brpos         $w_offsetLoops, worker_continue_half
-  // Exit if nothing to do
-  exitz         $mzero
-
-  // First time entry point - so use of state (stack) retention
-worker_half:
-  WORKER_PREAMBLE half
-  brnzdec       $w_offsetLoops, 1f
-  // Exit if nothing to do for this worker. Store the loop count for when
-  // the stack retained entry is used.  Subtract 1 so it is consistent with
-  // what would have happened if the brnzdec branch was taken
-  sub           $w_offsetLoops, $w_offsetLoops, 1
-  st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
-  exitz         $mzero
+// Inner loop copy for 8 byte aligned, nx8 byte sized blocks
+.macro INNER_LOOP_BODY_8
+  rpt            $w_columnCopyLoops, (2f-1f)/8 -1
 1:
-  // Using loops - 1 as we use brnzdec in the loop later
-  st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
+  {ld64step      $a0:1, $mzero, $w_nzPtrTemp+=,1
+    fnop}
+  {st64step      $a0:1, $w_subTPtr, $w_subTColumnOffset+=,1
+    fnop}
+2:
+.endm
+//------------------------------------------------------------------------------
+// Inner loop copy for 4 byte aligned, nx4 byte sized blocks
+.macro INNER_LOOP_BODY_4
+  rpt           $w_columnCopyLoops, (2f-1f)/8 -1
+1:
+  {ld32step      $a0, $mzero, $w_nzPtrTemp+=,1
+    fnop}
+  {st32step      $a0, $w_subTPtr, $w_subTColumnOffset+=,1
+    fnop}
+2:
+.endm
+//------------------------------------------------------------------------------
+// Inner loop copy for 2 byte aligned nx2 byte sized blocks
+// As (probably) blocks are fairly small, and "nice" sized ones are dealt with in
+// other cases it doesn't seem worth the complexity to target a 2-cycle loop which
+// would be possible if the input(NZData) and the output(subT) are both aligned.
+.macro INNER_LOOP_BODY_2
+  // Data type is half.
+  // subT is aligned (4-byte) and has an even number of columns so w_subTPtr will
+  // always be aligned.  Therefore we only need to check the offset to see if we are
+  // writing to an aligned or misaligned location
+  and           $w_temp2, $w_subTColumnOffset, 2
+  brnz          $w_temp2, not_align\@
 
-worker_continue_half:
-  ld32          $w_nzPtr, $mvertex_base, WOFF_NZ_PTR/4
-  ld32          $w_metaPtr, $mvertex_base, WOFF_META_PTR/4
-  ld32          $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
-
-  ld32          $w_numRowsM1, $mvertex_base, WOFF_NUM_ROWS_M1/4
-meta_info_row_loopH:
-  // Load the row and add the offset
-  ldz16step     $w_metaRow, $mzero, $w_metaPtr+=,1
-  ld32          $w_temp, $mvertex_base, WOFF_ROW_OFFSET/4
-  add           $w_metaRow, $w_metaRow, $w_temp
-
-  // Load the loop count, offsets and subT pointers for this worker's work
-  ld32          $w_offsetPtr, $mworker_base, WSTACK_OFFSET_PTR/4
-  ld32          $w_subTPtr, $mworker_base, WSTACK_SUBT_PTR/4
-
-  ld32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
-offsets_loopH:
-  ld32step      $w_temp, $mzero, $w_offsetPtr+=,NUM_WORKERS
-  cmpeq         $w_temp, $w_temp, $w_metaRow
-  brz           $w_temp, next_offsetH
-  // Found a row, read data and populate. Use temp ptrs as we may have to do this
-  // for many slices with the same offset
-  mov           $w_nzPtrTemp, $w_nzPtr
-  mov           $w_metaPtrTemp, $w_metaPtr
-  // Store w_metaRow.  Even though this looks like we in the 2nd innermost loop
-  // it's conditional that we get here and so it is likely that storing/restoring
-  // here is faster
-  st32          $w_metaRow, $mworker_base, WSTACK_META_ROW/4
-  ld32          $w_nzScaleFactor, $mvertex_base, WOFF_NZ_SCALE_FACTOR/4
-
-  // The number of columns in this row's metaData.
-  // Subtract 1 as we are stuck with a brnzdec due to subWord write needing a
-  // branch
-  ldz16step     $w_metaColumns, $mzero, $w_metaPtrTemp+=,1
-  sub           $w_metaColumns, $w_metaColumns, 1
-meta_info_columns_loopH:
-  // Load the column and apply scale to get the column number.  This is like a
-  // divide which we can do by multiply, then shift right.  But we avoid the shift
-  ldz16step     $w_temp, $mzero, $w_metaPtrTemp+=,1
-  mul           $w_temp, $w_nzScaleFactor, $w_temp
-  // At this moment we have column<<(RECIPROCAL_MUL_SHIFT+1).
-  // We don't actually need the column
-  // number so don't generate it, which saves an instruction
-#define COLUMN_BIT_POSITION  (RECIPROCAL_MUL_SHIFT+YOffsetTypeDivShiftHalf)
-
-  // Fetch the data to preserve in the subword write
-  // *** As data is 32 bit aligned, and we have an even number of columns in SubT
-  // w_subTPtr will always be 32 bit aligned.  This simplifes the following code
-
-  // Due to *** The offset in 32 bit increments to the 32bit aligned location to
-  // slice into is just given by column/2
-  shr           $w_offset32Bit, $w_temp, (COLUMN_BIT_POSITION + 1)
-  ld32          $a1, $mzero, $w_subTPtr, $w_offset32Bit
-  // Fetch the data to write
+align\@:
+  // On a 4 byte boundary. There are always an odd number of columns in a block.
+  // So we can write pairs of halves, and then a single one at the end
   ldb16step     $a0, $mzero, $w_nzPtrTemp+=,1
-
-  // Due to *** the choice of writing the new data into the upper or lower
-  // half of the 32 bit word is just given by the column being odd or even, we
-  // get the LSBit of the column into the sign bit by shifting
-
-  shl           $w_temp, $w_temp, (32-COLUMN_BIT_POSITION-YOffsetTypeDivShiftHalf)
-  {brpos        $w_temp, 1f
-   sort4x16hi   $a2, $a0, $a1}
-  sort4x16lo    $a2, $a1, $a0
+  rpt            $w_columnCopyLoops, (2f-1f)/8 -1
 1:
-  st32          $a2, $mzero, $w_subTPtr, $w_offset32Bit
-  brnzdec       $w_metaColumns, meta_info_columns_loopH
+  {ldb16step     $a1, $mzero, $w_nzPtrTemp+=,1
+    fnop}
+  {ldb16step     $a0, $mzero, $w_nzPtrTemp+=,1
+   sort4x16hi    $a2, $a0, $a1}
+  {st32step      $a2, $w_subTPtr, $w_subTColumnOffset+=,1
+   fnop}
+2:
+  // Sub-word write for the last one - read one ahead to preserve
+  ldb16          $a1, $w_subTPtr, $w_subTColumnOffset,1
+  sort4x16hi     $a2, $a0, $a1
+  st32step       $a2, $w_subTPtr, $w_subTColumnOffset+=,1
+  bri continue\@
 
-  // register restore
-  ld32          $w_metaRow, $mworker_base, WSTACK_META_ROW/4
-  ld32          $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
-next_offsetH:
-  // Advance to this worker's next SubT slice to populate
-  ldz16step     $mzero, $mzero, $w_subTPtr+=, $w_subTStride
-  brnzdec       $w_offsetLoops, offsets_loopH
+not_align\@:
+  // Not on a 4-byte boundary.  Use the fact that the number of columns in a
+  // block must be odd (Otherwise a different vertex variant would have been picked).
+  // We can now write the individual misaligned half, then pairs of halves and
+  // will have an odd number always.
 
-  // Advance main pointers to to metadata and NZ data for the next row
-  ldz16step     $w_metaColumns, $mzero, $w_metaPtr+=,1
-  ldz16step     $mzero, $mzero, $w_metaPtr+=, $w_metaColumns
-  ldb16step     $azero, $mzero, $w_nzPtr+=, $w_metaColumns
+  // Create a rounded down address, for a 4 byte boundary and sub-word write
+  // for the first one
+  andc           $w_subTColumnOffset, $w_subTColumnOffset, 2
+  ldb16step      $a0, $mzero, $w_nzPtrTemp+=,1
+  ldb16          $a1, $w_subTPtr, $w_subTColumnOffset, 0
+  // Load a 1st one to unroll the loop
+  {ldb16step     $a0, $mzero, $w_nzPtrTemp+=,1
+   sort4x16hi    $a2, $a1, $a0}
+  st32step       $a2, $w_subTPtr, $w_subTColumnOffset+=,1
 
-  brnzdec       $w_numRowsM1, meta_info_row_loopH
+  {rpt            $w_columnCopyLoops, (2f-1f)/8 -1
+   fnop}
+1:
+  {ldb16step     $a1, $mzero, $w_nzPtrTemp+=,1
+    fnop}
+  {ldb16step     $a0, $mzero, $w_nzPtrTemp+=,1
+   sort4x16hi    $a2, $a0, $a1}
+  {st32step      $a2, $w_subTPtr, $w_subTColumnOffset+=,1
+   fnop}
+2:
+  // Undo the increment from the over-read in the loop
+  ldb16step      $azero, $mzero, $w_nzPtrTemp+=,-1
 
-  exitz         $mzero
-
-.size worker_half, . - worker_stack_retained_half
+continue\@:
+.endm
 
 //------------------------------------------------------------------------------
 // Worker float function
-.section .text.worker_float
+.macro INSTANTIATE_WORKER TYPE BYTES_PER_VECTOR LDINSTR
+
+.section .text.worker_\TYPE\()_\BYTES_PER_VECTOR
 .align 8
-.type worker_float, @function
+.type worker_\TYPE\()_\BYTES_PER_VECTOR, @function
 .worker
-  nop // Rpt align
+  nop   // Rpt align
   // Entry point to use after the 1st call the supervisor vertex makes to the
   // workers.  Worker specific work division has been done and the result stored
   // on each worker's stack, so no need to calculate it again.
-worker_stack_retained_float:
+worker_stack_retained_\TYPE\()_\BYTES_PER_VECTOR:
   ld32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
-  brpos         $w_offsetLoops, worker_continue_float
+  brpos         $w_offsetLoops, worker_continue\@
   // Exit if nothing to do
   exitz         $mzero
 
- // First time entry point - so use of state (stack) retention
-worker_float:
-  WORKER_PREAMBLE float
+ // First time entry point - no use of state (stack) retention
+worker_\TYPE\()_\BYTES_PER_VECTOR:
+  WORKER_PREAMBLE \TYPE
   // Entry point to use after the 1st call the supervisor vertex makes to the
   // workers.  Worker specific work division has been done and the result stored
   // on each worker's stack, so no need to calculate it again.  We do need to
@@ -266,18 +244,19 @@ worker_float:
   // Using loops - 1 as we use brnzdec in the loop later
   st32          $w_offsetLoops, $mworker_base, WSTACK_OFFSET_LOOPS/4
 
-worker_continue_float:
-
+worker_continue\@:
   ld32          $w_nzPtr, $mvertex_base, WOFF_NZ_PTR/4
   ld32          $w_metaPtr, $mvertex_base, WOFF_META_PTR/4
   ld32          $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
 
   ld32          $w_numRowsM1, $mvertex_base, WOFF_NUM_ROWS_M1/4
-meta_info_row_loopF:
-  // Load the row and add the offset
-  ldz16step     $w_metaRow, $mzero, $w_metaPtr+=,1
+  ld32          $w_metaRowsInBlock, $mvertex_base, WOFF_BLOCK_ROWS/4
+
+meta_info_row_loop\@:
+  // Load the row that the block starts at and add the offset
+  ldz16step     $w_metaRowStart, $mzero, $w_metaPtr+=,1
   ld32          $w_temp, $mvertex_base, WOFF_ROW_OFFSET/4
-  add           $w_metaRow, $w_metaRow, $w_temp
+  add           $w_metaRowStart, $w_metaRowStart, $w_temp
 
   // Load the loop count, offsets and subT pointers for this worker's work
   ld32          $w_offsetPtr, $mworker_base, WSTACK_OFFSET_PTR/4
@@ -286,50 +265,79 @@ meta_info_row_loopF:
 
   // The number of columns that have NZ data in this metaData row
   ldz16step     $w_metaColumns, $mzero, $w_metaPtr+=,1
+  add           $w_metaColumns, $w_metaColumns, 1
 
-offsets_loopF:
-  // Load the next offset and compare to the row found in the metaData
+offsets_loop\@:
+  // Load the next offset and compare to the rows spanned by the block found in
+  // the metaData.  Doing this using subtract not compare means we can retrieve
+  // the result later from the w_temp register
   ld32step      $w_temp, $mzero, $w_offsetPtr+=, NUM_WORKERS
-  cmpeq         $w_temp, $w_temp, $w_metaRow
-  brz           $w_temp, next_offsetF
+  sub           $w_temp, $w_temp, $w_metaRowStart
+  brneg         $w_temp, next_offset\@
+  sub           $w_temp, $w_temp, $w_metaRowsInBlock
+  brpos         $w_temp, next_offset\@
   // Found a match, read data and populate. Use temp ptrs as we may have to do this
   // for many slices with the same offset.
-  mov           $w_nzPtrTemp, $w_nzPtr
+  // Register store - although this looks like an inner loop it is reached
+  // conditionally so storing here is probably more efficient than storing in outer
+  // loops
+  st32          $w_metaRowStart, $mworker_base, WSTACK_META_ROW/4
+  st32          $w_numRowsM1, $mworker_base, WSTACK_META_ROWS_M1/4
+
+  // It's not necessarily the 1st row in the block that matched so offset the
+  // NZ pointer by columns * (1stRowInBlock - row) elements.
+  // This offset, applied once is applied through all blocks of columns in the block
+  add           $w_temp, $w_temp, $w_metaRowsInBlock
+  ld32          $w_nzPtrTemp, $mvertex_base, WOFF_BLOCK_BYTES_PER_ROW/4
+  mul           $w_nzPtrTemp, $w_temp, $w_nzPtrTemp
+  add           $w_nzPtrTemp, $w_nzPtr, $w_nzPtrTemp
+
   mov           $w_metaPtrTemp, $w_metaPtr
-  ld32          $w_nzScaleFactor, $mvertex_base, WOFF_NZ_SCALE_FACTOR/4
 
-  rpt           $w_metaColumns, (2f-1f)/8 -1
-meta_info_columns_loopF:
-1:
-  // Load the column and apply scale to get the column number
-  {ldz16step     $w_temp, $mzero, $w_metaPtrTemp+=,1
-   fnop}
-  {mul           $w_temp, $w_temp, $w_nzScaleFactor
-   fnop}
-  {shr           $w_temp, $w_temp, (RECIPROCAL_MUL_SHIFT+YOffsetTypeDivShiftFloat)
-   fnop}
-  // Fetch the NZ-data and write it to the subT slice result
-  {ld32step     $a0, $mzero, $w_nzPtrTemp+=, 1
-   fnop}
-  {st32         $a0, $mzero, $w_subTPtr, $w_temp
-   fnop}
-2:
+  sub           $w_columnsLoops, $w_metaColumns, 1
+  ld32          $w_columnCopyLoops, $mvertex_base, WOFF_BLOCK_COLUMN_LOOPS/4
+.ifc \BYTES_PER_VECTOR, 2
+  shr            $w_columnCopyLoops, $w_columnCopyLoops, 1
+.endif
+column_block_loop\@:
+  ldz16step     $w_subTColumnOffset, $mzero, $w_metaPtrTemp+=,1
+.ifc \TYPE, float
+  shl           $w_subTColumnOffset, $w_subTColumnOffset, LOG2_SIZEOF_FLOAT
+.else
+  shl           $w_subTColumnOffset, $w_subTColumnOffset, LOG2_SIZEOF_HALF
+.endif
+
+  // Do the actual copy of 1 row from the block
+  INNER_LOOP_BODY_\BYTES_PER_VECTOR
+
+  // Advance to the next block of NZ data
+  ld32         $w_subTColumnOffset, $mvertex_base, WOFF_BLOCK_ELEMS_MINUS_ROW/4
+  \LDINSTR     $a0, $mzero, $w_nzPtrTemp+=,$w_subTColumnOffset
+
+  brnzdec      $w_columnsLoops, column_block_loop\@
+
   // register restore
-  ld32          $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
+  ld32         $w_subTStride, $mvertex_base, WOFF_SUBT_COLUMNSxWORKERS/4
+  ld32         $w_metaRowsInBlock, $mvertex_base, WOFF_BLOCK_ROWS/4
+  ld32         $w_metaRowStart, $mworker_base, WSTACK_META_ROW/4
+  ld32         $w_numRowsM1, $mworker_base, WSTACK_META_ROWS_M1/4
 
-next_offsetF:
+next_offset\@:
   // Advance to this worker's next SubT slice to populate
-  ld32step     $mzero, $mzero, $w_subTPtr+=, $w_subTStride
-  brnzdec      $w_offsetLoops, offsets_loopF
+  \LDINSTR     $azero, $mzero, $w_subTPtr+=, $w_subTStride
+  brnzdec      $w_offsetLoops, offsets_loop\@
 
   // Advance main pointers to to metadata and NZ data for the next row
+  ld32          $w_temp, $mvertex_base, WOFF_BLOCK_ELEMENTS/4
+  mul           $w_temp, $w_temp, $w_metaColumns
+  \LDINSTR      $azero, $mzero, $w_nzPtr+=, $w_temp
   ldz16step     $mzero, $mzero, $w_metaPtr+=, $w_metaColumns
-  ld32step      $azero, $mzero, $w_nzPtr+=, $w_metaColumns
 
-  brnzdec       $w_numRowsM1, meta_info_row_loopF
+  brnzdec       $w_numRowsM1, meta_info_row_loop\@
 
   exitz          $mzero
-.size worker_float, . - worker_stack_retained_float
+.size worker_\TYPE\()_\BYTES_PER_VECTOR, . - worker_stack_retained_\TYPE\()_\BYTES_PER_VECTOR
+.endm
 //------------------------------------------------------------------------------
 // Supervisor functions to divide work and parse meta information, calling
 // worker threads once information matching the subGroup ID is found
@@ -358,23 +366,24 @@ next_offsetF:
 #define s_offsetSize                m2
 #define s_subTColumns               m3
 #define s_offsetPtr                 m4
-#define s_nzScaleFactor             m5
+#define s_blockRows                 m5
 #define s_subTPtr                   m6
+#define s_blockColumns              m7
 
 #define SHORT_SPAN_ADDRESS_BITS    20
 
 //------------------------------------------------------------------------------
 // Macro to create entry points, supervisor code and call the workers
 //------------------------------------------------------------------------------
-.macro INSTANTIATE_SUPERVISOR NAME TYPE
+.macro INSTANTIATE_SUPERVISOR TYPE LOG2_ELEMS_PER_VECTOR BYTES_PER_VECTOR
 
-DEF_STACK_USAGE  (STACK_SIZE)  \NAME
+DEF_STACK_USAGE  (STACK_SIZE)  VERTEX_NAME
 
-.section .text.\NAME
+.section .text.VERTEX_NAME
 .align 4
-.globl \NAME
-.type \NAME, @function
-\NAME:
+.globl VERTEX_NAME
+.type VERTEX_NAME, @function
+VERTEX_NAME:
 .supervisor
   // Compute work division, compute useful constant values and copy vertex state
   // to the workers.  All this needs to be done just once so dealing with it up
@@ -382,23 +391,39 @@ DEF_STACK_USAGE  (STACK_SIZE)  \NAME
   add       $sp, $sp, -STACK_SIZE
   ldz16     $s_subTColumns, $s_base, VOFF_SUBT_COLUMNS/2
   ld32      $s_offsetPtr, $s_base, VOFF_OFFSET_PTR/4
-  ldz16     $s_nzScaleFactor, $s_base, VOFF_NZ_SCALE_FACTOR/2
+  ldz16     $s_blockRows, $s_base, VOFF_BLOCK_ROWS/2
+  ldz16     $s_blockColumns, $s_base, VOFF_BLOCK_COLUMNS/2
   ld32      $s_subTPtr, $s_base, VOFF_SUBT_PTR/4
   ldz16     $s_offsetSize, $s_base, VOFF_OFFSET_SIZE/2
-
-  st32      $lr, $sp, WOFF_SUPER_LR_STORE/4
 
   st32      $s_subTColumns, $sp, WOFF_SUBT_COLUMNS/4
   mul       $s_subTColumns, $s_subTColumns, NUM_WORKERS
 
   st32      $fp, $sp, WOFF_SUPER_FP_STORE/4
+  st32      $lr, $sp, WOFF_SUPER_LR_STORE/4
+
+.ifc \TYPE, half
+  shl       $s_temp, $s_blockColumns, LOG2_SIZEOF_HALF
+.else
+  shl       $s_temp, $s_blockColumns, LOG2_SIZEOF_FLOAT
+.endif
 
   st32      $s_offsetPtr, $sp, WOFF_OFFSET_PTR/4
-  st32      $s_nzScaleFactor, $sp, WOFF_NZ_SCALE_FACTOR/4
+  st32      $s_blockRows, $sp, WOFF_BLOCK_ROWS/4
+
   st32      $s_subTPtr, $sp, WOFF_SUBT_PTR/4
   st32      $s_offsetSize, $sp, WOFF_OFFSET_SIZE/4
-
   st32      $s_subTColumns, $sp, WOFF_SUBT_COLUMNSxWORKERS/4
+  st32      $s_temp, $sp, WOFF_BLOCK_BYTES_PER_ROW/4
+
+  mul       $s_blockRows, $s_blockColumns, $s_blockRows
+  st32      $s_blockRows, $sp, WOFF_BLOCK_ELEMENTS/4
+  sub       $s_blockRows, $s_blockRows, $s_blockColumns
+  st32      $s_blockRows, $sp, WOFF_BLOCK_ELEMS_MINUS_ROW/4
+.ifnc \LOG2_ELEMS_PER_VECTOR, 0
+  shr       $s_blockColumns, $s_blockColumns, \LOG2_ELEMS_PER_VECTOR
+.endif
+  st32      $s_blockColumns, $sp, WOFF_BLOCK_COLUMN_LOOPS/4
 
   // The supervisor loops over buckets and subGroups found in the buckets.
   // When a subGroup is found with the required Y partition, we pass pointers to
@@ -413,7 +438,7 @@ DEF_STACK_USAGE  (STACK_SIZE)  \NAME
 
   ld32      $s_nzPtrPtr, $s_base, VOFF_BASET_NZ_PTR/4
   ldz16     $s_rowsPerPartition, $s_base, VOFF_ROWS_PER_PARTITION/2
-  setzi     $s_workerEntry, worker_\TYPE
+  setzi     $s_workerEntry, worker_\TYPE\()_\BYTES_PER_VECTOR
 bucket_loop\@:
   ld32step   $s_metaPtr, $mzero, $s_metaPtrPtr+=, 1
   ld32step   $s_nzPtr, $mzero, $s_nzPtrPtr+=, 1
@@ -422,7 +447,7 @@ bucket_loop\@:
 subgroup_loop\@:
   // Advance through the bucket to the next sub group.  Use the size of the
   // metaInfo and NZ data to step
-  ldz16      $s_subgroupSparseElems, $s_metaPtr, MetaInfoSubGroupEntry_sparseElementCount/2
+  ldz16      $s_subgroupSparseElems, $s_metaPtr, MetaInfoSubGroupEntry_offsetToNextSubGroupSparseEntries/2
   ldz16      $s_offsetToNextSubGroup, $s_metaPtr, MetaInfoSubGroupEntry_offsetToNextSubGroupMetaInfo/2
   ldz16step  $mzero, $mzero, $s_metaPtr+=, $s_offsetToNextSubGroup
 .ifc \TYPE, half
@@ -448,8 +473,11 @@ subgroup_loop_first_entry\@:
   mul        $s_xPartition, $s_xPartition, $s_rowsPerPartition
 
   // Pass pointers to meta info and the nz to the workers.
-  ldz16      $s_temp, $s_metaPtr, MetaInfoSubGroupEntry_offsetToFirstOutputEntry/2
-  shl        $s_temp, $s_temp, 1
+  // As work is divided by offset, each worker processes all the metaInfo rows,
+  // columns.  So pass a ptr to that
+  ldz16      $s_temp, $s_metaPtr, MetaInfoSubGroupEntry_numGradWWorkers/2
+  mul        $s_temp, $s_temp, sizeof_MetaInfoGradWWorkerEntry
+  add        $s_temp, $s_temp, sizeof_MetaInfoSubGroupEntry
   add        $s_temp, $s_temp, $s_metaPtr
 
   // The above supervisor code will have many pipline stalls
@@ -459,6 +487,7 @@ subgroup_loop_first_entry\@:
   // before the others we can get branches and computation for free.  We have to
   // sync before we affect stacked vertex state for the workers to use though.
   sync       TEXCH_SYNCZONE_LOCAL
+
   st32       $s_temp, $sp, WOFF_META_PTR/4
   st32       $s_nzPtr, $sp, WOFF_NZ_PTR/4
   st32       $s_xPartition, $sp, WOFF_ROW_OFFSET/4
@@ -470,7 +499,7 @@ subgroup_loop_first_entry\@:
   // For any worker execution other than the 1st it has already computed worker
   // specific values - so choose a fresh entry point that allows for use of those
   // values without calculating them again
-  setzi      $s_workerEntry, worker_stack_retained_\TYPE
+  setzi      $s_workerEntry, worker_stack_retained_\TYPE\()_\BYTES_PER_VECTOR
   bri        subgroup_loop\@
 subgroup_loop_end\@:
   brnzdec   $s_bucketCount, bucket_loop\@
@@ -483,11 +512,25 @@ subgroup_loop_end\@:
   add       $sp, $sp, STACK_SIZE
   br        $lr
 
-.size \NAME, . - \NAME
+.size VERTEX_NAME, . - VERTEX_NAME
 .endm
 //------------------------------------------------------------------------------
-INSTANTIATE_SUPERVISOR CODELET_SLICE_HALF half
-INSTANTIATE_SUPERVISOR CODELET_SLICE_FLOAT float
+// Use the macros above to instantiate vertices.
+// We have float, half variants which are supported by worker functions that
+// copy 2, 4 or 8 bytes in their inner loop.  Of course 2 bytes is for half only
 
+INSTANTIATE_SUPERVISOR float 0 4
+INSTANTIATE_SUPERVISOR float 1 8
+
+INSTANTIATE_SUPERVISOR half 0 2
+INSTANTIATE_SUPERVISOR half 1 4
+INSTANTIATE_SUPERVISOR half 2 8
+
+INSTANTIATE_WORKER float 4 ld32step
+INSTANTIATE_WORKER float 8 ld32step
+
+INSTANTIATE_WORKER half 2 ldb16step
+INSTANTIATE_WORKER half 4 ldb16step
+INSTANTIATE_WORKER half 8 ldb16step
 
 #endif // __IPU__

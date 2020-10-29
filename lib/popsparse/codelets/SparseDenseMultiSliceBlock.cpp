@@ -110,15 +110,17 @@ static bool computeSlice(Input<Vector<unsigned, ONE_PTR>> &offsets,
 // We have buckets of sparse meta information with NZ values.
 // Use the `offsets` tensor which references rows within that sparse bucket
 // to populate a dense output tensor `subT`.
-template <typename FPType, bool vectorise>
-class SparseDenseMultiSliceBlock : public Vertex {
+template <typename FPType, unsigned vectorWidthInBytes>
+class SparseDenseMultiSliceBlock
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 
 public:
-  using BaseTNZType = Vector<Input<Vector<FPType, ONE_PTR>>, ONE_PTR>;
+  using BaseTNZType =
+      Vector<Input<Vector<FPType, ONE_PTR, vectorWidthInBytes>>, ONE_PTR>;
   using SubTType = InOut<Vector<FPType, ONE_PTR, 4>>;
   SparseDenseMultiSliceBlock();
 
-  IS_EXTERNAL_CODELET(false);
+  IS_EXTERNAL_CODELET(true);
   // The rows to extract from baseT
   Input<Vector<unsigned, ONE_PTR>> offsets;
   BaseTNZType baseTNZ;
@@ -146,10 +148,12 @@ public:
                     blockColumns, subColumns, 1.0f);
   }
 };
-template class SparseDenseMultiSliceBlock<float, true>;
-template class SparseDenseMultiSliceBlock<half, true>;
-template class SparseDenseMultiSliceBlock<float, false>;
-template class SparseDenseMultiSliceBlock<half, false>;
+template class SparseDenseMultiSliceBlock<float, 4>;
+template class SparseDenseMultiSliceBlock<float, 8>;
+
+template class SparseDenseMultiSliceBlock<half, 2>;
+template class SparseDenseMultiSliceBlock<half, 4>;
+template class SparseDenseMultiSliceBlock<half, 8>;
 
 // We have buckets of sparse meta information with NZ values.
 // Use the `offsets` tensor which references rows within that sparse bucket
