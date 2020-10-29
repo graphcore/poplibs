@@ -60,10 +60,6 @@ void HyperGraphStrip::createGraphMatMul(poplar::Graph &graph,
 
   matC = std::make_unique<BlockDenseMatrix>(rowC, colC, blockRowC, blockColC,
                                             false);
-  poplar::Tensor matCTensor =
-      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
-  matC->setBlockTensor(matCTensor);
-
   if (matA.getBlockRowCount() % nPass != 0) {
     throw poputil::poplibs_error(
         "The number of block rows" + std::to_string(matA.getBlockRowCount()) +
@@ -111,9 +107,6 @@ void HyperGraphStrip::createGraphMatMulSparsifyResult(
 
   matC = std::make_unique<BlockSparseMatrix>(rowC, colC, blockRowC, blockColC,
                                              false, sparsity);
-  poplar::Tensor matCTensor =
-      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
-  matC->setBlockTensor(matCTensor);
 
   if (matA.getBlockColCount() % nPass != 0) {
     throw poputil::poplibs_error(
@@ -732,6 +725,10 @@ void HyperGraphStrip::createComputeSetDSD(
     std::vector<poplar::ComputeSet> &reduceCSVec,
     poplar::program::Sequence &prog, const std::string &debugPrefix) {
 
+  poplar::Tensor matCTensor =
+      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
+  matC->setBlockTensor(matCTensor);
+
   std::vector<int> lhsBlockTileId;
   setLHSTileMapDSD(graph, lhsBlockTileId, false);
   std::vector<int> rhsBlockTileId;
@@ -1133,6 +1130,10 @@ void HyperGraphStrip::createComputeSetDDS(
     std::vector<poplar::ComputeSet> &mulCSVec,
     std::vector<poplar::ComputeSet> &reduceCSVec,
     poplar::program::Sequence &prog, const std::string &debugPrefix) {
+
+  poplar::Tensor matCTensor =
+      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
+  matC->setBlockTensor(matCTensor);
 
   std::vector<int> lhsBlockTileId;
   setLHSTileMapDDS(graph, lhsBlockTileId, false);

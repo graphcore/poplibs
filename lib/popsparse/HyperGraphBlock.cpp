@@ -98,10 +98,6 @@ void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
   }
   logging::popsparse::trace("Muls total: {}", numMuls);
 
-  poplar::Tensor matCTensor =
-      matCDense->createTensor(graph, outDataType, debugPrefix + "/matC");
-  matCDense->setBlockTensor(matCTensor);
-
   populateNodesC(nRowC, nColC, blockIdMatrixC);
 
   // populate multiply nodes V
@@ -154,10 +150,6 @@ void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
 
   // block id look up matrix for C
   auto blockIdMatrixC = matCSparse->getBlockIdMatrix();
-
-  poplar::Tensor matCTensor =
-      matCSparse->createTensor(graph, outDataType, debugPrefix + "/matC");
-  matCSparse->setBlockTensor(matCTensor);
 
   populateNodesC(nRowC, nColC, blockIdMatrixC);
 
@@ -393,6 +385,10 @@ void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
     poplar::ComputeSet &mulCS, poplar::ComputeSet *transposeCS,
     poplar::program::Sequence &prog, const std::string &debugPrefix) {
+
+  poplar::Tensor matCTensor =
+      matC->createTensor(graph, outDataType, debugPrefix + "/matC");
+  matC->setBlockTensor(matCTensor);
 
   // set tile mapping for tensors in all nodes
   const std::vector<poplar::Tensor> &blockDataA = matA.getBlockTensor();

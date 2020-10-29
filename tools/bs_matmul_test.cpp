@@ -1189,7 +1189,6 @@ int main(int argc, char **argv) {
                   createBSMatMulInputRHS(graph, bsMatMulObjHelper,
                                          debugPrefix + "/outer_grad", options);
               assert(outerGrad.shape() == softmaxTensor.shape());
-              poputil::mapTensorLinearly(graph, outerGrad);
               Tensor softmaxGradTensor = bsSoftmaxGrad(
                   graph, softmaxTensor, outerGrad, dimSm, blockSizeSm, sparsity,
                   matSeq, debugPrefix + "/bs-softmax-grad");
@@ -1286,14 +1285,12 @@ int main(int argc, char **argv) {
 
           Tensor inputTensor = createBSMatMulInputRHS(
               graph, bsMatMulObjHelper, debugPrefix + "/input", options);
-          poputil::mapTensorLinearly(graph, inputTensor);
 
           Tensor outerGradTensor;
           if (scenario == Scenario::smsBwd) {
             outerGradTensor = createBSMatMulInputRHS(
                 graph, bsMatMulObjHelper, debugPrefix + "/outer_grad", options);
             assert(outerGradTensor.shape() == inputTensor.shape());
-            poputil::mapTensorLinearly(graph, outerGradTensor);
           }
 
           poplar::Tensor outTensor;
