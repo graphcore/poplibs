@@ -255,6 +255,16 @@ static Tensor getOuterLoopIterationsToSkip(const Tensor &t) {
   return t.slice(numDirections, t.numElements());
 }
 
+// Put single-tile vertices and indices for managing dynamic control
+// flow on a tile with less stuff already assigned to it.
+static unsigned
+getTileForDynamicControlFlowManagement(const Graph &graph,
+                                       const SinglePassPlan &plan) {
+  const auto numUsedTiles = product(plan.partition.asStdVector());
+  const auto numTiles = graph.getTarget().getNumTiles();
+  return std::min(numTiles - 1, numUsedTiles);
+}
+
 namespace {
 
 // Handles building of the program to execute the fully connected layer
@@ -320,9 +330,11 @@ public:
           graph.addConstant(UNSIGNED_INT, endIndices.shape(),
                             ArrayRef<unsigned>(startingIndices));
       logging::popsparse::debug("startingIndices={}", startingIndices);
-      graph.setTileMapping(zero, 0);
-      graph.setTileMapping(one, 0);
-      graph.setTileMapping(initialIndices, 0);
+      const auto controlFlowTile =
+          getTileForDynamicControlFlowManagement(graph, plan);
+      graph.setTileMapping(zero, controlFlowTile);
+      graph.setTileMapping(one, controlFlowTile);
+      graph.setTileMapping(initialIndices, controlFlowTile);
       progs.back().add(Copy(initialIndices, indices));
 
       const std::array<std::string, numDirections> dimNames = {"X", "Y", "Z"};
@@ -365,7 +377,7 @@ public:
           const auto doIteration = graph.addVariable(
               UNSIGNED_INT, {},
               debugPrefix + "/do" + dimNames[*dimIt] + "Iteration");
-          graph.setTileMapping(doIteration, 0);
+          graph.setTileMapping(doIteration, controlFlowTile);
           const auto cs = graph.addComputeSet(debugPrefix + "/shouldDo" +
                                               dimNames[*dimIt] + "Iteration");
           const auto v =
@@ -375,7 +387,7 @@ public:
                               {{"bits", outerLoopIterationsToSkip},
                                {"index", indices[*dimIt]},
                                {"out", doIteration}});
-          graph.setTileMapping(v, 0);
+          graph.setTileMapping(v, controlFlowTile);
           progs.back().add(Execute(cs));
           progs.back().add(
               Switch(doIteration, {{0, Sequence()}}, std::move(prog)));
@@ -384,7 +396,7 @@ public:
 
         Tensor increment =
             graph.addConstant(UNSIGNED_INT, {1}, increments[*dimIt]);
-        graph.setTileMapping(increment, 0);
+        graph.setTileMapping(increment, controlFlowTile);
         popops::addInPlace(graph, indices[*dimIt], increment, progs.back(),
                            debugPrefix + "/increment" + dimNames[*dimIt] +
                                "Index");
@@ -1428,12 +1440,13 @@ static void getBroadcastPropagationExchangeSources(
 }
 
 static void addBufferIncrementProg(Graph &graph, const Tensor &t, Sequence &seq,
+                                   unsigned tile,
                                    const std::string &debugPrefix) {
   auto cs = graph.addComputeSet(debugPrefix + "/bufIncrement");
   auto v = graph.addVertex(
       cs, templateVertex("popsparse::BufferIndexUpdate", t.elementType()));
   graph.connect(v["index"], t);
-  graph.setTileMapping(v, 0);
+  graph.setTileMapping(v, tile);
   seq.add(Execute(cs));
 }
 
@@ -1452,11 +1465,13 @@ static void addPropagationExchanges(
   getPropagationExchangeSources(graph, plan, options, homeOffset,
                                 buckets.values, {}, homeSources.values,
                                 debugPrefix);
+  const auto controlFlowTile =
+      getTileForDynamicControlFlowManagement(graph, plan);
   // We also set buffer index before exchanging.
   constexpr std::size_t initialBufferIdx = 0;
   const auto bufferIdxInitialVal =
       graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx);
-  graph.setTileMapping(bufferIdxInitialVal, 0);
+  graph.setTileMapping(bufferIdxInitialVal, controlFlowTile);
   progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
   copyPartitions(graph, progBuilder.prePropagation, homeSources.metaInfo,
                  buffers.metaInfo.at(initialBufferIdx));
@@ -1488,7 +1503,7 @@ static void addPropagationExchanges(
     // We also toggle buffer index before exchanging
     Sequence prog;
     // Toggle buffer index
-    addBufferIncrementProg(graph, bufferIdx, prog,
+    addBufferIncrementProg(graph, bufferIdx, prog, controlFlowTile,
                            debugPrefix + "/toggleBuffer");
     prog.add(Switch(bufferIdx, {{0, exchangeProgs.at(false)}},
                     exchangeProgs.at(true)));
@@ -1510,10 +1525,12 @@ static void addPropagationExchangesGradW(
   // This is opposite direction to Fwd/GradA
   const auto homeOffset =
       (plan.partition - getPropagationStartingOffset(plan)) % plan.partition;
+  const auto controlFlowTile =
+      getTileForDynamicControlFlowManagement(graph, plan);
   constexpr std::size_t initialBufferIdx = 0b000;
   const auto bufferIdxInitialVal =
       graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx);
-  graph.setTileMapping(bufferIdxInitialVal, 0);
+  graph.setTileMapping(bufferIdxInitialVal, controlFlowTile);
   progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
   // WriteUndef the initial buffers. They may be partially written
   // by the first copy of partitions from home locations if there
@@ -1619,7 +1636,7 @@ static void addPropagationExchangesGradW(
         UNSIGNED_INT, {1},
         (unsigned(moveInput) << 2u | unsigned(moveWeights) << 1u |
          unsigned(moveSubGroupIds) << 0u));
-    graph.setTileMapping(bitsToFlip, 0);
+    graph.setTileMapping(bitsToFlip, controlFlowTile);
     popops::bitwiseXorInPlace(graph, bufferIdx, bitsToFlip, prog,
                               debugPrefix + "/toggleBuffers");
     prog.add(std::move(exchangeSwitch));
@@ -1723,9 +1740,11 @@ static Tensor fullyConnectedImpl(
                         nextLevelPropagationBuckets.metaInfo);
   getBucketsByPartition(plan, nzValueBuckets,
                         nextLevelPropagationBuckets.values);
+  const auto controlFlowTile =
+      getTileForDynamicControlFlowManagement(graph, plan);
   const Tensor bufferIdx =
       graph.addVariable(UNSIGNED_INT, {}, debugPrefix + "/bufferIdx");
-  graph.setTileMapping(bufferIdx, 0);
+  graph.setTileMapping(bufferIdx, controlFlowTile);
 
   // Pre-arrange the inputs for the next level and hold onto them to
   // avoid exchanging multiple times in propagation phases (if they
@@ -2124,9 +2143,11 @@ static Tensor fullyConnectedSparseGradWImpl(
       weightPropagationBuffers.at(0), subGroupIdPropagationBuffers.at(0),
       debugPrefix);
 
+  const auto controlFlowTile =
+      getTileForDynamicControlFlowManagement(graph, plan);
   const auto bufferIdx =
       graph.addVariable(UNSIGNED_INT, {}, debugPrefix + "/bufferIdx");
-  graph.setTileMapping(bufferIdx, 0);
+  graph.setTileMapping(bufferIdx, controlFlowTile);
   addPropagationExchangesGradW(
       graph, progBuilder, shape, plan, options, hierarchy, nextLevelInputs,
       nextLevelWeights, subGroupIds, inputPropagationBuffers,
@@ -2267,9 +2288,19 @@ SparseTensor createFullyConnectedWeights(
   const auto overflowInfoElems = getNumOverflowInfoElems(
       target.getTypeSize(UNSIGNED_SHORT), plan.partition.x, plan.partition.y,
       plan.partition.z);
-  const auto overflowInfo = graph.addVariable(
-      UNSIGNED_SHORT, {overflowInfoElems}, debugName + "/overflowInfo");
-  graph.setTileMapping(overflowInfo, 0);
+  const auto controlFlowTile =
+      getTileForDynamicControlFlowManagement(graph, fwdPlan);
+  std::vector<Tensor> overflowInfoTs;
+  for (const auto &name : {"X", "Y", "Z"}) {
+    overflowInfoTs.emplace_back(graph.addVariable(
+        UNSIGNED_SHORT, {1}, debugName + "/overflowInfo" + name));
+  }
+  assert(overflowInfoElems >= overflowInfoTs.size());
+  overflowInfoTs.emplace_back(graph.addVariable(
+      UNSIGNED_SHORT, {overflowInfoElems - overflowInfoTs.size()},
+      debugName + "/overflowInfoOuterIterationsToSkip"));
+  const auto overflowInfo = concat(overflowInfoTs);
+  graph.setTileMapping(overflowInfo, controlFlowTile);
 
   const auto packed =
       packWeights(weightBuckets, getTotalMetaInfoElemsPerBuckets(plan),
