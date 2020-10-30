@@ -36,7 +36,11 @@ enum FwdIntermediates {
 
   // Saved if `outputFullSequence` is not set i.e. outputs aren't already
   // saved as part of the forward pass output.
-  GRU_FWD_INTERMEDIATE_OUTPUT
+  GRU_FWD_INTERMEDIATE_OUTPUT,
+
+  // h_prev x candidate recurrant weights + candidate recurrant bias
+  // Used to calculate reset gate gradient when resetAfter=true
+  GRU_FWD_INTERMEDIATE_CANDIDATE_RECURRANT
 };
 
 struct GruInternalState {
@@ -44,10 +48,9 @@ struct GruInternalState {
   Tensor updateGate;
   Tensor candidate;
 
-  Tensor getAsTensor() const {
-    return concat(
-        {resetGate.expand({0}), updateGate.expand({0}), candidate.expand({0})});
-  }
+  // h_prev x candidate recurrant weights + candidate recurrant bias
+  // Used to calculate reset gate gradient when resetAfter=true
+  Tensor candidateRecurrant;
 };
 
 // Computes the output before nonlinearities to all the units are applied
@@ -249,24 +252,41 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
   auto inputSize = params.layerSizes[0];
   auto outputSize = params.layerSizes[1];
 
-  auto weights_ru = createMatMulInputRHS(
-      graph, params.dataType, {params.batchSize, inputSize + outputSize},
-      {inputSize + outputSize, 2 * outputSize}, name + "/weights", mmOpt,
-      cache);
-  poplar::Tensor inputWeights_ru =
-      unflattenUnits(weights_ru.slice(0, inputSize), 2);
-  poplar::Tensor outputWeights_ru =
-      unflattenUnits(weights_ru.slice(inputSize, inputSize + outputSize), 2);
+  poplar::Tensor inputWeights, outputWeights;
 
-  auto weights_c = createMatMulInputRHS(
-      graph, params.dataType, {params.batchSize, inputSize + outputSize},
-      {inputSize + outputSize, outputSize}, name + "/weights", mmOpt, cache);
-  poplar::Tensor inputWeights_c =
-      unflattenUnits(weights_c.slice(0, inputSize), 1);
-  poplar::Tensor outputWeights_c =
-      unflattenUnits(weights_c.slice(inputSize, inputSize + outputSize), 1);
-  poplar::Tensor inputWeights = concat(inputWeights_ru, inputWeights_c);
-  poplar::Tensor outputWeights = concat(outputWeights_ru, outputWeights_c);
+  if (params.resetAfter) {
+    auto weights_in = createMatMulInputRHS(
+        graph, params.dataType, {params.batchSize, inputSize},
+        {inputSize, BASIC_GRU_CELL_NUM_UNITS * outputSize}, name + "/weights",
+        mmOpt, cache);
+    auto weights_out = createMatMulInputRHS(
+        graph, params.dataType, {params.batchSize, outputSize},
+        {outputSize, BASIC_GRU_CELL_NUM_UNITS * outputSize}, name + "/weights",
+        mmOpt, cache);
+
+    inputWeights = unflattenUnits(weights_in, BASIC_GRU_CELL_NUM_UNITS);
+    outputWeights = unflattenUnits(weights_out, BASIC_GRU_CELL_NUM_UNITS);
+  } else {
+    auto weights_ru = createMatMulInputRHS(
+        graph, params.dataType, {params.batchSize, inputSize + outputSize},
+        {inputSize + outputSize, 2 * outputSize}, name + "/weights", mmOpt,
+        cache);
+    poplar::Tensor inputWeights_ru =
+        unflattenUnits(weights_ru.slice(0, inputSize), 2);
+    poplar::Tensor outputWeights_ru =
+        unflattenUnits(weights_ru.slice(inputSize, inputSize + outputSize), 2);
+
+    auto weights_c = createMatMulInputRHS(
+        graph, params.dataType, {params.batchSize, inputSize + outputSize},
+        {inputSize + outputSize, outputSize}, name + "/weights", mmOpt, cache);
+    poplar::Tensor inputWeights_c =
+        unflattenUnits(weights_c.slice(0, inputSize), 1);
+    poplar::Tensor outputWeights_c =
+        unflattenUnits(weights_c.slice(inputSize, inputSize + outputSize), 1);
+
+    inputWeights = concat(inputWeights_ru, inputWeights_c);
+    outputWeights = concat(outputWeights_ru, outputWeights_c);
+  }
   // rearrange the outermost dimension according to the cellOrder parameter.
   return {toCellOrder(std::move(inputWeights), params.cellOrder),
           toCellOrder(std::move(outputWeights), params.cellOrder)};
@@ -282,9 +302,16 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
   const auto name = debugContext.getPathName();
   validateParams(params);
   auto outputSize = params.layerSizes[1];
-  auto biases =
-      graph.addVariable(params.dataType, {BASIC_GRU_CELL_NUM_UNITS, outputSize},
-                        name + "/biases");
+  Tensor biases;
+  if (params.resetAfter) {
+    biases = graph.addVariable(params.dataType,
+                               {BASIC_GRU_CELL_NUM_UNITS, 2, outputSize},
+                               name + "/biases");
+  } else {
+    biases = graph.addVariable(params.dataType,
+                               {BASIC_GRU_CELL_NUM_UNITS, outputSize},
+                               name + "/biases");
+  }
   mapTensorLinearly(graph, biases);
   return toCellOrder(biases, params.cellOrder);
 }
@@ -311,22 +338,21 @@ Tensor createAttention(Graph &graph, const GruParams &params,
                                0, name);
 }
 
-static void rearrangeUnitsOutputFwd(Graph &graph, int num_unit,
-                                    Tensor outputUnits,
-                                    Tensor outputUnitsRearranged,
-                                    Sequence &prog,
-                                    const std::string &debugPrefix) {
+static Tensor rearrangeUnitsOutputFwd(Graph &graph, int num_unit,
+                                      Tensor outputUnits,
+                                      Tensor outputUnitsRearranged,
+                                      Sequence &prog,
+                                      const std::string &debugPrefix) {
   const auto outputGrouping =
       detectInnermostGrouping(graph, outputUnitsRearranged);
   // Typically the matrix multiplication result is laid out in memory such
   // that innermost dimension is groups batch elements. Try to rearrange the
   // result so the innermost dimension of the underlying memory is groups of the
   // specified number of outputs.
-  outputUnits = unflattenUnits(
+  return unflattenUnits(
       tryGroupedPartialTranspose(graph, flattenUnits(outputUnits),
                                  outputGrouping, prog, debugPrefix),
       num_unit);
-  prog.add(Copy(outputUnits, outputUnitsRearranged));
 }
 
 static void gruCellForwardPassCalcUnits(
@@ -383,8 +409,11 @@ static void gruCellForwardPassCalcUnits(
   // Rearrange the output of the matrix multiplication so each output unit
   // arranged the same as the cell state. This avoids the rearrangement
   // during the subsequent binary operations.
-  rearrangeUnitsOutputFwd(graph, numUnit, unitsOutput, unitsOutputRearranged,
-                          prog, baseStr);
+  {
+    auto out = rearrangeUnitsOutputFwd(graph, numUnit, unitsOutput,
+                                       unitsOutputRearranged, prog, baseStr);
+    prog.add(Copy(out, unitsOutputRearranged));
+  }
 
   for (unsigned u = 0; u != numUnit; ++u) {
     graph.setTileMapping(biases[u],
@@ -406,6 +435,127 @@ static void gruCellForwardPassCalcUnits(
   prog.add(Execute(cs));
 }
 
+static void gruCellForwardPassCalcUnitsResetAfter(
+    Graph &graph, bool forCandidate, const Tensor &in, const Tensor &prevOutput,
+    const Tensor &biases, const Tensor *weightsInput,
+    const Tensor &weightsOutput, Tensor *candidateRecurrant, Sequence &prog,
+    const GruOpts &opt, const Tensor &unitsOutputRearranged,
+    const std::string &baseStr, matmul::PlanningCache *cache) {
+  const unsigned outputSize = prevOutput.dim(1);
+  const unsigned batchSize = prevOutput.dim(0);
+
+  if (weightsInput) {
+#ifndef NDEBUG
+    const unsigned inputSize = in.dim(1);
+#endif
+    // BASIC_GRU_CELL_CANDIDATE is not used to calculate units
+    assert(weightsInput->dim(0) == BASIC_GRU_CELL_NUM_UNITS);
+    assert(weightsInput->dim(1) == inputSize);
+    assert(weightsInput->dim(2) == outputSize);
+  }
+  assert(weightsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
+  assert(weightsOutput.dim(1) == outputSize);
+  assert(weightsOutput.dim(2) == outputSize);
+
+  const auto dType = in.elementType();
+
+  auto bBiases =
+      graph.addVariable(dType, {0, batchSize, outputSize}, "bbiases");
+  auto bRecurrantBiases =
+      graph.addVariable(dType, {0, batchSize, outputSize}, "brecurrentbiases");
+  for (unsigned u = 0; u != BASIC_GRU_CELL_NUM_UNITS; ++u) {
+    auto unitBias =
+        biases[u][0].broadcast(batchSize, 0).reshape({batchSize, outputSize});
+    auto unitRecurrantBias =
+        biases[u][1].broadcast(batchSize, 0).reshape({batchSize, outputSize});
+    bBiases = append(bBiases, unitBias);
+    bRecurrantBiases = append(bRecurrantBiases, unitRecurrantBias);
+  }
+
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass",
+            opt.inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
+
+  auto unitsOutput =
+      unflattenUnits(matMul(graph, in, flattenUnits(*weightsInput), prog,
+                            baseStr + "/Weights", mmOpt, cache),
+                     BASIC_GRU_CELL_NUM_UNITS);
+  auto recurrantUnitsOutput =
+      unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
+                            prog, baseStr + "/Weights", mmOpt, cache),
+                     BASIC_GRU_CELL_NUM_UNITS);
+  auto unitsOutputAll = concat(unitsOutput, recurrantUnitsOutput, 2);
+
+  // Rearrange the outputs of the matrix multiplications so each output unit
+  // Rearrange the output of the matrix multiplication so each output unit
+  // arranged the same as the cell state. This avoids the rearrangement
+  // during the subsequent binary operations.
+  Tensor recurrentUnitsOutputRearranged;
+  {
+    auto out = rearrangeUnitsOutputFwd(
+        graph, BASIC_GRU_CELL_NUM_UNITS, unitsOutputAll,
+        unitsOutputRearranged.broadcast(2, 0), prog, baseStr);
+    auto len = unitsOutputRearranged.dim(2);
+    prog.add(Copy(out.slice(0, len, 2), unitsOutputRearranged));
+    recurrentUnitsOutputRearranged = out.slice(len, len * 2, 2);
+  }
+
+  auto unitsOutputRearranged_r = unitsOutputRearranged.slice(0, 1);
+  auto unitsOutputRearranged_ru = unitsOutputRearranged.slice(0, 2);
+  auto unitsOutputRearranged_c = unitsOutputRearranged.slice(2, 3);
+  auto recurrentUnitsOutputRearranged_ru =
+      recurrentUnitsOutputRearranged.slice(0, 2);
+  auto recurrentUnitsOutputRearranged_c =
+      recurrentUnitsOutputRearranged.slice(2, 3);
+
+  // Bias tile mapping
+  for (unsigned u = 0; u != BASIC_GRU_CELL_NUM_UNITS; ++u) {
+    graph.setTileMapping(biases[u][0],
+                         graph.getTileMapping(unitsOutputRearranged[u][0]));
+    graph.setTileMapping(
+        biases[u][1],
+        graph.getTileMapping(recurrentUnitsOutputRearranged[u][0]));
+  }
+
+  // Add biases
+  {
+    auto bBiasesAll = concat(bBiases, bRecurrantBiases);
+    auto unitsOutputRearrangedAll =
+        concat(unitsOutputRearranged, recurrentUnitsOutputRearranged);
+    addInPlace(graph, unitsOutputRearrangedAll, bBiasesAll, prog,
+               baseStr + "/AddBias");
+  }
+
+  if (candidateRecurrant) {
+    *candidateRecurrant =
+        graph.clone(recurrentUnitsOutputRearranged[BASIC_GRU_CELL_CANDIDATE]);
+    prog.add(Copy(recurrentUnitsOutputRearranged[BASIC_GRU_CELL_CANDIDATE],
+                  *candidateRecurrant));
+  }
+
+  // Add recurrent component for Reset/Update
+  addInPlace(graph, unitsOutputRearranged_ru, recurrentUnitsOutputRearranged_ru,
+             prog, baseStr + "/Weights");
+
+  // Apply non-linearity for Reset/Update
+  nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID,
+                      unitsOutputRearranged_ru, prog,
+                      baseStr + "update/reset sigmod");
+
+  // Apply reset gate to candidate recurrent component
+  mulInPlace(graph, recurrentUnitsOutputRearranged_c, unitsOutputRearranged_r,
+             prog, baseStr + "ch * r");
+
+  // Add recurrent component for Candidate
+  addInPlace(graph, unitsOutputRearranged_c, recurrentUnitsOutputRearranged_c,
+             prog, baseStr + "/Weights");
+
+  // Apply non linear function to Candidate
+  nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
+                      unitsOutputRearranged_c, prog,
+                      baseStr + "Candidate Tanh");
+}
+
 static std::pair<Tensor, GruInternalState>
 basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                         const Tensor &prevOutput, const Tensor *weightsInput,
@@ -413,44 +563,69 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                         const boost::optional<const Tensor &> &attScoreOpt,
                         Sequence &prog, const GruOpts &opt,
                         const std::string &debugPrefix,
-                        matmul::PlanningCache *cache) {
+                        matmul::PlanningCache *cache, bool resetAfter) {
   debug_tensor(prog, "fwd h_prev", prevOutput);
   debug_tensor(prog, "fwd input", in);
 
   const std::string baseStr = debugPrefix + "/BasicGruCell";
-  std::vector<Tensor> toConcat;
-  toConcat.reserve(2);
-  toConcat.push_back(
-      graph.clone(prevOutput, debugPrefix + "/" + "Update Gate Rearranged")
-          .expand({0}));
-  toConcat.push_back(
-      graph.clone(prevOutput, debugPrefix + "/" + "Reset Gate Rearranged")
-          .expand({0}));
-  auto unitsOutput = concat(toConcat);
-  const Tensor weightsInput2 = weightsInput->slice(0, 2);
-  const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
-  const Tensor biases2 = biases.slice(0, 2);
-  gruCellForwardPassCalcUnits(graph, false, in, prevOutput, biases2,
-                              &weightsInput2, weightsOutput2, prog, opt,
-                              unitsOutput, baseStr, cache);
-  assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
-  auto resetGate = unitsOutput[BASIC_GRU_CELL_RESET_GATE];
-  Tensor resetGateOut =
-      graph.clone(resetGate, debugPrefix + "/" + "resetGateOut");
-  prog.add(Copy(resetGate, resetGateOut));
-  auto updateGate = unitsOutput[BASIC_GRU_CELL_UPDATE_GATE];
 
+  Tensor resetGate =
+      graph.clone(prevOutput, debugPrefix + "/" + "Update Gate Rearranged");
+  Tensor updateGate =
+      graph.clone(prevOutput, debugPrefix + "/" + "Reset Gate Rearranged");
   Tensor candidate =
       graph.clone(prevOutput, debugPrefix + "/" + "candidate Rearranged");
-  const Tensor weightsInput3 = weightsInput->slice(2, 3);
-  const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
-  mulInPlace(graph, resetGate, prevOutput, prog,
-             baseStr + "resetGate * prevOutput");
-  Tensor candidateExpand = candidate.expand({0});
-  gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
-                              &weightsInput3, weightsOutput3, prog, opt,
-                              candidateExpand, baseStr, cache);
-  candidate = candidateExpand[0];
+
+  Tensor candidateRecurrant;
+
+  std::vector<Tensor> toConcat;
+  toConcat.reserve(resetAfter ? BASIC_GRU_CELL_NUM_UNITS
+                              : BASIC_GRU_CELL_NUM_UNITS - 1);
+
+  toConcat.push_back(resetGate.expand({0}));
+  toConcat.push_back(updateGate.expand({0}));
+  if (resetAfter)
+    toConcat.push_back(candidate.expand({0}));
+
+  auto unitsOutput = concat(toConcat);
+
+  if (resetAfter) {
+    gruCellForwardPassCalcUnitsResetAfter(
+        graph, false, in, prevOutput, biases, weightsInput, weightsOutput,
+        &candidateRecurrant, prog, opt, unitsOutput, baseStr, cache);
+    assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
+  } else {
+    const Tensor weightsInput2 = weightsInput->slice(0, 2);
+    const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
+    const Tensor biases2 = biases.slice(0, 2);
+    gruCellForwardPassCalcUnits(graph, false, in, prevOutput, biases2,
+                                &weightsInput2, weightsOutput2, prog, opt,
+                                unitsOutput, baseStr, cache);
+    assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
+  }
+
+  resetGate = unitsOutput[BASIC_GRU_CELL_RESET_GATE];
+  updateGate = unitsOutput[BASIC_GRU_CELL_UPDATE_GATE];
+
+  Tensor resetGateOut;
+
+  if (resetAfter) {
+    resetGateOut = resetGate;
+    candidate = unitsOutput[BASIC_GRU_CELL_CANDIDATE];
+  } else {
+    resetGateOut = graph.clone(resetGate, debugPrefix + "/" + "resetGateOut");
+    prog.add(Copy(resetGate, resetGateOut));
+
+    const Tensor weightsInput3 = weightsInput->slice(2, 3);
+    const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
+    mulInPlace(graph, resetGate, prevOutput, prog,
+               baseStr + "resetGate * prevOutput");
+    Tensor candidateExpand = candidate.expand({0});
+    gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
+                                &weightsInput3, weightsOutput3, prog, opt,
+                                candidateExpand, baseStr, cache);
+    candidate = candidateExpand[0];
+  }
 
   if (attScoreOpt) {
     mapInPlace(graph, _1 - (_2 * _1), {updateGate, *attScoreOpt}, prog,
@@ -461,7 +636,8 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
       map(graph, _1 + _2 * (_3 - _1), {candidate, updateGate, prevOutput}, prog,
           baseStr + "/CalcNextOutput");
 
-  GruInternalState internalState = {resetGateOut, updateGate, candidate};
+  GruInternalState internalState = {resetGateOut, updateGate, candidate,
+                                    candidateRecurrant};
 
   debug_tensor(prog, "fwd resetGate", resetGateOut);
   debug_tensor(prog, "fwd updateGate", updateGate);
@@ -476,29 +652,48 @@ static void basicGruCellForwardPassInPlace(
     const Tensor *weightsInput, const Tensor &weightsOutput,
     const boost::optional<const Tensor &> &attScoreOpt, Sequence &prog,
     const GruOpts &opt, const std::string &debugPrefix,
-    matmul::PlanningCache *cache) {
+    matmul::PlanningCache *cache, bool resetAfter) {
   logging::popnn::info("basicGruCellForwardPassInPlace {}", in.shape());
 
   debug_tensor(prog, "fwd h_prev", output);
   debug_tensor(prog, "fwd input", in);
   const std::string baseStr = debugPrefix + "/BasicGruCellInPlace";
 
+  Tensor resetGate =
+      graph.clone(output, debugPrefix + "/" + "Update Gate Rearranged");
+  Tensor updateGate =
+      graph.clone(output, debugPrefix + "/" + "Reset Gate Rearranged");
+  Tensor candidate =
+      graph.clone(output, debugPrefix + "/" + "candidate Rearranged");
+
+  int numToConcat =
+      resetAfter ? BASIC_GRU_CELL_NUM_UNITS : BASIC_GRU_CELL_NUM_UNITS - 1;
   std::vector<Tensor> toConcat;
-  toConcat.push_back(
-      graph.clone(output, debugPrefix + "/" + "Update Gate Rearranged")
-          .expand({0}));
-  toConcat.push_back(
-      graph.clone(output, debugPrefix + "/" + "Reset Gate Rearranged")
-          .expand({0}));
+  toConcat.reserve(numToConcat);
+
+  toConcat.push_back(resetGate.expand({0}));
+  toConcat.push_back(updateGate.expand({0}));
+  if (resetAfter)
+    toConcat.push_back(candidate.expand({0}));
+
   auto unitsOutput = concat(toConcat);
-  const Tensor weightsInput2 = weightsInput->slice(0, 2);
-  const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
-  gruCellForwardPassCalcUnits(graph, false, in, output, biases, &weightsInput2,
-                              weightsOutput2, prog, opt, unitsOutput, baseStr,
-                              cache);
-  assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
-  auto updateGate = unitsOutput[BASIC_GRU_CELL_UPDATE_GATE];
-  auto resetGate = unitsOutput[BASIC_GRU_CELL_RESET_GATE];
+
+  if (resetAfter) {
+    gruCellForwardPassCalcUnitsResetAfter(
+        graph, false, in, output, biases, weightsInput, weightsOutput, nullptr,
+        prog, opt, unitsOutput, baseStr, cache);
+    assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
+  } else {
+    const Tensor weightsInput2 = weightsInput->slice(0, 2);
+    const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
+    gruCellForwardPassCalcUnits(graph, false, in, output, biases,
+                                &weightsInput2, weightsOutput2, prog, opt,
+                                unitsOutput, baseStr, cache);
+    assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
+  }
+
+  updateGate = unitsOutput[BASIC_GRU_CELL_UPDATE_GATE];
+  resetGate = unitsOutput[BASIC_GRU_CELL_RESET_GATE];
 
   if (attScoreOpt) {
     logging::popnn::info("updateGate u {} score {}", updateGate.shape(),
@@ -510,16 +705,19 @@ static void basicGruCellForwardPassInPlace(
   debug_tensor(prog, "fwd resetGate", resetGate);
   debug_tensor(prog, "fwd updateGate", updateGate);
 
-  Tensor candidate =
-      graph.clone(output, debugPrefix + "/" + "candidate Rearranged");
-  const Tensor weightsInput3 = weightsInput->slice(2, 3);
-  const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
-  mulInPlace(graph, resetGate, output, prog, baseStr + "resetGate * output");
-  Tensor candidateExpand = candidate.expand({0});
-  gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
-                              &weightsInput3, weightsOutput3, prog, opt,
-                              candidateExpand, baseStr, cache);
-  candidate = candidateExpand[0];
+  if (resetAfter) {
+    candidate = unitsOutput[BASIC_GRU_CELL_CANDIDATE];
+  } else {
+    const Tensor weightsInput3 = weightsInput->slice(2, 3);
+    const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
+    mulInPlace(graph, resetGate, output, prog, baseStr + "resetGate * output");
+    Tensor candidateExpand = candidate.expand({0});
+    gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
+                                &weightsInput3, weightsOutput3, prog, opt,
+                                candidateExpand, baseStr, cache);
+    candidate = candidateExpand[0];
+  }
+
   debug_tensor(prog, "fwd candidate", candidate);
 
   mapInPlace(graph, _3 + _2 * (_1 - _3), {output, updateGate, candidate}, prog,
@@ -592,9 +790,8 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
     GruInternalState internalState;
     std::tie(newOutput, internalState) = basicGruCellForwardPass(
         graph, fwdInput, weights.biases, output, inputWeightsPtr,
-        weights.outputWeights, sliceAttScoresOpt, loop, opt, debugPrefix,
-        cache);
-
+        weights.outputWeights, sliceAttScoresOpt, loop, opt, debugPrefix, cache,
+        params.resetAfter);
     if (realTimeStepsOpt) {
       mask = gt(graph, seqLen, seqIdx, loop);
       mask = cast(graph, mask, newOutput.elementType(), loop);
@@ -605,16 +802,26 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
       mapInPlace(graph, _1 * _2, {internalState.candidate, mask}, loop);
     }
 
-    Tensor intermediates;
-    if (params.outputFullSequence)
-      intermediates = concat({internalState.resetGate.expand({0}),
-                              internalState.updateGate.expand({0}),
-                              internalState.candidate.expand({0})});
-    else
-      intermediates =
-          concat({internalState.resetGate.expand({0}),
-                  internalState.updateGate.expand({0}),
-                  internalState.candidate.expand({0}), newOutput.expand({0})});
+    std::vector<Tensor> intermediatesToConcat;
+
+    int numberToConcat = 3;
+    if (!params.outputFullSequence)
+      numberToConcat += 1;
+    if (params.resetAfter)
+      numberToConcat += 1;
+    intermediatesToConcat.reserve(numberToConcat);
+
+    intermediatesToConcat.push_back(internalState.resetGate.expand({0}));
+    intermediatesToConcat.push_back(internalState.updateGate.expand({0}));
+    intermediatesToConcat.push_back(internalState.candidate.expand({0}));
+    if (!params.outputFullSequence) {
+      intermediatesToConcat.push_back(newOutput.expand({0}));
+    }
+    if (params.resetAfter) {
+      intermediatesToConcat.push_back(
+          internalState.candidateRecurrant.expand({0}));
+    }
+    Tensor intermediates = concat(intermediatesToConcat);
 
     const auto numIntermediates = intermediates.dim(0);
     *intermediatesSeq =
@@ -637,7 +844,7 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
     basicGruCellForwardPassInPlace(graph, fwdInput, weights.biases, output,
                                    inputWeightsPtr, weights.outputWeights,
                                    sliceAttScoresOpt, loop, opt, debugPrefix,
-                                   cache);
+                                   cache, params.resetAfter);
 
     if (realTimeStepsOpt) {
       mask = gt(graph, seqLen, seqIdx, loop);
@@ -905,35 +1112,218 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
       concat({d_r.expand({0}), d_u.expand({0}), d_c.expand({0})}));
 }
 
-std::tuple<Tensor, Tensor, Tensor> basicGruBackwardStep(
+static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
-    const Tensor &prevStepOut, const Tensor &outGrad,
-    const Tensor &weightsInput, const Tensor &weightsOutput,
+    const Tensor &prevStepOut, const Tensor &outputGrad,
+    const Tensor *weightsInput, const Tensor &weightsOutput,
+    const boost::optional<const Tensor &> &maskOpt,
+    const boost::optional<const Tensor &> &attScoresOpt,
+    const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &initProg,
+    Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
+    matmul::PlanningCache *cache, bool outputFullSequence) {
+  const auto fPrefix = debugPrefix + "/GruBwdOneStep";
+  auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
+  Tensor d_h = graph.clone(outputGrad);
+  debug_tensor(prog, "bwd outGrad", outputGrad);
+  if (gradNextLayer)
+    debug_tensor(prog, "bwd gradNextLayer", *gradNextLayer);
+  prog.add(Copy(outputGrad, d_h));
+  if (gradNextLayer)
+    d_h =
+        popops::add(graph, d_h, *gradNextLayer, prog, fPrefix + "/AddActGrads");
+
+  auto u = fwdIntermediates[GRU_FWD_INTERMEDIATE_UPDATE_GATE];
+  auto r = fwdIntermediates[GRU_FWD_INTERMEDIATE_RESET_GATE];
+  auto c = fwdIntermediates[GRU_FWD_INTERMEDIATE_CANDIDATE];
+
+  unsigned c_recurrent_index = GRU_FWD_INTERMEDIATE_CANDIDATE_RECURRANT;
+  if (outputFullSequence) {
+    c_recurrent_index -= 1;
+  }
+
+  auto c_recurrant = fwdIntermediates[c_recurrent_index];
+  auto h_prev = prevStepOut;
+
+  auto one_matrix = graph.addConstant(
+      outputGrad.elementType(), outputGrad.shape(), 1, fPrefix + "/one_matrix");
+  graph.setTileMapping(one_matrix, graph.getTileMapping(u));
+  auto var_one_matrix =
+      graph.addVariable(outputGrad.elementType(), outputGrad.shape(),
+                        fPrefix + "/var_one_matrix");
+  graph.setTileMapping(var_one_matrix, graph.getTileMapping(u));
+  prog.add(Copy(one_matrix, var_one_matrix));
+
+  debug_tensor(prog, "bwd d_h", d_h);
+  debug_tensor(prog, "bwd r", r);
+  debug_tensor(prog, "bwd u", u);
+  debug_tensor(prog, "bwd c", c);
+  debug_tensor(prog, "bwd h_prev", h_prev);
+
+  // u_com = 1 - u
+  Tensor u_com = sub(graph, var_one_matrix, u, prog, fPrefix + "/1-updateGate");
+  // h_prev_c = h_prev - c
+  auto h_prev_c = sub(graph, h_prev, c, prog, fPrefix + "/preOutput-candidate");
+  // (1-u) * d_h, (h_prev - c) * d_h
+  auto t = mul(graph, concat({u_com, h_prev_c}), d_h.broadcast(2, 0), prog,
+               fPrefix + "/MulOGate");
+  auto gradAtCandidateInput = t.slice(0, outputGrad.dim(0));
+  auto gradAtUpdateGateInput =
+      t.slice(outputGrad.dim(0), 2 * outputGrad.dim(0));
+
+  debug_tensor(prog, "bwd outputGrad", d_h);
+  debug_tensor(prog, "bwd h_prev_c", h_prev_c);
+
+  auto cs1 = graph.addComputeSet(fPrefix + "/OutputGate");
+  auto d_c = nonLinearityInputGradient(graph, NonLinearityType::TANH, c,
+                                       gradAtCandidateInput, cs1,
+                                       fPrefix + "/OutputTanh");
+  Tensor d_u;
+  if (attScoresOpt) {
+    auto u0 = map(graph, _1 / (Const(1) - _2), {u, *attScoresOpt}, prog,
+                  fPrefix + "/UpdateScores");
+
+    Tensor temp = map(graph, -_1 * _2, {gradAtUpdateGateInput, u0}, prog,
+                      fPrefix + "/AttentionsGrad");
+    *attScoresGradsOpt =
+        reduce(graph, temp, {1}, {popops::Operation::ADD}, prog);
+
+    mapInPlace(graph, _1 - (_1 * _2), {gradAtUpdateGateInput, *attScoresOpt},
+               prog, fPrefix + "/UpdateGateGrad");
+
+    d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u0,
+                                    gradAtUpdateGateInput, cs1,
+                                    fPrefix + "/OutputGate");
+  } else {
+    d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u,
+                                    gradAtUpdateGateInput, cs1,
+                                    fPrefix + "/OutputGate");
+  }
+  prog.add(Execute(cs1));
+
+  if (maskOpt) {
+    auto mask = cast(graph, *maskOpt, c.elementType(), prog);
+    mask = mask.squeeze({0}).expand({1}).broadcast(c.dim(1), 1);
+    mapInPlace(graph, _1 * _2, {d_c, mask}, prog);
+  }
+
+  auto gradAtResetGateInput =
+      mul(graph, d_c, c_recurrant, prog, fPrefix + "/d_c * h_prev2");
+  auto d_r = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, r,
+                                       gradAtResetGateInput, prog);
+
+  debug_tensor(prog, "bwd d_c", d_c);
+  debug_tensor(prog, "bwd d_u", d_u);
+  debug_tensor(prog, "bwd d_r", d_r);
+
+  auto mmOpt = getMMOpts(opt);
+  mmOpt.set("fullyConnectedPass", "TRAINING_BWD");
+  mmOpt.set("inputRHSIsPreArranged", "true");
+
+  Tensor w_out, w_in;
+  if (weightsInput == nullptr) {
+    w_out = flattenUnits(concat({weightsOutput[BASIC_GRU_CELL_RESET_GATE],
+                                 weightsOutput[BASIC_GRU_CELL_UPDATE_GATE],
+                                 weightsOutput[BASIC_GRU_CELL_CANDIDATE]},
+                                1))
+                .transpose();
+  } else {
+    w_out = concat({weightsOutput[BASIC_GRU_CELL_RESET_GATE],
+                    weightsOutput[BASIC_GRU_CELL_UPDATE_GATE],
+                    weightsOutput[BASIC_GRU_CELL_CANDIDATE]},
+                   1)
+                .transpose();
+    w_in = concat({(*weightsInput)[BASIC_GRU_CELL_RESET_GATE],
+                   (*weightsInput)[BASIC_GRU_CELL_UPDATE_GATE],
+                   (*weightsInput)[BASIC_GRU_CELL_CANDIDATE]},
+                  1)
+               .transpose();
+  }
+
+  auto d_cr = mul(graph, d_c, r, prog, fPrefix + "/d_c * r");
+  auto d_r_d_u_d_c_out = concat({d_r, d_u, d_cr}, 1);
+
+  Tensor d_h_prev;
+  {
+    w_out = preArrangeMatMulInputRHS(
+        graph, d_r_d_u_d_c_out.shape(), w_out, initProg,
+        fPrefix + "/PreArrangeOutputWeights", mmOpt, cache);
+    auto out = matMul(graph, d_r_d_u_d_c_out, w_out, prog,
+                      fPrefix + "/PrevStepGrad", mmOpt, cache);
+    d_h_prev = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer,
+                                          prog, fPrefix);
+  }
+
+  Tensor d_x;
+  if (weightsInput) {
+    Tensor d_r_d_u_d_c_in = concat({d_r, d_u, d_c}, 1);
+    w_in = preArrangeMatMulInputRHS(
+        graph, d_r_d_u_d_c_in.shape(), w_in, initProg,
+        fPrefix + "/PreArrangeInputWeights", mmOpt, cache);
+    auto out = matMul(graph, d_r_d_u_d_c_in, w_in, prog,
+                      fPrefix + "/PrevStepGrad", mmOpt, cache);
+    d_x = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer, prog,
+                                     fPrefix);
+  }
+
+  d_h_prev = map(graph, (_1 * _2) + _3, {d_h, u, d_h_prev}, prog,
+                 fPrefix + "/d_h_prev");
+
+  debug_tensor(prog, "bwd d_h_prev", d_h_prev);
+  debug_tensor(prog, "bwd d_x", d_x);
+  debug_tensor(prog, "bwd d_r", d_r);
+  debug_tensor(prog, "bwd d_u", d_u);
+  debug_tensor(prog, "bwd d_c", d_c);
+  return std::make_tuple(
+      d_h_prev, d_x,
+      concat({d_r.expand({0}), d_u.expand({0}), d_c.expand({0})}));
+}
+
+std::tuple<Tensor, Tensor, Tensor> basicGruBackwardStep(
+    Graph &graph, const GruParams &params, const Tensor *gradNextLayer,
+    const Tensor &fwdIntermediates, const Tensor &prevStepOut,
+    const Tensor &outGrad, const Tensor &weightsInput,
+    const Tensor &weightsOutput, const boost::optional<const Tensor &> &maskOpt,
+    const boost::optional<const Tensor &> &attScoreOpt,
+    const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &initProg,
+    Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
+    matmul::PlanningCache *cache) {
+  if (params.resetAfter) {
+    return backwardStepImplResetAfter(
+        graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad,
+        &weightsInput, weightsOutput, maskOpt, attScoreOpt, attScoresGradsOpt,
+        initProg, prog, opt, debugPrefix, cache, params.outputFullSequence);
+  } else {
+    return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
+                            outGrad, &weightsInput, weightsOutput, maskOpt,
+                            attScoreOpt, attScoresGradsOpt, initProg, prog, opt,
+                            debugPrefix, cache);
+  }
+}
+
+std::pair<Tensor, Tensor> basicGruBackwardStep(
+    Graph &graph, const GruParams &params, const Tensor *gradNextLayer,
+    const Tensor &fwdIntermediates, const Tensor &prevStepOut,
+    const Tensor &outGrad, const Tensor &weightsOutput,
     const boost::optional<const Tensor &> &maskOpt,
     const boost::optional<const Tensor &> &attScoreOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &initProg,
     Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
     matmul::PlanningCache *cache) {
-  return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
-                          outGrad, &weightsInput, weightsOutput, maskOpt,
-                          attScoreOpt, attScoresGradsOpt, initProg, prog, opt,
-                          debugPrefix, cache);
-}
-
-std::pair<Tensor, Tensor> basicGruBackwardStep(
-    Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
-    const Tensor &prevStepOut, const Tensor &outGrad,
-    const Tensor &weightsOutput, const boost::optional<const Tensor &> &maskOpt,
-    const boost::optional<const Tensor &> &attScoreOpt,
-    const boost::optional<Tensor &> &attScoreGradsOpt, Sequence &initProg,
-    Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
-    matmul::PlanningCache *cache) {
   Tensor prevStateGrad;
   Tensor bwdIntermediates;
-  std::tie(prevStateGrad, std::ignore, bwdIntermediates) = backwardStepImpl(
-      graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad, nullptr,
-      weightsOutput, maskOpt, attScoreOpt, attScoreGradsOpt, initProg, prog,
-      opt, debugPrefix, cache);
+
+  if (params.resetAfter) {
+    std::tie(prevStateGrad, std::ignore, bwdIntermediates) =
+        backwardStepImplResetAfter(
+            graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad,
+            nullptr, weightsOutput, maskOpt, attScoreOpt, attScoresGradsOpt,
+            initProg, prog, opt, debugPrefix, cache, params.outputFullSequence);
+  } else {
+    std::tie(prevStateGrad, std::ignore, bwdIntermediates) = backwardStepImpl(
+        graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad, nullptr,
+        weightsOutput, maskOpt, attScoreOpt, attScoresGradsOpt, initProg, prog,
+        opt, debugPrefix, cache);
+  }
   return std::make_pair(prevStateGrad, bwdIntermediates);
 }
 
@@ -941,11 +1331,14 @@ std::pair<Tensor, Tensor> basicGruBackwardStep(
 /// weight gradients. Once all the gradients have been accumulated call
 /// basicGruParamUpdateFinal() to do any final accumulation / rearrangement
 /// that is required.
-static void basicGruParamUpdate(
-    Graph &graph, const Tensor &prevLayerActs, const Tensor &prevStepActs,
-    const Tensor &fwdIntermediates, const Tensor &bwdIntermediates,
-    const GruWeights &weightGrads, Sequence &prog, const GruOpts &opt,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+static void basicGruParamUpdate(Graph &graph, const Tensor &prevLayerActs,
+                                const Tensor &prevStepActs,
+                                const Tensor &fwdIntermediates,
+                                const Tensor &bwdIntermediates,
+                                const GruWeights &weightGrads, Sequence &prog,
+                                const GruOpts &opt,
+                                const std::string &debugPrefix,
+                                matmul::PlanningCache *cache, bool resetAfter) {
   const auto fPrefix = debugPrefix + "/GruDeltas";
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_WU");
@@ -961,8 +1354,6 @@ static void basicGruParamUpdate(
   Tensor x = prevLayerActs;
   Tensor x_h_prev = concat(x, h_prev, 1);
   Tensor r = fwdIntermediates[BASIC_GRU_CELL_RESET_GATE];
-  Tensor h_prevr = mul(graph, h_prev, r, prog, fPrefix + "/h_prev * r");
-  Tensor x_h_prevr = concat(x, h_prevr, 1);
   debug_tensor(prog, "wu x", x);
   debug_tensor(prog, "wu h_prev", h_prev);
   debug_tensor(prog, "wu r", r);
@@ -972,38 +1363,60 @@ static void basicGruParamUpdate(
   Tensor d_u = bwdIntermediates[BASIC_GRU_CELL_UPDATE_GATE];
   Tensor d_c = bwdIntermediates[BASIC_GRU_CELL_CANDIDATE];
 
-  matMulAcc(graph,
-            concat(flattenUnits(weightGrads2.inputWeights),
-                   flattenUnits(weightGrads2.outputWeights)),
-            1.0, x_h_prev.transpose(),
-            flattenUnits(concat(d_r.expand({0}), d_u.expand({0}))), prog,
-            fPrefix + "/dw for reset and update weight", mmOpt, cache);
+  if (resetAfter) {
+    Tensor d_cr = mul(graph, d_c, r, prog, fPrefix + "/d_c * r");
+    matMulAcc(graph, flattenUnits(weightGrads.inputWeights), 1.0, x.transpose(),
+              flattenUnits(
+                  concat({d_r.expand({0}), d_u.expand({0}), d_c.expand({0})})),
+              prog, fPrefix + "/dw for input weights", mmOpt, cache);
+    matMulAcc(graph, flattenUnits(weightGrads.outputWeights), 1.0,
+              h_prev.transpose(),
+              flattenUnits(
+                  concat({d_r.expand({0}), d_u.expand({0}), d_cr.expand({0})})),
+              prog, fPrefix + "/dw for output weights", mmOpt, cache);
+    debug_tensor(prog, "wu d_cr", d_cr);
 
-  matMulAcc(graph,
-            concat(flattenUnits(weightGrads3.inputWeights),
-                   flattenUnits(weightGrads3.outputWeights)),
-            1.0, x_h_prevr.transpose(), d_c, prog,
-            fPrefix + "/dw for candidate weight", mmOpt, cache);
-  debug_tensor(prog, "wu x_h_prevr", x_h_prevr);
+    auto biasGrads = concat({d_r, d_r, d_u, d_u, d_c, d_cr})
+                         .reshape(weightGrads.biases.shape());
+    // We defer the reduction across the batch to later.
+    popops::addInPlace(graph, weightGrads.biases, biasGrads, prog,
+                       fPrefix + "/Bias");
+  } else {
+    matMulAcc(graph,
+              concat(flattenUnits(weightGrads2.inputWeights),
+                     flattenUnits(weightGrads2.outputWeights)),
+              1.0, x_h_prev.transpose(),
+              flattenUnits(concat(d_r.expand({0}), d_u.expand({0}))), prog,
+              fPrefix + "/dw for reset and update weight", mmOpt, cache);
+
+    Tensor h_prevr = mul(graph, h_prev, r, prog, fPrefix + "/h_prev * r");
+    Tensor x_h_prevr = concat(x, h_prevr, 1);
+    matMulAcc(graph,
+              concat(flattenUnits(weightGrads3.inputWeights),
+                     flattenUnits(weightGrads3.outputWeights)),
+              1.0, x_h_prevr.transpose(), d_c, prog,
+              fPrefix + "/dw for candidate weight", mmOpt, cache);
+    debug_tensor(prog, "wu x_h_prevr", x_h_prevr);
+
+    // We defer the reduction across the batch to later.
+    popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
+                       fPrefix + "/Bias");
+  }
   debug_tensor(prog, "wu d_c", d_c);
   debug_tensor(prog, "wu inputWeightsGrad", weightGrads.inputWeights);
   debug_tensor(prog, "wu outputWeightsGrad", weightGrads.outputWeights);
-
-  // We defer the reduction across the batch to later.
-  popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
-                     fPrefix + "/Bias");
 }
 
-static GruWeights basicGruParamUpdateFinal(Graph &graph,
-                                           const GruWeights &weights,
-                                           const GruWeights &weightGrads,
-                                           Sequence &prog,
-                                           const std::string &debugPrefix) {
+static GruWeights
+basicGruParamUpdateFinal(Graph &graph, const GruWeights &weights,
+                         const GruWeights &weightGrads, Sequence &prog,
+                         const std::string &debugPrefix, bool resetAfter) {
   // The accumulated bias gradients still has a batch axis that we must
   // accumulate over - do this now.
   auto biasGrad = graph.clone(weights.biases, debugPrefix + "/biasGrad");
-  popops::reduceWithOutput(graph, weightGrads.biases, biasGrad, {1},
-                           {popops::Operation::ADD}, prog,
+  unsigned long reduceDimension = resetAfter ? 2 : 1;
+  popops::reduceWithOutput(graph, weightGrads.biases, biasGrad,
+                           {reduceDimension}, {popops::Operation::ADD}, prog,
                            debugPrefix + "/FinalBiasReduction");
   auto finalWeightGrads = weightGrads;
   finalWeightGrads.biases = biasGrad;
@@ -1012,11 +1425,10 @@ static GruWeights basicGruParamUpdateFinal(Graph &graph,
 
 /// Create variables used to accumulate gradients of the weights in the
 /// backward pass.
-static GruWeights createWeightAccumulators(Graph &graph,
-                                           const GruWeights &weights,
-                                           const Tensor &bwdIntermediates,
-                                           const GruOpts &options,
-                                           const std::string &debugPrefix) {
+static GruWeights
+createWeightAccumulators(Graph &graph, const GruWeights &weights,
+                         const Tensor &bwdIntermediates, const GruOpts &options,
+                         const std::string &debugPrefix, bool resetAfter) {
   GruWeights weightAccs;
   // inputWeights and outputWeights are slices of the one variable. Clone
   // them together as it results in a less complex tensor expression.
@@ -1034,8 +1446,17 @@ static GruWeights createWeightAccumulators(Graph &graph,
   // gradients from each timestep and therefore the bias accumlator still has
   // a batch axis. This amortizes the cost of reducing over the batch which
   // otherwise can be significant.
-  weightAccs.biases =
-      graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc");
+  if (resetAfter) {
+    weightAccs.biases = concat(
+        {graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc")
+             .expand({1}),
+         graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc")
+             .expand({1})},
+        1);
+  } else {
+    weightAccs.biases =
+        graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc");
+  }
   return weightAccs;
 }
 
@@ -1177,8 +1598,8 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
       Tensor inputGrad;
       std::tie(newOutGrad, inputGrad, bwdIntermediates) =
           popnn::gru::basicGruBackwardStep(
-              graph, gradLayerNextThisStepPtr, fwdIntermediates, prevStepOut,
-              lastOutGrad, weightsInput, weightsOutput, maskOpt,
+              graph, params, gradLayerNextThisStepPtr, fwdIntermediates,
+              prevStepOut, lastOutGrad, weightsInput, weightsOutput, maskOpt,
               sliceAttScoresOpt, sliceAttScoresGradsOpt, prog, bwdLoopBody,
               options, debugPrefix, cache);
       *inputGradSeq = createInput(graph, params, debugPrefix + "/inputGradSeq");
@@ -1195,8 +1616,8 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
                     debugPrefix + "/gradLayerPrev");
     } else {
       std::tie(newOutGrad, bwdIntermediates) = basicGruBackwardStep(
-          graph, gradLayerNextThisStepPtr, fwdIntermediates, prevStepOut,
-          lastOutGrad, weightsOutput, maskOpt, sliceAttScoresOpt,
+          graph, params, gradLayerNextThisStepPtr, fwdIntermediates,
+          prevStepOut, lastOutGrad, weightsOutput, maskOpt, sliceAttScoresOpt,
           sliceAttScoresGradsOpt, prog, bwdLoopBody, options, debugPrefix,
           cache);
     }
@@ -1248,13 +1669,14 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
     loop.add(bwdLoopBody);
 
     if (weightsGrad) {
-      *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
-                                              options, debugPrefix);
+      *weightsGrad =
+          createWeightAccumulators(graph, weights, bwdIntermediates, options,
+                                   debugPrefix, params.resetAfter);
       zeroWeightAccumulators(graph, prog, *weightsGrad, debugPrefix);
 
       basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
                           bwdIntermediates, *weightsGrad, wuLoopBody, options,
-                          debugPrefix, cache);
+                          debugPrefix, cache, params.resetAfter);
     }
     loop.add(wuLoopBody);
     // Go to next step
@@ -1268,7 +1690,7 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   if (weightsGrad) {
     prog.add(wuLoopBody);
     *weightsGrad = basicGruParamUpdateFinal(graph, weights, *weightsGrad, prog,
-                                            debugPrefix);
+                                            debugPrefix, params.resetAfter);
   }
 
   return lastOutGrad;
@@ -1411,8 +1833,9 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
           fwdIntermediatesSeq[s][GRU_FWD_INTERMEDIATE_OUTPUT].expand({0}));
   }
 
-  GruWeights weightGrads = createWeightAccumulators(
-      graph, weights, bwdIntermediatesSeq[0], options, debugPrefix);
+  GruWeights weightGrads =
+      createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0], options,
+                               debugPrefix, params.resetAfter);
   zeroWeightAccumulators(graph, prog, weightGrads, debugPrefix);
 
   auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
@@ -1454,15 +1877,15 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
 
     basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
                         bwdIntermediates, weightGrads, wuLoopBody, options,
-                        debugPrefix, planningCache);
+                        debugPrefix, planningCache, params.resetAfter);
     loop.add(wuLoopBody);
   }
   prog.add(Repeat(params.timeSteps - 1, loop));
   prog.add(sliceLoopBody);
   prog.add(wuLoopBody);
 
-  weightGrads =
-      basicGruParamUpdateFinal(graph, weights, weightGrads, prog, debugPrefix);
+  weightGrads = basicGruParamUpdateFinal(graph, weights, weightGrads, prog,
+                                         debugPrefix, params.resetAfter);
 
   return weightGrads;
 }

@@ -127,6 +127,7 @@ int main(int argc, char **argv) {
   ShapeOption<std::string> cellOrder;
   boost::optional<std::string> jsonProfileOut;
   boost::optional<std::string> profileFormat;
+  bool resetAfter = false;
 
   po::options_description desc("Options");
   // clang-format off
@@ -198,6 +199,9 @@ int main(int argc, char **argv) {
     ("cell-order",
      po::value<ShapeOption<std::string>>(&cellOrder)->default_value(cellOrder),
      "The order that the gates are stored in the weights and bias tensors")
+     ("reset-after",
+     po::value<bool>(&resetAfter)->default_value(resetAfter),
+      "Apply reset gate after matrix multiplication (1 / 0)")
   ;
   // clang-format on
 
@@ -262,6 +266,7 @@ int main(int argc, char **argv) {
   if (!cellOrder.val.empty()) {
     params.cellOrder = getCellOrder(cellOrder.val);
   }
+  params.resetAfter = resetAfter;
 
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
@@ -408,6 +413,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostWeightsOutput;
   std::unique_ptr<char[]> rawHostPrevLayerAct;
   std::unique_ptr<char[]> rawHostBiases;
+  std::unique_ptr<char[]> rawHostRecurrantBiases;
   std::unique_ptr<char[]> rawHostOutputInit;
 
   std::unique_ptr<char[]> rawHostRealTimeSteps;
@@ -419,6 +425,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostWeightsInputDeltas;
   std::unique_ptr<char[]> rawHostWeightsOutputDeltas;
   std::unique_ptr<char[]> rawHostBiasDeltas;
+  std::unique_ptr<char[]> rawHostRecurrantBiasDeltas;
 
   std::vector<std::unique_ptr<char[]>> rawHostNextAct;
 
@@ -431,8 +438,6 @@ int main(int argc, char **argv) {
                                     graph, uploadProg, downloadProg, tmap);
     rawHostPrevLayerAct = allocateHostMemoryForTensor(
         input, "prevLayerAct", graph, uploadProg, downloadProg, tmap);
-    rawHostBiases = allocateHostMemoryForTensor(weights.biases, "biases", graph,
-                                                uploadProg, downloadProg, tmap);
     rawHostOutputInit = allocateHostMemoryForTensor(
         outputInit, "outputInit", graph, uploadProg, downloadProg, tmap);
 
@@ -467,6 +472,26 @@ int main(int argc, char **argv) {
       rawHostWeightsOutputDeltas = allocateHostMemoryForTensor(
           weightGrads.outputWeights, "weightsOutputDeltas", graph, uploadProg,
           downloadProg, tmap);
+    }
+    if (params.resetAfter) {
+      auto biases = weights.biases.slice(0, 1, 1).squeeze({1});
+      auto recurrantBiases = weights.biases.slice(1, 2, 1).squeeze({1});
+      auto biasesDeltas = weightGrads.biases.slice(0, 1, 1).squeeze({1});
+      auto recurrantBiasesDeltas =
+          weightGrads.biases.slice(1, 2, 1).squeeze({1});
+      rawHostBiases = allocateHostMemoryForTensor(
+          biases, "biases", graph, uploadProg, downloadProg, tmap);
+      rawHostRecurrantBiases =
+          allocateHostMemoryForTensor(recurrantBiases, "recurrantBiases", graph,
+                                      uploadProg, downloadProg, tmap);
+      rawHostBiasDeltas = allocateHostMemoryForTensor(
+          biasesDeltas, "biasDeltas", graph, uploadProg, downloadProg, tmap);
+      rawHostRecurrantBiasDeltas = allocateHostMemoryForTensor(
+          recurrantBiasesDeltas, "recurrantBiasDeltas", graph, uploadProg,
+          downloadProg, tmap);
+    } else {
+      rawHostBiases = allocateHostMemoryForTensor(
+          weights.biases, "biases", graph, uploadProg, downloadProg, tmap);
       rawHostBiasDeltas =
           allocateHostMemoryForTensor(weightGrads.biases, "biasDeltas", graph,
                                       uploadProg, downloadProg, tmap);
@@ -507,6 +532,8 @@ int main(int argc, char **argv) {
       boost::extents[BASIC_GRU_CELL_NUM_UNITS][inputSize][outputSize]);
   boost::multi_array<double, 2> hostBiases(
       boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
+  boost::multi_array<double, 2> hostRecurrantBiases(
+      boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
   boost::multi_array<double, 2> hostOutputInit(
       boost::extents[batchSize][outputSize]);
   boost::multi_array<double, 4> modelFwdState(
@@ -533,6 +560,8 @@ int main(int argc, char **argv) {
   boost::multi_array<double, 3> hostWeightsInputDeltas(
       boost::extents[BASIC_GRU_CELL_NUM_UNITS][inputSize][outputSize]);
   boost::multi_array<double, 2> hostBiasesDeltas(
+      boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
+  boost::multi_array<double, 2> hostRecurrantBiasesDeltas(
       boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
 
   std::mt19937 randomEngine;
@@ -563,6 +592,10 @@ int main(int argc, char **argv) {
       writeRandomValues(target, dataType, hostNextLayerGrads, -2.0, 2.0,
                         randomEngine);
     }
+    if (resetAfter) {
+      writeRandomValues(target, dataType, hostRecurrantBiases, -1.0, 1.0,
+                        randomEngine);
+    }
 
     copy(target, hostPrevLayerAct, dataType, rawHostPrevLayerAct.get());
     copy(target, hostOutputInit, dataType, rawHostOutputInit.get());
@@ -580,6 +613,9 @@ int main(int argc, char **argv) {
 
     if (doBwdPass) {
       copy(target, hostNextLayerGrads, dataType, rawHostNextLayerGrads.get());
+    }
+    if (resetAfter) {
+      copy(target, hostRecurrantBiases, dataType, rawHostRecurrantBiases.get());
     }
   }
 
@@ -628,17 +664,34 @@ int main(int argc, char **argv) {
       hostAttScoresGradsOpt = modelAttScoresGrads;
     }
 
-    poplibs_test::gru::basicGruCellForwardPass(
-        params.outputFullSequence, hostPrevLayerAct, hostBiases, hostOutputInit,
-        hostWeightsInput, hostWeightsOutput, hostAttScoresOpt,
-        hostRealTimeStepsOpt, modelFwdState, params.cellOrder);
+    if (params.resetAfter) {
+      poplibs_test::gru::basicGruCellForwardPass(
+          params.outputFullSequence, hostPrevLayerAct, hostBiases,
+          hostOutputInit, hostWeightsInput, hostWeightsOutput, hostAttScoresOpt,
+          hostRealTimeStepsOpt, modelFwdState, params.cellOrder, true,
+          hostRecurrantBiases);
+    } else {
+      poplibs_test::gru::basicGruCellForwardPass(
+          params.outputFullSequence, hostPrevLayerAct, hostBiases,
+          hostOutputInit, hostWeightsInput, hostWeightsOutput, hostAttScoresOpt,
+          hostRealTimeStepsOpt, modelFwdState, params.cellOrder, false);
+    }
 
     if (doBwdPass) {
-      poplibs_test::gru::basicGruCellBackwardPass(
-          params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
-          hostNextLayerGrads, modelFwdState, hostOutputInit,
-          hostRealTimeStepsOpt, hostAttScoresOpt, hostAttScoresGradsOpt,
-          modelBwdState, modelPrevLayerGrads, params.cellOrder);
+      if (params.resetAfter) {
+        poplibs_test::gru::basicGruCellBackwardPass(
+            params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
+            hostNextLayerGrads, modelFwdState, hostOutputInit,
+            hostRealTimeStepsOpt, hostAttScoresOpt, hostAttScoresGradsOpt,
+            modelBwdState, modelPrevLayerGrads, params.cellOrder, true,
+            hostRecurrantBiases);
+      } else {
+        poplibs_test::gru::basicGruCellBackwardPass(
+            params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
+            hostNextLayerGrads, modelFwdState, hostOutputInit,
+            hostRealTimeStepsOpt, hostAttScoresOpt, hostAttScoresGradsOpt,
+            modelBwdState, modelPrevLayerGrads, params.cellOrder, false);
+      }
     }
 
     if (params.outputFullSequence) {
@@ -685,16 +738,32 @@ int main(int argc, char **argv) {
       copy(target, dataType, rawHostWeightsOutputDeltas.get(),
            hostWeightsOutputDeltas);
       copy(target, dataType, rawHostBiasDeltas.get(), hostBiasesDeltas);
+      if (resetAfter) {
+        copy(target, dataType, rawHostRecurrantBiasDeltas.get(),
+             hostRecurrantBiasesDeltas);
+      }
       boost::multi_array<double, 3> modelWeightsOutputDeltas(
           boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize][outputSize]);
       boost::multi_array<double, 3> modelWeightsInputDeltas(
           boost::extents[BASIC_GRU_CELL_NUM_UNITS][inputSize][outputSize]);
       boost::multi_array<double, 2> modelBiasesDeltas(
           boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
-      poplibs_test::gru::basicGruCellParamUpdate(
-          hostPrevLayerAct, modelFwdState, hostOutputInit, modelBwdState,
-          modelWeightsInputDeltas, modelWeightsOutputDeltas, modelBiasesDeltas,
-          params.cellOrder);
+      boost::multi_array<double, 2> modelRecurrantBiasesDeltas(
+          boost::extents[BASIC_GRU_CELL_NUM_UNITS][outputSize]);
+
+      if (params.resetAfter) {
+        poplibs_test::gru::basicGruCellParamUpdate(
+            hostPrevLayerAct, modelFwdState, hostOutputInit, modelBwdState,
+            modelWeightsInputDeltas, modelWeightsOutputDeltas,
+            modelBiasesDeltas, params.cellOrder, true,
+            modelRecurrantBiasesDeltas);
+      } else {
+        poplibs_test::gru::basicGruCellParamUpdate(
+            hostPrevLayerAct, modelFwdState, hostOutputInit, modelBwdState,
+            modelWeightsInputDeltas, modelWeightsOutputDeltas,
+            modelBiasesDeltas, params.cellOrder, false);
+      }
+
       matchesModel &= checkIsClose("weightsInputDeltas", hostWeightsInputDeltas,
                                    modelWeightsInputDeltas, relativeTolerance,
                                    absoluteTolerance);
@@ -704,6 +773,11 @@ int main(int argc, char **argv) {
       matchesModel &=
           checkIsClose("biasDeltas", hostBiasesDeltas, modelBiasesDeltas,
                        relativeTolerance, absoluteTolerance);
+      if (params.resetAfter) {
+        matchesModel &= checkIsClose(
+            "recurrantBiasDeltas", hostRecurrantBiasesDeltas,
+            modelRecurrantBiasesDeltas, relativeTolerance, absoluteTolerance);
+      }
     }
   }
 

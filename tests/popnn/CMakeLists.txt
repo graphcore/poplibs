@@ -710,6 +710,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase all
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
+                        --reset-after=false
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -723,6 +724,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase all
                         --data-type=float
                         --cell-order=${CELL_ORDER}
+                        --reset-after=false
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -736,6 +738,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase fwd
                         --data-type=float
                         --cell-order=${CELL_ORDER}
+                        --reset-after=false
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -749,6 +752,21 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --sequence-size 2
                         --runs 2
                         --cell-order=${CELL_ORDER}
+                        --reset-after=false
+                        VARIANTS ${TimesOutOnSim})
+
+        add_multitarget_test(
+                NAME basic_gru_40x4x38_seq_2_float_data_reset_after_${CELL_ORDER}
+                COMMAND gru_layer
+                        --input-size 40
+                        --batch-size=4
+                        --output-size 38
+                        --sequence-size 2
+                        --tiles-per-ipu=16
+                        --phase all
+                        --data-type=float
+                        --cell-order=${CELL_ORDER}
+                        --reset-after=true
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(

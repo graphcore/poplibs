@@ -40,6 +40,9 @@ struct GruParams {
   /// The default order is:
   /// [Reset gate, Update gate, Candidate].
   std::vector<BasicGruCellUnit> cellOrder = getDefaultBasicGruCellOrder();
+  // Controls whether the reset gate is applied before or after the candidate
+  // weights and biases.
+  bool resetAfter = false;
 
   GruParams() = default;
   GruParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
