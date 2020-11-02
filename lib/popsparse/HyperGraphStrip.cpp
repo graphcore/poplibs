@@ -1114,7 +1114,7 @@ void HyperGraphStrip::setOutputTileMapDDS(poplar::Graph &graph,
   for (int i = 0; i < matC->getNonZeroBlockCount(); i++) {
     try {
       graph.getTileMapping(blockData[i]);
-    } catch (std::exception e) {
+    } catch (const std::exception &) {
       printf("block %d is not mapped to tiles\n", i);
       break;
     }

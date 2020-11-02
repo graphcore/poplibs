@@ -1904,7 +1904,7 @@ MultiPlan getMultiPlan(const poplar::Target &target,
   if (options.planType == MultiPlanType::PARALLEL) {
     try {
       return getParallelMultiPlan(target, params, convOptions, cache, options);
-    } catch (poputil::poplibs_error) {
+    } catch (const poputil::poplibs_error &) {
       logging::poplin::warn(
           "Failed to find a parallel multiplan, falling back to "
           "serial planning");
