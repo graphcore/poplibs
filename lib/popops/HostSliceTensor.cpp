@@ -137,7 +137,7 @@ static PacketsAndIndices splitIntoPackets(poplar::Tensor &t,
       }
     }
   }
-  for (const auto entry : sizeBreakDown) {
+  for (const auto &entry : sizeBreakDown) {
     logging::popops::trace("{} packets of size {}", entry.second, entry.first);
   }
   return result;

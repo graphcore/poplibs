@@ -311,7 +311,7 @@ const auto printMapping = [](const auto &mapping) {
   for (unsigned tile = 0; tile < mapping.size(); ++tile) {
     std::stringstream ss;
     ss << "tile = " << tile << ", intervals=[ ";
-    for (const auto i : mapping[tile])
+    for (const auto &i : mapping[tile])
       ss << i << " ";
     ss << "]";
 

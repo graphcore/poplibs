@@ -361,6 +361,15 @@ inline void skipSpaces(std::istream &in) {
     in.ignore();
 }
 
+#ifdef __clang__
+// -Wrange-loop-analysis does not work here because this is called with
+// containers that iterate over values, *and* containers that iterate over
+// references, so the range loop analysis always complains about one or the
+// other.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wrange-loop-analysis"
+#endif
+
 template <class T>
 std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
   if (s.canBeBroadcast) {
@@ -369,7 +378,7 @@ std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
   }
   os << '{';
   bool needComma = false;
-  for (const auto x : s.val) {
+  for (const auto &x : s.val) {
     if (needComma)
       os << ", ";
     os << x;
@@ -377,6 +386,10 @@ std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
   }
   return os << '}';
 }
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 namespace detail {
 

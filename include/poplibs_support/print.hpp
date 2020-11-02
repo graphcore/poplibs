@@ -32,6 +32,15 @@ template <class Container>
 typename std::enable_if<is_container<Container>::value, std::ostream &>::type
 operator<<(std::ostream &os, const Container &container);
 
+#ifdef __clang__
+// -Wrange-loop-analysis does not work here because this is called with
+// containers that iterate over values, *and* containers that iterate over
+// references, so the range loop analysis always complains about one or the
+// other.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wrange-loop-analysis"
+#endif
+
 // Print the elements in a container in the form {a,b,c,d}
 template <class T>
 static void printContainer(const T &container, std::ostream &os) {
@@ -45,6 +54,10 @@ static void printContainer(const T &container, std::ostream &os) {
   }
   os << '}';
 }
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 template <class Container>
 typename std::enable_if<is_container<Container>::value, std::ostream &>::type

@@ -78,7 +78,7 @@ std::vector<unsigned int> getForwardWorkerPartition(const Target &target,
 
   unsigned index = 0;
   for (const auto &split : splits) {
-    for (const auto interval : split) {
+    for (const auto &interval : split) {
       worklist.at(index) = interval.begin();
       worklist.at(index + 1) = interval.size();
       index += 2;
