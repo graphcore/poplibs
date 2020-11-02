@@ -294,9 +294,10 @@ static void generateVertices(std::string vertexName, Graph &graph,
 // operation.
 static void generateMultiSliceVerticesOnTile(
     Graph &graph, const ComputeSet &cs, unsigned tile, const Tensor &base,
-    const Tensor &offset, const Tensor &slices, const Tensor *scale,
-    const std::string &vertexName, bool isUpdate, unsigned baseSlicedDim,
-    boost::optional<unsigned> baseOffset, const std::string &debugPrefix) {
+    const Tensor &offset, const Tensor &slices,
+    const boost::optional<Tensor> &scale, const std::string &vertexName,
+    bool isUpdate, unsigned baseSlicedDim, boost::optional<unsigned> baseOffset,
+    const std::string &debugPrefix) {
   assert(base.rank() == 2);
   assert(offset.rank() == 1);
   assert(slices.rank() == base.rank() + 1);
@@ -343,8 +344,8 @@ static void generateMultiSliceVerticesOnTile(
                              {{"offsets", workerOffsets},
                               {"baseT", base.flatten()},
                               {"subT", workerSlices.flatten()}});
-    if (scale != nullptr) {
-      graph.connect(v["scale"], *scale);
+    if (scale) {
+      graph.connect(v["scale"], scale.get());
     }
 
     graph.setInitialValue(v["baseOffset"], baseOffset ? *baseOffset : 0u);
@@ -357,7 +358,7 @@ static void generateMultiSliceVerticesOnTile(
 static void generateMultiSliceVertices(
     const std::string &vertexNameUntemplated, bool isUpdate, bool isUpdateAdd,
     Graph &graph, Sequence &prog, const Tensor &offsets, Tensor base,
-    Tensor slices, const Tensor *scale, unsigned baseSlicedDim,
+    Tensor slices, const boost::optional<Tensor> &scale, unsigned baseSlicedDim,
     boost::optional<unsigned> baseOffset, const OptionFlags &optionFlags,
     const std::string &debugName) {
 
@@ -383,7 +384,7 @@ static void generateMultiSliceVertices(
     slices = slices.dimRoll(2, 1);
   }
   assert(base.dim(unslicedDim) == slices.dim(1 + unslicedDim));
-  assert(isUpdate || scale == nullptr); // no scale on slice
+  assert(isUpdate || scale == boost::none); // no scale on slice
 
   auto offsets1d = offsets.squeeze({1});
   const auto &target = graph.getTarget();
@@ -789,7 +790,7 @@ static void generatePlannedMultiUpdateAdd(
           }
         }
         generateMultiSliceVerticesOnTile(
-            graph, csU, tile, tileBase, indices, tileSlice, &stage0Scale,
+            graph, csU, tile, tileBase, indices, tileSlice, stage0Scale,
             vertexName, true, baseSlicedDim, baseOffset, debugName);
       }
     }
@@ -861,14 +862,14 @@ static void generatePlannedMultiUpdateAdd(
  *                        have a single element, or an element per tile
  * \param dim             The dimension to slice
  * \param numOutIndices   The size of the output Tensor in the sliced dimension
- * \param prog            Pointer to program to be updated. If the program
- *                        pointer is nullptr, vertices are not generated
+ * \param prog            Optional program to be updated. If no program given
+ *                        then vertices are not generated
  * \param debugPrefix     The prefix prepended to debugging info
  * \returns               The specified subtensor
  */
-static Tensor slice(Graph &graph, const Tensor &t, const Tensor &offset,
-                    unsigned dim, unsigned numOutIndices,
-                    poplar::program::Sequence *prog,
+static Tensor slice(Graph &graph, const Tensor &t,
+                    const boost::optional<Tensor> &offset, unsigned dim,
+                    unsigned numOutIndices, boost::optional<Sequence &> prog,
                     const std::string &debugPrefix) {
   const unsigned numInIndices = t.dim(dim);
   assert(dim < t.rank());
@@ -880,12 +881,12 @@ static Tensor slice(Graph &graph, const Tensor &t, const Tensor &offset,
   Tensor s = graph.clone(t.slice(0, numOutIndices, dim),
                          debugPrefix + "/sliced_" + std::to_string(dim));
 
-  if (prog != nullptr) {
+  if (prog && offset) {
     Tensor s2d = s.dimRoll(dim).reshape(
         {numOutIndices, s.numElements() / numOutIndices});
 
-    generateVertices("popops::DynamicSlice", graph, *prog, offset, t2d, s2d,
-                     debugPrefix + "/slice");
+    generateVertices("popops::DynamicSlice", graph, prog.get(), offset.get(),
+                     t2d, s2d, debugPrefix + "/slice");
   }
   return s;
 }
@@ -1008,10 +1009,10 @@ static void validatePlanForGivenParameters(
 static void validateParams(std::string name, const SlicePlan &plan,
                            const OptionFlags &options,
                            const std::vector<std::size_t> &shape,
-                           const Tensor &offset,
+                           const boost::optional<Tensor> &offset,
                            const std::vector<std::size_t> &dims,
                            const std::vector<std::size_t> &sizesOrSlices,
-                           bool checkOffset = true, bool checkSizes = true,
+                           bool checkSizes = true,
                            bool sizesAreSlices = false) {
   if (!plan.getImpl().isNull) {
     validatePlanForGivenParameters(plan.getImpl(), options, shape, dims,
@@ -1020,9 +1021,9 @@ static void validateParams(std::string name, const SlicePlan &plan,
   auto tRank = shape.size();
   std::string exceptionStr;
   std::string sizesStr = sizesAreSlices ? "numSlices" : "sizes";
-  if (checkOffset) {
-    auto offsetElems = offset.rank() == 0 ? 0 : offset.dim(0);
-    if (offset.rank() > 2 || offsetElems != dims.size())
+  if (offset) {
+    auto offsetElems = offset.get().rank() == 0 ? 0 : offset.get().dim(0);
+    if (offset.get().rank() > 2 || offsetElems != dims.size())
       exceptionStr = name + " offset (" + std::to_string(offsetElems) + ") ";
   }
   if (checkSizes && dims.size() != sizesOrSlices.size()) {
@@ -1262,8 +1263,8 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
   const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("createSliceableTensor/NoPlan for {} / {} / {}", shape,
                         dims, sizes);
-  validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes, false,
-                 true);
+  validateParams("createSliceableTensor", {}, {}, shape, boost::none, dims,
+                 sizes, true);
   const auto idxOrder = bestSliceOrder(shape, dims, sizes);
   std::string tName = debugPrefix + "/sliceable";
   std::string sep = "";
@@ -1287,8 +1288,8 @@ Tensor createSliceableTensor(Graph &graph, const Type &type,
   if (plan.getImpl().isNull) {
     return createSliceableTensor(graph, type, shape, dims, sizes, 0, debugName);
   }
-  validateParams("createSliceableTensor", {}, {}, shape, {}, dims, sizes, false,
-                 true);
+  validateParams("createSliceableTensor", {}, {}, shape, boost::none, dims,
+                 sizes, true);
   // For now we don't plan anything which slices more than one dimension or
   // more than a single slice.
   assert(dims.size() == 1);
@@ -1440,8 +1441,8 @@ Tensor createSliceTensor(Graph &graph, const Tensor &t,
                          const std::size_t numIndices,
                          const poplar::DebugContext &debugContext) {
   const auto debugPrefix = debugContext.getPathName();
-  validateParams("createSliceTensor", {}, {}, t.shape(), {}, dims, sizes,
-                 false);
+  validateParams("createSliceTensor", {}, {}, t.shape(), boost::none, dims,
+                 sizes);
   // Special case for 1 index, we just clone the input tensor's first slice.
   if (numIndices == 1) {
     std::string name = debugPrefix + "/slice";
@@ -1496,8 +1497,8 @@ createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
                                const std::vector<std::size_t> &numSlices,
                                const poplar::DebugContext &debugContext) {
   const auto debugPrefix = debugContext.getPathName();
-  validateParams("createSliceableTensorFromSlice", {}, {}, s.shape(), {}, dims,
-                 numSlices, false, true, true);
+  validateParams("createSliceableTensorFromSlice", {}, {}, s.shape(),
+                 boost::none, dims, numSlices, true, true);
 
   std::vector<std::size_t> sizes(dims.size());
   for (std::size_t i = 0; i < dims.size(); ++i) {
@@ -1539,16 +1540,22 @@ createSliceableTensorFromSlice(Graph &graph, const Tensor &s,
   return t;
 }
 
-static Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
-                           const std::vector<std::size_t> &dims,
-                           const std::vector<std::size_t> &sizes,
-                           poplar::program::Sequence *prog,
-                           const std::string &debugPrefix) {
-  logging::popops::info(
-      "dynamicSlice t={}, offset={}, dims={}, sizes={}, name={}", t.shape(),
-      offset.shape(), dims, sizes, debugPrefix);
+static Tensor dynamicSliceImpl(Graph &graph, const Tensor &t,
+                               const boost::optional<Tensor> &offset,
+                               const std::vector<std::size_t> &dims,
+                               const std::vector<std::size_t> &sizes,
+                               boost::optional<Sequence &> prog,
+                               const std::string &debugPrefix) {
+  bool checkOffset = offset != boost::none;
+  if (checkOffset) {
+    logging::popops::info(
+        "dynamicSlice t={}, offset={}, dims={}, sizes={}, name={}", t.shape(),
+        offset.get().shape(), dims, sizes, debugPrefix);
+  } else {
+    logging::popops::info("dynamicSlice t={}, dims={}, sizes={}, name={}",
+                          t.shape(), dims, sizes, debugPrefix);
+  }
 
-  bool checkOffset = prog != nullptr;
   validateParams("dynamicSlice", {}, {}, t.shape(), offset, dims, sizes,
                  checkOffset);
 
@@ -1571,9 +1578,9 @@ static Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   for (auto i : idxOrder) {
     // don't care about offset if vertices are not mapped as we are only
     // interested in the mapping
-    out =
-        slice(graph, out, checkOffset ? offset[i] : offset, dims[i], sizes[i],
-              prog, debugPrefix + "/dynamicSlice_d" + std::to_string(dims[i]));
+    out = slice(graph, out, checkOffset ? offset.get()[i] : offset, dims[i],
+                sizes[i], prog,
+                debugPrefix + "/dynamicSlice_d" + std::to_string(dims[i]));
   }
 
   return out;
@@ -1585,16 +1592,15 @@ Tensor dynamicSlice(Graph &graph, const Tensor &t, const Tensor &offset,
                     poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext) {
   const auto debugPrefix = debugContext.getPathName();
-  return dynamicSlice(graph, t, offset, dims, sizes, &prog, debugPrefix);
+  return dynamicSliceImpl(graph, t, offset, dims, sizes, prog, debugPrefix);
 }
 
 Graph::TileToTensorMapping
 getSliceMapping(poplar::Graph &graph, const poplar::Tensor &t,
                 const std::vector<std::size_t> &dims,
                 const std::vector<std::size_t> &sizes) {
-  // give a dummy offset tensor as it is not used
-  Tensor offset;
-  auto sliceT = dynamicSlice(graph, t, offset, dims, sizes, nullptr, "");
+  auto sliceT =
+      dynamicSliceImpl(graph, t, boost::none, dims, sizes, boost::none, "");
   return graph.getTileMapping(sliceT);
 }
 
@@ -1635,7 +1641,7 @@ void dynamicUpdate(Graph &graph, const Tensor &t, const Tensor &s,
   for (unsigned i = 0; i != idxOrder.size() - 1; ++i) {
     auto dim = idxOrder[i];
     reducedT.emplace_back(
-        slice(graph, reducedT[i], offset[dim], dims[dim], sizes[dim], &prog,
+        slice(graph, reducedT[i], offset[dim], dims[dim], sizes[dim], prog,
               debugPrefix + "/dynamicUpdateS_d" + std::to_string(dims[i])));
   }
   // copy s into the reduced t, iterating back to full dimensions
@@ -1735,9 +1741,9 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
         const Tensor input = tSplitByS.slice(hBegin, hEnd, unslicedDim);
         const Tensor output = sSplitByS.slice(hBegin, hEnd, 1 + unslicedDim);
         graph.setTileMapping(output, tile);
-        generateMultiSliceVerticesOnTile(graph, cs1, tile, input, indices,
-                                         output, nullptr, vertexClass, false,
-                                         slicedDim, baseOffset, debugPrefix);
+        generateMultiSliceVerticesOnTile(
+            graph, cs1, tile, input, indices, output, boost::none, vertexClass,
+            false, slicedDim, baseOffset, debugPrefix);
       }
     }
   }
@@ -1897,8 +1903,8 @@ static void multiSlicePlanned(Graph &graph, const Tensor &t,
           const Tensor input = tSplitByS.slice(hBegin, hEnd, 1);
           const Tensor output = sSplitByS.slice(hBegin, hEnd, 2);
           generateMultiSliceVerticesOnTile(graph, cs2, tile, input, indices,
-                                           output, nullptr, vertexClass, false,
-                                           slicedDim, 0, debugPrefix);
+                                           output, boost::none, vertexClass,
+                                           false, slicedDim, 0, debugPrefix);
         }
       }
     }
@@ -1965,8 +1971,8 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
   if (t.rank() == 2 && dims.size() == 1 && sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiSlice", false, false, graph, prog,
-                               offset, t, sMulti, nullptr, dims[0], boost::none,
-                               options, dName);
+                               offset, t, sMulti, boost::none, dims[0],
+                               boost::none, options, dName);
     return sMulti;
   }
 
@@ -2035,8 +2041,8 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
   if (t.rank() == 2 && dims.size() == 1 && sMulti.rank() == 3 &&
       offset.rank() == 2 && offset.dim(1) == 1 && offset.dim(0) > 6) {
     generateMultiSliceVertices("popops::MultiUpdate", true, false, graph, prog,
-                               offset, t, sMulti, nullptr, dims[0], boost::none,
-                               options, dName);
+                               offset, t, sMulti, boost::none, dims[0],
+                               boost::none, options, dName);
     return;
   }
   // looping case
@@ -2095,7 +2101,7 @@ void multiUpdateAdd(Graph &graph, const Tensor &t, const Tensor &sMulti,
     throw poputil::poplibs_error("multiUpdateAdd scale must be a scaler");
   if (plan.getImpl().isNull) {
     generateMultiSliceVertices("popops::MultiUpdateAdd", true, true, graph,
-                               prog, offset, t, sMulti, &scale, dims[0],
+                               prog, offset, t, sMulti, scale, dims[0],
                                boost::none, options, dName);
   } else {
     generatePlannedMultiUpdateAdd("popops::MultiUpdateAdd", plan.getImpl(),

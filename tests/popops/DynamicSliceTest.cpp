@@ -700,6 +700,40 @@ BOOST_AUTO_TEST_CASE(SliceableTensorFromSlice) {
   }
 }
 
+BOOST_AUTO_TEST_CASE(GetSliceMapping) {
+  // Check the mapping can be retrieved using a very simple test case
+  // just to see that the function runs
+  auto device = createTestDevice(TEST_TARGET, 1, 4);
+  Graph graph(device.getTarget());
+  popops::addCodelets(graph);
+
+  std::vector<size_t> tShape = {100, 64};
+  auto input =
+      createSliceableTensor(graph, FLOAT, tShape, {0}, {1}, 2, "input");
+
+  auto mapping = getSliceMapping(graph, input, {0}, {1});
+  std::vector<std::vector<Interval>> expectedMapping = {
+      {{0, 16}}, {{16, 32}}, {{32, 48}}, {{48, 64}}};
+
+  auto checkResult = [&]() {
+    if (mapping.size() != expectedMapping.size()) {
+      return false;
+    }
+    for (unsigned i = 0; i < mapping.size(); i++) {
+      if (mapping[i].size() != expectedMapping[i].size()) {
+        return false;
+      }
+      for (unsigned j = 0; j < mapping[i].size(); j++) {
+        if (mapping[i][j] != expectedMapping[i][j]) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  BOOST_TEST(checkResult());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 void multislice(const std::vector<uint32_t> &indicies,
