@@ -160,13 +160,19 @@ template class SparseDenseMultiSliceBlock<half, 8>;
 // to update the NZ values in the bucket based on a dense input tensor `subT`
 // by applying nzValue = nzValue + scale*subT
 template <typename FPType, bool vectorise>
-class SparseDenseMultiUpdateAddBlock : public Vertex {
+class SparseDenseMultiUpdateAddBlock
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
 public:
-  using BaseTNZType = Vector<InOut<Vector<float, ONE_PTR>>, ONE_PTR>;
-  using SubTType = Input<Vector<FPType, ONE_PTR>>;
   SparseDenseMultiUpdateAddBlock();
 
-  IS_EXTERNAL_CODELET(false);
+  static const unsigned alignedElements = vectorise ? 2 : 1;
+  static const unsigned baseTAlign = alignedElements * alignof(float);
+  static const unsigned subTAlign = alignedElements * alignof(FPType);
+  using BaseTNZType =
+      Vector<InOut<Vector<float, ONE_PTR, baseTAlign>>, ONE_PTR>;
+  using SubTType = Input<Vector<FPType, ONE_PTR, subTAlign>>;
+
+  IS_EXTERNAL_CODELET(true);
   // The rows to update baseT with
   Input<Vector<unsigned, ONE_PTR>> offsets;
   BaseTNZType baseTNZ;
@@ -174,16 +180,16 @@ public:
   SubTType subT;
   const unsigned short blockRows;
   const unsigned short blockColumns;
-  const unsigned short subColumns; // The number of columns found in subT
   // This vertex will process data with the given yPartitionToProcess, that data
   // has a row partition in its meta data, which is scaled by rowsPerPartition
   const unsigned short rowsPerPartition;
+  const unsigned short subColumns; // The number of columns found in subT
   // Technically this is being compared to a variable of type MetaInfoType but
   // exchanging and using single 2-byte elements per tile has a copy cost
   // associated with it after exchange and uses 32 bit exchange anyhow
   Input<unsigned> yPartitionToProcess;
-  const unsigned short numOffsets;
   Input<float> scale;
+  const unsigned short numOffsets;
 
   bool compute() {
 

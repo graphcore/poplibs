@@ -156,6 +156,9 @@ int main(int argc, char **argv) try {
   bool doElementWiseTest =
       std::all_of(blockSize.val.begin(), blockSize.val.end(),
                   [](std::size_t dim) { return dim == 1; });
+  if (numOtherSubGroups == 0) {
+    numOtherSubGroupElems = 0;
+  }
 
   if (blockSize.val.size() == 1) {
     blockSize.val.push_back(blockSize[0]);
@@ -292,7 +295,7 @@ int main(int argc, char **argv) try {
                        : "popsparse::SparseDenseMultiSliceBlock");
 
   const bool vectorise =
-      (blockSize.val[1] % target.getVectorWidth(inputType)) == 0;
+      (blockSize.val[1] % target.getVectorWidth(nzType)) == 0;
 
   auto bytesPerBlockRow = target.getTypeSize(nzType) * blockSize.val[1];
   const unsigned vectorWidthInBytes =

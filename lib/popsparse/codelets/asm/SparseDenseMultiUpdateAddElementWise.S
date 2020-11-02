@@ -66,6 +66,7 @@
 
 #define w_metaPtrTemp             m11
 #define w_subTStride              m11
+#define w_nzAndMetaPtrTemp        m10:11
 
 #define w_scale                   a7
 ///------------------------------------------------------------------------------
@@ -75,7 +76,7 @@
 .align 8
 .type \NAME, @function
 .worker
-.ifc \TYPE, half
+.ifc \TYPE, float
   nop  // rpt align
 .endif
 \NAME:
@@ -161,9 +162,7 @@ offsets_loop\@:
   // A row matches, so update it into the (always float) result.
   // Use temp pointers as we may come back and use the same NZ data and metaInfo
   // multiple times if multiple offsets match the row we are updating
-  mov           $w_metaPtrTemp, $w_metaPtr
-  mov           $w_nzPtrTemp, $w_nzPtr
-
+  tapack        $w_nzAndMetaPtrTemp, $w_nzPtr, $w_metaPtr, $mzero
 
 .ifc \TYPE, half
   // Unroll the loop so we can bundle. Load the column number from the metadata
@@ -283,9 +282,9 @@ DEF_STACK_USAGE  (STACK_SIZE)  \NAME
 .supervisor
   // Mainly copy vertex state to the workers.  All this needs to be done just
   // once so dealing with it up front saves time.
+  ld32      $s_scale, $s_base, VOFF_SCALE_PTR/4
   ldz16     $s_offsetSize, $s_base, VOFF_OFFSET_SIZE/2
   add       $sp, $sp, -STACK_SIZE
-  ld32      $s_scale, $s_base, VOFF_SCALE_PTR/4
   ld32      $s_offsetPtr, $s_base, VOFF_OFFSET_PTR/4
   ldz16     $s_subTColumns, $s_base, VOFF_SUBT_COLUMNS/2
   ldz16     $s_nzScaleFactor, $s_base, VOFF_NZ_SCALE_FACTOR/2

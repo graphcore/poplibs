@@ -49,11 +49,10 @@
 #define STACK_SIZE                (WOFF_SUPER_FP_STORE+4)
 
 // Worker stack
-#define WSTACK_META_ROWS_M1       0
+#define WSTACK_META_ROW           0
 #define WSTACK_OFFSET_PTR         4
 #define WSTACK_SUBT_PTR           8
 #define WSTACK_OFFSET_LOOPS       12
-#define WSTACK_META_ROW           16
 
 // worker register aliases
 #define w_subTStride              m0
@@ -75,6 +74,7 @@
 #define w_temp                    m9
 #define w_nzPtrTemp               m10
 #define w_metaPtrTemp             m11
+#define w_nzAndMetaPtrTemp        m10:11
 
 // -----------------------------------------------------------------------------
 // Preamble macro to pre-process worker state specific to each worker
@@ -167,8 +167,7 @@ offsets_loopH:
   brz           $w_temp, next_offsetH
   // Found a row, read data and populate. Use temp ptrs as we may have to do this
   // for many slices with the same offset
-  mov           $w_nzPtrTemp, $w_nzPtr
-  mov           $w_metaPtrTemp, $w_metaPtr
+  tapack        $w_nzAndMetaPtrTemp, $w_nzPtr, $w_metaPtr, $mzero
   // Store w_metaRow.  Even though this looks like we in the 2nd innermost loop
   // it's conditional that we get here and so it is likely that storing/restoring
   // here is faster
@@ -238,7 +237,6 @@ next_offsetH:
 .align 8
 .type worker_float, @function
 .worker
-  nop // Rpt align
   // Entry point to use after the 1st call the supervisor vertex makes to the
   // workers.  Worker specific work division has been done and the result stored
   // on each worker's stack, so no need to calculate it again.
@@ -294,8 +292,7 @@ offsets_loopF:
   brz           $w_temp, next_offsetF
   // Found a match, read data and populate. Use temp ptrs as we may have to do this
   // for many slices with the same offset.
-  mov           $w_nzPtrTemp, $w_nzPtr
-  mov           $w_metaPtrTemp, $w_metaPtr
+  tapack        $w_nzAndMetaPtrTemp, $w_nzPtr, $w_metaPtr, $mzero
   ld32          $w_nzScaleFactor, $mvertex_base, WOFF_NZ_SCALE_FACTOR/4
 
   rpt           $w_metaColumns, (2f-1f)/8 -1

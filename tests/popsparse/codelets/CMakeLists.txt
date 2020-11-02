@@ -213,12 +213,11 @@ foreach(TYPE half float)
   endforeach()
 endforeach()
 
-# Basic tests for the block-sparse multislice codelets, to make more comprehensive
-# or tailored to checking assembler once that is written
+# Tests for the block-sparse multislice codelets
 foreach(TYPE half float)
   foreach(UPDATE true false)
     foreach(BLOCK_ROWS 2 8)
-      foreach(BLOCK_COLUMNS 4 5)
+      foreach(BLOCK_COLUMNS 1 2 4 5)
         foreach(OFFSETS 10 16)
           add_multitarget_test(NAME SparseDenseMultiSliceBlock_${TYPE}_${OFFSETS}_${UPDATE}_${BLOCK_ROWS}_${BLOCK_COLUMNS}
               COMMAND SparseDenseMultiSlice

@@ -124,6 +124,10 @@
 
 //------------------------------------------------------------------------------
 // Inner loop copy for 8 byte aligned, nx8 byte sized blocks
+// Possible optimisation: If we constained subT to be in a different segment to
+// the NZ data it would be possible to do this copy in 1 cycle. This would cost
+// a few extra cycles to free up registers and tapack the addresses, so would
+// only be useful for larger block sizes.  It could maybe be another specialisation.
 .macro INNER_LOOP_BODY_8
   rpt            $w_columnCopyLoops, (2f-1f)/8 -1
 1:

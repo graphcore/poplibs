@@ -313,12 +313,8 @@ void generateSparseDenseMultiUpdateVertices(
   auto computeSet = graph.addComputeSet(debugStr);
   const auto target = graph.getTarget();
   const auto inputType = slices.elementType();
-  const auto inputVectorWidth = target.getVectorWidth(inputType);
   const auto outputVectorWidth = target.getVectorWidth(nzBuckets.elementType());
-  bool inOutTypesVectorise = inputVectorWidth >= outputVectorWidth &&
-                             (inputVectorWidth % outputVectorWidth == 0);
-  bool vectorise = inOutTypesVectorise &&
-                   (plannedSplits.blockColumns % outputVectorWidth) == 0;
+  bool vectorise = (plannedSplits.blockColumns % outputVectorWidth) == 0;
   const auto vertexClass =
       plannedSplits.isElementWise()
           ? templateVertex("popsparse::SparseDenseMultiUpdateAddElementWise",
