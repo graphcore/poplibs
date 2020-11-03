@@ -2005,6 +2005,64 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectFromRowsInColumns)(
                                              paramsType == HALF);
 }
 
+static std::uint64_t hasNanInnerLoopCycles(const Type &type,
+                                           unsigned int size) {
+  std::uint64_t cycles = type == FLOAT ? 10 : 12;
+  if (size == 0) {
+    return cycles;
+  }
+  if (type == FLOAT) {
+    const auto numVectors = size / 4;
+    cycles += 2 * numVectors;
+    if (size & 0x2) {
+      cycles += 2;
+    }
+    if (size & 0x1) {
+      cycles += 1;
+    }
+  } else {
+    const auto numVectors = size / 8;
+    cycles += 2 * numVectors;
+    if (size & 0x4) {
+      cycles += 2;
+    }
+    if (size & 0x2) {
+      cycles += 2;
+    }
+    if (size & 0x1) {
+      cycles += 2;
+    }
+  }
+  return cycles;
+}
+
+unsigned nanCheckCycles(const Type &type) { return type == FLOAT ? 7 : 11; }
+
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(HasNaNSupervisor)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &inType) {
+  CODELET_SCALAR_VAL(sizeIn8BytesPerWorker, unsigned);
+  CODELET_SCALAR_VAL(remWorkerId, unsigned char);
+  CODELET_SCALAR_VAL(remWorkerExtras, unsigned char);
+
+  unsigned inSize = sizeIn8BytesPerWorker + (remWorkerId > 0);
+  inSize = inSize * (8 / target.getTypeSize(inType)) + remWorkerExtras;
+
+  // supervisor cycles
+  std::uint64_t supervisorCycles = 24;
+
+  // initial overhead + exitz
+  std::uint64_t workerCycles = 15;
+
+  // process edge
+  workerCycles += hasNanInnerLoopCycles(inType, inSize);
+
+  // Nan checking
+  workerCycles += nanCheckCycles(inType);
+  return workerCycles * target.getNumWorkerContexts() + supervisorCycles;
+}
+
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
                                   const Target &target, const Type &inType) {
@@ -2019,40 +2077,11 @@ MAKE_CYCLE_ESTIMATOR_NAME(HasNaN)(const VertexIntrospector &vertex,
   cycles += 1;
 
   for (unsigned i = 0; i < in.size(); ++i) {
-    // overall overhead which is executed even for 0 size
-    cycles += inType == FLOAT ? 10 : 12;
-    const auto inSize = in[i].size();
-    if (inSize == 0) {
-      continue;
-    }
-
-    // inner loop cost.
-    if (inType == FLOAT) {
-      const auto numVectors = inSize / 4;
-      cycles += 2 * numVectors;
-      if (inSize & 0x2) {
-        cycles += 2;
-      }
-      if (inSize & 0x1) {
-        cycles += 1;
-      }
-    } else {
-      const auto numVectors = inSize / 8;
-      cycles += 2 * numVectors;
-      if (inSize & 0x4) {
-        cycles += 2;
-      }
-      if (inSize & 0x2) {
-        cycles += 2;
-      }
-      if (inSize & 0x1) {
-        cycles += 2;
-      }
-    }
+    cycles += hasNanInnerLoopCycles(inType, in[i].size());
   }
 
   // Nan checking
-  cycles += inType == FLOAT ? 7 : 11;
+  cycles += nanCheckCycles(inType);
   return cycles * target.getNumWorkerContexts();
 }
 
@@ -2564,6 +2593,8 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
       CYCLE_ESTIMATOR_ENTRY(popops, HasNaN, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, HasNaN, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNSupervisor, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, HasNaNSupervisor, HALF),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Transpose2d, UNSIGNED_INT),

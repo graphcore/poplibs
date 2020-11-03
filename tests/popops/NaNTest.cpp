@@ -24,7 +24,7 @@ static constexpr std::size_t D2 = 4;
 static constexpr std::size_t D3 = 3;
 
 void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
-                unsigned numTiles) {
+                unsigned numTiles, bool twoDimensionalVertices) {
   std::mt19937 randomEngine;
   boost::random::uniform_real_distribution<double> dist(0., 10.);
 
@@ -51,8 +51,19 @@ void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
   Graph graph(target);
   popops::addCodelets(graph);
 
-  const auto inputT = graph.addVariable(type, {D0, D1, D2, D3}, "input");
-  poputil::mapTensorLinearly(graph, inputT);
+  Tensor inputT;
+  if (twoDimensionalVertices) {
+    static_assert(D0 % 2 == 0);
+    auto var1 = graph.addVariable(type, {D0 / 2, D1, D2, D3}, "input1");
+    auto var2 = graph.addVariable(type, {D0 / 2, D1, D2, D3}, "input2");
+    poputil::mapTensorLinearly(graph, var1);
+    poputil::mapTensorLinearly(graph, var2);
+
+    inputT = concat(var1, var2);
+  } else {
+    inputT = graph.addVariable(type, {D0, D1, D2, D3}, "input");
+    poputil::mapTensorLinearly(graph, inputT);
+  }
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
@@ -82,11 +93,11 @@ void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
   BOOST_TEST(result[0] == introduceNaN);
 }
 
-#define ENUMERATE_FULL_TEST(dType, addNaN)                                     \
+#define ENUMERATE_FULL_TEST(dType, addNaN, twoD)                               \
   BOOST_AUTO_TEST_SUITE(HasNaN##_suite)                                        \
-  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_full) {                   \
+  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##twoD##_full) {          \
     const auto sizeToTest = D0 * D1 * D2 * D3;                                 \
-    hasNaNTest(addNaN, dType, sizeToTest, 4);                                  \
+    hasNaNTest(addNaN, dType, sizeToTest, 4, twoD);                            \
   }                                                                            \
   BOOST_AUTO_TEST_SUITE_END()
 
@@ -94,23 +105,27 @@ void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
   BOOST_AUTO_TEST_SUITE(HasNaN##_suite)                                        \
                                                                                \
   BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem1) {   \
-    hasNaNTest(addNaN, dType, startOffset + 1, 1);                             \
+    hasNaNTest(addNaN, dType, startOffset + 1, 1, false);                      \
   }                                                                            \
                                                                                \
   BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem2) {   \
-    hasNaNTest(addNaN, dType, startOffset + 2, 1);                             \
+    hasNaNTest(addNaN, dType, startOffset + 2, 1, false);                      \
   }                                                                            \
                                                                                \
   BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem3) {   \
-    hasNaNTest(addNaN, dType, startOffset + 3, 1);                             \
+    hasNaNTest(addNaN, dType, startOffset + 3, 1, false);                      \
   }                                                                            \
   BOOST_AUTO_TEST_SUITE_END()
 
 // Enumerate tests
-ENUMERATE_FULL_TEST(FLOAT, true)
-ENUMERATE_FULL_TEST(FLOAT, false)
-ENUMERATE_FULL_TEST(HALF, true)
-ENUMERATE_FULL_TEST(HALF, false)
+ENUMERATE_FULL_TEST(FLOAT, true, true)
+ENUMERATE_FULL_TEST(FLOAT, true, false)
+ENUMERATE_FULL_TEST(FLOAT, false, true)
+ENUMERATE_FULL_TEST(FLOAT, false, false)
+ENUMERATE_FULL_TEST(HALF, true, true)
+ENUMERATE_FULL_TEST(HALF, true, false)
+ENUMERATE_FULL_TEST(HALF, false, true)
+ENUMERATE_FULL_TEST(HALF, false, false)
 ENUMERATE_REM_TESTS(FLOAT, true, 0)
 ENUMERATE_REM_TESTS(FLOAT, false, 0)
 ENUMERATE_REM_TESTS(HALF, true, 0)

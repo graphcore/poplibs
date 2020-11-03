@@ -17,31 +17,58 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       const poplar::DebugContext &debugContext) {
   const auto debugPrefix = debugContext.getPathName();
   logging::popops::info("hasNaN src={}, name={}", src.shape(), debugPrefix);
+  const auto &dType = src.elementType();
 
   const auto cs = graph.addComputeSet(debugPrefix + "/hasNaN");
-  const auto vertexName = templateVertex("popops::HasNaN", src.elementType());
 
-  const auto srcFlat = src.flatten();
-
+  auto srcFlat = src.flatten();
   const auto &target = graph.getTarget();
-  const auto vectorWidth = target.getVectorWidth(src.elementType());
+  const auto vectorWidth = target.getVectorWidth(dType);
 
-  const auto &tileMapping = graph.getTileMapping(src);
+  graph.reorderToSimplify(&srcFlat, {}, false);
+  const auto srcFlatTileMap = graph.getTileMapping(srcFlat);
+
+  const auto &tileMapping = graph.getTileMapping(srcFlat);
   for (unsigned tile = 0; tile < tileMapping.size(); ++tile) {
     if (tileMapping[tile].empty()) {
       continue;
     }
 
-    const auto vertexRegions = splitRegionsBetweenWorkers(
-        target, tileMapping[tile], vectorWidth, 2 * vectorWidth);
-    for (const auto &regions : vertexRegions) {
-      assert(!regions.empty());
+    const auto tileContiguousRegions =
+        graph.getSortedContiguousRegions(srcFlat, tileMapping[tile]);
 
+    if (tileContiguousRegions.size() == 1) {
+      const auto vertexName = templateVertex("popops::HasNaNSupervisor", dType);
+      // Divide work
+      const auto grainSize = 8 / target.getTypeSize(dType);
+      const auto numWorkers = target.getNumWorkerContexts();
+      auto t = concat(srcFlat.slices(tileContiguousRegions));
+      const auto numElements = t.numElements();
+      const auto numGrains = numElements / grainSize;
+      auto extras = numElements - numGrains * grainSize;
       const auto vertex = graph.addVertex(cs, vertexName,
                                           {
-                                              {"in", srcFlat.slices(regions)},
+                                              {"in", t},
                                           });
+      graph.setInitialValue(vertex["sizeIn8BytesPerWorker"],
+                            numGrains / numWorkers);
+      graph.setInitialValue(vertex["remWorkerId"], numGrains % numWorkers);
+      graph.setInitialValue(vertex["remWorkerExtras"], extras);
       graph.setTileMapping(vertex, tile);
+    } else {
+      const auto vertexName = templateVertex("popops::HasNaN", dType);
+
+      const auto vertexRegions = splitRegionsBetweenWorkers(
+          target, tileContiguousRegions, vectorWidth, 2 * vectorWidth);
+      for (const auto &regions : vertexRegions) {
+        assert(!regions.empty());
+
+        const auto vertex = graph.addVertex(cs, vertexName,
+                                            {
+                                                {"in", srcFlat.slices(regions)},
+                                            });
+        graph.setTileMapping(vertex, tile);
+      }
     }
   }
 
