@@ -880,12 +880,14 @@ void PartitionerImpl::balanceBuckets(std::vector<PNBucket> &pnBuckets) const {
   if (forceBucketSpills) {
     std::swap(pnRanges[1], pnRanges[2]);
   }
+  logging::popsparse::info("Rebalance:");
+
   for (std::size_t pnRange : pnRanges) {
     for (bool splitColumns : {false, true}) {
       // rebalance
-      logging::popsparse::info(
-          "Rebalance : range {}, split cols ? {} non empty ? {}", pnRange,
-          splitColumns, countNonEmpty(overflowBuckets));
+      logging::popsparse::info("    : range {}, split cols ? {} non empty ? {}",
+                               pnRange, splitColumns,
+                               countNonEmpty(overflowBuckets));
       rebalance(pnRange, splitColumns);
     }
   }

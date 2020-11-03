@@ -38,16 +38,18 @@ template <typename T> struct SparsityDataImpl {
  *
  */
 template <typename T> class Partitioner {
+  std::string name;
+
 public:
   const PartitionerImpl &getImpl() const { return *impl; }
 
   Partitioner(const FullyConnectedParams &params, const poplar::Type &dataType,
               const poplar::Target &target, const poplar::OptionFlags &options,
-              PlanningCache *cache = {});
+              PlanningCache *cache = {}, std::string name = "");
 
   Partitioner(const MatMulParams &params, const poplar::Type &dataType,
               const poplar::Target &target, const poplar::OptionFlags &options,
-              PlanningCache *cache = {});
+              PlanningCache *cache = {}, std::string name = "");
 
   ~Partitioner();
 
