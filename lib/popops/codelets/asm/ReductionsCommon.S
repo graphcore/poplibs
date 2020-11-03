@@ -18,6 +18,7 @@
 #define DELTAN_BASE_BITS   20
 #define DELTAN_COUNT_BITS  12
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_BASE_BITS) - 1)
+#define DELTAN_OFFSET_MASK_COMPL (~DELTAN_OFFSET_MASK)
 #define DELTAN_OFFSET_BITS 18
 #define DELTAN_LENGTH_BITS 14
 
@@ -32,6 +33,7 @@
 #define DELTAN_BASE_BITS   24
 #define DELTAN_COUNT_BITS  8
 #define DELTAN_OFFSET_MASK ((1 << DELTAN_BASE_BITS) - 1)
+#define DELTAN_OFFSET_MASK_COMPL (~DELTAN_OFFSET_MASK)
 #define DELTAN_OFFSET_BITS 21
 #define DELTAN_LENGTH_BITS 11
 
@@ -195,15 +197,13 @@ _Reduce_load_state_process_common:
   and        $OUT_BASE, $OUT_BASE, $SCRATCH
   and        $IN_BASE, $IN_BASE, $SCRATCH
 #else
-  shr        $SCRATCH, $OUT_BASE, DELTAN_BASE_BITS
-  shl        $SCRATCH, $SCRATCH, 8
-  shr        $OUT_i_SIZE, $OUT_i_PTR, DELTAN_BASE_BITS
-  or         $OUT_i_SIZE, $OUT_i_SIZE, $SCRATCH
-  ldconst    $SCRATCH, DELTAN_OFFSET_MASK
-  and        $OUT_BASE, $OUT_BASE, $SCRATCH
-  and        $IN_BASE, $IN_BASE, $SCRATCH
-  and        $OUT_i_PTR, $OUT_i_PTR, $SCRATCH
-  and        $IN_i_PTR, $IN_i_PTR, $SCRATCH
+  shuf8x8hi  $OUT_i_SIZE, $OUT_i_PTR, $OUT_BASE
+  shr        $OUT_i_SIZE, $OUT_i_SIZE, 16
+  or         $SCRATCH, $mzero, DELTAN_OFFSET_MASK_COMPL
+  andc       $OUT_BASE, $OUT_BASE, $SCRATCH
+  andc       $IN_BASE, $IN_BASE, $SCRATCH
+  andc       $OUT_i_PTR, $OUT_i_PTR, $SCRATCH
+  andc       $IN_i_PTR, $IN_i_PTR, $SCRATCH
 #endif
 
 // ************************************************* //
