@@ -35,21 +35,20 @@ ConvParams calculateGroupedParams(ConvParams groupedParams,
                                   unsigned combineConvGroups);
 
 bool isFullyConnected(Pass pass);
-
-ConvVertexType getFullyConnectedWuConvVertexType(
-    const poplar::Target &target, Plan::Method fwdMethod,
-    unsigned fwdOutChansPerGroup, unsigned fwdInChansPerGroup,
-    const ConvParams &untransformedFwdParams, const ConvOptions &fwdOptions);
-
-ConvVertexType getFullyConnectedBwdConvVertexType(
-    const poplar::Target &target, Plan::Method fwdMethod,
-    unsigned bwdInChansPerGroup, unsigned bwdOutChansPerGroup,
-    const ConvParams &untransformedFwdParams, const ConvOptions &fwdOptions);
+Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
+                                       Plan::Method fwdMethod,
+                                       unsigned fwdOutChansPerGroups,
+                                       unsigned fwdInChansPerGroup);
+Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod);
 
 std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
                                     poplar::Type vertexOutputType,
                                     poplar::Type resultType,
                                     const ConvOptions &options);
+
+std::vector<ConvTypes> getConvTypesForDerivedJointPlan(
+    const poplar::Target &target, const ConvParams &params,
+    const ConvOptions &options, unsigned inChansPerGroup, Plan::Method method);
 
 unsigned getMaxMACsPerCyclePerTile(const poplar::Target &target,
                                    const ConvVertexType &convVertexType);

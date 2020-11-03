@@ -1925,7 +1925,7 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
   return e;
 }
 
-static Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
+Plan::Method getFullyConnectedBwdMethod(Plan::Method fwdMethod) {
   if (fwdMethod == Plan::Method::OUTER_PRODUCT) {
     return Plan::Method::HMAC;
   }
@@ -1970,33 +1970,31 @@ std::vector<ConvTypes> getConvTypes(const poplar::Target &target,
   return types;
 }
 
-ConvVertexType getFullyConnectedBwdConvVertexType(
-    const poplar::Target &target, Plan::Method fwdMethod,
-    unsigned bwdInChansPerGroup, unsigned bwdOutChansPerGroup,
-    const ConvParams &untransformedFwdParams, const ConvOptions &fwdOptions) {
-  auto bwdParams = getGradientParams(untransformedFwdParams);
-  auto bwdOptions = getGradientOptions(fwdOptions);
-  // Joint plans always swap the operands.
-  swapOperands(bwdParams);
-
-  auto bwdMethod = getFullyConnectedBwdMethod(fwdMethod);
-  if (bwdMethod == Plan::Method::VMAC || bwdMethod == Plan::Method::HMAC) {
-    return ConvVertexType(bwdMethod, bwdParams.inputType,
-                          bwdOptions.partialsType, 1, bwdInChansPerGroup,
-                          bwdOutChansPerGroup, 0, 0, true);
+std::vector<ConvTypes> getConvTypesForDerivedJointPlan(
+    const poplar::Target &target, const ConvParams &params,
+    const ConvOptions &options, unsigned inChansPerGroup, Plan::Method method) {
+  auto vertexOutputType = options.partialsType;
+  // Check if we can use a smaller partial type without affecting the result.
+  if (vertexOutputType == poplar::FLOAT && params.outputType == poplar::HALF) {
+    switch (method) {
+    case Plan::Method::AMP:
+      // If the result type is half and all the reduction is done within a
+      // single pass of the AMP unit then there is no reason to use a higher
+      // precision partial type.
+      if (params.inputChannelsPerConvGroup == inChansPerGroup &&
+          target.getFp16InFp16OutConvUnitsPerTile() ==
+              target.getFp16InFp32OutConvUnitsPerTile()) {
+        vertexOutputType = poplar::HALF;
+      }
+      break;
+    case Plan::Method::OUTER_PRODUCT:
+      vertexOutputType = poplar::HALF;
+      break;
+    default:
+      break;
+    }
   }
-  bwdOptions.planConstraints.put("method", bwdMethod);
-  if (fwdMethod == Plan::Method::AMP && bwdMethod == Plan::Method::AMP) {
-    bwdOptions.planConstraints.put("inChansPerGroup", bwdInChansPerGroup);
-    bwdOptions.planConstraints.put("partialChansPerGroup", bwdOutChansPerGroup);
-  }
-  auto bwdCandidates = getConvVertexTypeCandidates(
-      target, bwdParams.inputType, bwdParams.outputType,
-      bwdOptions.partialsType, bwdParams, bwdOptions, true);
-  // The candidates are ordered so the most promising candidate is at the
-  // front
-  assert(!bwdCandidates.empty());
-  return bwdCandidates.front();
+  return getConvTypes(target, vertexOutputType, params.outputType, options);
 }
 
 static SinglePassEstimates<popsolver::Variable>
@@ -2063,13 +2061,16 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
     bwdTransformedConvSize.push_back(bwdTS);
   }
 
-  auto bwdConvVertexType = getFullyConnectedBwdConvVertexType(
-      target, fwdConvVertexType.method, bwdPartitionVars.back().inChanGrainSize,
-      bwdPartitionVars.back().outChanGrainSize, fwdUntransformedParams,
-      fwdOptions);
   auto bwdOptions = getGradientOptions(fwdOptions);
-  auto bwdTypes = getConvTypes(target, bwdConvVertexType.partialType,
-                               bwdUntransformedParams.outputType, bwdOptions);
+  auto bwdConvVertexType = fwdConvVertexType;
+  bwdConvVertexType.inChansPerGroup = bwdPartitionVars.back().inChanGrainSize;
+  bwdConvVertexType.partialChansPerGroup =
+      bwdPartitionVars.back().outChanGrainSize;
+  bwdConvVertexType.method =
+      getFullyConnectedBwdMethod(fwdConvVertexType.method);
+  auto bwdTypes = getConvTypesForDerivedJointPlan(
+      target, bwdUntransformedParams, bwdOptions,
+      bwdConvVertexType.inChansPerGroup, bwdConvVertexType.method);
   bwdConvVertexType.partialType = bwdTypes.back().partialType;
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
@@ -2083,16 +2084,17 @@ addBwdEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
       referenceCost, bwdOptions, cache);
 }
 
-static Plan::Method getFullyConnectedWUMethod(const ConvParams &wuParams,
-                                              Plan::Method fwdMethod,
-                                              unsigned fwdOutChansPerGroups,
-                                              unsigned fwdInChansPerGroup) {
+Plan::Method getFullyConnectedWUMethod(const ConvParams &fwdParams,
+                                       Plan::Method fwdMethod,
+                                       unsigned fwdOutChansPerGroups,
+                                       unsigned fwdInChansPerGroup) {
   const auto wuInChansPerGroup = fwdOutChansPerGroups;
 
   // Avoid outer product method if the padded input channels per group are not
   // 1. This is because the current implementation of createOuterProductVertex
   // only supports channel grouping of 1.
-  if (wuParams.inputChannelsPerConvGroup == 1 && wuInChansPerGroup == 1) {
+  auto outChansAfterSwapping = fwdParams.batchSize;
+  if (outChansAfterSwapping == 1 && wuInChansPerGroup == 1) {
     return Plan::Method::OUTER_PRODUCT;
   }
   const auto wuPartialChansPerGroup = fwdInChansPerGroup;
@@ -2105,35 +2107,6 @@ static Plan::Method getFullyConnectedWUMethod(const ConvParams &wuParams,
     return Plan::Method::HMAC;
   }
   return fwdMethod;
-}
-
-ConvVertexType getFullyConnectedWuConvVertexType(
-    const poplar::Target &target, Plan::Method fwdMethod,
-    unsigned fwdOutChansPerGroup, unsigned fwdInChansPerGroup,
-    const ConvParams &untransformedFwdParams, const ConvOptions &fwdOptions) {
-  auto wuParams = getWeightUpdateParams(untransformedFwdParams);
-  // Joint plans always swap the operands.
-  swapOperands(wuParams);
-  auto wuMethod = getFullyConnectedWUMethod(
-      wuParams, fwdMethod, fwdOutChansPerGroup, fwdInChansPerGroup);
-  auto wuOptions = getWeightUpdateOptions(fwdOptions);
-  if (wuMethod == Plan::Method::VMAC || wuMethod == Plan::Method::HMAC) {
-    return ConvVertexType(wuMethod, wuParams.inputType, wuOptions.partialsType,
-                          1, fwdOutChansPerGroup, fwdInChansPerGroup, 0, 0,
-                          true);
-  }
-  wuOptions.planConstraints.put("method", wuMethod);
-  if (fwdMethod == Plan::Method::AMP && wuMethod == Plan::Method::AMP) {
-    wuOptions.planConstraints.put("inChansPerGroup", fwdOutChansPerGroup);
-    wuOptions.planConstraints.put("partialChansPerGroup", fwdInChansPerGroup);
-  }
-  auto wuCandidates = getConvVertexTypeCandidates(
-      target, wuParams.inputType, wuParams.outputType, wuOptions.partialsType,
-      wuParams, wuOptions, true);
-  // The candidates are ordered so the most promising candidate is at the
-  // front.
-  assert(!wuCandidates.empty());
-  return wuCandidates.front();
 }
 
 static SinglePassEstimates<popsolver::Variable>
@@ -2221,13 +2194,17 @@ addWuEstimates(popsolver::Model &m, const ConvParams &fwdUntransformedParams,
     wuTransformedConvSize.push_back(wuTS);
   }
 
-  auto wuConvVertexType = getFullyConnectedWuConvVertexType(
-      target, fwdConvVertexType.method, fwdConvVertexType.partialChansPerGroup,
-      fwdConvVertexType.inChansPerGroup, fwdUntransformedParams, fwdOptions);
   const auto wuOptions = getWeightUpdateOptions(fwdOptions);
-  const auto wuTypes =
-      getConvTypes(target, wuConvVertexType.partialType,
-                   fwdUntransformedParams.outputType, wuOptions);
+  auto wuConvVertexType = fwdConvVertexType;
+  wuConvVertexType.inChansPerGroup = fwdConvVertexType.partialChansPerGroup;
+  wuConvVertexType.partialChansPerGroup = fwdConvVertexType.inChansPerGroup;
+  wuConvVertexType.method = getFullyConnectedWUMethod(
+      fwdUntransformedParams, fwdConvVertexType.method,
+      fwdConvVertexType.partialChansPerGroup,
+      fwdConvVertexType.inChansPerGroup);
+  const auto wuTypes = getConvTypesForDerivedJointPlan(
+      target, wuUntransformedParams, wuOptions,
+      wuConvVertexType.inChansPerGroup, wuConvVertexType.method);
   wuConvVertexType.partialType = wuTypes.back().partialType;
 
   std::vector<std::unordered_set<unsigned>> transformedDims(
