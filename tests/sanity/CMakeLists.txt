@@ -41,6 +41,10 @@ add_unit_test(WrongSyncZone
               VARIANTS Hw
               LABELS multicard;CE_reproducers)
 
+add_unit_test(ConsistentExecutableTest
+              ConsistentExecutableTest.cpp
+              VARIANTS ${SIM_VARIANTS})
+
 if (NOT "asan" IN_LIST SANITIZERS)
   # This test causes an internal error in address sanitizer.
   # See T13392.
