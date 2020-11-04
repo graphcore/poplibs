@@ -829,7 +829,7 @@ void fillBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
 
     // For floating point, we limit the range
     HOST_DATA_TYPE absMax;
-    absMax = (dataType == HALF) ? 1000.0 : 32000.0;
+    absMax = (dataType == HALF) ? 200.0 : 32000.0;
     min1 = min2 = -absMax;
     max1 = max2 = absMax;
 
@@ -840,15 +840,20 @@ void fillBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
       max1 = max2 = 5.0;
     }
 
-    // In case of ADD,HALF we make both value positive, while for HALF,SUBTRACT
-    // the first is positive and the second negative, because subtracting two
-    // values that are very similar can gives results that are very inaccurate
-    // [for instance (1.0) + (-1.00000001)].
     if (dataType == HALF) {
+      // In case of ADD,HALF we make both value positive, while for HALF,
+      // SUBTRACT the first is positive and the second negative, because
+      // subtracting two values that are very similar can gives results that
+      // are very inaccurate [for instance (1.0) + (-1.00000001)].
       if (op == BinaryOpType::ADD) {
         min1 = min2 = 0;
       } else if (op == BinaryOpType::SUBTRACT) {
         min1 = max2 = 0;
+      } else if (op == BinaryOpType::DIVIDE) {
+        // In case of DIVIDE, HALF we must avoid overflow, so we choose a
+        // limited range for the divisor
+        min2 = 0.5;
+        max2 = 600;
       }
     }
 
