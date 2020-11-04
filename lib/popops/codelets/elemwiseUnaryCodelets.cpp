@@ -363,9 +363,14 @@ public:
 template <expr::UnaryOpType op, typename T> class UnaryOp2D : public Vertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
+  constexpr static bool isExternal() {
+    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
+  }
+
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Output<Vector<outputType, SPAN, 8>>> out;
+  IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
@@ -384,8 +389,13 @@ class UnaryOp2DInPlace : public Vertex {
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
 
+  constexpr static bool isExternal() {
+    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
+  }
+
 public:
   Vector<InOut<Vector<T, SPAN, 8>>> inOut;
+  IS_EXTERNAL_CODELET(isExternal());
 
   bool compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
@@ -678,10 +688,11 @@ DEF_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
 template <expr::UnaryOpType op, typename T> class UnaryOp1D : public Vertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
-public:
   constexpr static bool isExternal() {
     return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
   }
+
+public:
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
 
@@ -707,10 +718,11 @@ class UnaryOp1DInPlace : public Vertex {
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
 
-public:
   constexpr static bool isExternal() {
     return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
   }
+
+public:
   InOut<Vector<T, SPAN, 8>> inOut;
 
   IS_EXTERNAL_CODELET(isExternal());
