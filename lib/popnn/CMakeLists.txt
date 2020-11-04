@@ -53,6 +53,7 @@ target_link_libraries(popnn
   PRIVATE
     poplibs_support Boost::boost
     TBB::TBB
+    spdlog::spdlog_header_only
 )
 
 target_include_directories(popnn

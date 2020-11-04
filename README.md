@@ -42,11 +42,14 @@ Note: Consider using `-j8` (or similar) with `./b2` to reduce build time by incr
 
 For more information, see: https://www.boost.org/doc/libs/1_70_0/more/getting_started/unix-variants.html
 
-### Spdlog Version 0.16.3 (or compatible with)
+### Spdlog Version 1.8.0 (or compatible with)
 
-On Ubuntu 18.04:
-
-    $ apt install libspdlog-dev
+    $ git clone --branch v1.8.0 https://github.com/gabime/spdlog.git
+    $ mkdir -p spdlog/build/install
+    $ cd spdlog/build
+    $ cmake .. -DCMAKE_INSTALL_PREFIX=./install
+    $ make
+    $ make install
 
 ### Zoltan Version 3.83 (or compatible with, optional but needed to build popsparse)
 
@@ -94,7 +97,7 @@ Create `build` and `install` directories within your PopLibs source directory:
 
 Run cmake then build with Ninja:
 
-    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<absolute path Boost was installed to> -GNinja
+    $ cmake ../ -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install -DBOOST_ROOT=<absolute path Boost was installed to> -GNinja -DCMAKE_PREFIX_PATH=<absolute path Spdlog was installed to>
     $ ninja
 
 Note: if you intend to use the popsparse library you will need to have Zoltan installed as described in Build Requirements then tell cmake where to find it by adding the following to the cmake command above:

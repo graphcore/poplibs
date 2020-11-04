@@ -1,5 +1,6 @@
 include(GNUInstallDirs)
 
+find_package(spdlog 1.8.0 REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
@@ -94,6 +95,7 @@ target_link_libraries(popops
     Boost::boost
     Boost::filesystem
     Boost::system
+    spdlog::spdlog_header_only
 )
 
 target_include_directories(popops

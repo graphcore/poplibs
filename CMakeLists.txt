@@ -124,6 +124,7 @@ find_package(Boost 1.70.0 REQUIRED regex program_options filesystem unit_test_fr
 find_package(TBB REQUIRED)
 find_package(zoltan QUIET)
 find_package(Threads REQUIRED)
+find_package(spdlog 1.8.0 REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 

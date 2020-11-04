@@ -15,6 +15,7 @@ target_link_libraries(poprand
   PRIVATE
     poplibs_support popops
     Boost::boost
+    spdlog::spdlog_header_only
 )
 
 target_include_directories(poprand

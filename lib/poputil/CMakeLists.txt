@@ -1,4 +1,5 @@
 include(GNUInstallDirs)
+find_package(spdlog 1.8.0 REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(poputil SHARED
@@ -28,6 +29,7 @@ target_link_libraries(poputil
   PRIVATE
     poplibs_support
     Boost::boost
+    spdlog::spdlog_header_only
 )
 
 target_include_directories(poputil

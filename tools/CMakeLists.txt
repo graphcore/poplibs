@@ -45,6 +45,7 @@ if(TARGET popsparse)
   add_tool(bs_matmul_test bs_matmul_test.cpp)
   target_link_libraries(bs_matmul_test
     poplibs_support poplibs_test
+    spdlog::spdlog_header_only
     Boost::program_options)
 endif()
 
@@ -110,6 +111,7 @@ if (TARGET popsparse)
   target_link_libraries(sparse_fc_layer
                         poplibs_support
                         poplibs_support poplibs_test
+                        spdlog::spdlog_header_only
                         Boost::program_options)
 
   add_tool(sparse_matmul sparse_matmul.cpp)

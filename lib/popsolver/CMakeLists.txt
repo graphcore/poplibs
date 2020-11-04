@@ -18,6 +18,7 @@ target_link_libraries(popsolver
     poplibs_support
     poputil # Required because of T22741
     Boost::boost
+    spdlog::spdlog_header_only
 )
 
 target_include_directories(popsolver

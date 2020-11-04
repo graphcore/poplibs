@@ -5,7 +5,8 @@
 #include <iostream>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
-#include <spdlog/sinks/file_sinks.h>
+#include <spdlog/sinks/ansicolor_sink.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/null_sink.h>
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
@@ -92,7 +93,7 @@ std::string moduleName(Module m) {
   }
 }
 
-static std::string getPaddingForModule(Module m) {
+static std::size_t getModuleMaxLength(Module m) {
   constexpr std::array modules = {
       Module::popfloat,  Module::poplin,  Module::popnn,
       Module::popops,    Module::poprand, Module::popsolver,
@@ -101,7 +102,7 @@ static std::string getPaddingForModule(Module m) {
   for (const auto module : modules) {
     maxLength = std::max(maxLength, moduleName(module).length());
   }
-  return std::string(maxLength - moduleName(m).length(), ' ');
+  return maxLength;
 }
 
 template <typename Mutex>
@@ -113,7 +114,7 @@ void setColours(spdlog::sinks::ansicolor_sink<Mutex> &sink) {
   sink.set_color(spdlog::level::trace, brightBlack);
   sink.set_color(spdlog::level::debug, sink.cyan);
   sink.set_color(spdlog::level::warn, sink.yellow);
-  sink.set_color(spdlog::level::err, sink.red + sink.bold);
+  sink.set_color(spdlog::level::err, sink.red_bold);
 }
 
 LoggingContext::LoggingContext() {
@@ -137,8 +138,7 @@ LoggingContext::LoggingContext() {
     sink = colouredSink;
   } else {
     try {
-      sink =
-          std::make_shared<spdlog::sinks::simple_file_sink_mt>(logDest, true);
+      sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logDest, true);
     } catch (const spdlog::spdlog_ex &e) {
       std::cerr << "Error opening log file: " << e.what() << std::endl;
       throw;
@@ -162,7 +162,8 @@ LoggingContext::LoggingContext() {
 
     auto logger = std::make_unique<spdlog::logger>(moduleName(m), sink);
     logger->set_level(translate(getLogLevelForModule(m)));
-    logger->set_pattern("%T.%e %t PL:%n" + getPaddingForModule(m) + " [%L] %v");
+    logger->set_pattern("%T.%e %t PL:%-" +
+                        std::to_string(getModuleMaxLength(m)) + "n [%L] %v");
     loggers[static_cast<std::size_t>(m)] = std::move(logger);
   };
 

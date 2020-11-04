@@ -1,8 +1,6 @@
 include(GNUInstallDirs)
 
-# We actually want Spdlog 0.16.3 but the official release has incorrect version number 0.16.2.
-find_package(spdlog 0.16.2 REQUIRED)
-
+find_package(spdlog 1.8.0 REQUIRED)
 add_library(poplibs_support STATIC
   Algorithms.cpp
   codelets.cpp
@@ -34,14 +32,14 @@ add_library(poplibs_support STATIC
 
 set_property(TARGET poplibs_support PROPERTY POSITION_INDEPENDENT_CODE ON)
 
-target_link_libraries(poplibs_support
+target_link_libraries(poplibs_support PUBLIC
+    spdlog::spdlog_header_only
   PRIVATE
     Boost::boost poplar ${CMAKE_THREAD_LIBS_INIT} ${CMAKE_DL_LIBS}
 )
 
 target_include_directories(poplibs_support
   PUBLIC
-    ${SPDLOG_INCLUDE_DIRS}
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE
