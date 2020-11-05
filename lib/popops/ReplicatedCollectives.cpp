@@ -89,29 +89,43 @@ invertPermutation(const std::vector<unsigned> &permutation) {
 }
 
 // Example patterns for 8 ipus
-// Interleaved: 0, 7, 1, 6, 2, 5, 3, 4
+// Interleaved: 0, 2, 4, 6, 7, 5, 3, 1
 // Flat: 0, 1, 2, 3, 4, 5, 6, 7
-enum class RingPattern { Interleaved, Flat };
+// Serpent: 0, 1, 3, 2, 4, 5, 7, 6 or mirrored: 1, 0, 2, 3, 5, 4, 6, 7
+enum class RingPattern { Interleaved, Flat, Serpent };
 
 // Return the IPUs in clockwise direction around the ring starting at IPU 0.
 static std::vector<unsigned> createRing(const unsigned n, RingPattern pattern) {
   std::vector<unsigned> ring(n);
-  unsigned i = 0;
+  unsigned i = 0, id;
   switch (pattern) {
+  case RingPattern::Serpent:
+    std::generate(ring.begin(), ring.end(), [&] {
+      /* Note; Only relevant for replica size 1
+       * if (i == 0) { // Start at zero
+       *    id = 0;
+       * } else if ((i & 1) == 0) { // Go Up
+       *    id =+ 2;
+       * } else { // Go Side-ways
+       *    id ^= 1;
+       * }
+       */
+      id = i ^ ((i >> 1) & 1);
+      i++;
+      if (id >= n) {
+        throw poputil::poplibs_error("Index/rank beyond number of replicas");
+      }
+      return id;
+    });
+    break;
   case RingPattern::Interleaved:
-    std::generate(ring.begin(), ring.begin() + ((n + 1) / 2), [&] {
-      i += 2;
-      return i - 2;
-    });
-    if ((n & 1) != 0) {
-      i -= 3;
-    } else {
-      --i;
+    std::generate(ring.begin(), ring.begin() + ((n + 1) / 2),
+                  [&] { return 2 * i++; });
+    if ((n & 1) != 0) { // ToDo: Is odd number replica valid as Interleaved ?
+      i--;
     }
-    std::generate(ring.begin() + ((n + 1) / 2), ring.end(), [&] {
-      i -= 2;
-      return i + 2;
-    });
+    std::generate(ring.begin() + ((n + 1) / 2), ring.end(),
+                  [&] { return 2 * (--i) + 1; });
     break;
   case RingPattern::Flat:
     std::generate(ring.begin(), ring.end(), [&] { return i++ % n; });
@@ -134,12 +148,16 @@ class RingTopology {
 public:
   RingTopology(unsigned n, unsigned ipusPerReplica,
                poplar::IpuLinkTopology topology) {
-    if (topology == poplar::IpuLinkTopology::Mesh ||
-        (topology == poplar::IpuLinkTopology::Torus && ipusPerReplica == 1)) {
+    if (topology == poplar::IpuLinkTopology::Torus && ipusPerReplica == 1) {
+      // On SWNC RingPattern::Serpent only gives ~60% bandwidth of a
+      // peripheral ring. BTNC expected to perform better!
+      pattern = RingPattern::Interleaved;
+    } else if (topology == poplar::IpuLinkTopology::Torus) {
+      pattern = RingPattern::Flat;
+    } else if (topology == poplar::IpuLinkTopology::Mesh) {
       pattern = RingPattern::Interleaved;
     } else {
-      assert(topology == poplar::IpuLinkTopology::Torus);
-      pattern = RingPattern::Flat;
+      throw poputil::poplibs_error("Unrecognized topology");
     }
     ringIndexToRank = createRing(n, pattern);
     rankToRingIndex = invertPermutation(ringIndexToRank);
@@ -188,7 +206,10 @@ public:
     // this expression initialises replica id to clockwise ring index
     const auto id = [&]() {
       const auto replica = popops::expr::_1;
-      if (pattern == RingPattern::Interleaved) {
+      if (pattern == RingPattern::Serpent) {
+        // Hack: Tailing + 0 required for correct type checking
+        return (replica ^ ((replica >> 1) & 1)) + 0;
+      } else if (pattern == RingPattern::Interleaved) {
         const auto replicaMod2 = replica % 2;
         return ((replicasPerRing - 1) * replicaMod2) +
                ((replicaMod2 * -2 + 1) * (replica / 2));
