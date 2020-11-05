@@ -904,9 +904,10 @@ void createPoolingVertex(Graph &graph, const PoolParams &poolParams,
 
 // Cycle estimator call for use by the planner
 std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
-                                    const PoolConfig &poolCfg,
-                                    const ConvParams &params,
-                                    const unsigned numContexts) {
+                                    const PoolConfig &poolCfg, unsigned strideX,
+                                    unsigned numKernelPositions,
+                                    unsigned inputVectorWidth,
+                                    unsigned numContexts) {
   std::vector<std::size_t> start(tilePartition.field.size(), 0);
   PoolSlice slice = {0,     tilePartition.batch,         // Batch start, end
                      start, tilePartition.field,         // Field start, end
@@ -937,9 +938,7 @@ std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
   std::vector<unsigned short> startPos;
   std::vector<std::vector<unsigned short>> workList(numPartitions);
   unsigned index = 0;
-  unsigned strideX = params.inputTransform.dilation.back();
 
-  const unsigned numKernelPositions = product(params.kernelShape);
   for (unsigned i = 0; i < numContexts; i++) {
     for (unsigned j = 0; j < contextPartition[i].size(); j++) {
       for (unsigned k = 0; k < numKernelPositions; k++) {
@@ -954,8 +953,7 @@ std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
   }
 
   unsigned outSize = product(tilePartition.field) * tilePartition.batch;
-  const auto chansPerGroupD =
-      tilePartition.chansPerGroup / (params.inputType == HALF ? 4 : 2);
+  const auto chansPerGroupD = tilePartition.chansPerGroup / inputVectorWidth;
   // Amount of data the tile has to initialise
   auto initInfo = outSize / chansPerGroupD;
 

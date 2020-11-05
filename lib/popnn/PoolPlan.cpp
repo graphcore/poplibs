@@ -4,12 +4,12 @@
 #include "../poplin/ConvPlan.hpp"
 #include "PerformanceEstimation.hpp"
 #include "PoolVertices.hpp"
-#include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
 #include "poputil/VarStructure.hpp"
+#include <poplibs_support/Memoize.hpp>
 #include <popsolver/Model.hpp>
 
 #include <boost/range/adaptor/reversed.hpp>
@@ -127,31 +127,15 @@ static Transform getTransform(const poplar::Graph &graph,
   }
   return transform;
 }
-// Functions to cache cycle estimates using a map.  Only the Partition
-// that is passed will differ on each call so it is simpler/faster to
-// compare that instead of the content of all function parameters.
-bool operator<(const Partition &lhs, const Partition &rhs) {
-  const auto helper = poplibs_support::makeStructHelper(
-      &Partition::field, &Partition::kernel, &Partition::batch,
-      &Partition::chanGroups, &Partition::chansPerGroup);
-  return helper.lt(lhs, rhs);
-}
+// Functions to cache cycle estimates using a map. We need std::hash and ==
+// operator to be implemented in order to memoize
 
-using EstimateCache = std::map<Partition, std::uint64_t>;
-std::size_t cachedPoolVertexCycleEstimate(const Partition &tilePartition,
-                                          const PoolConfig &poolCfg,
-                                          const poplin::ConvParams &params,
-                                          const unsigned numContexts,
-                                          EstimateCache &cache) {
-  auto cached = cache.find(tilePartition);
-  if (cached == cache.end()) {
-    const auto result =
-        poolVertexCycleEstimate(tilePartition, poolCfg, params, numContexts);
-    cache.insert(std::make_pair(tilePartition, result));
-    return result;
-  }
-  return cached->second;
-}
+class EstimateCache {
+public:
+  decltype(poplibs_support::memoize(
+      poolVertexCycleEstimate)) mPoolVertexCycleEstimate;
+  EstimateCache() : mPoolVertexCycleEstimate(poolVertexCycleEstimate) {}
+};
 
 std::uint64_t getNumberOfOperations(const poplin::ConvParams &params) {
   // The operations used in pooling can be calculated in a similar way to
@@ -267,8 +251,14 @@ static popsolver::Variable constructModel(
         //      perTile->kernel[d] = ConvParams::kernelShape[d] / kernelSplit[d]
         Partition perTile = makePartition(values, fieldShape.size());
 
-        auto computeCost = cachedPoolVertexCycleEstimate(
-            perTile, poolCfg, params, target.getNumWorkerContexts(), cache);
+        const unsigned strideX = params.inputTransform.dilation.back();
+        const unsigned numKernelPositions = product(params.kernelShape);
+        const unsigned inputVectorWidth =
+            params.inputType == poplar::HALF ? 4 : 2;
+        const unsigned workers = target.getNumWorkerContexts();
+        auto computeCost = cache.mPoolVertexCycleEstimate(
+            perTile, poolCfg, strideX, numKernelPositions, inputVectorWidth,
+            workers);
         // Where the field was divided it was rounded up.  For plans where
         // that is not exact, the tiles which take the rounded down field
         // pieces can use more cycles.  This could be true for any dimension, so
@@ -281,10 +271,10 @@ static popsolver::Variable constructModel(
           if (fieldShape[i] % perTile.field[i]) {
             auto altPerTile = perTile;
             altPerTile.field[i] -= 1;
-            computeCost = std::max(computeCost,
-                                   cachedPoolVertexCycleEstimate(
-                                       altPerTile, poolCfg, params,
-                                       target.getNumWorkerContexts(), cache));
+            computeCost = std::max(computeCost, cache.mPoolVertexCycleEstimate(
+                                                    altPerTile, poolCfg,
+                                                    strideX, numKernelPositions,
+                                                    inputVectorWidth, workers));
           }
         }
         // But the partitioned field size is the output, we'll be exchanging

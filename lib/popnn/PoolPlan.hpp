@@ -3,8 +3,10 @@
 #ifndef popnn_PoolPlan_hpp
 #define popnn_PoolPlan_hpp
 
+#include "poplibs_support/StructHelper.hpp"
 #include "poplin/Convolution.hpp"
 #include "popnn/Pooling.hpp"
+#include <boost/functional/hash.hpp>
 #include <ostream>
 #include <poplar/Graph.hpp>
 #include <vector>
@@ -43,6 +45,12 @@ struct PoolConfig {
 
   PoolConfig(PoolingType type, PoolPass pass, bool scaledGradient)
       : type(type), pass(pass), scaledGradient(scaledGradient) {}
+
+  bool operator==(const PoolConfig &other) const {
+    const auto helper = poplibs_support::makeStructHelper(
+        &PoolConfig::type, &PoolConfig::pass, &PoolConfig::scaledGradient);
+    return helper.eq(*this, other);
+  }
 };
 
 struct Transform {
@@ -88,6 +96,12 @@ struct Partition {
       perTile.kernel.push_back((kernelShape[i] + kernel[i] - 1) / kernel[i]);
     }
     return perTile;
+  }
+  bool operator==(const Partition &other) const {
+    const auto helper = poplibs_support::makeStructHelper(
+        &Partition::field, &Partition::kernel, &Partition::batch,
+        &Partition::chanGroups, &Partition::chansPerGroup);
+    return helper.eq(*this, other);
   }
 };
 
@@ -144,5 +158,27 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
 
 } // namespace pooling
 } // namespace popnn
+
+template <> struct std::hash<popnn::pooling::Partition> {
+  std::size_t operator()(popnn::pooling::Partition const &input) const {
+    std::size_t result = 0;
+    boost::hash_combine(result, input.field);
+    boost::hash_combine(result, input.kernel);
+    boost::hash_combine(result, input.batch);
+    boost::hash_combine(result, input.chanGroups);
+    boost::hash_combine(result, input.chansPerGroup);
+    return result;
+  }
+};
+
+template <> struct std::hash<popnn::pooling::PoolConfig> {
+  std::size_t operator()(popnn::pooling::PoolConfig const &input) const {
+    std::size_t result = 0;
+    boost::hash_combine(result, input.type);
+    boost::hash_combine(result, input.pass);
+    boost::hash_combine(result, input.scaledGradient);
+    return result;
+  }
+};
 
 #endif // #ifndef popnn_PoolPlan_hpp
