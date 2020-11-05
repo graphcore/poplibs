@@ -1384,11 +1384,11 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     // If the grouping in the operand is incompatible with that of the output,
     // we copy to a better laid out tensor of the same (unbroadcasted) shape
     // for the upcoming broadcast operation.
-    if (gcd(outGrouping[0].second, operandGrouping) == 1) {
+    const auto vectorWidth = target.getVectorWidth(dType);
+    if (gcd(outGrouping[0].second, operandGrouping) % vectorWidth != 0) {
       // Factor unbroadcasted dimensions out of output
       const auto unbroadcastShape = unbroadcastOperand.shape();
       auto outFactored = factorDims(out, unbroadcastShape);
-
       // createBroadcastOperand works with a flattened view of the
       // dimensions of the input tensor which are to be broadcast, with
       // all other dimensions being 1. Work out the shape we want to recover
