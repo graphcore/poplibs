@@ -45,8 +45,7 @@
 
 // Naming / name mangling
 #define MANGLE_STR_COMMON(SUFFIX) __runCodelet_popops__UnaryOpCommon_##SUFFIX
-#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__UnaryOpType__\OPERATION\()_float
-#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__UnaryOpType__\OPERATION\()_half
+#define MANGLE_STR __runCodelet_popops__\VERTEX_NAME\()___popops__expr__UnaryOpType__\OPERATION\()_\TYPE
 
 // The function stubs for the actual operations
 #include "unaryOpsOps.h.S"
@@ -55,16 +54,16 @@
 // Entry stub macros, one per operation:
 // inplace/non-inplace
 //******************************************************************************
-.macro INSTANTIATE_2D_HALF NAME_STR INPLACE_STR OPERATION
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
+.macro INSTANTIATE_2D TYPE VARIANT VERTEX_NAME OPERATION
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 .align 4
 
-MANGLE_STR_HALF:
+MANGLE_STR:
   // load vertex state
-.ifc "\INPLACE_STR", "UnaryOp2DInPlace"
+.ifc "\VERTEX_NAME", "UnaryOp2DInPlace"
   ld32 $outPtrPtr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_PTR_OFFSET/4
   ld32 $outerLoops, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_COUNT_OFFSET/4
 .else
@@ -75,33 +74,33 @@ MANGLE_STR_HALF:
 
   // Load pointers to the main loop, 1 of and 2 of functions
 .ifc "\OPERATION","SIGNUM"
-  LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM \NAME_STR \OPERATION
+  LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM \VARIANT \OPERATION
 .else
-  LOAD_FUNCTION_PTRS \NAME_STR \OPERATION
+  LOAD_FUNCTION_PTRS \VARIANT \OPERATION
 .endif
-  // We need a slightly 2D vector loop for inplace and non-inplace versions,
-  // so set up a function pointer for that but jump into the
-  setzi $m2DVectorLoop, unary_op_worker_2D_half_framework_\INPLACE_STR
-  brnzdec $outerLoops, unary_op_worker_2D_half_framework
+  // We need a slightly different 2D vector loop for inplace and non-inplace versions,
+  // so set up a function pointer for that.
+  setzi $m2DVectorLoop, unary_op_worker_2D_4x16bit_framework_\VERTEX_NAME
+  brnzdec $outerLoops, unary_op_worker_2D_4x16bit_framework
   exitz $mzero
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 //******************************************************************************
 // General processing structure for half - 2D worker vertices
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(half_processing_2D)
+.section .text.MANGLE_STR_COMMON(4x16bit_processing_2D)
 .align 4
-unary_op_worker_2D_half_framework:
+unary_op_worker_2D_4x16bit_framework:
   // Load pointers to the inner 2D output (or in-out) vectors and associated
   // counter
   ld32step $outPtr, $mzero, $outPtrPtr+=, 1
   ld32step $outCount, $mzero, $outPtrPtr+=, 1
   br       $m2DVectorLoop
-unary_op_worker_2D_half_framework_UnaryOp2DInPlace:
+unary_op_worker_2D_4x16bit_framework_UnaryOp2DInPlace:
   mov      $inPtr, $outPtr
   bri      1f
-unary_op_worker_2D_half_framework_UnaryOp2D:
+unary_op_worker_2D_4x16bit_framework_UnaryOp2D:
   ld32step $inPtr, $mzero, $inPtrPtr+=, 1
 1:
   shr      $mloops, $outCount, LOG2_HALF_VECTOR_WIDTH
@@ -110,19 +109,21 @@ unary_op_worker_2D_half_framework_UnaryOp2D:
   // Also skip loop if nothing to do
   brnzdec $mloops, 1f
   // Continue as there may be trailing 1-of or 2-of even if no inner loop is run
-  bri inner_loop_half_return_2D
+  bri 2f
 1:
   // Call the inner loop
   br $mloopFn
 
-inner_loop_half_return_2D:
+inner_loop_4x16bit_return_2D:
+  st64step $a2:3, $mzero, $outPtr+=, 1
+2:
   and $mscratch, $outCount, 2
   brz $mscratch, 4f
   // Process a remaining pair
   ld32step $a0, $mzero, $inPtr+=,1
   br $mprocess2Fn
 
-process_2_half_return_2D:
+process_2_4x16bit_return_2D:
   st32step $a0, $mzero, $outPtr+=, 1
 4:
   and $mscratch, $outCount, 1
@@ -131,28 +132,34 @@ process_2_half_return_2D:
   ldb16 $a0, $mzero, $inPtr, 0
   br $mprocess1Fn
 
-process_1_half_return_2D:
+process_1_4x16bit_return_2D:
   sort4x16lo $a0, $a0, $a1
   st32 $a0, $mzero, $outPtr, 0
 3:
-  brnzdec $outerLoops, unary_op_worker_2D_half_framework
+  brnzdec $outerLoops, unary_op_worker_2D_4x16bit_framework
   exitz $mzero
-.size MANGLE_STR_COMMON(half_processing_2D), . -unary_op_worker_2D_half_framework
+.size MANGLE_STR_COMMON(4x16bit_processing_2D), . -unary_op_worker_2D_4x16bit_framework
 
 //******************************************************************************
 // Use the macros above to create vertex entry points
 //******************************************************************************
 
-INSTANTIATE_2D_HALF 2D UnaryOp2D SIGNUM
-INSTANTIATE_2D_HALF 2D UnaryOp2DInPlace SIGNUM
+INSTANTIATE_2D half 2D UnaryOp2D SIGNUM
+INSTANTIATE_2D half 2D UnaryOp2DInPlace SIGNUM
 
+INSTANTIATE_2D short 2D UnaryOp2D BITWISE___NOT
+INSTANTIATE_2D short 2D UnaryOp2DInPlace BITWISE___NOT
+INSTANTIATE_2D unsigned_short 2D UnaryOp2D BITWISE___NOT
+INSTANTIATE_2D unsigned_short 2D UnaryOp2DInPlace BITWISE___NOT
 //******************************************************************************
 // Use the macros above to create each individual operation code
 //******************************************************************************
 
-// Just a signum function for now, but other operations can be supported by the
-// framework
-INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM 2D 1
+// Signum specific
+INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM SIGNUM 2D 1
+
+// General - just NOT at the momnent, supporting short and unsigned_short
+INSTANTIATE_UNARY_OP_4x16bit_PROCESSING BITWISE___NOT not64 2D 1
 
 #endif
 /* -------------------------------------------------------------------------- */

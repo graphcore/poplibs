@@ -110,8 +110,8 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     // NOT on AUX side, ldst64pace
     {{UnaryOpType::BITWISE_NOT, INT}, {1, true}},
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_INT}, {1, true}},
-    {{UnaryOpType::BITWISE_NOT, SHORT}, {4, false, 2}},
-    {{UnaryOpType::BITWISE_NOT, UNSIGNED_SHORT}, {4, false, 2}},
+    {{UnaryOpType::BITWISE_NOT, SHORT}, {2, false, 4}},
+    {{UnaryOpType::BITWISE_NOT, UNSIGNED_SHORT}, {2, false, 4}},
     // use mul with 1.0 and use correct rounding mode
     {{UnaryOpType::CEIL, FLOAT}, {2, true}},
     {{UnaryOpType::CEIL, HALF}, {2, true}},
@@ -192,8 +192,8 @@ inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
     // NOT on AUX side, ldst64pace
     {{UnaryOpType::BITWISE_NOT, INT}, {1, true}},
     {{UnaryOpType::BITWISE_NOT, UNSIGNED_INT}, {1, true}},
-    {{UnaryOpType::BITWISE_NOT, SHORT}, {4, false, 2}},
-    {{UnaryOpType::BITWISE_NOT, UNSIGNED_SHORT}, {4, false, 2}},
+    {{UnaryOpType::BITWISE_NOT, SHORT}, {2, false, 4}},
+    {{UnaryOpType::BITWISE_NOT, UNSIGNED_SHORT}, {2, false, 4}},
     // use mul with 1.0 and use correct rounding mode
     {{UnaryOpType::CEIL, FLOAT}, {2, true}},
     {{UnaryOpType::CEIL, HALF}, {2, true}},

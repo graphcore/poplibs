@@ -14,7 +14,7 @@
 /* -------------------------------------------------------------------------- */
 
 // Naming / name mangling
-#define MANGLE_STR_MACRO(SUFFIX) __runCodelet_popops__UnaryOpCommon_\NAME_STR\()_##SUFFIX
+#define MANGLE_STR_MACRO(SUFFIX) __runCodelet_popops__UnaryOpCommon_\VARIANT\()_\OP\()_##SUFFIX
 
 // Constants
 #define HALF_MINUS_ONE 0xbc00
@@ -25,18 +25,18 @@
 // Load SIGNUM specific constants - operation described in the SIGNUM loop
 // Can be bundled with the load of function pointers for loop, 1-of and 2-of
 // processing
-.macro   LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM NAME_STR OPERATION
-  {setzi $mloopFn, unary_op_loop_half_\NAME_STR\()_\OPERATION
+.macro   LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM VARIANT OPERATION
+  {setzi $mloopFn, unary_op_loop_4x16bit_\VARIANT\()_\OPERATION
    setzi $a6, HALF_MINUS_ONE}
 
-  {setzi $mprocess1Fn, unary_op_process_1_half_\NAME_STR\()_\OPERATION
+  {setzi $mprocess1Fn, unary_op_process_1_4x16bit_\VARIANT\()_\OPERATION
    sort4x16lo $a6,$a6,$a6}
-  {setzi $mprocess2Fn, unary_op_process_2_half_\NAME_STR\()_\OPERATION
+  {setzi $mprocess2Fn, unary_op_process_2_4x16bit_\VARIANT\()_\OPERATION
    mov  $a7,$a6}
 .endm
 
-// Actual loop, 1-of and 2-of processign functions for SIGNUM
-.macro INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM NAME_STR STRIDE
+// Actual loop, 1-of and 2-of processing functions for SIGNUM
+.macro INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM OP VARIANT STRIDE
   // SIGNUM : x < 0  : -1
   //          x == 0 : 0
   //          x >  0 : 1
@@ -50,8 +50,8 @@
 
 .section .text.MANGLE_STR_MACRO(half_loop)
 .align 8
-unary_op_loop_half_\NAME_STR\()_SIGNUM:
-   // Pre load and process we can pipeline the loop
+unary_op_loop_4x16bit_\VARIANT\()_\OP:
+   // Pre load and process so we can pipeline the loop
   ld64step $a0:1, $mzero, $inPtr+=, \STRIDE
   f16v4cmplt $a2:3, $a0:1, $azeros
   f16v4cmplt $a4:5, $azeros, $a0:1
@@ -71,16 +71,15 @@ unary_op_loop_half_\NAME_STR\()_SIGNUM:
     {nop
      and64 $a4:5, $a4:5, $a6:7}
 2:
-  // Complete processing the last one and store
-  f16v4sub $a2:3,$a2:3,$a4:5
-  st64step $a2:3, $mzero, $outPtr+=, \STRIDE
-  bri inner_loop_half_return_\NAME_STR
-.size MANGLE_STR_MACRO(half_loop), . -unary_op_loop_half_\NAME_STR\()_SIGNUM
-//******************************************************
+  // Complete processing the last one, stored after return
+  {bri inner_loop_4x16bit_return_\VARIANT
+   f16v4sub $a2:3,$a2:3,$a4:5}
+.size MANGLE_STR_MACRO(half_loop), . -unary_op_loop_4x16bit_\VARIANT\()_\OP
 
+//******************************************************
 .section .text.MANGLE_STR_MACRO(half_instr)
 .align 4
-unary_op_process_2_half_\NAME_STR\()_SIGNUM:
+unary_op_process_2_4x16bit_\VARIANT\()_\OP:
   f16v2cmplt $a2,$a0,$azero
   f16v2cmplt $a4, $azero, $a0
   // and64 is just a logical operation and doesn't produce exceptions so no
@@ -88,10 +87,10 @@ unary_op_process_2_half_\NAME_STR\()_SIGNUM:
   // time we get here
   and64 $a2:3, $a2:3, $a6:7
   and64 $a4:5, $a4:5, $a6:7
-  {bri process_2_half_return_\NAME_STR
+  {bri process_2_4x16bit_return_\VARIANT
    f16v2sub $a0, $a2, $a4}
 
-unary_op_process_1_half_\NAME_STR\()_SIGNUM:
+unary_op_process_1_4x16bit_\VARIANT\()_\OP:
   // Load value to combine and store after returning
   // Input is a single half but broadcast so v2 ops are not overprocessing
   {ldb16 $a1, $mzero, $outPtr, 1
@@ -102,21 +101,61 @@ unary_op_process_1_half_\NAME_STR\()_SIGNUM:
   // time we get here
   and64 $a2:3, $a2:3, $a6:7
   and64 $a4:5, $a4:5, $a6:7
-  {bri process_1_half_return_\NAME_STR
+  {bri process_1_4x16bit_return_\VARIANT
    f16v2sub $a0, $a2, $a4}
-.size MANGLE_STR_MACRO(half_instr), . -unary_op_process_2_half_\NAME_STR\()_SIGNUM
+.size MANGLE_STR_MACRO(half_instr), . -unary_op_process_2_4x16bit_\VARIANT\()_\OP
 .endm
 
 //******************************************************************************
 // Macros for generic functions - if no constants to be loaded this can
 // used to set up the pointers to loop, 2-of and 1-of functions
 //******************************************************************************
-.macro   LOAD_FUNCTION_PTRS NAME_STR OPERATION
+.macro   LOAD_FUNCTION_PTRS VARIANT OPERATION
   // If we use this framework for other operations, there may be no constant
   // load required
-  setzi $mloopFn, unary_op_loop_half_\NAME_STR\()_\OPERATION
-  setzi $mprocess1Fn, unary_op_process_1_half_\NAME_STR\()_\OPERATION
-  setzi $mprocess2Fn, unary_op_process_2_half_\NAME_STR\()_\OPERATION
+  setzi $mloopFn, unary_op_loop_4x16bit_\VARIANT\()_\OPERATION
+  setzi $mprocess1Fn, unary_op_process_1_4x16bit_\VARIANT\()_\OPERATION
+  setzi $mprocess2Fn, unary_op_process_2_4x16bit_\VARIANT\()_\OPERATION
+.endm
+
+// Actual loop, 1-of and 2-of processing functions
+.macro INSTANTIATE_UNARY_OP_4x16bit_PROCESSING OP INSTR VARIANT STRIDE
+.section .text.MANGLE_STR_MACRO(4x16bit_loop)
+.align 8
+  nop   // rpt alignment
+unary_op_loop_4x16bit_\VARIANT\()_\OP:
+  // Pre load and process so we can pipeline the loop
+  ld64step $a0:1, $mzero, $inPtr+=, \STRIDE
+  {rpt $mloops, (2f - 1f)/8 -1
+   \INSTR $a2:3, $a0:1}
+1:
+    {ld64step $a0:1, $mzero, $inPtr+=, \STRIDE
+     fnop}
+    {st64step $a2:3, $mzero, $outPtr+=, \STRIDE
+     \INSTR $a2:3, $a0:1}
+2:
+  // Last result is stored on return
+  bri inner_loop_4x16bit_return_\VARIANT
+.size MANGLE_STR_MACRO(4x16bit_loop), . -unary_op_loop_4x16bit_\VARIANT\()_\OP
+
+//******************************************************
+.section .text.MANGLE_STR_MACRO(4x16bit_instr)
+.align 4
+unary_op_process_2_4x16bit_\VARIANT\()_\OP:
+  // This is coded in a general way but may only be OK for NOT as, being a
+  // logical operation it is OK to process the garbage that may be in the
+  // unused registers.  For half, and floating point instructions this could
+  // cause an exception
+  {bri process_2_4x16bit_return_\VARIANT
+   \INSTR $a0:1, $a0:1}
+
+unary_op_process_1_4x16bit_\VARIANT\()_\OP:
+  \INSTR $a0:1, $a0:1
+  // Load value to combine and store after returning
+  ldb16 $a1, $mzero, $outPtr, 1
+  bri process_1_4x16bit_return_\VARIANT
+
+.size MANGLE_STR_MACRO(4x16bit_instr), . -unary_op_process_2_4x16bit_\VARIANT\()_\OP
 .endm
 
 #endif

@@ -43,8 +43,7 @@
 
 // Naming / name mangling
 #define MANGLE_STR_COMMON(SUFFIX) __runCodelet_popops__UnaryOpCommon_##SUFFIX
-#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__UnaryOpType__\OPERATION\()_float
-#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__UnaryOpType__\OPERATION\()_half
+#define MANGLE_STR __runCodelet_popops__\VERTEX_NAME\()___popops__expr__UnaryOpType__\OPERATION\()_\TYPE
 
 // The function stubs for the actual operations
 #include "unaryOpsOps.h.S"
@@ -53,16 +52,16 @@
 // Entry stub macros, one per operation:
 // inplace/non-inplace
 //******************************************************************************
-.macro INSTANTIATE_UNARY_OP_HALF NAME_STR INPLACE_STR OPERATION
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
+.macro INSTANTIATE_UNARY_OP TYPE VARIANT VERTEX_NAME OPERATION
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 .align 4
 
-MANGLE_STR_HALF:
+MANGLE_STR:
   // load vertex state
-.ifc "\INPLACE_STR", "UnaryOp1DInPlace"
+.ifc "\VERTEX_NAME", "UnaryOp1DInPlace"
   ld32 $inPtr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $outCount, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_COUNT_OFFSET/4
   mov  $outPtr, $inPtr
@@ -75,12 +74,12 @@ MANGLE_STR_HALF:
 
   // Load pointers to the main loop, 1 of and 2 of functions
 .ifc "\OPERATION","SIGNUM"
-  LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM \NAME_STR \OPERATION
+  LOAD_FUNCTION_PTRS_AND_CONSTANTS_SIGNUM \VARIANT \OPERATION
 .else
-  LOAD_FUNCTION_PTRS \NAME_STR \OPERATION
+  LOAD_FUNCTION_PTRS \VARIANT \OPERATION
 .endif
-  bri unary_op_worker_half_framework
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
+  bri unary_op_worker_4x16bit_framework
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 //******************************************************************************
@@ -111,11 +110,11 @@ fn_divide_work\DIVISOR\():
 .endm
 
 //******************************************************************************
-// General processing structure for half
+// General processing structure for vectorised 4x16bit data types
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(half_processing)
+.section .text.MANGLE_STR_COMMON(4x16bit_processing)
 .align 4
-unary_op_worker_half_framework:
+unary_op_worker_4x16bit_framework:
   ld64step $a0:1, $mzero, $inPtr+=, $workerIdM1
   ld64step $a0:1, $mzero, $outPtr+=, $workerIdM1
   // Don't use the inner loop section of code at all if the result isn't needed
@@ -124,11 +123,13 @@ unary_op_worker_half_framework:
   // Also skip loop if nothing to do
   // This way is fast if we are going to use the inner loop
   brnzdec $mloops, 1f
-  bri inner_loop_half_return_1D
+  bri 2f
 1:
   br $mloopFn
 
-inner_loop_half_return_1D:
+inner_loop_4x16bit_return_1D:
+  st64step $a2:3, $mzero, $outPtr+=, NUM_WORKERS
+2:
   // Here we have done all groups of 3 halves for every worker, no overread.
   // Use the worker which is pointing to the next half to process the last 3
   // (if needed).  This is simple, but would using the last worker
@@ -145,7 +146,7 @@ inner_loop_half_return_1D:
   ld32step $a0, $mzero, $inPtr+=,1
   br $mprocess2Fn
 
-process_2_half_return_1D:
+process_2_4x16bit_return_1D:
   st32step $a0, $mzero, $outPtr+=, 1
 4:
   and $mscratch, $outCount, 1
@@ -154,20 +155,24 @@ process_2_half_return_1D:
   ldb16 $a0, $mzero, $inPtr, 0
   br $mprocess1Fn
 
-process_1_half_return_1D:
+process_1_4x16bit_return_1D:
   sort4x16lo $a0, $a0, $a1
   st32 $a0, $mzero, $outPtr, 0
 3:
   exitz $mzero
-.size MANGLE_STR_COMMON(half_processing), . -unary_op_worker_half_framework
+.size MANGLE_STR_COMMON(4x16bit_processing), . -unary_op_worker_4x16bit_framework
 
 //******************************************************************************
 // Use the macros above to create vertex entry points
 //******************************************************************************
 
-INSTANTIATE_UNARY_OP_HALF 1D UnaryOp1D SIGNUM
-INSTANTIATE_UNARY_OP_HALF 1D UnaryOp1DInPlace SIGNUM
+INSTANTIATE_UNARY_OP half 1D UnaryOp1D SIGNUM
+INSTANTIATE_UNARY_OP half 1D UnaryOp1DInPlace SIGNUM
 
+INSTANTIATE_UNARY_OP short 1D UnaryOp1D BITWISE___NOT
+INSTANTIATE_UNARY_OP short 1D UnaryOp1DInPlace BITWISE___NOT
+INSTANTIATE_UNARY_OP unsigned_short 1D UnaryOp1D BITWISE___NOT
+INSTANTIATE_UNARY_OP unsigned_short 1D UnaryOp1DInPlace BITWISE___NOT
 //******************************************************************************
 // Use the macros above to create code that can be shared between different
 // opertations using this framework
@@ -179,9 +184,10 @@ UNARY_OP_DIVIDE_WORK 20 24 LOG2_HALF_ATOM_SIZE
 // Use the macros above to create each individual operation code
 //******************************************************************************
 
-// Just a signum function for now, but other operations can be supported by the
-// framework
-INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM 1D 6
+// Signum specific
+INSTANTIATE_UNARY_OP_HALF_PROCESSING_SIGNUM SIGNUM 1D NUM_WORKERS
 
+// General - just NOT at the momnent, supporting short and unsigned_short
+INSTANTIATE_UNARY_OP_4x16bit_PROCESSING BITWISE___NOT not64 1D NUM_WORKERS
 #endif
 /* -------------------------------------------------------------------------- */

@@ -483,7 +483,12 @@ public:
 #endif
 
 template <UnaryOpType op, typename T> constexpr static bool isExternal() {
-  return op == UnaryOpType::SIGNUM && std::is_same<T, half>::value;
+  const bool isExternalSIGNUM =
+      op == UnaryOpType::SIGNUM && std::is_same<T, half>::value;
+  const bool isExternalBITWISE =
+      op == UnaryOpType::BITWISE_NOT &&
+      (std::is_same<T, short>::value || std::is_same<T, unsigned short>::value);
+  return isExternalSIGNUM || isExternalBITWISE;
 }
 
 template <expr::UnaryOpType op, typename T> class UnaryOp2D : public Vertex {
