@@ -101,6 +101,7 @@ int main(int argc, char **argv) try {
   boost::optional<unsigned> tilesPerIPU;
   Pass pass = Pass::FWD;
   std::string matmulOptionsString;
+  std::string planConstraintsString;
   double sparsityFactor;
   ShapeOption<std::size_t> weightedAreaBegin;
   ShapeOption<std::size_t> weightedAreaEnd;
@@ -170,6 +171,9 @@ int main(int argc, char **argv) try {
     ("matmul-options", po::value<std::string>(&matmulOptionsString),
      "Options to use for the matrix multiplication, specified as a JSON "
      "string, e.g. {\"key\":\"value\"}")
+    ("plan-constraints", po::value<std::string>(&planConstraintsString),
+     "Plan constraints to use for the matrix multiplication, specified as "
+     "a JSON string")
     ("report-dense-gradw-serial-splits",
       po::value<bool>(&denseGradWSerialSplits)->
         default_value(denseGradWSerialSplits),
@@ -257,6 +261,9 @@ int main(int argc, char **argv) try {
   // User options specified via --matmul-options override defaults
   if (!matmulOptionsString.empty()) {
     poplar::readJSON(matmulOptionsString, options);
+  }
+  if (!planConstraintsString.empty()) {
+    options.set("planConstraints", planConstraintsString);
   }
 
   auto device = tilesPerIPU

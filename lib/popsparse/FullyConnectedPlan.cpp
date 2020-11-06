@@ -136,9 +136,6 @@ public:
     }
   }
 
-  // TODO: How to represent the idea of super-tile send/receive in the
-  // estimator? Just provide a method to getCycles which specifies some
-  // properties of the exchange pattern?
   popsolver::Variable operator()(const popsolver::Variable mNumBytes,
                                  const unsigned level,
                                  const std::string &debugName = "") const {
@@ -289,6 +286,39 @@ struct PartitionVariables {
 
 } // end anonymous namespace
 
+static popsolver::Variable getArePartitionsOnConsecutivePNs(
+    popsolver::Model &m, const PartitionVariables &p,
+    const PartitionToPNMapping &mapping, unsigned level, const unsigned dim) {
+  const auto &order = mapping.getLinearisationOrder().asStdVector<unsigned>();
+  const auto &partition = p.partition[level].asStdVector();
+  // Inverse order contains the ordering of dimensions as they
+  // are linearised.
+  std::vector<unsigned> inverseOrder(order.size());
+  std::iota(inverseOrder.begin(), inverseOrder.end(), 0);
+  for (std::size_t i = 0; i < order.size(); ++i) {
+    inverseOrder[order[i]] = i;
+  }
+
+  // Partitions are on consecutive tiles if the product of all
+  // partitions of inner dimensions in the ordering is 1.
+  std::vector<popsolver::Variable> innerPartitions = {m.one()};
+  for (std::size_t i = order[dim] + 1; i < inverseOrder.size(); ++i) {
+    innerPartitions.push_back(partition[inverseOrder[i]]);
+  }
+  const auto mInnerPartitionsProduct = m.product(innerPartitions);
+  const auto mInnerPartitionsProductM1 =
+      m.sub(mInnerPartitionsProduct, m.one());
+  // Re-ify (mInnerPartitionsProduct == 1) to a boolean represented by 0/1
+  return m.sub(m.one(), m.min({m.one(), mInnerPartitionsProductM1}));
+}
+
+// This cost covers:
+// * Pre-distribution exchange i.e. exchange of dense input to the fc layer
+//   potentially broadcast across partitions of X.
+// * Distribution exchange i.e. exchange of buckets required to complete
+//   computation assuming a perfectly uniform distribution of sparsity.
+//   In practice this means the exchange cost to broadcast each bucket on
+//   each PN within a SORG to all PNs within a SORG.
 static std::tuple<CostVariables, popsolver::Variable, popsolver::Variable>
 addDistributionExchangeCostSparseDense(
     popsolver::Model &m, const Target &target, const Type &inputType,
@@ -387,32 +417,16 @@ addDistributionExchangeCostSparseDense(
     // partitions of x will be on neighbouring tiles and input S could be
     // broadcast. Alternatively if there is only 1 partition of x then
     // 2 partitions of z will be on neighbouring tiles.
-    popsolver::Variable mSConsecutiveTilesReceivingSameData,
-        mRConsecutiveTilesReceivingSameData;
-    const auto &linearisationOrder = mapping.getLinearisationOrder();
-    if (linearisationOrder.x == 3 && linearisationOrder.z == 2) {
-      mSConsecutiveTilesReceivingSameData = p.partition[level].x;
-      // Only if X is not partitioned can we broadcast R.
-      const auto mXPartitionsM1 = m.sub(p.partition[level].x, m.one());
-      const auto mRCanBeBroadcast =
-          m.sub(m.one(), m.min({m.one(), mXPartitionsM1}));
-      const auto mZPartitionsM1 = m.sub(p.partition[level].z, m.one());
-      mRConsecutiveTilesReceivingSameData =
-          m.sum({m.one(), m.product({mRCanBeBroadcast, mZPartitionsM1})});
-    } else if (linearisationOrder.y == 3 && linearisationOrder.z == 2) {
-      // S is extremely unlikely to be broadcastable unless only X is
-      // partitioned in the plan so just assuming 1.
-      mSConsecutiveTilesReceivingSameData = m.one();
-      // Only if Y is not partitioned can we broadcast R.
-      const auto mYPartitionsM1 = m.sub(p.partition[level].y, m.one());
-      const auto mRCanBeBroadcast =
-          m.sub(m.one(), m.min({m.one(), mYPartitionsM1}));
-      const auto mZPartitionsM1 = m.sub(p.partition[level].z, m.one());
-      mRConsecutiveTilesReceivingSameData =
-          m.sum({m.one(), m.product({mRCanBeBroadcast, mZPartitionsM1})});
-    } else {
-      throw poputil::poplibs_error("Unhandled mapping linearisation order");
-    }
+    const auto mXPartitionsOnConsecutiveTiles =
+        getArePartitionsOnConsecutivePNs(m, p, mapping, level, 1 /* X */);
+    const auto mSConsecutiveTilesReceivingSameData = m.max(
+        {m.one(),
+         m.product({mXPartitionsOnConsecutiveTiles, p.partition[level].x})});
+    const auto mZPartitionsOnConsecutiveTiles =
+        getArePartitionsOnConsecutivePNs(m, p, mapping, level, 3 /* Z */);
+    const auto mRConsecutiveTilesReceivingSameData = m.max(
+        {m.one(),
+         m.product({mZPartitionsOnConsecutiveTiles, p.partition[level].z})});
 
     const auto mSExchangeCycles = exchangeEstimator(
         mSBytesToSendReceive, mSConsecutiveTilesReceivingSameData,
@@ -432,37 +446,27 @@ addDistributionExchangeCostSparseDense(
                          mRTempBytesAfterExchange);
 }
 
-static std::tuple<CostVariables, popsolver::Variable, popsolver::Variable>
-addDistributionExchangeCostDenseDense(
-    popsolver::Model &m, const Target &target, const Type &inputType,
-    const Options &options, const std::vector<unsigned> &hierarchy,
+/** Account for the cost of broadcasting/rearranging
+ *  inputs/output gradients
+ */
+static CostVariables addPreDistributionExchangeCostDenseDense(
+    popsolver::Model &m, const Options &options,
+    const std::vector<unsigned> &hierarchy,
     const ExchangeEstimator &exchangeEstimator,
     const PartitionToPNMapping &mapping,
-    const std::vector<popsolver::Variable> &mBroadcastZFactor,
-    const std::vector<Vector<popsolver::Variable>> &mGroups,
-    const Vector<popsolver::Variable> &mGrouping, const PartitionVariables &p) {
+    const std::vector<popsolver::Variable> &mQGradBytesPerTile,
+    const std::vector<popsolver::Variable> &mSBytesPerTile,
+    popsolver::Variable &mQGradTempBytesAfterExchange,
+    popsolver::Variable &mSTempBytesAfterExchange,
+    const PartitionVariables &p) {
 
-  const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
-
-  std::vector<popsolver::Variable> mQGradBytesPerTile(hierarchy.size() + 1),
-      mSBytesPerTile(hierarchy.size() + 1);
-  for (unsigned level = 0; level < hierarchy.size() + 1; ++level) {
-    mQGradBytesPerTile[level] =
-        m.product({m.ceildiv(m.product({mGroups[level].groups, mGroups[level].x,
-                                        mGroups[level].z}),
-                             p.tile[level]),
-                   mGrouping.groups, mGrouping.x, mGrouping.z, mBytesPerInput});
-    mSBytesPerTile[level] =
-        m.product({m.ceildiv(m.product({mGroups[level].groups, mGroups[level].y,
-                                        mGroups[level].z}),
-                             p.tile[level]),
-                   mGrouping.groups, mGrouping.y, mGrouping.z, mBytesPerInput});
-  }
+  // TODO: Add cost for exchanging meta-info when mapping order
+  // does not match forward pass
 
   std::vector<popsolver::Variable> mCyclesPerLevel(hierarchy.size()),
       mTempBytesPerLevel(hierarchy.size());
-  popsolver::Variable mQGradTempBytesAfterExchange = m.zero(),
-                      mSTempBytesAfterExchange = m.zero();
+  // Assuming the temporary memory for these operands first appears here.
+  mQGradTempBytesAfterExchange = m.zero(), mSTempBytesAfterExchange = m.zero();
   for (unsigned level = 0; level < hierarchy.size(); ++level) {
     const auto mQGradBytesAreExchanged =
         m.min({m.one(), m.sub(mQGradBytesPerTile[level + 1],
@@ -481,30 +485,28 @@ addDistributionExchangeCostDenseDense(
     const auto mSBytesToSendReceive =
         m.product({mSBytesToSendReceivePerTile, p.tile[level + 1]});
 
-    popsolver::Variable mQGradConsecutiveTilesReceivingSameData,
-        mSConsecutiveTilesReceivingSameData;
-    const auto &linearisationOrder = mapping.getLinearisationOrder();
-    if (linearisationOrder.y == 3) {
-      mQGradConsecutiveTilesReceivingSameData = mBroadcastZFactor[level];
-      mSConsecutiveTilesReceivingSameData = mBroadcastZFactor[level];
-    } else {
-      throw poputil::poplibs_error("Unhandled mapping linearisation order");
-    }
+    const auto mXPartitionsOnConsecutiveTiles =
+        getArePartitionsOnConsecutivePNs(m, p, mapping, level, 1 /* X */);
+    const auto mYPartitionsOnConsecutiveTiles =
+        getArePartitionsOnConsecutivePNs(m, p, mapping, level, 2 /* Y */);
+    const auto mQGradConsecutiveTilesReceivingSameData = m.max(
+        {m.one(),
+         m.product({mYPartitionsOnConsecutiveTiles, p.partition[level].y})});
+    const auto mSConsecutiveTilesReceivingSameData = m.max(
+        {m.one(),
+         m.product({mXPartitionsOnConsecutiveTiles, p.partition[level].x})});
 
     // There should be as much data as the number of z partitions as there
     // is no reduction stage following this.
     // This assumes we have to move operands on-tile - we only cycle
     // operands between tiles z partitions - 1 times.
-    const auto mQGradExchangeCycles =
-        m.product({exchangeEstimator(mQGradBytesToSendReceive,
-                                     mQGradConsecutiveTilesReceivingSameData,
-                                     p.product[level], level),
-                   p.partition[level].z});
-    const auto mSExchangeCycles =
-        m.product({exchangeEstimator(mSBytesToSendReceive,
-                                     mSConsecutiveTilesReceivingSameData,
-                                     p.product[level], level),
-                   p.partition[level].z});
+    const auto mQGradExchangeCycles = exchangeEstimator(
+        mQGradBytesToSendReceive, mQGradConsecutiveTilesReceivingSameData,
+        p.product[level], level);
+    const auto mSExchangeCycles = exchangeEstimator(
+        mSBytesToSendReceive, mSConsecutiveTilesReceivingSameData,
+        p.product[level], level);
+
     mCyclesPerLevel[level] = m.sum({mQGradExchangeCycles, mSExchangeCycles});
 
     mTempBytesPerLevel[level] =
@@ -514,9 +516,103 @@ addDistributionExchangeCostDenseDense(
     mSTempBytesAfterExchange = mSTempBytes;
   }
 
-  CostVariables mCost(m.sum(mCyclesPerLevel), m.max(mTempBytesPerLevel));
-  return std::make_tuple(mCost, mQGradTempBytesAfterExchange,
-                         mSTempBytesAfterExchange);
+  return CostVariables(m.sum(mCyclesPerLevel), m.max(mTempBytesPerLevel));
+}
+
+static std::tuple<popsolver::Variable, popsolver::Variable>
+addGradWExchangeAndComputeTempBytesCost(
+    popsolver::Model &m, const Options &options, const Type &inputType,
+    const bool exchangeBuckets,
+    const popsolver::Variable &mRGradPartialBytesPerTile,
+    const popsolver::Variable &mRMetaInfoBytesPerTile,
+    const popsolver::Variable &mQGradBytesPerTile,
+    const popsolver::Variable &mSBytesPerTile, const PartitionVariables &p) {
+  popsolver::Variable mTempBytes;
+  const auto mNeedsCast =
+      m.addConstant(inputType != options.partialsType ? 1u : 0u);
+  const auto mRemainingPartialBytes =
+      m.product({mNeedsCast, mRGradPartialBytesPerTile});
+  if (exchangeBuckets) {
+    // If we exchange buckets, the peak temp memory during exchange and
+    // compute phases is 2x the size of the partials & meta-info and
+    // whatever temporary storage is required for the dense operands
+    // s/q-grad.
+    const auto mRGradBytesPerTile =
+        m.sum({mRGradPartialBytesPerTile, mRMetaInfoBytesPerTile});
+    mTempBytes = m.sum({mQGradBytesPerTile, mSBytesPerTile,
+                        m.product({mRGradBytesPerTile, m.addConstant(2u)})});
+  } else {
+    // When exchanging inputs, the temporary memory is given by the memory
+    // needed for partials (if needed) and 2x the size of the buffers for
+    // dense operands s/q-grad.
+    const auto mInputBytes = m.sum({mQGradBytesPerTile, mSBytesPerTile});
+    mTempBytes = m.sum(
+        {mRemainingPartialBytes, m.product({mInputBytes, m.addConstant(2u)})});
+  }
+  return std::make_tuple(mTempBytes, mRemainingPartialBytes);
+}
+
+/** Account for the cost of exchange in the distribution phase.
+ *  The cost of exchange for this phase is any exchange required
+ *  assuming a perfectly uniform sparsity pattern. This boils down
+ *  to the cost of exchange required to complete one full cycle
+ *  around the Z dimension.
+ */
+static popsolver::Variable addDistributionExchangeCycleCostDenseDense(
+    popsolver::Model &m, const Options &options,
+    const std::vector<unsigned> &hierarchy,
+    const ExchangeEstimator &exchangeEstimator,
+    const PartitionToPNMapping &mapping, const bool exchangeBuckets,
+    const popsolver::Variable &mRGradBytesPerTile,
+    const popsolver::Variable &mQGradBytesPerTile,
+    const popsolver::Variable &mSBytesPerTile, const PartitionVariables &p) {
+
+  std::vector<popsolver::Variable> mCyclesPerLevel(hierarchy.size(), m.zero());
+  for (unsigned level = 0; level < hierarchy.size(); ++level) {
+    const auto mZPartitionsM1 = m.sub(p.partition[level].z, m.one());
+    const auto mNeedsExchange = m.min({mZPartitionsM1, m.one()});
+    if (exchangeBuckets) {
+      const auto mBytesToSendReceivePerTile =
+          mRGradBytesPerTile; // Non-zero value partials and meta-info.
+      const auto mBytesToSendReceive = m.product(
+          {mNeedsExchange, mBytesToSendReceivePerTile, p.tile[level + 1]});
+      // We don't do any broadcasting when exchanging buckets hence no
+      // calculation of consecutive tiles like below.
+      const auto mExchangeCycles =
+          m.product({exchangeEstimator(mBytesToSendReceive, level),
+                     p.partition[level].z});
+      mCyclesPerLevel[level] = mExchangeCycles;
+    } else {
+      const auto mQGradBytesToSendReceivePerTile =
+          m.product({mNeedsExchange, mQGradBytesPerTile, p.tile[level + 1]});
+      const auto mSBytesToSendReceivePerTile =
+          m.product({mNeedsExchange, mSBytesPerTile, p.tile[level + 1]});
+      const auto mQGradBytesToSendReceive =
+          m.product({mQGradBytesToSendReceivePerTile, p.tile[level + 1]});
+      const auto mSBytesToSendReceive =
+          m.product({mSBytesToSendReceivePerTile, p.tile[level + 1]});
+
+      const auto mZPartitionsOnConsecutiveTiles =
+          getArePartitionsOnConsecutivePNs(m, p, mapping, level, 3 /* Z */);
+      const auto mConsecutiveTilesReceivingSameData = m.max(
+          {m.one(),
+           m.product({mZPartitionsOnConsecutiveTiles, p.partition[level].z})});
+
+      const auto mQGradExchangeCycles =
+          m.product({exchangeEstimator(mQGradBytesToSendReceive,
+                                       mConsecutiveTilesReceivingSameData,
+                                       p.product[level], level),
+                     p.partition[level].z});
+      const auto mSExchangeCycles =
+          m.product({exchangeEstimator(mSBytesToSendReceive,
+                                       mConsecutiveTilesReceivingSameData,
+                                       p.product[level], level),
+                     p.partition[level].z});
+      mCyclesPerLevel[level] = m.sum({mQGradExchangeCycles, mSExchangeCycles});
+    }
+  }
+
+  return m.sum(mCyclesPerLevel);
 }
 
 static std::tuple<unsigned, unsigned> getNumGroupsGivenUniformSparsityPattern(
@@ -542,7 +638,7 @@ static inline unsigned getNumConvUnits(const Target &target,
 }
 
 static std::tuple<CostVariables, popsolver::Variable>
-addInitialComputeCostSparseDense(
+addDistributionComputeCostSparseDense(
     popsolver::Model &m, const Target &target, const Type &inputType,
     const double &nzRatio, const Options &options, const OnTileMethod &method,
     const Vector<popsolver::Variable> &mGroups,
@@ -716,17 +812,19 @@ rearrangeDenseCost(popsolver::Model &m, const Target &target,
   return std::make_pair(mCycles, mTransposedBytes);
 }
 
-static std::tuple<CostVariables, popsolver::Variable>
-addInitialComputeCostDenseDense(
+/** Account for the cost of compute in the distribution phase.
+ *  The cost of compute for this phase is any compute required
+ *  assuming a perfectly uniform sparsity pattern. This boils
+ *  down to the cost of compute in one full partition of X/Y.
+ */
+static popsolver::Variable addDistributionComputeCycleCostDenseDense(
     popsolver::Model &m, const Target &target, const Type &inputType,
     const double &nzRatio, const Options &options, const OnTileMethod &method,
     const Vector<popsolver::Variable> &mGroups,
     const Vector<popsolver::Variable> &mGrouping,
     const Vector<popsolver::Variable> &mCumulativePartitions,
     const popsolver::Variable &mSparseGroups,
-    const popsolver::Variable &mElemsPerSparseGroup,
-    const popsolver::Variable &mQGradTempBytes,
-    const popsolver::Variable &mSTempBytes) {
+    const popsolver::Variable &mElemsPerSparseGroup) {
   // TODO: Handle groups for vertex cycle estimates properly
   const auto mPartialsPerTile =
       m.product({mSparseGroups, mElemsPerSparseGroup});
@@ -734,7 +832,6 @@ addInitialComputeCostDenseDense(
   const unsigned numConvUnits =
       getNumConvUnits(target, inputType == FLOAT, partialsType == FLOAT);
   const auto numWorkers = target.getNumWorkerContexts();
-  const auto mBytesPerPartial = m.addConstant(target.getTypeSize(partialsType));
   auto mCycles = m.call<unsigned>(
       {mPartialsPerTile, mGroups.x, mGroups.y, mGroups.z, mGrouping.x,
        mGrouping.y, mGrouping.z, mCumulativePartitions.z},
@@ -830,47 +927,25 @@ addInitialComputeCostDenseDense(
         cycles += maxMulCycles * numZPartitions;
         return popsolver::DataType{cycles};
       });
-  const auto mNeedsCast = m.addConstant(inputType != partialsType ? 1u : 0u);
-  const auto mNeedsReduction = m.sub(mCumulativePartitions.z, m.one());
-  const auto mNeedsCastOrReduction =
-      m.min({m.one(), m.sum({mNeedsCast, mNeedsReduction})});
-
-  const auto mPartialsTempBytes =
-      m.product({mNeedsCastOrReduction, mPartialsPerTile, mBytesPerPartial});
-  const auto mTempBytes =
-      m.sum({mQGradTempBytes, mSTempBytes, mPartialsTempBytes});
-  return std::make_tuple(CostVariables(mCycles, mTempBytes),
-                         mPartialsTempBytes);
+  return mCycles;
 }
 
-static std::tuple<CostVariables, popsolver::Variable>
-addPropagatingExchangeCost(popsolver::Model &m, const Target &target,
-                           const Type &inputType,
-                           const std::vector<unsigned> &hierarchy,
-                           const Options &options,
-                           const ExchangeEstimator &exchangeEstimator,
-                           const popsolver::Variable &mBytesPerBucket,
-                           const PartitionVariables &p) {
-  // Estimate cost of a single iteration of the dynamically executed exchange
-  // based on this plan.
-  std::vector<popsolver::Variable> mTempBytesPerLevel(hierarchy.size());
-  auto mTempBytesAfterExchange = m.zero();
-  for (unsigned level = 0; level < hierarchy.size(); ++level) {
-    // During the propagating exchange, we will need space for 2 buckets which
-    // we will flip flop between to allow simulatenous forwarding and receiving
-    // of buckets to/from other tiles. For the timebeing we won't treat this
-    // as using the home location as one of the 2 buffers hence temporary
-    // memory is 2x size of a single bucket.
-    const auto mTempBytes = m.product({mBytesPerBucket, m.addConstant(2u)});
-    mTempBytesPerLevel[level] = mTempBytes;
-    mTempBytesAfterExchange = mTempBytes;
-  }
-  CostVariables mCost(m.zero(), m.max(mTempBytesPerLevel));
-  return std::make_tuple(mCost, mTempBytesAfterExchange);
+static CostVariables addPropagationCost(
+    popsolver::Model &m, const Target &target, const Type &inputType,
+    const std::vector<unsigned> &hierarchy, const Options &options,
+    const ExchangeEstimator &exchangeEstimator,
+    const popsolver::Variable &mBytesPerBuffer, const PartitionVariables &p) {
+  // Estimate temporary memory cost of a single iteration of the dynamically
+  // executed exchange based on this plan.
+  //
+  // During the propagating exchange, we will need space for 2 buckets which
+  // we will flip flop between to allow simulatenous forwarding and receiving
+  // of buckets to/from other tiles.
+  return CostVariables(m.zero(),
+                       m.product({mBytesPerBuffer, m.addConstant(2u)}));
 }
 
-static std::tuple<CostVariables, CostVariables, popsolver::Variable>
-addReductionCost(
+static std::tuple<CostVariables, CostVariables> addReductionCost(
     popsolver::Model &m, const Target &target, const Type &inputType,
     const std::vector<unsigned> &hierarchy, const Options &options,
     const ExchangeEstimator &exchangeEstimator,
@@ -971,7 +1046,7 @@ addReductionCost(
                               m.max(mExchangeTempBytesPerLevel));
   CostVariables mComputeCost(m.sum(mComputeCyclesPerLevel),
                              m.max(mComputeTempBytesPerLevel));
-  return std::make_tuple(mExchangeCost, mComputeCost, mQTempBytesAfterCompute);
+  return std::make_tuple(mExchangeCost, mComputeCost);
 }
 
 static std::tuple<CostVariables, popsolver::Variable>
@@ -1057,31 +1132,28 @@ addEstimates(const Target &target, const Type &inputType,
           exchangeEstimator, mapping, mGroups, mGrouping, mRBytesPerBucket, p);
   mDistributionExchangeCost.tempBytes =
       m.sum({mDistributionExchangeCost.tempBytes, mRTransposedBytes});
-  costBreakdown.emplace_back("Initial distribution exchange",
+  costBreakdown.emplace_back("Pre-distribution + distribution exchange",
                              mDistributionExchangeCost);
 
-  CostVariables mInitialComputeCost;
+  CostVariables mDistributionComputeCost;
   popsolver::Variable mQTempBytesAfterCompute;
-  std::tie(mInitialComputeCost, mQTempBytesAfterCompute) =
-      addInitialComputeCostSparseDense(
+  std::tie(mDistributionComputeCost, mQTempBytesAfterCompute) =
+      addDistributionComputeCostSparseDense(
           m, target, inputType, nzRatio, options, method, mGroups.back(),
           mGrouping, p.cumulative.back(), mSTempBytesAfterExchange,
           mRTempBytesAfterExchange);
-  mInitialComputeCost.tempBytes =
-      m.sum({mInitialComputeCost.tempBytes, mRTransposedBytes});
-  costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
+  mDistributionComputeCost.tempBytes =
+      m.sum({mDistributionComputeCost.tempBytes, mRTransposedBytes});
+  costBreakdown.emplace_back("Distribution compute", mDistributionComputeCost);
 
-  CostVariables mPropagatingExchangeCost;
-  std::tie(mPropagatingExchangeCost, mRTempBytesAfterExchange) =
-      addPropagatingExchangeCost(m, target, inputType, hierarchy, options,
-                                 exchangeEstimator, mRBytesPerBucket, p);
-  mPropagatingExchangeCost.tempBytes =
-      m.sum({mPropagatingExchangeCost.tempBytes, mSTempBytesAfterExchange,
+  auto mPropagationCost =
+      addPropagationCost(m, target, inputType, hierarchy, options,
+                         exchangeEstimator, mRBytesPerBucket, p);
+  mPropagationCost.tempBytes =
+      m.sum({mPropagationCost.tempBytes, mSTempBytesAfterExchange,
              mQTempBytesAfterCompute, mRTransposedBytes});
-  costBreakdown.emplace_back("Propagating exchange (per-iteration)",
-                             mPropagatingExchangeCost);
+  costBreakdown.emplace_back("Propagation", mPropagationCost);
 
-  CostVariables mReductionExchangeCost, mReductionComputeCost;
   const popsolver::Variable mPartialsPerTileToReduce =
       m.product({mGroups.back().groups, mGroups.back().x, mGroups.back().z,
                  mGrouping.groups, mGrouping.x, mGrouping.z});
@@ -1093,8 +1165,7 @@ addEstimates(const Target &target, const Type &inputType,
     }
     mReductionDepthCumulative[level] = p.cumulative[level].y;
   }
-  std::tie(mReductionExchangeCost, mReductionComputeCost,
-           mQTempBytesAfterCompute) =
+  const auto &[mReductionExchangeCost, mReductionComputeCost] =
       addReductionCost(m, target, inputType, hierarchy, options,
                        exchangeEstimator, mPartialsPerTileToReduce,
                        mReductionDepth, mReductionDepthCumulative, p.tile,
@@ -1104,11 +1175,11 @@ addEstimates(const Target &target, const Type &inputType,
 
   CostVariables cost(
       m.sum({mTransposeBucketsCost.cycles, mDistributionExchangeCost.cycles,
-             mInitialComputeCost.cycles, mPropagatingExchangeCost.cycles,
+             mDistributionComputeCost.cycles, mPropagationCost.cycles,
              mReductionExchangeCost.cycles, mReductionComputeCost.cycles}),
       m.max(
           {mTransposeBucketsCost.tempBytes, mDistributionExchangeCost.tempBytes,
-           mInitialComputeCost.tempBytes, mPropagatingExchangeCost.tempBytes,
+           mDistributionComputeCost.tempBytes, mPropagationCost.tempBytes,
            mReductionExchangeCost.tempBytes, mReductionComputeCost.tempBytes}));
   costBreakdown.emplace_back("Total", cost);
   return std::make_tuple(cost, costBreakdown);
@@ -1120,100 +1191,117 @@ static std::tuple<CostVariables, CostBreakdownVariables> addEstimatesGradW(
     const double nzRatio, const OnTileMethod &method,
     const std::vector<unsigned> &hierarchy,
     const ExchangeEstimator &exchangeEstimator,
-    const PartitionToPNMapping &mapping, popsolver::Model &m,
-    const PartitionVariables &p,
-    const std::vector<popsolver::Variable> &mPropagationNumZ,
+    const PartitionToPNMapping &mapping, const bool exchangeBuckets,
+    popsolver::Model &m, const PartitionVariables &p,
     const std::vector<Vector<popsolver::Variable>> &mGroups,
     const Vector<popsolver::Variable> &mGrouping,
     const popsolver::Variable &mRGroupsPerBucket,
-    const popsolver::Variable &mRElemsPerGroup, const Options &options) {
+    const popsolver::Variable &mRElemsPerGroup,
+    const popsolver::Variable &mRMetaInfoElemsPerBucket,
+    const Options &options) {
   CostBreakdownVariables costBreakdown;
 
-  // TODO: Re-work to more closely reflect how partitions of Z are
-  // handled in reality in the GradW pass.
-  CostVariables mInitialExchangeCost;
-  popsolver::Variable mQGradTempBytesAfterExchange, mSTempBytesAfterExchange;
-  std::tie(mInitialExchangeCost, mQGradTempBytesAfterExchange,
-           mSTempBytesAfterExchange) =
-      addDistributionExchangeCostDenseDense(
-          m, target, inputType, options, hierarchy, exchangeEstimator, mapping,
-          mPropagationNumZ, mGroups, mGrouping, p);
-  costBreakdown.emplace_back("Initial exchange", mInitialExchangeCost);
+  // We pre-calculate certain variables that will be used for different exchange
+  // costs below.
+  const auto mBytesPerInput = m.addConstant(target.getTypeSize(inputType));
+  const auto mBytesPerPartial =
+      m.addConstant(target.getTypeSize(options.partialsType));
+  const auto mBytesPerMetaInfoElem =
+      m.addConstant(target.getTypeSize(UNSIGNED_SHORT));
+  std::vector<popsolver::Variable> mQGradBytesPerTile(hierarchy.size() + 1),
+      mSBytesPerTile(hierarchy.size() + 1);
+  for (unsigned level = 0; level < hierarchy.size() + 1; ++level) {
+    mQGradBytesPerTile[level] =
+        m.product({m.ceildiv(m.product({mGroups[level].groups, mGroups[level].x,
+                                        mGroups[level].z}),
+                             p.tile[level]),
+                   mGrouping.groups, mGrouping.x, mGrouping.z, mBytesPerInput});
+    mSBytesPerTile[level] =
+        m.product({m.ceildiv(m.product({mGroups[level].groups, mGroups[level].y,
+                                        mGroups[level].z}),
+                             p.tile[level]),
+                   mGrouping.groups, mGrouping.y, mGrouping.z, mBytesPerInput});
+  }
+  const auto mRGradPartialBytesPerTile =
+      m.product({mRMetaInfoElemsPerBucket, mBytesPerMetaInfoElem});
+  const auto mRMetaInfoBytesPerTile =
+      m.product({mRGroupsPerBucket, mRElemsPerGroup, mBytesPerPartial});
+  const auto mRGradBytesPerTile =
+      m.sum({mRGradPartialBytesPerTile, mRMetaInfoBytesPerTile});
 
-  // Our GradW vertex does not handle multiple inputs currently, therefore
-  // the initial distribution theoretically introduces no exchange unless
-  // the input came from another layer (quite likely but for now it's okay).
-  popsolver::Variable mSTransposeCycles = m.zero();
-  popsolver::Variable mQGradTransposeQCycles = m.zero();
-  popsolver::Variable mSTransposeBytes = m.zero();
-  popsolver::Variable mQGradTransposeBytes = m.zero();
+  popsolver::Variable mQGradTempBytes = m.zero(), mSTempBytes = m.zero();
+  const auto mPreDistributionExchangeCost =
+      addPreDistributionExchangeCostDenseDense(
+          m, options, hierarchy, exchangeEstimator, mapping, mQGradBytesPerTile,
+          mSBytesPerTile, mQGradTempBytes, mSTempBytes, p);
+  costBreakdown.emplace_back("Pre-distribution exchange",
+                             mPreDistributionExchangeCost);
+
+  CostVariables mTransposeCost(m.zero(), m.zero());
   if (method == OnTileMethod::GradWAMPBlock) {
     // Estimate cycle cost for rearranging both activations and gradients
     // wrt output. Transpose and exchange and there need not be done for
     // each partition of z.
-    std::tie(mQGradTransposeQCycles, mQGradTransposeBytes) =
+    const auto &[mQGradTransposeCycles, mQGradTransposeBytes] =
         rearrangeDenseCost(m, target, inputType, mGroups.back().x, mGrouping.x,
                            mGroups.back().z, mGrouping.z);
 
-    std::tie(mSTransposeCycles, mSTransposeBytes) =
+    const auto &[mSTransposeCycles, mSTransposeBytes] =
         rearrangeDenseCost(m, target, inputType, mGroups.back().y, mGrouping.y,
                            mGroups.back().z, mGrouping.z);
+    mTransposeCost.cycles = m.sum({mQGradTransposeCycles, mSTransposeCycles});
+    // We transpose all in one compute set so temp mem is sum
+    mTransposeCost.tempBytes = m.sum(
+        {mQGradTransposeBytes, mQGradTempBytes, mSTransposeBytes, mSTempBytes});
+    mQGradTempBytes = mQGradTransposeBytes;
+    mSTempBytes = mSTransposeBytes;
   }
-  CostVariables mSTransposeCost(mSTransposeCycles, mSTransposeBytes);
-  CostVariables mQGradTransposeCost(mQGradTransposeQCycles,
-                                    mQGradTransposeBytes);
-  costBreakdown.emplace_back("Q Grad transpose", mQGradTransposeCost);
-  costBreakdown.emplace_back("S Transpose cost", mSTransposeCost);
-  const auto mTransposeCycles =
-      m.sum({mQGradTransposeQCycles, mSTransposeCycles});
+  costBreakdown.emplace_back("Q-grad/S transpose", mTransposeCost);
 
-  CostVariables mInitialComputeCost;
-  popsolver::Variable mRGradTempBytesAfterCompute;
-  std::tie(mInitialComputeCost, mRGradTempBytesAfterCompute) =
-      addInitialComputeCostDenseDense(
+  const auto mDistributionExchangeCycles =
+      addDistributionExchangeCycleCostDenseDense(
+          m, options, hierarchy, exchangeEstimator, mapping, exchangeBuckets,
+          mRGradBytesPerTile, mQGradBytesPerTile.back(), mSBytesPerTile.back(),
+          p);
+  costBreakdown.emplace_back(
+      "Distribution exchange",
+      CostVariables(mDistributionExchangeCycles, m.zero()));
+
+  const auto mDistributionComputeCycles =
+      addDistributionComputeCycleCostDenseDense(
           m, target, inputType, nzRatio, options, method, mGroups.back(),
-          mGrouping, p.cumulative.back(), mRGroupsPerBucket, mRElemsPerGroup,
-          mQGradTempBytesAfterExchange, mSTempBytesAfterExchange);
-  costBreakdown.emplace_back("Initial compute", mInitialComputeCost);
+          mGrouping, p.cumulative.back(), mRGroupsPerBucket, mRElemsPerGroup);
+  costBreakdown.emplace_back(
+      "Distribution compute",
+      CostVariables(mDistributionComputeCycles, m.zero()));
 
-  const auto initialComputeBytesIncludingTranspose = m.sum(
-      {mQGradTransposeBytes, mSTransposeBytes, mInitialComputeCost.tempBytes});
-
-  CostVariables mPropagatingExchangeCost;
-  popsolver::Variable mQGradAndSTempBytesAfterExchange; // NOTE: Unused
-  // The temporary memory cost is that of both the buffers for QGrad and for S
-  // so just do these together. The cycle cost is way more complicated but
-  // not accounted for here.
-  std::tie(mPropagatingExchangeCost, mQGradAndSTempBytesAfterExchange) =
-      addPropagatingExchangeCost(
-          m, target, inputType, hierarchy, options, exchangeEstimator,
-          m.sum({mQGradTempBytesAfterExchange, mSTempBytesAfterExchange}), p);
-  mPropagatingExchangeCost.tempBytes =
-      m.sum({mPropagatingExchangeCost.tempBytes, mRGradTempBytesAfterCompute});
-  costBreakdown.emplace_back("Propagating exchange (per-iteration)",
-                             mPropagatingExchangeCost);
+  const auto &[mDistributionAndPropagationMaxTempBytes, mRGradTempBytes] =
+      addGradWExchangeAndComputeTempBytesCost(
+          m, options, inputType, exchangeBuckets, mRGradPartialBytesPerTile,
+          mRMetaInfoBytesPerTile, mQGradTempBytes, mSTempBytes, p);
+  costBreakdown.emplace_back(
+      "All exchange + compute",
+      CostVariables(m.zero(), mDistributionAndPropagationMaxTempBytes));
 
   const auto mPartialsPerTileToReduce =
       m.product({mRGroupsPerBucket, mRElemsPerGroup});
-  std::vector<popsolver::Variable> mReductionDepth(hierarchy.size(), m.one()),
+  const std::vector<popsolver::Variable> mReductionDepth(hierarchy.size(),
+                                                         m.one()),
       mReductionDepthCumulative(hierarchy.size() + 1, m.one());
-  CostVariables mReductionExchangeCost, mReductionComputeCost;
-  std::tie(mReductionExchangeCost, mReductionComputeCost,
-           mRGradTempBytesAfterCompute) =
+  const auto &[mReductionExchangeCost, mReductionComputeCost] =
       addReductionCost(m, target, inputType, hierarchy, options,
                        exchangeEstimator, mPartialsPerTileToReduce,
                        mReductionDepth, mReductionDepthCumulative, p.tile,
-                       mRGradTempBytesAfterCompute);
+                       mRGradTempBytes);
   costBreakdown.emplace_back("Exchange to reduce", mReductionExchangeCost);
   costBreakdown.emplace_back("Reduction or cast", mReductionComputeCost);
 
   CostVariables cost(
-      m.sum({mInitialExchangeCost.cycles, mInitialComputeCost.cycles,
-             mTransposeCycles, mPropagatingExchangeCost.cycles,
+      m.sum({mPreDistributionExchangeCost.cycles, mTransposeCost.cycles,
+             mDistributionExchangeCycles, mDistributionComputeCycles,
              mReductionExchangeCost.cycles, mReductionComputeCost.cycles}),
-      m.max({mInitialExchangeCost.tempBytes,
-             initialComputeBytesIncludingTranspose,
-             mPropagatingExchangeCost.tempBytes,
+      m.max({mPreDistributionExchangeCost.tempBytes, mTransposeCost.tempBytes,
+             mDistributionAndPropagationMaxTempBytes,
              mReductionExchangeCost.tempBytes,
              mReductionComputeCost.tempBytes}));
   costBreakdown.emplace_back("Total", cost);
@@ -1459,7 +1547,8 @@ static void addMetaInfoRangeLimits(popsolver::Model &m,
 static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
-           const Method &method, const Cost &bestCost, const Options &options) {
+           const Method &method, const ExchangeAndMappingPlan &exchangePlan,
+           const Cost &bestCost, const Options &options) {
   const auto hierarchy = poplibs::getTileHierarchy(target);
   const auto perLevelExchangeBytesPerCycle =
       poplibs::getPerLevelExchangeBytesPerCycle(target);
@@ -1531,8 +1620,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
       m, target, deviceMetaInfoType, params.getNzRatio(), method.fwd,
       mFwdGroups.back(), options);
 
-  ExchangeAndMappingPlan exchangePlan;
-
   CostVariables fwdCost;
   CostBreakdownVariables fwdCostBreakdown;
   const Vector<std::size_t> fwdShape = {
@@ -1544,7 +1631,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
   const ExchangeEstimator exchangeEstimator(m, target, hierarchy,
                                             perLevelExchangeBytesPerCycle);
 
-  exchangePlan.fwdMapping = PartitionToPNMapping({0, 3, 1, 2});
   std::tie(fwdCost, fwdCostBreakdown) =
       addEstimates(target, inputType, fwdShape, params.getSparsityParams(),
                    params.getNzRatio(), method.fwd, hierarchy,
@@ -1555,7 +1641,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
   CostVariables gradACost(m.zero(), m.zero());
   CostBreakdownVariables gradACostBreakdown;
   popsolver::Variable mRGradAMetaInfoElemsPerBucket = m.zero();
-  exchangePlan.gradAMapping = PartitionToPNMapping({0, 1, 3, 2});
   if (options.doGradAPass) {
     // TODO: Encapsulate this translation to GradA pass better.
     // This is just a swizzle applied to all vectors in 'planning
@@ -1609,22 +1694,13 @@ createPlan(const PlanningObjective &objective, const Target &target,
 
   CostVariables gradWCost(m.zero(), m.zero());
   CostBreakdownVariables gradWCostBreakdown;
-  // We put different partitions of Y (Z in forward pass) on consecutive tiles
-  // to try and allow for use of 64-bit exchange when Y is partitioned.
-  exchangePlan.gradWMapping = PartitionToPNMapping({0, 1, 3, 2});
-  std::vector<popsolver::Variable> mGradWPropagationNumZ(hierarchy.size(),
-                                                         m.one());
   if (options.doGradWPass) {
-    for (unsigned level = 0; level < hierarchy.size(); ++level) {
-      // The GradW Z broadcast factor is hard-coded to be equal the
-      // number of Z partitions for now (and probably always).
-      mGradWPropagationNumZ[level] = fwdPartition.partition.at(level).z;
-    }
     std::tie(gradWCost, gradWCostBreakdown) = addEstimatesGradW(
         target, inputType, fwdShape, params.getSparsityParams(),
         params.getNzRatio(), method.gradW, hierarchy, exchangeEstimator,
-        exchangePlan.gradWMapping, m, fwdPartition, mGradWPropagationNumZ,
-        mFwdGroups, mFwdGrouping, mRGroupsPerBucket, mRElemsPerGroup, options);
+        exchangePlan.gradWMapping, exchangePlan.gradWExchangeBuckets, m,
+        fwdPartition, mFwdGroups, mFwdGrouping, mRGroupsPerBucket,
+        mRElemsPerGroup, mRFwdMetaInfoElemsPerBucket, options);
   }
 
   const CostVariables mCost(
@@ -1671,9 +1747,6 @@ createPlan(const PlanningObjective &objective, const Target &target,
   // down the road if memory or something else did not allow this.
   plan.initialDistributionPartitions = Vector<unsigned>(1);
   plan.initialDistributionPartitions.z = plan.partition.z;
-  plan.gradWPropagationPartitions = Vector<unsigned>(1);
-  plan.gradWPropagationPartitions.z =
-      solution[mGradWPropagationNumZ.at(0)].getAs<unsigned>();
   // We round up the number of nz values per bucket to a multiple of
   // 64-bits when used as partials in the GradW pass.
   assert(8 % target.getTypeSize(options.partialsType) == 0);
@@ -1687,7 +1760,16 @@ createPlan(const PlanningObjective &objective, const Target &target,
   plan.gradAMetaInfoElemsPerBucket =
       solution[mRGradAMetaInfoElemsPerBucket].getAs<unsigned>();
   plan.method = method;
+  // We currently plan the gradW pass with dimensions ordered for the
+  // forward pass but the implementation wants a different ordering so
+  // do the switch here until such a time as planning/implementation agree
+  // on dimension ordering for gradW pass.
   plan.exchangePlan = exchangePlan;
+  const auto oldGradWMapping =
+      exchangePlan.gradWMapping.getLinearisationOrder();
+  plan.exchangePlan.gradWMapping =
+      PartitionToPNMapping({oldGradWMapping.groups, oldGradWMapping.x,
+                            oldGradWMapping.z, oldGradWMapping.y});
 
   Cost cost;
   cost.cycles = solution[mCost.cycles];
@@ -1765,34 +1847,81 @@ getCandidateMethods(const Target &target, const Type &inputType,
   return methods;
 }
 
+static std::vector<ExchangeAndMappingPlan>
+getCandidateExchangePlans(const Options &options) {
+  std::vector<ExchangeAndMappingPlan> candidates;
+
+  const auto &planConstraints = options.planConstraints;
+  const auto &exchangePlanConstraints =
+      planConstraints.get_child_optional("exchange");
+
+  std::vector<bool> validGradWExchangeBucketsOptions = {false, true};
+  if (exchangePlanConstraints) {
+    const auto &constraint = exchangePlanConstraints.get().get_optional<bool>(
+        "gradWExchangeBuckets");
+    if (constraint) {
+      validGradWExchangeBucketsOptions = {*constraint};
+    }
+  }
+
+  // Only leave one of the 2 possibilities if we aren't doing a
+  // GradW pass anyway as gradWExchangeBuckets will have no effect
+  // on a plan without a GradW pass.
+  if (!options.doGradWPass && validGradWExchangeBucketsOptions.size() > 1) {
+    validGradWExchangeBucketsOptions = {validGradWExchangeBucketsOptions[0]};
+  }
+
+  ExchangeAndMappingPlan basePlan;
+  basePlan.fwdMapping = PartitionToPNMapping({0, 3, 1, 2});
+  basePlan.gradAMapping = PartitionToPNMapping({0, 1, 3, 2});
+  for (const auto &gradWExchangeBuckets : validGradWExchangeBucketsOptions) {
+    basePlan.gradWExchangeBuckets = gradWExchangeBuckets;
+    if (gradWExchangeBuckets) {
+      // Note this is a conscious choice of re-use of the forward
+      // pass mapping for the candidate where buckets are
+      // exchanged.
+      basePlan.gradWMapping = PartitionToPNMapping({0, 3, 1, 2});
+    } else {
+      basePlan.gradWMapping = PartitionToPNMapping({0, 1, 2, 3});
+    }
+    candidates.emplace_back(basePlan);
+  }
+
+  return candidates;
+}
+
 static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
            const Options &options) {
   const auto candidateMethods =
       getCandidateMethods(target, inputType, params, options);
+  const auto candidateExchangePlans = getCandidateExchangePlans(options);
   assert(!candidateMethods.empty());
+  assert(!candidateExchangePlans.empty());
 
   Plan best;
   Cost bestCost = highestCost;
   CostBreakdown bestCostBreakdown;
   for (const auto &candidateMethod : candidateMethods) {
-    Plan candidate;
-    Cost candidateCost;
-    CostBreakdown candidateCostBreakdown;
+    for (const auto &candidateExchangePlan : candidateExchangePlans) {
+      Plan candidate;
+      Cost candidateCost;
+      CostBreakdown candidateCostBreakdown;
 
-    std::tie(candidate, candidateCost, candidateCostBreakdown) =
-        createPlan(objective, target, inputType, params, candidateMethod,
-                   bestCost, options);
+      std::tie(candidate, candidateCost, candidateCostBreakdown) =
+          createPlan(objective, target, inputType, params, candidateMethod,
+                     candidateExchangePlan, bestCost, options);
 
-    if (candidateCost == highestCost) {
-      continue;
-    }
+      if (candidateCost == highestCost) {
+        continue;
+      }
 
-    if (objective.lowerCost(candidateCost, bestCost)) {
-      best = std::move(candidate);
-      bestCost = std::move(candidateCost);
-      bestCostBreakdown = std::move(candidateCostBreakdown);
+      if (objective.lowerCost(candidateCost, bestCost)) {
+        best = std::move(candidate);
+        bestCost = std::move(candidateCost);
+        bestCostBreakdown = std::move(candidateCostBreakdown);
+      }
     }
   }
   return std::make_tuple(best, bestCost, bestCostBreakdown);
@@ -1852,8 +1981,7 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
   if (logging::popsparse::shouldLog(logging::Level::Debug)) {
     logging::popsparse::debug("  Cost breakdown:");
     for (const auto &entry : costBreakdown) {
-      logging::popsparse::debug("    {}: cycles={}, tempBytes={}", entry.first,
-                                entry.second.cycles, entry.second.tempBytes);
+      logging::popsparse::debug("    {}: {}", entry.first, entry.second);
     }
   }
   logging::popsparse::debug("  for params:\n{}", params);
@@ -1865,7 +1993,19 @@ static std::tuple<Plan, Cost> runPlanner(const Target &target,
 }
 
 std::ostream &operator<<(std::ostream &os, const Cost &c) {
-  os << "Cost{cycles=" << c.cycles << ", memory=" << c.tempBytes << "}";
+  os << "Cost{";
+  bool needComma = false;
+  if (*c.cycles != 0) {
+    os << "cycles=" << c.cycles;
+    needComma = true;
+  }
+  if (*c.tempBytes != 0) {
+    if (needComma) {
+      os << ", ";
+    }
+    os << "memory=" << c.tempBytes;
+  }
+  os << "}";
   return os;
 }
 
@@ -1910,7 +2050,8 @@ std::ostream &operator<<(std::ostream &os, const Method &m) {
 std::ostream &operator<<(std::ostream &os, const ExchangeAndMappingPlan &p) {
   os << "{ forward pass: " << p.fwdMapping
      << ", grad-a pass: " << p.gradAMapping
-     << ", grad-w pass: " << p.gradWMapping << " }";
+     << ", grad-w pass: " << p.gradWMapping << ", grad-w pass exchanges "
+     << (p.gradWExchangeBuckets ? "buckets" : "inputs") << "}";
   return os;
 }
 
@@ -1919,7 +2060,6 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
      << "\n  initial distribution partitions: "
      << p.initialDistributionPartitions
      << "\n  used tiles: " << product(p.partition.asStdVector())
-     << "\n  grad-w propagation partitions: " << p.gradWPropagationPartitions
      << "\n  exchange plan: " << p.exchangePlan
      << "\n  no. of non-zero elements per bucket: " << p.nzElemsPerBucket
      << "\n  no. of meta-info elements per bucket (forward): "

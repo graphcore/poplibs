@@ -33,8 +33,6 @@
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 
-#include <boost/optional.hpp>
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
@@ -59,6 +57,9 @@ struct SinglePassPlan {
   unsigned nzElemsPerBucket;
   unsigned metaInfoElemsPerBucket;
   fullyconnected::PartitionToPNMapping mapping;
+  // Only really useful for GradW pass. If set for GradW pass we exchange
+  // buckets (with partials) instead of inputs.
+  bool exchangeBuckets;
   fullyconnected::OnTileMethod method;
   // Some things need mapping back to forward pass such as tile mapping
   // of operations and sub-group id calculation.
@@ -279,6 +280,8 @@ public:
   // [direction]
   std::array<Program, numDirections> propagationExchanges;
   Sequence propagationCompute;
+  bool propagationMustReachStartingOffset = false;
+  Sequence postPropagation;
   std::vector<std::vector<ComputeSet>> reductionCSs;
   std::vector<Sequence> post;
 
@@ -287,9 +290,12 @@ public:
       : pre(hierarchy.size() + 1), distributionExchange(hierarchy.size() + 1),
         reductionCSs(hierarchy.size()), post(hierarchy.size() + 1) {}
 
-  void addToSequence(Graph &graph, Sequence &seq,
-                     const SinglePassPlan &plan = {},
-                     const boost::optional<Tensor> &overflowInfo = boost::none,
+  void setPropagationMustReachStartingOffset() {
+    propagationMustReachStartingOffset = true;
+  }
+
+  void addToSequence(Graph &graph, Sequence &seq, const SinglePassPlan &plan,
+                     const Tensor &overflowInfo,
                      const std::string &debugPrefix = "") {
     for (unsigned level = 0; level < pre.size(); ++level) {
       seq.add(pre[level]);
@@ -307,64 +313,148 @@ public:
     const bool needPropagationPhase =
         flattenIndexBoundless(staticLoopBounds, startingIndices) <
         product(staticLoopBounds);
-    if (needPropagationPhase && overflowInfo) {
+    if (needPropagationPhase) {
       std::vector<Sequence> progs;
       progs.emplace_back();
 
       // Shuffle controlInfo to match this pass.
-      auto endIndices = getPassEndIndices(overflowInfo.get(), plan);
+      auto endIndices = getPassEndIndices(overflowInfo, plan);
       endIndices = popops::cast(graph, endIndices, UNSIGNED_INT, progs.back(),
                                 debugPrefix + "/endIndices");
       const auto outerLoopDim = getOuterLoopDim(plan);
       const auto outerLoopIterationsToSkip =
-          getOuterLoopIterationsToSkip(overflowInfo.get());
+          getOuterLoopIterationsToSkip(overflowInfo);
       const auto increments = getLoopIncrements(plan);
+
+      using namespace popops;
+
+      const auto controlFlowTile =
+          getTileForDynamicControlFlowManagement(graph, plan);
+      const auto zero = graph.addConstant(UNSIGNED_INT, {}, 0);
+      const auto one = graph.addConstant(UNSIGNED_INT, {}, 1);
+      graph.setTileMapping(zero, controlFlowTile);
+      graph.setTileMapping(one, controlFlowTile);
+
+      // The following code constructs a control program that looks roughly
+      // like the following C++-like pseudocode:
+      //
+      // totalRemaining = product(endIndices) - startingIndexFlat;
+      // if (totalRemaining) {
+      //   prePropagation();
+      //
+      //   while (indices[x] < endIndices[x] && totalRemaining > 0) {
+      //     if (doXIteration[indices[x]]) {
+      //       while (indices[y] < endIndices[y] && totalRemaining > 0) {
+      //         while (indices[z] < endIndices[z] && totalRemaining > 0) {
+      //           propagationCompute();
+      //           totalRemaining -= increments[z];
+      //           if (totalRemaining > 0) {
+      //             indices[z] += increments[z];
+      //             propagationExchanges[z]();
+      //           }
+      //         }
+      //         if (totalRemaining > 0) {
+      //           indices[y] += increments[y];
+      //           propagationExchanges[y]();
+      //           indices[z] = 0;
+      //         }
+      //       }
+      //     } else {
+      //       totalRemaining -= increments[x] *
+      //         (endIndices[y] - indices[y]) *
+      //         (endIndices[z] - indices[z]);
+      //     }
+      //     if (totalRemaining > 0) {
+      //       indices[x] += increments[x];
+      //       propagationExchanges[x]();
+      //       indices[y] = 0;
+      //     }
+      //   }
+      //
+      //   /* If propagationMustReachStartingOffset then the following program
+      //      is generated also */
+      //
+      //   mask = indices > 0;
+      //   remainingIterations = (partition * mask) - indices;
+      //
+      //   while (remainingIterations.z --> 0) {
+      //     propagationExchanges[z]();
+      //   }
+      //   while (remainingIterations.y --> 0) {
+      //     propagationExchanges[y]();
+      //   }
+      //   while (remainingIterations.x --> 0) {
+      //     propagationExchanges[x]();
+      //   }
+      //
+      //   /* End of propagationMustReachStartingOffset section */
+      //
+      //   postPropagation();
+      // }
+      //
+
+      const auto totalRemaining = [&] {
+        std::vector<Tensor> placeholders;
+        expr::Any endIndicesProductExpr = expr::PlaceHolder(1);
+        for (std::size_t i = 0; i < numDirections; ++i) {
+          placeholders.emplace_back(endIndices[i]);
+          if (i != 0) {
+            endIndicesProductExpr =
+                expr::Mul(expr::PlaceHolder(i + 1), endIndicesProductExpr);
+          }
+        }
+        const auto startingIndexFlatExpr =
+            expr::Const(getPropagationStartingOffsetFlat(plan));
+        return popops::map(
+            graph, expr::Sub(endIndicesProductExpr, startingIndexFlatExpr),
+            placeholders, progs.back(), debugPrefix + "/totalRemaining");
+      }();
+      Sequence checkTotalRemainingIsNotZero;
+      const auto totalRemainingIsNotZero =
+          popops::neq(graph, totalRemaining, zero, checkTotalRemainingIsNotZero,
+                      debugPrefix + "/totalRemainingIsNotZero");
 
       progs.emplace_back();
       progs.back().add(prePropagation);
 
       const auto indices = graph.clone(endIndices, debugPrefix + "/indices");
-      const auto zero = graph.addConstant(UNSIGNED_INT, {1}, 0);
-      const auto one = graph.addConstant(UNSIGNED_INT, {1}, 1);
       const auto initialIndices =
           graph.addConstant(UNSIGNED_INT, endIndices.shape(),
                             ArrayRef<unsigned>(startingIndices));
       logging::popsparse::debug("startingIndices={}", startingIndices);
-      const auto controlFlowTile =
-          getTileForDynamicControlFlowManagement(graph, plan);
-      graph.setTileMapping(zero, controlFlowTile);
-      graph.setTileMapping(one, controlFlowTile);
       graph.setTileMapping(initialIndices, controlFlowTile);
       progs.back().add(Copy(initialIndices, indices));
 
       const std::array<std::string, numDirections> dimNames = {"X", "Y", "Z"};
 
-      if (dimsToIterate.size() >= 1) {
-        for (auto dimIt = dimsToIterate.rbegin();
-             dimIt != std::prev(dimsToIterate.rend()); ++dimIt) {
-          progs.emplace_back();
+      assert(dimsToIterate.size() >= 1);
+      for (auto dimIt = dimsToIterate.rbegin();
+           dimIt != std::prev(dimsToIterate.rend()); ++dimIt) {
+        progs.emplace_back();
 
-          progs.back().add(Copy(zero, indices[*dimIt]));
-          popops::addInPlace(graph, indices[*std::next(dimIt)], one,
-                             progs.back(),
-                             debugPrefix + "/adjust" + dimNames[*dimIt] +
-                                 "StartingIndicesToLoopBounds");
+        progs.back().add(Copy(zero, indices[*dimIt]));
+        popops::addInPlace(graph, indices[*std::next(dimIt)], one, progs.back(),
+                           debugPrefix + "/adjust" + dimNames[*dimIt] +
+                               "StartingIndicesToLoopBounds");
 
-          auto prog = std::move(progs.back());
-          progs.pop_back();
-          Sequence condBody;
-          const auto doesNotFitInLoopBound = popops::gteq(
-              graph, indices[*dimIt], endIndices[*dimIt], progs.back(),
-              debugPrefix + "/is" + dimNames[*dimIt] +
-                  "StartingIndexOutsideLoopBounds");
-          progs.back().add(
-              If(doesNotFitInLoopBound, std::move(prog), Sequence()));
-        }
+        auto prog = std::move(progs.back());
+        progs.pop_back();
+        Sequence condBody;
+        const auto doesNotFitInLoopBound = popops::gteq(
+            graph, indices[*dimIt], endIndices[*dimIt], progs.back(),
+            debugPrefix + "/is" + dimNames[*dimIt] +
+                "StartingIndexOutsideLoopBounds");
+        progs.back().add(
+            If(doesNotFitInLoopBound, std::move(prog), Sequence()));
       }
       for (std::size_t i = 0; i < dimsToIterate.size(); ++i) {
         progs.emplace_back();
       }
       progs.back().add(propagationCompute);
+      popops::subInPlace(graph, totalRemaining,
+                         increments[dimsToIterate.back()], progs.back(),
+                         debugPrefix + "/decrementTotalRemaining");
+      progs.back().add(checkTotalRemainingIsNotZero);
       for (auto dimIt = dimsToIterate.rbegin(); dimIt != dimsToIterate.rend();
            ++dimIt) {
         // If this is the outer-most loop, we have extra information that
@@ -389,58 +479,122 @@ public:
                                {"out", doIteration}});
           graph.setTileMapping(v, controlFlowTile);
           progs.back().add(Execute(cs));
+          Sequence falseBody;
+          // We need to reduce the total remaining by the same number as would
+          // have been processed if we performed all the inner loops.
+          std::vector<Tensor> placeholders = {totalRemaining};
+          expr::Any numInnerIterationsExpr = expr::Const(increments[*dimIt]);
+          if (dimIt != dimsToIterate.rbegin()) {
+            auto innerDimIt = std::prev(dimIt);
+            do {
+              numInnerIterationsExpr =
+                  expr::Mul(numInnerIterationsExpr,
+                            (expr::PlaceHolder(placeholders.size() + 1) -
+                             expr::PlaceHolder(placeholders.size() + 2)));
+              placeholders.emplace_back(endIndices[*innerDimIt]);
+              placeholders.emplace_back(indices[*innerDimIt]);
+            } while (innerDimIt-- != dimsToIterate.rbegin());
+          }
+          popops::mapInPlace(graph, expr::Sub(expr::_1, numInnerIterationsExpr),
+                             placeholders, falseBody,
+                             debugPrefix + "/decrementTotalRemaining");
           progs.back().add(
-              Switch(doIteration, {{0, Sequence()}}, std::move(prog)));
+              Switch(doIteration, {{0, falseBody}}, std::move(prog)));
         }
-        progs.back().add(propagationExchanges.at(*dimIt));
 
-        Tensor increment =
-            graph.addConstant(UNSIGNED_INT, {1}, increments[*dimIt]);
-        graph.setTileMapping(increment, controlFlowTile);
-        popops::addInPlace(graph, indices[*dimIt], increment, progs.back(),
-                           debugPrefix + "/increment" + dimNames[*dimIt] +
-                               "Index");
+        // If there is any work left to do, do the exchange for this dimension,
+        // increment indices and zero
+        {
+          progs.emplace_back();
+          progs.back().add(propagationExchanges.at(*dimIt));
+
+          const auto increment =
+              graph.addConstant(UNSIGNED_INT, {1}, increments[*dimIt]);
+          graph.setTileMapping(increment, controlFlowTile);
+          popops::addInPlace(graph, indices[*dimIt], increment, progs.back(),
+                             debugPrefix + "/increment" + dimNames[*dimIt] +
+                                 "Index");
+
+          // Zero next inner-most dimension's index (if there is one)
+          if (dimIt != dimsToIterate.rbegin()) {
+            progs.back().add(Copy(zero, indices[*std::prev(dimIt)]));
+          }
+
+          auto prog = std::move(progs.back());
+          progs.pop_back();
+          progs.back().add(
+              If(totalRemainingIsNotZero, std::move(prog), Sequence()));
+        }
 
         auto prog = std::move(progs.back());
         progs.pop_back();
+
         Sequence condBody;
-        const auto ltDim =
-            popops::lt(graph, indices[*dimIt], endIndices[*dimIt], condBody,
-                       debugPrefix + "/isDim" + dimNames[*dimIt] + "Finished");
-        progs.back().add(
-            RepeatWhileTrue(std::move(condBody), ltDim, std::move(prog)));
-        // Outer-most loop doesn't need to zero its index
-        if (std::next(dimIt) != dimsToIterate.rend()) {
-          progs.back().add(Copy(zero, indices[*dimIt]));
+        const auto dimIsNotFinished = popops::map(
+            graph, expr::_1 && (expr::_2 < expr::_3),
+            {totalRemainingIsNotZero, indices[*dimIt], endIndices[*dimIt]},
+            condBody, debugPrefix + "/isDim" + dimNames[*dimIt] + "Finished");
+        progs.back().add(RepeatWhileTrue(std::move(condBody), dimIsNotFinished,
+                                         std::move(prog)));
+      }
+
+      // If we need to get back to the starting offset we can check
+      // for each dimension if we have completed a number of iterations equal
+      // to the total number of partitions in each dimension and if not
+      // just exchange until we reach a zero offset again.
+      if (propagationMustReachStartingOffset) {
+        const auto dimPartitions = [&] {
+          auto v = plan.partition.asStdVector<unsigned>();
+          // No 'groups' dim
+          v.erase(v.begin());
+          return v;
+        }();
+        const auto dimPartitionsT = graph.addConstant(
+            UNSIGNED_INT, {dimPartitions.size()}, ArrayRef(dimPartitions),
+            debugPrefix + "/dimPartitions");
+        graph.setTileMapping(dimPartitionsT, controlFlowTile);
+        const auto remainingExchanges = popops::map(
+            graph,
+            (expr::_2 * expr::Cast(expr::_1 > expr::Const(0), UNSIGNED_INT)) -
+                expr::_1,
+            {indices, dimPartitionsT}, progs.back(),
+            debugPrefix + "/calcRemainingExchanges");
+
+        // NOTE: We could speed this up by only exchanging the written buffers
+        // that we need to copy in the postPropagation program but this would
+        // be more code and effort and for now doesn't really make much
+        // difference.
+        for (const auto dim : dimsToIterate) {
+          Sequence condBody;
+          const auto increment =
+              graph.addConstant(UNSIGNED_INT, {1}, increments[dim]);
+          graph.setTileMapping(increment, controlFlowTile);
+          const auto haveRemainingExchanges = popops::gt(
+              graph, remainingExchanges[dim], zero, condBody,
+              debugPrefix + "/haveRemainingExchanges" + dimNames[dim]);
+          Sequence updateRemainingExchanges;
+          popops::subInPlace(graph, remainingExchanges[dim], increment,
+                             updateRemainingExchanges,
+                             debugPrefix + "/updateRemainingExchanges" +
+                                 dimNames[dim]);
+          progs.back().add(
+              RepeatWhileTrue(std::move(condBody), haveRemainingExchanges,
+                              Sequence(propagationExchanges.at(dim),
+                                       std::move(updateRemainingExchanges))));
         }
       }
+
+      progs.back().add(postPropagation);
 
       // Wrap the whole program in a conditional to check if the dynamic steps
-      // are necessary at all.
-      if (dimsToIterate.size() >= 1) {
-        std::vector<Tensor> placeholderTs;
-        for (std::size_t i = 0; i < numDirections; ++i) {
-          placeholderTs.emplace_back(endIndices[i]);
-        }
-        popops::expr::Any endIndicesProductExpr = popops::expr::PlaceHolder(1);
-        for (std::size_t i = 1; i < numDirections; ++i) {
-          endIndicesProductExpr = popops::expr::Mul(
-              popops::expr::PlaceHolder(i + 1), endIndicesProductExpr);
-        }
-        const auto startingIndexFlat = getPropagationStartingOffsetFlat(plan);
-        const auto gtExpr = popops::expr::Gt(
-            endIndicesProductExpr, popops::expr::Const(startingIndexFlat));
-        Sequence condProg;
-        const auto doPropagation =
-            popops::map(graph, gtExpr, placeholderTs, condProg,
-                        debugPrefix + "/needPropagation");
-        progs.back() = Sequence(
-            condProg, If(doPropagation, std::move(progs.back()), Sequence()));
+      // are necessary at all based on totalRemaining.
+      {
+        auto prog = std::move(progs.back());
+        progs.pop_back();
+        progs.back().add(checkTotalRemainingIsNotZero);
+        progs.back().add(
+            If(totalRemainingIsNotZero, std::move(prog), Sequence()));
       }
-
-      auto prog = std::move(progs.back());
-      progs.pop_back();
-      progs.back().add(std::move(prog));
 
       assert(progs.size() == 1);
       seq.add(std::move(progs.back()));
@@ -470,6 +624,7 @@ static SinglePassPlan getFwdPlan(const Plan &plan) {
   p.initialDistributionPartitions = plan.initialDistributionPartitions;
   p.propagationPartitions = Vector<unsigned>(1);
   p.mapping = plan.exchangePlan.fwdMapping;
+  p.exchangeBuckets = true;
   p.nzElemsPerBucket = plan.nzElemsPerBucket;
   p.metaInfoElemsPerBucket = plan.fwdMetaInfoElemsPerBucket;
   p.method = plan.method.fwd;
@@ -497,8 +652,15 @@ static SinglePassPlan getGradWPlan(const Plan &plan) {
   std::swap(p.partition.y, p.partition.z);
   std::swap(p.initialDistributionPartitions.y,
             p.initialDistributionPartitions.z);
-  p.propagationPartitions = plan.gradWPropagationPartitions;
-  std::swap(p.propagationPartitions.y, p.propagationPartitions.z);
+  p.exchangeBuckets = plan.exchangePlan.gradWExchangeBuckets;
+  // When exchanging buckets in the gradW pass we don't unroll the
+  // initial distribution or propagation loops.
+  if (p.exchangeBuckets) {
+    p.initialDistributionPartitions = Vector<unsigned>(1);
+    p.propagationPartitions = Vector<unsigned>(1);
+  } else {
+    p.propagationPartitions = p.initialDistributionPartitions;
+  }
   p.mapping = plan.exchangePlan.gradWMapping;
   p.metaInfoElemsPerBucket = plan.fwdMetaInfoElemsPerBucket;
   p.method = plan.method.gradW;
@@ -1516,15 +1678,23 @@ static void addPropagationExchangesGradW(
     const SinglePassPlan &plan, const Options &options,
     const std::vector<unsigned> &hierarchy, const std::vector<Tensor> &inputs,
     const std::vector<Tensor> &weights, const std::vector<Tensor> &subGroupIds,
+    const std::vector<Tensor> &metaInfo, const std::vector<Tensor> &partials,
     const std::array<std::vector<Tensor>, numBuffers> &inputBuffers,
     const std::array<std::vector<Tensor>, numBuffers> &weightBuffers,
     const std::array<std::vector<Tensor>, numBuffers> &subGroupIdBuffers,
+    const std::array<std::vector<Tensor>, numBuffers> &metaInfoBuffers,
+    const std::array<std::vector<Tensor>, numBuffers> &partialBuffers,
     const Tensor &bufferIdx, const std::string &debugPrefix) {
   std::vector<Tensor> inputHomeSources, weightHomeSources,
-      subGroupIdHomeSources;
-  // This is opposite direction to Fwd/GradA
-  const auto homeOffset =
-      (plan.partition - getPropagationStartingOffset(plan)) % plan.partition;
+      subGroupIdHomeSources, metaInfoHomeSources, partialHomeSources;
+  auto homeOffset = getPropagationStartingOffset(plan);
+  // If we are exchanging input/output gradients this is opposite direction
+  // to Fwd/GradA.
+  if (!plan.exchangeBuckets) {
+    homeOffset = (plan.partition - homeOffset);
+  }
+  homeOffset %= plan.partition;
+
   const auto controlFlowTile =
       getTileForDynamicControlFlowManagement(graph, plan);
   constexpr std::size_t initialBufferIdx = 0b000;
@@ -1535,112 +1705,176 @@ static void addPropagationExchangesGradW(
   // WriteUndef the initial buffers. They may be partially written
   // by the first copy of partitions from home locations if there
   // is padding necessary.
-  writeUndefPartitions(progBuilder.prePropagation,
-                       inputBuffers.at(initialBufferIdx));
-  writeUndefPartitions(progBuilder.prePropagation,
-                       weightBuffers.at(initialBufferIdx));
-  writeUndefPartitions(progBuilder.prePropagation,
-                       subGroupIdBuffers.at(initialBufferIdx));
-  getPropagationExchangeSources(graph, plan, options, homeOffset, inputs, {},
-                                inputHomeSources, debugPrefix);
-  copyPartitions(graph, progBuilder.prePropagation, inputHomeSources,
-                 inputBuffers.at(initialBufferIdx), true);
-  getPropagationExchangeSources(graph, plan, options, homeOffset, weights, {},
-                                weightHomeSources, debugPrefix);
-  copyPartitions(graph, progBuilder.prePropagation, weightHomeSources,
-                 weightBuffers.at(initialBufferIdx), true);
-  getPropagationExchangeSources(graph, plan, options, homeOffset, subGroupIds,
-                                {}, subGroupIdHomeSources, debugPrefix);
-  copyPartitions(graph, progBuilder.prePropagation, subGroupIdHomeSources,
-                 subGroupIdBuffers.at(initialBufferIdx));
+  if (plan.exchangeBuckets) {
+    writeUndefPartitions(progBuilder.prePropagation,
+                         metaInfoBuffers.at(initialBufferIdx));
+    writeUndefPartitions(progBuilder.prePropagation,
+                         partialBuffers.at(initialBufferIdx));
+    getPropagationExchangeSources(graph, plan, options, homeOffset, metaInfo,
+                                  {}, metaInfoHomeSources, debugPrefix);
+    copyPartitions(graph, progBuilder.prePropagation, metaInfoHomeSources,
+                   metaInfoBuffers.at(initialBufferIdx));
+    getPropagationExchangeSources(graph, plan, options, homeOffset, partials,
+                                  {}, partialHomeSources, debugPrefix);
+    copyPartitions(graph, progBuilder.prePropagation, partialHomeSources,
+                   partialBuffers.at(initialBufferIdx));
+  } else {
+    writeUndefPartitions(progBuilder.prePropagation,
+                         inputBuffers.at(initialBufferIdx));
+    writeUndefPartitions(progBuilder.prePropagation,
+                         weightBuffers.at(initialBufferIdx));
+    writeUndefPartitions(progBuilder.prePropagation,
+                         subGroupIdBuffers.at(initialBufferIdx));
+    getPropagationExchangeSources(graph, plan, options, homeOffset, inputs, {},
+                                  inputHomeSources, debugPrefix);
+    copyPartitions(graph, progBuilder.prePropagation, inputHomeSources,
+                   inputBuffers.at(initialBufferIdx), true);
+    getPropagationExchangeSources(graph, plan, options, homeOffset, weights, {},
+                                  weightHomeSources, debugPrefix);
+    copyPartitions(graph, progBuilder.prePropagation, weightHomeSources,
+                   weightBuffers.at(initialBufferIdx), true);
+    getPropagationExchangeSources(graph, plan, options, homeOffset, subGroupIds,
+                                  {}, subGroupIdHomeSources, debugPrefix);
+    copyPartitions(graph, progBuilder.prePropagation, subGroupIdHomeSources,
+                   subGroupIdBuffers.at(initialBufferIdx));
+  }
   // WriteUndef the other buffers. We do this after the initial copy from
   // home location to ensure these buffers aren't live at the same
   // time as exchanging them above.
   for (std::size_t buffer = (initialBufferIdx + 1) % numBuffers;
        buffer != initialBufferIdx; buffer = (buffer + 1) % numBuffers) {
-    writeUndefPartitions(progBuilder.prePropagation, inputBuffers.at(buffer));
-    writeUndefPartitions(progBuilder.prePropagation, weightBuffers.at(buffer));
-    writeUndefPartitions(progBuilder.prePropagation,
-                         subGroupIdBuffers.at(buffer));
+    if (plan.exchangeBuckets) {
+      writeUndefPartitions(progBuilder.prePropagation,
+                           metaInfoBuffers.at(buffer));
+      writeUndefPartitions(progBuilder.prePropagation,
+                           partialBuffers.at(buffer));
+    } else {
+      writeUndefPartitions(progBuilder.prePropagation, inputBuffers.at(buffer));
+      writeUndefPartitions(progBuilder.prePropagation,
+                           weightBuffers.at(buffer));
+      writeUndefPartitions(progBuilder.prePropagation,
+                           subGroupIdBuffers.at(buffer));
+    }
   }
 
-  // This is opposite direction to Fwd/GradA
   auto offsets = plan.propagationPartitions.asStdVector();
-  // No groups dimension here.
-  offsets.erase(offsets.begin());
-  const auto getDir = [&](std::size_t dirIdx) -> Vector<unsigned> {
+  const auto getDir = [&](unsigned dim) -> Vector<unsigned> {
     std::vector<unsigned> v(4, 0);
-    const auto partition = plan.partition.asStdVector();
-    v[1 + dirIdx] =
-        (partition[1 + dirIdx] - offsets[dirIdx]) % partition[1 + dirIdx];
+    const auto &partition = plan.partition.asStdVector();
+    v[dim] = offsets[dim];
+    if (!plan.exchangeBuckets) {
+      v[dim] = partition[dim] - v[dim];
+    }
+    v[dim] %= partition[dim];
     return v;
   };
   // We have 3 directions, X, Y, and Z, in which to propagate.
   for (std::size_t dirIdx = 0; dirIdx < numDirections; ++dirIdx) {
-    const auto offset = getDir(dirIdx);
+    const auto offset = getDir(1 + dirIdx);
     Switch exchangeSwitch(bufferIdx);
-    const bool moveInput = offset.y + offset.z > 0;
-    const bool moveWeights = offset.x + offset.y > 0;
-    const bool moveSubGroupIds = offset.x + offset.z > 0;
-    for (std::size_t inputDestBuffer = 0; inputDestBuffer < numBuffers;
-         ++inputDestBuffer) {
-      const auto inputSourceBuffer =
-          (inputDestBuffer + (numBuffers - 1)) % numBuffers;
-      for (std::size_t weightDestBuffer = 0; weightDestBuffer < numBuffers;
-           ++weightDestBuffer) {
-        const auto weightSourceBuffer =
-            (weightDestBuffer + (numBuffers - 1)) % numBuffers;
-        for (std::size_t subGroupIdDestBuffer = 0;
-             subGroupIdDestBuffer < numBuffers; ++subGroupIdDestBuffer) {
-          const auto subGroupIdSourceBuffer =
-              (subGroupIdDestBuffer + (numBuffers - 1)) % numBuffers;
-          Sequence exchangeProg;
-          // These are conditional as if motion of operands is only in
-          // a direction that the operand is duplicated across we do
-          // not need to move it.
-          if (moveInput) {
-            std::vector<Tensor> sources;
-            getPropagationExchangeSources(graph, plan, options, offset,
-                                          inputBuffers.at(inputSourceBuffer),
-                                          {}, sources, debugPrefix);
-            copyPartitions(graph, exchangeProg, sources,
-                           inputBuffers.at(inputDestBuffer));
+
+    unsigned bitsToFlip = 0;
+    if (plan.exchangeBuckets) {
+      bitsToFlip = 1u;
+      for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
+        const auto sourceBuffer = (buffer + (numBuffers - 1)) % numBuffers;
+        Sequence exchangeProg;
+        {
+          std::vector<Tensor> sources;
+          getPropagationExchangeSources(graph, plan, options, offset,
+                                        metaInfoBuffers.at(sourceBuffer), {},
+                                        sources, debugPrefix);
+          copyPartitions(graph, exchangeProg, sources,
+                         metaInfoBuffers.at(buffer));
+        }
+        {
+          std::vector<Tensor> sources;
+          getPropagationExchangeSources(graph, plan, options, offset,
+                                        partialBuffers.at(sourceBuffer), {},
+                                        sources, debugPrefix);
+          copyPartitions(graph, exchangeProg, sources,
+                         partialBuffers.at(buffer));
+        }
+        exchangeSwitch.add(buffer, std::move(exchangeProg));
+      }
+    } else {
+      const bool moveInput = offset.y + offset.z > 0;
+      const bool moveWeights = offset.x + offset.y > 0;
+      const bool moveSubGroupIds = offset.x + offset.z > 0;
+      bitsToFlip = unsigned(moveInput) << 2u | unsigned(moveWeights) << 1u |
+                   unsigned(moveSubGroupIds) << 0u;
+      for (std::size_t inputDestBuffer = 0; inputDestBuffer < numBuffers;
+           ++inputDestBuffer) {
+        const auto inputSourceBuffer =
+            (inputDestBuffer + (numBuffers - 1)) % numBuffers;
+        for (std::size_t weightDestBuffer = 0; weightDestBuffer < numBuffers;
+             ++weightDestBuffer) {
+          const auto weightSourceBuffer =
+              (weightDestBuffer + (numBuffers - 1)) % numBuffers;
+          for (std::size_t subGroupIdDestBuffer = 0;
+               subGroupIdDestBuffer < numBuffers; ++subGroupIdDestBuffer) {
+            const auto subGroupIdSourceBuffer =
+                (subGroupIdDestBuffer + (numBuffers - 1)) % numBuffers;
+            Sequence exchangeProg;
+            // These are conditional as if motion of operands is only in
+            // a direction that the operand is duplicated across we do
+            // not need to move it.
+            if (moveInput) {
+              std::vector<Tensor> sources;
+              getPropagationExchangeSources(graph, plan, options, offset,
+                                            inputBuffers.at(inputSourceBuffer),
+                                            {}, sources, debugPrefix);
+              copyPartitions(graph, exchangeProg, sources,
+                             inputBuffers.at(inputDestBuffer));
+            }
+            if (moveWeights) {
+              std::vector<Tensor> sources;
+              getPropagationExchangeSources(
+                  graph, plan, options, offset,
+                  weightBuffers.at(weightSourceBuffer), {}, sources,
+                  debugPrefix);
+              copyPartitions(graph, exchangeProg, sources,
+                             weightBuffers.at(weightDestBuffer));
+            }
+            if (moveSubGroupIds) {
+              std::vector<Tensor> sources;
+              getPropagationExchangeSources(
+                  graph, plan, options, offset,
+                  subGroupIdBuffers.at(subGroupIdSourceBuffer), {}, sources,
+                  debugPrefix);
+              copyPartitions(graph, exchangeProg, sources,
+                             subGroupIdBuffers.at(subGroupIdDestBuffer));
+            }
+            exchangeSwitch.add(inputDestBuffer * numBuffers * numBuffers +
+                                   weightDestBuffer * numBuffers +
+                                   subGroupIdDestBuffer,
+                               std::move(exchangeProg));
           }
-          if (moveWeights) {
-            std::vector<Tensor> sources;
-            getPropagationExchangeSources(graph, plan, options, offset,
-                                          weightBuffers.at(weightSourceBuffer),
-                                          {}, sources, debugPrefix);
-            copyPartitions(graph, exchangeProg, sources,
-                           weightBuffers.at(weightDestBuffer));
-          }
-          if (moveSubGroupIds) {
-            std::vector<Tensor> sources;
-            getPropagationExchangeSources(
-                graph, plan, options, offset,
-                subGroupIdBuffers.at(subGroupIdSourceBuffer), {}, sources,
-                debugPrefix);
-            copyPartitions(graph, exchangeProg, sources,
-                           subGroupIdBuffers.at(subGroupIdDestBuffer));
-          }
-          exchangeSwitch.add(inputDestBuffer * numBuffers * numBuffers +
-                                 weightDestBuffer * numBuffers +
-                                 subGroupIdDestBuffer,
-                             std::move(exchangeProg));
         }
       }
     }
     Sequence prog;
     // Calculate buffer index.
-    const auto bitsToFlip = graph.addConstant(
-        UNSIGNED_INT, {1},
-        (unsigned(moveInput) << 2u | unsigned(moveWeights) << 1u |
-         unsigned(moveSubGroupIds) << 0u));
-    graph.setTileMapping(bitsToFlip, controlFlowTile);
-    popops::bitwiseXorInPlace(graph, bufferIdx, bitsToFlip, prog,
+    const auto bitsToFlipT = graph.addConstant(UNSIGNED_INT, {1}, bitsToFlip);
+    graph.setTileMapping(bitsToFlipT, controlFlowTile);
+    popops::bitwiseXorInPlace(graph, bufferIdx, bitsToFlipT, prog,
                               debugPrefix + "/toggleBuffers");
     prog.add(std::move(exchangeSwitch));
     progBuilder.propagationExchanges.at(dirIdx) = std::move(prog);
+  }
+
+  // If we're exchanging buckets, we also need to move partial results
+  // from buffers back to their home locations as they are written to/
+  // updated. We ensure these always end up at their original position
+  // when doing propagation phases.
+  if (plan.exchangeBuckets) {
+    Switch exchangeSwitch(bufferIdx);
+    for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
+      Sequence exchangeProg;
+      copyPartitions(graph, exchangeProg, partialBuffers.at(buffer), partials);
+      exchangeSwitch.add(buffer, std::move(exchangeProg));
+    }
+    progBuilder.postPropagation.add(exchangeSwitch);
   }
 }
 
@@ -1828,7 +2062,8 @@ static void computeInitialDistributionGradW(
   // partitions at a time. Instead we use a special exchange and compute
   // pattern that broadcasts each partition we need to handle to all partitions
   // which at least allows us to take advantage of 64-bit exchange where
-  // possible.
+  // possible when we move inputs/output gradients over exchange.
+  // If we move buckets instead then there is no advantage to this.
   if (product(plan.initialDistributionPartitions.asStdVector()) == 1) {
     const auto cs = graph.addComputeSet(debugPrefix +
                                         "/ComputePartialsInitialDistribution");
@@ -1899,107 +2134,130 @@ static void computeInitialDistributionGradW(
 }
 
 static void computePropagationGradW(
-    Graph &graph, Sequence &prog, const Vector<unsigned> &shape,
+    Graph &graph, ProgBuilder &progBuilder, const Vector<unsigned> &shape,
     const SinglePassPlan &plan, const Options &options,
-    const std::vector<unsigned> &hierarchy,
+    const std::vector<unsigned> &hierarchy, const std::vector<Tensor> &inputs,
+    const std::vector<Tensor> &weights, const std::vector<Tensor> &subGroupIds,
+    const std::vector<Tensor> &metaInfo, const std::vector<Tensor> &partials,
     const std::array<std::vector<Tensor>, numBuffers> &inputBuffers,
     const std::array<std::vector<Tensor>, numBuffers> &weightBuffers,
     const std::array<std::vector<Tensor>, numBuffers> &subGroupIdBuffers,
-    const std::vector<Tensor> &metaInfoBuckets,
-    const std::vector<Tensor> &partials, const Tensor &bufferIdx,
-    const std::string &debugPrefix) {
+    const std::array<std::vector<Tensor>, numBuffers> &metaInfoBuffers,
+    const std::array<std::vector<Tensor>, numBuffers> &partialBuffers,
+    const Tensor &bufferIdx, const std::string &debugPrefix) {
 
-  // Create compute programs that operate on each combination of
-  // input/weight/subGroupId buffers.
-  std::vector<std::size_t> computeProgIndexedShape = {numBuffers, numBuffers,
-                                                      numBuffers};
-  std::vector<Program> computeProgs(product(computeProgIndexedShape));
-  for (std::size_t inputBuffer = 0; inputBuffer < numBuffers; ++inputBuffer) {
-    for (std::size_t weightBuffer = 0; weightBuffer < numBuffers;
-         ++weightBuffer) {
-      for (std::size_t subGroupIdBuffer = 0; subGroupIdBuffer < numBuffers;
-           ++subGroupIdBuffer) {
-        const auto cs = graph.addComputeSet(
-            debugPrefix + "/ComputePartialsPropagateBufferIn" +
-            std::to_string(inputBuffer) + "Weights" +
-            std::to_string(weightBuffer) + "SubGroupId" +
-            std::to_string(subGroupIdBuffer));
-        compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false,
-                inputBuffers.at(inputBuffer), weightBuffers.at(weightBuffer),
-                metaInfoBuckets, partials,
-                subGroupIdBuffers.at(subGroupIdBuffer), debugPrefix);
-        computeProgs.at(flattenIndex(
-            computeProgIndexedShape,
-            {inputBuffer, weightBuffer, subGroupIdBuffer})) = Execute(cs);
-      }
+  std::vector<Program> computeProgs;
+  if (plan.exchangeBuckets) {
+    for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
+      const auto cs = graph.addComputeSet(debugPrefix +
+                                          "/ComputePartialsPropagationBuffer" +
+                                          std::to_string(buffer));
+      compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false, inputs,
+              weights, metaInfoBuffers.at(buffer), partialBuffers.at(buffer),
+              subGroupIds, debugPrefix);
+      computeProgs.push_back(Execute(cs));
     }
-  }
-
-  if (product(plan.propagationPartitions.asStdVector()) > 1) {
-    const auto broadcastFactor = plan.propagationPartitions;
-    bool moveInputs = broadcastFactor.y * broadcastFactor.z > 1;
-    bool moveWeights = broadcastFactor.x * broadcastFactor.y > 1;
-    bool moveSubGroupIds = broadcastFactor.x * broadcastFactor.z > 1;
-
-    std::vector<Program> computeCSs(computeProgs.size());
-    std::swap(computeProgs, computeCSs);
+  } else {
+    // Create compute programs that operate on each combination of
+    // input/weight/subGroupId buffers.
+    std::vector<std::size_t> computeProgIndexedShape = {numBuffers, numBuffers,
+                                                        numBuffers};
+    computeProgs.resize(product(computeProgIndexedShape));
     for (std::size_t inputBuffer = 0; inputBuffer < numBuffers; ++inputBuffer) {
       for (std::size_t weightBuffer = 0; weightBuffer < numBuffers;
            ++weightBuffer) {
         for (std::size_t subGroupIdBuffer = 0; subGroupIdBuffer < numBuffers;
              ++subGroupIdBuffer) {
-          const auto computeInputBuffer =
-              (inputBuffer + moveInputs) % numBuffers;
-          const auto computeWeightBuffer =
-              (weightBuffer + moveWeights) % numBuffers;
-          const auto computeSubGroupIdBuffer =
-              (subGroupIdBuffer + moveSubGroupIds) % numBuffers;
-          const auto computeCS = computeCSs.at(flattenIndex(
-              computeProgIndexedShape, {computeInputBuffer, computeWeightBuffer,
-                                        computeSubGroupIdBuffer}));
+          const auto cs = graph.addComputeSet(
+              debugPrefix + "/ComputePartialsPropagateBufferIn" +
+              std::to_string(inputBuffer) + "Weights" +
+              std::to_string(weightBuffer) + "SubGroupId" +
+              std::to_string(subGroupIdBuffer));
+          compute(graph, cs, shape, {}, plan, options, hierarchy, 0, false,
+                  inputBuffers.at(inputBuffer), weightBuffers.at(weightBuffer),
+                  metaInfo, partials, subGroupIdBuffers.at(subGroupIdBuffer),
+                  debugPrefix);
+          computeProgs.at(flattenIndex(
+              computeProgIndexedShape,
+              {inputBuffer, weightBuffer, subGroupIdBuffer})) = Execute(cs);
+        }
+      }
+    }
 
-          Sequence computeProg;
-          iteratePartitions(broadcastFactor, [&](const auto &i) {
-            if (moveInputs) {
-              std::vector<Tensor> broadcastSource;
-              getBroadcastPropagationExchangeSources(
-                  plan, options, i, broadcastFactor,
-                  inputBuffers.at(inputBuffer), broadcastSource);
-              copyPartitions(graph, computeProg, broadcastSource,
-                             inputBuffers.at(computeInputBuffer));
-            }
-            if (moveWeights) {
-              std::vector<Tensor> broadcastSource;
-              getBroadcastPropagationExchangeSources(
-                  plan, options, i, broadcastFactor,
-                  weightBuffers.at(weightBuffer), broadcastSource);
-              copyPartitions(graph, computeProg, broadcastSource,
-                             weightBuffers.at(computeWeightBuffer));
-            }
-            if (moveSubGroupIds) {
-              std::vector<Tensor> broadcastSource;
-              getBroadcastPropagationExchangeSources(
-                  plan, options, i, broadcastFactor,
-                  subGroupIdBuffers.at(subGroupIdBuffer), broadcastSource);
-              copyPartitions(graph, computeProg, broadcastSource,
-                             subGroupIdBuffers.at(computeSubGroupIdBuffer));
-            }
-            computeProg.add(computeCS);
-          });
-          computeProgs.at(
-              flattenIndex(computeProgIndexedShape,
-                           {inputBuffer, weightBuffer, subGroupIdBuffer})) =
-              std::move(computeProg);
+    if (product(plan.propagationPartitions.asStdVector()) > 1) {
+      const auto broadcastFactor = plan.propagationPartitions;
+      bool moveInputs = broadcastFactor.y * broadcastFactor.z > 1;
+      bool moveWeights = broadcastFactor.x * broadcastFactor.y > 1;
+      bool moveSubGroupIds = broadcastFactor.x * broadcastFactor.z > 1;
+
+      std::vector<Program> computeCSs(computeProgs.size());
+      std::swap(computeProgs, computeCSs);
+      for (std::size_t inputBuffer = 0; inputBuffer < numBuffers;
+           ++inputBuffer) {
+        for (std::size_t weightBuffer = 0; weightBuffer < numBuffers;
+             ++weightBuffer) {
+          for (std::size_t subGroupIdBuffer = 0; subGroupIdBuffer < numBuffers;
+               ++subGroupIdBuffer) {
+            const auto computeInputBuffer =
+                (inputBuffer + moveInputs) % numBuffers;
+            const auto computeWeightBuffer =
+                (weightBuffer + moveWeights) % numBuffers;
+            const auto computeSubGroupIdBuffer =
+                (subGroupIdBuffer + moveSubGroupIds) % numBuffers;
+            const auto computeCS = computeCSs.at(
+                flattenIndex(computeProgIndexedShape,
+                             {computeInputBuffer, computeWeightBuffer,
+                              computeSubGroupIdBuffer}));
+
+            Sequence computeProg;
+            iteratePartitions(broadcastFactor, [&](const auto &i) {
+              if (moveInputs) {
+                std::vector<Tensor> broadcastSource;
+                getBroadcastPropagationExchangeSources(
+                    plan, options, i, broadcastFactor,
+                    inputBuffers.at(inputBuffer), broadcastSource);
+                copyPartitions(graph, computeProg, broadcastSource,
+                               inputBuffers.at(computeInputBuffer));
+              }
+              if (moveWeights) {
+                std::vector<Tensor> broadcastSource;
+                getBroadcastPropagationExchangeSources(
+                    plan, options, i, broadcastFactor,
+                    weightBuffers.at(weightBuffer), broadcastSource);
+                copyPartitions(graph, computeProg, broadcastSource,
+                               weightBuffers.at(computeWeightBuffer));
+              }
+              if (moveSubGroupIds) {
+                std::vector<Tensor> broadcastSource;
+                getBroadcastPropagationExchangeSources(
+                    plan, options, i, broadcastFactor,
+                    subGroupIdBuffers.at(subGroupIdBuffer), broadcastSource);
+                copyPartitions(graph, computeProg, broadcastSource,
+                               subGroupIdBuffers.at(computeSubGroupIdBuffer));
+              }
+              computeProg.add(computeCS);
+            });
+            computeProgs.at(
+                flattenIndex(computeProgIndexedShape,
+                             {inputBuffer, weightBuffer, subGroupIdBuffer})) =
+                std::move(computeProg);
+          }
         }
       }
     }
   }
 
   auto computeSwitch = Switch(bufferIdx);
+
   for (std::size_t i = 0; i < computeProgs.size(); ++i) {
     computeSwitch.add(i, computeProgs[i]);
   }
-  prog.add(computeSwitch);
+
+  progBuilder.propagationCompute.add(computeSwitch);
+
+  if (plan.exchangeBuckets) {
+    progBuilder.setPropagationMustReachStartingOffset();
+  }
 }
 
 static Tensor fullyConnectedSparseGradWImpl(
@@ -2119,20 +2377,33 @@ static Tensor fullyConnectedSparseGradWImpl(
   }
 
   std::array<std::vector<Tensor>, numBuffers> inputPropagationBuffers,
-      weightPropagationBuffers, subGroupIdPropagationBuffers;
+      weightPropagationBuffers, subGroupIdPropagationBuffers,
+      metaInfoPropagationBuffers, partialPropagationBuffers;
   for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
-    createPropagationBuffers(
-        graph, inputType, shape, {}, plan, options, hierarchy, 0,
-        nextLevelInputs, {}, inputPropagationBuffers.at(buffer),
-        debugPrefix + "/inputPropagationBuffer" + std::to_string(buffer));
-    createPropagationBuffers(
-        graph, inputType, shape, {}, plan, options, hierarchy, 0,
-        nextLevelWeights, {}, weightPropagationBuffers.at(buffer),
-        debugPrefix + "/weightPropagationBuffer" + std::to_string(buffer));
-    createPropagationBuffers(
-        graph, inputType, shape, {}, plan, options, hierarchy, 0, subGroupIds,
-        {}, subGroupIdPropagationBuffers.at(buffer),
-        debugPrefix + "/subGroupIdPropagationBuffer" + std::to_string(buffer));
+    if (plan.exchangeBuckets) {
+      createPropagationBuffers(
+          graph, UNSIGNED_SHORT, shape, {}, plan, options, hierarchy, 0,
+          nextLevelMetaInfoBuckets, {}, metaInfoPropagationBuffers.at(buffer),
+          debugPrefix + "/metaInfoPropagationBuffer" + std::to_string(buffer));
+      createPropagationBuffers(
+          graph, options.partialsType, shape, {}, plan, options, hierarchy, 0,
+          partials, {}, partialPropagationBuffers.at(buffer),
+          debugPrefix + "/partialPropagationBuffer" + std::to_string(buffer));
+    } else {
+      createPropagationBuffers(
+          graph, inputType, shape, {}, plan, options, hierarchy, 0,
+          nextLevelInputs, {}, inputPropagationBuffers.at(buffer),
+          debugPrefix + "/inputPropagationBuffer" + std::to_string(buffer));
+      createPropagationBuffers(
+          graph, inputType, shape, {}, plan, options, hierarchy, 0,
+          nextLevelWeights, {}, weightPropagationBuffers.at(buffer),
+          debugPrefix + "/weightPropagationBuffer" + std::to_string(buffer));
+      createPropagationBuffers(graph, inputType, shape, {}, plan, options,
+                               hierarchy, 0, subGroupIds, {},
+                               subGroupIdPropagationBuffers.at(buffer),
+                               debugPrefix + "/subGroupIdPropagationBuffer" +
+                                   std::to_string(buffer));
+    }
   }
 
   writeUndefPartitions(progBuilder.preDistribution, partials);
@@ -2150,15 +2421,17 @@ static Tensor fullyConnectedSparseGradWImpl(
   graph.setTileMapping(bufferIdx, controlFlowTile);
   addPropagationExchangesGradW(
       graph, progBuilder, shape, plan, options, hierarchy, nextLevelInputs,
-      nextLevelWeights, subGroupIds, inputPropagationBuffers,
-      weightPropagationBuffers, subGroupIdPropagationBuffers, bufferIdx,
-      debugPrefix);
+      nextLevelWeights, subGroupIds, nextLevelMetaInfoBuckets, partials,
+      inputPropagationBuffers, weightPropagationBuffers,
+      subGroupIdPropagationBuffers, metaInfoPropagationBuffers,
+      partialPropagationBuffers, bufferIdx, debugPrefix);
 
   computePropagationGradW(
-      graph, progBuilder.propagationCompute, shape, plan, options, hierarchy,
+      graph, progBuilder, shape, plan, options, hierarchy, nextLevelInputs,
+      nextLevelWeights, subGroupIds, nextLevelMetaInfoBuckets, partials,
       inputPropagationBuffers, weightPropagationBuffers,
-      subGroupIdPropagationBuffers, nextLevelMetaInfoBuckets, partials,
-      bufferIdx, debugPrefix);
+      subGroupIdPropagationBuffers, metaInfoPropagationBuffers,
+      partialPropagationBuffers, bufferIdx, debugPrefix);
 
   const auto output =
       finalReduction(graph, progBuilder, shape, resultType, {}, plan, options,

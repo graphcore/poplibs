@@ -37,10 +37,30 @@ static std::map<std::string, poplar::Type> partialsTypeMap{
     {"half", poplar::HALF}, {"float", poplar::FLOAT}};
 
 using boost::property_tree::ptree;
+using poplibs_support::validatePlanConstraintsBoolean;
 using poplibs_support::validatePlanConstraintsUnsigned;
 
 static std::unordered_set<std::string> validPartitionConstraintVar = {"x", "y",
                                                                       "z"};
+
+static std::unordered_set<std::string> validExchangeConstraintBool = {
+    "gradWExchangeBuckets"};
+
+void validatePlanConstraintsExchange(const std::string &path, const ptree &t) {
+  if (t.empty() && !t.data().empty()) {
+    throw poplar::invalid_option("'" + path + "': Must be an object");
+  }
+  for (const auto &child : t) {
+    const std::string subPath = path + "." + child.first;
+    if (validExchangeConstraintBool.count(child.first) > 0) {
+      validatePlanConstraintsBoolean(subPath, child.second);
+    } else {
+      throw poplar::invalid_option(
+          "'" + subPath + "': " + child.first +
+          " is not currently handled or does not exist");
+    }
+  }
+}
 
 void validatePlanConstraintsPartition(const std::string &path, const ptree &t) {
   if (t.empty() && !t.data().empty()) {
@@ -67,7 +87,9 @@ struct ValidatePlanConstraintsOption {
     }
 
     for (const auto &child : t) {
-      if (child.first == "partition") {
+      if (child.first == "exchange") {
+        validatePlanConstraintsExchange(child.first, child.second);
+      } else if (child.first == "partition") {
         validatePlanConstraintsPartition(child.first, child.second);
       } else {
         throw poplar::invalid_option(

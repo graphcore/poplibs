@@ -47,7 +47,8 @@ std::ostream &operator<<(std::ostream &os, const Cost &c);
 enum class OnTileMethod {
   // Codelet for Forward pass with full meta-info for element-wise sparsity.
   Forward,
-  // Codelet for GradA pass with full meta-info for element-wise sparsity.
+  // Codelet for GradA pass with full meta-info for element-wise
+  // sparsity.
   GradA,
   // Codelet for GradA pass reusing forward pass meta-info for element-wise
   // sparsity.
@@ -88,6 +89,11 @@ struct ExchangeAndMappingPlan {
   PartitionToPNMapping fwdMapping;
   PartitionToPNMapping gradAMapping;
   PartitionToPNMapping gradWMapping;
+  // If true, cycle buckets between tiles in Grad-W pass when/if
+  // exchange is needed to calculate the final result.
+  // If false, cycle dense operands between tiles in Grad-W
+  // pass when/if needed to calculate the final result.
+  bool gradWExchangeBuckets;
 };
 
 std::ostream &operator<<(std::ostream &os, const ExchangeAndMappingPlan &p);
@@ -104,9 +110,6 @@ struct Plan {
   // This gives the number of partitions handled in the initial distribution
   // phase. This must be an exact divisor of partitions.
   Vector<unsigned> initialDistributionPartitions;
-  // This gives the number of partitions handled in the propagation
-  // phase. This must be an exact divisor of partition.
-  Vector<unsigned> gradWPropagationPartitions;
   // Determines tile layout and patterns/methods used to exchange data
   // in different stages of the operation.
   ExchangeAndMappingPlan exchangePlan;

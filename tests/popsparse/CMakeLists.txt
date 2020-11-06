@@ -102,7 +102,7 @@ foreach(DATA_TYPE half float)
 
       foreach(BLOCK_SIZE 4 8 16)
         add_multitarget_test(
-          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl_eb0
           COMMAND sparse_fc_layer
             --data-type=${DATA_TYPE}
             --partials-type=${PARTIALS_TYPE}
@@ -113,7 +113,25 @@ foreach(DATA_TYPE half float)
             --sparsity-factor=0.1
             --tiles-per-ipu=24
             --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+            --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":false}}
             --single-phase=${PASS_TYPE})
+
+        if (${PASS_TYPE} STREQUAL "wu" OR ${PASS_TYPE} STREQUAL "all")
+          add_multitarget_test(
+            NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl_eb1
+            COMMAND sparse_fc_layer
+              --data-type=${DATA_TYPE}
+              --partials-type=${PARTIALS_TYPE}
+              --input-size=1024
+              --output-size=1024
+              --batch-size=4
+              --block-size=${BLOCK_SIZE}
+              --sparsity-factor=0.1
+              --tiles-per-ipu=24
+              --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+              --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":true}}
+              --single-phase=${PASS_TYPE})
+        endif()
 
         add_multitarget_test(
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_8b_block${BLOCK_SIZE}_0.1sl
@@ -156,7 +174,7 @@ foreach(DATA_TYPE half float)
       endif()
 
       add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_4b_0.1sl_sb_${SHARED_BUCKETS}
+        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_4b_0.1sl_eb0_sb_${SHARED_BUCKETS}
         COMMAND sparse_fc_layer
           --data-type=${DATA_TYPE}
           --input-size=1024
@@ -165,7 +183,23 @@ foreach(DATA_TYPE half float)
           --sparsity-factor=0.1
           --tiles-per-ipu=24
           --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\",\"availableMemoryProportion\":\"0.6\"}
+          --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":false}}
           --single-phase=${PASS_TYPE})
+
+      if (${PASS_TYPE} STREQUAL "wu" OR ${PASS_TYPE} STREQUAL "all")
+        add_multitarget_test(
+          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_4b_0.1sl_eb1_sb_${SHARED_BUCKETS}
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --input-size=1024
+            --output-size=1024
+            --batch-size=4
+            --sparsity-factor=0.1
+            --tiles-per-ipu=24
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\",\"availableMemoryProportion\":\"0.6\"}
+            --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":true}}
+            --single-phase=${PASS_TYPE})
+      endif()
 
       add_multitarget_test(
         NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_512in_512out_8b_0.1sl_sb_${SHARED_BUCKETS}
@@ -367,6 +401,7 @@ foreach(DATA_TYPE float half)
               --num-indices=${INDICES}
               --block-size=1
               --sparsity-factor=0.2
+              --matmul-options={\"metaInfoBucketOversizeProportion\":\"0.5\"}
               --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
               --weighted-area-weighting=1.0)
         endforeach()
@@ -410,6 +445,7 @@ foreach(DATA_TYPE float half)
                 --block-size={${BLOCK_ROWS},${BLOCK_COLUMNS}}
                 --test-matmul=false
                 --sparsity-factor=0.1
+                --matmul-options={\"metaInfoBucketOversizeProportion\":\"0.6\"}
                 --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
                 --weighted-area-weighting=1.0)
           endforeach()
