@@ -192,7 +192,7 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
 
   // Allocate and initialise host buffers with appropriate values.
   std::vector<HOST_DATA_TYPE> inHost(nElems);
-  fillDataBuffer(operation, dataType, randomSeed, inHost);
+  fillHostBuffer(operation, dataType, randomSeed, inHost);
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType, 1, tiles);

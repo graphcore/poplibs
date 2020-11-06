@@ -106,8 +106,11 @@ bool isValidCombination(const VertexDesc &vertex, const UnaryOpType op,
        op == UnaryOpType::IS_NAN)) {
     return false;
   }
-  if (op == UnaryOpType::BITWISE_NOT || op == UnaryOpType::POPCOUNT ||
-      op == UnaryOpType::COUNT_LEADING_ZEROS) {
+  if (op == UnaryOpType::BITWISE_NOT) {
+    return type == INT || type == UNSIGNED_INT || type == SHORT ||
+           type == UNSIGNED_SHORT;
+  }
+  if (op == UnaryOpType::POPCOUNT || op == UnaryOpType::COUNT_LEADING_ZEROS) {
     return type == INT || type == UNSIGNED_INT;
   }
   if (op == UnaryOpType::ABSOLUTE || op == UnaryOpType::NEGATE ||
@@ -192,7 +195,9 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   if (std::find(std::begin(verticesNames), std::end(verticesNames),
                 vertex.name) == std::end(verticesNames)) {
     throw std::runtime_error(vertex.name +
-                             " is not a valid vertex name for this test");
+                             " is not a valid vertex name for this test. Maybe "
+                             "you wanted to use the --vertexRE option for a "
+                             "regular expression?");
   }
 
   if (vertex.inPlace && (outputType != dataType)) {
@@ -219,7 +224,7 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   const unsigned nElems =
       vertex.is2D ? std::accumulate(sizes.begin(), sizes.end(), 0) : sizes[0];
   std::vector<HOST_DATA_TYPE> inHost(nElems);
-  fillDataBuffer(op, dataType, randomSeed, inHost);
+  fillHostBuffer(op, dataType, randomSeed, inHost);
 
   // === Create graph variables.
   Tensor in, out;
@@ -400,10 +405,12 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
   DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
   DO_TEST(UNSIGNED_INT, BOOL, unsigned, HostBool)
 
+  DO_TEST(SHORT, SHORT, short, short)
+  DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
+
   // Reaching here means the combination of 'dataType' and 'outputType' was
   // invalid.
-  throw std::runtime_error("Combination of data type and operator not "
-                           "supported");
+  throw std::runtime_error("Combination of data type/operator not supported");
   return false;
 }
 
@@ -514,7 +521,7 @@ int main(int argc, char **argv) {
      ("Operation(s) to perform, one or more of: " + allOpsStr()).c_str())
     ("data-type",
      po::value<std::vector<Type>>(&dataTypes)->multitoken(),
-     "Data type: one or more of half, float, int, unsigned, bool")
+     "Data type: one or more of half, float, int, uint, short, ushort, bool")
     ("size",
      po::value<std::vector<unsigned>>(&sizes)->multitoken(),
      "Size(s) for rows of first operand. Single value for a 1D vertex, "
@@ -565,7 +572,7 @@ int main(int argc, char **argv) {
 
   // === If no data type specified, test 'em all
   if (dataTypes.empty()) {
-    dataTypes = {HALF, FLOAT, INT, UNSIGNED_INT, BOOL};
+    dataTypes = {HALF, FLOAT, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT};
   }
 
   std::regex vertexRegEx(vertexRE);

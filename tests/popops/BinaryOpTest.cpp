@@ -4,244 +4,29 @@
 // mapped in any desired way among tiles.
 
 #include <poplar/Engine.hpp>
-#include <poplibs_support/TestDevice.hpp>
 #include <popops/Zero.hpp>
 
 #include "poputil/VertexTemplates.hpp"
 
 #include "../lib/popops/ExprOpUtil.hpp"
-#include "popops/ElementWise.hpp"
 #include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
-#include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
-#include <boost/program_options.hpp>
-#include <boost/token_functions.hpp>
-#include <boost/tokenizer.hpp>
+
+#include "codelets/BinaryCodeletsTest.hpp"
 
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <optional>
-#include <sstream>
 #include <type_traits>
 
-using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
-using namespace popops;
-using namespace poplibs_support;
-using popops::expr::BinaryOpType;
-
-const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
-
-// We use 'unsigned char' on the host instead of 'bool', because
-// std::vector<bool> gets specialised with 1 bit per element instead of 1 byte
-typedef unsigned char HostBool;
-
-// A map that, given a BinaryOpType, returns a string with its name
-const std::map<BinaryOpType, const std::string> binaryOpToString = {
-#define ONE_OP(opId)                                                           \
-  { BinaryOpType::opId, #opId }
-    ONE_OP(ADD),
-    ONE_OP(ATAN2),
-    ONE_OP(BITWISE_AND),
-    ONE_OP(BITWISE_OR),
-    ONE_OP(BITWISE_XOR),
-    ONE_OP(BITWISE_XNOR),
-    ONE_OP(DIVIDE),
-    ONE_OP(EQUAL),
-    ONE_OP(GREATER_THAN_EQUAL),
-    ONE_OP(GREATER_THAN),
-    ONE_OP(INV_STD_DEV_TO_VARIANCE),
-    ONE_OP(LESS_THAN_EQUAL),
-    ONE_OP(LOGICAL_AND),
-    ONE_OP(LOGICAL_OR),
-    ONE_OP(LESS_THAN),
-    ONE_OP(MAXIMUM),
-    ONE_OP(MINIMUM),
-    ONE_OP(MULTIPLY),
-    ONE_OP(NOT_EQUAL),
-    ONE_OP(POWER),
-    ONE_OP(REMAINDER),
-    ONE_OP(SHIFT_LEFT),
-    ONE_OP(SHIFT_RIGHT),
-    ONE_OP(SHIFT_RIGHT_SIGN_EXTEND),
-    ONE_OP(SUBTRACT),
-    ONE_OP(VARIANCE_TO_INV_STD_DEV),
-#undef ONE_OP
-};
-
-// Given a string, returns the corresponding BinaryOpType. The string can be
-// uppercase or lowercase and be just the start of the name of the operator, as
-// long as it uniquely identifies it (i.e. "ad" ==> ADD, but "shift_r" is
-// not enough, as we have both SHIFT_RIGHT and SHIFT_RIGHT_SIGN_EXTEND.
-// But note that if the string matches *exactly* the name, then it is considered
-// valid; for instance, "shift_right" => SHIFT_RIGHT, even if we have
-// SHIFT_RIGHT_SIGN_EXTEND
-BinaryOpType stringToBinaryOp(const std::string &s) {
-  std::optional<BinaryOpType> opFound(std::nullopt);
-  std::string us = s;
-  boost::to_upper(us);
-  for (auto &e : binaryOpToString) {
-    auto op = e.first;
-    auto opName = e.second;
-    if (opName == us) {
-      return op; // Exact match. Return straight away
-    }
-    if (opName.rfind(us, 0) != std::string::npos) {
-      // Partial match. We need to scan them all to see if more than 1 match
-      if (opFound) {
-        throw std::runtime_error("<" + s +
-                                 "> does not uniquely define a "
-                                 "poplar::expr::BinaryOpType");
-      } else {
-        opFound = op;
-      }
-    }
-  }
-  if (opFound)
-    return *opFound;
-  else
-    throw std::runtime_error("<" + s +
-                             "> is not a valid poplar::expr::BinaryOpType");
-}
-
-// Returns a string with all operations, comma separated. Used for the help
-// message
-const std::string allOps() {
-  std::vector<std::string> ops;
-  for (auto &e : binaryOpToString) {
-    ops.push_back(e.second);
-  }
-  sort(ops.begin(), ops.end());
-  std::string result = ops[0];
-  std::for_each(ops.begin() + 1, ops.end(),
-                [&](auto &s) { result += ", " + s; });
-  return result;
-}
-
-// Is 'op' one of the comparison (relational) operators that return booleans?
-bool isComparisonOp(BinaryOpType op) {
-  switch (op) {
-  case BinaryOpType::EQUAL:
-  case BinaryOpType::GREATER_THAN_EQUAL:
-  case BinaryOpType::GREATER_THAN:
-  case BinaryOpType::LESS_THAN_EQUAL:
-  case BinaryOpType::LESS_THAN:
-  case BinaryOpType::LOGICAL_AND:
-  case BinaryOpType::LOGICAL_OR:
-  case BinaryOpType::NOT_EQUAL:
-    return true;
-  default:
-    return false;
-  }
-}
-
-// Is 'op' one of the operators that can only take integer operands?
-bool isIntOp(BinaryOpType op) {
-  switch (op) {
-  case BinaryOpType::BITWISE_AND:
-  case BinaryOpType::BITWISE_OR:
-  case BinaryOpType::BITWISE_XOR:
-  case BinaryOpType::BITWISE_XNOR:
-  case BinaryOpType::SHIFT_LEFT:
-  case BinaryOpType::SHIFT_RIGHT:
-  case BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND:
-    return true;
-  default:
-    return false;
-  }
-}
-
-// Definitions for an overloaded 'performOp' function to execute the operation
-// on the host (for verification). Note that the result value is a function
-// parameter (passed by reference) and not the return value of the function, to
-// allow for full overload resolution (return type is not used for overload
-// resolution in C++).
-
-// A macro to reduce to the minimum the typing to define each operation
-#define ONE_OP(opId, expr)                                                     \
-  if (op == BinaryOpType::opId) {                                              \
-    result = expr;                                                             \
-    return;                                                                    \
-  }
-
-// These operations are common to floating point and integer types.
-#define COMMON_OPS()                                                           \
-  ONE_OP(ADD, a + b);                                                          \
-  ONE_OP(DIVIDE, a / b);                                                       \
-  ONE_OP(MAXIMUM, (a > b) ? a : b);                                            \
-  ONE_OP(MINIMUM, (a < b) ? a : b);                                            \
-  ONE_OP(MULTIPLY, a *b);                                                      \
-  ONE_OP(SUBTRACT, a - b)
-
-// These operations are common to INT and UNSIGNED_INT types
-#define INTEGER_OPS()                                                          \
-  COMMON_OPS();                                                                \
-  ONE_OP(BITWISE_AND, a &b);                                                   \
-  ONE_OP(BITWISE_OR, a | b);                                                   \
-  ONE_OP(BITWISE_XOR, a ^ b);                                                  \
-  ONE_OP(BITWISE_XNOR, ~(a ^ b));                                              \
-  ONE_OP(LOGICAL_AND, a &&b);                                                  \
-  ONE_OP(LOGICAL_OR, a || b);                                                  \
-  ONE_OP(REMAINDER, a - (a / b) * b);                                          \
-  ONE_OP(SHIFT_LEFT, a << b);                                                  \
-  ONE_OP(SHIFT_RIGHT, (unsigned)a >> b;);                                      \
-  ONE_OP(SHIFT_RIGHT_SIGN_EXTEND, a >> b;);
-
-// Do the operation specified by 'op' on 'a' and 'b', where the operands are
-// floating point types ('float' on the host, HALF or FLOAT on the device)
-void performOp(BinaryOpType op, float a, float b, float &result) {
-  COMMON_OPS();
-  ONE_OP(ATAN2, atan2(a, b));
-  ONE_OP(INV_STD_DEV_TO_VARIANCE, 1 / (a * a) - b);
-  ONE_OP(POWER, pow(a, b));
-  ONE_OP(REMAINDER, std::fmod(a, b));
-  ONE_OP(VARIANCE_TO_INV_STD_DEV, 1 / (std::sqrt(a + b)));
-  throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a valid operator for floating point types");
-}
-
-// Do the operation specified by 'op' on 'a' and 'b' where the operands are
-// INT types.
-void performOp(BinaryOpType op, int a, int b, int &result) {
-  INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a valid operator for signed integer");
-}
-
-// Do the operation specified by 'op' on 'a' and 'b' where the operands are
-// UNSIGNED_INT types.
-void performOp(BinaryOpType op, unsigned a, unsigned b, unsigned &result) {
-  INTEGER_OPS();
-  throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a valid operator for unsigned integer");
-}
-
-// Do the operation specified by 'op' on 'a' and 'b' where the 'op' is one of
-// the operators that return a boolean. This works for floating point, integer
-// and boolean data types.
-template <typename T>
-void performOp(BinaryOpType op, T a, T b, HostBool &result) {
-  ONE_OP(EQUAL, a == b);
-  ONE_OP(GREATER_THAN_EQUAL, a >= b);
-  ONE_OP(GREATER_THAN, a > b);
-  ONE_OP(LESS_THAN_EQUAL, a <= b);
-  ONE_OP(LESS_THAN, a < b);
-  ONE_OP(LOGICAL_AND, a && b);
-  ONE_OP(LOGICAL_OR, a || b);
-  ONE_OP(NOT_EQUAL, a != b);
-  throw std::logic_error(std::to_string(unsigned(op)) +
-                         " is not a boolean operator");
-}
-
-#undef COMMON_OPS
-#undef ONE_OP
 
 // A descriptor to keep information about which tile to store a slice of
 // a tensor on
@@ -283,80 +68,6 @@ T get(const T data[], const std::vector<size_t> shape,
   return data[offs];
 }
 
-// Overloaded & templated convertToString functions to print correctly
-// from inside the templated 'verifyResult()'  function
-
-std::string convertToString(unsigned val) {
-  std::stringstream ss;
-  ss << "0x" << std::hex << val;
-  return ss.str();
-}
-
-std::string convertToString(HostBool val) {
-  return convertToString(unsigned(val));
-}
-
-std::string convertToString(int val) { return convertToString(unsigned(val)); }
-
-template <typename T> std::string convertToString(T val) {
-  std::stringstream ss;
-  ss << val;
-  return ss.str();
-}
-
-/// Check if two values are 'equal enough', for verification. This is the
-/// overloaded for floating point trype
-bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
-                 const Type &dataType, float expected, float actual) {
-  // For single precision floating types there are some operators where we
-  // expect the result from the device to be bit exact with the one from the
-  // host
-  if (dataType == FLOAT &&
-      (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
-       op == BinaryOpType::MULTIPLY || op == BinaryOpType::DIVIDE ||
-       op == BinaryOpType::REMAINDER)) {
-    return expected == actual;
-  } else {
-
-    double tolerance = 0.000001;
-
-    // Horrible contortions to verify result for halves. We should really
-    // have a half bit-exact computation library for the host.
-    if (dataType == HALF) {
-      float clipTreshHalf = (isIpuModel(deviceType))
-                                ? std::numeric_limits<float>::infinity()
-                                : 65504.0f;
-      float clipValueHalf = 65488.0f;
-      if (actual >= clipTreshHalf) {
-        return expected >= clipValueHalf;
-      } else if (actual <= -clipTreshHalf) {
-        return expected <= -clipValueHalf;
-      }
-
-      // POWER in half is not very precise
-      tolerance = (op == BinaryOpType::POWER) ? 0.012 : 0.003;
-    }
-
-    bool isEqual = false;
-    if (expected == 0) {
-      isEqual = (expected == actual);
-    } else {
-      double delta = std::abs(expected - actual);
-      delta = delta / expected;
-      isEqual = (delta <= tolerance);
-    }
-    return isEqual;
-  }
-}
-
-/// Check if two values are 'equal enough'.
-/// For int/unsigned/boolean values, results must be bit exact
-template <typename T>
-bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
-                 const Type &dataType, float expected, float actual) {
-  return expected == actual;
-}
-
 //*************************************************************************
 /// Verifies if the results of the operation performed on the device match
 /// with the one the host
@@ -370,7 +81,7 @@ bool equalValues(const DeviceType &deviceType, const BinaryOpType op,
 ///                            device and converted to host types.
 /// \param operation           Operation performed on device.
 template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
-static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
+static bool verifyResult(const bool isIpuModel, const Type &dataType,
                          const std::vector<HOST_DATA_TYPE> &in1Host,
                          const std::vector<size_t> &shape1Ext,
                          const std::vector<HOST_DATA_TYPE> &in2Host,
@@ -408,7 +119,7 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
 
         performOp(op, val1, val2, expected);
 
-        if (!equalValues(deviceType, op, dataType, expected, actual)) {
+        if (!equalValues(isIpuModel, op, dataType, expected, actual)) {
           std::cerr << "out[" << i[0];
           for (unsigned j = 1; j < n; j++)
             std::cerr << "," << i[j];
@@ -437,184 +148,6 @@ struct OperandDescriptor {
   std::vector<size_t> shapeExt; // Shape, rank-extended.
   std::vector<MappingDesc> map; // Indicates where to map this operand
 };
-
-// A 'random generator' engine which might not be there (in which case it means
-// that we are not using random values to fill the data buffers).
-using RandomEngine = std::optional<std::minstd_rand>;
-
-// Filling one of the operand buffers, for boolean data. We always fill it with
-// random booleans, (ignoring 'i', 'min', 'max' and 'nonZero')
-void fillBuffer(const Type &dataType, RandomEngine &rndEng,
-                std::vector<HostBool> &buf, int i, HostBool min, HostBool max,
-                bool nonZero) {
-  std::bernoulli_distribution d(0.5);
-
-  for (auto &x : buf)
-    x = d(*rndEng);
-}
-
-// Filling one of the operand buffers for int data.
-void fillBufferInt(const Type &dataType, RandomEngine &rndEng, int *data,
-                   unsigned n, int i, int min, int max, bool nonZero) {
-  std::uniform_int_distribution<int> d(min, max);
-  for (unsigned k = 0; k < n; k++) {
-    if (rndEng) {
-      do {
-        data[k] = d(*rndEng);
-      } while (nonZero && data[k] == 0);
-    } else {
-      if (max != 0 && i > max)
-        i = 0;
-      data[k] = i++;
-    }
-  }
-}
-
-void fillBuffer(const Type &dataType, RandomEngine &rndEng,
-                std::vector<int> &buf, int i, int min, int max, bool nonZero) {
-  fillBufferInt(dataType, rndEng, buf.data(), buf.size(), i, min, max, nonZero);
-}
-
-void fillBuffer(const Type &dataType, RandomEngine &rndEng,
-                std::vector<unsigned> &buf, unsigned i, unsigned min,
-                unsigned max, bool nonZero) {
-  // The 'int' filling is good for 'unsigned' as well
-  fillBufferInt(dataType, rndEng, (int *)(buf.data()), buf.size(), i, min, max,
-                nonZero);
-}
-
-// Filling one of the operand buffers for FLOAT and HALF data (both use 'float'
-// buffers on the host)
-void fillBuffer(const Type &dataType, RandomEngine &rndEng,
-                std::vector<float> &buf, float i, float min, float max,
-                bool nonZero) {
-  std::uniform_real_distribution<float> d(min, max);
-  for (auto &x : buf) {
-    if (rndEng) {
-      do {
-        x = d(*rndEng);
-      } while (nonZero && x == 0);
-    } else {
-      if (i > max)
-        i = 0;
-      x = i;
-      i += 1.0;
-    }
-  }
-}
-
-/// Fills the host buffers with values appropriate to the data type and the
-/// operation being performed.
-template <typename HOST_DATA_TYPE>
-void fillBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
-                 std::vector<HOST_DATA_TYPE> &buf1,
-                 std::vector<HOST_DATA_TYPE> &buf2) {
-  bool nonZero = false;
-
-  // Using a specific random generator means that we get the same random values
-  // on different platforms.
-  RandomEngine rndEng;
-  if (randomSeed != 0 || dataType == BOOL)
-    rndEng = std::minstd_rand(randomSeed);
-
-  // For integer types we generate values in the closed interval [min, max]
-  // For floating point types we generate values in the open interval [min, max)
-  HOST_DATA_TYPE min1 = 0, max1 = 0;
-  HOST_DATA_TYPE min2 = 0, max2 = 0;
-
-  if (std::is_floating_point<HOST_DATA_TYPE>::value) {
-
-    // For floating point, we limit the range
-    HOST_DATA_TYPE absMax;
-    absMax = (dataType == HALF) ? 300.0 : 32000.0;
-    min1 = min2 = -absMax;
-    max1 = max2 = absMax;
-
-    // For the power operator we want values in a small positive range, to
-    // avoid having mostly overflows/underflows
-    if (op == BinaryOpType::POWER) {
-      min1 = min2 = 1.0;
-      max1 = max2 = 5.0;
-    }
-
-    // In case of ADD,HALF we make both value positive, while for HALF,SUBTRACT
-    // the first is positive and the second negative, because subtracting two
-    // values that are very similar can gives results that are very inaccurate
-    // [for instance (1.0) + (-1.00000001)].
-    if (dataType == HALF) {
-      if (op == BinaryOpType::ADD) {
-        min1 = min2 = 0;
-      } else if (op == BinaryOpType::SUBTRACT) {
-        min1 = max2 = 0;
-      }
-    }
-
-    // VARIANCE_TO_INV_STD_DEV is: 1/sqrt(a+b), so (a+b) must be non-negative.
-    // To simplify, we force both operands to be non-negative
-    if (op == BinaryOpType::VARIANCE_TO_INV_STD_DEV) {
-      min1 = min2 = 0;
-    }
-  } else {
-    // Non floating point case (INT, UNSIGNED)./ For BOOL these are ignored
-    min1 = min2 = std::numeric_limits<HOST_DATA_TYPE>::min();
-    max1 = max2 = std::numeric_limits<HOST_DATA_TYPE>::max();
-  }
-
-  // Shifting more than 31 can give different results on different platforms
-  if (op == BinaryOpType::SHIFT_LEFT || op == BinaryOpType::SHIFT_RIGHT ||
-      op == BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND) {
-    min2 = 0;
-    max2 = 31;
-  }
-
-  // If we are dealing with integer divide, we limit the size of the second
-  // operand, just to avoid having a lot of zeros in the results (note that this
-  // influences heavily the timing!)
-  if (std::is_same<HOST_DATA_TYPE, int>::value ||
-      std::is_same<HOST_DATA_TYPE, unsigned>::value) {
-    if (op == BinaryOpType::DIVIDE || op == BinaryOpType::REMAINDER) {
-      min2 = (dataType == UNSIGNED_INT) ? 0 : -32767;
-      max2 = 32767;
-    }
-  }
-
-  // These operations must have a second operand != 0
-  if (op == BinaryOpType::DIVIDE || op == BinaryOpType::ATAN2 ||
-      op == BinaryOpType::REMAINDER) {
-    nonZero = true;
-  }
-
-  fillBuffer(dataType, rndEng, buf1, 10, min1, max1, nonZero);
-  fillBuffer(dataType, rndEng, buf2, 100, min2, max2, nonZero);
-
-  // If comparing for equality/disequality, we make sure we have a few values
-  // that are equal to test the 'equal' path
-  if (rndEng && (op == BinaryOpType::EQUAL || op == BinaryOpType::NOT_EQUAL ||
-                 op == BinaryOpType::GREATER_THAN_EQUAL ||
-                 op == BinaryOpType::LESS_THAN_EQUAL)) {
-    std::uniform_int_distribution<int> d(1, 6);
-    unsigned n1 = buf1.size();
-    unsigned n2 = buf2.size();
-    if (n1 == n2) {
-      for (unsigned i = 0; i < n1; i++) {
-        if (d(*rndEng) == 1)
-          buf1[i] = buf2[i];
-      }
-    } else if (n2 == 1) {
-      // Broadcast scalar (second operand is broadcasted)
-      for (unsigned i = 0; i < n1; i++) {
-        if (d(*rndEng) == 1)
-          buf1[i] = buf2[0];
-      }
-    } else if (n1 == 1) {
-      // Broadcast scalar (first operand is broadcasted)
-      for (unsigned i = 0; i < n2; i++) {
-        if (d(*rndEng) == 1)
-          buf2[i] = buf1[0];
-      }
-    }
-  }
-}
 
 //*************************************************************************
 /// Do a binary operation, where the two operands are described by 'desc1' and
@@ -696,7 +229,7 @@ static bool doBinaryOpTest(
   // Allocate and initialise host buffers with appropriate values.
   std::vector<HOST_DATA_TYPE> in1Host(nElems1);
   std::vector<HOST_DATA_TYPE> in2Host(nElems2);
-  fillBuffers(operation, dataType, randomSeed, in1Host, in2Host);
+  fillHostBuffers(operation, dataType, randomSeed, in1Host, in2Host);
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType, 1, tiles);
@@ -810,7 +343,11 @@ static bool doBinaryOpTest(
   }
 
   // Run sequences
-  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), options);
+  OptionFlags engOpts;
+  if (doReport) {
+    engOpts.set("debug.instrumentCompute", "true");
+  }
+  Engine engine(graph, Sequence(uploadProg, prog, downloadProg), engOpts);
   attachStreams(engine, tmap);
 
   device.bind([&](const Device &d) {
@@ -832,8 +369,8 @@ static bool doBinaryOpTest(
     std::vector<HOST_OUT_TYPE> outHost(nElemsOut);
     copy(target, outputType, outHostRawPtr, outHost.data(), outHost.size());
     return verifyResult<HOST_DATA_TYPE, HOST_OUT_TYPE>(
-        deviceType, dataType, in1Host, desc1.shapeExt, in2Host, desc2.shapeExt,
-        outHost, shapeOut, operation);
+        isIpuModel(deviceType), dataType, in1Host, desc1.shapeExt, in2Host,
+        desc2.shapeExt, outHost, shapeOut, operation);
   }
   return true;
 }
@@ -857,12 +394,15 @@ int main(int argc, char **argv) {
   ShapeOption<size_t> shape2;
   OperandDescriptor desc1, desc2;
 
-  po::options_description desc("Perform a binary operation between two tensors "
-                               "having any specified shape, each mapped in any "
-                               "desired way among tiles.\nOptions are:");
-
   // clang-format off
-  desc.add_options()
+  const static std::string description =
+  "Perform a binary operation between two tensors having any specified shape,\n"
+  "each mapped in any desired way among tiles.\n"
+  "\n"
+  "Options are:";
+  po::options_description poDesc(description);
+
+  poDesc.add_options()
     ("help", "Print help")
     ("report",
      po::value<bool>(&doReport)->implicit_value(true),
@@ -912,57 +452,14 @@ int main(int argc, char **argv) {
      "Tile mapping for second operand; see --map1.")
     ("operation",
      po::value<std::string>(&operation)->required(),
-     ("Operation to perform, one of: " + allOps()).c_str())
+     ("Operation to perform, one of: " + allOpsStr()).c_str())
     ("enable-optimisations",
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcast operation optimisations")
     ;
   // clang-format on
-  po::variables_map vm;
-  try {
-    // Additional command line parser to interpret an argument '@filename' as
-    // a option "config-file" with the value "filename"
-    auto at_option_parser = [](std::string const &s) {
-      if ('@' == s[0])
-        return std::make_pair(std::string("options-file"), s.substr(1));
-      else
-        return std::pair<std::string, std::string>();
-    };
+  parseOptions(argc, argv, poDesc);
 
-    po::store(po::command_line_parser(argc, argv)
-                  .options(desc)
-                  .extra_parser(at_option_parser)
-                  .run(),
-              vm);
-    if (vm.count("help")) {
-      std::cout << desc << "\n\n";
-      return 1;
-    }
-    // If there is a file to read the options from, do it
-    if (vm.count("options-file")) {
-      std::string filename = vm["options-file"].as<std::string>();
-      std::ifstream ifs(filename.c_str());
-      if (!ifs) {
-        throw std::runtime_error("Could not open options file <" + filename +
-                                 ">");
-      }
-      // Read the whole file into a stringstream
-      std::stringstream ss;
-      ss << ifs.rdbuf();
-      // Split the file content into tokens, using spaces/newlines/tabs
-      boost::char_separator<char> sep(" \t\n\r");
-      std::string sstr = ss.str();
-      boost::tokenizer<boost::char_separator<char>> tok(sstr, sep);
-      std::vector<std::string> args;
-      std::copy(tok.begin(), tok.end(), back_inserter(args));
-      // Parse the file and store the options
-      po::store(po::command_line_parser(args).options(desc).run(), vm);
-    }
-    po::notify(vm);
-  } catch (std::exception &e) {
-    std::cerr << "Error: " << e.what() << "\n";
-    return 1;
-  }
   expr::BinaryOpType opType = stringToBinaryOp(operation);
 
   // Find the shape of the output, applying the broadcasting rules
@@ -1008,7 +505,7 @@ int main(int argc, char **argv) {
     tiles++;
   }
 
-  Type outputType = isComparisonOp(opType) ? BOOL : dataType;
+  Type outputType = isBoolOp(opType) ? BOOL : dataType;
 
 #define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
   if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \

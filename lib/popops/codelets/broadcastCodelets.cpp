@@ -208,6 +208,116 @@ void broadcastBoolOpRemainder(unsigned size,
   }
 }
 
+/// Performs the bulk of any operation that can be performed on a 'short2'
+/// vector (starting from an array of 16 bit short integers).
+///
+///  \tparam     op        Operation to perform
+///
+///  \tparam     stride    Stride (in units of a vector) to advance in/out at
+///                        each cycle of the loop.
+///
+///  \param[in]  loopCount How many vectors to process.
+///
+///  \param[in]  in        Pointer to an array with the input data
+///                        (first operand).
+///
+///  \param[out] out       Pointer to an array that will be populated with the
+///                        results
+///
+///  \param[in]  K         The second operand (the one that is broadcasted)
+///
+template <BinaryOpType op, typename T, unsigned stride>
+static void broadcastShort2Bulk(unsigned loopCount,
+                                const __attribute__((align_value(4))) T *in,
+                                __attribute__((align_value(4))) T *out,
+                                const T K) {
+  const short2 *s2In = reinterpret_cast<const short2 *>(in);
+  short2 *s2Out = reinterpret_cast<short2 *>(out);
+  // This works only for short, unsigned short and is for use with bitwise
+  // operators only
+  static_assert(std::is_same<T, short>::value ||
+                std::is_same<T, unsigned short>::value);
+  const short2 K2 = {static_cast<short>(K), static_cast<short>(K)};
+
+  asm volatile("# Thwart loop rotation (start)" ::: "memory");
+  for (unsigned j = 0; j < loopCount; j++) {
+    short2 load = ipu::load_postinc(&s2In, stride);
+    short2 calc = BinaryOpFn<op, short2, architecture::active>::fn(load, K2);
+    *s2Out = calc;
+    s2Out += stride;
+  }
+  asm volatile("# Thwart loop rotation (end)" ::: "memory");
+}
+
+/// Processes the 'trailing' 1-3 elements (if present) for any operation that
+/// can be performed on a 'short4'/'short2' vector (starting from an array
+/// of 16 bit short integers)
+///
+/// \tparam op            Operation to perform
+///
+/// \tparam vectorWidthShifts  1 or 2 to indicate if we have a vector of 2
+///                            or 4 elements, i.e.: log2(vectorWidth)
+///
+/// \param[in]  size      Total number of elements contained in 'in'
+///
+/// \param[in]  in        Pointer to an array of input data
+///
+/// \param[out] out       Pointer to an array that will be populated with the
+///                       results
+///
+/// \param[in]  K         The second operand (the one that is broadcasted)
+///
+template <BinaryOpType op, typename T, unsigned vectorWidthShifts>
+static void broadcastShort2Short4Remainder(
+    unsigned size, const __attribute__((align_value(4))) T *in,
+    __attribute__((align_value(4))) T *out, const T K) {
+  constexpr unsigned mask = (1 << vectorWidthShifts) - 1;
+  const unsigned rem = size & mask;
+  const short2 *s2In = reinterpret_cast<const short2 *>(&in[size - rem]);
+  short2 *s2Out = reinterpret_cast<short2 *>(&out[size - rem]);
+  if constexpr (mask == 0x3) {
+    if (size & 3) {
+      short2 K2 = {K, K};
+      *s2Out = BinaryOpFn<op, short2, architecture::active>::fn(*s2In, K2);
+      s2In++;
+      s2Out++;
+    }
+  }
+  if (size & 1) {
+    short2 res = {
+        BinaryOpFn<op, short, architecture::active>::fn((*s2In)[0], K),
+        (*s2Out)[1],
+    };
+    *s2Out = res;
+  }
+}
+
+template <BinaryOpType op, typename T>
+static void
+broadcastShort2_Supervisor(unsigned size, unsigned worker,
+                           const __attribute__((align_value(4))) T *in,
+                           __attribute__((align_value(4))) T *out, const T K) {
+  const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+
+  broadcastShort2Bulk<op, T, NUM_WORKERS>(loopCount, in + 2 * worker,
+                                          out + 2 * worker, K);
+
+  // To process the trailing elements (if any) use the last worker as it is
+  // most likely to have less to do than the others.
+  if (worker == (CTXT_WORKERS - 1)) {
+    broadcastShort2Short4Remainder<op, T, 1>(size, in, out, K);
+  }
+}
+
+template <BinaryOpType op, typename T>
+static void
+broadcastShort2_2D(unsigned size, const __attribute__((align_value(4))) T *in,
+                   __attribute__((align_value(4))) T *out, const T K) {
+  const unsigned loopCount = maskForRepeat(size / 2u);
+  broadcastShort2Bulk<op, T, 1>(loopCount, in, out, K);
+  broadcastShort2Short4Remainder<op, T, 1>(size, in, out, K);
+}
+
 // Run by the 2D worker for the *broadcast scalar* 'op' that has bool as output
 // type:  T op T => BOOL (i.e. the comparison operator EQUAL, LESS_THAN etc
 // plus LOGICAL_AND/OR)
@@ -358,6 +468,29 @@ struct BroadcastOpDispatch<op, float, float, allowUnaligned, allowRemainder> {
   }
 };
 
+// This works only (and is instantiated) for BITWISE operators
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatch<op, short, short, allowUnaligned, allowRemainder> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) short *in,
+                      __attribute__((align_value(8))) short *out,
+                      const short K) {
+    broadcastShort2_2D<op, short>(size, in, out, K);
+  }
+};
+
+// Works only (and is instantiated) for BITWISE operators for UNSIGNED SHORT
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatch<op, unsigned short, unsigned short, allowUnaligned,
+                           allowRemainder> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) unsigned short *in,
+                      __attribute__((align_value(8))) unsigned short *out,
+                      const short K) {
+    broadcastShort2_2D<op, unsigned short>(size, in, out, K);
+  }
+};
+
 /// Processing for operators that return a bool (comparison: EQUAL, LESS_THAN,
 /// etc plus LOGICAL_AND/OR), for workers started by Supervisor vertices.
 template <BinaryOpType op, typename T, bool allowRemainder>
@@ -430,7 +563,7 @@ public:
   }
 };
 
-// Specialisation of 'BroadcastOpDispatchSupervisor' for half, half => float.
+// Specialisation of 'BroadcastOpDispatchSupervisor' for half, half => half.
 // Optimised to perform vector read/writes.
 template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
 struct BroadcastOpDispatchSupervisor<op, half, half, allowUnaligned,
@@ -523,6 +656,32 @@ public:
   }
 };
 
+// This works only (and is instantiated) for BITWISE operators
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatchSupervisor<op, short, short, allowUnaligned,
+                                     allowRemainder> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(4))) short *in,
+                      __attribute__((align_value(4))) short *out,
+                      const short K) {
+    broadcastShort2_Supervisor<op, short>(size, worker, in, out, K);
+  }
+};
+
+// Works only (and is instantiated) for BITWISE operators for UNSIGNED SHORT
+template <BinaryOpType op, bool allowUnaligned, bool allowRemainder>
+struct BroadcastOpDispatchSupervisor<op, unsigned short, unsigned short,
+                                     allowUnaligned, allowRemainder> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(4))) unsigned short *in,
+                      __attribute__((align_value(4))) unsigned short *out,
+                      const short K) {
+    broadcastShort2_Supervisor<op, unsigned short>(size, worker, in, out, K);
+  }
+};
+
 #endif
 
 namespace popops {
@@ -530,10 +689,14 @@ namespace popops {
 #define INSTANTIATE_SCALAR(name)                                               \
   INSTANTIATE_OP(name, BinaryOpType::ADD, float, half, int, unsigned)          \
   INSTANTIATE_OP(name, BinaryOpType::ATAN2, float, half)                       \
-  INSTANTIATE_OP(name, BinaryOpType::BITWISE_AND, int, unsigned)               \
-  INSTANTIATE_OP(name, BinaryOpType::BITWISE_OR, int, unsigned)                \
-  INSTANTIATE_OP(name, BinaryOpType::BITWISE_XOR, int, unsigned)               \
-  INSTANTIATE_OP(name, BinaryOpType::BITWISE_XNOR, int, unsigned)              \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_AND, int, unsigned, short,        \
+                 unsigned short)                                               \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_OR, int, unsigned, short,         \
+                 unsigned short)                                               \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_XOR, int, unsigned, short,        \
+                 unsigned short)                                               \
+  INSTANTIATE_OP(name, BinaryOpType::BITWISE_XNOR, int, unsigned, short,       \
+                 unsigned short)                                               \
   INSTANTIATE_OP(name, BinaryOpType::DIVIDE, float, half, int, unsigned)       \
   INSTANTIATE_OP(name, BinaryOpType::LOGICAL_AND, bool)                        \
   INSTANTIATE_OP(name, BinaryOpType::LOGICAL_OR, bool)                         \

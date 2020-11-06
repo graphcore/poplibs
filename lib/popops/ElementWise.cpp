@@ -339,6 +339,8 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   case BinaryOpType::BITWISE_OR:
   case BinaryOpType::BITWISE_XOR:
   case BinaryOpType::BITWISE_XNOR:
+    return (dType == INT || dType == UNSIGNED_INT || dType == SHORT ||
+            dType == UNSIGNED_SHORT);
   case BinaryOpType::SHIFT_LEFT:
   case BinaryOpType::SHIFT_RIGHT:
     return (dType == INT || dType == UNSIGNED_INT);

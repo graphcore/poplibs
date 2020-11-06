@@ -12,6 +12,8 @@ using namespace poplar;
 
 namespace popops {
 
+using BinaryOpType = popops::expr::BinaryOpType;
+
 template <expr::BinaryOpType op, typename inT, typename outT, typename A>
 struct BinaryOpDispatch {
   static void compute(unsigned size,
@@ -26,6 +28,123 @@ struct BinaryOpDispatch {
 };
 
 #ifdef __IPU__
+
+/// Performs the bulk of any operation that can be performed on a 'short2'
+/// vector (starting from an array of 16 bit short integers).
+///
+///  \tparam     op        Operation to perform
+///
+///  \tparam     stride    Stride (in units of a vector) to advance in/out at
+///                        each cycle of the loop.
+///
+///  \param[in]  loopCount How many vectors process.
+///
+///  \param[in]  in1       Pointer to an array of input data for first operand
+///
+///  \param[in]  in2       Pointer to an array of input data for second operand
+///
+///  \param[out] out       Pointer to an array that will be populated with the
+///                        results
+///
+template <BinaryOpType op, typename T, unsigned stride>
+static void binaryShort2Bulk(unsigned loopCount,
+                             const __attribute__((align_value(8))) T *in1,
+                             const __attribute__((align_value(8))) T *in2,
+                             __attribute__((align_value(8))) T *out) {
+  const short2 *s2In1 = reinterpret_cast<const short2 *>(in1);
+  const short2 *s2In2 = reinterpret_cast<const short2 *>(in2);
+  short2 *s2Out = reinterpret_cast<short2 *>(out);
+
+  asm volatile("# Thwart loop rotation (start)" ::: "memory");
+  for (unsigned j = 0; j < loopCount; j++) {
+    short2 load1 = ipu::load_postinc(&s2In1, stride);
+    short2 load2 = ipu::load_postinc(&s2In2, stride);
+    short2 calc =
+        BinaryOpFn<op, short2, architecture::active>::fn(load1, load2);
+    *s2Out = calc;
+    s2Out += stride;
+  }
+  asm volatile("# Thwart loop rotation (end)" ::: "memory");
+}
+
+/// Processes the 'trailing' 1-3 elements (if present) for any operation that
+/// can be performed on 'short4'/'short2' vectors (starting from arrays of
+/// 16 bit short integers)
+///
+/// \tparam op            Operation to perform
+///
+/// \tparam vectorWidthShifts  1 or 2 to indicate if we have a vector of 2
+///                            or 4 elements, i.e.: log2(vectorWidth)
+///
+/// \param[in]  size      Total number of elements contained in 'in1', 'in2'
+///
+/// \param[in]  in1       Pointer to an array of input data for first operand
+///
+/// \param[in]  in2       Pointer to an array of input data for second operand
+///
+/// \param[out] out       Pointer to an array that will be populated with the
+///                       results
+///
+template <BinaryOpType op, typename T, unsigned vectorWidthShifts>
+static void
+binaryShort2Short4Remainder(unsigned size,
+                            const __attribute__((align_value(8))) T *in1,
+                            const __attribute__((align_value(8))) T *in2,
+                            __attribute__((align_value(8))) T *out) {
+  constexpr unsigned mask = (1 << vectorWidthShifts) - 1;
+  const unsigned rem = size & mask;
+  const short2 *s2In1 = reinterpret_cast<const short2 *>(&in1[size - rem]);
+  const short2 *s2In2 = reinterpret_cast<const short2 *>(&in2[size - rem]);
+  short2 *s2Out = reinterpret_cast<short2 *>(&out[size - rem]);
+  if constexpr (mask == 0x3) {
+    if (size & 3) {
+      *s2Out = BinaryOpFn<op, short2, architecture::active>::fn(*s2In1, *s2In2);
+      s2In1++;
+      s2In2++;
+      s2Out++;
+    }
+  }
+  // This works only for short, unsigned short and is for use with bitwise
+  // operators only
+  static_assert(std::is_same<T, short>::value ||
+                std::is_same<T, unsigned short>::value);
+  if (size & 1) {
+    short2 res = {
+        static_cast<short>(BinaryOpFn<op, T, architecture::active>::fn(
+            (*s2In1)[0], (*s2In2)[0])),
+        (*s2Out)[1],
+    };
+    *s2Out = res;
+  }
+}
+
+template <BinaryOpType op, typename T>
+static void
+binaryShort2_Supervisor(unsigned size, unsigned worker,
+                        const __attribute__((align_value(4))) T *in1,
+                        const __attribute__((align_value(4))) T *in2,
+                        __attribute__((align_value(4))) T *out) {
+  const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+
+  binaryShort2Bulk<op, T, NUM_WORKERS>(loopCount, in1 + 2 * worker,
+                                       in2 + 2 * worker, out + 2 * worker);
+
+  // To process the trailing elements (if any) use the last worker as it is
+  // most likely to have less to do than the others.
+  if (worker == (CTXT_WORKERS - 1)) {
+    binaryShort2Short4Remainder<op, T, 1>(size, in1, in2, out);
+  }
+}
+
+template <BinaryOpType op, typename T>
+static void binaryShort2_2D(unsigned size,
+                            const __attribute__((align_value(4))) T *in1,
+                            const __attribute__((align_value(4))) T *in2,
+                            __attribute__((align_value(4))) T *out) {
+  const unsigned loopCount = maskForRepeat(size / 2u);
+  binaryShort2Bulk<op, T, 1>(loopCount, in1, in2, out);
+  binaryShort2Short4Remainder<op, T, 1>(size, in1, in2, out);
+}
 
 template <expr::BinaryOpType op>
 struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
@@ -220,6 +339,28 @@ struct BinaryOpDispatch<op, float, float, architecture::ipu> {
   }
 };
 
+// This works only (and is instantiated) for BITWISE operators
+template <BinaryOpType op>
+struct BinaryOpDispatch<op, short, short, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) short *in1,
+                      const __attribute__((align_value(8))) short *in2,
+                      __attribute__((align_value(8))) short *out) {
+    binaryShort2_2D<op, short>(size, in1, in2, out);
+  }
+};
+
+// Works only (and is instantiated) for BITWISE operators for UNSIGNED SHORT
+template <BinaryOpType op>
+struct BinaryOpDispatch<op, unsigned short, unsigned short, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) unsigned short *in1,
+                      const __attribute__((align_value(8))) unsigned short *in2,
+                      __attribute__((align_value(8))) unsigned short *out) {
+    binaryShort2_2D<op, unsigned short>(size, in1, in2, out);
+  }
+};
+
 #endif
 
 template <expr::BinaryOpType op, typename T> class BinaryOp2D : public Vertex {
@@ -242,7 +383,7 @@ public:
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      popops::BinaryOpDispatch<op, T, outputType, arch>::compute(
+      BinaryOpDispatch<op, T, outputType, arch>::compute(
           out[i].size(), &in1[i][0], &in2[i][0], &out[i][0]);
     }
     return true;
@@ -271,7 +412,7 @@ public:
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
     const unsigned limI = in1Out.size();
     for (unsigned i = 0; i != limI; ++i) {
-      popops::BinaryOpDispatch<op, T, outputType, arch>::compute(
+      BinaryOpDispatch<op, T, outputType, arch>::compute(
           in1Out[i].size(), &in1Out[i][0], &in2[i][0], &in1Out[i][0]);
     }
     return true;
@@ -457,6 +598,28 @@ public:
     }
   }
 };
+
+// This works only (and is instantiated) for BITWISE operators
+template <BinaryOpType op>
+struct BinaryOpDispatchSupervisor<op, short, short, architecture::ipu> {
+public:
+  static void compute(unsigned size, unsigned worker, const short *in1,
+                      const short *in2, short *out) {
+    binaryShort2_Supervisor<op, short>(size, worker, in1, in2, out);
+  }
+};
+
+// Works only (and is instantiated) for BITWISE operators for UNSIGNED SHORT
+template <BinaryOpType op>
+struct BinaryOpDispatchSupervisor<op, unsigned short, unsigned short,
+                                  architecture::ipu> {
+public:
+  static void compute(unsigned size, unsigned worker, const unsigned short *in1,
+                      const unsigned short *in2, unsigned short *out) {
+    binaryShort2_Supervisor<op, unsigned short>(size, worker, in1, in2, out);
+  }
+};
+
 #endif
 
 template <expr::BinaryOpType op, typename T>
@@ -567,10 +730,14 @@ public:
 
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ADD, float, half, int, unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::ATAN2, float, half)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_AND, int, unsigned)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_OR, int, unsigned)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XOR, int, unsigned)
-INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_AND, int, unsigned,
+               short, unsigned short)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_OR, int, unsigned, short,
+               unsigned short)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XOR, int, unsigned,
+               short, unsigned short)
+INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
+               short, unsigned short)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::EQUAL, float, half, bool, int,
@@ -609,13 +776,13 @@ INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_OR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::DIVIDE, float, half,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::EQUAL, float, half,
@@ -653,10 +820,14 @@ INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SUBTRACT, float, half,
 // BinaryOp1D  - Worker code for all types except bool
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half, int, unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ATAN2, float, half)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int, unsigned)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_OR, int, unsigned)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XOR, int, unsigned)
-INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int, unsigned,
+               short, unsigned short)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_OR, int, unsigned, short,
+               unsigned short)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XOR, int, unsigned,
+               short, unsigned short)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
+               short, unsigned short)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::EQUAL, float, half, int,
@@ -690,12 +861,13 @@ INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned)
+               unsigned, short, unsigned short)
+INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned,
+               short, unsigned short)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp2DInPlace, expr::BinaryOpType::EQUAL, bool)
@@ -729,13 +901,13 @@ INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ADD, float,
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::ATAN2, float,
                half)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_AND,
-               int, unsigned)
+               int, unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_OR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XOR,
-               int, unsigned)
+               int, unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::BITWISE_XNOR,
-               int, unsigned)
+               int, unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::DIVIDE, float,
                half, int, unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlaceSupervisor, expr::BinaryOpType::EQUAL, bool)
@@ -775,12 +947,13 @@ INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_AND, int,
-               unsigned)
-INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned)
+               unsigned, short, unsigned short)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_OR, int, unsigned,
+               short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_XOR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::BITWISE_XNOR, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::MAXIMUM, float, half, int,

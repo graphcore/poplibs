@@ -418,16 +418,20 @@ std::istream &operator>>(std::istream &in, poplar::Type &type) {
     type = poplar::HALF;
   else if (token == "float")
     type = poplar::FLOAT;
-  else if (token == "unsigned")
+  else if (token == "unsigned" || token == "uint")
     type = poplar::UNSIGNED_INT;
   else if (token == "int")
     type = poplar::INT;
+  else if (token == "ushort")
+    type = poplar::UNSIGNED_SHORT;
+  else if (token == "short")
+    type = poplar::SHORT;
   else if (token == "bool")
     type = poplar::BOOL;
   else
     throw poputil::poplibs_error(
         "Invalid data-type <" + token +
-        ">; must be half, float, unsigned, int or bool");
+        ">; must be half, float, uint (unsigned), int, ushort, short or bool");
   return in;
 }
 } // namespace std

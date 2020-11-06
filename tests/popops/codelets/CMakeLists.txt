@@ -765,6 +765,8 @@ foreach(SUPER true false)
 endforeach()
 
 add_multi_target_test_executable(UnaryCodeletsTest UnaryCodeletsTest.cpp)
+add_multitarget_test(NAME  "Bitwise16BitUnaryOp"
+        COMMAND UnaryCodeletsTest --data-type short ushort --operation BITWISE_NOT)
 
 # Test all the BroadcastScalar codelets with all possible operations and
 # data types.
@@ -785,6 +787,11 @@ add_multitarget_test(NAME  "BroadcastScalar2D"
         COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2D$)
 add_multitarget_test(NAME  "BroadcastScalar2DInPlace"
         COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2DInPlace)
+
+add_multitarget_test(NAME  "Bitwise16BitBinaryOp"
+        COMMAND BinaryCodeletsTest --vertexRE BinaryOp --data-type short ushort
+        --operation BITWISE_AND BITWISE_OR BITWISE_XOR BITWISE_XNOR)
+
 
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)

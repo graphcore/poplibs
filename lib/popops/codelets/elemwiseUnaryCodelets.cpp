@@ -14,6 +14,8 @@ using namespace poplar;
 
 namespace popops {
 
+using UnaryOpType = popops::expr::UnaryOpType;
+
 namespace {
 
 // certain operators need to call a different function depending on the input
@@ -331,6 +333,7 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
     }
   }
 };
+
 template <expr::UnaryOpType op>
 class UnaryOpDispatch<op, float, float, architecture::ipu> {
 public:
@@ -358,19 +361,138 @@ public:
     }
   }
 };
+
+/// Performs the bulk of any operation that can be performed on a 'short2'
+/// vector (starting from an array of 16 bit short integers).
+///
+///  \tparam     op        Operation to  perform
+///
+///  \tparam     stride    Stride (in units of a vector) to advance in/out at
+///                        each cycle of the loop.
+///
+///  \param[in]  loopCount How many vectors to process.
+///
+///  \param[in]  in        Pointer to an array with the input data.
+///
+///  \param[out] out       Pointer to an array that will be populated with the
+///                        results
+///
+template <UnaryOpType op, typename T, unsigned stride>
+static void unaryShort2Bulk(unsigned loopCount,
+                            const __attribute__((align_value(4))) T *in,
+                            __attribute__((align_value(4))) T *out) {
+  const short2 *s2In = reinterpret_cast<const short2 *>(in);
+  short2 *s2Out = reinterpret_cast<short2 *>(out);
+  asm volatile("# Thwart loop rotation (start)" ::: "memory");
+  for (unsigned j = 0; j < loopCount; j++) {
+    short2 load = ipu::load_postinc(&s2In, stride);
+    short2 calc = UnaryOpFn<op, short2, architecture::active>::fn(load);
+    *s2Out = calc;
+    s2Out += stride;
+  }
+  asm volatile("# Thwart loop rotation (end)" ::: "memory");
+}
+
+/// Processes the 'trailing' 1-3 elements (if present) for any operation that
+/// can be performed on a 'short4'/'short2' vector (starting from an array
+/// of 16 bit short integers)
+///
+/// \tparam op            Operation to perform
+///
+/// \tparam vectorWidthShifts  1 or 2 to indicate if we have a vector of 2
+///                            or 4 elements, i.e.: log2(vectorWidth)
+///
+/// \param[in]  size      Total number of elements contained in 'in'
+///
+/// \param[in]  in        Pointer to an array of input data
+///
+/// \param[out] out       Pointer to an array that will be populated with the
+///                       results
+///
+template <UnaryOpType op, typename T, unsigned vectorWidthShifts>
+static void unaryShort2Short4Remainder(unsigned size,
+                                       const __attribute__((align_value(8)))
+                                       T *in,
+                                       __attribute__((align_value(8))) T *out) {
+  constexpr unsigned mask = (1 << vectorWidthShifts) - 1;
+  const unsigned rem = size & mask;
+  const short2 *s2In = reinterpret_cast<const short2 *>(&in[size - rem]);
+  short2 *s2Out = reinterpret_cast<short2 *>(&out[size - rem]);
+  if constexpr (mask == 0x3) {
+    if (size & 0x3) {
+      *s2Out = UnaryOpFn<op, short2, architecture::active>::fn(*s2In);
+      s2In++;
+      s2Out++;
+    }
+  }
+  if (size & 1) {
+    short2 res = {
+        UnaryOpFn<UnaryOpType::BITWISE_NOT, short, architecture::active>::fn(
+            (*s2In)[0]),
+        (*s2Out)[1],
+    };
+    *s2Out = res;
+  }
+}
+
+template <UnaryOpType op, typename T>
+static void unaryShort2_Supervisor(unsigned size, unsigned worker,
+                                   const __attribute__((align_value(4))) T *in,
+                                   __attribute__((align_value(4))) T *out) {
+  const unsigned loopCount = maskForRepeat(divideWork(size, 1, worker));
+
+  unaryShort2Bulk<op, T, NUM_WORKERS>(loopCount, in + 2 * worker,
+                                      out + 2 * worker);
+
+  // To process the trailing elements (if any) use the last worker as it is
+  // most likely to have less to do than the others.
+  if (worker == (CTXT_WORKERS - 1)) {
+    unaryShort2Short4Remainder<op, T, 1>(size, in, out);
+  }
+}
+
+template <UnaryOpType op, typename T>
+static void unaryShort2_2D(unsigned size,
+                           const __attribute__((align_value(4))) T *in,
+                           __attribute__((align_value(4))) T *out) {
+  const unsigned loopCount = maskForRepeat(size / 2u);
+  unaryShort2Bulk<op, T, 1>(loopCount, in, out);
+  unaryShort2Short4Remainder<op, T, 1>(size, in, out);
+}
+
+template <UnaryOpType op>
+class UnaryOpDispatch<op, short, short, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) short *in,
+                      __attribute__((align_value(8))) short *out) {
+    unaryShort2_2D<op, short>(size, in, out);
+  }
+};
+
+template <UnaryOpType op>
+class UnaryOpDispatch<op, unsigned short, unsigned short, architecture::ipu> {
+public:
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) unsigned short *in,
+                      __attribute__((align_value(8))) unsigned short *out) {
+    unaryShort2_2D<op, unsigned short>(size, in, out);
+  }
+};
+
 #endif
+
+template <UnaryOpType op, typename T> constexpr static bool isExternal() {
+  return op == UnaryOpType::SIGNUM && std::is_same<T, half>::value;
+}
 
 template <expr::UnaryOpType op, typename T> class UnaryOp2D : public Vertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
-  constexpr static bool isExternal() {
-    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
-  }
-
 public:
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in;
   Vector<Output<Vector<outputType, SPAN, 8>>> out;
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
   bool compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
@@ -389,13 +511,9 @@ class UnaryOp2DInPlace : public Vertex {
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
 
-  constexpr static bool isExternal() {
-    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
-  }
-
 public:
   Vector<InOut<Vector<T, SPAN, 8>>> inOut;
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
   bool compute() {
     using arch = typename popops::UnaryOpFn<op, T, architecture::active>::arch;
@@ -601,6 +719,28 @@ public:
     }
   }
 };
+
+template <UnaryOpType op>
+class UnaryOpDispatchSupervisor<op, short, short, architecture::ipu> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(4))) short *in,
+                      __attribute__((align_value(4))) short *out) {
+    unaryShort2_Supervisor<op, short>(size, worker, in, out);
+  }
+};
+
+template <UnaryOpType op>
+class UnaryOpDispatchSupervisor<op, unsigned short, unsigned short,
+                                architecture::ipu> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(4))) unsigned short *in,
+                      __attribute__((align_value(4))) unsigned short *out) {
+    unaryShort2_Supervisor<op, unsigned short>(size, worker, in, out);
+  }
+};
+
 #endif
 
 template <typename T> constexpr bool unaryOp1DIsSupervisor() {
@@ -688,15 +828,11 @@ DEF_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
 template <expr::UnaryOpType op, typename T> class UnaryOp1D : public Vertex {
   typedef typename UnaryOpOutputType<op, T>::type outputType;
 
-  constexpr static bool isExternal() {
-    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
-  }
-
 public:
   Input<Vector<T, ONE_PTR, 8>> in;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
   bool compute() {
 #ifdef __IPU__
@@ -718,14 +854,10 @@ class UnaryOp1DInPlace : public Vertex {
   static_assert(std::is_same<T, outputType>::value,
                 "In, Out types must match for in place operations");
 
-  constexpr static bool isExternal() {
-    return (op == expr::UnaryOpType::SIGNUM && std::is_same<T, half>::value);
-  }
-
 public:
   InOut<Vector<T, SPAN, 8>> inOut;
 
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
 
   bool compute() {
 #ifdef __IPU__
@@ -739,7 +871,8 @@ public:
 
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::ASIN, float, half)
-INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
+INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::BITWISE_NOT, int, unsigned, short,
+               unsigned short)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
@@ -773,7 +906,7 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ABSOLUTE, float, half,
                int)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
@@ -807,7 +940,8 @@ INSTANTIATE_OP(UnaryOp1DSupervisor, expr::UnaryOpType::RSQRT, float, half)
 // UnaryOp1D - worker vertex for all types except bool.
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ASIN, float, half)
-INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
+INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::BITWISE_NOT, int, unsigned, short,
+               unsigned short)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::COUNT_LEADING_ZEROS, int, unsigned)
@@ -835,7 +969,8 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RSQRT, float, half)
 
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ASIN, float, half)
-INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
+INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned,
+               short, unsigned short)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
@@ -871,7 +1006,7 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ABSOLUTE, float,
                half, int)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::ASIN, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::BITWISE_NOT, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor,
@@ -914,7 +1049,8 @@ INSTANTIATE_OP(UnaryOp1DInPlaceSupervisor, expr::UnaryOpType::RSQRT, float,
 
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::ASIN, float, half)
-INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned)
+INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::BITWISE_NOT, int, unsigned,
+               short, unsigned short)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::CEIL, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COS, float, half)
 INSTANTIATE_OP(UnaryOp1DInPlace, expr::UnaryOpType::COUNT_LEADING_ZEROS, int,
