@@ -64,19 +64,6 @@ public:
 
 #ifdef __IPU__
 
-// This function is marked as 'noinline' because this, when used together with
-// maskForRepeat to generate a loop count, encourages the compiler to create
-// the loop using the more efficient 'rpt' instruction.
-// See T9902  mad the definitions of maskForRepeat
-__attribute__((noinline)) unsigned divideWork(const unsigned size,
-                                              const unsigned vectorWidthShifts,
-                                              const unsigned worker) {
-  // Integer divide by 6.
-  const unsigned loopCount = ((size >> vectorWidthShifts) * 0xaaab) >> 18;
-  const unsigned remainder = (size >> vectorWidthShifts) - loopCount * 6;
-  return loopCount + static_cast<unsigned>(worker < remainder);
-}
-
 /// Performs the bulk of a *broadcast scalar* 'op' that has bool as output
 /// type:  T op T => BOOL (i.e. the comparison operator EQUAL, LESS_THAN etc
 /// plus LOGICAL_AND/OR).

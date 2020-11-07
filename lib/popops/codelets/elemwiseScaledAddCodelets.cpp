@@ -6,10 +6,10 @@
 #include <cmath>
 #include <math.h>
 
+#include "elementwiseCodelets.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
-#include "popops/elementwiseCodelets.hpp"
 
 #ifdef VECTOR_AVAIL_SHORT_SPAN
 static constexpr auto SPAN_TYPE = poplar::VectorLayout::SHORT_SPAN;

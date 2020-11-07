@@ -26,8 +26,8 @@
 //    by popc (float2, half4, etc). This is to implement efficient C++ code that
 //    uses the hardware vector operations.
 //
+#include "elementwiseCodelets.hpp"
 #include "popops/ExprOp.hpp"
-#include "popops/elementwiseCodelets.hpp"
 
 #include "util.hpp"
 

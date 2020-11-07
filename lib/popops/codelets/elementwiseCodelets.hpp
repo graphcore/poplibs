@@ -31,10 +31,45 @@ static __attribute__((always_inline)) unsigned getWsr(void) {
 static __attribute__((always_inline)) unsigned maskForRepeat(unsigned input) {
   return input & CSR_W_REPEAT_COUNT__VALUE__MASK;
 }
-extern __attribute__((noinline)) unsigned
-divideWork(const unsigned size, const unsigned vectorWidthShifts,
-           const unsigned worker);
 
+// Called by each of the workers started by a Supervisor Unary or
+// Binary/Broadcast vertex to find out how many elements it must process.
+// Each worker will be assigned a whole number of vectors (1 vector =
+// 2/4 elements).
+//
+// Example:   size = 283 elements,
+//          vector = 4 elements (vectorWidthShifts=2)
+//
+// There are floor(283/4) = 70 vectors to process (with remainder=3 elements)
+//
+// This function will return to each workers the following number of vectors to
+// process:
+//
+//          worker id:      0     1     2     3     4     5
+// vectors to process:     12     12   12    12    11    11
+//
+// The remainder 3 elements (not assigned by this function) will be processed
+// by worker 5, which will normally be assigned one less vector to process, as
+// in the above example [unless floor(size)/vectorSize is a multiple of 6].
+//
+// \param size        The total number of elements that ALL the workers started
+//                    by the Supervisor will process.
+//
+// \vectorWidthShifts log2(vector size). i.e.:
+//                         vectorWidthShifts=1  =>  vector has 2 elements
+//                         vectorWidthShifts=2  =>  vector has 4 elements
+//
+// \worker            The id (0..5) of the worker
+//
+// \return number     The number of *vectors* that 'worker' has to process
+//
+static __attribute__((always_inline)) unsigned
+divideWork(const unsigned size, const unsigned vectorWidthShifts,
+           const unsigned worker) {
+  // Multiply by 0xaaab and shift by 18 is just a multiplication by 1/6 in
+  // fixed point (Q14.18)
+  return (((size >> vectorWidthShifts) + 5 - worker) * 0xaaab) >> 18;
+}
 #endif
 
 namespace {

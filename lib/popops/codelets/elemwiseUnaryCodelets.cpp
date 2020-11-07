@@ -6,8 +6,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "elementwiseCodelets.hpp"
 #include "popops/ExprOp.hpp"
-#include "popops/elementwiseCodelets.hpp"
 #include "util.hpp"
 
 using namespace poplar;
