@@ -19,6 +19,7 @@ target_link_libraries(popfloat
     poplar poputil popops ${CMAKE_DL_LIBS}
   PRIVATE
     poplibs_support
+    Boost::boost
 )
 
 target_include_directories(popfloat

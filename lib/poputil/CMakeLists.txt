@@ -3,6 +3,7 @@ find_package(spdlog 1.8.0 REQUIRED)
 get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(poputil SHARED
+  DebugInfo.cpp
   Broadcast.cpp
   exceptions.cpp
   GraphFunction.cpp
@@ -11,6 +12,7 @@ add_library(poputil SHARED
   TileMapping.cpp
   VarStructure.cpp
   Util.cpp
+  ${CMAKE_SOURCE_DIR}/include/poputil/DebugInfo.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/Broadcast.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/exceptions.hpp
   ${CMAKE_SOURCE_DIR}/include/poputil/GraphFunction.hpp

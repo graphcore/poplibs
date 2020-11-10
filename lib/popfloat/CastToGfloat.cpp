@@ -3,6 +3,7 @@
 #include "codelets/asm/GfloatConst.hpp"
 #include "popfloat/experimental/CastToHalf.hpp"
 #include "popops/ElementWiseUtil.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -23,8 +24,22 @@ using namespace poplar::program;
 using namespace popops;
 using namespace poputil;
 
+namespace poputil {
+template <>
+poplar::ProfileValue
+toProfileValue(const popfloat::experimental::GfloatCast::CastConfig &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"calculationType", toProfileValue(t.getCalculationType())});
+  v.insert({"storageType", toProfileValue(t.getStorageType())});
+  v.insert({"srNoiseMin", toProfileValue(t.getSRNoiseMin())});
+  v.insert({"srNoiseMax", toProfileValue(t.getSRNoiseMax())});
+  return v;
+}
+} // namespace poputil
+
 namespace popfloat {
 namespace experimental {
+
 static std::tuple<unsigned, unsigned>
 getInterleavedWorkSplit(const unsigned nElements, const unsigned grainSize) {
   const auto elementsPerWorker = (nElements / grainSize) / CTXT_WORKERS;
@@ -785,7 +800,11 @@ GfloatCast::GfloatCast(const GfloatCast &gfloatCast) {
 
 Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
                                             Type calculationType,
-                                            Tensor gfStruct) {
+                                            Tensor gfStruct,
+                                            const DebugContext &dc) {
+
+  poputil::PoplibsOpDebugInfo di(dc, DI_ARGS(cs, calculationType, gfStruct));
+
   Tensor param;
 
   std::string paramName = "gfloat" +
@@ -794,7 +813,9 @@ Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
 
   unsigned paramsSize = gfloatParamSize(calculationType);
   std::vector<std::size_t> paramShape = {paramsSize};
-  param = graph.addVariable(INT, paramShape, paramName);
+  param = graph.addVariable(INT, paramShape, {di, paramName});
+
+  di.addOutput(param);
 
   const std::string vertexName =
       (calculationType == HALF) ? "popfloat::experimental::CastToGfloat16Param"
@@ -811,11 +832,18 @@ Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
 
 Tensor GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs,
                                             Type calculationType,
-                                            const unsigned gfPacked) {
-  auto gfStruct = graph.addConstant(INT, {1}, &gfPacked, "aramsTensor");
+                                            const unsigned gfPacked,
+                                            const DebugContext &dc) {
+
+  poputil::PoplibsOpDebugInfo di(dc, DI_ARGS(cs, calculationType, gfPacked));
+
+  auto gfStruct = graph.addConstant(INT, {1}, &gfPacked, {di, "aramsTensor"});
   graph.setTileMapping(gfStruct, 0);
 
-  return createCastOpParamsTensor(graph, cs, calculationType, gfStruct);
+  auto output =
+      createCastOpParamsTensor(graph, cs, calculationType, gfStruct, {di});
+  di.addOutput(output);
+  return output;
 }
 
 void GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs) {
@@ -827,49 +855,68 @@ void GfloatCast::createCastOpParamsTensor(Graph &graph, const ComputeSet &cs) {
 
 void GfloatCast::createCastOpParamsTensor(
     Graph &graph, Sequence &prog, const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  auto cs = graph.addComputeSet(debugPrefix + "/gfloatParams");
+
+  const poputil::PoplibsOpDebugInfo di(debugContext);
+
+  auto cs = graph.addComputeSet({di, "gfloatParams"});
   createCastOpParamsTensor(graph, cs);
 
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {di}));
 }
 
 Tensor
 GfloatCast::createCastOpParamsTensor(Graph &graph, Sequence &prog,
                                      Type calculationType, Tensor gfStruct,
                                      const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  std::string csName = "/gfloat" +
+
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(calculationType, gfStruct));
+
+  std::string csName = "gfloat" +
                        std::to_string((calculationType == HALF) ? 16 : 32) +
                        "/params";
-  auto cs = graph.addComputeSet(debugPrefix + csName);
+  auto cs = graph.addComputeSet({di, csName});
 
-  auto param = createCastOpParamsTensor(graph, cs, calculationType, gfStruct);
+  auto output =
+      createCastOpParamsTensor(graph, cs, calculationType, gfStruct, {di});
 
-  prog.add(Execute(cs));
+  di.addOutput(output);
 
-  return param;
+  prog.add(Execute(cs, {di}));
+
+  return output;
 }
 
 Tensor GfloatCast::createCastOpParamsTensor(
     Graph &graph, Sequence &prog, Type calculationType, const unsigned gfPacked,
     const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  std::string csName = "/gfloat" +
+
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(calculationType, gfPacked));
+
+  std::string csName = "gfloat" +
                        std::to_string((calculationType == HALF) ? 16 : 32) +
                        "/params";
-  auto cs = graph.addComputeSet(debugPrefix + csName);
+  auto cs = graph.addComputeSet({di, csName});
 
-  auto param = createCastOpParamsTensor(graph, cs, calculationType, gfPacked);
+  auto output =
+      createCastOpParamsTensor(graph, cs, calculationType, gfPacked, {di});
 
-  prog.add(Execute(cs));
+  di.addOutput(output);
 
-  return param;
+  prog.add(Execute(cs, {di}));
+
+  return output;
 }
 
 Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
                                       const Tensor &param, const ComputeSet &cs,
-                                      const GfloatCast::CastConfig &gfCastCfg) {
+                                      const GfloatCast::CastConfig &gfCastCfg,
+                                      const DebugContext &debugContext) {
+
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(input, param, cs, gfCastCfg));
+
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
@@ -877,7 +924,7 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
                                               : gfCastCfg.getCalculationType();
 
   auto output = createOutputForElementWiseOp(graph, {input}, outType,
-                                             "quantiseGfloatOut");
+                                             {di, "quantiseGfloatOut"});
 
   auto inFlat = input.flatten();
   auto outFlat = output.flatten();
@@ -916,17 +963,20 @@ Tensor GfloatCast::castNativeToGfloat(Graph &graph, Tensor input,
     graph.setTileMapping(v, tile);
   }
 
+  di.addOutput(output);
+
   return output;
 }
 
 static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
                                   const Tensor &param, const ComputeSet &cs,
-                                  const GfloatCast::CastConfig &gfCastCfg) {
+                                  const GfloatCast::CastConfig &gfCastCfg,
+                                  const poplar::DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
   auto output = createOutputForElementWiseOp(
-      graph, {input}, gfCastCfg.getStorageType(), "packGfloatOut");
+      graph, {input}, gfCastCfg.getStorageType(), {dnai, "packGfloatOut"});
 
   auto inFlat = input.flatten();
   auto outFlat = output.flatten();
@@ -970,14 +1020,17 @@ static Tensor castGfloatAsInteger(Graph &graph, Tensor input,
                                   const Tensor &param, Sequence &prog,
                                   const GfloatCast::CastConfig &gfCastCfg,
                                   const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  const auto cs =
-      graph.addComputeSet(debugPrefix + "/gfloatAsInt/" +
-                          formatTypeToString(gfCastCfg.getFormatType()));
 
-  auto output = castGfloatAsInteger(graph, input, param, cs, gfCastCfg);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(input, param, gfCastCfg));
 
-  prog.add(Execute(cs));
+  const auto cs = graph.addComputeSet(
+      {di, "gfloatAsInt/" + formatTypeToString(gfCastCfg.getFormatType())});
+
+  auto output = castGfloatAsInteger(graph, input, param, cs, gfCastCfg, {di});
+
+  prog.add(Execute(cs, {di}));
+  di.addOutput(output);
   return output;
 }
 
@@ -985,35 +1038,42 @@ Tensor
 GfloatCast::castNativeToGfloat(Graph &graph, Tensor input, const Tensor &param,
                                Sequence &prog, const CastConfig &gfCastCfg,
                                const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  const auto cs =
-      graph.addComputeSet(debugPrefix + "/castNativeToGfloat/" +
-                          formatTypeToString(gfCastCfg.getFormatType()));
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(input, param, gfCastCfg));
 
-  auto output = castNativeToGfloat(graph, input, param, cs, gfCastCfg);
+  const auto cs = graph.addComputeSet(
+      {di,
+       "castNativeToGfloat/" + formatTypeToString(gfCastCfg.getFormatType())});
 
-  prog.add(Execute(cs));
+  auto output = castNativeToGfloat(graph, input, param, cs, gfCastCfg, {di});
 
-  if (gfCastCfg.getStoreAsNative()) {
-    return output;
-  } else {
-    return castGfloatAsInteger(graph, output, param, prog, gfCastCfg,
-                               debugPrefix);
+  prog.add(Execute(cs, {di}));
+
+  if (!gfCastCfg.getStoreAsNative()) {
+    output = castGfloatAsInteger(graph, output, param, prog, gfCastCfg, {di});
   }
+
+  di.addOutput(output);
+  return output;
 }
 
 Tensor
 GfloatCast::castNativeToGfloat(Graph &graph, Tensor input, Sequence &prog,
                                const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  return castNativeToGfloat(graph, input, *gfParams, prog, nativeToGFCastCfg,
-                            debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
+
+  auto output = castNativeToGfloat(graph, input, *gfParams, prog,
+                                   nativeToGFCastCfg, {di});
+
+  di.addOutput(output);
+  return output;
 }
 
 void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
                                            const Tensor &param,
                                            const ComputeSet &cs,
-                                           const CastConfig &gfCastCfg) {
+                                           const CastConfig &gfCastCfg,
+                                           const poplar::DebugContext &dc) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
@@ -1056,31 +1116,39 @@ void GfloatCast::castNativeToGfloatInPlace(Graph &graph, Tensor input,
 void GfloatCast::castNativeToGfloatInPlace(
     Graph &graph, Tensor input, const Tensor &param, Sequence &prog,
     const CastConfig &gfCastCfg, const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  const auto cs =
-      graph.addComputeSet(debugPrefix + "/castNativeToGfloatInPlace/");
 
-  castNativeToGfloatInPlace(graph, input, param, cs, gfCastCfg);
+  const poputil::PoplibsOpDebugInfo di(debugContext,
+                                       DI_ARGS(input, param, gfCastCfg));
 
-  prog.add(Execute(cs));
+  const auto cs = graph.addComputeSet({di, "castNativeToGfloatInPlace/"});
+
+  castNativeToGfloatInPlace(graph, input, param, cs, gfCastCfg, {di});
+
+  prog.add(Execute(cs, {di}));
 }
 
 void GfloatCast::castNativeToGfloatInPlace(
     Graph &graph, Tensor input, Sequence &prog,
     const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
+
+  const poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
+
   castNativeToGfloatInPlace(graph, input, *gfParams, prog, nativeToGFCastCfg,
-                            debugPrefix);
+                            {di});
 }
 
 Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
                                       const Tensor &param, const ComputeSet &cs,
-                                      const CastConfig &gfCastCfg) {
+                                      const CastConfig &gfCastCfg,
+                                      const poplar::DebugContext &dc) {
+  poputil::PoplibsOpDebugInfo di(dc, DI_ARGS(input, param, cs, gfCastCfg));
+
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
 
-  auto output = createOutputForElementWiseOp(
-      graph, {input}, gfCastCfg.getCalculationType(), "castGfloatToNativeOut");
+  auto output = createOutputForElementWiseOp(graph, {input},
+                                             gfCastCfg.getCalculationType(),
+                                             {di, "castGfloatToNativeOut"});
 
   auto inFlat = input.flatten();
   auto outFlat = output.flatten();
@@ -1117,6 +1185,7 @@ Tensor GfloatCast::castGfloatToNative(Graph &graph, Tensor input,
     graph.setTileMapping(v, tile);
   }
 
+  di.addOutput(output);
   return output;
 }
 
@@ -1129,28 +1198,35 @@ Tensor
 GfloatCast::castGfloatToNative(Graph &graph, Tensor input, const Tensor &param,
                                Sequence &prog, const CastConfig &gfCastCfg,
                                const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  const auto cs =
-      graph.addComputeSet(debugPrefix + "/castGfloatToNative/" +
-                          formatTypeToString(gfCastCfg.getFormatType()));
 
-  auto output = castGfloatToNative(graph, input, param, cs, gfCastCfg);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(input, param, gfCastCfg));
 
-  prog.add(Execute(cs));
+  const auto cs = graph.addComputeSet(
+      {di,
+       "castGfloatToNative/" + formatTypeToString(gfCastCfg.getFormatType())});
+
+  auto output = castGfloatToNative(graph, input, param, cs, gfCastCfg, {di});
+
+  prog.add(Execute(cs, {di}));
 
   if (gfCastCfg.getCalculationType() != gfCastCfg.getStorageType()) {
-    return popops::cast(graph, output, gfCastCfg.getStorageType(), prog,
-                        debugPrefix);
+    return popops::cast(graph, output, gfCastCfg.getStorageType(), prog, {di});
   }
+  di.addOutput(output);
   return output;
 }
 
 Tensor
 GfloatCast::castGfloatToNative(Graph &graph, Tensor input, Sequence &prog,
                                const poplar::DebugContext &debugContext) {
-  const auto &debugPrefix = debugContext.getPathName();
-  return castGfloatToNative(graph, input, *gfParams, prog, gfToNativeCastCfg,
-                            debugPrefix);
+
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input));
+
+  auto output = castGfloatToNative(graph, input, *gfParams, prog,
+                                   gfToNativeCastCfg, {di});
+  di.addOutput(output);
+  return output;
 }
 } // end namespace experimental
 } // end namespace popfloat

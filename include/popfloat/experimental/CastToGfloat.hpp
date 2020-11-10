@@ -755,12 +755,14 @@ public:
    * \param cs              Poplar compute set to append op onto
    * \param calculationType Native type used for Gfloat format calculation
    * \param gfPacked        The format's config parameters packed as INT32
+   * \param debugContext    Optional debug information.
    * \return                A tensor of a Gfloat cast op's parameters
    */
-  static poplar::Tensor createCastOpParamsTensor(poplar::Graph &graph,
-                                                 const poplar::ComputeSet &cs,
-                                                 poplar::Type calculationType,
-                                                 const unsigned gfPacked);
+  static poplar::Tensor
+  createCastOpParamsTensor(poplar::Graph &graph, const poplar::ComputeSet &cs,
+                           poplar::Type calculationType,
+                           const unsigned gfPacked,
+                           const poplar::DebugContext &debugContext = {});
 
   /** Create a cast function's parameters tensor.
    *
@@ -770,12 +772,14 @@ public:
    * \param cs                Poplar compute set to append op onto
    * \param calculationType   Native type used for Gfloat format calculation
    * \param gfPacked          The format's config parameters packed as INT32
+   * \param debugContext      Optional debug information.
    * \return                  A tensor of a Gfloat cast op's parameters
    */
-  static poplar::Tensor createCastOpParamsTensor(poplar::Graph &graph,
-                                                 const poplar::ComputeSet &cs,
-                                                 poplar::Type calculationType,
-                                                 poplar::Tensor gfPacked);
+  static poplar::Tensor
+  createCastOpParamsTensor(poplar::Graph &graph, const poplar::ComputeSet &cs,
+                           poplar::Type calculationType,
+                           poplar::Tensor gfPacked,
+                           const poplar::DebugContext &debugContext = {});
 
   /** Create a cast function's parameters tensor.
    *
@@ -862,13 +866,14 @@ public:
    * \param param         Cast op's parameter tensor
    * \param cs            Poplar compute set to append op onto
    * \param gfCastCfg     Structure storing op's arguments
+   * \param debugContext  Optional debug information.
    * \return              A tensor of quantised elements
    */
-  static poplar::Tensor castNativeToGfloat(poplar::Graph &graph,
-                                           poplar::Tensor input,
-                                           const poplar::Tensor &param,
-                                           const poplar::ComputeSet &cs,
-                                           const CastConfig &gfCastCfg);
+  static poplar::Tensor
+  castNativeToGfloat(poplar::Graph &graph, poplar::Tensor input,
+                     const poplar::Tensor &param, const poplar::ComputeSet &cs,
+                     const CastConfig &gfCastCfg,
+                     const poplar::DebugContext &debugContext = {});
 
   /** Cast an input tensor of a native IPU type to a gfloat format using
    * instance's cast op params and nativeToGFCastCfg CastConfig.
@@ -922,13 +927,13 @@ public:
    * \param param         Quantise op's parameter tensor
    * \param cs            Poplar compute set to append op onto
    * \param gfCastArgs    Structure storing op's arguments
+   * \param debugContext  Optional debug information.
    * \return              A tensor of quantised elements
    */
-  static void castNativeToGfloatInPlace(poplar::Graph &graph,
-                                        poplar::Tensor input,
-                                        const poplar::Tensor &param,
-                                        const poplar::ComputeSet &cs,
-                                        const CastConfig &gfCastCfg);
+  static void castNativeToGfloatInPlace(
+      poplar::Graph &graph, poplar::Tensor input, const poplar::Tensor &param,
+      const poplar::ComputeSet &cs, const CastConfig &gfCastCfg,
+      const poplar::DebugContext &debugContext = {});
 
   /** Class method to cast an input tensor  of a native IPU type inplace
    * using instance's param tensor and gfToNativeCastCfg CastConfig.
@@ -984,13 +989,14 @@ public:
    * \param cs            Poplar compute set to append op onto
    * \param gfCastCfg     Structure storing op's arguments
    *                      representation. If false, the input is quantised.
+   * \param debugContext  Optional debug information.
    * \return              A tensor of quantised elements
    */
-  static poplar::Tensor castGfloatToNative(poplar::Graph &graph,
-                                           poplar::Tensor input,
-                                           const poplar::Tensor &param,
-                                           const poplar::ComputeSet &cs,
-                                           const CastConfig &gfCastCfg);
+  static poplar::Tensor
+  castGfloatToNative(poplar::Graph &graph, poplar::Tensor input,
+                     const poplar::Tensor &param, const poplar::ComputeSet &cs,
+                     const CastConfig &gfCastCfg,
+                     const poplar::DebugContext &debugContext = {});
 
   /** Cast an input tensor of a gfloat type to a tensor of a native IPU type
    * using instance's param tensor and gfToNativeCastCfg CastConfig.
