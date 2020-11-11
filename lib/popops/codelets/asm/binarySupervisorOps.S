@@ -53,8 +53,7 @@
 
 // Naming / name mangling
 #define MANGLE_STR_COMMON(SUFFIX) __runCodelet_popops__BinaryOpCommon_##SUFFIX
-#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__\TYPE_STR\()Type__\NAME_STR\()_float
-#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__\TYPE_STR\()Type__\NAME_STR\()_half
+#define MANGLE_STR __runCodelet_popops__\VERTEX_NAME\()___popops__expr__BinaryOpType__\OPERATION\()_\TYPE
 
 // Macro to unpack tapack triple address packed ptrs
 .macro UNPACK_PTRS IN1 IN2 OUT
@@ -68,99 +67,72 @@
 .endm
 
 //******************************************************************************
-// Entry stub macros, one per operation: combination of
+// Entry stub macros, use to create one per operation: combination of
 // float/half,
 // broadcast/binary
 // inplace/non-inplace
 // add/sub/mul
+// And likewise for short/unsigned short with and/or
 //******************************************************************************
-.macro INSTANTIATE_BROADCAST_OP_HALF OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
+.macro INSTANTIATE_BROADCAST_OP TYPE VERTEX_STATE_STUB VERTEX_NAME OPERATION OP_PROCESSING_TYPE
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 .align 4
 
-MANGLE_STR_HALF:
+MANGLE_STR:
   call  $mlink, broadcast_fn_load_vertex_state_\VERTEX_STATE_STUB
-  call  $mlink, fn_divide_work24
-  // Select fast or normal loop based on the returned value, 0 = fast, 1 = normal
-  setzi $mloopFn, broadcast_op_loop_half_fast_\OPERATION
-  brz   $mscratch, 1f
-  setzi $mloopFn, broadcast_op_loop_half_\OPERATION
-1:
-  setzi $mprocess1Fn, broadcast_op_process_1_half_\OPERATION
-  setzi $mprocess2Fn, broadcast_op_process_2_half_\OPERATION
-
-  mov $in2Ptr, $in2PtrTmp
-  bri broadcast_op_worker_half_framework
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
-.endm
-//******************************************************************************
-.macro INSTANTIATE_BROADCAST_OP_FLOAT OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
-.section .text.MANGLE_STR_FLOAT
-.global MANGLE_STR_FLOAT
-.type MANGLE_STR_FLOAT, @function
-.align 4
-
-MANGLE_STR_FLOAT:
-  call  $mlink, broadcast_fn_load_vertex_state_\VERTEX_STATE_STUB
+.ifc "\TYPE", "float"
   call  $mlink, fn_divide_work12
+.else
+  call  $mlink, fn_divide_work24
+.endif
   // Select fast or normal loop based on the returned value, 0 = fast, 1 = normal
-  setzi $mloopFn, broadcast_op_loop_float_fast_\OPERATION
+  setzi $mloopFn, broadcast_op_loop_\OP_PROCESSING_TYPE\()_fast_\OPERATION
   brz   $mscratch, 1f
-  setzi $mloopFn, broadcast_op_loop_float_\OPERATION
+  setzi $mloopFn, broadcast_op_loop_\OP_PROCESSING_TYPE\()_\OPERATION
 1:
-  setzi $mprocess1Fn, broadcast_op_process_1_float_\OPERATION
-
   mov $in2Ptr, $in2PtrTmp
+  setzi $mprocess1Fn, broadcast_op_process_1_\OP_PROCESSING_TYPE\()_\OPERATION
+.ifc "\TYPE", "float"
   bri broadcast_op_worker_float_framework
-.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
+.else
+  setzi $mprocess2Fn, broadcast_op_process_2_\OP_PROCESSING_TYPE\()_\OPERATION
+  bri broadcast_op_worker_4x16bit_framework
+.endif
+
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 //******************************************************************************
-.macro INSTANTIATE_BINARY_OP_HALF OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
+.macro INSTANTIATE_BINARY_OP TYPE VERTEX_STATE_STUB VERTEX_NAME OPERATION OP_PROCESSING_TYPE
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 .align 4
 
-MANGLE_STR_HALF:
+MANGLE_STR:
   call  $mlink, fn_load_vertex_state_\VERTEX_STATE_STUB
-  call  $mlink, fn_divide_work24
-  // Select fast or normal loop based on the returned value, 0 = fast, 1 = normal
-  setzi $mloopFn, binary_op_loop_half_fast_\OPERATION
-  brz   $mscratch, 1f
-  setzi $mloopFn, binary_op_loop_half_\OPERATION
-1:
-  setzi $mprocess1Fn, binary_op_process_1_half_\OPERATION
-  setzi $mprocess2Fn, binary_op_process_2_half_\OPERATION
-  bri binary_op_worker_half_framework
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
-.endm
-
-//******************************************************************************
-.macro INSTANTIATE_BINARY_OP_FLOAT OPERATION VERTEX_STATE_STUB INPLACE_STR TYPE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
-.section .text.MANGLE_STR_FLOAT
-.global MANGLE_STR_FLOAT
-.type MANGLE_STR_FLOAT, @function
-.align 4
-
-MANGLE_STR_FLOAT:
-  call  $mlink, fn_load_vertex_state_\VERTEX_STATE_STUB
+.ifc "\TYPE", "float"
   call  $mlink, fn_divide_work12
+.else
+  call  $mlink, fn_divide_work24
+.endif
   // Select fast or normal loop based on the returned value, 0 = fast, 1 = normal
-  setzi $mloopFn, binary_op_loop_float_fast_\OPERATION
+  setzi $mloopFn, binary_op_loop_\OP_PROCESSING_TYPE\()_fast_\OPERATION
   brz   $mscratch, 1f
-  setzi $mloopFn, binary_op_loop_float_\OPERATION
+  setzi $mloopFn, binary_op_loop_\OP_PROCESSING_TYPE\()_\OPERATION
 1:
-
-  setzi $mprocess1Fn, binary_op_process_1_float_\OPERATION
+  setzi $mprocess1Fn, binary_op_process_1_\OP_PROCESSING_TYPE\()_\OPERATION
+.ifc "\TYPE", "float"
   bri binary_op_worker_float_framework
-.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
+.else
+  setzi $mprocess2Fn, binary_op_process_2_\OP_PROCESSING_TYPE\()_\OPERATION
+  bri binary_op_worker_4x16bit_framework
+.endif
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 //******************************************************************************
@@ -366,17 +338,17 @@ process_1_float_return:
   exitz $mzero
 .size MANGLE_STR_COMMON(float_processing), . -broadcast_op_worker_float_framework
 //******************************************************************************
-// General processing structure for half
+// General processing structure for 4x16bit vectors: half, short, unsigned short
 //******************************************************************************
-.section .text.MANGLE_STR_COMMON(half_processing)
+.section .text.MANGLE_STR_COMMON(4x16bit_processing)
 .align 4
-broadcast_op_worker_half_framework:
+broadcast_op_worker_4x16bit_framework:
   ldb16 $a2, $mzero, $in2Ptr, 0
   // Jump so that the dummy read to increment the pointer below can't cause
   // an exception
   {bri 1f
    mov  $a3, $a2}
-binary_op_worker_half_framework:
+binary_op_worker_4x16bit_framework:
   // Compute address offset for each data access, given 64 bit stride between
   // work assigned to each worker
   ld64step $a0:1, $mzero, $in2Ptr+=, $workerIdM1
@@ -389,11 +361,11 @@ binary_op_worker_half_framework:
   // Also skip loop if nothing to do
   // This way is fast if we are going to use the inner loop
   brnzdec $mloops, 1f
-  bri inner_loop_half_return
+  bri inner_loop_4x16bit_return
 1:
   br $mloopFn
 
-inner_loop_half_return:
+inner_loop_4x16bit_return:
   // Here we have done all groups of 3 halves for every worker, no overread.
   // Use the worker which is pointing to the next half to process the last 3
   // (if needed).  This is simple, but would using the last worker
@@ -410,8 +382,8 @@ inner_loop_half_return:
   ld32step $a0, $mzero, $in1Ptr+=,1
   br $mprocess2Fn
 
-process_2_half_return:
-  st32step $a0, $mzero, $outPtr+=, 1
+process_2_4x16bit_return:
+  st32step $a4, $mzero, $outPtr+=, 1
 4:
   and $mscratch, $outCount, 1
   brz $mscratch, 3f
@@ -419,17 +391,17 @@ process_2_half_return:
   ldb16 $a0, $mzero, $in1Ptr, 0
   br $mprocess1Fn
 
-process_1_half_return:
-  sort4x16lo $a0, $a0, $a1
+process_1_4x16bit_return:
+  sort4x16lo $a0, $a4, $a1
   st32 $a0, $mzero, $outPtr, 0
 3:
   exitz $mzero
-.size MANGLE_STR_COMMON(half_processing), . -broadcast_op_worker_half_framework
+.size MANGLE_STR_COMMON(4x16bit_processing), . -broadcast_op_worker_4x16bit_framework
 
 //******************************************************************************
 // Loops and single element processing for float
 //******************************************************************************
-.macro INSTANTIATE_BINARY_OP_FLOAT_PROCESSING OPERATION
+.macro INSTANTIATE_BINARY_OP_float_PROCESSING OPERATION INSTRUCTIONv2 INSTRUCTIONv1
 .section .text.MANGLE_STR_COMMON(float_loop1)
 .align 8
   nop //Repeat body alignment
@@ -442,13 +414,13 @@ binary_op_loop_float_\OPERATION\():
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
    fnop}
   {ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
    fnop}
 2:
-  f32v2\OPERATION $a4:5, $a0:1, $a2:3
+  \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
   bri inner_loop_float_return
 
@@ -462,11 +434,11 @@ binary_op_loop_float_fast_\OPERATION\():
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
    fnop}
 2:
-  f32v2\OPERATION $a4:5, $a0:1, $a2:3
+  \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
   bri inner_loop_float_return
 .size MANGLE_STR_COMMON(float_loop1), . -binary_op_loop_float_\OPERATION\()
@@ -482,11 +454,11 @@ broadcast_op_loop_float_\OPERATION\():
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
    fnop}
 2:
-  f32v2\OPERATION $a4:5, $a0:1, $a2:3
+  \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
   bri inner_loop_float_return
 
@@ -503,16 +475,16 @@ broadcast_op_loop_float_fast_\OPERATION\():
   ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
   setzi $mscratch, NUM_WORKERS
   {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   tapack $in12Ptr, $in1Ptr, $mzero, $outPtr
 
   rpt $mloopFn, (2f - 1f ) /8 - 1
 1:
   {ldst64pace $a0:1, $a4:5, $in12Ptr+=, $mscratch, 0b0101
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
 2:
   {st64pace $a4:5, $in12Ptr+=, $mscratch, 0b01
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   st64pace $a4:5, $in12Ptr+=, $mscratch, 0b01
   // Restore the (incremented in the loop) normal pointers for dealing with
   // the remaining items (if any)
@@ -528,18 +500,18 @@ broadcast_op_loop_float_fast_\OPERATION\():
 binary_op_process_1_float_\OPERATION\():
   ld32 $a2, $mzero, $in2Ptr, 0
 broadcast_op_process_1_float_\OPERATION\():
-  f32\OPERATION $a0, $a0, $a2
+  \INSTRUCTIONv1 $a0, $a0, $a2
   bri process_1_float_return
 .size MANGLE_STR_COMMON(float_instr), . -binary_op_process_1_float_\OPERATION\()
 .endm
 //******************************************************************************
-// Loops and single element processing for half
+// Loops and single element processing for half/short/unsigned short
 //******************************************************************************
-.macro INSTANTIATE_BINARY_OP_HALF_PROCESSING OPERATION
-.section .text.MANGLE_STR_COMMON(half_loop1)
+.macro INSTANTIATE_BINARY_OP_4x16bit_PROCESSING TYPE OPERATION INSTRUCTIONv4 INSTRUCTIONv2="void"
+.section .text.MANGLE_STR_COMMON(\@)
 .align 8
   nop // Repeat body alignment
-binary_op_loop_half_\OPERATION\():
+binary_op_loop_\TYPE\()_\OPERATION\():
  // Pre load so we can pipeline the loop
   ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
   ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
@@ -547,19 +519,19 @@ binary_op_loop_half_\OPERATION\():
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
    fnop}
   {ld64step $a2:3, $mzero, $in2Ptr+=, NUM_WORKERS
    fnop}
 2:
-  f16v4\OPERATION $a4:5, $a0:1, $a2:3
+  \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
-  bri inner_loop_half_return
+  bri inner_loop_4x16bit_return
 
 
 //******************************************************
-binary_op_loop_half_fast_\OPERATION\():
+binary_op_loop_\TYPE\()_fast_\OPERATION\():
   // Pre load so we can pipeline the loop
   setzi $mscratch, NUM_WORKERS
   ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
@@ -567,121 +539,121 @@ binary_op_loop_half_fast_\OPERATION\():
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld2x64pace $a0:1, $a2:3, $in12Ptr+=, $mscratch, 0b0101
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
    fnop}
 2:
-  f16v4\OPERATION $a4:5, $a0:1, $a2:3
+  \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
-  bri inner_loop_half_return
+  bri inner_loop_4x16bit_return
 
-.size MANGLE_STR_COMMON(half_loop1), . -binary_op_loop_half_\OPERATION\()
+.size MANGLE_STR_COMMON(\@), . -binary_op_loop__\TYPE\()_\OPERATION\()
 
 //******************************************************
-.section .text.MANGLE_STR_COMMON(half_loop2)
+.section .text.MANGLE_STR_COMMON(\@)
 .align 8
-broadcast_op_loop_half_\OPERATION\():
+broadcast_op_loop_\TYPE\()_\OPERATION\():
  // Pre load so we can pipeline the loop
   ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
   rpt $mloops, (2f - 1f ) /8 - 1
 
 1:
   {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
    fnop}
 2:
-  f16v4\OPERATION $a4:5, $a0:1, $a2:3
+  \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
   st64step $a4:5, $mzero, $outPtr+=, NUM_WORKERS
-  bri inner_loop_half_return
+  bri inner_loop_4x16bit_return
 //******************************************************
 .align 8
-broadcast_op_loop_half_fast_\OPERATION\():
+broadcast_op_loop_\TYPE\()_fast_\OPERATION\():
   // fewer loops as it's more unrolled.
   sub $mloopFn, $mloops, 1
   // Revert back to the slower path if this is a problem
-  brneg $mloopFn, broadcast_op_loop_half_\OPERATION\()
+  brneg $mloopFn, broadcast_op_loop_\TYPE\()_\OPERATION\()
   // Pre load so we can pipeline the loop
   ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
   setzi $mscratch, NUM_WORKERS
   {ld64step $a0:1, $mzero, $in1Ptr+=, NUM_WORKERS
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   tapack $in12Ptr, $in1Ptr, $mzero, $outPtr
 
   rpt $mloopFn, (2f - 1f ) /8 - 1
 1:
   {ldst64pace $a0:1, $a4:5, $in12Ptr+=, $mscratch, 0b0101
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
 2:
   // Continue to use the packed addresses for 64 bit writes
   {st64pace $a4:5, $in12Ptr+=, $mscratch, 0b01
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   st64pace $a4:5, $in12Ptr+=, $mscratch, 0b01
   // But restore the (incremented in the loop) normal pointers for dealing with
   // the remaining items (if any)
   UNPACK_PTRS $in1Ptr $in2Ptr $outPtr
 
-  bri inner_loop_half_return
-.size MANGLE_STR_COMMON(half_loop2), . -broadcast_op_loop_half_\OPERATION\()
+  bri inner_loop_4x16bit_return
+.size MANGLE_STR_COMMON(\@), . -broadcast_op_loop_\TYPE\()_\OPERATION\()
 //******************************************************
 .align 8
 
-.section .text.MANGLE_STR_COMMON(half_instr)
+.section .text.MANGLE_STR_COMMON(\@)
 .align 4
-binary_op_process_2_half_\OPERATION\():
+binary_op_process_2_\TYPE\()_\OPERATION\():
   ld32step $a2, $mzero, $in2Ptr+=, 1
-broadcast_op_process_2_half_\OPERATION\():
-  f16v2\OPERATION $a0, $a0, $a2
-  bri process_2_half_return
+broadcast_op_process_2_\TYPE\()_\OPERATION\():
+.ifc "\INSTRUCTIONv2","void"
+  // Some instructions have no v2 equivalent.  At the moment this is only used for
+  // bitwise ops which don't cause exceptions, but beware of the overprocessing!
+  \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
+.else
+  \INSTRUCTIONv2 $a4, $a0, $a2
+.endif
+  bri process_2_4x16bit_return
 
-binary_op_process_1_half_\OPERATION\():
+binary_op_process_1_\TYPE\()_\OPERATION\():
   ldb16 $a2, $mzero, $in2Ptr, 0
-broadcast_op_process_1_half_\OPERATION\():
+broadcast_op_process_1_\TYPE\()_\OPERATION\():
+.ifc "\INSTRUCTIONv2","void"
+  // Some instructions have no v2 equivalent.  At the moment this is only used for
+  // bitwise ops which don't cause exceptions, but beware of the overprocessing!
   {ldb16 $a1, $mzero, $outPtr, 1
-   f16v2\OPERATION $a0, $a0, $a2}
-   bri process_1_half_return
-.size MANGLE_STR_COMMON(half_instr), . -binary_op_process_2_half_\OPERATION\()
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
+.else
+  {ldb16 $a1, $mzero, $outPtr, 1
+   \INSTRUCTIONv2 $a4, $a0, $a2}
+.endif
+   bri process_1_4x16bit_return
+.size MANGLE_STR_COMMON(\@), . -binary_op_process_2__\TYPE\()_\OPERATION\()
 .endm
 
 //******************************************************************************
 // Use the macros above to create vertex entry points
 //******************************************************************************
 
-// add half
-INSTANTIATE_BINARY_OP_HALF add in_place BinaryOp1DInPlace BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_HALF add in_place BroadcastScalar1DInPlace BinaryOp ADD
-INSTANTIATE_BINARY_OP_HALF add non_in_place BinaryOp1D BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_HALF add non_in_place BroadcastScalar1D BinaryOp ADD
+.macro INSTANTIATE_ENTRY_POINTS TYPE OPERATION OP_PROCESSING_TYPE
+  INSTANTIATE_BINARY_OP \TYPE in_place BinaryOp1DInPlace \OPERATION \OP_PROCESSING_TYPE
+  INSTANTIATE_BROADCAST_OP \TYPE in_place BroadcastScalar1DInPlace \OPERATION \OP_PROCESSING_TYPE
+  INSTANTIATE_BINARY_OP \TYPE non_in_place BinaryOp1D \OPERATION \OP_PROCESSING_TYPE
+  INSTANTIATE_BROADCAST_OP \TYPE non_in_place BroadcastScalar1D \OPERATION \OP_PROCESSING_TYPE
+.endm
 
-// sub half
-INSTANTIATE_BINARY_OP_HALF sub in_place BinaryOp1DInPlace BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_HALF sub in_place BroadcastScalar1DInPlace BinaryOp SUBTRACT
-INSTANTIATE_BINARY_OP_HALF sub non_in_place BinaryOp1D BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_HALF sub non_in_place BroadcastScalar1D BinaryOp SUBTRACT
+INSTANTIATE_ENTRY_POINTS half ADD half
+INSTANTIATE_ENTRY_POINTS half SUBTRACT half
+INSTANTIATE_ENTRY_POINTS half MULTIPLY half
 
-// mul half
-INSTANTIATE_BINARY_OP_HALF mul in_place BinaryOp1DInPlace BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_HALF mul in_place BroadcastScalar1DInPlace BinaryOp MULTIPLY
-INSTANTIATE_BINARY_OP_HALF mul non_in_place BinaryOp1D BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_HALF mul non_in_place BroadcastScalar1D BinaryOp MULTIPLY
+INSTANTIATE_ENTRY_POINTS float ADD float
+INSTANTIATE_ENTRY_POINTS float SUBTRACT float
+INSTANTIATE_ENTRY_POINTS float MULTIPLY float
 
-// add float
-INSTANTIATE_BINARY_OP_FLOAT add in_place BinaryOp1DInPlace BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_FLOAT add in_place BroadcastScalar1DInPlace BinaryOp ADD
-INSTANTIATE_BINARY_OP_FLOAT add non_in_place BinaryOp1D BinaryOp ADD
-INSTANTIATE_BROADCAST_OP_FLOAT add non_in_place BroadcastScalar1D BinaryOp ADD
+INSTANTIATE_ENTRY_POINTS short BITWISE___AND short
+INSTANTIATE_ENTRY_POINTS short BITWISE___OR short
 
-// sub float
-INSTANTIATE_BINARY_OP_FLOAT sub in_place BinaryOp1DInPlace BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_FLOAT sub in_place BroadcastScalar1DInPlace BinaryOp SUBTRACT
-INSTANTIATE_BINARY_OP_FLOAT sub non_in_place BinaryOp1D BinaryOp SUBTRACT
-INSTANTIATE_BROADCAST_OP_FLOAT sub non_in_place BroadcastScalar1D BinaryOp SUBTRACT
-
-// mul float
-INSTANTIATE_BINARY_OP_FLOAT mul in_place BinaryOp1DInPlace BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_FLOAT mul in_place BroadcastScalar1DInPlace BinaryOp MULTIPLY
-INSTANTIATE_BINARY_OP_FLOAT mul non_in_place BinaryOp1D BinaryOp MULTIPLY
-INSTANTIATE_BROADCAST_OP_FLOAT mul non_in_place BroadcastScalar1D BinaryOp MULTIPLY
+// Note - the `OP_PROCESSING_TYPE` parameter exists because unsigned_short can use
+// an identical processing loop to short for these 2 operations
+INSTANTIATE_ENTRY_POINTS unsigned_short BITWISE___AND short
+INSTANTIATE_ENTRY_POINTS unsigned_short BITWISE___OR short
 
 //******************************************************************************
 // Use the macros above to create shared code
@@ -700,14 +672,18 @@ BINARY_OP_DIVIDE_WORK 20 24 LOG2_HALF_ATOM_SIZE
 // Use the macros above to create each individual operation code
 //******************************************************************************
 
-INSTANTIATE_BINARY_OP_HALF_PROCESSING add
-INSTANTIATE_BINARY_OP_FLOAT_PROCESSING add
+INSTANTIATE_BINARY_OP_4x16bit_PROCESSING half ADD f16v4add f16v2add
+INSTANTIATE_BINARY_OP_float_PROCESSING ADD f32v2add f32add
 
-INSTANTIATE_BINARY_OP_HALF_PROCESSING sub
-INSTANTIATE_BINARY_OP_FLOAT_PROCESSING sub
+INSTANTIATE_BINARY_OP_4x16bit_PROCESSING half SUBTRACT f16v4sub f16v2sub
+INSTANTIATE_BINARY_OP_float_PROCESSING SUBTRACT f32v2sub f32sub
 
-INSTANTIATE_BINARY_OP_HALF_PROCESSING mul
-INSTANTIATE_BINARY_OP_FLOAT_PROCESSING mul
+INSTANTIATE_BINARY_OP_4x16bit_PROCESSING half MULTIPLY f16v4mul f16v2mul
+INSTANTIATE_BINARY_OP_float_PROCESSING MULTIPLY f32v2mul f32mul
+
+// Short and unsigned short
+INSTANTIATE_BINARY_OP_4x16bit_PROCESSING short BITWISE___AND and64
+INSTANTIATE_BINARY_OP_4x16bit_PROCESSING short BITWISE___OR or64
 
 #endif
 /* -------------------------------------------------------------------------- */

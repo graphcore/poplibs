@@ -363,21 +363,27 @@ struct BinaryOpDispatch<op, unsigned short, unsigned short, architecture::ipu> {
 
 #endif
 
+// Condition for being an external op for several vertices
+template <BinaryOpType op, typename T> constexpr static bool isExternal() {
+  const bool isExternalArithmeticOp =
+      (std::is_same<T, float>::value || std::is_same<T, half>::value) &&
+      (op == expr::BinaryOpType::ADD || op == expr::BinaryOpType::SUBTRACT ||
+       op == expr::BinaryOpType::MULTIPLY);
+  const bool isExternalBitwiseOp = (std::is_same<T, short>::value ||
+                                    std::is_same<T, unsigned short>::value) &&
+                                   (op == expr::BinaryOpType::BITWISE_AND ||
+                                    op == expr::BinaryOpType::BITWISE_OR);
+  return isExternalArithmeticOp || isExternalBitwiseOp;
+}
+
 template <expr::BinaryOpType op, typename T> class BinaryOp2D : public Vertex {
   typedef typename BinaryOpOutputType<op, T>::type outputType;
 
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<outputType, float>::value ||
-            std::is_same<outputType, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in1;
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
   Vector<Output<Vector<outputType, SPAN, 8>>> out;
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, outputType>()));
 
   bool compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -397,16 +403,9 @@ class BinaryOp2DInPlace : public Vertex {
                 "In, Out types must match for in place operations");
 
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<outputType, float>::value ||
-            std::is_same<outputType, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   Vector<InOut<Vector<outputType, SPAN, 8>>> in1Out;
   Vector<Input<Vector<T, ONE_PTR, 8>>, ONE_PTR> in2;
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, outputType>()));
 
   bool compute() {
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -674,17 +673,11 @@ template <expr::BinaryOpType op, typename T> class BinaryOp1D : public Vertex {
   typedef typename BinaryOpOutputType<op, T>::type outputType;
 
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<T, float>::value || std::is_same<T, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   Input<Vector<T, ONE_PTR, 8>> in1;
   Input<Vector<T, ONE_PTR, 8>> in2;
   Output<Vector<outputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
   bool compute() {
 #ifdef __IPU__
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;
@@ -707,16 +700,10 @@ class BinaryOp1DInPlace : public Vertex {
                 "In, Out types must match for in place operations");
 
 public:
-  constexpr static bool isExternal() {
-    return (std::is_same<T, float>::value || std::is_same<T, half>::value) &&
-           (op == expr::BinaryOpType::ADD ||
-            op == expr::BinaryOpType::SUBTRACT ||
-            op == expr::BinaryOpType::MULTIPLY);
-  }
   InOut<Vector<outputType, SPAN, 8>> in1Out;
   Input<Vector<T, ONE_PTR, 8>> in2;
 
-  IS_EXTERNAL_CODELET(isExternal());
+  IS_EXTERNAL_CODELET((isExternal<op, T>()));
   bool compute() {
 #ifdef __IPU__
     using arch = typename popops::BinaryOpFn<op, T, architecture::active>::arch;

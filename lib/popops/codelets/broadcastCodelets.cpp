@@ -16,10 +16,16 @@ using BinaryOpType = popops::expr::BinaryOpType;
 
 // Defines which broadcast codelets have an assembly implementation
 template <BinaryOpType op, typename dType> constexpr static bool hasAssembly() {
-  return (std::is_same<dType, float>::value ||
-          std::is_same<dType, half>::value) &&
-         (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
-          op == BinaryOpType::MULTIPLY);
+  const bool isExternalArithmeticOp =
+      (std::is_same<dType, float>::value || std::is_same<dType, half>::value) &&
+      (op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
+       op == BinaryOpType::MULTIPLY);
+  const bool isExternalBitwiseOp =
+      (std::is_same<dType, short>::value ||
+       std::is_same<dType, unsigned short>::value) &&
+      (op == expr::BinaryOpType::BITWISE_AND ||
+       op == expr::BinaryOpType::BITWISE_OR);
+  return isExternalArithmeticOp || isExternalBitwiseOp;
 }
 
 //******************************************************************************

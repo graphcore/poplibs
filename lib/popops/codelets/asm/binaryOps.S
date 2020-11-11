@@ -4,7 +4,8 @@
 /* -------------------------------------------------------------------------- */
 // Compact and efficient implementation of the common Binary operations in
 // assembler.
-// Half, float, inPlace and non-inplace versions
+// Add, Sub, mul Half, float, inPlace and non-inplace versions
+// And, Or short, unsigned short versions
 /* -------------------------------------------------------------------------- */
 
 #include "poplibs_support/TileConstants.hpp"
@@ -54,55 +55,48 @@
 
 
 #define MANGLE_STR_COMMON(SUFFIX) __runCodelet_popops__common##SUFFIX
-#define MANGLE_STR_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_float
-#define MANGLE_STR_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_half
-
-#define MANGLE_STR_BROADCAST_FLOAT __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_float
-#define MANGLE_STR_BROADCAST_HALF __runCodelet_popops__\INPLACE_STR\()___popops__expr__BinaryOpType__\NAME_STR\()_half
-
-
-
+#define MANGLE_STR __runCodelet_popops__\VERTEX_NAME\()___popops__expr__BinaryOpType__\OPERATION\()_\TYPE
 
 //******************************************************************************
-// Macros for float/binary entry - inplace, non inplace
+// Macros for binaryOp entry (all types) - inplace, non inplace
 //******************************************************************************
 
-.macro BINARY_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR
+.macro BINARY_OP_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
 
-DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
-.section .text.MANGLE_STR_FLOAT
-.global MANGLE_STR_FLOAT
-.type MANGLE_STR_FLOAT, @function
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 .align 4
   // load vertex state
-MANGLE_STR_FLOAT:
+MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_IN1_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_IN2_PTR_OFFSET/4
   ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
   ld32 $outCount, $mzero, $mvertex_base, VERTEX_OUT_COUNT_OFFSET/4
+  setzi $mloopAddress,outerLoop_\LOOP_VARIANT\()_non_inplace_\OPERATION
   // Decrement as using brnzdec
-  sub  $outCount,$outCount, 1
-  setzi $mloopAddress,outerLoop_float_non_inplace_\OPERATION
-  bri  outerLoop_float_non_inplace_\OPERATION
-.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
+  brnzdec $outCount,  outerLoop_\LOOP_VARIANT\()_non_inplace_\OPERATION
+  exitz $mzero
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
-.macro BINARY_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_FLOAT
-.section .text.MANGLE_STR_FLOAT
-.global MANGLE_STR_FLOAT
-.type MANGLE_STR_FLOAT, @function
+.macro BINARY_OP_IN_PLACE_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 .align 4
   // load vertex state
-MANGLE_STR_FLOAT:
+MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_IN2_PTR_OFFSET/4
   ld32 $outCount, $mzero, $mvertex_base, VERTEX_INPLACE_OUT_COUNT_OFFSET/4
+  setzi $mloopAddress,outerLoop_\LOOP_VARIANT\()_inplace_\OPERATION
   // Decrement as using brnzdec
-  sub  $outCount,$outCount, 1
-  setzi $mloopAddress,outerLoop_float_inplace_\OPERATION
-  bri  outerLoop_float_inplace_\OPERATION
-.size MANGLE_STR_FLOAT, . -MANGLE_STR_FLOAT
+  brnzdec $outCount, outerLoop_\LOOP_VARIANT\()_inplace_\OPERATION
+  exitz $mzero
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 //******************************************************************************
@@ -167,7 +161,7 @@ MANGLE_STR_FLOAT:
 //******************************************************************************
 // Macro for float/broadcast loop implementation - inplace, non inplace
 //******************************************************************************
-.macro BINARY_OP_FLOAT OPERATION
+.macro BINARY_OP_float OPERATION INSTRUCTIONv2 INSTRUCTIONv1
 .section .text.MANGLE_STR_COMMON(\@)
 .type MANGLE_STR_COMMON(\@), @function
 MANGLE_STR_COMMON(\@):
@@ -206,7 +200,7 @@ defaultLoop\@:
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1+=, 1
-   f32v2\OPERATION $a2:3, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a2:3, $a0:1, $a2:3}
   {st64step $a2:3, $mzero, $out+=, 1
    fnop}
   {ld64step $a2:3, $mzero, $in2+=, 1
@@ -220,7 +214,7 @@ fastLoop\@:
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld2x64pace $a0:1, $a2:3, $in12+=, $mzero, 0b0000
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $out+=, 1
    fnop}
 2:
@@ -229,7 +223,7 @@ doRemainder\@:
   // if length is odd.  Don't process it if not required though
   and $outLength, $outLength, 1
   brz $outLength, 3f
-  f32\OPERATION $a0, $a0, $a2
+  \INSTRUCTIONv1 $a0, $a0, $a2
   st32 $a0, $mzero, $out, 0
 3:
   brnzdec $outCount, outerLoop\@
@@ -240,52 +234,9 @@ doRemainder\@:
 .endm
 
 //******************************************************************************
-// Macros for half/binary entry - inplace, non inplace
+// Macro for 4x16bit data vector binaryOp loop implementation - inplace, non inplace
 //******************************************************************************
-
-.macro BINARY_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF
-
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
-.align 4
-  // load vertex state
-MANGLE_STR_HALF:
-  ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_IN1_PTR_OFFSET/4
-  ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_IN2_PTR_OFFSET/4
-  ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
-  ld32 $outCount, $mzero, $mvertex_base, VERTEX_OUT_COUNT_OFFSET/4
-  // Decrement as using brnzdec
-  sub  $outCount,$outCount, 1
-  setzi $mloopAddress,outerLoop_half_non_inplace_\OPERATION
-  bri  outerLoop_half_non_inplace_\OPERATION
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
-.endm
-
-.macro BINARY_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_HALF
-.section .text.MANGLE_STR_HALF
-
-.global MANGLE_STR_HALF
-.type MANGLE_STR_HALF, @function
-.align 4
-  // load vertex state
-MANGLE_STR_HALF:
-  ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_INOUT_PTR_OFFSET/4
-  ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_INPLACE_IN2_PTR_OFFSET/4
-  ld32 $outCount, $mzero, $mvertex_base, VERTEX_INPLACE_OUT_COUNT_OFFSET/4
-  // Decrement as using brnzdec
-  sub  $outCount,$outCount, 1
-  setzi $mloopAddress,outerLoop_half_inplace_\OPERATION
-  bri  outerLoop_half_inplace_\OPERATION
-.size MANGLE_STR_HALF, . -MANGLE_STR_HALF
-.endm
-
-//******************************************************************************
-// Macro for half/binary loop implementation - inplace, non inplace
-//******************************************************************************
-.macro BINARY_OP_HALF OPERATION
+.macro BINARY_OP_4x16bit OPERATION INSTRUCTIONv4 INSTRUCTIONv2="void"
 .section .text.MANGLE_STR_COMMON(\@)
 .type MANGLE_STR_COMMON(\@), @function
 MANGLE_STR_COMMON(\@):
@@ -295,20 +246,20 @@ MANGLE_STR_COMMON(\@):
 outerLoop\@:
   br $mloopAddress
   // load vector pointer, size
-outerLoop_half_inplace_\OPERATION:
+outerLoop_4x16bit_inplace_\OPERATION:
   ld32step $in1, $mzero, $in1Ptr+=, 1
   ld32step $outLength, $mzero, $in1Ptr+=, 1
   // Could save this cycle but that would affect many load/store instructions
   // below - if we need to optimise, use 2 macros
   mov $out, $in1
-  bri outerLoop_half_continue\@
+  bri outerLoop_4x16bit_continue\@
 
-outerLoop_half_non_inplace_\OPERATION:
+outerLoop_4x16bit_non_inplace_\OPERATION:
   ld32step $out, $mzero, $outPtr+=, 1
   ld32step $outLength, $mzero, $outPtr+=, 1
   ld32step $in1, $mzero, $in1Ptr+=, 1
 
-outerLoop_half_continue\@:
+outerLoop_4x16bit_continue\@:
   ld32step $in2, $mzero, $in2Ptr+=, 1
 
   CHECK_FAST_PATH $in1 $in2
@@ -324,7 +275,7 @@ defaultLoop\@:
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1+=, 1
-   f16v4\OPERATION $a2:3, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a2:3, $a0:1, $a2:3}
   {st64step $a2:3, $mzero, $out+=, 1
    fnop}
   {ld64step $a2:3, $mzero, $in2+=, 1
@@ -340,7 +291,7 @@ fastLoop\@:
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld2x64pace $a0:1, $a2:3, $in12+=, $mzero, 0b0000
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $out+=, 1
    fnop}
 2:
@@ -349,9 +300,15 @@ doRemainder\@:
   // if length is not a multiple of 4.  Don't process it if not required though
   and $mscratch, $outLength, 2
   brz $mscratch, 4f
-  f16v2\OPERATION $a0, $a0, $a2
+.ifc "\INSTRUCTIONv2","void"
+  // Some instructions have no v2 equivalent.  At the moment this is only used for
+  // bitwise ops which don't cause exceptions, but beware of the overprocessing!
+  \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
+.else
+  \INSTRUCTIONv2 $a4, $a0, $a2
+.endif
   // Store result, transfer operands so the same code to deal with 1 will work
-  {st32step $a0, $mzero, $out+=, 1
+  {st32step $a4, $mzero, $out+=, 1
    mov $a0, $a1}
   mov $a2, $a3
 4:
@@ -360,9 +317,16 @@ doRemainder\@:
    sort4x16lo $a2, $a2, $azero}
   {brz $mscratch, 5f
    sort4x16lo $a0, $a0, $azero}
+.ifc "\INSTRUCTIONv2","void"
+  // Some instructions have no v2 equivalent.  At the moment this is only used for
+  // bitwise ops which don't cause exceptions, but beware of the overprocessing!
   {ldb16 $a1, $mzero, $out, 1
-   f16v2\OPERATION $a0, $a0, $a2}
-  sort4x16lo $a0, $a0, $a1
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
+.else
+  {ldb16 $a1, $mzero, $out, 1
+   \INSTRUCTIONv2 $a4, $a0, $a2}
+.endif
+  sort4x16lo $a0, $a4, $a1
   st32 $a0, $mzero, $out, 0
 
 5:
@@ -373,58 +337,66 @@ doRemainder\@:
    . -MANGLE_STR_COMMON(\@)
 .endm
 //******************************************************************************
-// Macro for float/broadcast entry - inplace, non inplace
+// Macro for broadcastOp entry (All types) - inplace, non inplace
 //******************************************************************************
 
-.macro BROADCAST_OP_FLOAT_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_FLOAT
-.section .text.MANGLE_STR_BROADCAST_FLOAT
-.global MANGLE_STR_BROADCAST_FLOAT
-.type MANGLE_STR_BROADCAST_FLOAT, @function
+.macro BROADCAST_OP_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 
 .align 4
   // load vertex state
-MANGLE_STR_BROADCAST_FLOAT:
+MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4
   ld32 $outPtr, $mzero, $mvertex_base, VERTEX_BROADCAST_OUT_PTR_OFFSET/4
+.ifc "\TYPE", "float"
   ld32 $a2, $mzero, $in2Ptr, 0
-  // Decrement as using brnzdec
-  {sub  $in1Count,$in1Count, 1
+.else
+  ldb16 $a2, $mzero, $in2Ptr, 0
+.endif
+  {setzi $mloopAddress,outerLoop_\LOOP_VARIANT\()_non_inplace_broadcast_\OPERATION
    mov  $a3, $a2}
-  setzi $mloopAddress,outerLoop_float_non_inplace_broadcast_\OPERATION
-  bri  outerLoop_float_non_inplace_broadcast_\OPERATION
-.size MANGLE_STR_BROADCAST_FLOAT, . -MANGLE_STR_BROADCAST_FLOAT
+  // Decrement as using brnzdec
+  brnzdec $in1Count, outerLoop_\LOOP_VARIANT\()_non_inplace_broadcast_\OPERATION
+  exitz $mzero
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 
-.macro BROADCAST_OP_FLOAT_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_FLOAT
-.section .text.MANGLE_STR_BROADCAST_FLOAT
-.global MANGLE_STR_BROADCAST_FLOAT
-.type MANGLE_STR_BROADCAST_FLOAT, @function
+.macro BROADCAST_OP_IN_PLACE_ENTRY TYPE VERTEX_NAME OPERATION LOOP_VARIANT
+DEF_STACK_USAGE 0 MANGLE_STR
+.section .text.MANGLE_STR
+.global MANGLE_STR
+.type MANGLE_STR, @function
 
 .align 4
   // load vertex state
-MANGLE_STR_BROADCAST_FLOAT:
+MANGLE_STR:
   ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
   ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_COUNT_OFFSET/4
   ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
+.ifc "\TYPE", "float"
   ld32 $a2, $mzero, $in2Ptr, 0
-  // Decrement as using brnzdec
-  {sub  $in1Count,$in1Count, 1
+.else
+  ldb16 $a2, $mzero, $in2Ptr, 0
+.endif
+  {setzi $mloopAddress,outerLoop_\LOOP_VARIANT\()_inplace_broadcast_\OPERATION
    mov  $a3, $a2}
-  setzi $mloopAddress,outerLoop_float_inplace_broadcast_\OPERATION
-  bri  outerLoop_float_inplace_broadcast_\OPERATION
-.size MANGLE_STR_BROADCAST_FLOAT, . -MANGLE_STR_BROADCAST_FLOAT
+  // Decrement as using brnzdec
+  brnzdec $in1Count, outerLoop_\LOOP_VARIANT\()_inplace_broadcast_\OPERATION
+  exitz $mzero
+.size MANGLE_STR, . -MANGLE_STR
 .endm
 
 
 //******************************************************************************
 // Macro for float/broadcast loop implementation - inplace, non inplace
 //******************************************************************************
-.macro BROADCAST_OP_FLOAT OPERATION
+.macro BROADCAST_OP_float OPERATION INSTRUCTIONv2 INSTRUCTIONv1
 .section .text.MANGLE_STR_COMMON(\@)
 .type MANGLE_STR_COMMON(\@), @function
 MANGLE_STR_COMMON(\@):
@@ -458,7 +430,7 @@ defaultLoop\@:
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1+=, 1
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outBroadcast+=, 1
    fnop}
 2:
@@ -472,12 +444,12 @@ fastLoop\@:
 
   ld64step $a0:1, $mzero, $in1+=, 1
   {ld64step $a0:1, $mzero, $in1+=, 1
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
   tapack $in12, $in1, $mzero, $outBroadcast
   rpt $mscratch, (2f - 1f ) /8 - 1
 1:
   {ldst64pace $a0:1, $a4:5, $in12+=, $mscratch, 0b0000
-   f32v2\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv2 $a4:5, $a0:1, $a2:3}
 2:
   // Re-create the output address (we have overread 64 bits already) and store
   shr $mscratch, $in1, TMEM_BYTE_MAX_ADDRESS_WIDTH
@@ -490,7 +462,7 @@ doRemainder\@:
   // if length is odd.  Don't process it if not required though
   and $outLength, $outLength, 1
   brz $outLength, 3f
-  f32\OPERATION $a0, $a0, $a2
+  \INSTRUCTIONv1 $a0, $a0, $a2
   st32 $a0, $mzero, $outBroadcast, 0
 3:
   brnzdec $in1Count, outerLoop\@
@@ -499,58 +471,10 @@ doRemainder\@:
 .size MANGLE_STR_COMMON(\@), . -MANGLE_STR_COMMON(\@)
 .endm
 
-
 //******************************************************************************
-// Macro for half/broadcast entry - inplace, non inplace
+// Macro for half,short, ushort/broadcast loop implementation - inplace, non inplace
 //******************************************************************************
-
-.macro BROADCAST_OP_HALF_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_HALF
-.section .text.MANGLE_STR_BROADCAST_HALF
-.global MANGLE_STR_BROADCAST_HALF
-.type MANGLE_STR_BROADCAST_HALF, @function
-.align 4
-  // load vertex state
-MANGLE_STR_BROADCAST_HALF:
-  ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_PTR_OFFSET/4
-  ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_IN1_COUNT_OFFSET/4
-  ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_IN2_PTR_OFFSET/4
-  ld32 $outPtr, $mzero, $mvertex_base, VERTEX_BROADCAST_OUT_PTR_OFFSET/4
-  ldb16 $a2, $mzero, $in2Ptr, 0
-  // Decrement as using brnzdec
-  {sub  $in1Count,$in1Count, 1
-   mov  $a3, $a2}
-  setzi $mloopAddress,outerLoop_half_non_inplace_broadcast_\OPERATION
-  bri  outerLoop_half_non_inplace_broadcast_\OPERATION
-
-.size MANGLE_STR_BROADCAST_HALF, . -MANGLE_STR_BROADCAST_HALF
-.endm
-
-.macro BROADCAST_OP_HALF_IN_PLACE_ENTRY OPERATION INPLACE_STR NAME_STR
-DEF_STACK_USAGE 0 MANGLE_STR_BROADCAST_HALF
-.section .text.MANGLE_STR_BROADCAST_HALF
-.global MANGLE_STR_BROADCAST_HALF
-.type MANGLE_STR_BROADCAST_HALF, @function
-.align 4
-  // load vertex state
-MANGLE_STR_BROADCAST_HALF:
-  ld32 $in1Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_PTR_OFFSET/4
-  ld32 $in1Count, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_INOUT_COUNT_OFFSET/4
-  ld32 $in2Ptr, $mzero, $mvertex_base, VERTEX_BROADCAST_INPLACE_IN2_PTR_OFFSET/4
-  ldb16 $a2, $mzero, $in2Ptr, 0
-  // Decrement as using brnzdec
-  {sub  $in1Count,$in1Count, 1
-   mov  $a3, $a2}
-  setzi $mloopAddress,outerLoop_half_inplace_broadcast_\OPERATION
-  bri  outerLoop_half_inplace_broadcast_\OPERATION
-
-.size MANGLE_STR_BROADCAST_HALF, . -MANGLE_STR_BROADCAST_HALF
-.endm
-
-//******************************************************************************
-// Macro for half/broadcast loop implementation - inplace, non inplace
-//******************************************************************************
-.macro BROADCAST_OP_HALF OPERATION
+.macro BROADCAST_OP_4x16bit OPERATION INSTRUCTIONv4 INSTRUCTIONv2="void"
 .section .text.MANGLE_STR_COMMON(\@)
 .type MANGLE_STR_COMMON(\@), @function
 MANGLE_STR_COMMON(\@):
@@ -559,7 +483,7 @@ MANGLE_STR_COMMON(\@):
 outerLoop\@:
   br $mloopAddress
   // load vector pointer, size
-outerLoop_half_inplace_broadcast_\OPERATION:
+outerLoop_4x16bit_inplace_broadcast_\OPERATION:
   ld32step $in1, $mzero, $in1Ptr+=, 1
   mov $outBroadcast, $in1
   ld32step $outLength, $mzero, $in1Ptr+=, 1
@@ -568,7 +492,7 @@ outerLoop_half_inplace_broadcast_\OPERATION:
   // No fast path implemented for inplace broadcast operations
   bri defaultLoop\@
 
-outerLoop_half_non_inplace_broadcast_\OPERATION:
+outerLoop_4x16bit_non_inplace_broadcast_\OPERATION:
   ld32step $in1, $mzero, $in1Ptr+=, 1
   ld32step $outBroadcast, $mzero, $outPtr+=, 1
 
@@ -585,7 +509,7 @@ defaultLoop\@:
   rpt $mloops, (2f - 1f ) /8 - 1
 1:
   {ld64step $a0:1, $mzero, $in1+=, 1
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   {st64step $a4:5, $mzero, $outBroadcast+=, 1
    fnop}
 2:
@@ -599,12 +523,12 @@ fastLoop\@:
 
   ld64step $a0:1, $mzero, $in1+=, 1
   {ld64step $a0:1, $mzero, $in1+=, 1
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
   tapack $in12, $in1, $mzero, $outBroadcast
   rpt $mscratch, (2f - 1f ) /8 - 1
 1:
   {ldst64pace $a0:1, $a4:5, $in12+=, $mscratch, 0b0000
-   f16v4\OPERATION $a4:5, $a0:1, $a2:3}
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
 2:
   // Re-create the output address (we have overread 64 bits already) and store
   shr $mscratch, $in1, TMEM_BYTE_MAX_ADDRESS_WIDTH
@@ -618,9 +542,15 @@ doRemainder\@:
   // if length is not a multiple of 4.  Don't process it if not required though
   and $mscratch, $outLength, 2
   brz $mscratch, 4f
-  f16v2\OPERATION $a0, $a0, $a2
+.ifc "\INSTRUCTIONv2", "void"
+  // Some instructions have no v2 equivalent.  At the moment this is only used for
+  // bitwise ops which don't cause exceptions, but beware of the overprocessing!
+  \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3
+.else
+  \INSTRUCTIONv2 $a4, $a0, $a2
+.endif
   // Store result, transfer operands so the same code to deal with 1 will work
-  {st32step $a0, $mzero, $outBroadcast+=, 1
+  {st32step $a4, $mzero, $outBroadcast+=, 1
    mov $a0, $a1}
 4:
   and $mscratch, $outLength, 1
@@ -628,9 +558,16 @@ doRemainder\@:
   // we need to zero out the unused half of $a0
   {brz $mscratch, 5f
    sort4x16lo $a0, $a0, $azero}
+.ifc "\INSTRUCTIONv2", "void"
+  // Some instructions have no v2 equivalent.  At the moment this is only used for
+  // bitwise ops which don't cause exceptions, but beware of the overprocessing!
   {ldb16 $a1, $mzero, $outBroadcast, 1
-   f16v2\OPERATION $a0, $a0, $a2}
-  sort4x16lo $a0, $a0, $a1
+   \INSTRUCTIONv4 $a4:5, $a0:1, $a2:3}
+.else
+  {ldb16 $a1, $mzero, $outBroadcast, 1
+   \INSTRUCTIONv2 $a4, $a0, $a2}
+.endif
+  sort4x16lo $a0, $a4, $a1
   st32 $a0, $mzero, $outBroadcast, 0
 
 5:
@@ -646,54 +583,88 @@ doRemainder\@:
 // for each Binary op
 //******************************************************************************
 
-  BINARY_OP_HALF_IN_PLACE_ENTRY add BinaryOp2DInPlace ADD
-  BINARY_OP_HALF_IN_PLACE_ENTRY sub BinaryOp2DInPlace SUBTRACT
-  BINARY_OP_HALF_IN_PLACE_ENTRY mul BinaryOp2DInPlace MULTIPLY
-  BINARY_OP_HALF_ENTRY add BinaryOp2D ADD
-  BINARY_OP_HALF_ENTRY sub BinaryOp2D SUBTRACT
-  BINARY_OP_HALF_ENTRY mul BinaryOp2D MULTIPLY
+  BINARY_OP_IN_PLACE_ENTRY half BinaryOp2DInPlace ADD 4x16bit
+  BINARY_OP_IN_PLACE_ENTRY half BinaryOp2DInPlace SUBTRACT 4x16bit
+  BINARY_OP_IN_PLACE_ENTRY half BinaryOp2DInPlace MULTIPLY 4x16bit
+  BINARY_OP_ENTRY half BinaryOp2D ADD 4x16bit
+  BINARY_OP_ENTRY half BinaryOp2D SUBTRACT 4x16bit
+  BINARY_OP_ENTRY half BinaryOp2D MULTIPLY 4x16bit
 
-  BINARY_OP_FLOAT_IN_PLACE_ENTRY add BinaryOp2DInPlace ADD
-  BINARY_OP_FLOAT_IN_PLACE_ENTRY sub BinaryOp2DInPlace SUBTRACT
-  BINARY_OP_FLOAT_IN_PLACE_ENTRY mul BinaryOp2DInPlace MULTIPLY
-  BINARY_OP_FLOAT_ENTRY add BinaryOp2D ADD
-  BINARY_OP_FLOAT_ENTRY sub BinaryOp2D SUBTRACT
-  BINARY_OP_FLOAT_ENTRY mul BinaryOp2D MULTIPLY
+  BINARY_OP_IN_PLACE_ENTRY float BinaryOp2DInPlace ADD float
+  BINARY_OP_IN_PLACE_ENTRY float BinaryOp2DInPlace SUBTRACT float
+  BINARY_OP_IN_PLACE_ENTRY float BinaryOp2DInPlace MULTIPLY float
+  BINARY_OP_ENTRY float BinaryOp2D ADD float
+  BINARY_OP_ENTRY float BinaryOp2D SUBTRACT float
+  BINARY_OP_ENTRY float BinaryOp2D MULTIPLY float
 
-  BINARY_OP_HALF add
-  BINARY_OP_HALF sub
-  BINARY_OP_HALF mul
+  BINARY_OP_float ADD f32v2add f32add
+  BINARY_OP_float SUBTRACT f32v2sub f32sub
+  BINARY_OP_float MULTIPLY f32v2mul f32mul
 
-  BINARY_OP_FLOAT add
-  BINARY_OP_FLOAT sub
-  BINARY_OP_FLOAT mul
+  BINARY_OP_4x16bit ADD f16v4add f16v2add
+  BINARY_OP_4x16bit SUBTRACT f16v4sub f16v2sub
+  BINARY_OP_4x16bit MULTIPLY f16v4mul f16v2mul
+
+//******************************************************************************
+// Use the macros to create inplace and non inplace, short and unsigned short versions
+// for each Binary op
+//******************************************************************************
+  BINARY_OP_IN_PLACE_ENTRY short BinaryOp2DInPlace BITWISE___AND 4x16bit
+  BINARY_OP_IN_PLACE_ENTRY short BinaryOp2DInPlace BITWISE___OR 4x16bit
+  BINARY_OP_ENTRY short BinaryOp2D BITWISE___AND 4x16bit
+  BINARY_OP_ENTRY short BinaryOp2D BITWISE___OR 4x16bit
+
+  BINARY_OP_IN_PLACE_ENTRY unsigned_short BinaryOp2DInPlace BITWISE___AND 4x16bit
+  BINARY_OP_IN_PLACE_ENTRY unsigned_short BinaryOp2DInPlace BITWISE___OR 4x16bit
+  BINARY_OP_ENTRY unsigned_short BinaryOp2D BITWISE___AND 4x16bit
+  BINARY_OP_ENTRY unsigned_short BinaryOp2D BITWISE___OR 4x16bit
+
+  BINARY_OP_4x16bit BITWISE___AND and64
+  BINARY_OP_4x16bit BITWISE___OR or64
 
 //******************************************************************************
 // Use the macros to create inplace and non inplace, float and half entry points
 // for each Broadcast op
 //******************************************************************************
 
-  BROADCAST_OP_HALF_IN_PLACE_ENTRY add BroadcastScalar2DDataInPlace ADD
-  BROADCAST_OP_HALF_IN_PLACE_ENTRY sub BroadcastScalar2DDataInPlace SUBTRACT
-  BROADCAST_OP_HALF_IN_PLACE_ENTRY mul BroadcastScalar2DDataInPlace MULTIPLY
-  BROADCAST_OP_HALF_ENTRY add BroadcastScalar2DData ADD
-  BROADCAST_OP_HALF_ENTRY sub BroadcastScalar2DData SUBTRACT
-  BROADCAST_OP_HALF_ENTRY mul BroadcastScalar2DData MULTIPLY
+  BROADCAST_OP_IN_PLACE_ENTRY half BroadcastScalar2DDataInPlace ADD 4x16bit
+  BROADCAST_OP_IN_PLACE_ENTRY half BroadcastScalar2DDataInPlace SUBTRACT 4x16bit
+  BROADCAST_OP_IN_PLACE_ENTRY half BroadcastScalar2DDataInPlace MULTIPLY 4x16bit
+  BROADCAST_OP_ENTRY half BroadcastScalar2DData ADD 4x16bit
+  BROADCAST_OP_ENTRY half BroadcastScalar2DData SUBTRACT 4x16bit
+  BROADCAST_OP_ENTRY half BroadcastScalar2DData MULTIPLY 4x16bit
 
-  BROADCAST_OP_FLOAT_IN_PLACE_ENTRY add BroadcastScalar2DDataInPlace ADD
-  BROADCAST_OP_FLOAT_IN_PLACE_ENTRY sub BroadcastScalar2DDataInPlace SUBTRACT
-  BROADCAST_OP_FLOAT_IN_PLACE_ENTRY mul BroadcastScalar2DDataInPlace MULTIPLY
-  BROADCAST_OP_FLOAT_ENTRY add BroadcastScalar2DData ADD
-  BROADCAST_OP_FLOAT_ENTRY sub BroadcastScalar2DData SUBTRACT
-  BROADCAST_OP_FLOAT_ENTRY mul BroadcastScalar2DData MULTIPLY
+  BROADCAST_OP_IN_PLACE_ENTRY float BroadcastScalar2DDataInPlace ADD float
+  BROADCAST_OP_IN_PLACE_ENTRY float BroadcastScalar2DDataInPlace SUBTRACT float
+  BROADCAST_OP_IN_PLACE_ENTRY float BroadcastScalar2DDataInPlace MULTIPLY float
+  BROADCAST_OP_ENTRY float BroadcastScalar2DData ADD float
+  BROADCAST_OP_ENTRY float BroadcastScalar2DData SUBTRACT float
+  BROADCAST_OP_ENTRY float BroadcastScalar2DData MULTIPLY float
 
-  BROADCAST_OP_FLOAT add
-  BROADCAST_OP_FLOAT sub
-  BROADCAST_OP_FLOAT mul
+  BROADCAST_OP_float ADD f32v2add f32add
+  BROADCAST_OP_float SUBTRACT f32v2sub f32sub
+  BROADCAST_OP_float MULTIPLY f32v2mul f32mul
 
-  BROADCAST_OP_HALF add
-  BROADCAST_OP_HALF sub
-  BROADCAST_OP_HALF mul
+  BROADCAST_OP_4x16bit ADD f16v4add f16v2add
+  BROADCAST_OP_4x16bit SUBTRACT f16v4sub f16v2sub
+  BROADCAST_OP_4x16bit MULTIPLY f16v4mul f16v2mul
+
+//******************************************************************************
+// Use the macros to create inplace and non inplace, short and unsigned short versions
+// for each Broadcast op
+//******************************************************************************
+  BROADCAST_OP_IN_PLACE_ENTRY short BroadcastScalar2DDataInPlace BITWISE___AND 4x16bit
+  BROADCAST_OP_IN_PLACE_ENTRY short BroadcastScalar2DDataInPlace BITWISE___OR 4x16bit
+  BROADCAST_OP_ENTRY short BroadcastScalar2DData BITWISE___AND 4x16bit
+  BROADCAST_OP_ENTRY short BroadcastScalar2DData BITWISE___OR 4x16bit
+
+  BROADCAST_OP_IN_PLACE_ENTRY unsigned_short BroadcastScalar2DDataInPlace BITWISE___AND 4x16bit
+  BROADCAST_OP_IN_PLACE_ENTRY unsigned_short BroadcastScalar2DDataInPlace BITWISE___OR 4x16bit
+  BROADCAST_OP_ENTRY unsigned_short BroadcastScalar2DData BITWISE___AND 4x16bit
+  BROADCAST_OP_ENTRY unsigned_short BroadcastScalar2DData BITWISE___OR 4x16bit
+
+  BROADCAST_OP_4x16bit BITWISE___AND and64
+  BROADCAST_OP_4x16bit BITWISE___OR or64
 
 #endif
 /* -------------------------------------------------------------------------- */
