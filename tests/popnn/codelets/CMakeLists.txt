@@ -13,6 +13,23 @@ foreach(NL_VERTEX Supervisor 2D)
   endforeach()
 endforeach()
 
+# For tanh, relu and sigmoid the fwd non-linearity is implemented as a unary op
+# So only test the bwd (grad) variant here
+foreach(NL_VERTEX Supervisor 2D)
+  set(TEST_EXECUTABLE "NonLinearity${NL_VERTEX}")
+  foreach(DATA_TYPE half float)
+    foreach(NL_TYPE tanh relu sigmoid)
+      set(VARIANT_NAME "NonLinearity${NL_VERTEX}_${DATA_TYPE}_${NL_TYPE}")
+      add_multitarget_test(NAME ${VARIANT_NAME}
+                           COMMAND ${TEST_EXECUTABLE}
+                             --data-type=${DATA_TYPE}
+                             --nl-type=${NL_TYPE}
+                             --test-fwd=false
+                            LABELS codelet)
+    endforeach()
+  endforeach()
+endforeach()
+
 # Loss(LT_TYPE)Transform<dataType>
 foreach(DATA_TYPE half float)
   foreach(LT_TYPE SumSquared Softmax)
@@ -42,8 +59,7 @@ foreach (FIELD 8 9 10 11 12)
             --channels=${CHANNELS}
             --pooling-type=${POOLING_TYPE}
             --data-type=${DATA_TYPE}
-          LABELS codelet
-          VARIANTS "Sim2;IpuModel2")
+          LABELS codelet)
         endforeach()
       endforeach()
     endforeach()

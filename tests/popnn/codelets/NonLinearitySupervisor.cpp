@@ -70,7 +70,7 @@ struct SliceDesc {
 };
 
 void doTest(const DeviceType &deviceType, const Type &dataType,
-            const NonLinearityType &nlType) {
+            const NonLinearityType &nlType, bool testFwd, bool testBwd) {
   auto device = createTestDevice(deviceType);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -135,23 +135,34 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
       auto outgradTestSlice = outgrad.slice(offset, offset + numElements);
       auto ingradTestSlice = ingrad.slice(offset, offset + numElements);
 
-      auto fwdCS = graph.addComputeSet("cs_fwd_" + std::to_string(offset) +
-                                       "_" + std::to_string(numElements));
-      auto fwdV = graph.addVertex(fwdCS, fwdVertexClass);
-      graph.setTileMapping(fwdV, 0);
-      graph.connect(fwdV["data"], actsTestSlice);
-      graph.setInitialValue(fwdV["n"], numElements);
-
-      auto bwdCS = graph.addComputeSet("cs_bwd_" + std::to_string(offset) +
-                                       "_" + std::to_string(numElements));
-      auto bwdV = graph.addVertex(bwdCS, bwdVertexClass);
-      graph.setTileMapping(bwdV, 0);
-      graph.connect(bwdV["out"], actsTestSlice);
-      graph.connect(bwdV["outGrad"], outgradTestSlice);
-      graph.connect(bwdV["inGrad"], ingradTestSlice);
-      graph.setInitialValue(bwdV["n"], numElements);
-
-      programs.push_back(Sequence(Execute(bwdCS), Execute(fwdCS)));
+      ComputeSet fwdCS, bwdCS;
+      if (testFwd) {
+        fwdCS = graph.addComputeSet("cs_fwd_" + std::to_string(offset) + "_" +
+                                    std::to_string(numElements));
+        auto fwdV = graph.addVertex(fwdCS, fwdVertexClass);
+        graph.setTileMapping(fwdV, 0);
+        graph.connect(fwdV["data"], actsTestSlice);
+        graph.setInitialValue(fwdV["n"], numElements);
+        if (!testBwd) {
+          programs.push_back(Sequence(Execute(fwdCS)));
+        }
+      }
+      if (testBwd) {
+        bwdCS = graph.addComputeSet("cs_bwd_" + std::to_string(offset) + "_" +
+                                    std::to_string(numElements));
+        auto bwdV = graph.addVertex(bwdCS, bwdVertexClass);
+        graph.setTileMapping(bwdV, 0);
+        graph.connect(bwdV["out"], actsTestSlice);
+        graph.connect(bwdV["outGrad"], outgradTestSlice);
+        graph.connect(bwdV["inGrad"], ingradTestSlice);
+        graph.setInitialValue(bwdV["n"], numElements);
+        if (!testFwd) {
+          programs.push_back(Sequence(Execute(bwdCS)));
+        }
+      }
+      if (testFwd && testBwd) {
+        programs.emplace_back(Sequence(Execute(bwdCS), Execute(fwdCS)));
+      }
       programSlices.push_back(SliceDesc{offset, numElements});
     }
   }
@@ -203,16 +214,20 @@ void doTest(const DeviceType &deviceType, const Type &dataType,
                 modelActsCmp.data() + testDesc.offset);
 
       bool validation = true;
-      validation &= checkIsClose("fwd_" + std::to_string(testDesc.offset) +
-                                     "_" + std::to_string(testDesc.numElements),
-                                 hostActsOut.data(), {modelActsCmp.size()},
-                                 modelActsCmp.data(), modelActsCmp.size(),
-                                 relativeTolerance, absoluteTolerance);
-      validation &= checkIsClose("bwd_" + std::to_string(testDesc.offset) +
-                                     "_" + std::to_string(testDesc.numElements),
-                                 hostGradIn.data(), {modelGradCmp.size()},
-                                 modelGradCmp.data(), modelGradCmp.size(),
-                                 relativeTolerance, absoluteTolerance);
+      if (testFwd) {
+        validation &= checkIsClose(
+            "fwd_" + std::to_string(testDesc.offset) + "_" +
+                std::to_string(testDesc.numElements),
+            hostActsOut.data(), {modelActsCmp.size()}, modelActsCmp.data(),
+            modelActsCmp.size(), relativeTolerance, absoluteTolerance);
+      }
+      if (testBwd) {
+        validation &= checkIsClose(
+            "bwd_" + std::to_string(testDesc.offset) + "_" +
+                std::to_string(testDesc.numElements),
+            hostGradIn.data(), {modelGradCmp.size()}, modelGradCmp.data(),
+            modelGradCmp.size(), relativeTolerance, absoluteTolerance);
+      }
       if (!validation)
         throw std::runtime_error("Results validation failed");
     }
@@ -227,6 +242,8 @@ int main(int argc, char **argv) {
   DeviceType deviceType;
   Type dataType;
   NonLinearityType nlType;
+  bool testFwd = true;
+  bool testBwd = true;
   po::options_description desc("Options");
   // clang-format off
   desc.add_options()
@@ -237,6 +254,12 @@ int main(int argc, char **argv) {
     ("data-type",
      po::value<Type>(&dataType)->required(),
      "Data type for the non-linearity")
+    ("test-fwd",
+      po::value<bool>(&testFwd)->default_value(testFwd),
+     "Test fwd vertex")
+    ("test-bwd",
+      po::value<bool>(&testBwd)->default_value(testBwd),
+     "Test bwd (grad) vertex")
     ("nl-type",
      po::value<NonLinearityType>(&nlType)->required(),
      "Non-linearity type");
@@ -253,9 +276,12 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
-
+  if (nlType != NonLinearityType::GELU && testFwd) {
+    throw poputil::poplibs_error("Fwd non-linearity codelets for TANH, SIGMOID"
+                                 " and RELU are implemented as unary ops. ");
+  }
   try {
-    doTest(deviceType, dataType, nlType);
+    doTest(deviceType, dataType, nlType, testFwd, testBwd);
   } catch (std::exception &e) {
     std::cerr << "Test failed: " << e.what() << "\n";
     return 1;

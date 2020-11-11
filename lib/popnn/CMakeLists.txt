@@ -70,22 +70,12 @@ set(codelet_asm_sources
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceClassGather.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReduceClassSparse.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearity2D_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGrad2D_gelu.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearitySupervisor_gelu.S
+  ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor.S
   ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/NonLinearityGradSupervisor_gelu.S
 )
-
-# Generate non-linearity assembly implementation variants
-foreach(VERTEX_TYPE GradSupervisor Grad2D)
-  set(VARIANT_TEMPLATE "codelets/asm/NonLinearity${VERTEX_TYPE}.S.in")
-  foreach(NL_TYPE sigmoid relu tanh)
-    set(VARIANT_NAME "NonLinearity${VERTEX_TYPE}_${NL_TYPE}")
-    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/codelets/${VARIANT_NAME}.S")
-    string(TOUPPER "${NL_TYPE}" NL_TYPE_UPPER)
-    configure_file(${VARIANT_TEMPLATE} ${VARIANT_SRC})
-    list(APPEND codelet_asm_sources ${VARIANT_SRC})
-  endforeach()
-endforeach()
 
 add_gp_library(
   NAME popnn

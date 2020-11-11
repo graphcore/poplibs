@@ -14,15 +14,9 @@
 
 // Symbol names
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearityGrad2D___half_popnn__NonLinearityType__@NL_TYPE_UPPER@
+  __runCodelet_popnn__NonLinearityGrad2D___half_popnn__NonLinearityType__\NL_TYPE
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearityGrad2D___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
-
-// Fill $ONES register(s) with values of 1.0 for whichever data type
-#define GENERATE_ONES_SIGMOID 0
-#define GENERATE_ONES_RELU 1
-#define GENERATE_ONES_TANH 1
-#define GENERATE_ONES GENERATE_ONES_@NL_TYPE_UPPER@
+  __runCodelet_popnn__NonLinearityGrad2D___float_popnn__NonLinearityType__\NL_TYPE
 
 // Constants
 #define OUTGRAD_PTR_VOFFSET 0
@@ -72,34 +66,33 @@
 #define ONES_1 a7
 #define ONES a6:7
 
-// Macros
-#define v1 // Scalar
-#define VECTOR_INSTRUCTION(t, vector_width, op) t ## vector_width ## op
+//------------------------------------------------------------------------------
+// Handle remaining 32-bit value or 2x16 bit values.
+// The maths in this case and the loops below is exactly the same.
+// Each variant uses 3 instructions, and different combinations of operands
+// to achieve the result - the same here as constructed using macro parameters
+// in the loop body
+.macro CALC_REMAINDER NL_TYPE INSTR_BASE
+.ifc "\NL_TYPE","RELU"
+  \INSTR_BASE\()cmpgt $INGRAD_0, $OUT_0, $azero
+  \INSTR_BASE\()min $INGRAD_0, $INGRAD_0, $ONES_0
+.endif
 
-#define CALC_SIGMOID_STAGE_1(type, vector_width, ingrad, out, zero) \
-  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
-#define CALC_RELU_STAGE_1(type, vector_width, ingrad, out, zero) \
-  VECTOR_INSTRUCTION(type, vector_width, cmpgt) ingrad, out, zero
-#define CALC_TANH_STAGE_1(type, vector_width, ingrad, out, zero) \
-  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
+.ifc "\NL_TYPE","TANH"
+  \INSTR_BASE\()mul $INGRAD_0, $OUT_0, $OUT_0
+  \INSTR_BASE\()sub $INGRAD_0, $ONES_0, $INGRAD_0
+.endif
 
-#define CALC_STAGE_1(type, vector_width, ingrad, out, zero) \
-  CALC_@NL_TYPE_UPPER@_STAGE_1(type, vector_width, ingrad, out, zero)
+.ifc "\NL_TYPE","SIGMOID"
+  \INSTR_BASE\()mul $INGRAD_0, $OUT_0, $OUT_0
+  \INSTR_BASE\()sub $INGRAD_0, $OUT_0, $INGRAD_0
+.endif
 
-#define CALC_SIGMOID_STAGE_2(type, vector_width, ingrad, out, ones) \
-  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, out, ingrad
-#define CALC_RELU_STAGE_2(type, vector_width, ingrad, out, ones) \
-  VECTOR_INSTRUCTION(type, vector_width, min) ingrad, ingrad, ones
-#define CALC_TANH_STAGE_2(type, vector_width, ingrad, out, ones) \
-  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, ones, ingrad
+  \INSTR_BASE\()mul $INGRAD_0, $INGRAD_0, $OUTGRAD_0
+.endm
 
-#define CALC_STAGE_2(type, vector_width, ingrad, out, ones) \
-  CALC_@NL_TYPE_UPPER@_STAGE_2(type, vector_width, ingrad, out, ones)
-
-#define CALC_STAGE_3_(type, vector_width, ingrad, outgrad) \
-  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, ingrad, outgrad
-#define CALC_STAGE_3(type, vector_width, ingrad, outgrad) \
-  CALC_STAGE_3_(type, vector_width, ingrad, outgrad)
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_HALF NL_TYPE OP1 OP1_OPERAND_C OP2 OP2_OPERAND_B OP2_OPERAND_C
 
 DEF_STACK_USAGE 0 HALF_SYMBOL
 .section .text.HALF_SYMBOL
@@ -118,15 +111,16 @@ HALF_SYMBOL:
 #else
   ldconst $MASK, DELTAN_BASE_PTR_MASK
 #endif
-#if GENERATE_ONES
+
+.ifnc "\NL_TYPE","SIGMOID"
   { and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
     f16v2exp $ONES_0, $azero }
   { shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
     f16v2exp $ONES_1, $azero }
-#else
+.else
   and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
   shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
-#endif
+.endif
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   // DeltaN table pointer is a ScaledPtr32, gives offset in
@@ -156,7 +150,7 @@ HALF_SYMBOL:
 
   // Sub 1 to use post-decrementing brnzdec
   add $N0, $N0, -1
-.Lhalf_n0_loop:
+.Lhalf_n0_loop\@:
   ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
   and $INGRAD_OFFSET, $MSCRATCH, $MASK
 #if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
@@ -175,43 +169,41 @@ HALF_SYMBOL:
   // Load inputs ahead
   ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
   ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
-  brz $N1_64BIT, .Lhalf_32_bit_remainder
+  brz $N1_64BIT, .Lhalf_32_bit_remainder\@
   // Warm up the pipeline
   { add $N1_64BIT, $N1_64BIT, -1
-    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f16v4\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C }
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
-    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f16v4\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C }
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
-    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f16v4mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR }
   rpt $N1_64BIT, (2f - 1f)/8 - 1
 1:
   { st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
-    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f16v4\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C }
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
-    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f16v4\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C }
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
-    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f16v4mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR }
 2:
   // Handle last pipeline output
   st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
 
-.Lhalf_32_bit_remainder:
+.Lhalf_32_bit_remainder\@:
   and $MSCRATCH, $N1, 0x2
-  brz $MSCRATCH, .Lhalf_16_bit_remainder
+  brz $MSCRATCH, .Lhalf_16_bit_remainder\@
 
   // Handle remaining 32-bit value
-  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
-  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
-  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+  CALC_REMAINDER \NL_TYPE f16v2
   // Store and move the upper word of remaining loaded values
   // down for use in the 16-bit remainder below
   { st32step $INGRAD_0, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
     mov $OUTGRAD_0, $OUTGRAD_1 }
   mov $OUT_0, $OUT_1
 
-.Lhalf_16_bit_remainder:
+.Lhalf_16_bit_remainder\@:
   and $MSCRATCH, $N1, 0x1
-  brz $MSCRATCH, .Lhalf_n0_loop_cond
+  brz $MSCRATCH, .Lhalf_n0_loop_cond\@
 
   // Handle remaining 16-bit value
   // Broadcasting lower 16-bits of remaining input words to
@@ -219,14 +211,14 @@ HALF_SYMBOL:
   { ld32 $INGRAD_1, $INGRAD_BASE_PTR, $INGRAD_OFFSET, 0
     sort4x16lo $OUTGRAD_0, $OUTGRAD_0, $OUTGRAD_0 }
   sort4x16lo $OUT_0, $OUT_0, $OUT_0
-  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
-  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
-  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+
+  CALC_REMAINDER \NL_TYPE f16v2
+
   sort4x16hi $INGRAD_0, $INGRAD_0, $INGRAD_1
   st32 $INGRAD_0, $INGRAD_BASE_PTR, $INGRAD_OFFSET, 0
 
-.Lhalf_n0_loop_cond:
-  brnzdec $N0, .Lhalf_n0_loop
+.Lhalf_n0_loop_cond\@:
+  brnzdec $N0, .Lhalf_n0_loop\@
   exitz $mzero
 
 .size HALF_SYMBOL, .-HALF_SYMBOL
@@ -235,7 +227,9 @@ DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .section .text.FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
-
+.endm
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_FLOAT NL_TYPE OP1 OP1_OPERAND_C OP2 OP2_OPERAND_B OP2_OPERAND_C
 .align 8
 FLOAT_SYMBOL:
   ld32 $OUTGRAD_OUTER_PTR, $mvertex_base, $mzero, OUTGRAD_PTR_VOFFSET/4
@@ -248,15 +242,15 @@ FLOAT_SYMBOL:
 #else
   ldconst $MASK, DELTAN_BASE_PTR_MASK
 #endif
-#if GENERATE_ONES
+.ifnc "\NL_TYPE","SIGMOID"
   { and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
     f32exp $ONES_0, $azero }
   { shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
     f32exp $ONES_1, $azero }
-#else
+.else
   and $INGRAD_BASE_PTR, $MSCRATCH, $MASK
   shr $N0, $MSCRATCH, DELTAN_BASE_PTR_BITS
-#endif
+.endif
 
 #if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
   // DeltaN table pointer is a ScaledPtr32, gives offset in
@@ -286,7 +280,7 @@ FLOAT_SYMBOL:
 
   // Sub 1 to use post-decrementing brnzdec
   add $N0, $N0, -1
-.Lfloat_n0_loop:
+.Lfloat_n0_loop\@:
   ld32step $MSCRATCH, $mzero, $INGRAD_DELTAN_PTR+=, 1
   and $INGRAD_OFFSET, $MSCRATCH, $MASK
 #if defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
@@ -305,40 +299,54 @@ FLOAT_SYMBOL:
   // Load inputs ahead
   ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
   ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
-  brz $N1_64BIT, .Lfloat_32_bit_remainder
+  brz $N1_64BIT, .Lfloat_32_bit_remainder\@
   // Warm up the pipeline
   { add $N1_64BIT, $N1_64BIT, -1
-    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f32v2\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C }
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
-    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f32v2\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C }
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
-    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f32v2mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR }
   rpt $N1_64BIT, (2f - 1f)/8 - 1
 1:
   { st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
-    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f32v2\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C }
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, 1
-    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f32v2\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C }
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, 1
-    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f32v2mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR }
 2:
   // Handle last pipeline output
   st64step $INGRAD_PAIR, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
 
-.Lfloat_32_bit_remainder:
+.Lfloat_32_bit_remainder\@:
   and $MSCRATCH, $N1, 0x1
-  brz $MSCRATCH, .Lfloat_n0_loop_condition
+  brz $MSCRATCH, .Lfloat_n0_loop_condition\@
 
   // Handle 32-bit remainder
-  CALC_STAGE_1(f32, v1, $INGRAD_0, $OUT_0, $azero)
-  CALC_STAGE_2(f32, v1, $INGRAD_0, $OUT_0, $ONES_0)
-  CALC_STAGE_3(f32, v1, $INGRAD_0, $OUTGRAD_0)
+  CALC_REMAINDER \NL_TYPE f32
+
   st32step $INGRAD_0, $INGRAD_BASE_PTR, $INGRAD_OFFSET+=, 1
 
-.Lfloat_n0_loop_condition:
-  brnzdec $N0, .Lfloat_n0_loop
+.Lfloat_n0_loop_condition\@:
+  brnzdec $N0, .Lfloat_n0_loop\@
   exitz $mzero
 
 .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+.endm
+//------------------------------------------------------------------------------
+// Use the macros above to create each vertex for each type of non linearity.
+//
+// Each specifies 2 instructions to use, followed by the register(s) to use for
+// some of the operands of that instruction. Other operands are the same for all
+// non linearities.
+INSTANTIATE_HALF RELU cmpgt $azeros min $INGRAD_PAIR $ONES
+INSTANTIATE_FLOAT RELU cmpgt $azeros min $INGRAD_PAIR $ONES
+
+INSTANTIATE_HALF TANH mul $OUT_PAIR sub $ONES $INGRAD_PAIR
+INSTANTIATE_FLOAT TANH mul $OUT_PAIR sub $ONES $INGRAD_PAIR
+
+INSTANTIATE_HALF SIGMOID mul $OUT_PAIR sub $OUT_PAIR $INGRAD_PAIR
+INSTANTIATE_FLOAT SIGMOID mul $OUT_PAIR sub $OUT_PAIR $INGRAD_PAIR
 
 #endif // __IPU__

@@ -14,15 +14,9 @@
 
 // Symbol names
 #define HALF_SYMBOL \
-  __runCodelet_popnn__NonLinearityGradSupervisor___half_popnn__NonLinearityType__@NL_TYPE_UPPER@
+  __runCodelet_popnn__NonLinearityGradSupervisor___half_popnn__NonLinearityType__\NL_TYPE
 #define FLOAT_SYMBOL \
-  __runCodelet_popnn__NonLinearityGradSupervisor___float_popnn__NonLinearityType__@NL_TYPE_UPPER@
-
-// Fill $ONES register(s) with values of 1.0 for whichever data type
-#define GENERATE_ONES_SIGMOID 0
-#define GENERATE_ONES_RELU 1
-#define GENERATE_ONES_TANH 1
-#define GENERATE_ONES GENERATE_ONES_@NL_TYPE_UPPER@
+  __runCodelet_popnn__NonLinearityGradSupervisor___float_popnn__NonLinearityType__\NL_TYPE
 
 // Constants
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -68,40 +62,6 @@
 #define ONES_1 a7
 #define ONES a6:7
 
-// Macros
-#define v1 // Scalar
-#define VECTOR_INSTRUCTION(type, vector_width, op) type ## vector_width ## op
-
-#define CALC_SIGMOID_STAGE_1(type, vector_width, ingrad, out, zero) \
-  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
-#define CALC_RELU_STAGE_1(type, vector_width, ingrad, out, zero) \
-  VECTOR_INSTRUCTION(type, vector_width, cmpgt) ingrad, out, zero
-#define CALC_TANH_STAGE_1(type, vector_width, ingrad, out, zero) \
-  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, out, out
-
-#define CALC_STAGE_1(type, vector_width, ingrad, out, zero) \
-  CALC_@NL_TYPE_UPPER@_STAGE_1(type, vector_width, ingrad, out, zero)
-
-#define CALC_SIGMOID_STAGE_2(type, vector_width, ingrad, out, ones) \
-  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, out, ingrad
-#define CALC_RELU_STAGE_2(type, vector_width, ingrad, out, ones) \
-  VECTOR_INSTRUCTION(type, vector_width, min) ingrad, ingrad, ones
-#define CALC_TANH_STAGE_2(type, vector_width, ingrad, out, ones) \
-  VECTOR_INSTRUCTION(type, vector_width, sub) ingrad, ones, ingrad
-
-#define CALC_STAGE_2(type, vector_width, ingrad, out, ones) \
-  CALC_@NL_TYPE_UPPER@_STAGE_2(type, vector_width, ingrad, out, ones)
-
-#define CALC_STAGE_3_(type, vector_width, ingrad, outgrad) \
-  VECTOR_INSTRUCTION(type, vector_width, mul) ingrad, ingrad, outgrad
-#define CALC_STAGE_3(type, vector_width, ingrad, outgrad) \
-  CALC_STAGE_3_(type, vector_width, ingrad, outgrad)
-
-DEF_STACK_USAGE 0 HALF_SYMBOL
-.section .text.HALF_SYMBOL
-.globl HALF_SYMBOL
-.type HALF_SYMBOL, @function
-
 // All inputs must be separate registers
 // Splits 64-bit chunks of n elements between workers.
 // The result we want is n / (no. of worker contexts * elements per-64-bits).
@@ -119,16 +79,59 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
     sub \rem, \n, \rem
 .endm
 
+// All inputs must be separate registers
+// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
+// divisor.
+.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
+    setzi \size, RECIPROCAL_3_SHL17
+    mul \size, \n, \size
+    shr \size, \size, (17 + LOG2_12_OVER_3)
+    mul \rem, \size, 12
+    sub \rem, \n, \rem
+.endm
+
+//------------------------------------------------------------------------------
+// Handle remaining 32-bit value or 2x16 bit values.
+// The maths in this case and the loops below is exactly the same.
+// Each variant uses 3 instructions, and different combinations of operands
+// to achieve the result - the same here as constructed using macro parameters
+// in the loop body
+.macro CALC_REMAINDER NL_TYPE INSTR_BASE
+.ifc "\NL_TYPE","RELU"
+  \INSTR_BASE\()cmpgt $INGRAD_0, $OUT_0, $azero
+  \INSTR_BASE\()min $INGRAD_0, $INGRAD_0, $ONES_0
+.endif
+
+.ifc "\NL_TYPE","TANH"
+  \INSTR_BASE\()mul $INGRAD_0, $OUT_0, $OUT_0
+  \INSTR_BASE\()sub $INGRAD_0, $ONES_0, $INGRAD_0
+.endif
+
+.ifc "\NL_TYPE","SIGMOID"
+  \INSTR_BASE\()mul $INGRAD_0, $OUT_0, $OUT_0
+  \INSTR_BASE\()sub $INGRAD_0, $OUT_0, $INGRAD_0
+.endif
+
+  \INSTR_BASE\()mul $INGRAD_0, $INGRAD_0, $OUTGRAD_0
+.endm
+
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_HALF NL_TYPE OP1 OP1_OPERAND_C OP2 OP2_OPERAND_B OP2_OPERAND_C
+DEF_STACK_USAGE 0 HALF_SYMBOL
+.section .text.HALF_SYMBOL
+.globl HALF_SYMBOL
+.type HALF_SYMBOL, @function
+
 .align 8
 .supervisor
 
 HALF_SYMBOL:
-  setzi $WORKER_ENTRY, .Lhalf_worker
+  setzi $WORKER_ENTRY, .Lhalf_worker\@
   runall $WORKER_ENTRY, $SUPER_BASE, 0
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
 
-.Lhalf_worker:
+.Lhalf_worker\@:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -167,59 +170,57 @@ HALF_SYMBOL:
   ld64step $azeros, $mzero, $INGRAD_PTR+=, $WORKER_ID
 
   // Load inputs ahead, and generate ones if we need them
-#if GENERATE_ONES
+.ifnc "\NL_TYPE","SIGMOID"
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     f16v2exp $ONES_0, $azero }
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     f16v2exp $ONES_1, $azero }
-#else
+.else
   ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
   ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
-#endif
-  brz $SIZE, .Lhalf_32_bit_remainder
+.endif
+  brz $SIZE, .Lhalf_32_bit_remainder\@
   // Warm up the pipeline
   { add $SIZE, $SIZE, -1
-    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f16v4\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C}
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
-    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f16v4\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C}
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
-    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f16v4mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR}
   rpt $SIZE, (2f - 1f)/8 - 1
 1:
   { st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
-    CALC_STAGE_1(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f16v4\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C}
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
-    CALC_STAGE_2(f16, v4, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f16v4\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C}
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
-    CALC_STAGE_3(f16, v4, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f16v4mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR}
 2:
   // Handle last pipeline output
   st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
 
-.Lhalf_32_bit_remainder:
+.Lhalf_32_bit_remainder\@:
   // Handle remaining element with a single worker. We pick the first
   // worker which didn't handle a remainder element.
   // $REM_64BIT = No. of remaining 64-bit loads possible = index to first
   // worker for which 64-bit load isn't possible.
   cmpeq $MSCRATCH, $WORKER_ID, $REM_64BIT
-  brz $MSCRATCH, .Lhalf_end
+  brz $MSCRATCH, .Lhalf_end\@
 
   and $MSCRATCH, $REM, 0x2
-  brz $MSCRATCH, .Lhalf_16_bit_remainder
+  brz $MSCRATCH, .Lhalf_16_bit_remainder\@
 
-  // Handle remaining 32-bit value
-  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
-  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
-  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+  CALC_REMAINDER \NL_TYPE f16v2
+
   // Store and move the upper word of remaining loaded values
   // down for use in the 16-bit remainder below
   { st32step $INGRAD_0, $mzero, $INGRAD_PTR+=, 1
     mov $OUTGRAD_0, $OUTGRAD_1 }
   mov $OUT_0, $OUT_1
 
-.Lhalf_16_bit_remainder:
+.Lhalf_16_bit_remainder\@:
   and $MSCRATCH, $REM, 0x1
-  brz $MSCRATCH, .Lhalf_end
+  brz $MSCRATCH, .Lhalf_end\@
 
   // Handle remaining 16-bit value
   // Broadcasting lower 16-bits of remaining input words to
@@ -227,43 +228,34 @@ HALF_SYMBOL:
   { ld32 $INGRAD_1, $mzero, $INGRAD_PTR, 0
     sort4x16lo $OUTGRAD_0, $OUTGRAD_0, $OUTGRAD_0 }
   sort4x16lo $OUT_0, $OUT_0, $OUT_0
-  CALC_STAGE_1(f16, v2, $INGRAD_0, $OUT_0, $azero)
-  CALC_STAGE_2(f16, v2, $INGRAD_0, $OUT_0, $ONES_0)
-  CALC_STAGE_3(f16, v2, $INGRAD_0, $OUTGRAD_0)
+
+  CALC_REMAINDER \NL_TYPE f16v2
+
   sort4x16hi $INGRAD_0, $INGRAD_0, $INGRAD_1
   st32 $INGRAD_0, $mzero, $INGRAD_PTR, 0
 
-.Lhalf_end:
+.Lhalf_end\@:
   exitz $mzero
-
 .size HALF_SYMBOL, .-HALF_SYMBOL
+.endm
 
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_FLOAT NL_TYPE OP1 OP1_OPERAND_C OP2 OP2_OPERAND_B OP2_OPERAND_C
 DEF_STACK_USAGE 0 FLOAT_SYMBOL
 
 .section .text.FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
-// All inputs must be separate registers
-// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
-// divisor.
-.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_12_OVER_3)
-    mul \rem, \size, 12
-    sub \rem, \n, \rem
-.endm
-
 .align 8
 .supervisor
 FLOAT_SYMBOL:
-  setzi $WORKER_ENTRY, .Lfloat_worker
+  setzi $WORKER_ENTRY, .Lfloat_worker\@
   runall $WORKER_ENTRY, $SUPER_BASE, 0
   sync TEXCH_SYNCZONE_LOCAL
   br $lr
 
-.Lfloat_worker:
+.Lfloat_worker\@:
 .worker
   ldz16 $MSCRATCH, $mvertex_base, $mzero, N_VOFFSET/2
 #if defined(VECTOR_AVAIL_SCALED_PTR64)
@@ -302,55 +294,69 @@ FLOAT_SYMBOL:
   ld64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, $WORKER_ID
 
   // Load inputs ahead, and generate ones if we need them
-#if GENERATE_ONES
+.ifnc "\NL_TYPE","SIGMOID"
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
     f32exp $ONES_0, $azero }
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
     f32exp $ONES_1, $azero }
-#else
+.else
   ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
   ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
-#endif
-  brz $SIZE, .Lfloat_32_bit_remainder
+.endif
+  brz $SIZE, .Lfloat_32_bit_remainder\@
   // Warm up the pipeline
   { add $SIZE, $SIZE, -1
-    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f32v2\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C}
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
-    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f32v2\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C}
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
-    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f32v2mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR}
   rpt $SIZE, (2f - 1f)/8 - 1
 1:
   { st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
-    CALC_STAGE_1(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $azeros) }
+    f32v2\OP1 $INGRAD_PAIR, $OUT_PAIR, \OP1_OPERAND_C}
   { ld64step $OUT_PAIR, $mzero, $OUT_PTR+=, CTXT_WORKERS
-    CALC_STAGE_2(f32, v2, $INGRAD_PAIR, $OUT_PAIR, $ONES) }
+    f32v2\OP2 $INGRAD_PAIR, \OP2_OPERAND_B, \OP2_OPERAND_C}
   { ld64step $OUTGRAD_PAIR, $mzero, $OUTGRAD_PTR+=, CTXT_WORKERS
-    CALC_STAGE_3(f32, v2, $INGRAD_PAIR, $OUTGRAD_PAIR) }
+    f32v2mul $INGRAD_PAIR, $INGRAD_PAIR, $OUTGRAD_PAIR}
 2:
   // Handle last pipeline output
   st64step $INGRAD_PAIR, $mzero, $INGRAD_PTR+=, CTXT_WORKERS
 
-.Lfloat_32_bit_remainder:
+.Lfloat_32_bit_remainder\@:
   // Handle remaining element with a single worker. We pick the first
   // worker which didn't handle a remainder element.
   // $REM_64BIT = No. of remaining 64-bit loads possible = index to first
   // worker for which 64-bit load isn't possible.
   cmpeq $MSCRATCH, $WORKER_ID, $REM_64BIT
-  brz $MSCRATCH, .Lfloat_end
+  brz $MSCRATCH, .Lfloat_end\@
 
   and $MSCRATCH, $REM, 0x1
-  brz $MSCRATCH, .Lfloat_end
+  brz $MSCRATCH, .Lfloat_end\@
 
   // Handle remaining 32-bit value
-  CALC_STAGE_1(f32, v1, $INGRAD_0, $OUT_0, $azero)
-  CALC_STAGE_2(f32, v1, $INGRAD_0, $OUT_0, $ONES_0)
-  CALC_STAGE_3(f32, v1, $INGRAD_0, $OUTGRAD_0)
+  CALC_REMAINDER \NL_TYPE f32
+
   st32step $INGRAD_0, $mzero, $INGRAD_PTR+=, 1
 
-.Lfloat_end:
+.Lfloat_end\@:
   exitz $mzero
 
 .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+.endm
+//------------------------------------------------------------------------------
+// Use the macros above to create each vertex for each type of non linearity
+//
+// Each specifies 2 instructions to use, followed by the register(s) to use for
+// some of the operands of that instruction. Other operands are the same for all
+// non linearities.
+INSTANTIATE_HALF RELU cmpgt $azeros min $INGRAD_PAIR $ONES
+INSTANTIATE_FLOAT RELU cmpgt $azeros min $INGRAD_PAIR $ONES
+
+INSTANTIATE_HALF TANH mul $OUT_PAIR sub $ONES $INGRAD_PAIR
+INSTANTIATE_FLOAT TANH mul $OUT_PAIR sub $ONES $INGRAD_PAIR
+
+INSTANTIATE_HALF SIGMOID mul $OUT_PAIR sub $OUT_PAIR $INGRAD_PAIR
+INSTANTIATE_FLOAT SIGMOID mul $OUT_PAIR sub $OUT_PAIR $INGRAD_PAIR
 
 #endif // __IPU__
