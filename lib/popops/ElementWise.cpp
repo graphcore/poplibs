@@ -863,18 +863,12 @@ void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
 bool binaryOpBroadcastInnerVector(
     Graph &graph, const Tensor &in1, const Tensor &in2, const Tensor &out,
     const std::vector<std::vector<Interval>> &intervals,
-    std::size_t numPatternElems, unsigned tile, const ComputeSet &cs,
-    BinaryOpType op, bool inPlace) {
-
+    const std::vector<BroadcastPattern> &patterns, unsigned tile,
+    const ComputeSet &cs, BinaryOpType op, bool inPlace, Sequence &prog) {
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(dType);
 
-  // The implementation for the half vertices is slow for the non-vectorised
-  // case.  Avoid using this case until a better implementation is written.
-  if (dType == HALF && (numPatternElems % vectorWidth)) {
-    return false;
-  }
   // The implementation for the float vertices is slower than that possible
   // with a vectorised version.  Compared to the method of copy to
   // broadcast, then using a binary op the inner vector method is only faster
@@ -883,6 +877,67 @@ bool binaryOpBroadcastInnerVector(
   // floats at present. (It is possible but not optimal)
   if (dType == FLOAT) {
     return false;
+  }
+
+  // We want all patterns to be a multiple of pattern elements otherwise we
+  // cannot divide work using a simplistic algorithm. We can lift this
+  // restriction once we use cost based estimates to balance work through
+  // creating supervisor and/or worker vertices.
+  const auto numPatternElems = patterns.front().regionNumElements();
+
+  auto innerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
+    return p.innerFactor == 1 && p.outerFactor > 1;
+  };
+
+  // Split tile contiguous regions based on broadcast patterns to form a new
+  // set of regions which match patterns
+  std::vector<std::vector<Interval>> splitIntervals(patterns.size());
+  auto intervalIt = intervals.begin();
+
+  // iterator for each interval with a contiguous set of intervals
+  auto cIntervalIt = intervalIt->begin();
+  std::size_t offset = cIntervalIt->begin();
+
+  for (auto [pIt, splitIntervalsIt] =
+           std::tuple{patterns.begin(), splitIntervals.begin()};
+       pIt != patterns.end() && intervalIt != intervals.end();
+       ++pIt, ++splitIntervalsIt) {
+    // Every pattern is constrained to be inner broadcast.
+    // Restriction on size of each pattern as we do not want to split any
+    // pattern when dividing work across workers.
+    // In future we could lift this restriction but this is the most common
+    // case and we address it for now.
+    if (!innerVectorBroadcastablePredicate(*pIt) ||
+        pIt->regionNumElements() != numPatternElems) {
+      return false;
+    }
+
+    // consume a region one at a time and possibly over multiple patterns.
+    auto numRemaining = pIt->numElements();
+    while (numRemaining != 0) {
+      // Take the minimum of the remaining part of the current region and the
+      // size of the pattern.
+      const auto size = std::min(
+          cIntervalIt->size() + offset - cIntervalIt->begin(), numRemaining);
+      // The implementation for  half vertices is slow for the non-vectorised
+      // case. Avoid using this case until a better implementation is written.
+      if (dType == HALF && (size % vectorWidth)) {
+        return false;
+      }
+      splitIntervalsIt->emplace_back(offset, offset + size);
+      // reduce pattern by elements consumed
+      numRemaining -= size;
+      offset += size;
+      if (offset == cIntervalIt->end()) {
+        if (++cIntervalIt == intervalIt->end()) {
+          if (++intervalIt == intervals.end()) {
+            break;
+          }
+          cIntervalIt = intervalIt->begin();
+        }
+        offset = cIntervalIt->begin();
+      }
+    }
   }
 
   auto canUseSupervisorVertex = [&](std::size_t size, std::size_t subSize) {
@@ -896,13 +951,13 @@ bool binaryOpBroadcastInnerVector(
 
   const auto elementLimit = maxVertexElementsPerRegion(target, in1, out);
 
-  if (intervals.size() == 1 &&
-      validateRegionSizeForSupervisorVertex(intervals, elementLimit,
+  if (splitIntervals.size() == 1 &&
+      validateRegionSizeForSupervisorVertex(splitIntervals, elementLimit,
                                             target.getNumWorkerContexts())) {
-    const auto outRegion = concat(out.flatten().slices(intervals));
-    const auto in1Region = concat(in1.flatten().slices(intervals));
+    const auto outRegion = concat(out.flatten().slices(splitIntervals));
+    const auto in1Region = concat(in1.flatten().slices(splitIntervals));
     auto in2Region =
-        concat(in2.flatten().slices(intervals)).slice(0, numPatternElems);
+        concat(in2.flatten().slices(splitIntervals)).slice(0, numPatternElems);
     if (canUseSupervisorVertex(outRegion.numElements(),
                                in2Region.numElements())) {
       std::string vertexName =
@@ -934,14 +989,15 @@ bool binaryOpBroadcastInnerVector(
   // actually fit in numPatternElems then we could handle it and still
   // use channel ops but for now it seems unlikely.
   if (numPatternElems <= maxAddendLen &&
-      (intervalSequenceNumElements(intervals) % numPatternElems) == 0) {
+      (intervalSequenceNumElements(splitIntervals) % numPatternElems) == 0) {
     const auto maxBlockCount = std::min<unsigned>(
         graph.getMaxVertexFieldValue(vertexClass, "dataBlockCount"),
         target.getRptCountMax());
     const auto maxSize = std::min(
         static_cast<unsigned>(maxBlockCount * numPatternElems), elementLimit);
-    const auto vertexRegions = splitRegionsBetweenWorkers(
-        target, intervals, numPatternElems, numPatternElems, UINT_MAX, maxSize);
+    const auto vertexRegions =
+        splitRegionsBetweenWorkers(target, splitIntervals, numPatternElems,
+                                   numPatternElems, UINT_MAX, maxSize);
     if (vertexRegions.size()) {
       logging::popops::trace("  Tile: {} Producing: {} {} vertices", tile,
                              vertexRegions.size(), vertexClass);
@@ -950,6 +1006,7 @@ bool binaryOpBroadcastInnerVector(
       auto outRegions = out.flatten().slices(regions);
       auto in1Regions = in1.flatten().slices(regions);
       auto in2Regions = in2.flatten().slices(regions);
+
       for (auto &region : in2Regions) {
         region = region.slice(0, numPatternElems);
       }
@@ -1518,9 +1575,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     return p.innerFactor > 1 && p.regionNumElements() == 1 &&
            p.outerFactor == 1;
   };
-  auto innerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
-    return p.innerFactor == 1 && p.outerFactor > 1;
-  };
+
   auto outerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
     return p.regionNumElements() > 1 && p.innerFactor > 1;
   };
@@ -1617,23 +1672,16 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
           [&](const std::vector<BroadcastPattern> &patterns,
               const std::vector<std::vector<Interval>> &contiguousRegions,
               Tensor &in1, Tensor &in2) {
-            if (std::all_of(patterns.begin(), patterns.end(),
-                            innerVectorBroadcastablePredicate) &&
-                std::all_of(std::next(patterns.begin()), patterns.end(),
-                            [&](const BroadcastPattern &p) {
-                              return (p.regionNumElements() ==
-                                      patterns.front().regionNumElements());
-                            }) &&
-                patterns.size() == contiguousRegions.size() &&
-                haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
-              if (binaryOpBroadcastInnerVector(
-                      graph, in1, in2, out, contiguousRegions,
-                      patterns[0].regionNumElements(), tile, cs, op, inPlace)) {
+            if (haveInnerVectorBroadcastVertexForOp(op, inPlace, dType)) {
+              if (binaryOpBroadcastInnerVector(graph, in1, in2, out,
+                                               contiguousRegions, patterns,
+                                               tile, cs, op, inPlace, prog)) {
                 return true;
               }
             }
             return false;
           };
+
       // First check if we can broadcast the second operand into the first
       // and then (if allowed) the first into the second
       if (broadcastInnerVector(tilePatterns[tile], tileContiguousRegions[tile],
