@@ -1,5 +1,9 @@
-
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
+/** \file DebugInfo.hpp
+ *
+ * Poplibs generic debug info structure
+ *
+ */
 
 #ifndef poputil_DebugInfo_hpp
 #define poputil_DebugInfo_hpp
@@ -9,11 +13,6 @@
 #include <poplar/GraphElements.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Tensor.hpp>
-
-#include <boost/preprocessor/punctuation/comma_if.hpp>
-#include <boost/preprocessor/seq/for_each_i.hpp>
-#include <boost/preprocessor/stringize.hpp>
-#include <boost/preprocessor/variadic/to_seq.hpp>
 
 #if defined(__clang__)
 #define SUPPORTS_FUNCTION_BUILTINS __has_builtin(__builtin_FUNCTION)
@@ -103,10 +102,42 @@ public:
 
 } // namespace poputil
 
-#define DI_PROCESS_ONE_ELEMENT(r, data, i, elem)                               \
-  BOOST_PP_COMMA_IF(i) {                                                       \
-    BOOST_PP_STRINGIZE(elem), poputil::toProfileValue(elem)                    \
-  }
+#define DI_STR(S) #S
+#define DI_XSTR(S) DI_STR(S)
+
+#define DI_NUM_ARGS(...)                                                       \
+  DI_NUM_ARGS_IMPL(__VA_ARGS__, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+#define DI_NUM_ARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, N, ...) N
+
+#define DI_CONCAT_IMPL(x, y) x##y
+#define DI_MACRO_CONCAT(x, y) DI_CONCAT_IMPL(x, y)
+
+#define DI_KEY_VALUE_ARG_0()                                                   \
+  {}
+#define DI_KEY_VALUE_ARG_1(T)                                                  \
+  { DI_XSTR(T), poputil::toProfileValue(T) }
+#define DI_KEY_VALUE_ARG_2(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_1(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_3(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_2(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_4(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_3(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_5(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_4(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_6(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_5(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_7(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_6(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_8(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_7(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_9(T, ...)                                             \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_8(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_10(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_9(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_11(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_10(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG(...)                                                  \
+  DI_MACRO_CONCAT(DI_KEY_VALUE_ARG_, DI_NUM_ARGS(__VA_ARGS__))(__VA_ARGS__)
 
 // Convience macro to turn
 //   DI_ARGS(a, b, c)
@@ -115,9 +146,6 @@ public:
 // Which can then be passed to the std::vector<ArgType> constructor
 
 #define DI_ARGS(...)                                                           \
-  {                                                                            \
-    BOOST_PP_SEQ_FOR_EACH_I(DI_PROCESS_ONE_ELEMENT, _,                         \
-                            BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))             \
-  }
+  { DI_KEY_VALUE_ARG(__VA_ARGS__) }
 
 #endif // poputil_DebugInfo_hpp
