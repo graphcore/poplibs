@@ -233,13 +233,6 @@ static popsolver::Variable constructModel(
   splitVars.insert(splitVars.end(), fieldVar.begin(), fieldVar.end());
   splitVars.insert(splitVars.end(), kernelVar.begin(), kernelVar.end());
 
-  // Passing in fieldSplits, minCyclesPerTile forces them and fieldVar to be
-  // evaluated before the main (time consuming) cycles call is made.
-  // This avoids evaluating the cycle cost of plans that will be rejected later.
-  splitVars.insert(splitVars.end(), vars.fieldSplit.begin(),
-                   vars.fieldSplit.end());
-  splitVars.push_back(minCyclesPerTile);
-
   auto cycles = m.call<unsigned>(
       splitVars, [&target, poolCfg, &params, fieldShape, detChansPerGroup,
                   &cache](const std::vector<unsigned> &values) {

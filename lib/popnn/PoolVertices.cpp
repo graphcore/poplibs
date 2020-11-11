@@ -908,14 +908,9 @@ std::size_t poolVertexCycleEstimate(const Partition &tilePartition,
                                     unsigned numKernelPositions,
                                     unsigned inputVectorWidth,
                                     unsigned numContexts) {
-  std::vector<std::size_t> start(tilePartition.field.size(), 0);
-  PoolSlice slice = {0,     tilePartition.batch,         // Batch start, end
-                     start, tilePartition.field,         // Field start, end
-                     0,     tilePartition.chansPerGroup, // Channel begin, end
-                     start, tilePartition.kernel};       // Kernel begin, end
 
   auto contextPartition = partitionPartialByContext(
-      slice.getBatchSize(), slice.fieldEnd, numContexts);
+      tilePartition.batch, tilePartition.field, numContexts);
 
   // Build worklist, startPos array, populating the worklist with (size-1) only,
   // as we don't need in and out offsets for cycle estimation.
