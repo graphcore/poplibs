@@ -343,8 +343,7 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
              fnPrefix + "/meanGrads");
   // TODO: T12899 Once scaledAddTo is targeted efficiently in element-wise ops,
   // this should become a mapInPlace() expression.
-  scaledAddTo(graph, gradient, varGrads, rScale2, prog, fnPrefix + "/addGrads",
-              {{"scaleFloatToHalfTolerance", "1e-3"}});
+  scaledAddTo(graph, gradient, varGrads, rScale2, prog, fnPrefix + "/addGrads");
 
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})
