@@ -6,6 +6,7 @@
 #include "popops/Rearrange.hpp"
 #include "popops/Reduce.hpp"
 #include "popops/ScaledAdd.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -29,15 +30,16 @@ static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
                          const Type &, // partialsType,
                          const Type &outputType,
                          const Tensor *outputToCloneFrom,
-                         const std::string &debugPrefix) {
-  std::string name = debugPrefix + "/ReduceResult";
+                         const DebugNameAndId &dnai) {
+  std::string layer = "ReduceResult";
   Tensor t;
 
   // The output tensor mapping may be specified or created
   if (outputToCloneFrom) {
-    t = graph.clone(outputType, *outputToCloneFrom, name);
+    t = graph.clone(outputType, *outputToCloneFrom, {dnai, layer});
   } else {
-    t = createBroadcastOperand(graph, actsUngrouped, outputType, 1, true, name);
+    t = createBroadcastOperand(graph, actsUngrouped, outputType, 1, true,
+                               {dnai, layer});
   }
 
   if (actsUngrouped.rank() < 2)
@@ -51,7 +53,7 @@ static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped,
       graph, actsUngrouped, t, reduceDims,
       {doSquare ? popops::Operation::SQUARE_ADD : popops::Operation::ADD, false,
        scale},
-      css, debugPrefix);
+      css, {dnai});
   return t;
 }
 
@@ -59,23 +61,23 @@ static Tensor normReduce(Graph &graph, const Tensor &actsUngrouped, float scale,
                          bool doSquare, std::vector<ComputeSet> &css,
                          const Type &partialsType, const Type &outputType,
                          const Tensor *outputToCloneFrom,
-                         const std::string &debugPrefix) {
+                         const DebugNameAndId &dnai) {
   auto constantScale =
-      graph.addConstant(FLOAT, {}, scale, debugPrefix + "/constantScale");
+      graph.addConstant(FLOAT, {}, scale, {dnai, "constantScale"});
   graph.setTileMapping(constantScale, 0);
 
   return normReduce(graph, actsUngrouped, constantScale, doSquare, css,
                     partialsType, outputType, outputToCloneFrom,
-                    debugPrefix + "/ConstScale");
+                    {dnai, "ConstScale"});
 }
 
 static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
                                const Tensor &power, float eps, float scaleVar,
                                Sequence &prog, const Type &invStdDevType,
-                               bool stableAlgo, const std::string debugPrefix) {
+                               bool stableAlgo, const DebugNameAndId &dnai) {
   const auto meanType = mean.elementType();
   const auto powerType = power.elementType();
-  auto iStdDev = graph.clone(invStdDevType, mean, debugPrefix + "/iStdDev");
+  auto iStdDev = graph.clone(invStdDevType, mean, {dnai, "iStdDev"});
 
   const auto meanFlat = mean.flatten();
   const auto powerFlat = power.flatten();
@@ -83,7 +85,7 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
 
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix + "/iStdDev");
+  const auto cs = graph.addComputeSet({dnai, "iStdDev"});
 
   const auto mapping = graph.getTileMapping(iStdDev);
   const auto grainSize = target.getVectorWidth(invStdDevType);
@@ -107,7 +109,7 @@ static Tensor computeInvStdDev(Graph &graph, const Tensor &mean,
       graph.setTileMapping(v, tile);
     }
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
   return iStdDev;
 }
 
@@ -120,12 +122,16 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
                bool unbiasedVarEstimate, bool stableAlgo,
                const Type &partialsType,
                const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/Norm/statistics";
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(acts, eps, unbiasedVarEstimate, stableAlgo, partialsType));
+
+  const std::string layer = "Norm/statistics";
   logging::poplin::info(
       "normStatistics acts={}, eps={}, unbiasedVarEstimate={}, "
       "type={}, name={}",
-      acts.shape(), eps, unbiasedVarEstimate, partialsType, fnPrefix);
+      acts.shape(), eps, unbiasedVarEstimate, partialsType,
+      debugContext.getPathName() + "/" + layer);
 
   const auto actsShape = acts.shape();
   const auto numElements = acts.numElements() / acts.dim(1);
@@ -138,19 +144,19 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   std::vector<ComputeSet> css;
   auto mean =
       normReduce(graph, acts, 1.0f / numElements, false, css, partialsType,
-                 meanOutputType, nullptr, fnPrefix + "/mean");
+                 meanOutputType, nullptr, {di, layer + "/mean"});
 
   auto maybeZeroMeanActs = acts;
   if (stableAlgo) {
     for (const auto &cs : css) {
-      prog.add(Execute(cs));
+      prog.add(Execute(cs, {di}));
     }
     css.clear();
     logging::poplin::info("Stable statistics estimator used");
     using namespace popops::expr;
     maybeZeroMeanActs = popops::map(graph, _1 - Cast(_2, acts.elementType()),
                                     {acts, broadcastChannelToMatch(acts, mean)},
-                                    prog, fnPrefix + "/removeMean");
+                                    prog, {di, layer + "/removeMean"});
   }
   // The actual output type for squared sum may be different as the dynamic
   // range is higher. The selection should be based on actual statistics
@@ -158,14 +164,15 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   // to save memory
   auto power =
       normReduce(graph, maybeZeroMeanActs, 1.0f / numElements, true, css,
-                 partialsType, powerOutputType, &mean, fnPrefix + "/power");
+                 partialsType, powerOutputType, &mean, {di, layer + "/power"});
 
   for (const auto &cs : css) {
-    prog.add(Execute(cs));
+    prog.add(Execute(cs, {di}));
   }
 
   auto iStdDev = computeInvStdDev(graph, mean, power, eps, scaleVar, prog,
-                                  acts.elementType(), stableAlgo, debugPrefix);
+                                  acts.elementType(), stableAlgo, {di});
+  di.addOutputs(DI_ARGS(mean, iStdDev));
   return std::make_pair(mean, iStdDev);
 }
 
@@ -194,33 +201,40 @@ std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
 Tensor normWhiten(Graph &graph, const Tensor &acts, const Tensor &mean,
                   const Tensor &iStdDev, Sequence &prog,
                   const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/Whiten";
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, mean, iStdDev));
+
+  const std::string layer = "Whiten";
   logging::poplin::info("normWhiten acts={}, mean={}, iStdDev={}, name={}",
-                        acts.shape(), mean.shape(), iStdDev.shape(), fnPrefix);
+                        acts.shape(), mean.shape(), iStdDev.shape(),
+                        debugContext.getPathName() + "/" + layer);
 
   auto meanBroadcast = broadcastChannelToMatch(acts, mean);
-  auto actsWhitened = sub(graph, acts, meanBroadcast, prog, fnPrefix + "/mean");
+  auto actsWhitened =
+      sub(graph, acts, meanBroadcast, prog, {di, layer + "/mean"});
   auto iStdDevBroadcast = broadcastChannelToMatch(actsWhitened, iStdDev);
   mulInPlace(graph, actsWhitened, iStdDevBroadcast, prog,
-             fnPrefix + "/istdDev");
+             {di, layer + "/istdDev"});
+  di.addOutput(actsWhitened);
   return actsWhitened;
 }
 
 Tensor normalise(Graph &graph, const Tensor &actsWhitened, const Tensor &gamma,
                  const Tensor &beta, Sequence &prog,
                  const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/Norm/normalise";
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(actsWhitened, gamma, beta));
+
+  const std::string layer = "Norm/normalise";
   logging::poplin::info("normalise actsWhitened={}, gamma={}, beta={}, name={}",
                         actsWhitened.shape(), gamma.shape(), beta.shape(),
-                        fnPrefix);
+                        debugContext.getPathName() + "/" + layer);
 
   auto gammaBroadcast = broadcastChannelToMatch(actsWhitened, gamma);
   auto actsNormalised =
-      mul(graph, actsWhitened, gammaBroadcast, prog, fnPrefix + "/gamma");
+      mul(graph, actsWhitened, gammaBroadcast, prog, {di, layer + "/gamma"});
   auto betaBroadcast = broadcastChannelToMatch(actsNormalised, beta);
-  addInPlace(graph, actsNormalised, betaBroadcast, prog, fnPrefix + "/beta");
+  addInPlace(graph, actsNormalised, betaBroadcast, prog, {di, layer + "/beta"});
+  di.addOutput(actsNormalised);
   return actsNormalised;
 }
 
@@ -228,20 +242,20 @@ static std::pair<Tensor, Tensor>
 normParamGradients(Graph &graph, const Tensor &actsWhitened,
                    const Tensor &gradsIn, float scale, Sequence &prog,
                    const Type &partialsType, bool attemptRegroup,
-                   const std::string &debugPrefix) {
-  const auto fnPrefix = debugPrefix + "/Norm/deltas";
+                   const DebugNameAndId &dnai) {
+  const std::string layer = "Norm/deltas";
   logging::poplin::info(
       "normParamGradients actsWhitened={}, gradsIn={}, scale={}, "
       "type={}, attemptRegroup={}, name={}",
       actsWhitened.shape(), gradsIn.shape(), scale, partialsType,
-      attemptRegroup, fnPrefix);
+      attemptRegroup, dnai.getPathName() + "/" + layer);
 
   auto gradsInMaybeRegrouped =
       attemptRegroup ? popops::rearrange::regroupIfBeneficial(
-                           graph, gradsIn, actsWhitened, prog, debugPrefix)
+                           graph, gradsIn, actsWhitened, prog, {dnai})
                      : gradsIn;
   const auto gradsInMultActs =
-      mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, fnPrefix);
+      mul(graph, actsWhitened, gradsInMaybeRegrouped, prog, {dnai, layer});
 
   auto numChannels = gradsInMultActs.dim(1);
   const auto concatInputs = concat({gradsInMultActs, gradsInMaybeRegrouped}, 1);
@@ -255,16 +269,15 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
   //                              .* is element-wise multiplication operator
   //                              Reduction along second dimension
 
-  auto scaleTensor =
-      graph.addConstant(FLOAT, {}, scale, debugPrefix + "/scaleTensor");
+  auto scaleTensor = graph.addConstant(FLOAT, {}, scale, {dnai, "scaleTensor"});
   graph.setTileMapping(scaleTensor, 0);
   const auto concatDeltas =
       normReduce(graph, concatInputs, scaleTensor, false, css, partialsType,
                  gradsInMaybeRegrouped.elementType(), nullptr,
-                 fnPrefix + "/JointGammaDelta");
+                 {dnai, layer + "/JointGammaDelta"});
 
   for (const auto &cs : css) {
-    prog.add(Execute(cs));
+    prog.add(Execute(cs, {dnai}));
   }
 
   return std::make_pair(concatDeltas.slice(0, numChannels),
@@ -276,19 +289,28 @@ normParamGradients(Graph &graph, const Tensor &actsWhitened,
                    const Tensor &gradsIn, Sequence &prog,
                    const Type &partialsType,
                    const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  return normParamGradients(graph, actsWhitened, gradsIn, 1.0, prog,
-                            partialsType, true, debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(actsWhitened, gradsIn, partialsType));
+
+  auto outputs = normParamGradients(graph, actsWhitened, gradsIn, 1.0, prog,
+                                    partialsType, true, {di});
+  di.addOutputs({{"varGrad", toProfileValue(outputs.first)},
+                 {"meanGrad", toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 Tensor normGradients(Graph &graph, const Tensor &gradsIn, const Tensor &gamma,
                      Sequence &prog, const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/NormGrad";
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(gradsIn, gamma));
+
+  const auto layer = "NormGrad";
   logging::poplin::info("normGradients gradsIn={}, gamma={}, name={}",
-                        gradsIn.shape(), gamma.shape(), fnPrefix);
+                        gradsIn.shape(), gamma.shape(),
+                        debugContext.getPathName() + "/" + layer);
   auto gammaBroadcast = broadcastChannelToMatch(gradsIn, gamma);
-  return mul(graph, gradsIn, gammaBroadcast, prog, fnPrefix);
+  auto output = mul(graph, gradsIn, gammaBroadcast, prog, {di, layer});
+  di.addOutput(output);
+  return output;
 }
 
 Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
@@ -296,19 +318,22 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
                                Sequence &prog,
                                const Type &partialsType, // currently unused
                                const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/Norm/gradients";
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(actsWhitened, gradsIn, invStdDev, partialsType));
+
+  const std::string layer = "Norm/gradients";
   logging::poplin::info("normStatisticsGradients actsWhitened={}, gradsIn={}, "
                         "invStdDev={}, name={}",
                         actsWhitened.shape(), gradsIn.shape(),
-                        invStdDev.shape(), fnPrefix);
+                        invStdDev.shape(),
+                        debugContext.getPathName() + "/" + layer);
 
   const auto actsShape = actsWhitened.shape();
   const auto numElements = actsWhitened.numElements() / actsWhitened.dim(1);
   const float rScale = 1.0f / numElements;
 
   auto gradsInMaybeRegrouped = popops::rearrange::regroupIfBeneficial(
-      graph, gradsIn, actsWhitened, prog, debugPrefix);
+      graph, gradsIn, actsWhitened, prog, {di});
 
   // split rScale = rScale1 * rScale2;
   // TODO: T12898 Research what the optimal split would be dependent on model
@@ -333,10 +358,10 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
   // meanDelta = Re{gradsIn} * -rScale
   std::tie(varDelta, meanDelta) =
       normParamGradients(graph, actsWhitened, gradsInMaybeRegrouped, -rScale1,
-                         prog, partialsType, false, debugPrefix);
+                         prog, partialsType, false, {di});
 
-  auto gradient = graph.clone(actsWhitened, fnPrefix + "/gradsIn");
-  prog.add(Copy(gradsInMaybeRegrouped, gradient));
+  auto gradient = graph.clone(actsWhitened, {di, layer + "/gradsIn"});
+  prog.add(Copy(gradsInMaybeRegrouped, gradient, false, {di}));
 
   // gradOut = gradsIn - rScale * actsWhitened .* Br{varDelta}
   // where Br{x} broadcast x along all dimensions other than dim(1) of
@@ -344,20 +369,22 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
   // gradsOut = gradsIn - rScale * actsWhitened .* Br{varDelta} + Br{meanDelta}
 
   auto varDeltaBroadcast = broadcastChannelToMatch(actsWhitened, varDelta);
-  auto varGrads =
-      mul(graph, actsWhitened, varDeltaBroadcast, prog, fnPrefix + "/varGrads");
-  mulInPlace(graph, meanDelta, rScale2, prog, fnPrefix + "/scaleMeanDelta");
+  auto varGrads = mul(graph, actsWhitened, varDeltaBroadcast, prog,
+                      {di, layer + "/varGrads"});
+  mulInPlace(graph, meanDelta, rScale2, prog, {di, layer + "/scaleMeanDelta"});
   auto meanDeltaBroadcast = broadcastChannelToMatch(gradient, meanDelta);
   addInPlace(graph, gradient, meanDeltaBroadcast, prog,
-             fnPrefix + "/meanGrads");
+             {di, layer + "/meanGrads"});
   // TODO: T12899 Once scaledAddTo is targeted efficiently in element-wise ops,
   // this should become a mapInPlace() expression.
-  scaledAddTo(graph, gradient, varGrads, rScale2, prog, fnPrefix + "/addGrads");
+  scaledAddTo(graph, gradient, varGrads, rScale2, prog,
+              {di, layer + "/addGrads"});
 
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})
   auto invStdDevBroadcast = broadcastChannelToMatch(gradient, invStdDev);
-  mulInPlace(graph, gradient, invStdDevBroadcast, prog, fnPrefix);
+  mulInPlace(graph, gradient, invStdDevBroadcast, prog, layer);
+  di.addOutput(gradient);
   return gradient;
 }
 

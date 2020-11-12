@@ -12,6 +12,7 @@
 
 #include <poplar/GraphElements.hpp>
 #include <poplar/OptionFlags.hpp>
+#include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 
 #if defined(__clang__)
@@ -22,6 +23,14 @@
 #define SUPPORTS_FUNCTION_BUILTINS 0
 #endif
 
+#include <algorithm>
+#include <sstream>
+#include <string_view>
+
+#include <boost/preprocessor.hpp>
+#include <boost/preprocessor/cat.hpp>
+#include <boost/preprocessor/seq/for_each_i.hpp>
+
 namespace poputil {
 
 // template definitions of the toProfileValue that needs to be specialized
@@ -30,16 +39,29 @@ template <typename T> poplar::ProfileValue toProfileValue(const T &t);
 
 // template specializations for basic types
 template <> poplar::ProfileValue toProfileValue(const unsigned int &v);
+template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
+template <> poplar::ProfileValue toProfileValue(const int &v);
 template <> poplar::ProfileValue toProfileValue(const bool &v);
 template <> poplar::ProfileValue toProfileValue(const float &v);
 
 // template specializations for Poplar types
 template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t);
+template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t);
+template <> poplar::ProfileValue toProfileValue(const poplar::program::Copy &t);
+template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Type &t);
 
 // Generic case for a pointer
 template <typename T> poplar::ProfileValue toProfileValue(const T *t) {
+  if (t == nullptr) {
+    return poplar::ProfileValue("<nullptr>");
+  } else {
+    return toProfileValue(*t);
+  }
+}
+
+template <typename T> poplar::ProfileValue toProfileValue(T *const &t) {
   if (t == nullptr) {
     return poplar::ProfileValue("<nullptr>");
   } else {
@@ -56,6 +78,8 @@ poplar::ProfileValue toProfileValue(const std::vector<T> &vec) {
   }
   return v;
 }
+
+template <> poplar::ProfileValue toProfileValue(const std::vector<bool> &vec);
 
 class ArgType {
 

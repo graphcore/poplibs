@@ -9,9 +9,60 @@
 #include "poplibs_support/Visitor.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplin/Convolution.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+
+namespace poputil {
+template <>
+poplar::ProfileValue
+toProfileValue(const poplin::multiconv::ConvolutionArgs &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"inputs", toProfileValue(t.inputs)});
+  v.insert({"weights", toProfileValue(t.weights)});
+  v.insert({"params", toProfileValue(t.params)});
+  v.insert({"options", toProfileValue(t.options)});
+  return v;
+}
+
+template <>
+poplar::ProfileValue
+toProfileValue(const poplin::multiconv::ConvWeightUpdateArgs &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"zDeltas", toProfileValue(t.zDeltas)});
+  v.insert({"weights", toProfileValue(t.weights)});
+  v.insert({"activations", toProfileValue(t.activations)});
+  v.insert({"scale", toProfileValue(t.scale)});
+  v.insert({"params", toProfileValue(t.params)});
+  v.insert({"options", toProfileValue(t.options)});
+  return v;
+}
+
+template <>
+poplar::ProfileValue
+toProfileValue(const poplin::multiconv::ConvWeightUpdateArgsScalar &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"zDeltas", toProfileValue(t.zDeltas)});
+  v.insert({"weights", toProfileValue(t.weights)});
+  v.insert({"activations", toProfileValue(t.activations)});
+  v.insert({"scale", toProfileValue(t.scale)});
+  v.insert({"params", toProfileValue(t.params)});
+  v.insert({"options", toProfileValue(t.options)});
+  return v;
+}
+
+template <>
+poplar::ProfileValue
+toProfileValue(const poplin::multiconv::CalculateWeightDeltasArgs &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"zDeltas", toProfileValue(t.zDeltas)});
+  v.insert({"activations", toProfileValue(t.activations)});
+  v.insert({"params", toProfileValue(t.params)});
+  v.insert({"options", toProfileValue(t.options)});
+  return v;
+}
+} // namespace poputil
 
 namespace poplin {
 namespace multiconv {
@@ -47,13 +98,11 @@ static MultiPlan getMultiPlan(const poplar::Target &target,
 }
 
 template <typename T>
-static std::string getLayerName(const std::string &debugPrefix,
-                                const std::vector<T> &args) {
+static std::string getLayerName(const std::vector<T> &args) {
   const auto suffixes = boost::adaptors::transform(
       args, [](const auto &arg) { return convSuffix(arg.params); });
 
-  return debugPrefix + "/MultiConv_{" + boost::algorithm::join(suffixes, ",") +
-         "}";
+  return "MultiConv_{" + boost::algorithm::join(suffixes, ",") + "}";
 }
 
 // serial plans are implemented by just performing each convolution in it's
@@ -62,22 +111,22 @@ template <typename T, typename F>
 static void applyMultiPlan(poplar::Graph &graph, const SerialPlan &serial,
                            const std::vector<T> &args,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix, const F &fn) {
+                           const poplar::DebugNameAndId &dnai, const F &fn) {
   assert(serial.plans.size() == args.size());
   logging::poplin::info("Implementing multi-convs using a serial plan: {}",
-                        debugPrefix);
+                        dnai.getPathName());
 
   for (unsigned i = 0; i < args.size(); ++i) {
     const auto &arg = args[i];
     const auto &plan = serial.plans[i];
 
-    const auto name = debugPrefix + "/" + std::to_string(i);
-    ConvProgramTree cpt(graph, plan, name);
+    const auto name = std::to_string(i);
+    ConvProgramTree cpt(graph, plan, {dnai, name});
 
-    fn(plan, arg, cpt, name);
+    fn(plan, arg, cpt, {dnai, name});
 
     const ConvOptions options(arg.options);
-    cpt.lower(graph, prog, options.insertTransformsCycleCountProgs);
+    cpt.lower(graph, prog, options.insertTransformsCycleCountProgs, {dnai});
   }
 }
 
@@ -88,10 +137,10 @@ template <typename T, typename F>
 static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
                            const std::vector<T> &args,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix, const F &fn) {
+                           const poplar::DebugNameAndId &dnai, const F &fn) {
   assert(para.plans.size() == args.size());
   logging::poplin::info("Implementing multi-convs using a parallel plan: {}",
-                        debugPrefix);
+                        dnai.getPathName());
 
   for (unsigned i = 1; i < para.plans.size(); ++i) {
     assert(para.plans[0].numLevels() == para.plans[i].numLevels());
@@ -99,7 +148,7 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
            para.plans[i].totalSerialSplit());
   }
 
-  ConvProgramTree cpt(graph, para.plans.front(), debugPrefix);
+  ConvProgramTree cpt(graph, para.plans.front(), {dnai});
   const ConvOptions options(args[0].options);
   const bool insertCycleCounts = options.insertTransformsCycleCountProgs;
 
@@ -107,9 +156,9 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
     const auto &arg = args[i];
     const auto &plan = para.plans[i];
 
-    const auto name = debugPrefix + "/" + std::to_string(i);
+    const auto name = std::to_string(i);
 
-    fn(plan, arg, cpt, name);
+    fn(plan, arg, cpt, {dnai, name});
 
     const ConvOptions optionsNextPlan(arg.options);
     if (insertCycleCounts != optionsNextPlan.insertTransformsCycleCountProgs) {
@@ -119,7 +168,7 @@ static void applyMultiPlan(poplar::Graph &graph, const ParallelPlan &para,
     }
   }
 
-  cpt.lower(graph, prog, insertCycleCounts);
+  cpt.lower(graph, prog, insertCycleCounts, {dnai});
 }
 
 poplar::Tensor createWeights(poplar::Graph &graph,
@@ -167,12 +216,15 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
             const bool transposeAndFlipWeights, poplar::program::Sequence &prog,
             const poplar::DebugContext &debugContext,
             const poplar::OptionFlags &options, PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(args_, transposeAndFlipWeights, options, cache));
+
   log("multiconv::convolution", args_);
 
   const auto args = convertToConvOptions(graph, args_);
 
-  const auto layerName = getLayerName(debugPrefix, args);
+  const auto layerName = getLayerName(args);
 
   using ResultType = std::vector<poplar::Tensor>;
   const auto visitor =
@@ -181,12 +233,12 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
         outs.reserve(args.size());
 
         applyMultiPlan(
-            graph, multiPlan, args, prog, layerName,
+            graph, multiPlan, args, prog, {di, layerName},
             [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
-                const std::string &debugPrefix) {
+                const poplar::DebugNameAndId &dnai) {
               outs.push_back(poplin::convolution(
                   graph, arg.inputs, arg.weights, plan, arg.params,
-                  transposeAndFlipWeights, cpt, debugPrefix, arg.options));
+                  transposeAndFlipWeights, cpt, {dnai}, arg.options));
             });
 
         return outs;
@@ -194,7 +246,9 @@ convolution(poplar::Graph &graph, const std::vector<ConvolutionArgs> &args_,
 
   const auto &target = graph.getTarget();
   const auto multiPlan = getMultiPlan(target, args, cache, options);
-  return boost::apply_visitor(visitor, multiPlan);
+  auto output = boost::apply_visitor(visitor, multiPlan);
+  di.addOutputs(DI_ARGS(output));
+  return output;
 }
 
 template <typename T>
@@ -211,10 +265,11 @@ std::vector<poplar::Tensor> calculateWeightDeltas(
     poplar::Graph &graph, const std::vector<CalculateWeightDeltasArgs> &args_,
     poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args_, options, cache));
+
   const auto args = getWeightUpdateArgs(convertToConvOptions(graph, args_));
 
-  const auto layerName = getLayerName(debugPrefix, args);
+  const auto layerName = getLayerName(args);
 
   using ResultType = std::vector<poplar::Tensor>;
   const auto visitor = poplibs_support::make_visitor<ResultType>(
@@ -222,13 +277,13 @@ std::vector<poplar::Tensor> calculateWeightDeltas(
         ResultType weightDeltas;
         weightDeltas.reserve(args.size());
 
-        applyMultiPlan(graph, multiPlan, args, prog, layerName,
+        applyMultiPlan(graph, multiPlan, args, prog, {di, layerName},
                        [&](const Plan &plan, const auto &arg,
                            ConvProgramTree &cpt,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugNameAndId &dnai) {
                          weightDeltas.push_back(poplin::calculateWeightDeltas(
                              graph, arg.zDeltas, arg.activations, plan,
-                             arg.params, cpt, debugPrefix, arg.options));
+                             arg.params, cpt, {dnai}, arg.options));
                        });
 
         return weightDeltas;
@@ -239,26 +294,28 @@ std::vector<poplar::Tensor> calculateWeightDeltas(
 
   const auto &target = graph.getTarget();
   const auto multiPlan = getMultiPlan(target, args, cache, options);
-  return boost::apply_visitor(visitor, multiPlan);
+  auto output = boost::apply_visitor(visitor, multiPlan);
+  di.addOutputs(DI_ARGS(output));
+  return output;
 }
 
 template <typename ArgType>
 void convolutionWeightUpdateImpl(poplar::Graph &graph,
                                  const std::vector<ArgType> &args_,
                                  poplar::program::Sequence &prog,
-                                 const std::string &debugPrefix,
+                                 const poplar::DebugNameAndId &dnai,
                                  const poplar::OptionFlags &options,
                                  PlanningCache *cache) {
   const auto args = getWeightUpdateArgs(convertToConvOptions(graph, args_));
 
-  const auto layerName = getLayerName(debugPrefix, args);
+  const auto layerName = getLayerName(args);
 
   const auto visitor =
       poplibs_support::make_visitor<void>([&](const auto &multiPlan) {
         applyMultiPlan(
-            graph, multiPlan, args, prog, layerName,
+            graph, multiPlan, args, prog, {dnai, layerName},
             [&](const Plan &plan, const auto &arg, ConvProgramTree &cpt,
-                const std::string &debugPrefix) {
+                const poplar::DebugNameAndId &dnai) {
               // TODO: convolutionWeightUpdate expects inputType == outputType,
               // handle when that is not the case.
               if (arg.params->inputType != arg.params->outputType) {
@@ -269,7 +326,7 @@ void convolutionWeightUpdateImpl(poplar::Graph &graph,
 
               poplin::convolutionWeightUpdate(
                   graph, arg.zDeltas, arg.weights, arg.activations, plan,
-                  arg.params, arg.scale, cpt, debugPrefix, arg.options);
+                  arg.params, arg.scale, cpt, {dnai}, arg.options);
             });
       });
 
@@ -284,16 +341,16 @@ void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::DebugContext &debugContext,
                              const poplar::OptionFlags &options,
                              PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  convolutionWeightUpdateImpl(graph, args, prog, debugPrefix, options, cache);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args, options, cache));
+  convolutionWeightUpdateImpl(graph, args, prog, {di}, options, cache);
 }
 
 void convolutionWeightUpdate(
     poplar::Graph &graph, const std::vector<ConvWeightUpdateArgsScalar> &args,
     poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  convolutionWeightUpdateImpl(graph, args, prog, debugPrefix, options, cache);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(args, options, cache));
+  convolutionWeightUpdateImpl(graph, args, prog, {di}, options, cache);
 }
 
 } // namespace multiconv

@@ -43,25 +43,26 @@ struct ConvSlice {
 
 poplar::Tensor createInput(poplar::Graph &graph, const Plan &plan,
                            const CanonicalConvParams &params,
-                           const std::string &name, const ConvOptions &options);
+                           const poplar::DebugNameAndId &dnai,
+                           const ConvOptions &options);
 
 poplar::Tensor createWeights(poplar::Graph &graph, const Plan &plan,
                              const CanonicalConvParams &params,
-                             const std::string &name,
+                             const poplar::DebugNameAndId &dnai,
                              const ConvOptions &options);
 
 poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const poplar::Tensor &weights, const Plan &plan,
                            const CanonicalConvParams &params,
                            bool transposeAndFlipWeights, ConvProgramTree &cpt,
-                           const std::string &debugPrefix,
+                           const poplar::DebugNameAndId &dnai,
                            const ConvOptions &options);
 
 poplar::Tensor
 calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas_,
                       const poplar::Tensor &activations_, const Plan &wuPlan,
                       const CanonicalConvParams &wuParams, ConvProgramTree &cpt,
-                      const std::string &debugPrefix,
+                      const poplar::DebugNameAndId &dnai,
                       const ConvOptions &wuOptions);
 
 void convolutionWeightUpdate(poplar::Graph &graph,
@@ -70,7 +71,7 @@ void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::Tensor &activations,
                              const Plan &plan, CanonicalConvParams params,
                              const poplar::Tensor &scale, ConvProgramTree &cpt,
-                             const std::string &debugPrefix,
+                             const poplar::DebugNameAndId &dnai,
                              const ConvOptions &options);
 
 void convolutionWeightUpdate(poplar::Graph &graph,
@@ -79,7 +80,7 @@ void convolutionWeightUpdate(poplar::Graph &graph,
                              const poplar::Tensor &activations,
                              const Plan &plan, CanonicalConvParams params,
                              float scale, ConvProgramTree &cpt,
-                             const std::string &debugPrefix,
+                             const poplar::DebugNameAndId &dnai,
                              const ConvOptions &options);
 
 // Required for expand dims planning, we don't intend to use graph as mutable,

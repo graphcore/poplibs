@@ -10,6 +10,15 @@ template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t) {
   return poplar::ProfileValue(t.getId());
 }
 
+template <>
+poplar::ProfileValue toProfileValue(const poplar::program::Copy &t) {
+  return poplar::ProfileValue("program::Copy");
+}
+
+template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t) {
+  return getAsProfileValue(t);
+}
+
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t) {
   poplar::ProfileValue::Map v;
 
@@ -45,6 +54,21 @@ template <> poplar::ProfileValue toProfileValue(const float &t) {
 
 template <> poplar::ProfileValue toProfileValue(const unsigned int &t) {
   return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const unsigned long &t) {
+  return poplar::ProfileValue(t);
+}
+
+// Need a specialization for vector<bool> on mac as vec[b] is a
+// __bit_const_reference
+template <> poplar::ProfileValue toProfileValue(const std::vector<bool> &vec) {
+  poplar::ProfileValue::Map v;
+  for (size_t i = 0; i < vec.size(); ++i) {
+    bool b = vec[i];
+    v.insert({std::to_string(i), poplar::ProfileValue(b)});
+  }
+  return v;
 }
 
 OpDebugInfo::OpDebugInfo(const poplar::DebugContext &debugContext,

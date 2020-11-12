@@ -1,5 +1,6 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include "poplibs_support/logging.hpp"
+#include "poputil/DebugInfo.hpp"
 #include <poplar/exceptions.hpp>
 #include <poplin/MeshGrid.hpp>
 
@@ -24,11 +25,13 @@ namespace logging = poplibs_support::logging;
 poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
                         float left, float right, size_t count,
                         const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/linspace";
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(type, left, right, count));
+
+  const std::string layer = "linspace";
   logging::poplin::info(
       "linspace type={}, left={}, right={}, count={}, name={}", type, left,
-      right, count, fnPrefix);
+      right, count, debugContext.getPathName() + "/" + layer);
 
   if (type != poplar::FLOAT && type != poplar::HALF) {
     throw poplar::poplar_error("linspace only supports FLOAT or HALF");
@@ -36,8 +39,8 @@ poplar::Tensor linspace(poplar::Graph &graph, const poplar::Type &type,
 
   const std::vector<float> values = linspaceValues(left, right, count);
   const std::vector<size_t> shape = {count};
-  auto t =
-      graph.addConstant(type, shape, poplar::ArrayRef<float>(values), fnPrefix);
+  auto t = graph.addConstant(type, shape, poplar::ArrayRef<float>(values),
+                             {di, layer});
   graph.setTileMapping(t, 0);
   return t;
 }

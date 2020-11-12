@@ -83,7 +83,7 @@ Tensor unflattenDims(Tensor t, unsigned from, unsigned to, unsigned fromSize) {
 }
 
 Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
-              unsigned dim, const std::string &debugPrefix) {
+              unsigned dim, const DebugNameAndId &dnai) {
   const auto oldSize = t.dim(dim);
   const auto newSize = getDilatedSize(oldSize, dilationFactor);
   if (newSize == oldSize)
@@ -92,7 +92,7 @@ Tensor dilate(Graph &graph, const Tensor &t, unsigned dilationFactor,
   const auto dType = expandedT.elementType();
   auto zeroShape = expandedT.shape();
   zeroShape[dim + 1] = dilationFactor - 1;
-  Tensor zero = graph.addConstant(dType, zeroShape, 0, debugPrefix + "/zero");
+  Tensor zero = graph.addConstant(dType, zeroShape, 0, {dnai, "zero"});
   graph.setTileMapping(zero, 0);
   return concat(expandedT, zero, dim + 1)
       .flatten(dim, dim + 2)
@@ -136,7 +136,7 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
                                            boost::optional<Graph &> &graph,
                                            boost::optional<Tensor> &acts,
                                            boost::optional<Tensor> &weights,
-                                           const std::string &debugPrefix) {
+                                           const DebugNameAndId &dnai) {
   unsigned actsDimIndex = dim + 2;
   unsigned weightsDimIndex = dim + 1;
   auto &actsSize = params.inputFieldShape[dim];
@@ -163,7 +163,7 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
     *acts = pad(*graph, *acts, -static_cast<int>(actsTruncationLower),
                 -static_cast<int>(actsTruncationUpper), actsDimIndex);
     // Explicitly dilate.
-    *acts = dilate(*graph, *acts, actsDilation, actsDimIndex, debugPrefix);
+    *acts = dilate(*graph, *acts, actsDilation, actsDimIndex, {dnai});
     // Explicitly pad.
     *acts =
         pad(*graph, *acts, actsPaddingLower, actsPaddingUpper, actsDimIndex);
@@ -250,8 +250,7 @@ static void expandSpatialDimMultiStageImpl(ConvParams &params, unsigned dim,
       auto newActsShape = acts->shape();
       newActsShape[actsDimIndex] = actsFactoredSize;
       newActsShape.back() = 0;
-      *acts =
-          (*graph).addConstant(dType, newActsShape, 0, debugPrefix + "/acts");
+      *acts = (*graph).addConstant(dType, newActsShape, 0, {dnai, "acts"});
       (*graph).setTileMapping(*acts, 0);
     } else {
       std::vector<Tensor> slices;
@@ -315,10 +314,10 @@ static void expandSpatialDimMultiStage(ConvParams &params, unsigned dim,
                                        unsigned kernelFactor, Graph &graph,
                                        boost::optional<Tensor> &acts,
                                        boost::optional<Tensor> &weights,
-                                       const std::string &debugPrefix) {
+                                       const DebugNameAndId &dnai) {
   boost::optional<Graph &> g = graph;
   expandSpatialDimMultiStageImpl(params, dim, kernelFactor, g, acts, weights,
-                                 debugPrefix);
+                                 dnai);
 }
 
 // Planning only, no modification to acts or weights
@@ -335,10 +334,9 @@ static void expandSpatialDimMultiStage(ConvParams &params, unsigned dim,
 void expandSpatialDim(ConvParams &params, unsigned dim, Graph &graph,
                       boost::optional<Tensor> &acts,
                       boost::optional<Tensor> &weights,
-                      const std::string &debugPrefix) {
+                      const poplar::DebugNameAndId &dnai) {
   const auto factor = params.getTruncatedKernelSize(dim);
-  expandSpatialDimMultiStage(params, dim, factor, graph, acts, weights,
-                             debugPrefix);
+  expandSpatialDimMultiStage(params, dim, factor, graph, acts, weights, {dnai});
 }
 
 // Planning only, no modification to acts or weights
@@ -550,7 +548,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
                        const ExpandDimsPlan &expandDimsPlan,
                        ConvProgramTree::TransformPreProgram *rearrangeProg,
                        bool rearrangeActs, bool rearrangeWeights,
-                       const std::string &debugPrefix) {
+                       const poplar::DebugNameAndId &dnai) {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
 
   const auto &partialExpansion = expandDimsPlan.partialExpansion;
@@ -565,7 +563,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
         break;
       }
       expandSpatialDim(params, expandDimsSpatial[nextToExpand], graph, acts,
-                       weights, debugPrefix);
+                       weights, {dnai});
     }
     unsigned kernelSizeBefore =
         params.getTruncatedKernelSize(partialExpansion.first);
@@ -574,7 +572,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
     // Partially expand
     expandSpatialDimMultiStage(params, partialExpansion.first,
                                partialExpansion.second, graph, acts, weights,
-                               debugPrefix);
+                               {dnai});
 
     // Check for any padding added for the partial expansion
     unsigned kernelSizeAfter =
@@ -600,7 +598,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
         assert(rearrangeProg);
         t = popops::rearrange::regroupTensor(
             graph, t, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
-            regroup.first, regroup.second, debugPrefix);
+            regroup.first, regroup.second, {dnai});
       }
     }
   }
@@ -610,7 +608,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
     const auto factor =
         params.getTruncatedKernelSize(expandDimsSpatial[nextToExpand]);
     expandSpatialDimMultiStage(params, expandDimsSpatial[nextToExpand], factor,
-                               graph, acts, weights, debugPrefix);
+                               graph, acts, weights, {dnai});
     // Trim any padding added by a potential earlier partial expansion
     if ((inputChanPaddingLower || inputChanPaddingUpper) && stripPadding) {
       if (acts) {
@@ -639,7 +637,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
         assert(rearrangeProg);
         t = popops::rearrange::regroupTensor(
             graph, t, rearrangeProg->preTranspose, rearrangeProg->transposeCS,
-            regroup.first, regroup.second, debugPrefix);
+            regroup.first, regroup.second, {dnai});
       }
     }
   }
@@ -650,7 +648,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
                        boost::optional<Tensor> &weights,
                        ConvProgramTree::TransformPreProgram *rearrangeProg,
                        bool rearrangeActs, bool rearrangeWeights,
-                       const std::string &debugPrefix) {
+                       const DebugNameAndId &dnai) {
   const auto &expandDimsSpatial = plan.transforms[level].expandDims;
   if (expandDimsSpatial.empty()) {
     return;
@@ -674,7 +672,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
   // Now do a series of transforms as appropriate.
   expandSpatialDims(params, plan, level, graph, acts, weights,
                     mergedTransformPlan, rearrangeProg, rearrangeActs,
-                    rearrangeWeights, debugPrefix);
+                    rearrangeWeights, dnai);
 }
 
 // Flatten dimensions according to dimsToFlatten. If available, the tensor acts

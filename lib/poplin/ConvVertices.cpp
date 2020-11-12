@@ -254,12 +254,12 @@ createPartitions(const CanonicalConvParams &params,
 /// responsibility to initialize the padding.
 static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
                               unsigned paddingUpper, unsigned dim,
-                              Tensor &padding, const std::string &debugPrefix) {
+                              Tensor &padding, const DebugNameAndId &dnai) {
   auto paddingSize = paddingLower + paddingUpper;
   auto paddingShape = t.shape();
   paddingShape[dim] = paddingSize;
-  auto paddingTensor = graph.addVariable(t.elementType(), paddingShape,
-                                         debugPrefix + "/zeroPadding");
+  auto paddingTensor =
+      graph.addVariable(t.elementType(), paddingShape, {dnai, "zeroPadding"});
   auto paddingLowerTensor = paddingTensor.slice(0, paddingLower, dim);
   auto paddingUpperTensor = paddingTensor.slice(paddingLower, paddingSize, dim);
   padding = concat(padding, paddingTensor.flatten());
@@ -276,11 +276,10 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
 struct Padder {
   Padder(Graph &graph, const unsigned tile, std::vector<Copy> &transformPre,
          std::map<Type, Tensor> &copyWritten, const Type &type,
-         const std::string &debugPrefix)
+         const DebugNameAndId &dnai_)
       : graph(graph), tile(tile), transformPre(transformPre), type(type),
-        copyWritten(copyWritten), debugPrefix(debugPrefix) {
-    paddingTensor =
-        graph.addConstant(type, {0}, 0, debugPrefix + "/paddingTensor");
+        copyWritten(copyWritten), dnai(dnai_) {
+    paddingTensor = graph.addConstant(type, {0}, 0, {dnai, "paddingTensor"});
     graph.setTileMapping(paddingTensor, 0);
   }
 
@@ -288,13 +287,14 @@ struct Padder {
     if (paddingTensor.numElements() != 0) {
       auto c =
           graph.addConstant(paddingTensor.elementType(), paddingTensor.shape(),
-                            0, debugPrefix + "/paddingTensor");
+                            0, {dnai, "paddingTensor"});
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
       transformPre.emplace_back(c, paddingTensor);
 
       if (copyWritten.count(type) == 0) {
-        copyWritten.insert(std::make_pair(type, graph.addVariable(type, {0})));
+        copyWritten.insert(
+            std::make_pair(type, graph.addVariable(type, {0}, {dnai})));
       }
       copyWritten[type] = concat(copyWritten[type], paddingTensor.flatten());
     }
@@ -304,7 +304,7 @@ struct Padder {
                     unsigned paddingUpper, unsigned dim) {
     assert(t.elementType() == paddingTensor.elementType());
     return padWithVariable(graph, t, paddingLower, paddingUpper, dim,
-                           paddingTensor, debugPrefix);
+                           paddingTensor, {dnai});
   }
 
 private:
@@ -313,7 +313,7 @@ private:
   std::vector<Copy> &transformPre;
   Type type;
   std::map<Type, Tensor> &copyWritten;
-  const std::string &debugPrefix;
+  const DebugNameAndId &dnai;
 
   Tensor paddingTensor;
 };
@@ -361,7 +361,7 @@ static Tensor padKernelSpatialDim(Graph &graph, ConvParams &params,
 static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
                                         Tensor in, const unsigned dim,
                                         Padder &padder,
-                                        const std::string &debugPrefix) {
+                                        const DebugNameAndId &dnai) {
   // the input is in the grouped internal shape so the spatial dimensions
   // begin at the third dimension (after G, Ci and N).
   const auto tensorDim = dim + 3;
@@ -375,7 +375,7 @@ static Tensor truncateDilateAndPadInput(Graph &graph, ConvParams &params,
   params.inputTransform.truncationUpper[dim] = 0;
 
   const auto inputDilation = params.inputTransform.dilation[dim];
-  in = dilate(graph, in, inputDilation, tensorDim, debugPrefix);
+  in = dilate(graph, in, inputDilation, tensorDim, {dnai});
   params.inputTransform.dilation[dim] = 1;
   params.inputFieldShape[dim] =
       getDilatedSize(params.inputFieldShape[dim], inputDilation);
@@ -406,7 +406,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        ComputeSet fwdCS, Tensor in,
                                        Tensor weights, Tensor out,
                                        bool use128BitConvUnitLoad,
-                                       const std::string &debugPrefix) {
+                                       const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(in.elementType() == FLOAT);
@@ -713,16 +713,15 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
     }
     numFieldElemsLessThree(worklist1x1);
     auto t = graph.addConstant(worklistEntryType, {worklist1x1.size()},
-                               worklist1x1.data(), debugPrefix + "/worklists");
+                               worklist1x1.data(), {dnai, "worklists"});
     graph.setTileMapping(t, tile);
     graph.connect(v["worklists"], t);
   } else {
     graph.setFieldSize(v["worklists"], worklist.size());
     for (unsigned i = 0; i < worklist.size(); ++i) {
       numFieldElemsLessThree(worklist[i]);
-      auto t =
-          graph.addConstant(worklistEntryType, {worklist[i].size()},
-                            worklist[i].data(), debugPrefix + "/worklists");
+      auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
+                                 worklist[i].data(), {dnai, "worklists"});
       graph.setTileMapping(t, 0);
       graph.connect(v["worklists"][i], t);
     }
@@ -742,7 +741,7 @@ static void createConvPartialAmpVertices(
     Graph &graph, const Plan &plan, unsigned tile, ConvParams params,
     std::vector<Copy> &transformPre, std::map<Type, Tensor> &copyWritten,
     ComputeSet fwdCS, Tensor in, Tensor weights, Tensor out,
-    bool use128BitConvUnitLoad, const std::string &debugPrefix) {
+    bool use128BitConvUnitLoad, const DebugNameAndId &dnai) {
   assert(params == params.canonicalize());
   const auto &target = graph.getTarget();
   const auto weightsPerConvUnit =
@@ -752,7 +751,7 @@ static void createConvPartialAmpVertices(
   if (convUnitWeightHeight != 1) {
     assert(weights.elementType() == in.elementType());
     Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
-                  debugPrefix);
+                  {dnai});
 
     // If we are doing an nx1 convolution we need to pad the weights to a
     // multiple of n.
@@ -761,7 +760,7 @@ static void createConvPartialAmpVertices(
                                   convUnitWeightHeight, padder);
 
     // Explicitly apply input transforms.
-    in = truncateDilateAndPadInput(graph, params, in, 0, padder, debugPrefix);
+    in = truncateDilateAndPadInput(graph, params, in, 0, padder, {dnai});
   }
 
   const auto partialsType = out.elementType();
@@ -822,7 +821,7 @@ static void createConvPartialAmpVertices(
         } else {
           createConvPartialAmpVertex(graph, plan, tile, subParams, fwdCS, subIn,
                                      subWeights, subOut, use128BitConvUnitLoad,
-                                     debugPrefix);
+                                     {dnai});
         }
       });
 }
@@ -837,7 +836,7 @@ void createConvPartialSlicVertex(
     ConvParams params, std::vector<Copy> &transformPre,
     std::map<Type, Tensor> &copyWritten, ComputeSet fwdCS,
     ConvProgramTree::PostProg &postConvProg, Tensor in, Tensor weights,
-    Tensor out, const std::string &debugPrefix) {
+    Tensor out, const DebugNameAndId &dnai) {
   // We don't handle multiple input channel/output channel groups.
   assert(params.getNumInputChansPerConvGroup() == chansPerGroup &&
          params.getNumOutputChansPerConvGroup() == chansPerGroup);
@@ -875,7 +874,7 @@ void createConvPartialSlicVertex(
   // apply transformations (output padding is applied further down).
   {
     Padder padder(graph, tile, transformPre, copyWritten, weights.elementType(),
-                  debugPrefix);
+                  {dnai});
 
     // pad kernel width (aka the innermost dim) up to a multiple of 1xN if it is
     // not already.
@@ -885,7 +884,7 @@ void createConvPartialSlicVertex(
 
     // Explicitly apply input transforms.
     for (unsigned d = 0; d < numFieldDims; ++d) {
-      in = truncateDilateAndPadInput(graph, params, in, d, padder, debugPrefix);
+      in = truncateDilateAndPadInput(graph, params, in, d, padder, {dnai});
     }
   }
 
@@ -1027,7 +1026,7 @@ void createConvPartialSlicVertex(
     }
     const auto outputPadding = concat(elemsToPad).flatten();
     const auto zeros =
-        graph.addConstant(partialsType, outputPadding.shape(), 0);
+        graph.addConstant(partialsType, outputPadding.shape(), 0, {dnai});
     graph.setTileMapping(zeros, 0);
 
     // Collect copies to do a single one at the end.
@@ -1065,7 +1064,7 @@ void createConvPartialSlicVertex(
       partialsType,
       {extraOutputElems +
        numFieldElemsIncludingPadding * convGroupsPerGroup * chansPerGroup},
-      "outFieldBuffer");
+      {dnai, "outFieldBuffer"});
   graph.setTileMapping(outFieldBuffer, tile);
 
   const auto vertexClass =
@@ -1082,7 +1081,7 @@ void createConvPartialSlicVertex(
 
   for (unsigned i = 0; i < worklists.size(); ++i) {
     const auto t = graph.addConstant(UNSIGNED_SHORT, {worklists[i].size()},
-                                     worklists[i].data(), "worklists");
+                                     worklists[i].data(), {dnai, "worklists"});
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
@@ -1095,7 +1094,7 @@ void createConvPartialSlicVertex(
 static void createConvPartialHorizontalMacVertex(
     Graph &graph, const Plan &plan, unsigned tile, const ConvParams &params,
     ComputeSet fwdCS, const Tensor &in, const Tensor &weights,
-    const Tensor &out, const std::string &debugPrefix) {
+    const Tensor &out, const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numFieldDims = params.getNumFieldDims();
   const auto xDimIndex = numFieldDims - 1;
@@ -1332,7 +1331,7 @@ static void createConvPartialHorizontalMacVertex(
   graph.setFieldSize(v["worklists"], worklist.size());
   for (unsigned i = 0; i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data(), debugPrefix + "/worklist");
+                               worklist[i].data(), {dnai, "worklist"});
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
@@ -1343,7 +1342,7 @@ static void createConvPartialHorizontalMacVertex(
 static void createConvPartialVerticalMacVertex(
     Graph &graph, const Plan &plan, unsigned tile, const ConvParams &params,
     ComputeSet fwdCS, const Tensor &in, const Tensor &weights,
-    const Tensor &out, const std::string &debugPrefix) {
+    const Tensor &out, const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numFieldDims = params.getNumFieldDims();
   const auto xDimIndex = numFieldDims - 1;
@@ -1552,26 +1551,23 @@ static void createConvPartialVerticalMacVertex(
 
   for (unsigned i = 0; i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data(), debugPrefix + "/worklist");
+                               worklist[i].data(), {dnai, "worklist"});
     graph.setTileMapping(t, 0);
     graph.connect(v["worklists"][i], t);
   }
-  auto partials = graph.addVariable(plan.types.back().partialType,
-                                    {contextsPerVertex * zerosInfo},
-                                    debugPrefix + "/partials");
+  auto partials =
+      graph.addVariable(plan.types.back().partialType,
+                        {contextsPerVertex * zerosInfo}, {dnai, "partials"});
   graph.connect(v["partials"], partials);
   graph.setTileMapping(partials, tile);
   graph.setInitialValue(v["zerosInfo"], zerosInfo);
   graph.setTileMapping(v, tile);
 }
 
-static void createOuterProductVertex(Graph &graph, unsigned tile,
-                                     unsigned xBegin, unsigned xEnd,
-                                     const ConvParams &params,
-                                     ConvProgramTree::ComputeSetsGroup &fwdCS,
-                                     Tensor in, Tensor weights,
-                                     const Tensor &out,
-                                     const std::string &debugPrefix) {
+static void createOuterProductVertex(
+    Graph &graph, unsigned tile, unsigned xBegin, unsigned xEnd,
+    const ConvParams &params, ConvProgramTree::ComputeSetsGroup &fwdCS,
+    Tensor in, Tensor weights, const Tensor &out, const DebugNameAndId &dnai) {
   const auto numFieldDims = params.getNumFieldDims();
   assert(product(params.outputTransform.stride) == 1);
   assert(product(params.inputTransform.dilation) == 1);
@@ -1641,7 +1637,7 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
     // as this could change the type of other passes see T14149
     if (dType == HALF && out.elementType() == FLOAT) {
       if (!fwdCS.pre) {
-        fwdCS.pre = graph.addComputeSet(debugPrefix + "/PreOuterProductCast");
+        fwdCS.pre = graph.addComputeSet({dnai, "PreOuterProductCast"});
       }
       inWindow = cast(graph, inWindow, FLOAT, fwdCS.pre.get());
       weightsWindow = cast(graph, weightsWindow, FLOAT, fwdCS.pre.get());
@@ -1659,7 +1655,7 @@ static void createOuterProductVertex(Graph &graph, unsigned tile,
 
     if (dType == FLOAT && out.elementType() == HALF) {
       if (!fwdCS.post) {
-        fwdCS.post = graph.addComputeSet(debugPrefix + "/PostOuterProductCast");
+        fwdCS.post = graph.addComputeSet({dnai, "PostOuterProductCast"});
       }
       outWindow = cast(graph, outWindow, HALF, fwdCS.post.get());
     }
@@ -1672,7 +1668,7 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
                            ConvProgramTree::ComputeSetsGroup &convolveCS,
                            Tensor in, Tensor weights, Tensor out,
                            bool use128BitConvUnitLoad,
-                           const std::string &debugPrefix) {
+                           const poplar::DebugNameAndId &dnai) {
   assert(params.getNumConvGroups() % plan.convGroupsPerGroup == 0);
   assert(params.getNumOutputChansPerConvGroup() % plan.partialChansPerGroup ==
          0);
@@ -1692,18 +1688,17 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
   case Plan::Method::AMP:
     createConvPartialAmpVertices(graph, plan, tile, params, transformPre,
                                  copyWritten, convolveCS.convolveCS, in,
-                                 weights, out, use128BitConvUnitLoad,
-                                 debugPrefix);
+                                 weights, out, use128BitConvUnitLoad, {dnai});
     break;
   case Plan::Method::HMAC:
     createConvPartialHorizontalMacVertex(graph, plan, tile, params,
                                          convolveCS.convolveCS, in, weights,
-                                         out, debugPrefix);
+                                         out, {dnai});
     break;
   case Plan::Method::VMAC:
     createConvPartialVerticalMacVertex(graph, plan, tile, params,
                                        convolveCS.convolveCS, in, weights, out,
-                                       debugPrefix);
+                                       {dnai});
     break;
   case Plan::Method::SLIC:
     assert(plan.inChansPerGroup == plan.partialChansPerGroup);
@@ -1711,7 +1706,7 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
         graph, plan.slicWindowWidth, plan.convGroupsPerGroup,
         plan.partialChansPerGroup, plan.numConvUnitsRequired, tile, params,
         transformPre, copyWritten, convolveCS.convolveCS, convolveCS.postProg,
-        in, weights, out, debugPrefix);
+        in, weights, out, {dnai});
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();
@@ -1722,8 +1717,7 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     for (const auto &entry : perWorkerRegions) {
       assert(entry.size() == 1);
       createOuterProductVertex(graph, tile, entry[0].begin(), entry[0].end(),
-                               params, convolveCS, in, weights, out,
-                               debugPrefix);
+                               params, convolveCS, in, weights, out, {dnai});
     }
   } break;
   default: {

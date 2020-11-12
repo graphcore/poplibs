@@ -18,7 +18,7 @@ multiStageGroupedReduce(poplar::Graph &graph, poplar::Tensor partials,
                         const poplar::Type &resultType,
                         std::vector<poplar::ComputeSet> &computeSets,
                         const ConvOptions &options,
-                        const std::string &debugPrefix);
+                        const poplar::DebugNameAndId &dnai);
 } // namespace poplin
 
 #endif // ConvReduce_hpp

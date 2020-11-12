@@ -7,6 +7,7 @@
 #include "popops/Pad.hpp"
 #include "popops/Zero.hpp"
 #include "poputil/Broadcast.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/GraphFunction.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
@@ -50,7 +51,7 @@ S &operator<<(S &stream, const std::vector<T> &value) {
 poplar::Tensor triangle(poplar::Graph &graph, const poplar::Tensor &a,
                         const SolveParams &params,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix = "") {
+                        const poplar::DebugNameAndId &dnai) {
   if (a.rank() != 3) {
     throw poputil::poplibs_error("triangle: tensor must have rank of 3");
   }
@@ -62,10 +63,10 @@ poplar::Tensor triangle(poplar::Graph &graph, const poplar::Tensor &a,
   }
 
   auto iotaOut = graph.addVariable(poplar::UNSIGNED_INT, {n},
-                                   "iotaOut" + std::to_string(n));
+                                   {dnai, "iotaOut" + std::to_string(n)});
   poputil::mapTensorLinearly(graph, iotaOut);
   popops::iota(graph, iotaOut, 0u, prog,
-               debugPrefix + "/triangleIota" + std::to_string(n));
+               {dnai, std::string("triangleIota") + std::to_string(n)});
 
   auto totalBatches = a.dim(0);
   auto indices0 =
@@ -83,7 +84,7 @@ poplar::Tensor triangle(poplar::Graph &graph, const poplar::Tensor &a,
   }
 
   return popops::map(graph, triangularMask, {a, indices0, indices1}, prog,
-                     debugPrefix + "/mapTriangularMask");
+                     {dnai, "mapTriangularMask"});
 }
 
 poplar::Tensor diag(const poplar::Tensor &a) {
@@ -103,7 +104,7 @@ poplar::Tensor diag(const poplar::Tensor &a) {
 void solve(poplar::Graph &graph, const poplar::Tensor &a,
            const poplar::Tensor &b, std::size_t bLeftPos, std::size_t bTopPos,
            const SolveParams &params, poplar::program::Sequence &prog,
-           const std::string &debugPrefix) {
+           const poplar::DebugNameAndId &dnai) {
   if (a.rank() != 3) {
     throw poputil::poplibs_error("solve: invalid rank of tensor A");
   }
@@ -144,35 +145,34 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       // A21 * X11 + A22 * X21 = B21
       // A21 * X12 + A22 * X22 = B22
 
-      solve(graph, a11, b11, bLeftPos, bTopPos, params, prog,
-            debugPrefix + "/X11");
+      solve(graph, a11, b11, bLeftPos, bTopPos, params, prog, {dnai, "X11"});
 
       if (bMiddlePos < params.k) {
         solve(graph, a11, b12, bMiddlePos, bTopPos, params, prog,
-              debugPrefix + "/X12");
+              {dnai, "X12"});
       }
 
       {
         auto x11 =
             params.x.slice({0, bTopPos, bLeftPos},
                            {totalBatches, bTopPos + an2, bLeftPos + an2});
-        auto a21x11 = matMulGrouped(graph, a21, x11, prog, a.elementType(),
-                                    debugPrefix + "/A21*X11", params.options,
-                                    params.cache);
-        b21 = popops::sub(graph, b21, a21x11, prog, "/B21-A21*X11");
+        auto a21x11 =
+            matMulGrouped(graph, a21, x11, prog, a.elementType(),
+                          {dnai, "A21*X11"}, params.options, params.cache);
+        b21 = popops::sub(graph, b21, a21x11, prog, {dnai, "B21-A21*X11"});
       }
       solve(graph, a22, b21, bLeftPos, bTopPos + an2, params, prog,
-            debugPrefix + "/X21");
+            {dnai, "X21"});
 
       if (bMiddlePos < params.k) {
         auto x12 = params.x.slice({0, bTopPos, bLeftPos + an2},
                                   {totalBatches, bTopPos + an2, bLeftPos + an});
-        auto a21x12 = matMulGrouped(graph, a21, x12, prog, a.elementType(),
-                                    debugPrefix + "/A21*X12", params.options,
-                                    params.cache);
-        b22 = popops::sub(graph, b22, a21x12, prog, "/B22-A21*X12");
+        auto a21x12 =
+            matMulGrouped(graph, a21, x12, prog, a.elementType(),
+                          {dnai, "A21*X12"}, params.options, params.cache);
+        b22 = popops::sub(graph, b22, a21x12, prog, {dnai, "B22-A21*X12"});
         solve(graph, a22, b22, bMiddlePos, bTopPos + an2, params, prog,
-              debugPrefix + "/X22");
+              {dnai, "X22"});
       }
     } else {
       // Upper solver:
@@ -186,32 +186,31 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       // A11 * X12 + A12 * X22 = B12
 
       solve(graph, a22, b21, bLeftPos, bTopPos + an2, params, prog,
-            debugPrefix + "/X21");
+            {dnai, "X21"});
       if (bMiddlePos < params.k) {
         solve(graph, a22, b22, bMiddlePos, bTopPos + an2, params, prog,
-              debugPrefix + "/X22");
+              {dnai, "X22"});
       }
 
       {
         auto x21 = params.x.slice({0, bTopPos + an2, bLeftPos},
                                   {totalBatches, bTopPos + an, bLeftPos + an2});
-        auto a12x21 = matMulGrouped(graph, a12, x21, prog, a.elementType(),
-                                    debugPrefix + "/A12*X21", params.options,
-                                    params.cache);
-        b11 = popops::sub(graph, b11, a12x21, prog, "B11-A12*X21");
+        auto a12x21 =
+            matMulGrouped(graph, a12, x21, prog, a.elementType(),
+                          {dnai, "A12*X21"}, params.options, params.cache);
+        b11 = popops::sub(graph, b11, a12x21, prog, {dnai, "B11-A12*X21"});
       }
-      solve(graph, a11, b11, bLeftPos, bTopPos, params, prog,
-            debugPrefix + "/X11");
+      solve(graph, a11, b11, bLeftPos, bTopPos, params, prog, {dnai, "X11"});
 
       if (bMiddlePos < params.k) {
         auto x22 = params.x.slice({0, bTopPos + an2, bLeftPos + an2},
                                   {totalBatches, bTopPos + an, bLeftPos + an});
-        auto a12x22 = matMulGrouped(graph, a12, x22, prog, a.elementType(),
-                                    debugPrefix + "/A12*X22", params.options,
-                                    params.cache);
-        b12 = popops::sub(graph, b12, a12x22, prog, "/B12-A12*X22");
+        auto a12x22 =
+            matMulGrouped(graph, a12, x22, prog, a.elementType(),
+                          {dnai, "A12*X22"}, params.options, params.cache);
+        b12 = popops::sub(graph, b12, a12x22, prog, {dnai, "B12-A12*X22"});
         solve(graph, a11, b12, bLeftPos + bn2, bTopPos, params, prog,
-              debugPrefix + "/X12");
+              {dnai, "X12"});
       }
     }
   } else {
@@ -222,8 +221,8 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
           {poputil::graphfn::input(a), poputil::graphfn::input(b),
            poputil::graphfn::inout(b)},
           [&graph, an, bn, totalBatches, &params,
-           &debugPrefix](std::vector<poplar::Tensor> &args,
-                         poplar::program::Sequence &prog) {
+           &dnai](std::vector<poplar::Tensor> &args,
+                  poplar::program::Sequence &prog) {
             auto a = args.at(0), b = args.at(1), x = args.at(2);
             auto b0 =
                 (params.lower ? b.slice({0, 0, 0}, {totalBatches, 1, bn})
@@ -233,7 +232,7 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
                            ? x.slice({0, 0, 0}, {totalBatches, 1, bn})
                            : x.slice({0, an - 1, 0}, {totalBatches, an, bn}));
 
-            prog.add(poplar::program::Copy(b0, x0));
+            prog.add(poplar::program::Copy(b0, x0, false, {dnai}));
 
             for (std::size_t idx = 1; idx < an; ++idx) {
               auto row = params.lower ? a.slice({0, idx, 0},
@@ -253,18 +252,19 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
 
               auto dot = poplin::matMulGrouped(
                   graph, row, xValue, prog, a.elementType(),
-                  debugPrefix + "/substituteX" + std::to_string(idx),
-                  params.options, params.cache);
+                  {dnai, "substituteX" + std::to_string(idx)}, params.options,
+                  params.cache);
 
               dot = popops::sub(graph, bValue, dot, prog,
-                                debugPrefix + "/substituteB" +
-                                    std::to_string(idx));
+                                {dnai, "substituteB" + std::to_string(idx)});
 
               prog.add(poplar::program::Copy(
-                  dot, params.lower
-                           ? x.slice({0, idx, 0}, {totalBatches, idx + 1, bn})
-                           : x.slice({0, an - 1 - idx, 0},
-                                     {totalBatches, an - idx, bn})));
+                  dot,
+                  params.lower
+                      ? x.slice({0, idx, 0}, {totalBatches, idx + 1, bn})
+                      : x.slice({0, an - 1 - idx, 0},
+                                {totalBatches, an - idx, bn}),
+                  false, {dnai}));
             }
           },
           false));
@@ -297,7 +297,8 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
                               bool lower, bool unitDiagonal,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(a, lower, unitDiagonal));
+
   validateInput(graph, a);
 
   SolveParams params(0, lower, unitDiagonal, 0, {}, nullptr);
@@ -306,8 +307,10 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
   batchShape.resize(batchShape.size() - 2);
   auto batchA = a.rank() >= 3 ? a.flatten(0, batchShape.size()) : a.expand({0});
 
-  return triangle(graph, batchA, params, prog, debugPrefix + "/triangularMask")
-      .reshape(a.shape());
+  auto output = triangle(graph, batchA, params, prog, {di, "triangularMask"})
+                    .reshape(a.shape());
+  di.addOutput(output);
+  return output;
 }
 
 poplar::Tensor triangularSolve(
@@ -315,7 +318,10 @@ poplar::Tensor triangularSolve(
     bool leftSide, bool lower, bool unitDiagonal, std::size_t blockSize,
     poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
     poplar::OptionFlags options, matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(a, b, leftSide, lower, unitDiagonal, blockSize, options, cache));
+
   validateInput(graph, a);
   if (blockSize == 0) {
     throw poputil::poplibs_error("blockSize must be greater than zero");
@@ -384,8 +390,7 @@ poplar::Tensor triangularSolve(
   // how many columns/rows required for B along dimension not bound to A
   long toPadB = paddedSize - bn;
 
-  batchA =
-      triangle(graph, batchA, params, prog, debugPrefix + "/triangularMask");
+  batchA = triangle(graph, batchA, params, prog, {di, "triangularMask"});
   // Ax = B is effectively xAT = BT
   if (!leftSide) {
     batchA = batchA.dimShuffle({0, 2, 1});
@@ -401,13 +406,11 @@ poplar::Tensor triangularSolve(
     auto diagVector = diag(batchA);
     auto diagMatrix = diagVector.expand({2});
     poputil::broadcastToMatch(diagMatrix, batchA.shape());
-    batchA =
-        popops::div(graph, batchA, diagMatrix, prog, debugPrefix + "/scaleA");
+    batchA = popops::div(graph, batchA, diagMatrix, prog, {di, "scaleA"});
     auto diagVectorB =
         diagVector.reshape({totalBatches, an, 1}).broadcast(bn, 2);
     poputil::broadcastToMatch(diagVectorB, batchB.shape());
-    batchB =
-        popops::div(graph, batchB, diagVectorB, prog, debugPrefix + "/scaleB");
+    batchB = popops::div(graph, batchB, diagVectorB, prog, {di, "scaleB"});
   }
 
   if (needPadding) {
@@ -422,36 +425,35 @@ poplar::Tensor triangularSolve(
     //  PB PB PB PB PB
 
     auto paddingRight = graph.addVariable(
-        a.elementType(), {totalBatches, an, (std::size_t)toPad});
+        a.elementType(), {totalBatches, an, (std::size_t)toPad}, {di});
     poputil::mapTensorLinearly(graph, paddingRight);
-    popops::zero(graph, paddingRight, prog, debugPrefix + "/rightZeroPad");
+    popops::zero(graph, paddingRight, prog, {di, "rightZeroPad"});
 
     auto paddingBottom = graph.addVariable(
-        a.elementType(), {totalBatches, (std::size_t)toPad, paddedSize});
+        a.elementType(), {totalBatches, (std::size_t)toPad, paddedSize}, {di});
     poputil::mapTensorLinearly(graph, paddingBottom);
-    popops::zero(graph, paddingBottom, prog, debugPrefix + "/bottomZeroPad");
+    popops::zero(graph, paddingBottom, prog, {di, "bottomZeroPad"});
 
     batchA = poplar::concat(batchA, paddingRight, 2);
     batchA = poplar::concat(batchA, paddingBottom, 1);
 
-    auto tOne =
-        graph.addConstant(a.elementType(), {1}, 1.0f, debugPrefix + "/const:1");
+    auto tOne = graph.addConstant(a.elementType(), {1}, 1.0f, {di, "const:1"});
     graph.setTileMapping(tOne, 0);
 
     auto paddedDiagA = diag(batchA).slice({0, an}, {totalBatches, paddedSize});
     prog.add(poplar::program::Copy(
         tOne.reshape({1, 1, 1}).broadcast(toPad, 1).broadcast(totalBatches, 0),
-        paddedDiagA));
+        paddedDiagA, false, {di}));
 
     batchB = popops::pad(graph, batchB, {0, 0, 0}, {0, toPad, toPadB});
   }
 
-  auto x = graph.addVariable(a.elementType(), batchB.shape());
+  auto x = graph.addVariable(a.elementType(), batchB.shape(), {di});
   poputil::mapTensorLinearly(graph, x);
   popops::zero(graph, x, prog);
   params.x = x;
 
-  solve(graph, batchA, batchB, 0, 0, params, prog, debugPrefix + "/solve");
+  solve(graph, batchA, batchB, 0, 0, params, prog, {di, "solve"});
 
   if (needPadding) {
     // remove padding
@@ -464,7 +466,9 @@ poplar::Tensor triangularSolve(
   }
 
   // restore batch dimensions
-  return x.reshape(b.shape());
+  auto output = x.reshape(b.shape());
+  di.addOutput(output);
+  return output;
 }
 
 } // namespace poplin

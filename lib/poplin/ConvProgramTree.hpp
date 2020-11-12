@@ -18,9 +18,10 @@ struct Plan;
 struct ConvProgramTree {
   struct TransformPreProgram {
     explicit TransformPreProgram(poplar::Graph &graph,
-                                 const std::string &debugPrefix);
+                                 const poplar::DebugNameAndId &dnai);
 
-    void lower(poplar::program::Sequence &prog);
+    void lower(poplar::program::Sequence &prog,
+               const poplar::DebugNameAndId &dnai);
 
     std::vector<poplar::Tensor> writeUndef;
 
@@ -31,9 +32,10 @@ struct ConvProgramTree {
 
   struct TransformPostSerialProgram {
     explicit TransformPostSerialProgram(poplar::Graph &graph,
-                                        const std::string &debugPrefix);
+                                        const poplar::DebugNameAndId &dnai);
 
-    void lower(poplar::program::Sequence &prog);
+    void lower(poplar::program::Sequence &prog,
+               const poplar::DebugNameAndId &dnai);
 
     poplar::ComputeSet castCS;
     std::vector<poplar::program::Copy> copies;
@@ -45,7 +47,8 @@ struct ConvProgramTree {
   struct ComputeSetsGroup {
     ComputeSetsGroup(poplar::ComputeSet convolveCS) : convolveCS(convolveCS) {}
 
-    void lower(poplar::program::Sequence &prog);
+    void lower(poplar::program::Sequence &prog,
+               const poplar::DebugNameAndId &dnai);
 
     // The pre and post will be added by the function creating the vertices
     // if the input requires a cast then a pre compute set is needed
@@ -58,11 +61,12 @@ struct ConvProgramTree {
   };
 
   ConvProgramTree(poplar::Graph &graph, const Plan &plan,
-                  const std::string &debugPrefix);
+                  const poplar::DebugNameAndId &dnai);
 
   // lower the program tree as has been built up into the sequence passed in.
   void lower(poplar::Graph &graph, poplar::program::Sequence &prog,
-             bool insertTransformsCycleCountProgs);
+             bool insertTransformsCycleCountProgs,
+             const poplar::DebugNameAndId &dnai);
 
   // the following shows how the control code structure is after lowering,
   // assuming 2 levels in the hierarchy.

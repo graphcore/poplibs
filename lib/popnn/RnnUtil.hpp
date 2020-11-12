@@ -85,7 +85,8 @@ inline poplar::Tensor tryGroupedPartialTranspose(
 inline poplar::Tensor
 createDynamicSliceTensor(poplar::Graph &graph, poplar::Type dataType,
                          unsigned sequenceLength, unsigned numGrains,
-                         unsigned grainSize, const std::string &name) {
+                         unsigned grainSize,
+                         const poplar::DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto grainsPerTile = (numGrains + numTiles - 1) / numTiles;
@@ -93,9 +94,9 @@ createDynamicSliceTensor(poplar::Graph &graph, poplar::Type dataType,
   const auto grainsOnLastTile = numGrains - (numUsedTiles - 1) * grainsPerTile;
   auto tExcludingLast = graph.addVariable(
       dataType, {numUsedTiles - 1, sequenceLength, grainsPerTile, grainSize},
-      name);
+      {dnai});
   auto tLast = graph.addVariable(
-      dataType, {sequenceLength, grainsOnLastTile, grainSize}, name);
+      dataType, {sequenceLength, grainsOnLastTile, grainSize}, {dnai});
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     unsigned usedTileIndex = tile * numUsedTiles / numTiles;
     if (usedTileIndex != (tile + 1) * numUsedTiles / numTiles) {

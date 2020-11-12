@@ -660,10 +660,11 @@ static void wgdMapWeights(Graph &graph, const WinogradOptions &options,
 }
 
 static Program kernelTransform(Graph &graph, const WgdTilePartition &tp,
-                               const std::string layerName, Tensor weights,
+                               const poplar::DebugNameAndId &dnai,
+                               Tensor weights,
                                std::vector<Tensor> &kTfMapping) {
 
-  ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
+  ComputeSet cs = graph.addComputeSet({dnai, "KernelTrf"});
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
@@ -695,10 +696,11 @@ static Program kernelTransform(Graph &graph, const WgdTilePartition &tp,
         auto numUnits = (tp.zic * tp.zoc + WgdTilePartition::kUnitSize - 1) /
                         WgdTilePartition::kUnitSize;
 
-        Tensor kTf = graph.addVariable(tp.dType,
-                                       {zogThisTile, zigThisTile, tp.patchSizeY,
-                                        tp.patchSizeX, tp.zoc, tp.zic},
-                                       "kernelTf" + std::to_string(tile));
+        Tensor kTf = graph.addVariable(
+            tp.dType,
+            {zogThisTile, zigThisTile, tp.patchSizeY, tp.patchSizeX, tp.zoc,
+             tp.zic},
+            {dnai, std::string("kernelTf") + std::to_string(tile)});
 
         graph.setTileMapping(kTf, tile);
         assert(tile < kTfMapping.size());
@@ -765,13 +767,13 @@ static Program kernelTransform(Graph &graph, const WgdTilePartition &tp,
     }
     numZig -= zigThisTile;
   }
-  return Sequence(Execute(cs));
+  return Sequence(Execute(cs, {dnai}));
 }
 
 static Program kernelTransform(Graph &graph, const WinogradOptions &options,
                                const WgdTilePartition &tp,
-                               const std::string layerName, Tensor weights,
-                               Tensor kernelTf) {
+                               const poplar::DebugNameAndId &dnai,
+                               Tensor weights, Tensor kernelTf) {
   unsigned numUnits = (tp.zi * tp.zo + WgdTilePartition::kUnitSize - 1) /
                       WgdTilePartition::kUnitSize;
   const auto &target = graph.getTarget();
@@ -779,7 +781,7 @@ static Program kernelTransform(Graph &graph, const WinogradOptions &options,
   const unsigned numTiles = options.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
-  ComputeSet cs = graph.addComputeSet(layerName + "/KernelTrf");
+  ComputeSet cs = graph.addComputeSet({dnai, "KernelTrf"});
 
   assert(tp.zic % WgdTilePartition::kUnitSize == 0);
 
@@ -845,7 +847,7 @@ static Program kernelTransform(Graph &graph, const WinogradOptions &options,
       unitsThisTile -= unitsThisVertex;
     }
   }
-  return Sequence(Execute(cs));
+  return Sequence(Execute(cs, {dnai}));
 }
 
 static std::vector<Tensor> allocateKernelTfTensor(Graph &graph,
@@ -867,22 +869,23 @@ static std::vector<Tensor> allocateKernelTfTensor(Graph &graph,
   return kernelTf;
 }
 
-static Program
-computeKernelTransform(Graph &graph, const WinogradOptions &options,
-                       const WgdTilePartition &tp, const std::string layerName,
-                       Tensor weights, std::vector<Tensor> &kernelTf) {
-  return tp.replicateKTf
-             ? kernelTransform(graph, tp, layerName, weights, kernelTf)
-             : kernelTransform(graph, options, tp, layerName, weights,
-                               kernelTf[0]);
+static Program computeKernelTransform(Graph &graph,
+                                      const WinogradOptions &options,
+                                      const WgdTilePartition &tp,
+                                      const poplar::DebugNameAndId &dnai,
+                                      Tensor weights,
+                                      std::vector<Tensor> &kernelTf) {
+  return tp.replicateKTf ? kernelTransform(graph, tp, {dnai}, weights, kernelTf)
+                         : kernelTransform(graph, options, tp, {dnai}, weights,
+                                           kernelTf[0]);
 }
 
 static Program dataTransform(Graph &graph, const WgdTilePartition &tp,
-                             const std::string layerName, Tensor in,
+                             const poplar::DebugNameAndId &dnai, Tensor in,
                              std::vector<Tensor> &dTfMapping) {
 
-  ComputeSet cs = graph.addComputeSet(layerName + "/DataTrf");
-  ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
+  ComputeSet cs = graph.addComputeSet({dnai, "DataTrf"});
+  ComputeSet zCs = graph.addComputeSet({dnai, "Zeros"});
 
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
@@ -910,10 +913,11 @@ static Program dataTransform(Graph &graph, const WgdTilePartition &tp,
         const auto zigS = zigTile * tp.zigPerTile;
         const auto patchS = pTile * tp.patchesPerTile;
 
-        Tensor dTf = graph.addVariable(tp.dType,
-                                       {zigThisTile, patchesThisTile,
-                                        tp.patchSizeY, tp.patchSizeX, tp.zic},
-                                       "WgdDataTf" + std::to_string(tile));
+        Tensor dTf = graph.addVariable(
+            tp.dType,
+            {zigThisTile, patchesThisTile, tp.patchSizeY, tp.patchSizeX,
+             tp.zic},
+            {dnai, std::string("WgdDataTf") + std::to_string(tile)});
         assert(tile < dTfMapping.size());
         dTfMapping[tile] = dTf;
         graph.setTileMapping(dTf, tile);
@@ -966,7 +970,7 @@ static Program dataTransform(Graph &graph, const WgdTilePartition &tp,
             if ((prepadX || prepadY || postpadX || postpadY) &&
                 !zeroTensorCreated) {
               zeroVec = graph.addVariable(
-                  tp.dType, {WgdTilePartition::dUnitSize}, "zero");
+                  tp.dType, {WgdTilePartition::dUnitSize}, {dnai, "zero"});
               graph.setTileMapping(zeroVec, tile);
 
               auto vZ = graph.addVertex(
@@ -1020,12 +1024,12 @@ static Program dataTransform(Graph &graph, const WgdTilePartition &tp,
     }
     numZig -= zigThisTile;
   }
-  return Sequence(Execute(zCs), Execute(cs));
+  return Sequence(Execute(zCs, {dnai}), Execute(cs, {dnai}));
 }
 
 static Program dataTransform(Graph &graph, const WinogradOptions &options,
                              const WgdTilePartition &tp,
-                             const std::string layerName, Tensor in,
+                             const poplar::DebugNameAndId &dnai, Tensor in,
                              Tensor dataTf) {
   unsigned numUnits =
       (tp.zi * tp.getNumPatches() + WgdTilePartition::dUnitSize - 1) /
@@ -1035,8 +1039,8 @@ static Program dataTransform(Graph &graph, const WinogradOptions &options,
   const unsigned numTiles = options.getNumTiles();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
-  ComputeSet dCs = graph.addComputeSet(layerName + "/DataTrf");
-  ComputeSet zCs = graph.addComputeSet(layerName + "/Zeros");
+  ComputeSet dCs = graph.addComputeSet({dnai, "DataTrf"});
+  ComputeSet zCs = graph.addComputeSet({dnai, "Zeros"});
 
   unsigned unitsPerTile = (numUnits + numTiles - 1) / numTiles;
 
@@ -1086,7 +1090,7 @@ static Program dataTransform(Graph &graph, const WinogradOptions &options,
         if ((prepadX || prepadY || postpadX || postpadY) &&
             !zeroTensorCreated) {
           zeroVec = graph.addVariable(tp.dType, {WgdTilePartition::dUnitSize},
-                                      "zero");
+                                      {dnai, "zero"});
           graph.setTileMapping(zeroVec, tile);
 
           auto v =
@@ -1128,7 +1132,7 @@ static Program dataTransform(Graph &graph, const WinogradOptions &options,
       unitsThisTile -= unitsThisVertex;
     }
   }
-  return Sequence(Execute(zCs), Execute(dCs));
+  return Sequence(Execute(zCs, {dnai}), Execute(dCs, {dnai}));
 }
 
 static std::vector<Tensor> allocateDataTfTensor(Graph &graph,
@@ -1154,18 +1158,20 @@ static std::vector<Tensor> allocateDataTfTensor(Graph &graph,
 static Program computeDataTransform(Graph &graph,
                                     const WinogradOptions &options,
                                     const WgdTilePartition &tp,
-                                    const std::string layerName, Tensor prevAct,
+                                    const poplar::DebugNameAndId &dnai,
+                                    Tensor prevAct,
                                     std::vector<Tensor> &dataTf) {
 
   return tp.replicateDTf
-             ? dataTransform(graph, tp, layerName, prevAct, dataTf)
-             : dataTransform(graph, options, tp, layerName, prevAct, dataTf[0]);
+             ? dataTransform(graph, tp, {dnai}, prevAct, dataTf)
+             : dataTransform(graph, options, tp, {dnai}, prevAct, dataTf[0]);
 }
 
 static Program accum(Graph &graph, const WgdTilePartition &tp,
-                     const std::string layerName, std::vector<Tensor> &dataTf,
-                     std::vector<Tensor> &kernelTf, Tensor acc) {
-  ComputeSet cs = graph.addComputeSet(layerName + "/Accum");
+                     const poplar::DebugNameAndId &dnai,
+                     std::vector<Tensor> &dataTf, std::vector<Tensor> &kernelTf,
+                     Tensor acc) {
+  ComputeSet cs = graph.addComputeSet({dnai, "Accum"});
 
   unsigned numZig = tp.zig;
   for (unsigned zigTile = 0; zigTile < tp.tilesForZig; ++zigTile) {
@@ -1269,17 +1275,18 @@ static Program accum(Graph &graph, const WgdTilePartition &tp,
   }
 
   Sequence prog;
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
   return std::move(prog);
 }
 
 static Program reduce(Graph &graph, const WinogradOptions &options,
-                      const WgdTilePartition &tp, const std::string layerName,
-                      Tensor acc, Tensor red) {
+                      const WgdTilePartition &tp,
+                      const poplar::DebugNameAndId &dnai, Tensor acc,
+                      Tensor red) {
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
-  ComputeSet cs = graph.addComputeSet(layerName + "/Reduce");
+  ComputeSet cs = graph.addComputeSet({dnai, "Reduce"});
 
   for (unsigned tile = 0; tile < options.getNumTiles(); ++tile) {
 
@@ -1339,17 +1346,17 @@ static Program reduce(Graph &graph, const WinogradOptions &options,
       totalElems -= elemsThisVertex;
     }
   }
-  return Execute(cs);
+  return Execute(cs, {dnai});
 }
 
 static Program inverseTransform(Graph &graph, const WinogradOptions &options,
                                 const WgdTilePartition &tp,
-                                const std::string layerName, Tensor in,
+                                const poplar::DebugNameAndId &dnai, Tensor in,
                                 Tensor out) {
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
-  ComputeSet cs = graph.addComputeSet(layerName + "/InvTransform");
+  ComputeSet cs = graph.addComputeSet({dnai, "InvTransform"});
 
   for (unsigned tile = 0; tile < options.getNumTiles(); ++tile) {
 
@@ -1427,13 +1434,14 @@ static Program inverseTransform(Graph &graph, const WinogradOptions &options,
       tuplesThisTile -= tuplesThisVertex;
     }
   }
-  return Execute(cs);
+  return Execute(cs, {dnai});
 }
 
 static Program complete(Graph &graph, const WinogradOptions &options,
-                        const WgdTilePartition &tp, const std::string layerName,
-                        Tensor in, Tensor act) {
-  ComputeSet cs = graph.addComputeSet(layerName + "/Complete");
+                        const WgdTilePartition &tp,
+                        const poplar::DebugNameAndId &dnai, Tensor in,
+                        Tensor act) {
+  ComputeSet cs = graph.addComputeSet({dnai, "Complete"});
   const auto &target = graph.getTarget();
   const unsigned numWorkers = target.getNumWorkerContexts();
 
@@ -1525,7 +1533,7 @@ static Program complete(Graph &graph, const WinogradOptions &options,
       totalUnits -= unitsThisVertex;
     }
   }
-  return Execute(cs);
+  return Execute(cs, {dnai});
 }
 
 extern Program winogradConvolution(Graph &graph, const WinogradOptions &options,
@@ -1537,7 +1545,7 @@ extern Program winogradConvolution(Graph &graph, const WinogradOptions &options,
                                    unsigned patchSizeY, const Type &dType,
                                    const Type &partialsType, Tensor in,
                                    Tensor weights, Tensor activations,
-                                   const std::string &debugPrefix) {
+                                   const poplar::DebugNameAndId &dnai) {
 
 #if DEBUG_PRINT >= 1
   std::cout << "xDim: " << xDim << std::endl;
@@ -1576,43 +1584,45 @@ extern Program winogradConvolution(Graph &graph, const WinogradOptions &options,
 
   auto prog = Sequence();
 
-  const auto layerName = debugPrefix + "/WgdConv" +
-                         std::to_string(kernelSizeX) + "x" +
-                         std::to_string(kernelSizeY) + "/Fwd";
+  const auto layerName = std::string("WgdConv") + std::to_string(kernelSizeX) +
+                         "x" + std::to_string(kernelSizeY) + "/Fwd";
 
   wgdMapWeights(graph, options, tp, weights);
 
   std::vector<Tensor> dataTf = allocateDataTfTensor(graph, tp);
-  prog.add(computeDataTransform(graph, options, tp, layerName, in, dataTf));
+  prog.add(
+      computeDataTransform(graph, options, tp, {dnai, layerName}, in, dataTf));
 
   std::vector<Tensor> kernelTf = allocateKernelTfTensor(graph, tp);
-  prog.add(
-      computeKernelTransform(graph, options, tp, layerName, weights, kernelTf));
+  prog.add(computeKernelTransform(graph, options, tp, {dnai, layerName},
+                                  weights, kernelTf));
 
   /* accumulate across tiles */
   Tensor accumTen =
       graph.addVariable(partialsType,
                         {tp.zog, tp.tilesForZig, tp.getNumPatches(), patchSizeY,
                          patchSizeX, tp.zoc},
-                        "WgdAccumulate");
+                        {dnai, "WgdAccumulate"});
 
-  prog.add(accum(graph, tp, layerName, dataTf, kernelTf, accumTen));
+  prog.add(accum(graph, tp, {dnai, layerName}, dataTf, kernelTf, accumTen));
 
   Tensor invTfIn = graph.addVariable(
       dType, {tp.zog, tp.getNumPatches(), patchSizeY, patchSizeX, tp.zoc},
-      "WgdInvTrfIn");
+      {dnai, "WgdInvTrfIn"});
 
-  prog.add(reduce(graph, options, tp, layerName, accumTen, invTfIn));
+  prog.add(reduce(graph, options, tp, {dnai, layerName}, accumTen, invTfIn));
 
   Tensor invTfOut = graph.addVariable(dType,
                                       {tp.zog, tp.getNumPatches(),
                                        tp.getNumOutputsPerPatchY(),
                                        tp.getNumOutputsPerPatchX(), tp.zoc},
-                                      "WgdInvTrfOut");
+                                      {dnai, "WgdInvTrfOut"});
 
-  prog.add(inverseTransform(graph, options, tp, layerName, invTfIn, invTfOut));
+  prog.add(inverseTransform(graph, options, tp, {dnai, layerName}, invTfIn,
+                            invTfOut));
 
-  prog.add(complete(graph, options, tp, layerName, invTfOut, activations));
+  prog.add(
+      complete(graph, options, tp, {dnai, layerName}, invTfOut, activations));
 
   return std::move(prog);
 }
@@ -1622,7 +1632,7 @@ Program winogradConvolution(Graph &graph, const WinogradParams &params,
                             const Tensor &weights, const Tensor &out,
                             unsigned patchSizeX, unsigned patchSizeY,
                             const Type &partialsType,
-                            const std::string &debugPrefix) {
+                            const poplar::DebugNameAndId &dnai) {
   Sequence prog;
   const auto batchSize = in.dim(0);
   const auto dType = in.elementType();
@@ -1632,7 +1642,7 @@ Program winogradConvolution(Graph &graph, const WinogradParams &params,
         graph, options, params.outputTransformStride,
         params.inputTransformPaddingLower, params.inputTransformPaddingUpper,
         in.dim(3), in.dim(2), out.dim(1) * out.dim(4), patchSizeX, patchSizeY,
-        dType, partialsType, in[b], weights, out[b], debugPrefix));
+        dType, partialsType, in[b], weights, out[b], {dnai}));
   }
   return std::move(prog);
 }

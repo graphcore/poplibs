@@ -35,7 +35,7 @@ winogradConvolution(poplar::Graph &graph, const WinogradParams &params,
                     const poplar::Tensor &weights, const poplar::Tensor &out,
                     unsigned patchSizeX, unsigned patchSizeY,
                     const poplar::Type &partialsType,
-                    const std::string &debugPrefix = "");
+                    const poplar::DebugNameAndId &dnai = {});
 } // namespace poplin
 
 #endif //__Winograd_hpp__

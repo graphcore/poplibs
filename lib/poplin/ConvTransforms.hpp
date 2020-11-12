@@ -17,7 +17,7 @@ bool expandDimTransformIsViewOnly(const ConvParams &params, unsigned dim);
 void expandSpatialDim(ConvParams &params, unsigned dim, poplar::Graph &graph,
                       boost::optional<poplar::Tensor> &acts,
                       boost::optional<poplar::Tensor> &weights,
-                      const std::string &debugPrefix);
+                      const poplar::DebugNameAndId &dnai);
 
 void expandSpatialDim(ConvParams &params, unsigned dim);
 
@@ -28,7 +28,7 @@ void expandSpatialDims(ConvParams &params, Plan &plan, unsigned level,
                        ConvProgramTree::TransformPreProgram *rearrangeProg,
                        bool rearrangeActs = false,
                        bool rearrangeWeights = false,
-                       const std::string &debugPrefix = "");
+                       const poplar::DebugNameAndId &dnai = {});
 
 poplar::Tensor flattenDims(poplar::Tensor t, unsigned from, unsigned to);
 
@@ -41,7 +41,7 @@ void doFlatten(const std::vector<unsigned> &dimsToFlatten,
 
 poplar::Tensor dilate(poplar::Graph &graph, const poplar::Tensor &t,
                       unsigned dilationFactor, unsigned dim,
-                      const std::string &debugPrefix);
+                      const poplar::DebugNameAndId &dnai);
 
 poplar::Tensor dilateWithNearestNeighbour(const poplar::Tensor &t,
                                           unsigned dilationFactor,

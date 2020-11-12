@@ -131,14 +131,14 @@ const std::vector<BasicGruCellUnit> getDefaultBasicGruCellOrder() {
 
 static Tensor createOutputTensor(Graph &graph, const GruParams &params,
                                  unsigned sequenceLength,
-                                 const std::string &name) {
+                                 const poplar::DebugNameAndId &dnai) {
   const auto outputSize = params.layerSizes[1];
   const auto batchSize = params.batchSize;
   const auto outputGrouping = gcd(16UL, outputSize);
   const auto numGroups = (outputSize * batchSize) / outputGrouping;
   auto output =
       createDynamicSliceTensor(graph, params.dataType, sequenceLength,
-                               numGroups, outputGrouping, name)
+                               numGroups, outputGrouping, {dnai})
           .reshapePartial(1, 2, {outputSize / outputGrouping, batchSize})
           .dimRoll(1, 2)
           .flatten(2, 4);

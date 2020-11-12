@@ -19,7 +19,7 @@ void calcPartialConvOutput(poplar::Graph &graph, const Plan &plan,
                            ConvProgramTree::ComputeSetsGroup &convolveCS,
                            poplar::Tensor in, poplar::Tensor weights,
                            poplar::Tensor out, bool use128BitConvUnitLoad,
-                           const std::string &debugPrefix);
+                           const poplar::DebugNameAndId &dnai);
 
 void createConvPartialSlicVertex(
     poplar::Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
@@ -30,6 +30,6 @@ void createConvPartialSlicVertex(
     std::map<poplar::Type, std::pair<std::vector<poplar::Tensor>,
                                      std::vector<poplar::Tensor>>> &postProg,
     poplar::Tensor in, poplar::Tensor weights, poplar::Tensor out,
-    const std::string &debugPrefix);
+    const poplar::DebugNameAndId &dnai);
 
 } // namespace poplin

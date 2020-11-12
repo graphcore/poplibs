@@ -4,12 +4,61 @@
 #include "poplibs_support/StructHelper.hpp"
 #include "poplibs_support/print.hpp"
 #include "poplin/ConvUtil.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 #include <algorithm>
 #include <boost/functional/hash.hpp>
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <unordered_map>
+
+namespace poputil {
+
+template <>
+poplar::ProfileValue
+toProfileValue(const poplin::ConvParams::InputTransform &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"truncationLower", toProfileValue(t.truncationLower)});
+  v.insert({"truncationUpper", toProfileValue(t.truncationUpper)});
+  v.insert({"dilation", toProfileValue(t.dilation)});
+  v.insert({"paddingLower", toProfileValue(t.paddingLower)});
+  v.insert({"paddingUpper", toProfileValue(t.paddingUpper)});
+  v.insert({"flip", toProfileValue(t.flip)});
+
+  return v;
+}
+
+template <>
+poplar::ProfileValue
+toProfileValue(const poplin::ConvParams::OutputTransform &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"truncationLower", toProfileValue(t.truncationLower)});
+  v.insert({"truncationUpper", toProfileValue(t.truncationUpper)});
+  v.insert({"stride", toProfileValue(t.stride)});
+  v.insert({"paddingLower", toProfileValue(t.paddingLower)});
+  v.insert({"paddingUpper", toProfileValue(t.paddingUpper)});
+  return v;
+}
+
+template <> poplar::ProfileValue toProfileValue(const poplin::ConvParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"inputType", toProfileValue(t.inputType)});
+  v.insert({"outputType", toProfileValue(t.outputType)});
+  v.insert({"batchSize", toProfileValue(t.batchSize)});
+  v.insert({"inputFieldShape", toProfileValue(t.inputFieldShape)});
+  v.insert({"kernelShape", toProfileValue(t.kernelShape)});
+  v.insert({"inputChannelsPerConvGroup",
+            toProfileValue(t.inputChannelsPerConvGroup)});
+  v.insert({"outputChannelsPerConvGroup",
+            toProfileValue(t.outputChannelsPerConvGroup)});
+  v.insert({"numConvGroups", toProfileValue(t.numConvGroups)});
+  v.insert({"inputTransform", toProfileValue(t.inputTransform)});
+  v.insert({"kernelTransform", toProfileValue(t.kernelTransform)});
+  v.insert({"outputTransform", toProfileValue(t.outputTransform)});
+
+  return v;
+}
+} // namespace poputil
 
 namespace poplin {
 
