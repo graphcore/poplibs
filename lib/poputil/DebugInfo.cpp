@@ -59,6 +59,10 @@ template <> poplar::ProfileValue toProfileValue(const int &t) {
   return poplar::ProfileValue(t);
 }
 
+template <> poplar::ProfileValue toProfileValue(const double &t) {
+  return poplar::ProfileValue(t);
+}
+
 template <> poplar::ProfileValue toProfileValue(const unsigned int &t) {
   return poplar::ProfileValue(t);
 }

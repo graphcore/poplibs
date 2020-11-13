@@ -34,10 +34,9 @@ template <typename T> poplar::ProfileValue toProfileValue(const T &t);
 template <> poplar::ProfileValue toProfileValue(const int &v);
 template <> poplar::ProfileValue toProfileValue(const unsigned int &v);
 template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
-template <> poplar::ProfileValue toProfileValue(const int &v);
 template <> poplar::ProfileValue toProfileValue(const bool &v);
 template <> poplar::ProfileValue toProfileValue(const float &v);
-template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
+template <> poplar::ProfileValue toProfileValue(const double &v);
 
 // template specializations for Poplar types
 template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t);
