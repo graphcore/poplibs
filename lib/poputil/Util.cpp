@@ -329,21 +329,29 @@ std::vector<int> balancedPartition(int rangeUpperBound, int splitCount) {
   return result;
 }
 
+// Convert a double precision value to a device half value
+double castToDeviceHalfValue(const poplar::Target &target, double input) {
+  const float inputAsFloat = static_cast<float>(input);
+  std::vector<char> inputAsDeviceHalf(target.getTypeSize(poplar::HALF));
+  poplar::copyFloatToDeviceHalf(target, &inputAsFloat, &inputAsDeviceHalf[0],
+                                1);
+  float inputAsHalf;
+  poplar::copyDeviceHalfToFloat(target, &inputAsDeviceHalf[0], &inputAsHalf, 1);
+  return inputAsHalf;
+}
+
 // Utility function to check if value can be cast without error in its accuracy,
 // or overflow
 bool checkAccuracyWhenCast(const poplar::Target &target, double input,
                            poplar::Type inputType, poplar::Type outputType,
                            double tolerance) {
   if (inputType == poplar::FLOAT && outputType == poplar::HALF) {
-    const float inputFloat = static_cast<float>(input);
+    const float inputAsFloat = static_cast<float>(input);
+    const auto inputAsHalf = castToDeviceHalfValue(target, inputAsFloat);
     // Otherwise check the error of the value cast to a half
     // and back to float, checking threlative error
-    std::vector<char> inputHalf(target.getTypeSize(poplar::HALF));
-    poplar::copyFloatToDeviceHalf(target, &inputFloat, &inputHalf[0], 1);
-    float inputHalfFloat;
-    poplar::copyDeviceHalfToFloat(target, &inputHalf[0], &inputHalfFloat, 1);
-    return (std::fabs(inputFloat) * tolerance >
-            std::fabs(inputHalfFloat - inputFloat));
+    return (std::fabs(inputAsFloat) * tolerance >
+            std::fabs(inputAsHalf - inputAsFloat));
   } else if (inputType == poplar::HALF && outputType == poplar::FLOAT) {
     return true;
   } else {

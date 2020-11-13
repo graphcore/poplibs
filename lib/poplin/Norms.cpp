@@ -314,9 +314,18 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
   // TODO: T12898 Research what the optimal split would be dependent on model
   // and field size.
   const auto scaleSplit = 3.0f / 4;
-  const float rScale1 = std::pow(rScale, scaleSplit);
-  const float rScale2 = rScale / rScale1;
+  float rScale1 = std::pow(rScale, scaleSplit);
+  float rScale2 = rScale / rScale1;
+  const auto dType = actsWhitened.elementType();
 
+  // If type is half, ensure that rScale2 is exactly representable in device
+  // HALF type so that the fastest codelet is picked up when rScale2 is used
+  // in the scaledAddTo below.
+  if (dType == HALF) {
+    rScale2 = castToDeviceHalfValue(graph.getTarget(), rScale2);
+    // re-evaluate to get better combined precision
+    rScale1 = rScale / rScale2;
+  }
   Tensor varDelta, meanDelta;
   // See Description of Re{} operator in normParamGradients
   // varDelta = Re{actsWhitened .* gradsIn} * -rScale

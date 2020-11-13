@@ -136,6 +136,15 @@ cloneN(poplar::Graph &graph, const poplar::Tensor &t, unsigned N,
  */
 std::vector<int> balancedPartition(int rangeUpperBound, int splitCount);
 
+/** Cast a double precision value to a value exactly representable in device
+ *  HALF type.
+ *
+ * \param target        The target device that the cast will be performed on.
+ * \param input         Input value.
+ * \return              Value cast to HALF type on device.
+ */
+double castToDeviceHalfValue(const poplar::Target &target, double input);
+
 /** Check accuracy of a cast operation.
  * Utility function to check if \p input can be cast from \p inputType to
  * \p outputType without an error in its accuracy, or causing an overflow.
