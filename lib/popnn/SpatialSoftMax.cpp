@@ -5,7 +5,9 @@
 #include <poplin/MeshGrid.hpp>
 #include <popnn/SpatialSoftMax.hpp>
 #include <popops/ElementWise.hpp>
+#include <poputil/DebugInfo.hpp>
 
+using namespace poputil;
 namespace popnn {
 
 std::pair<poplar::Tensor, poplar::Tensor>
@@ -13,7 +15,9 @@ spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
                  const poplar::Tensor &fields, float initialTemperature,
                  bool disableSoftmax,
                  const poplar::DebugContext &debugContext) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(fields, disableSoftmax, initialTemperature));
+
   if (fields.rank() != 3) {
     throw poplar::poplar_error("In spatialSoftMax2D "
                                "fields tensor must have rank 3");
@@ -21,30 +25,29 @@ spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
 
   // Add new variables:
   const poplar::Type type = fields.elementType();
-  auto temperature = graph.addVariable(type, {}, name + "/temperature");
+  auto temperature = graph.addVariable(type, {}, {di, "temperature"});
   graph.setInitialValue(temperature, initialTemperature);
   graph.setTileMapping(temperature, 0);
-  auto one = graph.addConstant(type, {}, 1.f, name + "/one");
+  auto one = graph.addConstant(type, {}, 1.f, {di, "one"});
   graph.setTileMapping(one, 0);
 
   // Do a scalar divide and then multiply by the scale factor:
-  auto scale =
-      popops::div(graph, one, temperature, prog, name + "/scale_factor");
+  auto scale = popops::div(graph, one, temperature, prog, {di, "scale_factor"});
   auto fieldsScaled =
-      popops::mul(graph, fields, scale, prog, name + "/fields_scaled");
+      popops::mul(graph, fields, scale, prog, {di, "fields_scaled"});
 
   // Perform softmax (if enabled) over all inputs jointly (flattened):
   auto fieldsSoftMaxFlat = fieldsScaled.flatten();
   if (!disableSoftmax) {
     nonLinearity(graph, popnn::NonLinearityType::SOFTMAX, fieldsSoftMaxFlat,
-                 prog, name + "/softmax");
+                 prog, {di, "softmax"});
   }
 
   // Add variables for the axes coordinates and grid them:
   const auto width = fields.dim(2);
   const auto height = fields.dim(1);
-  auto xCoords = poplin::linspace(graph, type, -1.f, 1.f, width, name);
-  auto yCoords = poplin::linspace(graph, type, -1.f, 1.f, height, name);
+  auto xCoords = poplin::linspace(graph, type, -1.f, 1.f, width, {di});
+  auto yCoords = poplin::linspace(graph, type, -1.f, 1.f, height, {di});
   auto grids = poplin::meshgrid2d(graph, xCoords, yCoords);
   poplar::Tensor &xGrid = grids.at(0);
   poplar::Tensor &yGrid = grids.at(1);
@@ -80,14 +83,20 @@ spatialSoftMax2D(poplar::Graph &graph, poplar::program::Sequence &prog,
   // and then copy the lhs data and set the tile mapping for the rhs (as it is
   // a view on a constant):
   auto l = poplin::createMatMulInputLHS(graph, type, lhsShape, rhsShape,
-                                        name + "/lhs");
+                                        {di, "lhs"});
   auto r = poplin::createMatMulInputRHS(graph, type, lhsShape, rhsShape,
-                                        name + "/rhs");
-  prog.add(poplar::program::Copy(lhs, l));
-  prog.add(poplar::program::Copy(rhs, r));
+                                        {di, "rhs"});
+  prog.add(poplar::program::Copy(lhs, l, false, {di}));
+  prog.add(poplar::program::Copy(rhs, r, false, {di}));
 
   // Return the matrix multiply result variable and the temperature variable:
-  return {poplin::matMul(graph, l, r, prog, name + "/mat_mul"), temperature};
+  std::pair<poplar::Tensor, poplar::Tensor> outputs = {
+      poplin::matMul(graph, l, r, prog, {di, "mat_mul"}), temperature};
+
+  di.addOutputs({{"result", toProfileValue(outputs.first)},
+                 {"temperature", toProfileValue(outputs.second)}});
+
+  return outputs;
 }
 
 } // end namespace popnn

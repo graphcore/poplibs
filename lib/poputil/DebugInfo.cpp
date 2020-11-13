@@ -20,24 +20,27 @@ template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t) {
 }
 
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t) {
-  poplar::ProfileValue::Map v;
+  if (t.valid()) {
+    poplar::ProfileValue::Map v;
+    std::stringstream ss;
+    ss << "[";
+    const auto &shape = t.shape();
+    for (size_t i = 0; i < shape.size(); ++i) {
 
-  std::stringstream ss;
-  ss << "[";
-  const auto &shape = t.shape();
-  for (size_t i = 0; i < shape.size(); ++i) {
+      if (i != 0) {
+        ss << ", ";
+      }
 
-    if (i != 0) {
-      ss << ", ";
+      ss << shape[i];
     }
+    ss << "]";
 
-    ss << shape[i];
+    v.insert({"shape", poplar::ProfileValue(ss.str())});
+    v.insert({"type", poplar::ProfileValue(t.elementType().toString())});
+    return v;
+  } else {
+    return poplar::ProfileValue("<poplar::Tensor> - uninitialized");
   }
-  ss << "]";
-
-  v.insert({"shape", poplar::ProfileValue(ss.str())});
-  v.insert({"type", poplar::ProfileValue(t.elementType().toString())});
-  return v;
 }
 
 template <> poplar::ProfileValue toProfileValue(const poplar::Type &t) {
@@ -49,6 +52,10 @@ template <> poplar::ProfileValue toProfileValue(const bool &t) {
 }
 
 template <> poplar::ProfileValue toProfileValue(const float &t) {
+  return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const int &t) {
   return poplar::ProfileValue(t);
 }
 

@@ -4,6 +4,7 @@
 
 #include "RnnUtil.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poputil/DebugInfo.hpp"
 
 using namespace poplar;
 using namespace poplar::program;
@@ -14,6 +15,49 @@ using namespace popnn::Rnn;
 using namespace popops;
 using namespace popops::expr;
 using namespace poputil;
+
+namespace poputil {
+
+template <> poplar::ProfileValue toProfileValue(const BasicGruCellUnit &t) {
+  switch (t) {
+  case BASIC_GRU_CELL_RESET_GATE:
+    return poplar::ProfileValue("BASIC_GRU_CELL_RESET_GATE");
+  case BASIC_GRU_CELL_UPDATE_GATE:
+    return poplar::ProfileValue("BASIC_GRU_CELL_UPDATE_GATE");
+  case BASIC_GRU_CELL_CANDIDATE:
+    return poplar::ProfileValue("BASIC_GRU_CELL_CANDIDATE");
+  case BASIC_GRU_CELL_NUM_UNITS:
+    return poplar::ProfileValue("BASIC_GRU_CELL_NUM_UNITS");
+  default:
+    return poplar::ProfileValue("<UNKNOWN>");
+  }
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popnn::gru::GruWeights &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"inputWeights", toProfileValue(t.inputWeights)});
+  v.insert({"outputWeights", toProfileValue(t.outputWeights)});
+  v.insert({"biases", toProfileValue(t.biases)});
+  return v;
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popnn::gru::GruParams &t) {
+  poplar::ProfileValue::Map v;
+  poplar::Type dataType;
+  v.insert({"batchSize", toProfileValue(t.batchSize)});
+  v.insert({"timeSteps", toProfileValue(t.timeSteps)});
+  v.insert({"layerSizes", toProfileValue(t.layerSizes)});
+  v.insert({"outputFullSequence", toProfileValue(t.outputFullSequence)});
+  v.insert({"calcInputGradients", toProfileValue(t.calcInputGradients)});
+
+  v.insert({"cellOrder", toProfileValue(t.cellOrder)});
+  // std::vector<BasicGruCellUnit> cellOrder = getDefaultBasicGruCellOrder();
+  v.insert({"resetAfter", toProfileValue(t.resetAfter)});
+  return v;
+}
+} // namespace poputil
 
 // Utility macro to print out tensor
 // debug_tensor is only defined when "DEBUG_TENSOR" is defined
@@ -59,13 +103,13 @@ static Tensor basicGruUnitsNlInput(Graph &graph, Tensor prevAct,
                                    Tensor weightsInput, Tensor weightsOutput,
                                    Sequence &prog, OptionFlags &mmOpt,
                                    matmul::PlanningCache *cache,
-                                   const std::string &debugStr) {
+                                   const DebugNameAndId &dnai) {
   assert(weightsInput.dim(0) == num_unit);
   assert(weightsOutput.dim(0) == num_unit);
   auto weights = concat(weightsInput, weightsOutput, 1);
   return unflattenUnits(matMul(graph, concat(prevAct, prevOutput, 1),
-                               flattenUnits(weights), prog,
-                               debugStr + "/Weight", mmOpt, cache),
+                               flattenUnits(weights), prog, {dnai, "Weight"},
+                               mmOpt, cache),
                         num_unit);
 }
 
@@ -149,7 +193,10 @@ Tensor createInput(Graph &graph, const GruParams &params,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options,
                    poplin::matmul::PlanningCache *planningCache) {
-  const auto name = debugContext.getPathName();
+
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(params, options, planningCache));
+
   validateParams(params);
 
   auto inputSize = params.layerSizes[0];
@@ -157,23 +204,30 @@ Tensor createInput(Graph &graph, const GruParams &params,
   const auto inputGrouping = gcd(16UL, inputSize);
   const auto numInputGroups = (inputSize * batchSize) / inputGrouping;
   auto in = createDynamicSliceTensor(graph, params.dataType, params.timeSteps,
-                                     numInputGroups, inputGrouping, name);
-  return in.reshapePartial(1, 2, {inputSize / inputGrouping, batchSize})
-      .dimRoll(1, 2)
-      .flatten(2, 4);
+                                     numInputGroups, inputGrouping, {di});
+  auto output = in.reshapePartial(1, 2, {inputSize / inputGrouping, batchSize})
+                    .dimRoll(1, 2)
+                    .flatten(2, 4);
+
+  di.addOutput(output);
+  return output;
 }
 
 Tensor createInitialState(Graph &graph, const GruParams &params,
                           const poplar::DebugContext &debugContext,
                           const OptionFlags &options,
                           matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  return createOutputTensor(graph, params, 1, "/initialOutput").squeeze({0});
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
+  auto output =
+      createOutputTensor(graph, params, 1, {di, "initialOutput"}).squeeze({0});
+  di.addOutput(output);
+  return output;
 }
 
 void zeroInitialState(Graph &graph, const Tensor &init_output, Sequence &prog,
-                      const std::string &debugPrefix) {
-  zero(graph, init_output, prog, debugPrefix);
+                      const DebugNameAndId &dnai) {
+  zero(graph, init_output, prog, {dnai});
 }
 
 // the outermost dimension of the weights and bias tensors is the gate that
@@ -243,7 +297,8 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options,
                     poplin::matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
   validateParams(params);
   auto opt = parseOptions(options);
   auto mmOpt = getMMOpts(opt);
@@ -257,11 +312,11 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
   if (params.resetAfter) {
     auto weights_in = createMatMulInputRHS(
         graph, params.dataType, {params.batchSize, inputSize},
-        {inputSize, BASIC_GRU_CELL_NUM_UNITS * outputSize}, name + "/weights",
+        {inputSize, BASIC_GRU_CELL_NUM_UNITS * outputSize}, {di, "weights"},
         mmOpt, cache);
     auto weights_out = createMatMulInputRHS(
         graph, params.dataType, {params.batchSize, outputSize},
-        {outputSize, BASIC_GRU_CELL_NUM_UNITS * outputSize}, name + "/weights",
+        {outputSize, BASIC_GRU_CELL_NUM_UNITS * outputSize}, {di, "weights"},
         mmOpt, cache);
 
     inputWeights = unflattenUnits(weights_in, BASIC_GRU_CELL_NUM_UNITS);
@@ -269,7 +324,7 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
   } else {
     auto weights_ru = createMatMulInputRHS(
         graph, params.dataType, {params.batchSize, inputSize + outputSize},
-        {inputSize + outputSize, 2 * outputSize}, name + "/weights", mmOpt,
+        {inputSize + outputSize, 2 * outputSize}, {di, "weights"}, mmOpt,
         cache);
     poplar::Tensor inputWeights_ru =
         unflattenUnits(weights_ru.slice(0, inputSize), 2);
@@ -278,7 +333,7 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
 
     auto weights_c = createMatMulInputRHS(
         graph, params.dataType, {params.batchSize, inputSize + outputSize},
-        {inputSize + outputSize, outputSize}, name + "/weights", mmOpt, cache);
+        {inputSize + outputSize, outputSize}, {di, "weights"}, mmOpt, cache);
     poplar::Tensor inputWeights_c =
         unflattenUnits(weights_c.slice(0, inputSize), 1);
     poplar::Tensor outputWeights_c =
@@ -288,61 +343,74 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
     outputWeights = concat(outputWeights_ru, outputWeights_c);
   }
   // rearrange the outermost dimension according to the cellOrder parameter.
-  return {toCellOrder(std::move(inputWeights), params.cellOrder),
-          toCellOrder(std::move(outputWeights), params.cellOrder)};
+  std::pair<poplar::Tensor, poplar::Tensor> outputs = {
+      toCellOrder(std::move(inputWeights), params.cellOrder),
+      toCellOrder(std::move(outputWeights), params.cellOrder)};
+  di.addOutputs({{"inputWeights", toProfileValue(outputs.first)},
+                 {"outputWeights", toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /** Create the weights biases.
  */
-poplar::Tensor createWeightsBiases(poplar::Graph &graph,
-                                   const GruParams &params,
-                                   const poplar::DebugContext &debugContext,
-                                   const OptionFlags &,
-                                   poplin::matmul::PlanningCache *) {
-  const auto name = debugContext.getPathName();
+poplar::Tensor
+createWeightsBiases(poplar::Graph &graph, const GruParams &params,
+                    const poplar::DebugContext &debugContext,
+                    const OptionFlags &options,
+                    poplin::matmul::PlanningCache *planningCache) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(params, options, planningCache));
+
   validateParams(params);
   auto outputSize = params.layerSizes[1];
   Tensor biases;
   if (params.resetAfter) {
     biases = graph.addVariable(params.dataType,
                                {BASIC_GRU_CELL_NUM_UNITS, 2, outputSize},
-                               name + "/biases");
+                               {di, "biases"});
   } else {
     biases = graph.addVariable(params.dataType,
                                {BASIC_GRU_CELL_NUM_UNITS, outputSize},
-                               name + "/biases");
+                               {di, "biases"});
   }
   mapTensorLinearly(graph, biases);
-  return toCellOrder(biases, params.cellOrder);
+  auto output = toCellOrder(biases, params.cellOrder);
+  di.addOutput(output);
+  return output;
 }
 
 GruWeights createWeights(Graph &graph, const GruParams &params,
                          const poplar::DebugContext &debugContext,
                          const OptionFlags &options,
                          poplin::matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
-  GruWeights GruWeights;
-  std::tie(GruWeights.inputWeights, GruWeights.outputWeights) =
-      createWeightsKernel(graph, params, name, options, cache);
-  GruWeights.biases = createWeightsBiases(graph, params, name, options, cache);
-  return GruWeights;
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
+  GruWeights gruWeights;
+  std::tie(gruWeights.inputWeights, gruWeights.outputWeights) =
+      createWeightsKernel(graph, params, {di}, options, cache);
+  gruWeights.biases = createWeightsBiases(graph, params, {di}, options, cache);
+  di.addOutputs(DI_ARGS(gruWeights));
+  return gruWeights;
 }
 
 Tensor createAttention(Graph &graph, const GruParams &params,
                        const poplar::DebugContext &debugContext) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params));
+
   validateParams(params);
 
-  return createSliceableTensor(graph, params.dataType,
-                               {params.batchSize, params.timeSteps}, {1}, {1},
-                               0, name);
+  auto output = createSliceableTensor(graph, params.dataType,
+                                      {params.batchSize, params.timeSteps}, {1},
+                                      {1}, 0, {di});
+  di.addOutput(output);
+  return output;
 }
 
 static Tensor rearrangeUnitsOutputFwd(Graph &graph, int num_unit,
                                       Tensor outputUnits,
                                       Tensor outputUnitsRearranged,
                                       Sequence &prog,
-                                      const std::string &debugPrefix) {
+                                      const DebugNameAndId &dnai) {
   const auto outputGrouping =
       detectInnermostGrouping(graph, outputUnitsRearranged);
   // Typically the matrix multiplication result is laid out in memory such
@@ -351,7 +419,7 @@ static Tensor rearrangeUnitsOutputFwd(Graph &graph, int num_unit,
   // specified number of outputs.
   return unflattenUnits(
       tryGroupedPartialTranspose(graph, flattenUnits(outputUnits),
-                                 outputGrouping, prog, debugPrefix),
+                                 outputGrouping, prog, {dnai}),
       num_unit);
 }
 
@@ -359,7 +427,7 @@ static void gruCellForwardPassCalcUnits(
     Graph &graph, bool forCandidate, const Tensor &in, const Tensor &prevOutput,
     const Tensor &biases, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const GruOpts &opt,
-    const Tensor &unitsOutputRearranged, const std::string &baseStr,
+    const Tensor &unitsOutputRearranged, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache) {
   const unsigned outputSize = prevOutput.dim(1);
   const unsigned batchSize = prevOutput.dim(0);
@@ -386,7 +454,7 @@ static void gruCellForwardPassCalcUnits(
   const auto dType = in.elementType();
 
   auto bBiases =
-      graph.addVariable(dType, {0, batchSize, outputSize}, "bbiases");
+      graph.addVariable(dType, {0, batchSize, outputSize}, {dnai, "bbiases"});
   if (forCandidate) {
     auto unitBias =
         biases[2].broadcast(batchSize, 0).reshape({batchSize, outputSize});
@@ -404,14 +472,14 @@ static void gruCellForwardPassCalcUnits(
             opt.inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD");
   Tensor unitsOutput = basicGruUnitsNlInput(
       graph, in, prevOutput, numUnit, *weightsInput, weightsOutput, prog, mmOpt,
-      cache, baseStr + "/ProcessUnits");
+      cache, {dnai, "ProcessUnits"});
 
   // Rearrange the output of the matrix multiplication so each output unit
   // arranged the same as the cell state. This avoids the rearrangement
   // during the subsequent binary operations.
   {
     auto out = rearrangeUnitsOutputFwd(graph, numUnit, unitsOutput,
-                                       unitsOutputRearranged, prog, baseStr);
+                                       unitsOutputRearranged, prog, {dnai});
     prog.add(Copy(out, unitsOutputRearranged));
   }
 
@@ -419,20 +487,20 @@ static void gruCellForwardPassCalcUnits(
     graph.setTileMapping(biases[u],
                          graph.getTileMapping(unitsOutputRearranged[u][0]));
   }
-  addInPlace(graph, unitsOutputRearranged, bBiases, prog, baseStr + "/AddBias");
+  addInPlace(graph, unitsOutputRearranged, bBiases, prog, {dnai, "AddBias"});
 
   // Apply non linear function
-  auto cs = graph.addComputeSet(baseStr + "/non-linear");
+  auto cs = graph.addComputeSet({dnai, "non-linear"});
 
   if (forCandidate) {
     nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
-                        unitsOutputRearranged, cs, baseStr + "Candidate Tanh");
+                        unitsOutputRearranged, cs, {dnai, "Candidate Tanh"});
   } else {
     nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID,
                         unitsOutputRearranged, cs,
-                        baseStr + "update/reset sigmod");
+                        {dnai, "update/reset sigmod"});
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 }
 
 static void gruCellForwardPassCalcUnitsResetAfter(
@@ -440,7 +508,7 @@ static void gruCellForwardPassCalcUnitsResetAfter(
     const Tensor &biases, const Tensor *weightsInput,
     const Tensor &weightsOutput, Tensor *candidateRecurrant, Sequence &prog,
     const GruOpts &opt, const Tensor &unitsOutputRearranged,
-    const std::string &baseStr, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   const unsigned outputSize = prevOutput.dim(1);
   const unsigned batchSize = prevOutput.dim(0);
 
@@ -460,9 +528,9 @@ static void gruCellForwardPassCalcUnitsResetAfter(
   const auto dType = in.elementType();
 
   auto bBiases =
-      graph.addVariable(dType, {0, batchSize, outputSize}, "bbiases");
-  auto bRecurrantBiases =
-      graph.addVariable(dType, {0, batchSize, outputSize}, "brecurrentbiases");
+      graph.addVariable(dType, {0, batchSize, outputSize}, {dnai, "bbiases"});
+  auto bRecurrantBiases = graph.addVariable(dType, {0, batchSize, outputSize},
+                                            {dnai, "brecurrentbiases"});
   for (unsigned u = 0; u != BASIC_GRU_CELL_NUM_UNITS; ++u) {
     auto unitBias =
         biases[u][0].broadcast(batchSize, 0).reshape({batchSize, outputSize});
@@ -478,11 +546,11 @@ static void gruCellForwardPassCalcUnitsResetAfter(
 
   auto unitsOutput =
       unflattenUnits(matMul(graph, in, flattenUnits(*weightsInput), prog,
-                            baseStr + "/Weights", mmOpt, cache),
+                            {dnai, "Weights"}, mmOpt, cache),
                      BASIC_GRU_CELL_NUM_UNITS);
   auto recurrantUnitsOutput =
       unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
-                            prog, baseStr + "/Weights", mmOpt, cache),
+                            prog, {dnai, "Weights"}, mmOpt, cache),
                      BASIC_GRU_CELL_NUM_UNITS);
   auto unitsOutputAll = concat(unitsOutput, recurrantUnitsOutput, 2);
 
@@ -494,7 +562,7 @@ static void gruCellForwardPassCalcUnitsResetAfter(
   {
     auto out = rearrangeUnitsOutputFwd(
         graph, BASIC_GRU_CELL_NUM_UNITS, unitsOutputAll,
-        unitsOutputRearranged.broadcast(2, 0), prog, baseStr);
+        unitsOutputRearranged.broadcast(2, 0), prog, {dnai});
     auto len = unitsOutputRearranged.dim(2);
     prog.add(Copy(out.slice(0, len, 2), unitsOutputRearranged));
     recurrentUnitsOutputRearranged = out.slice(len, len * 2, 2);
@@ -523,7 +591,7 @@ static void gruCellForwardPassCalcUnitsResetAfter(
     auto unitsOutputRearrangedAll =
         concat(unitsOutputRearranged, recurrentUnitsOutputRearranged);
     addInPlace(graph, unitsOutputRearrangedAll, bBiasesAll, prog,
-               baseStr + "/AddBias");
+               {dnai, "AddBias"});
   }
 
   if (candidateRecurrant) {
@@ -535,25 +603,24 @@ static void gruCellForwardPassCalcUnitsResetAfter(
 
   // Add recurrent component for Reset/Update
   addInPlace(graph, unitsOutputRearranged_ru, recurrentUnitsOutputRearranged_ru,
-             prog, baseStr + "/Weights");
+             prog, {dnai, "Weights"});
 
   // Apply non-linearity for Reset/Update
   nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID,
                       unitsOutputRearranged_ru, prog,
-                      baseStr + "update/reset sigmod");
+                      {dnai, "update/reset sigmod"});
 
   // Apply reset gate to candidate recurrent component
   mulInPlace(graph, recurrentUnitsOutputRearranged_c, unitsOutputRearranged_r,
-             prog, baseStr + "ch * r");
+             prog, {dnai, "ch * r"});
 
   // Add recurrent component for Candidate
   addInPlace(graph, unitsOutputRearranged_c, recurrentUnitsOutputRearranged_c,
-             prog, baseStr + "/Weights");
+             prog, {dnai, "Weights"});
 
   // Apply non linear function to Candidate
   nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
-                      unitsOutputRearranged_c, prog,
-                      baseStr + "Candidate Tanh");
+                      unitsOutputRearranged_c, prog, {dnai, "Candidate Tanh"});
 }
 
 static std::pair<Tensor, GruInternalState>
@@ -562,19 +629,16 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                         const Tensor &weightsOutput,
                         const boost::optional<const Tensor &> &attScoreOpt,
                         Sequence &prog, const GruOpts &opt,
-                        const std::string &debugPrefix,
+                        const DebugNameAndId &dnai,
                         matmul::PlanningCache *cache, bool resetAfter) {
   debug_tensor(prog, "fwd h_prev", prevOutput);
   debug_tensor(prog, "fwd input", in);
 
-  const std::string baseStr = debugPrefix + "/BasicGruCell";
+  const std::string baseStr = "BasicGruCell";
 
-  Tensor resetGate =
-      graph.clone(prevOutput, debugPrefix + "/" + "Update Gate Rearranged");
-  Tensor updateGate =
-      graph.clone(prevOutput, debugPrefix + "/" + "Reset Gate Rearranged");
-  Tensor candidate =
-      graph.clone(prevOutput, debugPrefix + "/" + "candidate Rearranged");
+  Tensor resetGate = graph.clone(prevOutput, {dnai, "Update Gate Rearranged"});
+  Tensor updateGate = graph.clone(prevOutput, {dnai, "Reset Gate Rearranged"});
+  Tensor candidate = graph.clone(prevOutput, {dnai, "candidate Rearranged"});
 
   Tensor candidateRecurrant;
 
@@ -592,7 +656,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
   if (resetAfter) {
     gruCellForwardPassCalcUnitsResetAfter(
         graph, false, in, prevOutput, biases, weightsInput, weightsOutput,
-        &candidateRecurrant, prog, opt, unitsOutput, baseStr, cache);
+        &candidateRecurrant, prog, opt, unitsOutput, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
   } else {
     const Tensor weightsInput2 = weightsInput->slice(0, 2);
@@ -600,7 +664,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
     const Tensor biases2 = biases.slice(0, 2);
     gruCellForwardPassCalcUnits(graph, false, in, prevOutput, biases2,
                                 &weightsInput2, weightsOutput2, prog, opt,
-                                unitsOutput, baseStr, cache);
+                                unitsOutput, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
   }
 
@@ -613,28 +677,28 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
     resetGateOut = resetGate;
     candidate = unitsOutput[BASIC_GRU_CELL_CANDIDATE];
   } else {
-    resetGateOut = graph.clone(resetGate, debugPrefix + "/" + "resetGateOut");
+    resetGateOut = graph.clone(resetGate, {dnai, "resetGateOut"});
     prog.add(Copy(resetGate, resetGateOut));
 
     const Tensor weightsInput3 = weightsInput->slice(2, 3);
     const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
     mulInPlace(graph, resetGate, prevOutput, prog,
-               baseStr + "resetGate * prevOutput");
+               {dnai, baseStr + "resetGate * prevOutput"});
     Tensor candidateExpand = candidate.expand({0});
     gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
                                 &weightsInput3, weightsOutput3, prog, opt,
-                                candidateExpand, baseStr, cache);
+                                candidateExpand, {dnai, baseStr}, cache);
     candidate = candidateExpand[0];
   }
 
   if (attScoreOpt) {
     mapInPlace(graph, _1 - (_2 * _1), {updateGate, *attScoreOpt}, prog,
-               baseStr + "/UpdateScores");
+               {dnai, baseStr + "/UpdateScores"});
   }
 
   Tensor newOutput =
       map(graph, _1 + _2 * (_3 - _1), {candidate, updateGate, prevOutput}, prog,
-          baseStr + "/CalcNextOutput");
+          {dnai, baseStr + "/CalcNextOutput"});
 
   GruInternalState internalState = {resetGateOut, updateGate, candidate,
                                     candidateRecurrant};
@@ -651,20 +715,17 @@ static void basicGruCellForwardPassInPlace(
     Graph &graph, const Tensor &in, const Tensor &biases, const Tensor &output,
     const Tensor *weightsInput, const Tensor &weightsOutput,
     const boost::optional<const Tensor &> &attScoreOpt, Sequence &prog,
-    const GruOpts &opt, const std::string &debugPrefix,
+    const GruOpts &opt, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache, bool resetAfter) {
   logging::popnn::info("basicGruCellForwardPassInPlace {}", in.shape());
 
   debug_tensor(prog, "fwd h_prev", output);
   debug_tensor(prog, "fwd input", in);
-  const std::string baseStr = debugPrefix + "/BasicGruCellInPlace";
+  const std::string baseStr = "BasicGruCellInPlace";
 
-  Tensor resetGate =
-      graph.clone(output, debugPrefix + "/" + "Update Gate Rearranged");
-  Tensor updateGate =
-      graph.clone(output, debugPrefix + "/" + "Reset Gate Rearranged");
-  Tensor candidate =
-      graph.clone(output, debugPrefix + "/" + "candidate Rearranged");
+  Tensor resetGate = graph.clone(output, {dnai, "Update Gate Rearranged"});
+  Tensor updateGate = graph.clone(output, {dnai, "Reset Gate Rearranged"});
+  Tensor candidate = graph.clone(output, {dnai, "candidate Rearranged"});
 
   int numToConcat =
       resetAfter ? BASIC_GRU_CELL_NUM_UNITS : BASIC_GRU_CELL_NUM_UNITS - 1;
@@ -681,14 +742,14 @@ static void basicGruCellForwardPassInPlace(
   if (resetAfter) {
     gruCellForwardPassCalcUnitsResetAfter(
         graph, false, in, output, biases, weightsInput, weightsOutput, nullptr,
-        prog, opt, unitsOutput, baseStr, cache);
+        prog, opt, unitsOutput, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
   } else {
     const Tensor weightsInput2 = weightsInput->slice(0, 2);
     const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
     gruCellForwardPassCalcUnits(graph, false, in, output, biases,
                                 &weightsInput2, weightsOutput2, prog, opt,
-                                unitsOutput, baseStr, cache);
+                                unitsOutput, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
   }
 
@@ -699,7 +760,7 @@ static void basicGruCellForwardPassInPlace(
     logging::popnn::info("updateGate u {} score {}", updateGate.shape(),
                          (*attScoreOpt).shape());
     mapInPlace(graph, _1 - (_2 * _1), {updateGate, *attScoreOpt}, prog,
-               baseStr + "/UpdateScores");
+               {dnai, baseStr + "/UpdateScores"});
   }
 
   debug_tensor(prog, "fwd resetGate", resetGate);
@@ -721,7 +782,7 @@ static void basicGruCellForwardPassInPlace(
   debug_tensor(prog, "fwd candidate", candidate);
 
   mapInPlace(graph, _3 + _2 * (_1 - _3), {output, updateGate, candidate}, prog,
-             baseStr + "/CalcNextOutput");
+             {dnai, "CalcNextOutput"});
 
   debug_tensor(prog, "fwd output", output);
 }
@@ -731,32 +792,31 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
                   const GruWeights &weights_, Tensor *intermediatesSeq,
                   const boost::optional<const Tensor &> &attScoresOpt,
                   const boost::optional<const Tensor &> &realTimeStepsOpt,
-                  program::Sequence &fwdProg, const std::string &debugPrefix,
+                  program::Sequence &fwdProg, const DebugNameAndId &dnai,
                   const OptionFlags &options,
                   poplin::matmul::PlanningCache *cache) {
   logging::popnn::info("gruFwdImpl(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       dnai.getPathName());
 
   validateParams(params);
   auto opt = parseOptions(options);
 
   auto weights = fromCellOrder(weights_, params.cellOrder);
 
-  Tensor output =
-      duplicate(graph, fwdOutputInit, fwdProg, debugPrefix + "/fwdOutput");
+  Tensor output = duplicate(graph, fwdOutputInit, fwdProg, {dnai, "fwdOutput"});
 
   // loop counter
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/initSeqIdx");
+  popops::zero(graph, seqIdx, fwdProg, {dnai, "initSeqIdx"});
 
   unsigned seqSize = prevLayerActs.dim(0);
   // make a copy of the activations so that they are sliced efficiently
-  auto prevLayerActsCopy = createInput(
-      graph, params, debugPrefix + "/prevLayerActsCopy", options, cache);
+  auto prevLayerActsCopy =
+      createInput(graph, params, {dnai, "prevLayerActsCopy"}, options, cache);
   fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy));
 
   Tensor mask;
@@ -773,12 +833,12 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
   if (attScoresOpt) {
     attScores = popops::dynamicSlice(
         graph, (*attScoresOpt).transpose().expand({(*attScoresOpt).rank()}),
-        seqIdx, {0}, {1}, loop, debugPrefix + "/auGruAttScores")[0];
+        seqIdx, {0}, {1}, loop, {dnai, "auGruAttScores"})[0];
     sliceAttScoresOpt = attScores;
   }
 
   Tensor fwdInput = popops::dynamicSlice(graph, prevLayerActsCopy, seqIdx, {0},
-                                         {1}, loop, debugPrefix + "/gru")[0];
+                                         {1}, loop, {dnai, "gru"})[0];
   const Tensor *inputWeightsPtr = &weights.inputWeights;
 
   debug_tensor(fwdProg, "fwd weightsInput", weights.inputWeights);
@@ -790,16 +850,17 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
     GruInternalState internalState;
     std::tie(newOutput, internalState) = basicGruCellForwardPass(
         graph, fwdInput, weights.biases, output, inputWeightsPtr,
-        weights.outputWeights, sliceAttScoresOpt, loop, opt, debugPrefix, cache,
+        weights.outputWeights, sliceAttScoresOpt, loop, opt, {dnai}, cache,
         params.resetAfter);
     if (realTimeStepsOpt) {
       mask = gt(graph, seqLen, seqIdx, loop);
       mask = cast(graph, mask, newOutput.elementType(), loop);
       mask = mask.expand({1}).broadcast(newOutput.dim(1), 1);
-      mapInPlace(graph, _1 * _2, {newOutput, mask}, loop);
-      mapInPlace(graph, _1 * _2, {internalState.resetGate, mask}, loop);
-      mapInPlace(graph, _1 * _2, {internalState.updateGate, mask}, loop);
-      mapInPlace(graph, _1 * _2, {internalState.candidate, mask}, loop);
+      mapInPlace(graph, _1 * _2, {newOutput, mask}, loop, {dnai});
+      mapInPlace(graph, _1 * _2, {internalState.resetGate, mask}, loop, {dnai});
+      mapInPlace(graph, _1 * _2, {internalState.updateGate, mask}, loop,
+                 {dnai});
+      mapInPlace(graph, _1 * _2, {internalState.candidate, mask}, loop, {dnai});
     }
 
     std::vector<Tensor> intermediatesToConcat;
@@ -826,46 +887,44 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
     const auto numIntermediates = intermediates.dim(0);
     *intermediatesSeq =
         createOutputTensor(graph, params, seqSize * numIntermediates,
-                           debugPrefix + "/fwdIntermediatesSeq")
+                           {dnai, "fwdIntermediatesSeq"})
             .reshapePartial(0, 1, {seqSize, numIntermediates});
 
-    auto intermediatesRearranged =
-        createOutputTensor(graph, params, numIntermediates,
-                           debugPrefix + "/fwdIntermediatesRearranged");
-    loop.add(Copy(intermediates, intermediatesRearranged));
-    fwdProg.add(WriteUndef(*intermediatesSeq));
+    auto intermediatesRearranged = createOutputTensor(
+        graph, params, numIntermediates, {dnai, "fwdIntermediatesRearranged"});
+    loop.add(Copy(intermediates, intermediatesRearranged, false, {dnai}));
+    fwdProg.add(WriteUndef(*intermediatesSeq, {dnai}));
     popops::dynamicUpdate(graph, *intermediatesSeq,
                           intermediatesRearranged.expand({0}), seqIdx, {0}, {1},
-                          loop, debugPrefix + "/gruUpdateIntermediates");
+                          loop, {dnai, "gruUpdateIntermediates"});
 
     graph.setTileMapping(output, graph.getTileMapping(newOutput));
-    loop.add(Copy(newOutput, output));
+    loop.add(Copy(newOutput, output, false, {dnai}));
   } else {
     basicGruCellForwardPassInPlace(graph, fwdInput, weights.biases, output,
                                    inputWeightsPtr, weights.outputWeights,
-                                   sliceAttScoresOpt, loop, opt, debugPrefix,
-                                   cache, params.resetAfter);
+                                   sliceAttScoresOpt, loop, opt, {dnai}, cache,
+                                   params.resetAfter);
 
     if (realTimeStepsOpt) {
       mask = gt(graph, seqLen, seqIdx, loop);
       mask = cast(graph, mask, output.elementType(), loop);
       mask = mask.expand({1}).broadcast(output.dim(1), 1);
-      mapInPlace(graph, _1 * _2, {output, mask}, loop);
+      mapInPlace(graph, _1 * _2, {output, mask}, loop, {dnai});
     }
   }
 
   Tensor outputSeq;
   if (params.outputFullSequence) {
-    outputSeq =
-        createOutputTensor(graph, params, seqSize, debugPrefix + "/Output");
-    fwdProg.add(WriteUndef(outputSeq));
+    outputSeq = createOutputTensor(graph, params, seqSize, {dnai, "Output"});
+    fwdProg.add(WriteUndef(outputSeq, {dnai}));
     popops::dynamicUpdate(graph, outputSeq, output.expand({0}), seqIdx, {0},
-                          {1}, loop, debugPrefix + "/updateOutputSeq");
+                          {1}, loop, {dnai, "updateOutputSeq"});
   }
 
-  addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+  addInPlace(graph, seqIdx, one, loop, {dnai, "seqIdxIncr"});
 
-  fwdProg.add(Repeat(seqSize, loop));
+  fwdProg.add(Repeat(seqSize, loop, {dnai}));
 
   return params.outputFullSequence ? outputSeq : output;
 }
@@ -877,13 +936,19 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
               const poplar::DebugContext &debugContext,
               const OptionFlags &options,
               poplin::matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(fwdOutputInit, prevLayerActs, weights_,
+                            intermediatesSeq, params, options, cache));
+
   boost::optional<const Tensor &> attScoresOpt(boost::none);
   boost::optional<const Tensor &> realTimeStepsOpt(boost::none);
 
-  return gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs, weights_,
-                    intermediatesSeq, attScoresOpt, realTimeStepsOpt, fwdProg,
-                    debugPrefix, options, cache);
+  auto output = gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs,
+                           weights_, intermediatesSeq, attScoresOpt,
+                           realTimeStepsOpt, fwdProg, {di}, options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor gruFwd(Graph &graph, const GruParams &params,
@@ -893,7 +958,11 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
               const poplar::DebugContext &debugContext,
               const OptionFlags &options,
               poplin::matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(fwdOutputInit, prevLayerActs,
+                                         realTimeSteps, weights_, params,
+                                         intermediatesSeq, options, cache));
+
   if (!params.outputFullSequence) {
     throw poplibs_error(std::string("The outputFullSequence should be true ") +
                         "if realTimeSteps given");
@@ -902,9 +971,11 @@ Tensor gruFwd(Graph &graph, const GruParams &params,
   boost::optional<const Tensor &> attScoresOpt(boost::none);
   boost::optional<const Tensor &> realTimeStepsOpt(realTimeSteps);
 
-  return gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs, weights_,
-                    intermediatesSeq, attScoresOpt, realTimeStepsOpt, fwdProg,
-                    debugPrefix, options, cache);
+  auto output = gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs,
+                           weights_, intermediatesSeq, attScoresOpt,
+                           realTimeStepsOpt, fwdProg, {di}, options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor auGruFwd(Graph &graph, const GruParams &params,
@@ -914,13 +985,18 @@ Tensor auGruFwd(Graph &graph, const GruParams &params,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options,
                 poplin::matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(fwdOutputInit, prevLayerActs, attScores, weights_,
+                            params, intermediatesSeq, options, cache));
+
   boost::optional<const Tensor &> attScoresOpt(attScores);
   boost::optional<const Tensor &> realTimeStepsOpt(boost::none);
 
-  return gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs, weights_,
-                    intermediatesSeq, attScoresOpt, realTimeStepsOpt, fwdProg,
-                    debugPrefix, options, cache);
+  auto output = gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs,
+                           weights_, intermediatesSeq, attScoresOpt,
+                           realTimeStepsOpt, fwdProg, {di}, options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor auGruFwd(Graph &graph, const GruParams &params,
@@ -931,7 +1007,11 @@ Tensor auGruFwd(Graph &graph, const GruParams &params,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options,
                 poplin::matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, prevLayerActs, realTimeSteps, attScores, weights_,
+              params, intermediatesSeq, options, cache));
+
   if (!params.outputFullSequence) {
     throw poplibs_error(std::string("The outputFullSequence should be true ") +
                         "if realTimeSteps given");
@@ -940,9 +1020,11 @@ Tensor auGruFwd(Graph &graph, const GruParams &params,
   boost::optional<const Tensor &> attScoresOpt(attScores);
   boost::optional<const Tensor &> realTimeStepsOpt(realTimeSteps);
 
-  return gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs, weights_,
-                    intermediatesSeq, attScoresOpt, realTimeStepsOpt, fwdProg,
-                    debugPrefix, options, cache);
+  auto output = gruFwdImpl(graph, params, fwdOutputInit, prevLayerActs,
+                           weights_, intermediatesSeq, attScoresOpt,
+                           realTimeStepsOpt, fwdProg, {di}, options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 static std::tuple<Tensor, Tensor, Tensor>
@@ -954,31 +1036,32 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                  const boost::optional<const Tensor &> &attScoresOpt,
                  const boost::optional<Tensor &> &attScoresGradsOpt,
                  Sequence &initProg, Sequence &prog, const GruOpts &opt,
-                 const std::string &debugPrefix, matmul::PlanningCache *cache) {
-  const auto fPrefix = debugPrefix + "/GruBwdOneStep";
+                 const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+  const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
-  Tensor d_h = graph.clone(outputGrad);
+  Tensor d_h = graph.clone(outputGrad, {dnai});
   debug_tensor(prog, "bwd outGrad", outputGrad);
   if (gradNextLayer)
     debug_tensor(prog, "bwd gradNextLayer", *gradNextLayer);
-  prog.add(Copy(outputGrad, d_h));
+  prog.add(Copy(outputGrad, d_h, false, {dnai}));
   if (gradNextLayer)
-    d_h =
-        popops::add(graph, d_h, *gradNextLayer, prog, fPrefix + "/AddActGrads");
+    d_h = popops::add(graph, d_h, *gradNextLayer, prog,
+                      {dnai, fPrefix + "/AddActGrads"});
 
   auto u = fwdIntermediates[GRU_FWD_INTERMEDIATE_UPDATE_GATE];
   auto r = fwdIntermediates[GRU_FWD_INTERMEDIATE_RESET_GATE];
   auto c = fwdIntermediates[GRU_FWD_INTERMEDIATE_CANDIDATE];
   auto h_prev = prevStepOut;
 
-  auto one_matrix = graph.addConstant(
-      outputGrad.elementType(), outputGrad.shape(), 1, fPrefix + "/one_matrix");
+  auto one_matrix =
+      graph.addConstant(outputGrad.elementType(), outputGrad.shape(), 1,
+                        {dnai, fPrefix + "/one_matrix"});
   graph.setTileMapping(one_matrix, graph.getTileMapping(u));
   auto var_one_matrix =
       graph.addVariable(outputGrad.elementType(), outputGrad.shape(),
-                        fPrefix + "/var_one_matrix");
+                        {dnai, fPrefix + "/var_one_matrix"});
   graph.setTileMapping(var_one_matrix, graph.getTileMapping(u));
-  prog.add(Copy(one_matrix, var_one_matrix));
+  prog.add(Copy(one_matrix, var_one_matrix, false, {dnai}));
 
   debug_tensor(prog, "bwd d_h", d_h);
   debug_tensor(prog, "bwd r", r);
@@ -987,12 +1070,14 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
   debug_tensor(prog, "bwd h_prev", h_prev);
 
   // u_com = 1 - u
-  Tensor u_com = sub(graph, var_one_matrix, u, prog, fPrefix + "/1-updateGate");
+  Tensor u_com =
+      sub(graph, var_one_matrix, u, prog, {dnai, fPrefix + "/1-updateGate"});
   // h_prev_c = h_prev - c
-  auto h_prev_c = sub(graph, h_prev, c, prog, fPrefix + "/preOutput-candidate");
+  auto h_prev_c =
+      sub(graph, h_prev, c, prog, {dnai, fPrefix + "/preOutput-candidate"});
   // (1-u) * d_h, (h_prev - c) * d_h
   auto t = mul(graph, concat({u_com, h_prev_c}), d_h.broadcast(2, 0), prog,
-               fPrefix + "/MulOGate");
+               {dnai, fPrefix + "/MulOGate"});
   auto gradAtCandidateInput = t.slice(0, outputGrad.dim(0));
   auto gradAtUpdateGateInput =
       t.slice(outputGrad.dim(0), 2 * outputGrad.dim(0));
@@ -1000,38 +1085,38 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
   debug_tensor(prog, "bwd outputGrad", d_h);
   debug_tensor(prog, "bwd h_prev_c", h_prev_c);
 
-  auto cs1 = graph.addComputeSet(fPrefix + "/OutputGate");
+  auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
   auto d_c = nonLinearityInputGradient(graph, NonLinearityType::TANH, c,
                                        gradAtCandidateInput, cs1,
-                                       fPrefix + "/OutputTanh");
+                                       {dnai, fPrefix + "/OutputTanh"});
 
   Tensor d_u;
   if (attScoresOpt) {
     auto u0 = map(graph, _1 / (Const(1) - _2), {u, *attScoresOpt}, prog,
-                  fPrefix + "/UpdateScores");
+                  {dnai, fPrefix + "/UpdateScores"});
 
     Tensor temp = map(graph, -_1 * _2, {gradAtUpdateGateInput, u0}, prog,
-                      fPrefix + "/AttentionsGrad");
+                      {dnai, fPrefix + "/AttentionsGrad"});
     *attScoresGradsOpt =
-        reduce(graph, temp, {1}, {popops::Operation::ADD}, prog);
+        reduce(graph, temp, {1}, {popops::Operation::ADD}, prog, {dnai});
 
     mapInPlace(graph, _1 - (_1 * _2), {gradAtUpdateGateInput, *attScoresOpt},
-               prog, fPrefix + "/UpdateGateGrad");
+               prog, {dnai, fPrefix + "/UpdateGateGrad"});
 
     d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u0,
                                     gradAtUpdateGateInput, cs1,
-                                    fPrefix + "/OutputGate");
+                                    {dnai, fPrefix + "/OutputGate"});
   } else {
     d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u,
                                     gradAtUpdateGateInput, cs1,
-                                    fPrefix + "/OutputGate");
+                                    {dnai, fPrefix + "/OutputGate"});
   }
-  prog.add(Execute(cs1));
+  prog.add(Execute(cs1, {dnai}));
 
   if (maskOpt) {
-    auto mask = cast(graph, *maskOpt, c.elementType(), prog);
+    auto mask = cast(graph, *maskOpt, c.elementType(), prog, {dnai});
     mask = mask.squeeze({0}).expand({1}).broadcast(c.dim(1), 1);
-    mapInPlace(graph, _1 * _2, {d_c, mask}, prog);
+    mapInPlace(graph, _1 * _2, {d_c, mask}, prog, {dnai});
   }
 
   debug_tensor(prog, "bwd d_c", d_c);
@@ -1052,55 +1137,55 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                .transpose();
     w_c = concat((*weightsInput)[2], weightsOutput[2], 0).transpose();
   }
-  w_c =
-      preArrangeMatMulInputRHS(graph, d_c.shape(), w_c, initProg,
-                               fPrefix + "/PreArrangeWeights C", mmOpt, cache);
+  w_c = preArrangeMatMulInputRHS(graph, d_c.shape(), w_c, initProg,
+                                 {dnai, fPrefix + "/PreArrangeWeights C "},
+                                 mmOpt, cache);
 
   Tensor d_x2, d_hr, d_x2_hr;
   int inputSize = weightsInput->dim(1);
   int outputSize = weightsOutput.dim(1);
   if (weightsInput) {
-    auto out = matMul(graph, d_c, w_c, prog, fPrefix + "/d_x2_d_h_prevr", mmOpt,
-                      cache);
+    auto out = matMul(graph, d_c, w_c, prog,
+                      {dnai, fPrefix + "/d_x2_d_h_prevr"}, mmOpt, cache);
     d_x2_hr = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer,
-                                         prog, fPrefix);
+                                         prog, {dnai, fPrefix});
     debug_tensor(prog, "bwd d_x2_h_prevr", d_x2_hr);
     d_x2 = d_x2_hr.slice(0, inputSize, 1);
     d_hr = d_x2_hr.slice(inputSize, inputSize + outputSize, 1);
   } else {
-    auto out =
-        matMul(graph, d_c, w_c, prog, fPrefix + "/PrevStepGrad", mmOpt, cache);
+    auto out = matMul(graph, d_c, w_c, prog, {dnai, fPrefix + "/PrevStepGrad"},
+                      mmOpt, cache);
     d_hr = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer, prog,
-                                      fPrefix);
+                                      {dnai, fPrefix});
   }
 
   Tensor d_r;
   {
-    auto t = mul(graph, d_hr, h_prev, prog, fPrefix + "/d_hr * h_prev");
+    auto t = mul(graph, d_hr, h_prev, prog, {dnai, fPrefix + "/d_hr * h_prev"});
     d_r = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, r, t,
-                                    prog, fPrefix + "/t * r * (1-r)");
+                                    prog, {dnai, fPrefix + "/t * r * (1-r)"});
   }
 
   Tensor d_r_d_u = concat(d_r, d_u, 1);
-  w_ru =
-      preArrangeMatMulInputRHS(graph, d_r_d_u.shape(), w_ru, initProg,
-                               fPrefix + "/PreArrangeWeights RU", mmOpt, cache);
+  w_ru = preArrangeMatMulInputRHS(graph, d_r_d_u.shape(), w_ru, initProg,
+                                  {dnai, fPrefix + "/PreArrangeWeights RU"},
+                                  mmOpt, cache);
   auto out = matMul(graph, d_r_d_u, w_ru, prog,
-                    fPrefix + "/d_x1_d_h_prev1 X w_ru", mmOpt, cache);
+                    {dnai, fPrefix + "/d_x1_d_h_prev1 X w_ru"}, mmOpt, cache);
   Tensor d_x1_d_hprev1 = tryGroupedPartialTranspose(
-      graph, out, outputGroupingIntoLayer, prog, fPrefix);
+      graph, out, outputGroupingIntoLayer, prog, {dnai, fPrefix});
   debug_tensor(prog, "bwd d_x1_d_hprev1", d_x1_d_hprev1);
 
   Tensor d_x;
   if (weightsInput) {
     d_x = add(graph, d_x1_d_hprev1.slice(0, inputSize, 1), d_x2, prog,
-              fPrefix + "/dx");
+              {dnai, fPrefix + "/dx"});
   }
 
   Tensor d_hprev1 = d_x1_d_hprev1.slice(inputSize, inputSize + outputSize, 1);
   Tensor d_h_prev =
       map(graph, ((_1 * _2) + (_3 * _4)) + _5, {d_hr, r, d_h, u, d_hprev1},
-          prog, fPrefix + "/d_h_prev");
+          prog, {dnai, fPrefix + "/d_h_prev"});
 
   debug_tensor(prog, "bwd d_h_prev", d_h_prev);
   debug_tensor(prog, "bwd d_x", d_x);
@@ -1119,9 +1204,9 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     const boost::optional<const Tensor &> &maskOpt,
     const boost::optional<const Tensor &> &attScoresOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &initProg,
-    Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
+    Sequence &prog, const GruOpts &opt, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache, bool outputFullSequence) {
-  const auto fPrefix = debugPrefix + "/GruBwdOneStep";
+  const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
   Tensor d_h = graph.clone(outputGrad);
   debug_tensor(prog, "bwd outGrad", outputGrad);
@@ -1129,8 +1214,8 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     debug_tensor(prog, "bwd gradNextLayer", *gradNextLayer);
   prog.add(Copy(outputGrad, d_h));
   if (gradNextLayer)
-    d_h =
-        popops::add(graph, d_h, *gradNextLayer, prog, fPrefix + "/AddActGrads");
+    d_h = popops::add(graph, d_h, *gradNextLayer, prog,
+                      {dnai, fPrefix + "/AddActGrads"});
 
   auto u = fwdIntermediates[GRU_FWD_INTERMEDIATE_UPDATE_GATE];
   auto r = fwdIntermediates[GRU_FWD_INTERMEDIATE_RESET_GATE];
@@ -1144,12 +1229,13 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
   auto c_recurrant = fwdIntermediates[c_recurrent_index];
   auto h_prev = prevStepOut;
 
-  auto one_matrix = graph.addConstant(
-      outputGrad.elementType(), outputGrad.shape(), 1, fPrefix + "/one_matrix");
+  auto one_matrix =
+      graph.addConstant(outputGrad.elementType(), outputGrad.shape(), 1,
+                        {dnai, fPrefix + "/one_matrix"});
   graph.setTileMapping(one_matrix, graph.getTileMapping(u));
   auto var_one_matrix =
       graph.addVariable(outputGrad.elementType(), outputGrad.shape(),
-                        fPrefix + "/var_one_matrix");
+                        {dnai, fPrefix + "/var_one_matrix"});
   graph.setTileMapping(var_one_matrix, graph.getTileMapping(u));
   prog.add(Copy(one_matrix, var_one_matrix));
 
@@ -1160,12 +1246,14 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
   debug_tensor(prog, "bwd h_prev", h_prev);
 
   // u_com = 1 - u
-  Tensor u_com = sub(graph, var_one_matrix, u, prog, fPrefix + "/1-updateGate");
+  Tensor u_com =
+      sub(graph, var_one_matrix, u, prog, {dnai, fPrefix + "/1-updateGate"});
   // h_prev_c = h_prev - c
-  auto h_prev_c = sub(graph, h_prev, c, prog, fPrefix + "/preOutput-candidate");
+  auto h_prev_c =
+      sub(graph, h_prev, c, prog, {dnai, fPrefix + "/preOutput-candidate"});
   // (1-u) * d_h, (h_prev - c) * d_h
   auto t = mul(graph, concat({u_com, h_prev_c}), d_h.broadcast(2, 0), prog,
-               fPrefix + "/MulOGate");
+               {dnai, fPrefix + "/MulOGate"});
   auto gradAtCandidateInput = t.slice(0, outputGrad.dim(0));
   auto gradAtUpdateGateInput =
       t.slice(outputGrad.dim(0), 2 * outputGrad.dim(0));
@@ -1173,32 +1261,32 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
   debug_tensor(prog, "bwd outputGrad", d_h);
   debug_tensor(prog, "bwd h_prev_c", h_prev_c);
 
-  auto cs1 = graph.addComputeSet(fPrefix + "/OutputGate");
+  auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
   auto d_c = nonLinearityInputGradient(graph, NonLinearityType::TANH, c,
                                        gradAtCandidateInput, cs1,
-                                       fPrefix + "/OutputTanh");
+                                       {dnai, fPrefix + "/OutputTanh"});
   Tensor d_u;
   if (attScoresOpt) {
     auto u0 = map(graph, _1 / (Const(1) - _2), {u, *attScoresOpt}, prog,
-                  fPrefix + "/UpdateScores");
+                  {dnai, fPrefix + "/UpdateScores"});
 
     Tensor temp = map(graph, -_1 * _2, {gradAtUpdateGateInput, u0}, prog,
-                      fPrefix + "/AttentionsGrad");
+                      {dnai, fPrefix + "/AttentionsGrad"});
     *attScoresGradsOpt =
         reduce(graph, temp, {1}, {popops::Operation::ADD}, prog);
 
     mapInPlace(graph, _1 - (_1 * _2), {gradAtUpdateGateInput, *attScoresOpt},
-               prog, fPrefix + "/UpdateGateGrad");
+               prog, {dnai, fPrefix + "/UpdateGateGrad"});
 
     d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u0,
                                     gradAtUpdateGateInput, cs1,
-                                    fPrefix + "/OutputGate");
+                                    {dnai, fPrefix + "/OutputGate"});
   } else {
     d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u,
                                     gradAtUpdateGateInput, cs1,
-                                    fPrefix + "/OutputGate");
+                                    {dnai, fPrefix + "/OutputGate"});
   }
-  prog.add(Execute(cs1));
+  prog.add(Execute(cs1, {dnai}));
 
   if (maskOpt) {
     auto mask = cast(graph, *maskOpt, c.elementType(), prog);
@@ -1207,7 +1295,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
   }
 
   auto gradAtResetGateInput =
-      mul(graph, d_c, c_recurrant, prog, fPrefix + "/d_c * h_prev2");
+      mul(graph, d_c, c_recurrant, prog, {dnai, fPrefix + "/d_c * h_prev2"});
   auto d_r = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, r,
                                        gradAtResetGateInput, prog);
 
@@ -1239,16 +1327,16 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
                .transpose();
   }
 
-  auto d_cr = mul(graph, d_c, r, prog, fPrefix + "/d_c * r");
+  auto d_cr = mul(graph, d_c, r, prog, {dnai, fPrefix + "/d_c * r"});
   auto d_r_d_u_d_c_out = concat({d_r, d_u, d_cr}, 1);
 
   Tensor d_h_prev;
   {
     w_out = preArrangeMatMulInputRHS(
         graph, d_r_d_u_d_c_out.shape(), w_out, initProg,
-        fPrefix + "/PreArrangeOutputWeights", mmOpt, cache);
+        {dnai, fPrefix + "/PreArrangeOutputWeights"}, mmOpt, cache);
     auto out = matMul(graph, d_r_d_u_d_c_out, w_out, prog,
-                      fPrefix + "/PrevStepGrad", mmOpt, cache);
+                      {dnai, fPrefix + "/PrevStepGrad"}, mmOpt, cache);
     d_h_prev = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer,
                                           prog, fPrefix);
   }
@@ -1258,15 +1346,15 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     Tensor d_r_d_u_d_c_in = concat({d_r, d_u, d_c}, 1);
     w_in = preArrangeMatMulInputRHS(
         graph, d_r_d_u_d_c_in.shape(), w_in, initProg,
-        fPrefix + "/PreArrangeInputWeights", mmOpt, cache);
+        {dnai, fPrefix + "/PreArrangeInputWeights"}, mmOpt, cache);
     auto out = matMul(graph, d_r_d_u_d_c_in, w_in, prog,
-                      fPrefix + "/PrevStepGrad", mmOpt, cache);
+                      {dnai, fPrefix + "/PrevStepGrad"}, mmOpt, cache);
     d_x = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer, prog,
                                      fPrefix);
   }
 
   d_h_prev = map(graph, (_1 * _2) + _3, {d_h, u, d_h_prev}, prog,
-                 fPrefix + "/d_h_prev");
+                 {dnai, fPrefix + "/d_h_prev"});
 
   debug_tensor(prog, "bwd d_h_prev", d_h_prev);
   debug_tensor(prog, "bwd d_x", d_x);
@@ -1285,30 +1373,31 @@ std::tuple<Tensor, Tensor, Tensor> basicGruBackwardStep(
     const Tensor &weightsOutput, const boost::optional<const Tensor &> &maskOpt,
     const boost::optional<const Tensor &> &attScoreOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &initProg,
-    Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
+    Sequence &prog, const GruOpts &opt, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache) {
   if (params.resetAfter) {
     return backwardStepImplResetAfter(
         graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad,
         &weightsInput, weightsOutput, maskOpt, attScoreOpt, attScoresGradsOpt,
-        initProg, prog, opt, debugPrefix, cache, params.outputFullSequence);
+        initProg, prog, opt, {dnai}, cache, params.outputFullSequence);
   } else {
     return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
                             outGrad, &weightsInput, weightsOutput, maskOpt,
                             attScoreOpt, attScoresGradsOpt, initProg, prog, opt,
-                            debugPrefix, cache);
+                            {dnai}, cache);
   }
 }
 
-std::pair<Tensor, Tensor> basicGruBackwardStep(
-    Graph &graph, const GruParams &params, const Tensor *gradNextLayer,
-    const Tensor &fwdIntermediates, const Tensor &prevStepOut,
-    const Tensor &outGrad, const Tensor &weightsOutput,
-    const boost::optional<const Tensor &> &maskOpt,
-    const boost::optional<const Tensor &> &attScoreOpt,
-    const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &initProg,
-    Sequence &prog, const GruOpts &opt, const std::string &debugPrefix,
-    matmul::PlanningCache *cache) {
+std::pair<Tensor, Tensor>
+basicGruBackwardStep(Graph &graph, const GruParams &params,
+                     const Tensor *gradNextLayer,
+                     const Tensor &fwdIntermediates, const Tensor &prevStepOut,
+                     const Tensor &outGrad, const Tensor &weightsOutput,
+                     const boost::optional<const Tensor &> &maskOpt,
+                     const boost::optional<const Tensor &> &attScoreOpt,
+                     const boost::optional<Tensor &> &attScoresGradsOpt,
+                     Sequence &initProg, Sequence &prog, const GruOpts &opt,
+                     const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   Tensor prevStateGrad;
   Tensor bwdIntermediates;
 
@@ -1317,12 +1406,12 @@ std::pair<Tensor, Tensor> basicGruBackwardStep(
         backwardStepImplResetAfter(
             graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad,
             nullptr, weightsOutput, maskOpt, attScoreOpt, attScoresGradsOpt,
-            initProg, prog, opt, debugPrefix, cache, params.outputFullSequence);
+            initProg, prog, opt, {dnai}, cache, params.outputFullSequence);
   } else {
-    std::tie(prevStateGrad, std::ignore, bwdIntermediates) = backwardStepImpl(
-        graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad, nullptr,
-        weightsOutput, maskOpt, attScoreOpt, attScoresGradsOpt, initProg, prog,
-        opt, debugPrefix, cache);
+    std::tie(prevStateGrad, std::ignore, bwdIntermediates) =
+        backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
+                         outGrad, nullptr, weightsOutput, maskOpt, attScoreOpt,
+                         attScoresGradsOpt, initProg, prog, opt, {dnai}, cache);
   }
   return std::make_pair(prevStateGrad, bwdIntermediates);
 }
@@ -1336,10 +1425,9 @@ static void basicGruParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                                 const Tensor &fwdIntermediates,
                                 const Tensor &bwdIntermediates,
                                 const GruWeights &weightGrads, Sequence &prog,
-                                const GruOpts &opt,
-                                const std::string &debugPrefix,
+                                const GruOpts &opt, const DebugNameAndId &dnai,
                                 matmul::PlanningCache *cache, bool resetAfter) {
-  const auto fPrefix = debugPrefix + "/GruDeltas";
+  const std::string fPrefix = "GruDeltas";
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_WU");
 
@@ -1364,43 +1452,45 @@ static void basicGruParamUpdate(Graph &graph, const Tensor &prevLayerActs,
   Tensor d_c = bwdIntermediates[BASIC_GRU_CELL_CANDIDATE];
 
   if (resetAfter) {
-    Tensor d_cr = mul(graph, d_c, r, prog, fPrefix + "/d_c * r");
+    Tensor d_cr = mul(graph, d_c, r, prog, {dnai, fPrefix + "/d_c * r"});
     matMulAcc(graph, flattenUnits(weightGrads.inputWeights), 1.0, x.transpose(),
               flattenUnits(
                   concat({d_r.expand({0}), d_u.expand({0}), d_c.expand({0})})),
-              prog, fPrefix + "/dw for input weights", mmOpt, cache);
+              prog, {dnai, fPrefix + "/dw for input weights"}, mmOpt, cache);
     matMulAcc(graph, flattenUnits(weightGrads.outputWeights), 1.0,
               h_prev.transpose(),
               flattenUnits(
                   concat({d_r.expand({0}), d_u.expand({0}), d_cr.expand({0})})),
-              prog, fPrefix + "/dw for output weights", mmOpt, cache);
+              prog, {dnai, fPrefix + "/dw for output weights"}, mmOpt, cache);
     debug_tensor(prog, "wu d_cr", d_cr);
 
     auto biasGrads = concat({d_r, d_r, d_u, d_u, d_c, d_cr})
                          .reshape(weightGrads.biases.shape());
     // We defer the reduction across the batch to later.
     popops::addInPlace(graph, weightGrads.biases, biasGrads, prog,
-                       fPrefix + "/Bias");
+                       {dnai, fPrefix + "/Bias"});
   } else {
     matMulAcc(graph,
               concat(flattenUnits(weightGrads2.inputWeights),
                      flattenUnits(weightGrads2.outputWeights)),
               1.0, x_h_prev.transpose(),
               flattenUnits(concat(d_r.expand({0}), d_u.expand({0}))), prog,
-              fPrefix + "/dw for reset and update weight", mmOpt, cache);
+              {dnai, fPrefix + "/dw for reset and update weight"}, mmOpt,
+              cache);
 
-    Tensor h_prevr = mul(graph, h_prev, r, prog, fPrefix + "/h_prev * r");
+    Tensor h_prevr =
+        mul(graph, h_prev, r, prog, {dnai, fPrefix + "/h_prev * r"});
     Tensor x_h_prevr = concat(x, h_prevr, 1);
     matMulAcc(graph,
               concat(flattenUnits(weightGrads3.inputWeights),
                      flattenUnits(weightGrads3.outputWeights)),
               1.0, x_h_prevr.transpose(), d_c, prog,
-              fPrefix + "/dw for candidate weight", mmOpt, cache);
+              {dnai, fPrefix + "/dw for candidate weight"}, mmOpt, cache);
     debug_tensor(prog, "wu x_h_prevr", x_h_prevr);
 
     // We defer the reduction across the batch to later.
     popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
-                       fPrefix + "/Bias");
+                       {dnai, fPrefix + "/Bias"});
   }
   debug_tensor(prog, "wu d_c", d_c);
   debug_tensor(prog, "wu inputWeightsGrad", weightGrads.inputWeights);
@@ -1410,14 +1500,14 @@ static void basicGruParamUpdate(Graph &graph, const Tensor &prevLayerActs,
 static GruWeights
 basicGruParamUpdateFinal(Graph &graph, const GruWeights &weights,
                          const GruWeights &weightGrads, Sequence &prog,
-                         const std::string &debugPrefix, bool resetAfter) {
+                         const DebugNameAndId &dnai, bool resetAfter) {
   // The accumulated bias gradients still has a batch axis that we must
   // accumulate over - do this now.
-  auto biasGrad = graph.clone(weights.biases, debugPrefix + "/biasGrad");
+  auto biasGrad = graph.clone(weights.biases, {dnai, "biasGrad"});
   unsigned long reduceDimension = resetAfter ? 2 : 1;
   popops::reduceWithOutput(graph, weightGrads.biases, biasGrad,
                            {reduceDimension}, {popops::Operation::ADD}, prog,
-                           debugPrefix + "/FinalBiasReduction");
+                           {dnai, "FinalBiasReduction"});
   auto finalWeightGrads = weightGrads;
   finalWeightGrads.biases = biasGrad;
   return finalWeightGrads;
@@ -1428,14 +1518,13 @@ basicGruParamUpdateFinal(Graph &graph, const GruWeights &weights,
 static GruWeights
 createWeightAccumulators(Graph &graph, const GruWeights &weights,
                          const Tensor &bwdIntermediates, const GruOpts &options,
-                         const std::string &debugPrefix, bool resetAfter) {
+                         const poplar::DebugNameAndId &dnai, bool resetAfter) {
   GruWeights weightAccs;
   // inputWeights and outputWeights are slices of the one variable. Clone
   // them together as it results in a less complex tensor expression.
   auto concatenated = concat(flattenUnits(weights.inputWeights),
                              flattenUnits(weights.outputWeights));
-  auto weightsDeltaAcc =
-      graph.clone(concatenated, debugPrefix + "/weightsDeltaAcc");
+  auto weightsDeltaAcc = graph.clone(concatenated, {dnai, "weightsDeltaAcc"});
   const auto inputSize = weights.inputWeights.dim(1);
   const auto outputSize = weights.outputWeights.dim(1);
   weightAccs.inputWeights =
@@ -1447,27 +1536,27 @@ createWeightAccumulators(Graph &graph, const GruWeights &weights,
   // a batch axis. This amortizes the cost of reducing over the batch which
   // otherwise can be significant.
   if (resetAfter) {
-    weightAccs.biases = concat(
-        {graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc")
-             .expand({1}),
-         graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc")
-             .expand({1})},
-        1);
+    weightAccs.biases =
+        concat({graph.clone(bwdIntermediates, {dnai, "bwdIntermediatesAcc"})
+                    .expand({1}),
+                graph.clone(bwdIntermediates, {dnai, "bwdIntermediatesAcc"})
+                    .expand({1})},
+               1);
   } else {
     weightAccs.biases =
-        graph.clone(bwdIntermediates, debugPrefix + "/bwdIntermediatesAcc");
+        graph.clone(bwdIntermediates, {dnai, "bwdIntermediatesAcc"});
   }
   return weightAccs;
 }
 
 static void zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
                                    const GruWeights &weightsAcc,
-                                   const std::string &debugPrefix) {
+                                   const DebugNameAndId &dnai) {
   popops::zero(
       graph,
       concat({weightsAcc.inputWeights.flatten(),
               weightsAcc.outputWeights.flatten(), weightsAcc.biases.flatten()}),
-      prog, debugPrefix + "/zeroWeightAccumulators");
+      prog, {dnai, "zeroWeightAccumulators"});
 }
 
 // Perform an GRU backward pass.
@@ -1483,11 +1572,11 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
            GruWeights *weightsGrad,
            const boost::optional<const Tensor &> &realTimeStepsOpt,
            const boost::optional<const Tensor &> &attScoresOpt,
-           Tensor *attScoresGrads, const std::string &debugPrefix,
+           Tensor *attScoresGrads, const DebugNameAndId &dnai,
            const GruOpts &options, poplin::matmul::PlanningCache *cache) {
   logging::popnn::info("gruBwdImpl(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       dnai.getPathName());
 
   debug_tensor(prog, "bwd fwdIntermediatesSeq", fwdIntermediatesSeq);
 
@@ -1509,46 +1598,44 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   auto &weightsOutput = weights.outputWeights;
 
   // sequence down-counter
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
 
   Tensor seqLen;
   if (realTimeStepsOpt) {
-    seqLen = cast(graph, *realTimeStepsOpt, UNSIGNED_INT, prog);
+    seqLen = cast(graph, *realTimeStepsOpt, UNSIGNED_INT, prog, {dnai});
   }
 
-  Tensor start =
-      graph.addConstant(UNSIGNED_INT, {1}, seqSize, debugPrefix + "/start");
+  Tensor start = graph.addConstant(UNSIGNED_INT, {1}, seqSize, {dnai, "start"});
   graph.setTileMapping(start, 0);
 
   prog.add(Copy(start, seqIdx));
   subInPlace(graph, seqIdx, one, prog);
 
-  auto lastOutGrad =
-      createOutputTensor(graph, params, 1, debugPrefix + "/outGrad")[0];
+  auto lastOutGrad = createOutputTensor(graph, params, 1, {dnai, "outGrad"})[0];
 
   Tensor gradLayerNextRearranged;
   if (params.outputFullSequence) {
     gradLayerNextRearranged = createOutputTensor(
-        graph, params, seqSize, debugPrefix + "/gradLayerNextRearranged");
+        graph, params, seqSize, {dnai, "gradLayerNextRearranged"});
     prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
-    zero(graph, lastOutGrad, prog, debugPrefix + "/initLastOutGrad");
+    zero(graph, lastOutGrad, prog, {dnai, "initLastOutGrad"});
   } else {
-    prog.add(Copy(gradLayerNext, lastOutGrad));
+    prog.add(Copy(gradLayerNext, lastOutGrad, false, {dnai}));
   }
 
-  auto sliceIntermediates = Sequence();
+  auto sliceIntermediates = Sequence({}, {dnai});
 
   Tensor fwdIntermediates =
       dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1},
-                   sliceIntermediates, debugPrefix + "/getFwdIntermediates")
+                   sliceIntermediates, {dnai, "getFwdIntermediates"})
           .squeeze({0});
 
   Tensor prevStepOut =
       dynamicSlice(graph, fwdOutputNew, seqIdx, {0}, {1}, sliceIntermediates,
-                   debugPrefix + "/getPrevStepOut")
+                   {dnai, "getPrevStepOut"})
           .squeeze({0});
 
   Tensor d_a_t;
@@ -1559,21 +1646,20 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   if (attScoresOpt) {
     attScores = dynamicSlice(
         graph, (*attScoresOpt).transpose().expand({(*attScoresOpt).rank()}),
-        seqIdx, {0}, {1}, sliceIntermediates, debugPrefix + "/attScores")[0];
+        seqIdx, {0}, {1}, sliceIntermediates, {dnai, "attScores"})[0];
     sliceAttScoresOpt = attScores;
 
-    *attScoresGrads =
-        createAttention(graph, params, debugPrefix + "/attScoresGrads");
-    d_a_t = createAttention(graph, params, debugPrefix + "/attScoresGrads/t")
+    *attScoresGrads = createAttention(graph, params, {dnai, "attScoresGrads"});
+    d_a_t = createAttention(graph, params, {dnai, "attScoresGrads/t"})
                 .transpose()[0];
     sliceAttScoresGradsOpt = d_a_t;
   }
 
   prog.add(sliceIntermediates);
 
-  auto loop = Sequence();
-  auto bwdLoopBody = Sequence();
-  auto wuLoopBody = Sequence();
+  auto loop = Sequence({}, {dnai});
+  auto bwdLoopBody = Sequence({}, {dnai});
+  auto wuLoopBody = Sequence({}, {dnai});
   {
     Tensor newOutGrad;
     Tensor maskTensor;
@@ -1583,14 +1669,13 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
     if (params.outputFullSequence) {
       gradLayerNextThisStep =
           dynamicSlice(graph, gradLayerNextRearranged, seqIdx, {0}, {1},
-                       bwdLoopBody, debugPrefix + "/gradLayerNext")
+                       bwdLoopBody, {dnai, "gradLayerNext"})
               .squeeze({0});
       gradLayerNextThisStepPtr = &gradLayerNextThisStep;
     }
 
     if (realTimeStepsOpt && params.outputFullSequence) {
-      maskTensor =
-          lt(graph, seqIdx.expand({0}), seqLen, bwdLoopBody, debugPrefix);
+      maskTensor = lt(graph, seqIdx.expand({0}), seqLen, bwdLoopBody, {dnai});
       maskOpt = maskTensor;
     }
 
@@ -1601,38 +1686,35 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
               graph, params, gradLayerNextThisStepPtr, fwdIntermediates,
               prevStepOut, lastOutGrad, weightsInput, weightsOutput, maskOpt,
               sliceAttScoresOpt, sliceAttScoresGradsOpt, prog, bwdLoopBody,
-              options, debugPrefix, cache);
-      *inputGradSeq = createInput(graph, params, debugPrefix + "/inputGradSeq");
+              options, {dnai}, cache);
+      *inputGradSeq = createInput(graph, params, {dnai, "inputGradSeq"});
 
       GruParams tmp_params(params);
       tmp_params.timeSteps = 1;
       auto inputGradRearranged =
-          createInput(graph, tmp_params, debugPrefix + "/inputGradSeq")[0];
+          createInput(graph, tmp_params, {dnai, "inputGradSeq"})[0];
 
-      bwdLoopBody.add(Copy(inputGrad, inputGradRearranged));
-      prog.add(WriteUndef(*inputGradSeq));
+      bwdLoopBody.add(Copy(inputGrad, inputGradRearranged, false, {dnai}));
+      prog.add(WriteUndef(*inputGradSeq, {dnai}));
       dynamicUpdate(graph, *inputGradSeq, inputGradRearranged.expand({0}),
-                    seqIdx, {0}, {1}, bwdLoopBody,
-                    debugPrefix + "/gradLayerPrev");
+                    seqIdx, {0}, {1}, bwdLoopBody, {dnai, "gradLayerPrev"});
     } else {
       std::tie(newOutGrad, bwdIntermediates) = basicGruBackwardStep(
           graph, params, gradLayerNextThisStepPtr, fwdIntermediates,
           prevStepOut, lastOutGrad, weightsOutput, maskOpt, sliceAttScoresOpt,
-          sliceAttScoresGradsOpt, prog, bwdLoopBody, options, debugPrefix,
-          cache);
+          sliceAttScoresGradsOpt, prog, bwdLoopBody, options, {dnai}, cache);
     }
 
     if (attScoresOpt) {
       auto d_a_tRearranged =
-          createAttention(graph, params,
-                          debugPrefix + "/attentionGrad/rearrangement")
+          createAttention(graph, params, {dnai, "attentionGrad/rearrangement"})
               .transpose()[0];
 
-      bwdLoopBody.add(Copy(d_a_t, d_a_tRearranged));
+      bwdLoopBody.add(Copy(d_a_t, d_a_tRearranged, false, {dnai}));
       dynamicUpdate(
           graph, attScoresGrads->transpose().expand({(*attScoresOpt).rank()}),
           d_a_tRearranged.expand({1}).expand({0}), seqIdx, {0}, {1},
-          bwdLoopBody, debugPrefix + "/gruAttGrad");
+          bwdLoopBody, {dnai, "gruAttGrad"});
       debug_tensor(bwdLoopBody, "bwd attGrad", (*attScoresGrads));
     }
 
@@ -1641,56 +1723,55 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
     if (bwdIntermediatesPtr) {
       *bwdIntermediatesPtr =
           createOutputTensor(graph, params, seqSize * BASIC_GRU_CELL_NUM_UNITS,
-                             debugPrefix + "/bwdIntermediates")
+                             {dnai, "bwdIntermediates"})
               .reshapePartial(0, 1, {seqSize, BASIC_GRU_CELL_NUM_UNITS});
       auto bwdIntermediatesRearranged =
           createOutputTensor(graph, params, BASIC_GRU_CELL_NUM_UNITS,
-                             debugPrefix + "/bwdIntermediatesRearranged");
-      bwdLoopBody.add(Copy(bwdIntermediates, bwdIntermediatesRearranged));
-      prog.add(WriteUndef(*bwdIntermediatesPtr));
+                             {dnai, "bwdIntermediatesRearranged"});
+      bwdLoopBody.add(
+          Copy(bwdIntermediates, bwdIntermediatesRearranged, false, {dnai}));
+      prog.add(WriteUndef(*bwdIntermediatesPtr, {dnai}));
       dynamicUpdate(graph, *bwdIntermediatesPtr,
                     bwdIntermediatesRearranged.expand({0}), seqIdx, {0}, {1},
-                    bwdLoopBody, debugPrefix + "/bwdIntermediates");
+                    bwdLoopBody, {dnai, "bwdIntermediates"});
     }
     Tensor prevLayerOut;
     if (weightsGrad) {
       // make a copy of the activations so that they are sliced efficiently
-      auto fwdInputSeqCopy = createInput(
-          graph, params, debugPrefix + "/fwdInputSeqCopy", {}, cache);
-      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy));
-      prevLayerOut =
-          dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1}, bwdLoopBody,
-                       debugPrefix + "/prevLayerActsBwd")
-              .squeeze({0});
+      auto fwdInputSeqCopy =
+          createInput(graph, params, {dnai, "fwdInputSeqCopy"}, {}, cache);
+      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy, false, {dnai}));
+      prevLayerOut = dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1},
+                                  bwdLoopBody, {dnai, "prevLayerActsBwd"})
+                         .squeeze({0});
     }
-    bwdLoopBody.add(Copy(newOutGrad, lastOutGrad));
-    subInPlace(graph, seqIdx, one, bwdLoopBody, debugPrefix + "/seqIdxDecr");
+    bwdLoopBody.add(Copy(newOutGrad, lastOutGrad, false, {dnai}));
+    subInPlace(graph, seqIdx, one, bwdLoopBody, {dnai, "seqIdxDecr"});
     debug_tensor(loop, "bwd Loop ", seqIdx);
     loop.add(bwdLoopBody);
 
     if (weightsGrad) {
-      *weightsGrad =
-          createWeightAccumulators(graph, weights, bwdIntermediates, options,
-                                   debugPrefix, params.resetAfter);
-      zeroWeightAccumulators(graph, prog, *weightsGrad, debugPrefix);
+      *weightsGrad = createWeightAccumulators(
+          graph, weights, bwdIntermediates, options, {dnai}, params.resetAfter);
+      zeroWeightAccumulators(graph, prog, *weightsGrad, {dnai});
 
       basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
                           bwdIntermediates, *weightsGrad, wuLoopBody, options,
-                          debugPrefix, cache, params.resetAfter);
+                          {dnai}, cache, params.resetAfter);
     }
     loop.add(wuLoopBody);
     // Go to next step
     loop.add(sliceIntermediates);
   }
 
-  prog.add(Repeat(seqSize - 1, loop));
+  prog.add(Repeat(seqSize - 1, loop, {dnai}));
 
   debug_tensor(prog, "bwd Loop ", seqIdx);
   prog.add(bwdLoopBody);
   if (weightsGrad) {
     prog.add(wuLoopBody);
     *weightsGrad = basicGruParamUpdateFinal(graph, weights, *weightsGrad, prog,
-                                            debugPrefix, params.resetAfter);
+                                            {dnai}, params.resetAfter);
   }
 
   return lastOutGrad;
@@ -1704,7 +1785,12 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const poplar::DebugContext &debugContext,
               const OptionFlags &options_,
               poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+              fwdOutput, gradLayerNext, params, inputGrad, bwdIntermediates,
+              options_, planningCache));
+
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -1718,10 +1804,13 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
   boost::optional<const Tensor &> realTimeStepsOpt(boost::none);
   boost::optional<const Tensor &> attScoresOpt(boost::none);
-  return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
-                    weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
-                    bwdIntermediates, nullptr, realTimeStepsOpt, attScoresOpt,
-                    nullptr, debugPrefix, std::move(options), planningCache);
+  auto output =
+      gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
+                 weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
+                 bwdIntermediates, nullptr, realTimeStepsOpt, attScoresOpt,
+                 nullptr, {di}, std::move(options), planningCache);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
@@ -1733,7 +1822,12 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const poplar::DebugContext &debugContext,
               const OptionFlags &options_,
               poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+              realTimeSteps, fwdOutput, gradLayerNext, params, inputGrad,
+              bwdIntermediates, options_, planningCache));
+
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -1747,10 +1841,13 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
   boost::optional<const Tensor &> realTimeStepsOpt(realTimeSteps);
   boost::optional<const Tensor &> attScoresOpt(boost::none);
-  return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
-                    weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
-                    bwdIntermediates, nullptr, realTimeStepsOpt, attScoresOpt,
-                    nullptr, debugPrefix, std::move(options), planningCache);
+  auto output =
+      gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
+                 weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
+                 bwdIntermediates, nullptr, realTimeStepsOpt, attScoresOpt,
+                 nullptr, {di}, std::move(options), planningCache);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
@@ -1762,7 +1859,12 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options_,
                 poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+              fwdOutput, gradLayerNext, inputGrad, bwdIntermediates, attentions,
+              attentionsGrad, params, options_, planningCache));
+
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -1779,8 +1881,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
   return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
                     weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
                     bwdIntermediates, nullptr, timeSteps, attScores,
-                    attentionsGrad, debugPrefix, std::move(options),
-                    planningCache);
+                    attentionsGrad, {di}, std::move(options), planningCache);
 }
 
 Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
@@ -1793,7 +1894,12 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options_,
                 poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+              realTimeSteps, fwdOutput, gradLayerNext, inputGrad,
+              bwdIntermediates, attentions, attentionsGrad, params, options_,
+              planningCache));
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -1807,19 +1913,21 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
   boost::optional<const Tensor &> timeSteps(realTimeSteps);
   boost::optional<const Tensor &> attScores(attentions);
-  return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
-                    weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
-                    bwdIntermediates, nullptr, timeSteps, attScores,
-                    attentionsGrad, debugPrefix, std::move(options),
-                    planningCache);
+  auto output =
+      gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
+                 weights, fwdInputSeq, fwdOutput, gradLayerNext, inputGrad,
+                 bwdIntermediates, nullptr, timeSteps, attScores,
+                 attentionsGrad, {di}, std::move(options), planningCache);
+  di.addOutput(output);
+  return output;
 }
 
 static GruWeights
 gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
           const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
           const Tensor &bwdIntermediatesSeq, const GruWeights &weights,
-          const Tensor &input, const Tensor &output,
-          const std::string &debugPrefix, const GruOpts &options,
+          const Tensor &input, const Tensor &output, const DebugNameAndId &dnai,
+          const GruOpts &options,
           poplin::matmul::PlanningCache *planningCache) {
   Tensor fwdOutputNew;
   if (params.outputFullSequence) {
@@ -1835,57 +1943,55 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
 
   GruWeights weightGrads =
       createWeightAccumulators(graph, weights, bwdIntermediatesSeq[0], options,
-                               debugPrefix, params.resetAfter);
-  zeroWeightAccumulators(graph, prog, weightGrads, debugPrefix);
+                               {dnai}, params.resetAfter);
+  zeroWeightAccumulators(graph, prog, weightGrads, {dnai});
 
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
   auto start = graph.addConstant(UNSIGNED_INT, {1}, params.timeSteps - 1,
-                                 debugPrefix + "/start");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+                                 {dnai, "start"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(start, 0);
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  prog.add(Copy(start, seqIdx));
+  prog.add(Copy(start, seqIdx, false, {dnai}));
 
-  auto sliceLoopBody = Sequence();
-  Tensor prevStepOut =
-      dynamicSlice(graph, fwdOutputNew, seqIdx, {0}, {1}, sliceLoopBody,
-                   debugPrefix + "/getPrevStepOut")
-          .squeeze({0});
+  auto sliceLoopBody = Sequence({}, {dnai});
+  Tensor prevStepOut = dynamicSlice(graph, fwdOutputNew, seqIdx, {0}, {1},
+                                    sliceLoopBody, {dnai, "getPrevStepOut"})
+                           .squeeze({0});
   Tensor fwdIntermediates =
       dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceLoopBody,
-                   debugPrefix + "/getFwdIntermediates")
+                   {dnai, "getFwdIntermediates"})
           .squeeze({0});
 
-  auto loop = Sequence();
-  auto wuLoopBody = Sequence();
+  auto loop = Sequence({}, {dnai});
+  auto wuLoopBody = Sequence({}, {dnai});
   {
     // Dynamic slice required state per-step
     // make a copy of the activations so that they are sliced efficiently
-    auto inputCopy = createInput(graph, params, debugPrefix + "/inputCopy", {});
-    prog.add(Copy(input, inputCopy));
-    auto prevLayerOut =
-        dynamicSlice(graph, inputCopy, seqIdx, {0}, {1}, sliceLoopBody,
-                     debugPrefix + "/prevLayerActsWu")
-            .squeeze({0});
+    auto inputCopy = createInput(graph, params, {dnai, "inputCopy"}, {});
+    prog.add(Copy(input, inputCopy, false, {dnai}));
+    auto prevLayerOut = dynamicSlice(graph, inputCopy, seqIdx, {0}, {1},
+                                     sliceLoopBody, {dnai, "prevLayerActsWu"})
+                            .squeeze({0});
     auto bwdIntermediates =
         dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1},
-                     sliceLoopBody, debugPrefix + "/getBwdIntermediates")
+                     sliceLoopBody, {dnai, "getBwdIntermediates"})
             .squeeze({0});
-    subInPlace(graph, seqIdx, one, sliceLoopBody, debugPrefix + "/seqIdxDecr");
+    subInPlace(graph, seqIdx, one, sliceLoopBody, {dnai, "seqIdxDecr"});
     loop.add(sliceLoopBody);
 
     basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
                         bwdIntermediates, weightGrads, wuLoopBody, options,
-                        debugPrefix, planningCache, params.resetAfter);
+                        {dnai}, planningCache, params.resetAfter);
     loop.add(wuLoopBody);
   }
-  prog.add(Repeat(params.timeSteps - 1, loop));
+  prog.add(Repeat(params.timeSteps - 1, loop, {dnai}));
   prog.add(sliceLoopBody);
   prog.add(wuLoopBody);
 
   weightGrads = basicGruParamUpdateFinal(graph, weights, weightGrads, prog,
-                                         debugPrefix, params.resetAfter);
+                                         {dnai}, params.resetAfter);
 
   return weightGrads;
 }
@@ -1897,19 +2003,25 @@ GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options_,
                  poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediates, bwdIntermediates, weights_,
+              input, output, params, options_, planningCache));
+
   logging::popnn::info("gruWU(steps={}, batch {} x layers {}, name{}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       debugContext.getPathName());
   validateParams(params);
   auto options = parseOptions(options_);
 
   auto weights = fromCellOrder(weights_, params.cellOrder);
 
   auto grads = gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
-                         bwdIntermediates, weights, input, output, debugPrefix,
+                         bwdIntermediates, weights, input, output, {di},
                          std::move(options), planningCache);
-  return toCellOrder(std::move(grads), params.cellOrder);
+  auto outputs = toCellOrder(std::move(grads), params.cellOrder);
+  di.addOutputs(DI_ARGS(outputs));
+  return outputs;
 }
 
 GruWeights augruWU(Graph &graph, const GruParams &params,
@@ -1920,10 +2032,13 @@ GruWeights augruWU(Graph &graph, const GruParams &params,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediates, bwdIntermediates, weights_,
+              input, output, params, options_, planningCache));
   logging::popnn::info("gruWU(steps={}, batch {} x layers {}, name{}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       debugContext.getPathName());
 
   validateParams(params);
   auto options = parseOptions(options_);
@@ -1931,9 +2046,12 @@ GruWeights augruWU(Graph &graph, const GruParams &params,
   auto weights = fromCellOrder(weights_, params.cellOrder);
 
   auto grads = gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
-                         bwdIntermediates, weights, input, output, debugPrefix,
+                         bwdIntermediates, weights, input, output, {di},
                          std::move(options), planningCache);
-  return toCellOrder(std::move(grads), params.cellOrder);
+  auto outputs = toCellOrder(std::move(grads), params.cellOrder);
+  di.addOutputs(DI_ARGS(outputs));
+
+  return outputs;
 }
 
 // Is it beneficial memory-wise to interleave weight update with
@@ -1961,10 +2079,13 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              GruWeights &weightsGrad_, const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input,
+                            output, outputGrad, inputGrad, weightsGrad_, params,
+                            options_, planningCache));
   logging::popnn::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       debugContext.getPathName());
   validateParams(params);
   auto options = parseOptions(options_);
 
@@ -1992,15 +2113,16 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
       graph, params, prog, fwdOutputInit, fwdIntermediates, weights, input,
       output, outputGrad, inputGrad, interleaveWU ? nullptr : &bwdIntermediates,
       interleaveWU ? &weightsGrad : nullptr, realTimeSteps, attScores, nullptr,
-      debugPrefix, options, planningCache);
+      {di}, options, planningCache);
 
   if (!interleaveWU) {
-    weightsGrad = gruWUImpl(
-        graph, params, prog, fwdOutputInit, fwdIntermediates, bwdIntermediates,
-        weights, input, output, debugPrefix, std::move(options), planningCache);
+    weightsGrad = gruWUImpl(graph, params, prog, fwdOutputInit,
+                            fwdIntermediates, bwdIntermediates, weights, input,
+                            output, {di}, std::move(options), planningCache);
   }
 
   weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
+  di.addOutput(outGrads);
   return outGrads;
 }
 
@@ -2014,10 +2136,14 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input,
+                            realTimeSteps, output, outputGrad, inputGrad,
+                            weightsGrad_, params, options_, planningCache));
+
   logging::popnn::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       debugContext.getPathName());
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -2043,15 +2169,16 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
       graph, params, prog, fwdOutputInit, fwdIntermediates, weights, input,
       output, outputGrad, inputGrad, interleaveWU ? nullptr : &bwdIntermediates,
       interleaveWU ? &weightsGrad : nullptr, timeSteps, attScores, nullptr,
-      debugPrefix, options, planningCache);
+      {di}, options, planningCache);
 
   if (!interleaveWU) {
-    weightsGrad = gruWUImpl(
-        graph, params, prog, fwdOutputInit, fwdIntermediates, bwdIntermediates,
-        weights, input, output, debugPrefix, std::move(options), planningCache);
+    weightsGrad = gruWUImpl(graph, params, prog, fwdOutputInit,
+                            fwdIntermediates, bwdIntermediates, weights, input,
+                            output, {di}, std::move(options), planningCache);
   }
 
   weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
+  di.addOutput(outGrads);
   return outGrads;
 }
 
@@ -2066,10 +2193,15 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options_,
                poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input, output,
+              outputGrad, inputGrad, weightsGrad_, attentions, attentionsGrad,
+              params, options_, planningCache));
+
   logging::popnn::info("auGruBwdWithWU(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       debugContext.getPathName());
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -2095,15 +2227,16 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
       graph, params, prog, fwdOutputInit, fwdIntermediates, weights, input,
       output, outputGrad, inputGrad, interleaveWU ? nullptr : &bwdIntermediates,
       interleaveWU ? &weightsGrad : nullptr, timeSteps, attScores,
-      attentionsGrad, debugPrefix, options, planningCache);
+      attentionsGrad, {di}, options, planningCache);
 
   if (!interleaveWU) {
-    weightsGrad = gruWUImpl(
-        graph, params, prog, fwdOutputInit, fwdIntermediates, bwdIntermediates,
-        weights, input, output, debugPrefix, std::move(options), planningCache);
+    weightsGrad = gruWUImpl(graph, params, prog, fwdOutputInit,
+                            fwdIntermediates, bwdIntermediates, weights, input,
+                            output, {di}, std::move(options), planningCache);
   }
 
   weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
+  di.addOutput(outGrads);
   return outGrads;
 }
 
@@ -2119,10 +2252,15 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options_,
                poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input, realTimeSteps,
+              output, outputGrad, inputGrad, weightsGrad_, attentions,
+              attentionsGrad, params, options_, planningCache));
+
   logging::popnn::info("auGruBwdWithWU(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
-                       debugPrefix);
+                       debugContext.getPathName());
   validateParams(params);
   auto options = parseOptions(options_);
   if (bool(inputGrad) != params.calcInputGradients) {
@@ -2148,15 +2286,16 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
       graph, params, prog, fwdOutputInit, fwdIntermediates, weights, input,
       output, outputGrad, inputGrad, interleaveWU ? nullptr : &bwdIntermediates,
       interleaveWU ? &weightsGrad : nullptr, timeSteps, attScores,
-      attentionsGrad, debugPrefix, options, planningCache);
+      attentionsGrad, {di}, options, planningCache);
 
   if (!interleaveWU) {
-    weightsGrad = gruWUImpl(
-        graph, params, prog, fwdOutputInit, fwdIntermediates, bwdIntermediates,
-        weights, input, output, debugPrefix, std::move(options), planningCache);
+    weightsGrad = gruWUImpl(graph, params, prog, fwdOutputInit,
+                            fwdIntermediates, bwdIntermediates, weights, input,
+                            output, {di}, std::move(options), planningCache);
   }
 
   weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
+  di.addOutput(outGrads);
   return outGrads;
 }
 

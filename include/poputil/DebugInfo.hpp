@@ -10,6 +10,7 @@
 
 #include <poplar/DebugContext.hpp>
 
+#include <popfloat/experimental/CastToGfloat.hpp>
 #include <poplar/GraphElements.hpp>
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
@@ -23,14 +24,6 @@
 #define SUPPORTS_FUNCTION_BUILTINS 0
 #endif
 
-#include <algorithm>
-#include <sstream>
-#include <string_view>
-
-#include <boost/preprocessor.hpp>
-#include <boost/preprocessor/cat.hpp>
-#include <boost/preprocessor/seq/for_each_i.hpp>
-
 namespace poputil {
 
 // template definitions of the toProfileValue that needs to be specialized
@@ -38,11 +31,13 @@ namespace poputil {
 template <typename T> poplar::ProfileValue toProfileValue(const T &t);
 
 // template specializations for basic types
+template <> poplar::ProfileValue toProfileValue(const int &v);
 template <> poplar::ProfileValue toProfileValue(const unsigned int &v);
 template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
 template <> poplar::ProfileValue toProfileValue(const int &v);
 template <> poplar::ProfileValue toProfileValue(const bool &v);
 template <> poplar::ProfileValue toProfileValue(const float &v);
+template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
 
 // template specializations for Poplar types
 template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t);
@@ -50,6 +45,7 @@ template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::program::Copy &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
+template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Type &t);
 
 // Generic case for a pointer
@@ -102,6 +98,7 @@ public:
 
   void add(const std::string &name, const std::vector<ArgType> &args);
 };
+
 class PoplibsOpDebugInfo : public OpDebugInfo {
 
 public:
@@ -130,8 +127,11 @@ public:
 #define DI_XSTR(S) DI_STR(S)
 
 #define DI_NUM_ARGS(...)                                                       \
-  DI_NUM_ARGS_IMPL(__VA_ARGS__, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
-#define DI_NUM_ARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, N, ...) N
+  DI_NUM_ARGS_IMPL(__VA_ARGS__, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4,  \
+                   3, 2, 1, 0)
+#define DI_NUM_ARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12,    \
+                         _13, _14, _15, _16, N, ...)                           \
+  N
 
 #define DI_CONCAT_IMPL(x, y) x##y
 #define DI_MACRO_CONCAT(x, y) DI_CONCAT_IMPL(x, y)
@@ -160,6 +160,16 @@ public:
   DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_9(__VA_ARGS__)
 #define DI_KEY_VALUE_ARG_11(T, ...)                                            \
   DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_10(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_12(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_11(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_13(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_12(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_14(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_13(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_15(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_14(__VA_ARGS__)
+#define DI_KEY_VALUE_ARG_16(T, ...)                                            \
+  DI_KEY_VALUE_ARG_1(T), DI_KEY_VALUE_ARG_15(__VA_ARGS__)
 #define DI_KEY_VALUE_ARG(...)                                                  \
   DI_MACRO_CONCAT(DI_KEY_VALUE_ARG_, DI_NUM_ARGS(__VA_ARGS__))(__VA_ARGS__)
 

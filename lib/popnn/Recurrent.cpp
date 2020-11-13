@@ -11,6 +11,7 @@
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Zero.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
@@ -127,15 +128,19 @@ Tensor createFwdState(Graph &graph, const Type &dType, unsigned batchSize,
                       bool inferenceOnly,
                       const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(dType, batchSize, outputSize, initState, inferenceOnly, cache));
+
   OptionFlags mmOpt{
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
   auto state = createMatMulInputLHS(graph, dType, {batchSize, outputSize},
-                                    {outputSize, outputSize},
-                                    name + "/FwdState", mmOpt, cache);
+                                    {outputSize, outputSize}, {di, "FwdState"},
+                                    mmOpt, cache);
   if (initState) {
-    popops::zero(graph, state, prog, name);
+    popops::zero(graph, state, prog, {di});
   }
+  di.addOutputs(DI_ARGS(state));
   return state;
 }
 
@@ -148,12 +153,15 @@ Tensor createBwdState(Graph &graph, const Type &dType, unsigned batchSize,
                       unsigned outputSize, Sequence &prog,
                       const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(dType, batchSize, outputSize, cache));
+
   OptionFlags mmOpt{{"fullyConnectedPass", "TRAINING_BWD"}};
   auto state = createMatMulInputLHS(graph, dType, {batchSize, outputSize},
-                                    {outputSize, outputSize},
-                                    name + "/BwdState", mmOpt, cache);
-  popops::zero(graph, state, prog, name + "/BwdState");
+                                    {outputSize, outputSize}, {di, "BwdState"},
+                                    mmOpt, cache);
+  popops::zero(graph, state, prog, {di, "BwdState"});
+  di.addOutputs(DI_ARGS(state));
   return state;
 }
 
@@ -162,20 +170,25 @@ Tensor createInput(Graph &graph, unsigned sequenceSize, unsigned batchSize,
                    const Type &partialsType, bool inferenceOnly,
                    const poplar::DebugContext &debugContext,
                    matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(sequenceSize, batchSize, inputSize, outputSize,
+                            dType, partialsType, inferenceOnly, cache));
+
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
   std::vector<Tensor> input;
   input.reserve(1 + sequenceSize);
   input.emplace_back(createMatMulInputLHS(graph, dType, {batchSize, inputSize},
-                                          {inputSize, outputSize}, name, mmOpt,
+                                          {inputSize, outputSize}, {di}, mmOpt,
                                           cache)
                          .expand({0}));
   for (unsigned s = 1; s != sequenceSize; ++s) {
-    input.emplace_back(graph.clone(input[0], name + "/" + std::to_string(s)));
+    input.emplace_back(graph.clone(input[0], {di, std::to_string(s)}));
   }
-  return concat(input);
+  auto output = concat(input);
+  di.addOutput(output);
+  return output;
 }
 
 poplar::Tensor createWeightsInput(Graph &graph, unsigned /* sequenceSize */,
@@ -184,13 +197,18 @@ poplar::Tensor createWeightsInput(Graph &graph, unsigned /* sequenceSize */,
                                   const Type &partialsType, bool inferenceOnly,
                                   const poplar::DebugContext &debugContext,
                                   matmul::PlanningCache *cache) {
-  const auto namePrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(batchSize, inputSize, outputSize, dType,
+                            partialsType, inferenceOnly, cache));
+
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
-  return createMatMulInputRHS(graph, dType, {batchSize, inputSize},
-                              {inputSize, outputSize}, "weightsInput", mmOpt,
-                              cache);
+  auto output = createMatMulInputRHS(graph, dType, {batchSize, inputSize},
+                                     {inputSize, outputSize},
+                                     {di, "weightsInput"}, mmOpt, cache);
+  di.addOutput(output);
+  return output;
 }
 
 poplar::Tensor createWeightsFeedback(Graph &graph, unsigned batchSize,
@@ -199,13 +217,18 @@ poplar::Tensor createWeightsFeedback(Graph &graph, unsigned batchSize,
                                      bool inferenceOnly,
                                      const poplar::DebugContext &debugContext,
                                      matmul::PlanningCache *cache) {
-  const auto namePrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(batchSize, outputSize, dType,
+                                         partialsType, inferenceOnly, cache));
+
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
-  return createMatMulInputRHS(graph, dType, {batchSize, outputSize},
-                              {outputSize, outputSize}, "weightsRecurrent",
-                              mmOpt, cache);
+  auto output = createMatMulInputRHS(graph, dType, {batchSize, outputSize},
+                                     {outputSize, outputSize},
+                                     {di, "weightsRecurrent"}, mmOpt, cache);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
@@ -213,15 +236,21 @@ Tensor forwardWeightInput(Graph &graph, const Tensor &actIn,
                           const Type &partialsType, bool inferenceOnly,
                           const poplar::DebugContext &debugContext,
                           matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(actIn, weights, partialsType, inferenceOnly, cache));
+
   const unsigned sequenceSize = actIn.dim(0);
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
 
-  return unflattenSeqDims(matMul(graph, flattenSeqDims(actIn), weights, prog,
-                                 debugPrefix + "/RnnFwd/FeedFwd", mmOpt, cache),
-                          sequenceSize);
+  auto output =
+      unflattenSeqDims(matMul(graph, flattenSeqDims(actIn), weights, prog,
+                              {di, "RnnFwd/FeedFwd"}, mmOpt, cache),
+                       sequenceSize);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
@@ -231,7 +260,11 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
                       const Type &partialsType, bool inferenceOnly,
                       const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(feedFwdIn, initState, weightsFeedback,
+                                         biases, nonLinearityType, partialsType,
+                                         inferenceOnly, cache));
+
   const unsigned sequenceSize = feedFwdIn.dim(0);
   const unsigned batchSize = feedFwdIn.dim(1);
   const unsigned outputSize = feedFwdIn.dim(2);
@@ -240,24 +273,26 @@ Tensor forwardIterate(Graph &graph, const Tensor &feedFwdIn,
       biases.broadcast(batchSize, 0).reshape({batchSize, outputSize});
 
   auto actOut = graph.addVariable(feedFwdIn.elementType(),
-                                  {0, batchSize, outputSize}, "actOut");
+                                  {0, batchSize, outputSize}, {di, "actOut"});
   OptionFlags mmOpt{
       {"partialsType", partialsType.toString()},
       {"fullyConnectedPass", inferenceOnly ? "INFERENCE_FWD" : "TRAINING_FWD"}};
 
   for (unsigned s = 0U; s != sequenceSize; ++s) {
-    const auto dbgStr = debugPrefix + "/RnnFwd/Feedback/" + std::to_string(s);
+    const std::string dbgStr = "RnnFwd/Feedback/" + std::to_string(s);
     Tensor yP = s == 0 ? initState : actOut[s - 1];
-    auto prod = matMul(graph, yP, weightsFeedback, prog, dbgStr, mmOpt, cache);
-    addInPlace(graph, prod, feedFwdIn[s], prog, dbgStr + "/Sum");
+    auto prod =
+        matMul(graph, yP, weightsFeedback, prog, {di, dbgStr}, mmOpt, cache);
+    addInPlace(graph, prod, feedFwdIn[s], prog, {di, dbgStr + "/Sum"});
 
     /* Add broadcast bias */
-    addInPlace(graph, prod, bBiases, prog, dbgStr + "/Bias");
+    addInPlace(graph, prod, bBiases, prog, {di, dbgStr + "/Bias"});
 
-    nonLinearityInPlace(graph, nonLinearityType, prod, prog, dbgStr);
+    nonLinearityInPlace(graph, nonLinearityType, prod, prog, {di, dbgStr});
 
     actOut = append(actOut, prod);
   }
+  di.addOutput(actOut);
   return actOut;
 }
 
@@ -279,65 +314,68 @@ poplar::Tensor rnnFwdSequence(
     const popnn::NonLinearityType &nonLinearityType,
     const poplar::Type &partialsType, bool inferenceOnly,
     const poplar::DebugContext &debugContext, matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(fwdStateInit, weightedIn, biases, feedFwdWeights,
+                            feedbackWeights, prevLayerActs, nonLinearityType,
+                            partialsType, inferenceOnly, cache));
+
   logging::popnn::info(
       "rnnFwdSequence fwdStateInit={}, weightedIn={}, biases={}, "
       "feedFwdWeights={} feedbackWeights={}, prevLayerActs={}, "
       "nonLinearityType={}, type={}, inferenceOnly={}, name={}",
       fwdStateInit.shape(), maybeShape(weightedIn), biases.shape(),
       feedFwdWeights.shape(), feedbackWeights.shape(), prevLayerActs.shape(),
-      nonLinearityType, partialsType, inferenceOnly, debugPrefix);
+      nonLinearityType, partialsType, inferenceOnly,
+      debugContext.getPathName());
 
   auto seqSize = prevLayerActs.dim(0);
   auto stateShape = fwdStateInit.shape();
   stateShape.insert(stateShape.begin(), seqSize);
   const auto dType = prevLayerActs.elementType();
-  auto fwdState =
-      graph.addVariable(dType, stateShape, debugPrefix + "/fwdState");
+  auto fwdState = graph.addVariable(dType, stateShape, {di, "fwdState"});
   // loop counter
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {di, "seqIdx"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {di, "one"});
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
 
-  popops::zero(graph, seqIdx, prog, debugPrefix + "/seqIdx");
+  popops::zero(graph, seqIdx, prog, {di, "seqIdx"});
 
   // state for current layer, start from initialiser
   Tensor thisState = poputil::duplicate(graph, fwdStateInit, prog);
 
   // core rnn loop
-  auto loop = Sequence();
+  auto loop = Sequence({}, {di});
   {
     // input is either sliced from weightedIn, or
     // sliced from prevLayerActs then weighted
     Tensor feedFwdOutput;
     if (weightedIn) {
       feedFwdOutput = popops::dynamicSlice(graph, *weightedIn, seqIdx, {0}, {1},
-                                           loop, debugPrefix + "/rnnInput");
+                                           loop, {di, "rnnInput"});
     } else {
-      Tensor cellInputS =
-          popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1}, loop,
-                               debugPrefix + "/rnnInput");
+      Tensor cellInputS = popops::dynamicSlice(
+          graph, prevLayerActs, seqIdx, {0}, {1}, loop, {di, "rnnInput"});
       feedFwdOutput = popnn::rnn::forwardWeightInput(
           graph, cellInputS, feedFwdWeights, loop, partialsType, inferenceOnly,
-          debugPrefix, cache);
+          {di}, cache);
     }
 
     Tensor newState = popnn::rnn::forwardIterate(
         graph, feedFwdOutput, thisState, feedbackWeights, biases, loop,
-        nonLinearityType, partialsType, inferenceOnly, debugPrefix, cache);
+        nonLinearityType, partialsType, inferenceOnly, {di}, cache);
     // all output sequence elements take the same mapping so will only
     // require on-tile copies
     for (unsigned i = 0; i != seqSize; ++i) {
       graph.setTileMapping(fwdState[i], graph.getTileMapping(newState[0]));
     }
-    loop.add(Copy(newState, thisState));
+    loop.add(Copy(newState, thisState, false, {di}));
 
     popops::dynamicUpdate(graph, fwdState, newState, seqIdx, {0}, {1}, loop,
-                          debugPrefix + "/rnnUpdateState");
-    addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+                          {di, "rnnUpdateState"});
+    addInPlace(graph, seqIdx, one, loop, {di, "seqIdxIncr"});
   }
-  prog.add(Repeat(seqSize, loop));
+  prog.add(Repeat(seqSize, loop, {di}));
   return fwdState;
 }
 
@@ -346,20 +384,20 @@ std::pair<Tensor, Tensor> backwardGradientStepImpl(
     const Tensor &actOut, const Tensor *weightsInput,
     const Tensor *weightsFeedback, Sequence &prog,
     popnn::NonLinearityType nonLinearityType, const Type &partialsType,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   OptionFlags mmOpt{{"partialsType", partialsType.toString()},
                     {"fullyConnectedPass", "TRAINING_BWD"}};
 
   auto t = matMul(graph, bwdState, weightsFeedback->transpose(), prog,
-                  debugPrefix + "/RnnBwd/Fb", mmOpt, cache);
-  addInPlace(graph, t, gradientOut, prog, debugPrefix + "/RnnBwd/AddOutGrad");
+                  {dnai, "RnnBwd/Fb"}, mmOpt, cache);
+  addInPlace(graph, t, gradientOut, prog, {dnai, "RnnBwd/AddOutGrad"});
 
-  auto newBwdState = nonLinearityInputGradient(
-      graph, nonLinearityType, actOut, t, prog, debugPrefix + "/RnnBwd");
+  auto newBwdState = nonLinearityInputGradient(graph, nonLinearityType, actOut,
+                                               t, prog, {dnai, "RnnBwd"});
   Tensor gradientAtInput;
   if (weightsInput != nullptr) {
     gradientAtInput = matMul(graph, newBwdState, weightsInput->transpose(),
-                             prog, debugPrefix + "/RnnBwd/Ff", mmOpt, cache);
+                             prog, {dnai, "RnnBwd/Ff"}, mmOpt, cache);
   }
   return std::make_pair(gradientAtInput, newBwdState);
 }
@@ -370,10 +408,17 @@ std::pair<Tensor, Tensor> backwardGradientStep(
     const Tensor &weightsFeedback, Sequence &prog,
     popnn::NonLinearityType nonLinearityType, const Type &partialsType,
     const poplar::DebugContext &debugContext, matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  return backwardGradientStepImpl(
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(gradientOut, bwdState, actOut, weightsInput, weightsFeedback,
+              nonLinearityType, partialsType, cache));
+
+  auto outputs = backwardGradientStepImpl(
       graph, gradientOut, bwdState, actOut, &weightsInput, &weightsFeedback,
-      prog, nonLinearityType, partialsType, debugPrefix, cache);
+      prog, nonLinearityType, partialsType, {di}, cache);
+  di.addOutputs({{"lossGrad", toProfileValue(outputs.first)},
+                 {"state", toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 Tensor backwardGradientStep(Graph &graph, const Tensor &gradientOut,
@@ -383,11 +428,15 @@ Tensor backwardGradientStep(Graph &graph, const Tensor &gradientOut,
                             const Type &partialsType,
                             const poplar::DebugContext &debugContext,
                             matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(gradientOut, bwdState, actOut, weightsFeedback,
+                            nonLinearityType, partialsType, cache));
+
   Tensor gradAtInput, state;
   std::tie(gradAtInput, state) = backwardGradientStepImpl(
       graph, gradientOut, bwdState, actOut, nullptr, &weightsFeedback, prog,
-      nonLinearityType, partialsType, debugPrefix, cache);
+      nonLinearityType, partialsType, {di}, cache);
+  di.addOutput(state);
   return state;
 }
 
@@ -397,8 +446,12 @@ void paramDeltaUpdate(Graph &graph, const Tensor &bwdState, const Tensor &actIn,
                       Sequence &prog, const Type &partialsType,
                       const poplar::DebugContext &debugContext,
                       matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  const auto fnPrefix = debugPrefix + "/RnDeltas";
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(bwdState, actIn, prevOut, weightsInputDeltasAcc,
+              weightsFeedbackDeltasAcc, biasDeltasAcc, partialsType, cache));
+
+  const std::string fnPrefix = "RnDeltas";
   OptionFlags mmOpt{{"partialsType", partialsType.toString()},
                     {"fullyConnectedPass", "TRAINING_WU"}};
   const bool combineMatMul = false;
@@ -406,15 +459,16 @@ void paramDeltaUpdate(Graph &graph, const Tensor &bwdState, const Tensor &actIn,
   if (combineMatMul) {
     matMulAcc(graph, concat(weightsInputDeltasAcc, weightsFeedbackDeltasAcc),
               1.0, concat(actIn.transpose(), prevOut.transpose()), bwdState,
-              prog, fnPrefix + "/Wi+Wfb", mmOpt, cache);
+              prog, {di, fnPrefix + "/Wi+Wfb"}, mmOpt, cache);
   } else {
     matMulAcc(graph, weightsInputDeltasAcc, 1.0, actIn.transpose(), bwdState,
-              prog, fnPrefix + "/Wi", mmOpt, cache);
+              prog, {di, fnPrefix + "/Wi"}, mmOpt, cache);
     matMulAcc(graph, weightsFeedbackDeltasAcc, 1.0, prevOut.transpose(),
-              bwdState, prog, fnPrefix + "/Wfb", mmOpt, cache);
+              bwdState, prog, {di, fnPrefix + "/Wfb"}, mmOpt, cache);
   }
-  auto r = reduce(graph, bwdState, {0}, popops::Operation::ADD, prog, fnPrefix);
-  addInPlace(graph, biasDeltasAcc, r, prog, fnPrefix);
+  auto r = reduce(graph, bwdState, {0}, popops::Operation::ADD, prog,
+                  {di, fnPrefix});
+  addInPlace(graph, biasDeltasAcc, r, prog, {di, fnPrefix});
 }
 
 std::tuple<poplar::Tensor, poplar::Tensor, poplar::Tensor, poplar::Tensor>
@@ -429,26 +483,32 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
                const poplar::Type &partialsType,
                const poplar::DebugContext &debugContext,
                matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdStateInit, fwdState, biases, feedFwdWeights, feedbackWeights,
+              outGradient, actIn, doWU, ignoreInputGradientCalc,
+              nonLinearityType, partialsType, cache));
+
   logging::popnn::info(
       "rnnBwdSequence fwdStateInit={}, fwdState={}, biases={}, "
       "feedFwdWeights={} feedbackWeights={}, outGradient={}, "
       "actIn={}, nonLinearityType={}, type={}, name={}",
       fwdStateInit.shape(), fwdState.shape(), biases.shape(),
       feedFwdWeights.shape(), feedbackWeights.shape(), outGradient.shape(),
-      actIn.shape(), nonLinearityType, partialsType, debugPrefix);
+      actIn.shape(), nonLinearityType, partialsType,
+      debugContext.getPathName());
 
   Tensor feedFwdWeightsDeltaAcc, feedbackWeightsDeltaAcc, biasesDeltaAcc;
   if (doWU) {
-    feedFwdWeightsDeltaAcc = graph.clone(feedFwdWeights);
-    feedbackWeightsDeltaAcc = graph.clone(feedbackWeights);
-    biasesDeltaAcc = graph.clone(biases);
+    feedFwdWeightsDeltaAcc = graph.clone(feedFwdWeights, {di});
+    feedbackWeightsDeltaAcc = graph.clone(feedbackWeights, {di});
+    biasesDeltaAcc = graph.clone(biases, {di});
     // zero all tensors updated in the BPTT
     zero(graph, feedFwdWeightsDeltaAcc, prog,
-         debugPrefix + "/ZeroFeedFwdWeightsDeltasAcc");
+         {di, "ZeroFeedFwdWeightsDeltasAcc"});
     zero(graph, feedbackWeightsDeltaAcc, prog,
-         debugPrefix + "/ZeroFeedbackWeightsDeltasAcc");
-    zero(graph, biasesDeltaAcc, prog, debugPrefix + "/ZeroBiasesDeltasAcc");
+         {di, "ZeroFeedbackWeightsDeltasAcc"});
+    zero(graph, biasesDeltaAcc, prog, {di, "ZeroBiasesDeltasAcc"});
   }
   const auto dType = actIn.elementType();
   const auto seqSize = actIn.dim(0);
@@ -456,34 +516,33 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
   const auto inputSize = actIn.dim(2);
   const auto outputSize = feedbackWeights.dim(1);
 
-  Tensor bwdState = popnn::rnn::createBwdState(
-      graph, dType, batchSize, outputSize, prog, debugPrefix, cache);
+  Tensor bwdState = popnn::rnn::createBwdState(graph, dType, batchSize,
+                                               outputSize, prog, {di}, cache);
   auto actOut = popnn::rnn::getOutputFromFwdState(fwdStateInit);
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto start =
-      graph.addConstant(UNSIGNED_INT, {1}, seqSize - 1, debugPrefix + "/start");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {di, "seqIdx"});
+  auto start = graph.addConstant(UNSIGNED_INT, {1}, seqSize - 1, {di, "start"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {di, "one"});
   graph.setTileMapping(start, 0);
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  prog.add(Copy(start, seqIdx));
+  prog.add(Copy(start, seqIdx, false, {di}));
 
   // state for gradient backprop
   std::vector<std::size_t> gradientShape = {
       seqSize, batchSize, !ignoreInputGradientCalc ? inputSize : outputSize};
   auto prevLayerGradsVec =
-      graph.addVariable(dType, gradientShape, debugPrefix + "/gradient");
-  Tensor fwdStateS = graph.clone(fwdStateInit, debugPrefix + "/fwdStateS");
+      graph.addVariable(dType, gradientShape, {di, "gradient"});
+  Tensor fwdStateS = graph.clone(fwdStateInit, {di, "fwdStateS"});
   Tensor fwdStateOffset =
       concat(fwdStateInit.expand({0}), fwdState.slice(0, fwdState.dim(0) - 1));
   graph.setTileMapping(fwdStateOffset[0],
                        graph.getTileMapping(fwdStateOffset[1]));
-  auto loop = Sequence();
+  auto loop = Sequence({}, {di});
   {
     Tensor gradientInputThisStep;
     Tensor outGradS =
         popops::dynamicSlice(graph, outGradient.dimShuffle({1, 0, 2}), seqIdx,
-                             {0}, {1}, loop, debugPrefix + "/OutGradient")
+                             {0}, {1}, loop, {di, "OutGradient"})
             .squeeze({0});
     Tensor prevOutput;
     if (!ignoreInputGradientCalc || doWU) {
@@ -493,43 +552,43 @@ rnnBwdSequence(poplar::Graph &graph, bool doWU, bool ignoreInputGradientCalc,
       std::tie(gradientInputThisStep, bwdState) =
           popnn::rnn::backwardGradientStep(
               graph, outGradS, bwdState, prevOutput, feedFwdWeights,
-              feedbackWeights, loop, nonLinearityType, partialsType,
-              debugPrefix, cache);
+              feedbackWeights, loop, nonLinearityType, partialsType, {di},
+              cache);
       gradientInputThisStep = gradientInputThisStep.expand({0});
       for (unsigned s = 0; s != seqSize; ++s)
         graph.setTileMapping(prevLayerGradsVec[s],
                              graph.getTileMapping(gradientInputThisStep));
       popops::dynamicUpdate(graph, prevLayerGradsVec, gradientInputThisStep,
-                            seqIdx, {0}, {1}, loop,
-                            debugPrefix + "/rnnUpdateGradient");
+                            seqIdx, {0}, {1}, loop, {di, "rnnUpdateGradient"});
 
     } else {
       bwdState = popnn::rnn::backwardGradientStep(
           graph, outGradS, bwdState, prevOutput, feedbackWeights, loop,
-          nonLinearityType, partialsType, debugPrefix, cache);
+          nonLinearityType, partialsType, {di}, cache);
       for (unsigned s = 0; s != seqSize; ++s) {
         mapTensorLinearly(graph, prevLayerGradsVec.slice(s, s + 1));
       }
     }
-    Tensor fwdStateSM1 =
-        popops::dynamicSlice(graph, fwdStateOffset, seqIdx, {0}, {1}, loop,
-                             debugPrefix + "/fwdState")
-            .squeeze({0});
-    loop.add(Copy(fwdStateSM1, fwdStateS));
+    Tensor fwdStateSM1 = popops::dynamicSlice(graph, fwdStateOffset, seqIdx,
+                                              {0}, {1}, loop, {di, "fwdState"})
+                             .squeeze({0});
+    loop.add(Copy(fwdStateSM1, fwdStateS, false, {di}));
     if (doWU) {
       Tensor actInS = popops::dynamicSlice(graph, actIn, seqIdx, {0}, {1}, loop,
-                                           debugPrefix + "/rnnActIn")
+                                           {di, "rnnActIn"})
                           .squeeze({0});
       // Note that the delta update uses the fwdState[s-1], or fwdInit
       // when s == -1.
       popnn::rnn::paramDeltaUpdate(graph, bwdState, actInS, fwdStateSM1,
                                    feedFwdWeightsDeltaAcc,
                                    feedbackWeightsDeltaAcc, biasesDeltaAcc,
-                                   loop, partialsType, debugPrefix, cache);
+                                   loop, partialsType, {di}, cache);
     }
-    subInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxDecr");
+    subInPlace(graph, seqIdx, one, loop, {di, "seqIdxDecr"});
   }
-  prog.add(Repeat(seqSize, loop));
+  prog.add(Repeat(seqSize, loop, {di}));
+  di.addOutputs(DI_ARGS(prevLayerGradsVec, feedFwdWeightsDeltaAcc,
+                        feedbackWeightsDeltaAcc, biasesDeltaAcc));
   return std::tie(prevLayerGradsVec, feedFwdWeightsDeltaAcc,
                   feedbackWeightsDeltaAcc, biasesDeltaAcc);
 }

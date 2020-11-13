@@ -18,6 +18,7 @@
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
 #include <popops/Zero.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
@@ -48,7 +49,7 @@ inline poplar::Tensor unflattenUnits(const poplar::Tensor &t, size_t num_unit) {
 // with the same shape but a updated memory layout.
 inline poplar::Tensor tryGroupedPartialTranspose(
     poplar::Graph &graph, poplar::Tensor t, unsigned desiredGrouping,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
   unsigned outerSize = t.dim(0);
   unsigned innerSize = t.dim(1);
   if (innerSize % desiredGrouping) {
@@ -65,10 +66,10 @@ inline poplar::Tensor tryGroupedPartialTranspose(
   auto groupedView = t.reshape({outerSize / outerGrouping, outerGrouping,
                                 innerSize / desiredGrouping, desiredGrouping})
                          .dimShuffle({0, 2, 3, 1});
-  auto cs = graph.addComputeSet(debugPrefix + "/groupedPartialTranspose");
+  auto cs = graph.addComputeSet({dnai, "groupedPartialTranspose"});
   auto partiallyTransposed =
-      popops::rearrange::partialTranspose(graph, groupedView, cs, debugPrefix);
-  prog.add(poplar::program::Execute(cs));
+      popops::rearrange::partialTranspose(graph, groupedView, cs, {dnai});
+  prog.add(poplar::program::Execute(cs, {dnai}));
   return partiallyTransposed.dimShuffle({0, 2, 1, 3})
       .reshape({outerSize, innerSize});
 }

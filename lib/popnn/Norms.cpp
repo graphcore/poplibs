@@ -1,51 +1,74 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "poplin/Norms.hpp"
 #include "NormsInternal.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include <cassert>
 
 using namespace poplar;
+using namespace poputil;
 
 namespace popnn {
 
 // This function is used to create normalisaton parameters for layers which
 // have input activations of dimension 2 (i.e. fully connected layers)
 static Tensor createNormParam(Graph &graph, const Tensor &acts,
-                              const std::string &name) {
+                              const DebugNameAndId &dnai) {
   const unsigned numActs = acts.shape()[1];
   const auto dType = acts.elementType();
   // This should be replaced by a clone of the channel dimension of the
   // activations. It is not done because cloning part of a tensor is currently
   // expensive.
-  auto param = graph.addVariable(dType, {numActs}, name);
+  auto param = graph.addVariable(dType, {numActs}, {dnai});
   poputil::mapTensorLinearly(graph, param);
   return param;
 }
 
-Tensor createNormGamma(Graph &graph, const Tensor &acts) {
+Tensor createNormGamma(Graph &graph, const Tensor &acts,
+                       const DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
+
   const auto rank = acts.rank();
   checkTensorShape(acts);
+
+  Tensor output;
   if (rank > 2) {
-    return poplin::createNormGamma(graph, acts);
+    output = poplin::createNormGamma(graph, acts);
   } else {
-    return createNormParam(graph, acts, "gamma");
+    output = createNormParam(graph, acts, {di, "gamma"});
   }
+
+  di.addOutput(output);
+  return output;
 }
 
-Tensor createNormBeta(Graph &graph, const Tensor &acts) {
+Tensor createNormBeta(Graph &graph, const Tensor &acts,
+                      const DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
+
   const auto rank = acts.rank();
   checkTensorShape(acts);
+  Tensor output;
   if (rank > 2) {
-    return poplin::createNormBeta(graph, acts);
+    output = poplin::createNormBeta(graph, acts);
   } else {
-    return createNormParam(graph, acts, "beta");
+    output = createNormParam(graph, acts, {di, "beta"});
   }
+
+  di.addOutput(output);
+  return output;
 }
 
-std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor acts) {
-  Tensor gamma = createNormGamma(graph, acts);
-  Tensor beta = createNormBeta(graph, acts);
+std::pair<Tensor, Tensor>
+createNormParams(Graph &graph, const Tensor acts,
+                 const DebugContext &debugContext = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
+
+  Tensor gamma = createNormGamma(graph, acts, {di});
+  Tensor beta = createNormBeta(graph, acts, {di});
+
+  di.addOutputs(DI_ARGS(gamma, beta));
   return std::make_pair(gamma, beta);
 }
 

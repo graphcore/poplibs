@@ -390,14 +390,14 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
                  const Tensor &out, const Tensor *fwdInputActs,
                  const Tensor *fwdOutputActs, const ConvParams &params,
                  std::vector<ComputeSet> &cs, unsigned tile,
-                 const PoolSlice &slice, const std::string &debugPrefix) {
+                 const PoolSlice &slice, const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numContexts = target.getNumWorkerContexts();
   const auto numFieldDims = slice.kernelBegin.size();
   const auto chansPerGroup = out.dim(out.rank() - 1);
 
   if (cs.empty()) {
-    cs.push_back(graph.addComputeSet(debugPrefix + "/Pool"));
+    cs.push_back(graph.addComputeSet({dnai, "Pool"}));
   }
 
   // build input and kernel shapes used on this tile. These are relative offsets
@@ -536,19 +536,18 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   graph.setInitialValue(v["numChanGroupsM1"], numChanGroups - 1);
 
   const auto worklistEntryType = UNSIGNED_SHORT;
-  auto tContextStartPos = graph.addConstant(
-      worklistEntryType, {contextStartPos.size()}, contextStartPos.data(),
-      debugPrefix + "/ContextStartPos");
+  auto tContextStartPos =
+      graph.addConstant(worklistEntryType, {contextStartPos.size()},
+                        contextStartPos.data(), {dnai, "ContextStartPos"});
   graph.setTileMapping(tContextStartPos, 0);
   graph.connect(v["startPos"], tContextStartPos);
-  auto tOffsetBase =
-      graph.addConstant(worklistEntryType, {offsetBase.size()},
-                        offsetBase.data(), debugPrefix + "/OffsetBase");
+  auto tOffsetBase = graph.addConstant(worklistEntryType, {offsetBase.size()},
+                                       offsetBase.data(), {dnai, "OffsetBase"});
   graph.setTileMapping(tOffsetBase, 0);
   graph.connect(v["offsetBase"], tOffsetBase);
   for (unsigned i = 0; i < worklist.size(); ++i) {
     auto t = graph.addConstant(worklistEntryType, {worklist[i].size()},
-                               worklist[i].data(), debugPrefix + "/worklist");
+                               worklist[i].data(), {dnai, "worklist"});
     graph.setTileMapping(t, 0);
     graph.connect(v["workList"][i], t);
   }
@@ -581,7 +580,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
       poolCfg.type == popnn::PoolingType::AVG) {
     assert(cs.size() >= 1);
     if (cs.size() == 1) {
-      cs.push_back(graph.addComputeSet(debugPrefix + "/Scale"));
+      cs.push_back(graph.addComputeSet({dnai, "Scale"}));
     }
     // split regions between workers to scale output
     // first convert interval regions to poplar regions
@@ -621,8 +620,7 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
 
       for (unsigned i = 0; i < scaleWorklist.size(); ++i) {
         auto t = graph.addConstant(worklistEntryType, {scaleWorklist[i].size()},
-                                   scaleWorklist[i].data(),
-                                   debugPrefix + "/worklist");
+                                   scaleWorklist[i].data(), {dnai, "worklist"});
         graph.setTileMapping(t, 0);
         graph.connect(vScale["scaleWorklist"][i], t);
       }
@@ -771,8 +769,9 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
                     const Tensor &out, const Tensor *fwdInputActs,
                     const Tensor *fwdOutputActs, const ConvParams &params,
                     Sequence &prog, const Plan &plan,
-                    const std::string &debugPrefix,
+                    const DebugNameAndId &dnai,
                     const PoolOptions &poolOptions) {
+
   const auto &partition = plan.partition;
   const auto numFieldDims = params.getNumFieldDims();
   const auto numChans = in.dim(0) * in.dim(in.rank() - 1);
@@ -872,14 +871,14 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
             tile = linearTileMap(poolIndices, partition);
           }
           generateVertices(graph, poolCfg, in, out, fwdInputActs, fwdOutputActs,
-                           params, cs, tile, outputSlice, debugPrefix);
+                           params, cs, tile, outputSlice, {dnai});
         }
       }
     }
   }
 
   for (auto c : cs) {
-    prog.add(Execute(c));
+    prog.add(Execute(c, {dnai}));
   }
 }
 // Test function for vertex test

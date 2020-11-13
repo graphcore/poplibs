@@ -45,30 +45,30 @@ enum BwdStateTensorElems {
 static void applyGateNonlinearities(Graph &graph, const Tensor &t,
                                     Sequence &prog,
                                     const std::vector<std::size_t> &cellIndices,
-                                    const std::string &debugStr) {
+                                    const DebugNameAndId &dnai) {
   auto sigmoidIn = concat({t[cellIndices[BASIC_LSTM_CELL_INPUT_GATE]],
                            t[cellIndices[BASIC_LSTM_CELL_FORGET_GATE]],
                            t[cellIndices[BASIC_LSTM_CELL_OUTPUT_GATE]]});
-  auto cs = graph.addComputeSet(debugStr + "/OutputGate");
+  auto cs = graph.addComputeSet({dnai, "OutputGate"});
   nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID, sigmoidIn, cs,
-                      debugStr);
+                      {dnai});
   nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
-                      t[cellIndices[BASIC_LSTM_CELL_CANDIDATE]], cs, debugStr);
-  prog.add(Execute(cs));
+                      t[cellIndices[BASIC_LSTM_CELL_CANDIDATE]], cs, {dnai});
+  prog.add(Execute(cs, {dnai}));
 }
 
 // Computes the output before nonlinearities to all the units are applies
 static Tensor basicLstmUnitsNlInputPreWeighted(
     Graph &graph, Tensor weightedIn, Tensor prevOutput, Tensor weightsOutput,
     Sequence &prog, OptionFlags &mmOpt, matmul::PlanningCache *cache,
-    const std::string debugStr) {
+    const DebugNameAndId &dnai) {
   assert(weightedIn.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto output =
       unflattenUnits(matMul(graph, prevOutput, flattenUnits(weightsOutput),
-                            prog, debugStr + "/WeighOutput", mmOpt, cache),
+                            prog, {dnai, "WeighOutput"}, mmOpt, cache),
                      BASIC_LSTM_CELL_NUM_UNITS);
-  addInPlace(graph, output, weightedIn, prog, debugStr + "/AddWeightedOutputs");
+  addInPlace(graph, output, weightedIn, prog, {dnai, "AddWeightedOutputs"});
   return output;
 }
 
@@ -78,15 +78,67 @@ static Tensor basicLstmUnitsNlInput(Graph &graph, Tensor prevAct,
                                     Tensor weightsOutput, Sequence &prog,
                                     OptionFlags &mmOpt,
                                     matmul::PlanningCache *cache,
-                                    const std::string &debugStr) {
+                                    const DebugNameAndId &dnai) {
   assert(weightsInput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   assert(weightsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto weights = concat(weightsInput, weightsOutput, 1);
   return unflattenUnits(matMul(graph, concat(prevAct, prevOutput, 1),
-                               flattenUnits(weights), prog, debugStr + "/Weigh",
+                               flattenUnits(weights), prog, {dnai, "Weigh"},
                                mmOpt, cache),
                         BASIC_LSTM_CELL_NUM_UNITS);
 }
+
+namespace poputil {
+
+template <> poplar::ProfileValue toProfileValue(const BasicLstmCellUnit &t) {
+  switch (t) {
+  case BASIC_LSTM_CELL_FORGET_GATE:
+    return poplar::ProfileValue("BASIC_LSTM_CELL_FORGET_GATE");
+  case BASIC_LSTM_CELL_INPUT_GATE:
+    return poplar::ProfileValue("BASIC_LSTM_CELL_INPUT_GATE");
+  case BASIC_LSTM_CELL_CANDIDATE:
+    return poplar::ProfileValue("BASIC_LSTM_CELL_CANDIDATE");
+  case BASIC_LSTM_CELL_OUTPUT_GATE:
+    return poplar::ProfileValue("BASIC_LSTM_CELL_OUTPUT_GATE");
+  case BASIC_LSTM_CELL_NUM_UNITS:
+    return poplar::ProfileValue("BASIC_LSTM_CELL_NUM_UNITS");
+  default:
+    return poplar::ProfileValue("<UNKNOWN>");
+  }
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popnn::lstm::LstmParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"dataType", toProfileValue(t.dataType)});
+  v.insert({"batchSize", toProfileValue(t.batchSize)});
+  v.insert({"timeSteps", toProfileValue(t.timeSteps)});
+  v.insert({"layerSizes", toProfileValue(t.layerSizes)});
+  v.insert({"outputFullSequence", toProfileValue(t.outputFullSequence)});
+  v.insert({"doInputWeightCalc", toProfileValue(t.doInputWeightCalc)});
+  v.insert({"calcInputGradients", toProfileValue(t.calcInputGradients)});
+  v.insert({"cellOrder", toProfileValue(t.cellOrder)});
+  return v;
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popnn::lstm::LstmState &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"output", toProfileValue(t.output)});
+  v.insert({"cellState", toProfileValue(t.cellState)});
+  return v;
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popnn::lstm::LstmWeights &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"inputWeights", toProfileValue(t.inputWeights)});
+  v.insert({"outputWeights", toProfileValue(t.outputWeights)});
+  v.insert({"biases", toProfileValue(t.biases)});
+  return v;
+}
+
+} // namespace poputil
 
 namespace popnn {
 namespace lstm {
@@ -214,7 +266,7 @@ getMatMulPrePlanParameters(LstmParams params, poplar::OptionFlags opts) {
 /// \a params structure.
 static Tensor createOutputTensor(Graph &graph, const LstmParams &params,
                                  unsigned sequenceLength,
-                                 const std::string &name) {
+                                 const DebugNameAndId &dnai) {
   const auto outputSize = params.layerSizes[1];
   const auto batchSize = params.batchSize;
   // TODO: T12909 Take output grouping from matmul operation.
@@ -222,7 +274,7 @@ static Tensor createOutputTensor(Graph &graph, const LstmParams &params,
   const auto numGroups = (outputSize * batchSize) / outputGrouping;
   auto output =
       createDynamicSliceTensor(graph, params.dataType, sequenceLength,
-                               numGroups, outputGrouping, name)
+                               numGroups, outputGrouping, {dnai})
           .reshapePartial(1, 2, {outputSize / outputGrouping, batchSize})
           .dimRoll(1, 2)
           .flatten(2, 4);
@@ -230,7 +282,7 @@ static Tensor createOutputTensor(Graph &graph, const LstmParams &params,
 }
 
 static Tensor createInput(Graph &graph, const LstmParams &params,
-                          const std::string &name, const LstmOpts &opt,
+                          const DebugNameAndId &dnai, const LstmOpts &opt,
                           matmul::PlanningCache *cache) {
   validateParams(params);
   auto mmOpt = getMMOpts(opt);
@@ -245,7 +297,7 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
     auto fcBatchSize = params.timeSteps * params.batchSize;
     auto in =
         createMatMulInputLHS(graph, params.dataType, {fcBatchSize, fcInputSize},
-                             {fcInputSize, fcOutputSize}, name, mmOpt, cache);
+                             {fcInputSize, fcOutputSize}, {dnai}, mmOpt, cache);
     return in.reshape({params.timeSteps, params.batchSize, inputSize});
   } else {
     const auto batchSize = params.batchSize;
@@ -253,7 +305,7 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
     const auto inputGrouping = gcd(16UL, inputSize);
     const auto numInputGroups = (inputSize * batchSize) / inputGrouping;
     auto in = createDynamicSliceTensor(graph, params.dataType, params.timeSteps,
-                                       numInputGroups, inputGrouping, name);
+                                       numInputGroups, inputGrouping, {dnai});
     return in.reshapePartial(1, 2, {inputSize / inputGrouping, batchSize})
         .dimRoll(1, 2)
         .flatten(2, 4);
@@ -263,53 +315,63 @@ static Tensor createInput(Graph &graph, const LstmParams &params,
 Tensor createInput(Graph &graph, const LstmParams &params,
                    const poplar::DebugContext &debugContext,
                    const OptionFlags &options, matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
-  return createInput(graph, params, name,
-                     parseOptions(options, params.dataType), cache);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
+  auto output = createInput(graph, params, {di},
+                            parseOptions(options, params.dataType), cache);
+  di.addOutput(output);
+  return output;
 }
 
 static poplar::Tensor createStateTensor(Graph &graph, const LstmParams &params,
-                                        const std::string &name,
+                                        const DebugNameAndId &dnai,
                                         const OptionFlags &options,
                                         matmul::PlanningCache *cache) {
   validateParams(params);
-  return createOutputTensor(graph, params, 1, name).squeeze({0});
+  return createOutputTensor(graph, params, 1, {dnai}).squeeze({0});
 }
 
 poplar::Tensor createInitialOutput(Graph &graph, const LstmParams &params,
                                    const poplar::DebugContext &debugContext,
                                    const OptionFlags &options,
                                    matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  return createStateTensor(graph, params, debugPrefix + "/initialOutput",
-                           options, cache);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+  auto output =
+      createStateTensor(graph, params, {di, "initialOutput"}, options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 poplar::Tensor createInitialCellState(Graph &graph, const LstmParams &params,
                                       const poplar::DebugContext &debugContext,
                                       const OptionFlags &options,
                                       matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  return createStateTensor(graph, params, debugPrefix + "/initialCellState",
-                           options, cache);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
+  auto output = createStateTensor(graph, params, {di, "initialCellState"},
+                                  options, cache);
+  di.addOutput(output);
+  return output;
 }
 
 LstmState createInitialState(Graph &graph, const LstmParams &params,
                              const poplar::DebugContext &debugContext,
                              const OptionFlags &options,
                              matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto initialOutput =
-      createInitialOutput(graph, params, debugPrefix, options, cache);
-  auto initialCellState =
-      graph.clone(initialOutput, debugPrefix + "/initialCellState");
-  return {initialOutput, initialCellState};
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
+  auto initialOutput = createInitialOutput(graph, params, {di}, options, cache);
+  auto initialCellState = graph.clone(initialOutput, {di, "initialCellState"});
+  LstmState outputs = {initialOutput, initialCellState};
+  di.addOutputs(DI_ARGS(outputs));
+  return outputs;
 }
 
 void zeroInitialState(Graph &graph, const LstmState &state, Sequence &prog,
                       const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  zero(graph, concat(state.output, state.cellState), prog, debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(state));
+
+  zero(graph, concat(state.output, state.cellState), prog, {di});
 }
 
 std::pair<poplar::Tensor, poplar::Tensor>
@@ -317,7 +379,8 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
                     const poplar::DebugContext &debugContext,
                     const poplar::OptionFlags &options,
                     poplin::matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
   validateParams(params);
   auto opt = parseOptions(options, params.dataType);
   auto mmOpt = getMMOpts(opt);
@@ -335,19 +398,19 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
       auto weightsInput = createMatMulInputRHS(
           graph, params.dataType, aShape,
           {inputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-          name + "/weightsIn", mmOpt, cache);
+          {di, "weightsIn"}, mmOpt, cache);
       inputWeights = unflattenUnits(weightsInput, BASIC_LSTM_CELL_NUM_UNITS);
     }
     auto weightsOutput = createMatMulInputRHS(
         graph, params.dataType, {params.batchSize, outputSize},
         {outputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-        name + "/weightsOut", mmOpt, cache);
+        {di, "weightsOut"}, mmOpt, cache);
     outputWeights = unflattenUnits(weightsOutput, BASIC_LSTM_CELL_NUM_UNITS);
   } else {
     auto weights = createMatMulInputRHS(
         graph, params.dataType, {params.batchSize, inputSize + outputSize},
         {inputSize + outputSize, BASIC_LSTM_CELL_NUM_UNITS * outputSize},
-        name + "/weights", mmOpt, cache);
+        {di, "weights"}, mmOpt, cache);
     inputWeights =
         unflattenUnits(weights.slice(0, inputSize), BASIC_LSTM_CELL_NUM_UNITS);
     outputWeights =
@@ -356,6 +419,8 @@ createWeightsKernel(poplar::Graph &graph, const LstmParams &params,
   }
 
   // rearrange the outermost dimension according to the cellOrder parameter.
+
+  di.addOutputs(DI_ARGS(inputWeights, outputWeights));
   return std::make_pair(std::move(inputWeights), std::move(outputWeights));
 }
 
@@ -366,13 +431,14 @@ poplar::Tensor createWeightsBiases(poplar::Graph &graph,
                                    const poplar::DebugContext &debugContext,
                                    const OptionFlags &,
                                    poplin::matmul::PlanningCache *) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params));
+
   validateParams(params);
   auto outputSize = params.layerSizes[1];
-  auto biases = graph.addVariable(params.dataType,
-                                  {BASIC_LSTM_CELL_NUM_UNITS, outputSize},
-                                  name + "/biases");
+  auto biases = graph.addVariable(
+      params.dataType, {BASIC_LSTM_CELL_NUM_UNITS, outputSize}, {di, "biases"});
   mapTensorLinearly(graph, biases);
+  di.addOutputs(DI_ARGS(biases));
   return biases;
 }
 
@@ -380,11 +446,13 @@ LstmWeights createWeights(Graph &graph, const LstmParams &params,
                           const poplar::DebugContext &debugContext,
                           const OptionFlags &options,
                           poplin::matmul::PlanningCache *cache) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, options, cache));
+
   LstmWeights lstmWeights;
   std::tie(lstmWeights.inputWeights, lstmWeights.outputWeights) =
-      createWeightsKernel(graph, params, name, options, cache);
-  lstmWeights.biases = createWeightsBiases(graph, params, name, options, cache);
+      createWeightsKernel(graph, params, {di}, options, cache);
+  lstmWeights.biases = createWeightsBiases(graph, params, {di}, options, cache);
+  di.addOutputs(DI_ARGS(lstmWeights));
   return lstmWeights;
 }
 
@@ -392,7 +460,7 @@ static Tensor calcSequenceWeightedInputs(Graph &graph, const Tensor &in_,
                                          const Tensor &weightsInput_,
                                          program::Sequence &prog,
                                          const LstmOpts &opt,
-                                         const std::string &debugPrefix,
+                                         const DebugNameAndId &dnai,
                                          matmul::PlanningCache *cache) {
   auto mmOpt = getMMOpts(opt);
   auto sequenceSize = in_.dim(0);
@@ -401,8 +469,8 @@ static Tensor calcSequenceWeightedInputs(Graph &graph, const Tensor &in_,
   auto in = in_.reshape({sequenceSize * batchSize, inputSize});
   auto outputSize = weightsInput_.dim(2);
   auto weightsInput = flattenUnits(weightsInput_);
-  return matMul(graph, in, weightsInput, prog,
-                debugPrefix + "/Lstm/CalcWeighedInput", mmOpt, cache)
+  return matMul(graph, in, weightsInput, prog, {dnai, "Lstm/CalcWeighedInput"},
+                mmOpt, cache)
       .reshape({sequenceSize, batchSize, BASIC_LSTM_CELL_NUM_UNITS, outputSize})
       .dimShuffle({0, 2, 1, 3});
 }
@@ -425,7 +493,7 @@ struct LstmInternalState {
   }
 };
 
-static const char *getUnitName(BasicLstmCellUnit unit) {
+static std::string getUnitName(BasicLstmCellUnit unit) {
   switch (unit) {
   default:
     POPLIB_UNREACHABLE();
@@ -443,7 +511,7 @@ static const char *getUnitName(BasicLstmCellUnit unit) {
 static void rearrangeUnitsOutputFwd(Graph &graph, Tensor outputUnits,
                                     Tensor outputUnitsRearranged,
                                     Sequence &prog,
-                                    const std::string &debugPrefix) {
+                                    const DebugNameAndId &dnai) {
   const auto outputGrouping =
       detectInnermostGrouping(graph, outputUnitsRearranged);
   // Typically the matrix multiplication result is laid out in memory such
@@ -452,9 +520,9 @@ static void rearrangeUnitsOutputFwd(Graph &graph, Tensor outputUnits,
   // specified number of outputs.
   outputUnits = unflattenUnits(
       tryGroupedPartialTranspose(graph, flattenUnits(outputUnits),
-                                 outputGrouping, prog, debugPrefix),
+                                 outputGrouping, prog, {dnai}),
       BASIC_LSTM_CELL_NUM_UNITS);
-  prog.add(Copy(outputUnits, outputUnitsRearranged));
+  prog.add(Copy(outputUnits, outputUnitsRearranged, false, {dnai}));
 }
 
 static void lstmCellForwardPassCalcUnits(
@@ -462,7 +530,7 @@ static void lstmCellForwardPassCalcUnits(
     const LstmState &prevState, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const Tensor &unitsOutputRearranged,
-    const std::vector<std::size_t> &cellIndices, const std::string &baseStr,
+    const std::vector<std::size_t> &cellIndices, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache) {
   auto prevCellState = prevState.cellState;
   auto prevOutput = prevState.output;
@@ -484,7 +552,7 @@ static void lstmCellForwardPassCalcUnits(
   const auto dType = in.elementType();
 
   auto bBiases =
-      graph.addVariable(dType, {0, batchSize, outputSize}, "bbiases");
+      graph.addVariable(dType, {0, batchSize, outputSize}, {dnai, "bbiases"});
   for (unsigned u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     auto unitBias =
         biases[u].broadcast(batchSize, 0).reshape({batchSize, outputSize});
@@ -498,26 +566,26 @@ static void lstmCellForwardPassCalcUnits(
   if (weightsInput == nullptr) {
     unitsOutput = basicLstmUnitsNlInputPreWeighted(
         graph, in, prevOutput, weightsOutput, prog, mmOpt, cache,
-        baseStr + "/ProcessUnits");
+        {dnai, "ProcessUnits"});
   } else {
     unitsOutput = basicLstmUnitsNlInput(graph, in, prevOutput, *weightsInput,
                                         weightsOutput, prog, mmOpt, cache,
-                                        baseStr + "/ProcessUnits");
+                                        {dnai, "ProcessUnits"});
   }
 
   // Rearrange the output of the matrix multiplication so each output unit
   // arranged the same as the cell state. This avoids the rearrangement
   // during the subsequent binary operations.
   rearrangeUnitsOutputFwd(graph, unitsOutput, unitsOutputRearranged, prog,
-                          baseStr);
+                          {dnai});
 
   for (auto u = 0; u != BASIC_LSTM_CELL_NUM_UNITS; ++u) {
     graph.setTileMapping(biases[u],
                          graph.getTileMapping(unitsOutputRearranged[u][0]));
   }
-  addInPlace(graph, unitsOutputRearranged, bBiases, prog, baseStr + "/AddBias");
+  addInPlace(graph, unitsOutputRearranged, bBiases, prog, {dnai, "AddBias"});
   applyGateNonlinearities(graph, unitsOutputRearranged, prog, cellIndices,
-                          baseStr);
+                          {dnai});
 }
 
 static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
@@ -525,9 +593,9 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
     const LstmState &prevState, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const std::vector<BasicLstmCellUnit> &cellOrder,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   const auto &prevCellState = prevState.cellState;
-  const std::string baseStr = debugPrefix + "/BasicLstmCell";
+  const std::string baseStr = "BasicLstmCell";
 
   std::vector<Tensor> toConcat;
   toConcat.reserve(BASIC_LSTM_CELL_NUM_UNITS);
@@ -535,9 +603,7 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
   for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
     const auto unit = cellOrder.at(i);
     toConcat.push_back(
-        graph
-            .clone(prevCellState,
-                   debugPrefix + "/" + getUnitName(unit) + "Rearranged")
+        graph.clone(prevCellState, {dnai, getUnitName(unit) + "Rearranged"})
             .expand({0}));
   }
 
@@ -548,9 +614,9 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
   }
 
   auto unitsOutput = concat(toConcat);
-  lstmCellForwardPassCalcUnits(graph, in, biases, prevState, weightsInput,
-                               weightsOutput, prog, opt, inferenceOnly,
-                               unitsOutput, cellIndices, baseStr, cache);
+  lstmCellForwardPassCalcUnits(
+      graph, in, biases, prevState, weightsInput, weightsOutput, prog, opt,
+      inferenceOnly, unitsOutput, cellIndices, {dnai, baseStr}, cache);
 
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto forgetGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_FORGET_GATE]];
@@ -559,7 +625,7 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
   auto inputGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_INPUT_GATE]];
   auto prod = mul(graph, concat(forgetGate, candidate),
                   concat(prevCellState, inputGate), prog,
-                  baseStr + "/{Forget + Input}Gate");
+                  {dnai, baseStr + "/{Forget + Input}Gate"});
 
   auto updatedCellState = prod.slice(0, forgetGate.dim(0));
   auto updatedCandidate =
@@ -581,10 +647,10 @@ static void basicLstmCellForwardPassInPlace(
     const LstmState &state, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const std::vector<BasicLstmCellUnit> &cellOrder,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   auto cellState = state.cellState;
   auto output = state.output;
-  const std::string baseStr = debugPrefix + "/BasicLstmCell";
+  const std::string baseStr = "BasicLstmCell";
 
   std::vector<Tensor> toConcat;
   toConcat.reserve(BASIC_LSTM_CELL_NUM_UNITS);
@@ -595,9 +661,7 @@ static void basicLstmCellForwardPassInPlace(
       toConcat.push_back(output.expand({0}));
     } else {
       toConcat.push_back(
-          graph
-              .clone(cellState,
-                     debugPrefix + "/" + getUnitName(unit) + "Rearranged")
+          graph.clone(cellState, {dnai, getUnitName(unit) + "Rearranged"})
               .expand({0}));
     }
   }
@@ -609,9 +673,9 @@ static void basicLstmCellForwardPassInPlace(
   }
 
   auto unitsOutput = concat(toConcat);
-  lstmCellForwardPassCalcUnits(graph, in, biases, state, weightsInput,
-                               weightsOutput, prog, opt, inferenceOnly,
-                               unitsOutput, cellIndices, baseStr, cache);
+  lstmCellForwardPassCalcUnits(
+      graph, in, biases, state, weightsInput, weightsOutput, prog, opt,
+      inferenceOnly, unitsOutput, cellIndices, {dnai, baseStr}, cache);
 
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto forgetGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_FORGET_GATE]];
@@ -620,10 +684,11 @@ static void basicLstmCellForwardPassInPlace(
   auto inputGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_INPUT_GATE]];
   using namespace popops::expr;
   mulInPlace(graph, concat(cellState, candidate), concat(forgetGate, inputGate),
-             prog, baseStr + "/{Forget + Input}Gate");
-  addInPlace(graph, cellState, candidate, prog, baseStr + "/AddCellCand");
+             prog, {dnai, baseStr + "/{Forget + Input}Gate"});
+  addInPlace(graph, cellState, candidate, prog,
+             {dnai, baseStr + "/AddCellCand"});
   mapInPlace(graph, _1 * Tanh(_2), {outputGate, cellState}, prog,
-             baseStr + "/CalcNextOutput");
+             {dnai, baseStr + "/CalcNextOutput"});
 }
 
 static Tensor getFwdIntermediatesToSave(const LstmState &state,
@@ -714,14 +779,14 @@ static Tensor reconstructIntermediatesFromRecomputed(
 
 Tensor getFwdInput(Graph &graph, const Tensor &weightedIn,
                    const Tensor prevLayerActs, const Tensor seqIdx,
-                   Sequence &loop, const std::string &debugPrefix,
+                   Sequence &loop, const DebugNameAndId &dnai,
                    const bool useWeightedIn) {
   if (useWeightedIn) {
     return popops::dynamicSlice(graph, weightedIn, seqIdx, {0}, {1}, loop,
-                                debugPrefix + "/lstmWeighted")[0];
+                                {dnai, "lstmWeighted"})[0];
   }
   return popops::dynamicSlice(graph, prevLayerActs, seqIdx, {0}, {1}, loop,
-                              debugPrefix + "/lstm")[0];
+                              {dnai, "lstm"})[0];
 }
 
 std::pair<Tensor, Tensor>
@@ -730,7 +795,10 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         Tensor *intermediatesSeq, program::Sequence &fwdProg,
         const poplar::DebugContext &debugContext, const OptionFlags &options,
         poplin::matmul::PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(prevLayerActs, weights, intermediatesSeq,
+                            fwdStateInit, params, options, cache));
+
   validateParams(params);
   auto opt = parseOptions(options, params.dataType);
 
@@ -739,41 +807,40 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
     weightedIn = graph.addVariable(params.dataType,
                                    {params.timeSteps, BASIC_LSTM_CELL_NUM_UNITS,
                                     params.batchSize, params.layerSizes[1]},
-                                   "dummyWeightedIn");
+                                   {di, "dummyWeightedIn"});
     for (unsigned s = 0; s < params.timeSteps; ++s) {
       mapTensorLinearly(graph, weightedIn[s]);
     }
   } else if (opt.preCalcWeights) {
-    weightedIn = calcSequenceWeightedInputs(
-        graph, prevLayerActs, weights.inputWeights, fwdProg, opt,
-        debugPrefix + "/lstm/weightInputs", cache);
+    weightedIn = calcSequenceWeightedInputs(graph, prevLayerActs,
+                                            weights.inputWeights, fwdProg, opt,
+                                            {di, "lstm/weightInputs"}, cache);
   }
 
   // loop counter
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {di, "seqIdx"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {di, "one"});
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  popops::zero(graph, seqIdx, fwdProg, debugPrefix + "/initSeqIdx");
+  popops::zero(graph, seqIdx, fwdProg, {di, "initSeqIdx"});
 
   // state for current layer, start from initialiser
-  LstmState state = {duplicate(graph, fwdStateInit.output, fwdProg,
-                               debugPrefix + "/fwdOutputState"),
-                     duplicate(graph, fwdStateInit.cellState, fwdProg,
-                               debugPrefix + "/fwdCellState")};
+  LstmState state = {
+      duplicate(graph, fwdStateInit.output, fwdProg, {di, "fwdOutputState"}),
+      duplicate(graph, fwdStateInit.cellState, fwdProg, {di, "fwdCellState"})};
 
   unsigned seqSize = prevLayerActs.dim(0);
   // make a copy of the activations so that they are sliced efficiently
-  auto prevLayerActsCopy = createInput(
-      graph, params, debugPrefix + "/prevLayerActsCopy", options, cache);
-  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy));
+  auto prevLayerActsCopy =
+      createInput(graph, params, {di, "prevLayerActsCopy"}, options, cache);
+  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy, false, {di}));
 
   // core lstm loop
-  auto loop = Sequence();
+  auto loop = Sequence({}, {di});
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
 
   Tensor fwdInput = getFwdInput(graph, weightedIn, prevLayerActsCopy, seqIdx,
-                                loop, debugPrefix, useWeightedIn);
+                                loop, {di}, useWeightedIn);
   const Tensor *inputWeightsPtr =
       useWeightedIn ? nullptr : &weights.inputWeights;
 
@@ -783,45 +850,48 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
     std::tie(newState, internalState) = basicLstmCellForwardPass(
         graph, fwdInput, weights.biases, state, inputWeightsPtr,
         weights.outputWeights, loop, opt, opt.inferenceOnly, params.cellOrder,
-        debugPrefix, cache);
+        {di}, cache);
     auto intermediates =
         getFwdIntermediatesToSave(state, newState, internalState, opt, params);
     const auto numIntermediates = intermediates.dim(0);
     *intermediatesSeq =
         createOutputTensor(graph, params, seqSize * numIntermediates,
-                           debugPrefix + "/fwdIntermediatesSeq")
+                           {di, "fwdIntermediatesSeq"})
             .reshapePartial(0, 1, {seqSize, numIntermediates});
-    auto intermediatesRearranged =
-        createOutputTensor(graph, params, numIntermediates,
-                           debugPrefix + "/fwdIntermediatesRearranged");
+    auto intermediatesRearranged = createOutputTensor(
+        graph, params, numIntermediates, {di, "fwdIntermediatesRearranged"});
     loop.add(Copy(intermediates, intermediatesRearranged));
     fwdProg.add(WriteUndef(*intermediatesSeq));
     popops::dynamicUpdate(graph, *intermediatesSeq,
                           intermediatesRearranged.expand({0}), seqIdx, {0}, {1},
-                          loop, debugPrefix + "/lstmUpdateIntermediates");
+                          loop, {di, "lstmUpdateIntermediates"});
 
     auto stateTensor = state.getAsTensor();
     auto newStateTensor = newState.getAsTensor();
     graph.setTileMapping(stateTensor, graph.getTileMapping(newStateTensor));
-    loop.add(Copy(newStateTensor, stateTensor));
+    loop.add(Copy(newStateTensor, stateTensor, false, {di}));
   } else {
     basicLstmCellForwardPassInPlace(graph, fwdInput, weights.biases, state,
                                     inputWeightsPtr, weights.outputWeights,
                                     loop, opt, opt.inferenceOnly,
-                                    params.cellOrder, debugPrefix, cache);
+                                    params.cellOrder, {di}, cache);
   }
   Tensor outputSeq;
   if (params.outputFullSequence) {
-    outputSeq =
-        createOutputTensor(graph, params, seqSize, debugPrefix + "/Output");
-    fwdProg.add(WriteUndef(outputSeq));
+    outputSeq = createOutputTensor(graph, params, seqSize, {di, "Output"});
+    fwdProg.add(WriteUndef(outputSeq, {di}));
     popops::dynamicUpdate(graph, outputSeq, state.output.expand({0}), seqIdx,
-                          {0}, {1}, loop, debugPrefix + "/updateOutputSeq");
+                          {0}, {1}, loop, {di, "updateOutputSeq"});
   }
-  addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
-  fwdProg.add(Repeat(seqSize, loop));
-  return {params.outputFullSequence ? outputSeq : state.output,
-          state.cellState};
+  addInPlace(graph, seqIdx, one, loop, {di, "seqIdxIncr"});
+  fwdProg.add(Repeat(seqSize, loop, {di}));
+
+  std::pair<Tensor, Tensor> outputs = {
+      params.outputFullSequence ? outputSeq : state.output, state.cellState};
+
+  di.addOutputs({{"output", toProfileValue(outputs.first)},
+                 {"state", toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 static std::tuple<LstmState, Tensor, Tensor>
@@ -830,42 +900,42 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                  const Tensor *weightsInput, const Tensor &weightsOutput,
                  Sequence &initProg, Sequence &prog, const LstmOpts &opt,
                  const std::vector<BasicLstmCellUnit> &cellOrder,
-                 const std::string &debugPrefix, matmul::PlanningCache *cache) {
-  const auto fPrefix = debugPrefix + "/LstmBwd";
+                 const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+  const std::string fPrefix = "LstmBwd";
   auto outputGrad = stateGrad.output;
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
   if (gradNextLayer) {
     outputGrad = popops::add(graph, outputGrad, *gradNextLayer, prog,
-                             fPrefix + "/AddActGrads");
+                             {dnai, fPrefix + "/AddActGrads"});
   }
   auto actOutputGate = fwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT_GATE];
   auto actOutputTanh = fwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT_TANH];
   auto prevCellState = fwdIntermediates[LSTM_FWD_INTERMEDIATE_PREV_CELL_STATE];
   auto t = mul(graph, concat({actOutputGate, actOutputTanh}),
-               outputGrad.broadcast(2, 0), prog, fPrefix + "/MulOGate");
+               outputGrad.broadcast(2, 0), prog, {dnai, fPrefix + "/MulOGate"});
   auto gradAtOTanhInput = t.slice(0, outputGrad.dim(0));
   auto gradAtOutputGateInput =
       t.slice(outputGrad.dim(0), 2 * outputGrad.dim(0));
 
-  auto cs1 = graph.addComputeSet(fPrefix + "/OutputGate");
-  auto gradAtOTanhOutput =
-      nonLinearityInputGradient(graph, NonLinearityType::TANH, actOutputTanh,
-                                gradAtOTanhInput, cs1, fPrefix + "/OuputTanh");
+  auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
+  auto gradAtOTanhOutput = nonLinearityInputGradient(
+      graph, NonLinearityType::TANH, actOutputTanh, gradAtOTanhInput, cs1,
+      {dnai, fPrefix + "/OuputTanh"});
   auto gradOutputGate = nonLinearityInputGradient(
       graph, NonLinearityType::SIGMOID, actOutputGate, gradAtOutputGateInput,
-      cs1, fPrefix + "/OutputGate");
-  prog.add(Execute(cs1));
+      cs1, {dnai, fPrefix + "/OutputGate"});
+  prog.add(Execute(cs1, {dnai}));
 
   auto gradCellState = stateGrad.cellState;
 
   addInPlace(graph, gradAtOTanhOutput, gradCellState, prog,
-             fPrefix + "/AddCellState");
+             {dnai, fPrefix + "/AddCellState"});
   auto actInputGate = fwdIntermediates[LSTM_FWD_INTERMEDIATE_INPUT_GATE];
   auto actCandidate = fwdIntermediates[LSTM_FWD_INTERMEDIATE_CAND_TANH];
   auto actForgetGate = fwdIntermediates[LSTM_FWD_INTERMEDIATE_FORGET_GATE];
   auto t1 = mul(
       graph, concat({actInputGate, actCandidate, prevCellState, actForgetGate}),
-      gradAtOTanhOutput.broadcast(4, 0), prog, fPrefix);
+      gradAtOTanhOutput.broadcast(4, 0), prog, {dnai, fPrefix});
 
   const auto batchSize = gradAtOTanhOutput.dim(0);
   auto gradAtCandTanhInput = t1.slice(0, batchSize);
@@ -873,17 +943,17 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
   auto gradAtForgetGateInput = t1.slice(2 * batchSize, 3 * batchSize);
   auto newGradCellState = t1.slice(3 * batchSize, 4 * batchSize);
 
-  auto cs2 = graph.addComputeSet(fPrefix + "/{Input+Candidate}Gate");
+  auto cs2 = graph.addComputeSet({dnai, fPrefix + "/{Input+Candidate}Gate"});
   auto gradInputGate = nonLinearityInputGradient(
       graph, NonLinearityType::SIGMOID, actInputGate, gradAtInputGateInput, cs2,
-      fPrefix + "/InputGate");
-  auto gradCandidate =
-      nonLinearityInputGradient(graph, NonLinearityType::TANH, actCandidate,
-                                gradAtCandTanhInput, cs2, fPrefix + "/Cand");
-  auto gradForgetGate =
-      nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, actForgetGate,
-                                gradAtForgetGateInput, cs2, fPrefix + "/Cand");
-  prog.add(Execute(cs2));
+      {dnai, fPrefix + "/InputGate"});
+  auto gradCandidate = nonLinearityInputGradient(
+      graph, NonLinearityType::TANH, actCandidate, gradAtCandTanhInput, cs2,
+      {dnai, fPrefix + "/Cand"});
+  auto gradForgetGate = nonLinearityInputGradient(
+      graph, NonLinearityType::SIGMOID, actForgetGate, gradAtForgetGateInput,
+      cs2, {dnai, fPrefix + "/Cand"});
+  prog.add(Execute(cs2, {dnai}));
 
   const auto gradUnits = [&] {
     std::vector<Tensor> gradUnitsT;
@@ -923,24 +993,24 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
 
   weightsTransposed = preArrangeMatMulInputRHS(
       graph, grads.shape(), weightsTransposed, initProg,
-      fPrefix + "/PreArrangeWeights", mmOpt, cache);
+      {dnai, fPrefix + "/PreArrangeWeights"}, mmOpt, cache);
 
   Tensor gradientIn, gradientPrevStep;
   if (weightsInput) {
     auto inputSize = weightsInput->dim(1);
     auto outputSize = weightsOutput.dim(1);
     auto out = matMul(graph, grads, weightsTransposed, prog,
-                      fPrefix + "/{Prev + Input}Grad", mmOpt, cache);
+                      {dnai, fPrefix + "/{Prev + Input}Grad"}, mmOpt, cache);
     out = tryGroupedPartialTranspose(graph, out, outputGroupingIntoLayer, prog,
-                                     fPrefix);
+                                     {dnai, fPrefix});
     gradientIn = out.slice(0, inputSize, 1);
     gradientPrevStep = out.slice(inputSize, inputSize + outputSize, 1);
   } else {
     gradientPrevStep = matMul(graph, grads, weightsTransposed, prog,
-                              fPrefix + "/PrevStepGrad", mmOpt, cache);
+                              {dnai, fPrefix + "/PrevStepGrad"}, mmOpt, cache);
     gradientPrevStep = tryGroupedPartialTranspose(
         graph, gradientPrevStep, detectInnermostGrouping(graph, outputGrad),
-        prog, fPrefix);
+        prog, {dnai, fPrefix});
   }
 
   return std::make_tuple(LstmState{gradientPrevStep, newGradCellState},
@@ -952,23 +1022,23 @@ std::tuple<LstmState, Tensor, Tensor> basicLstmBackwardStep(
     const LstmState &stateGrad, const Tensor &weightsInput,
     const Tensor &weightsOutput, Sequence &initProg, Sequence &prog,
     const LstmOpts &opt, const std::vector<BasicLstmCellUnit> &cellOrder,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, stateGrad,
                           &weightsInput, weightsOutput, initProg, prog, opt,
-                          cellOrder, debugPrefix, cache);
+                          cellOrder, {dnai}, cache);
 }
 
 std::pair<LstmState, Tensor> basicLstmBackwardStep(
     Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
     const LstmState &stateGrad, const Tensor &weightsOutput, Sequence &initProg,
     Sequence &prog, const LstmOpts &opt,
-    const std::vector<BasicLstmCellUnit> &cellOrder,
-    const std::string &debugPrefix, matmul::PlanningCache *cache) {
+    const std::vector<BasicLstmCellUnit> &cellOrder, const DebugNameAndId &dnai,
+    matmul::PlanningCache *cache) {
   LstmState prevStateGrad;
   Tensor bwdIntermediates;
   std::tie(prevStateGrad, std::ignore, bwdIntermediates) = backwardStepImpl(
       graph, gradNextLayer, fwdIntermediates, stateGrad, nullptr, weightsOutput,
-      initProg, prog, opt, cellOrder, debugPrefix, cache);
+      initProg, prog, opt, cellOrder, {dnai}, cache);
   return std::make_pair(prevStateGrad, bwdIntermediates);
 }
 
@@ -981,50 +1051,51 @@ static void basicLstmParamUpdate(Graph &graph, const Tensor &prevLayerActs,
                                  const Tensor &bwdIntermediates,
                                  LstmWeights &weightGrads, Sequence &prog,
                                  const LstmOpts &opt,
-                                 const std::string &debugPrefix,
+                                 const DebugNameAndId &dnai,
                                  matmul::PlanningCache *cache) {
-  logging::popnn::debug("basicLstmParamUpdate begin {}", debugPrefix);
-  const auto fPrefix = debugPrefix + "/LstmDeltas";
+  logging::popnn::debug("basicLstmParamUpdate begin {}", dnai.getPathName());
+  const std::string fPrefix = "LstmDeltas";
   auto mmOpt = getMMOpts(opt);
   mmOpt.set("fullyConnectedPass", "TRAINING_WU");
   matMulAcc(graph,
             concat(flattenUnits(weightGrads.inputWeights),
                    flattenUnits(weightGrads.outputWeights)),
             1.0, concat(prevLayerActs.transpose(), prevStepActs.transpose()),
-            flattenUnits(bwdIntermediates), prog, fPrefix + "/Wi", mmOpt,
-            cache);
+            flattenUnits(bwdIntermediates), prog, {dnai, fPrefix + "/Wi"},
+            mmOpt, cache);
 
   if (bwdIntermediates.elementType() != weightGrads.biases.elementType()) {
     using namespace popops::expr;
     popops::mapInPlace(graph,
                        Add(_1, Cast(_2, weightGrads.biases.elementType())),
                        {weightGrads.biases, bwdIntermediates}, prog,
-                       fPrefix + "/basicLstmParamUpdate");
+                       {dnai, fPrefix + "/basicLstmParamUpdate"});
 
   } else {
     // We defer the reduction across the batch to later.
     popops::addInPlace(graph, weightGrads.biases, bwdIntermediates, prog,
-                       fPrefix + "/Bias");
+                       {dnai, fPrefix + "/Bias"});
   }
-  logging::popnn::debug("basicLstmParamUpdate end {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdate end {}", dnai.getPathName());
 }
 
 static LstmWeights basicLstmParamUpdateFinal(Graph &graph,
                                              const LstmWeights &weights,
                                              const LstmWeights &weightGrads,
                                              Sequence &prog,
-                                             const std::string &debugPrefix) {
+                                             const DebugNameAndId &dnai) {
   // The accumulated bias gradients still has a batch axis that we must
   // accumulate over - do this now.
-  logging::popnn::debug("basicLstmParamUpdateFinal begin {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdateFinal begin {}",
+                        dnai.getPathName());
   auto biasGrad = graph.clone(weightGrads.biases.elementType(), weights.biases,
-                              debugPrefix + "/biasGrad");
+                              {dnai, "biasGrad"});
   popops::reduceWithOutput(graph, weightGrads.biases, biasGrad, {1},
                            {popops::Operation::ADD}, prog,
-                           debugPrefix + "/FinalBiasReduction");
+                           {dnai, "FinalBiasReduction"});
   auto finalWeightGrads = weightGrads;
   finalWeightGrads.biases = biasGrad;
-  logging::popnn::debug("basicLstmParamUpdateFinal end {}", debugPrefix);
+  logging::popnn::debug("basicLstmParamUpdateFinal end {}", dnai.getPathName());
   return finalWeightGrads;
 }
 
@@ -1034,24 +1105,24 @@ static LstmWeights createWeightAccumulators(Graph &graph,
                                             const LstmWeights &weights,
                                             const Tensor &bwdIntermediates,
                                             const LstmOpts &options,
-                                            const std::string &debugPrefix) {
+                                            const DebugNameAndId &dnai) {
   logging::popnn::debug("Create weightAccumulators of type {}",
                         options.accumulatorsType.toString());
   LstmWeights weightAccs;
   if (options.preCalcWeights) {
     weightAccs.inputWeights =
         graph.clone(options.accumulatorsType, weights.inputWeights,
-                    debugPrefix + "/inputWeightsDeltaAcc");
+                    {dnai, "inputWeightsDeltaAcc"});
     weightAccs.outputWeights =
         graph.clone(options.accumulatorsType, weights.outputWeights,
-                    debugPrefix + "/outputWeightsDeltaAcc");
+                    {dnai, "outputWeightsDeltaAcc"});
   } else {
     // inputWeights and outputWeights are slices of the one variable. Clone
     // them together as it results in a less complex tensor expression.
     auto concatenated = concat(flattenUnits(weights.inputWeights),
                                flattenUnits(weights.outputWeights));
     auto weightsDeltaAcc = graph.clone(options.accumulatorsType, concatenated,
-                                       debugPrefix + "/weightsDeltaAcc");
+                                       {dnai, "weightsDeltaAcc"});
     const auto inputSize = weights.inputWeights.dim(1);
     const auto outputSize = weights.outputWeights.dim(1);
     weightAccs.inputWeights = unflattenUnits(
@@ -1065,7 +1136,7 @@ static LstmWeights createWeightAccumulators(Graph &graph,
   // a batch axis. This amortizes the cost of reducing over the batch which
   // otherwise can be significant.
   weightAccs.biases = graph.clone(options.accumulatorsType, bwdIntermediates,
-                                  debugPrefix + "/bwdIntermediatesAcc");
+                                  {dnai, "bwdIntermediatesAcc"});
   logging::popnn::debug("Create weightAccumulators end");
   return weightAccs;
 }
@@ -1073,14 +1144,14 @@ static LstmWeights createWeightAccumulators(Graph &graph,
 static void zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
                                    const LstmWeights &weightsAcc,
                                    const LstmOpts &options,
-                                   const std::string &debugPrefix) {
+                                   const DebugNameAndId &dnai) {
   logging::popnn::debug("zero weight accumulators");
   if (options.preCalcWeights) {
     popops::zero(graph,
                  concat({weightsAcc.inputWeights.flatten(),
                          weightsAcc.outputWeights.flatten(),
                          weightsAcc.biases.flatten()}),
-                 prog, debugPrefix + "/zeroWeightAccumulators");
+                 prog, {dnai, "zeroWeightAccumulators"});
   } else {
     // inputWeights and outputWeights are slices of the one variable.
     // Recombining them means reorderToSimplify() in popops::zero() works a lot
@@ -1089,7 +1160,7 @@ static void zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
                                flattenUnits(weightsAcc.outputWeights));
     popops::zero(graph,
                  concat({concatenated.flatten(), weightsAcc.biases.flatten()}),
-                 prog, debugPrefix + "/zeroWeightAccumulators");
+                 prog, {dnai, "zeroWeightAccumulators"});
   }
 }
 
@@ -1114,28 +1185,28 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
                                        const LstmState &fwdStateInit,
                                        const Tensor &fwdIntermediatesSeq,
                                        program::Sequence &prog,
-                                       const std::string &debugPrefix) {
+                                       const DebugNameAndId &dnai) {
   unsigned seqSize = params.timeSteps;
 
   // sequence counter
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  popops::zero(graph, seqIdx, prog, debugPrefix + "/initSeqIdx");
+  popops::zero(graph, seqIdx, prog, {dnai, "initSeqIdx"});
 
   std::size_t numToRecompute =
       LSTM_FWD_INTERMEDIATE_OUTPUT - LSTM_FWD_INTERMEDIATE_OUTPUT_TANH;
   auto recomputedIntermediatesSeq =
       createOutputTensor(graph, params, seqSize * numToRecompute,
-                         debugPrefix + "/recomputedIntermediates")
+                         {dnai, "recomputedIntermediates"})
           .reshapePartial(0, 1, {seqSize, numToRecompute});
 
-  auto loop = Sequence();
+  auto loop = Sequence({}, {dnai});
   {
     auto savedIntermediates =
         dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, loop,
-                     debugPrefix + "/getSavedIntermediates")
+                     {dnai, "getSavedIntermediates"})
             .squeeze({0});
 
     auto forgetGate = getSavedFwdIntermediate(
@@ -1147,40 +1218,39 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
     auto inputGate = getSavedFwdIntermediate(
         savedIntermediates, params, options, LSTM_FWD_INTERMEDIATE_INPUT_GATE);
 
-    auto prevCellState =
-        graph.clone(forgetGate, debugPrefix + "/prevCellState");
-    prog.add(Copy(fwdStateInit.cellState, prevCellState));
+    auto prevCellState = graph.clone(forgetGate, {dnai, "prevCellState"});
+    prog.add(Copy(fwdStateInit.cellState, prevCellState, false, {dnai}));
 
     // Recompute cell state and tanh
     Tensor newCellState, newTanhOutput;
     {
       auto prod = mul(graph, concat(forgetGate, candidate),
                       concat(prevCellState, inputGate), loop,
-                      debugPrefix + "/{Forget + Input}Gate");
+                      {dnai, "{Forget + Input}Gate"});
 
       newCellState = prod.slice(0, forgetGate.dim(0));
       auto updatedCandidate =
           prod.slice(forgetGate.dim(0), forgetGate.dim(0) + candidate.dim(0));
       addInPlace(graph, newCellState, updatedCandidate, loop,
-                 debugPrefix + "/AddCellCand");
-      newTanhOutput = popops::tanh(graph, newCellState, loop,
-                                   debugPrefix + "/TanhCellState");
+                 {dnai, "AddCellCand"});
+      newTanhOutput =
+          popops::tanh(graph, newCellState, loop, {dnai, "TanhCellState"});
     }
 
     auto rearrangedIntermediates =
         createOutputTensor(graph, params, numToRecompute,
-                           debugPrefix + "/recomputedIntermediatesRearranged");
+                           {dnai, "recomputedIntermediatesRearranged"});
     loop.add(Copy(concat(newTanhOutput.expand({0}), prevCellState.expand({0})),
-                  rearrangedIntermediates));
-    loop.add(Copy(newCellState, prevCellState));
-    prog.add(WriteUndef(recomputedIntermediatesSeq));
+                  rearrangedIntermediates, false, {dnai}));
+    loop.add(Copy(newCellState, prevCellState, false, {dnai}));
+    prog.add(WriteUndef(recomputedIntermediatesSeq, {dnai}));
     dynamicUpdate(graph, recomputedIntermediatesSeq,
                   rearrangedIntermediates.expand({0}), seqIdx, {0}, {1}, loop,
-                  debugPrefix + "/storeRecomputed");
+                  {dnai, "storeRecomputed"});
 
-    addInPlace(graph, seqIdx, one, loop, debugPrefix + "/seqIdxIncr");
+    addInPlace(graph, seqIdx, one, loop, {dnai, "seqIdxIncr"});
   }
-  prog.add(Repeat(seqSize, loop));
+  prog.add(Repeat(seqSize, loop, {dnai}));
 
   return recomputedIntermediatesSeq;
 }
@@ -1189,8 +1259,8 @@ static Tensor recomputeAndGetFwdIntermediates(
     Graph &graph, const LstmState &fwdStateInit,
     const Tensor &fwdIntermediatesSeq, const LstmParams &params,
     const LstmOpts &options, program::Sequence &recomputeProg,
-    const std::string &recomputePrefix, program::Sequence &sliceProg,
-    const Tensor &sliceIdx, const std::string &slicePrefix) {
+    const DebugNameAndId &recomputeDnai, program::Sequence &sliceProg,
+    const Tensor &sliceIdx, const DebugNameAndId &sliceDnai) {
   Tensor savedSlice;
   Tensor recomputedSlice;
   switch (options.recomputationMode) {
@@ -1198,19 +1268,19 @@ static Tensor recomputeAndGetFwdIntermediates(
     // No recomputation needed, we need only slice the existing forward
     // intermediates.
     savedSlice = dynamicSlice(graph, fwdIntermediatesSeq, sliceIdx, {0}, {1},
-                              sliceProg, slicePrefix)
+                              sliceProg, {sliceDnai})
                      .squeeze({0});
     break;
   }
   case LstmRecomputationMode::CellAndTanh: {
     auto recomputedIntermediatesSeq = recomputeCellAndTanhImpl(
         graph, params, options, fwdStateInit, fwdIntermediatesSeq,
-        recomputeProg, recomputePrefix);
+        recomputeProg, {recomputeDnai});
     savedSlice = dynamicSlice(graph, fwdIntermediatesSeq, sliceIdx, {0}, {1},
-                              sliceProg, slicePrefix)
+                              sliceProg, {sliceDnai})
                      .squeeze({0});
     recomputedSlice = dynamicSlice(graph, recomputedIntermediatesSeq, sliceIdx,
-                                   {0}, {1}, sliceProg, slicePrefix)
+                                   {0}, {1}, sliceProg, {sliceDnai})
                           .squeeze({0});
     break;
   }
@@ -1235,60 +1305,59 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
             const Tensor &fwdOutput, const Tensor &gradLayerNext,
             const Tensor *lastCellStateGradPtr, Tensor *inputGradSeq,
             Tensor *bwdIntermediatesPtr, LstmWeights *weightsGrad,
-            const std::string &debugPrefix, const LstmOpts &options,
+            const DebugNameAndId &dnai, const LstmOpts &options,
             poplin::matmul::PlanningCache *cache) {
   auto &weightsInput = weights.inputWeights;
   auto &weightsOutput = weights.outputWeights;
 
   unsigned seqSize = params.timeSteps;
   // sequence down-counter
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
   auto start =
-      graph.addConstant(UNSIGNED_INT, {1}, seqSize - 1, debugPrefix + "/start");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+      graph.addConstant(UNSIGNED_INT, {1}, seqSize - 1, {dnai, "start"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(start, 0);
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  prog.add(Copy(start, seqIdx));
+  prog.add(Copy(start, seqIdx, false, {dnai}));
 
   const auto batchSize = params.batchSize;
 
   Tensor gradLayerNextRearranged = createOutputTensor(
-      graph, params, seqSize, debugPrefix + "/gradLayerNextRearranged");
-  prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
+      graph, params, seqSize, {dnai, "gradLayerNextRearranged"});
+  prog.add(Copy(gradLayerNext, gradLayerNextRearranged, false, {dnai}));
 
-  auto lastOutGrad =
-      createOutputTensor(graph, params, 1, debugPrefix + "/outGrad")[0];
+  auto lastOutGrad = createOutputTensor(graph, params, 1, {dnai, "outGrad"})[0];
   if (params.outputFullSequence) {
-    zero(graph, lastOutGrad, prog, debugPrefix + "/initLastOutGrad");
+    zero(graph, lastOutGrad, prog, {dnai, "initLastOutGrad"});
   } else {
-    prog.add(Copy(gradLayerNext, lastOutGrad));
+    prog.add(Copy(gradLayerNext, lastOutGrad, false, {dnai}));
   }
   auto lastCellStateGrad =
-      createOutputTensor(graph, params, 1, debugPrefix + "/cellStateGrad")[0];
+      createOutputTensor(graph, params, 1, {dnai, "cellStateGrad"})[0];
   if (lastCellStateGradPtr) {
-    prog.add(Copy(*lastCellStateGradPtr, lastCellStateGrad));
+    prog.add(Copy(*lastCellStateGradPtr, lastCellStateGrad, false, {dnai}));
   } else {
-    zero(graph, lastCellStateGrad, prog, debugPrefix + "/initCellStateGrad");
+    zero(graph, lastCellStateGrad, prog, {dnai, "initCellStateGrad"});
   }
   LstmState stateGrads = {
       lastOutGrad,
       lastCellStateGrad,
   };
 
-  auto sliceIntermediates = Sequence();
-  auto sliceOutput = Sequence();
+  auto sliceIntermediates = Sequence({}, {dnai});
+  auto sliceOutput = Sequence({}, {dnai});
 
   Tensor fwdIntermediates = recomputeAndGetFwdIntermediates(
       graph, fwdStateInit, fwdIntermediatesSeq, params, options, prog,
-      debugPrefix + "/recomputeFwdIntermediates", sliceIntermediates, seqIdx,
-      debugPrefix + "/getFwdIntermediates");
+      {dnai, "recomputeFwdIntermediates"}, sliceIntermediates, seqIdx,
+      {dnai, "getFwdIntermediates"});
 
   Tensor prevStepOut;
   if (weightsGrad) {
     if (params.outputFullSequence) {
       prevStepOut = dynamicSlice(graph, fwdOutput, seqIdx, {0}, {1},
-                                 sliceOutput, debugPrefix + "/getPrevStepOut")
+                                 sliceOutput, {dnai, "getPrevStepOut"})
                         .squeeze({0});
     } else {
       prevStepOut = fwdIntermediates[LSTM_FWD_INTERMEDIATE_OUTPUT];
@@ -1298,9 +1367,9 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   prog.add(sliceIntermediates);
   prog.add(sliceOutput);
 
-  auto loop = Sequence();
-  auto bwdLoopBody = Sequence();
-  auto wuLoopBody = Sequence();
+  auto loop = Sequence({}, {dnai});
+  auto bwdLoopBody = Sequence({}, {dnai});
+  auto wuLoopBody = Sequence({}, {dnai});
   {
     LstmState newStateGrads;
     Tensor bwdIntermediates;
@@ -1309,7 +1378,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     if (params.outputFullSequence) {
       gradLayerNextThisStep =
           dynamicSlice(graph, gradLayerNextRearranged, seqIdx, {0}, {1},
-                       bwdLoopBody, debugPrefix + "/gradLayerNext")
+                       bwdLoopBody, {dnai, "gradLayerNext"})
               .squeeze({0});
       gradLayerNextThisStepPtr = &gradLayerNextThisStep;
     }
@@ -1319,34 +1388,33 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
           popnn::lstm::basicLstmBackwardStep(
               graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
               weightsInput, weightsOutput, prog, bwdLoopBody, options,
-              params.cellOrder, debugPrefix, cache);
+              params.cellOrder, {dnai}, cache);
       const auto inputSize = inputGrad.dim(1);
       const auto inputGrouping = gcd(16UL, inputSize);
       const auto numInputGroups = inputSize / inputGrouping;
       *inputGradSeq =
           createDynamicSliceTensor(graph, inputGrad.elementType(), seqSize,
                                    numInputGroups * batchSize, inputGrouping,
-                                   debugPrefix + "/inputGradSeq")
+                                   {dnai, "inputGradSeq"})
               .reshapePartial(1, 2, {numInputGroups, batchSize})
               .dimRoll(1, 2)
               .flatten(2, 4);
       auto inputGradRearranged =
           createDynamicSliceTensor(graph, inputGrad.elementType(), 1,
                                    numInputGroups * batchSize, inputGrouping,
-                                   debugPrefix + "/inputGradRearranged")
+                                   {dnai, +"inputGradRearranged"})
               .reshapePartial(1, 2, {numInputGroups, batchSize})
               .dimRoll(1, 2)
               .flatten(2, 4)[0];
-      bwdLoopBody.add(Copy(inputGrad, inputGradRearranged));
-      prog.add(WriteUndef(*inputGradSeq));
+      bwdLoopBody.add(Copy(inputGrad, inputGradRearranged, false, {dnai}));
+      prog.add(WriteUndef(*inputGradSeq, {dnai}));
       dynamicUpdate(graph, *inputGradSeq, inputGradRearranged.expand({0}),
-                    seqIdx, {0}, {1}, bwdLoopBody,
-                    debugPrefix + "/gradLayerPrev");
+                    seqIdx, {0}, {1}, bwdLoopBody, {dnai, "gradLayerPrev"});
     } else {
       std::tie(newStateGrads, bwdIntermediates) = basicLstmBackwardStep(
           graph, gradLayerNextThisStepPtr, fwdIntermediates, stateGrads,
-          weightsOutput, prog, bwdLoopBody, options, params.cellOrder,
-          debugPrefix, cache);
+          weightsOutput, prog, bwdLoopBody, options, params.cellOrder, {dnai},
+          cache);
     }
 
     // If bwdIntermediatesPtr is given, create a sequence containing gradients
@@ -1354,44 +1422,43 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     if (bwdIntermediatesPtr) {
       *bwdIntermediatesPtr =
           createOutputTensor(graph, params, seqSize * BASIC_LSTM_CELL_NUM_UNITS,
-                             debugPrefix + "/bwdIntermediates")
+                             {dnai, "bwdIntermediates"})
               .reshapePartial(0, 1, {seqSize, BASIC_LSTM_CELL_NUM_UNITS});
       auto bwdIntermediatesRearranged =
           createOutputTensor(graph, params, BASIC_LSTM_CELL_NUM_UNITS,
-                             debugPrefix + "/bwdIntermediatesRearranged");
-      bwdLoopBody.add(Copy(bwdIntermediates, bwdIntermediatesRearranged));
-      prog.add(WriteUndef(*bwdIntermediatesPtr));
+                             {dnai, "bwdIntermediatesRearranged"});
+      bwdLoopBody.add(
+          Copy(bwdIntermediates, bwdIntermediatesRearranged, false, {dnai}));
+      prog.add(WriteUndef(*bwdIntermediatesPtr, {dnai}));
       dynamicUpdate(graph, *bwdIntermediatesPtr,
                     bwdIntermediatesRearranged.expand({0}), seqIdx, {0}, {1},
-                    bwdLoopBody, debugPrefix + "/bwdIntermediates");
+                    bwdLoopBody, {dnai, "bwdIntermediates"});
     }
     Tensor prevLayerOut;
     if (weightsGrad) {
       // make a copy of the activations so that they are sliced efficiently
-      auto fwdInputSeqCopy = createInput(
-          graph, params, debugPrefix + "/fwdInputSeqCopy", options, cache);
-      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy));
+      auto fwdInputSeqCopy =
+          createInput(graph, params, {dnai, "fwdInputSeqCopy"}, options, cache);
+      prog.add(Copy(fwdInputSeq, fwdInputSeqCopy, false, {dnai}));
 
-      prevLayerOut =
-          dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1}, bwdLoopBody,
-                       debugPrefix + "/prevLayerActsBwd")
-              .squeeze({0});
+      prevLayerOut = dynamicSlice(graph, fwdInputSeqCopy, seqIdx, {0}, {1},
+                                  bwdLoopBody, {dnai, "prevLayerActsBwd"})
+                         .squeeze({0});
     }
-    bwdLoopBody.add(
-        Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor()));
-    subInPlace(graph, seqIdx, one, bwdLoopBody, debugPrefix + "/seqIdxDecr");
+    bwdLoopBody.add(Copy(newStateGrads.getAsTensor(), stateGrads.getAsTensor(),
+                         false, {dnai}));
+    subInPlace(graph, seqIdx, one, bwdLoopBody, {dnai, "seqIdxDecr"});
 
     loop.add(bwdLoopBody);
     loop.add(sliceIntermediates);
     loop.add(sliceOutput);
     if (weightsGrad) {
       *weightsGrad = createWeightAccumulators(graph, weights, bwdIntermediates,
-                                              options, debugPrefix);
-      zeroWeightAccumulators(graph, prog, *weightsGrad, options, debugPrefix);
+                                              options, {dnai});
+      zeroWeightAccumulators(graph, prog, *weightsGrad, options, {dnai});
 
       basicLstmParamUpdate(graph, prevLayerOut, prevStepOut, bwdIntermediates,
-                           *weightsGrad, wuLoopBody, options, debugPrefix,
-                           cache);
+                           *weightsGrad, wuLoopBody, options, {dnai}, cache);
     }
     loop.add(wuLoopBody);
   }
@@ -1402,10 +1469,10 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   prog.add(Repeat(seqSize - 1, loop));
   prog.add(bwdLoopBody);
   if (weightsGrad) {
-    prog.add(Copy(fwdStateInit.output, prevStepOut));
+    prog.add(Copy(fwdStateInit.output, prevStepOut, false, {dnai}));
     prog.add(wuLoopBody);
-    *weightsGrad = basicLstmParamUpdateFinal(graph, weights, *weightsGrad, prog,
-                                             debugPrefix);
+    *weightsGrad =
+        basicLstmParamUpdateFinal(graph, weights, *weightsGrad, prog, {dnai});
   }
   return stateGrads;
 }
@@ -1420,7 +1487,12 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                   const poplar::DebugContext &debugContext,
                   const OptionFlags &options_,
                   poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(fwdIntermediatesSeq, weights, fwdInputSeq, fwdOutput,
+              gradLayerNext, lastCellStateGradPtr, inputGrad, bwdIntermediates,
+              fwdStateInit, params, options_, planningCache));
+
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
 
@@ -1431,10 +1503,12 @@ LstmState lstmBwd(Graph &graph, const LstmParams &params,
                         (inputGrad ? "true" : "false"));
   }
 
-  return lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediatesSeq,
-                     weights, fwdInputSeq, fwdOutput, gradLayerNext,
-                     lastCellStateGradPtr, inputGrad, bwdIntermediates, nullptr,
-                     debugPrefix, std::move(options), planningCache);
+  LstmState outputs = lstmBwdImpl(
+      graph, params, prog, fwdStateInit, fwdIntermediatesSeq, weights,
+      fwdInputSeq, fwdOutput, gradLayerNext, lastCellStateGradPtr, inputGrad,
+      bwdIntermediates, nullptr, {di}, std::move(options), planningCache);
+  di.addOutputs(DI_ARGS(outputs));
+  return outputs;
 }
 
 static LstmWeights
@@ -1442,27 +1516,27 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
            const LstmState &fwdStateInit, const Tensor &fwdIntermediatesSeq,
            const Tensor &bwdIntermediatesSeq, const LstmWeights &weights,
            const Tensor &input, const Tensor &output,
-           const std::string &debugPrefix, const LstmOpts &options,
+           const DebugNameAndId &dnai, const LstmOpts &options,
            poplin::matmul::PlanningCache *planningCache) {
   LstmWeights weightGrads = createWeightAccumulators(
-      graph, weights, bwdIntermediatesSeq[0], options, debugPrefix);
-  zeroWeightAccumulators(graph, prog, weightGrads, options, debugPrefix);
+      graph, weights, bwdIntermediatesSeq[0], options, {dnai});
+  zeroWeightAccumulators(graph, prog, weightGrads, options, {dnai});
 
-  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, debugPrefix + "/seqIdx");
+  auto seqIdx = graph.addVariable(UNSIGNED_INT, {1}, {dnai, "seqIdx"});
   auto start = graph.addConstant(UNSIGNED_INT, {1}, params.timeSteps - 1,
-                                 debugPrefix + "/start");
-  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, debugPrefix + "/one");
+                                 {dnai, "start"});
+  auto one = graph.addConstant(UNSIGNED_INT, {1}, 1, {dnai, "one"});
   graph.setTileMapping(start, 0);
   graph.setTileMapping(one, 0);
   graph.setTileMapping(seqIdx, 0);
-  prog.add(Copy(start, seqIdx));
+  prog.add(Copy(start, seqIdx, false, {dnai}));
 
-  auto sliceOutput = Sequence();
+  auto sliceOutput = Sequence({}, {dnai});
   logging::popnn::debug("Get output of previous step");
   Tensor prevStepOut;
   if (params.outputFullSequence) {
     prevStepOut = dynamicSlice(graph, output, seqIdx, {0}, {1}, sliceOutput,
-                               debugPrefix + "/getPrevStepOut")
+                               {dnai, "getPrevStepOut"})
                       .squeeze({0});
   } else {
     // TODO: T12908 If for full recomputation we also want to recompute the
@@ -1470,46 +1544,45 @@ lstmWUImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
     // part of the intermediates.
     auto prevFwdIntermediates =
         dynamicSlice(graph, fwdIntermediatesSeq, seqIdx, {0}, {1}, sliceOutput,
-                     debugPrefix + "/getFwdIntermediates")
+                     {dnai, "getFwdIntermediates"})
             .squeeze({0});
     prevStepOut = getSavedFwdIntermediate(prevFwdIntermediates, params, options,
                                           LSTM_FWD_INTERMEDIATE_OUTPUT);
   }
 
-  auto loop = Sequence();
-  auto sliceLoopBody = Sequence();
-  auto wuLoopBody = Sequence();
+  auto loop = Sequence({}, {dnai});
+  auto sliceLoopBody = Sequence({}, {dnai});
+  auto wuLoopBody = Sequence({}, {dnai});
   {
     // Dynamic slice required state per-step
     // make a copy of the activations so that they are sliced efficiently
-    auto inputCopy = createInput(graph, params, debugPrefix + "/inputCopy",
-                                 options, planningCache);
-    prog.add(Copy(input, inputCopy));
+    auto inputCopy =
+        createInput(graph, params, {dnai, "inputCopy"}, options, planningCache);
+    prog.add(Copy(input, inputCopy, false, {dnai}));
 
-    auto prevLayerOut =
-        dynamicSlice(graph, inputCopy, seqIdx, {0}, {1}, sliceLoopBody,
-                     debugPrefix + "/prevLayerActsWu")
-            .squeeze({0});
+    auto prevLayerOut = dynamicSlice(graph, inputCopy, seqIdx, {0}, {1},
+                                     sliceLoopBody, {dnai, "prevLayerActsWu"})
+                            .squeeze({0});
     auto bwdIntermediates =
         dynamicSlice(graph, bwdIntermediatesSeq, seqIdx, {0}, {1},
-                     sliceLoopBody, debugPrefix + "/getBwdIntermediates")
+                     sliceLoopBody, {dnai, "getBwdIntermediates"})
             .squeeze({0});
-    subInPlace(graph, seqIdx, one, sliceLoopBody, debugPrefix + "/seqIdxDecr");
+    subInPlace(graph, seqIdx, one, sliceLoopBody, {dnai, "seqIdxDecr"});
     loop.add(sliceLoopBody);
     loop.add(sliceOutput);
 
     basicLstmParamUpdate(graph, prevLayerOut, prevStepOut, bwdIntermediates,
-                         weightGrads, wuLoopBody, options, debugPrefix,
+                         weightGrads, wuLoopBody, options, {dnai},
                          planningCache);
     loop.add(wuLoopBody);
   }
-  prog.add(Repeat(params.timeSteps - 1, loop));
+  prog.add(Repeat(params.timeSteps - 1, loop, {dnai}));
   prog.add(sliceLoopBody);
-  prog.add(Copy(fwdStateInit.output, prevStepOut));
+  prog.add(Copy(fwdStateInit.output, prevStepOut, false, {dnai}));
   prog.add(wuLoopBody);
 
   weightGrads =
-      basicLstmParamUpdateFinal(graph, weights, weightGrads, prog, debugPrefix);
+      basicLstmParamUpdateFinal(graph, weights, weightGrads, prog, {dnai});
   return weightGrads;
 }
 
@@ -1521,13 +1594,19 @@ LstmWeights lstmWU(Graph &graph, const LstmParams &params,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(fwdIntermediates, bwdIntermediates,
+                                         weights, input, output, fwdStateInit,
+                                         params, options_, planningCache));
+
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
 
-  return lstmWUImpl(graph, params, prog, fwdStateInit, fwdIntermediates,
-                    bwdIntermediates, weights, input, output, debugPrefix,
-                    std::move(options), planningCache);
+  auto outputs = lstmWUImpl(graph, params, prog, fwdStateInit, fwdIntermediates,
+                            bwdIntermediates, weights, input, output, {di},
+                            std::move(options), planningCache);
+  di.addOutputs(DI_ARGS(outputs));
+  return outputs;
 }
 
 LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
@@ -1542,7 +1621,12 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
                         const poplar::DebugContext &debugContext,
                         const poplar::OptionFlags &options_,
                         poplin::matmul::PlanningCache *planningCache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(fwdIntermediates, weights, input,
+                                         output, outputGrad, lastCellStateGrad,
+                                         inputGrad, weightsGrad_, fwdStateInit,
+                                         params, options_, planningCache));
+
   validateParams(params);
   auto options = parseOptions(options_, params.dataType);
 
@@ -1560,19 +1644,19 @@ LstmState lstmBwdWithWU(poplar::Graph &graph, const LstmParams &params,
   // backward pass is beneficial, directly calculate the weight gradients
   // during the backward pass. Otherwise, save backward intermediates and
   // calculate weight deltas below.
-  LstmState stateGrads =
-      lstmBwdImpl(graph, params, prog, fwdStateInit, fwdIntermediates, weights,
-                  input, output, outputGrad, lastCellStateGrad, inputGrad,
-                  interleaveWU ? nullptr : &bwdIntermediates,
-                  interleaveWU ? &weightsGrad_ : nullptr, debugPrefix, options,
-                  planningCache);
+  LstmState stateGrads = lstmBwdImpl(
+      graph, params, prog, fwdStateInit, fwdIntermediates, weights, input,
+      output, outputGrad, lastCellStateGrad, inputGrad,
+      interleaveWU ? nullptr : &bwdIntermediates,
+      interleaveWU ? &weightsGrad_ : nullptr, {di}, options, planningCache);
 
   if (!interleaveWU) {
     weightsGrad_ = lstmWUImpl(
         graph, params, prog, fwdStateInit, fwdIntermediates, bwdIntermediates,
-        weights, input, output, debugPrefix, std::move(options), planningCache);
+        weights, input, output, {di}, std::move(options), planningCache);
   }
 
+  di.addOutputs(DI_ARGS(stateGrads));
   return stateGrads;
 }
 

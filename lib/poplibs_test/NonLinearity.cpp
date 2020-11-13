@@ -1,6 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include <poplibs_support/Compiler.hpp>
 #include <poplibs_test/NonLinearity.hpp>
+#include <poputil/DebugInfo.hpp>
 
 #include <algorithm>
 #include <cassert>

@@ -4,11 +4,13 @@
 
 #include "PoolOptions.hpp"
 #include "PoolPlan.hpp"
+#include "poplar/DebugContext.hpp"
 #include "poplar/Graph.hpp"
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
 #include "poplin/ConvParams.hpp"
 #include "popnn/PoolingDef.hpp"
+
 #include <vector>
 
 namespace popnn {
@@ -55,15 +57,15 @@ struct PoolSlice {
 // tile             Tile on which vertices are generated
 // indices          indices of planning parameter splits assigned to this tile
 // slice            parameters for slicing channels, batch, field and kernel
-// debugPrefix      Debug prefix for operations and tensors for this operation
-// poolOptions      Pooling options
+// dnai             Debug information for operations and tensors for this
+// operation poolOptions      Pooling options
 void tilePartitions(poplar::Graph &graph, const PoolConfig &poolConfig,
                     const poplar::Tensor &in, const poplar::Tensor &out,
                     const poplar::Tensor *fwdInputActs,
                     const poplar::Tensor *fwdOutputActs,
                     const poplin::ConvParams &params,
                     poplar::program::Sequence &prog, const Plan &plan,
-                    const std::string &debugPrefix,
+                    const poplar::DebugNameAndId &dnai,
                     const PoolOptions &poolOptions);
 
 // Retrieve the cycle estimate for the pooling vertex based on the parameters

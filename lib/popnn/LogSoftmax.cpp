@@ -4,6 +4,7 @@
 #include "popops/ElementWise.hpp"
 #include "popops/ElementWiseUtil.hpp"
 #include "popops/Reduce.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -22,10 +23,11 @@ namespace {
 
 // computes log of the softmax along the innermost dimension
 Tensor logSoftmaxImpl(Graph &graph, Tensor t, bool inPlace, Sequence &prog,
-                      const std::string &debugStr = "") {
-  const auto fnStr = debugStr + "/LogSoftmax";
+                      const DebugNameAndId &dnai) {
+  const std::string fnStr = "LogSoftmax";
   const auto dType = t.elementType();
-  logging::popnn::info("logSoftmax t={}, name={}", t.shape(), fnStr);
+  logging::popnn::info("logSoftmax t={}, name={}", t.shape(),
+                       dnai.getPathName() + fnStr);
   if (t.rank() < 1) {
     throw poplibs_error("input tensor to logSoftmax must have at least 1 "
                         "dimension");
@@ -42,23 +44,23 @@ Tensor logSoftmaxImpl(Graph &graph, Tensor t, bool inPlace, Sequence &prog,
   const auto innerDimSize = t.dim(rank - 1);
 
   bool needsCopy = !inPlace;
-  auto max =
-      popops::reduce(graph, tShuf, {0}, popops::Operation::MAX, prog, fnStr)
-          .expand({0})
-          .broadcast(innerDimSize, 0);
+  auto max = popops::reduce(graph, tShuf, {0}, popops::Operation::MAX, prog,
+                            {dnai, fnStr})
+                 .expand({0})
+                 .broadcast(innerDimSize, 0);
 
   if (needsCopy) {
-    tShuf = popops::sub(graph, tShuf, max, prog, fnStr);
+    tShuf = popops::sub(graph, tShuf, max, prog, {dnai, fnStr});
   } else {
-    popops::subInPlace(graph, tShuf, max, prog, fnStr);
+    popops::subInPlace(graph, tShuf, max, prog, {dnai, fnStr});
   }
 
-  auto tExp = popops::exp(graph, tShuf, prog, fnStr);
+  auto tExp = popops::exp(graph, tShuf, prog, {dnai, fnStr});
 
   // For half types we can improve accuracy by scaling the result so that the
   // sum of the values is max half instead of 1.0.
   auto sumF = popops::reduce(graph, tExp, poplar::FLOAT, {0},
-                             popops::Operation::ADD, prog, fnStr);
+                             popops::Operation::ADD, prog, {dnai, fnStr});
 
   // Keep at higher precision though is strictly not necessary as the input is
   // always guaranteed to be > 1. The tensor dimension is already smaller than
@@ -66,11 +68,11 @@ Tensor logSoftmaxImpl(Graph &graph, Tensor t, bool inPlace, Sequence &prog,
   // as long as the outer dimension is not large compared to the number of tiles
   // this is split over.
   auto sum = popops::map(graph, expr::Cast(expr::Log(expr::_1), dType), {sumF},
-                         prog, fnStr);
+                         prog, {dnai, fnStr});
 
   // Do not fuse with above expression to allow efficient use of broadcast
   // vertices.
-  popops::subInPlace(graph, tShuf, sum, prog, fnStr);
+  popops::subInPlace(graph, tShuf, sum, prog, {dnai, fnStr});
 
   // Shuffle dimensions back to original ordering and return.
   // If inPlace == true then this is the same as the original tensor.
@@ -85,14 +87,18 @@ namespace popnn {
 
 void logSoftmaxInPlace(Graph &graph, Tensor t, Sequence &prog,
                        const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  logSoftmaxImpl(graph, t, true, prog, debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t));
+
+  logSoftmaxImpl(graph, t, true, prog, {di});
 }
 
 Tensor logSoftmax(Graph &graph, Tensor t, Sequence &prog,
                   const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  return logSoftmaxImpl(graph, t, false, prog, debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t));
+
+  auto output = logSoftmaxImpl(graph, t, false, prog, {di});
+  di.addOutput(output);
+  return output;
 }
 
 } // end namespace popnn

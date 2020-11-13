@@ -2,6 +2,7 @@
 
 #ifndef popnn_Norms_hpp
 #define popnn_Norms_hpp
+#include "poplar/DebugContext.hpp"
 #include "poplar/Program.hpp"
 #include "poplar/Tensor.hpp"
 
@@ -26,13 +27,15 @@ std::uint64_t getNormBwdFlops(std::size_t statisticsSize,
 // size and the total elements in the activations input to the layer.
 std::uint64_t getNormWuFlops(std::size_t paramsSize,
                              std::size_t numActsElements);
-poplar::Tensor createNormGamma(poplar::Graph &graph,
-                               const poplar::Tensor &acts);
+poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
+                               const poplar::DebugContext &debugContext = {});
 
-poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
+poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts,
+                              const poplar::DebugContext &debugContext = {});
 
 std::pair<poplar::Tensor, poplar::Tensor>
-createNormParams(poplar::Graph &graph, const poplar::Tensor acts);
+createNormParams(poplar::Graph &graph, const poplar::Tensor acts,
+                 const poplar::DebugContext &debugContext = {});
 
 } // namespace popnn
 #endif // popnn_Norms_hpp
