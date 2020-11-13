@@ -105,7 +105,7 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
        Number of compute sets:            1
 
        Cycles by vertex type:
-         MapGeneratedVertex_%%%%          (4 instances)
+       popops::map::%%%%                  (4 instances)
     */
 
     ProfileValue profile = engine.getProfile();
@@ -133,10 +133,10 @@ static bool mapTest(const pe::Expr &expr, bool inPlace = true,
     }
     // Then check that the name is the generated name.
     std::string name = vertexTypes.asVector()[0].asString();
-    if (std::string::npos == name.find("Fused_")) {
-      std::cerr << "Name doesn't match Fused_ (is operation "
-                   "fused?) name="
-                << name;
+    constexpr char prefix[] = "popops::map::";
+    if (std::string::npos == name.find(prefix)) {
+      std::cerr << "Name doesn't match " << prefix
+                << "(is operation fused?) name=" << name << "\n";
       return false;
     }
   }

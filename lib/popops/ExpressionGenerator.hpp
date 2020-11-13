@@ -60,8 +60,11 @@ public:
   size_t getNumFusedOps() const { return numFusedOps; }
 
 private:
-  // Add the header section (includes, template traits, helper functions).
+  // Add the header section (includes, template traits, helper functions,
+  // namespacing).
   void addHeader(std::stringstream &stream);
+  // Add the footer section (namespacing).
+  void addFooter(std::stringstream &stream);
 
   // Add a vectorized loop to the codelet.
   void addVectorizedSection(std::stringstream &stream,

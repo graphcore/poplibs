@@ -220,7 +220,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
 
   // Generate the actual codelet which will be run, compile it, add it to the
   // graph, and store the name of the generated codelet in codeletName.
-  std::string codeletName =
+  const std::string codeletName =
       generate.generateCodelet(graph, allInputsScalar, expr);
 
   size_t numFusedOp = generate.getNumFusedOps();
@@ -590,6 +590,16 @@ const T &min(const T &x, const T &y) {
 
   #include <poplar/Vertex.hpp>
   using namespace poplar;
+
+  namespace popops {
+  namespace map {
+  )l";
+}
+
+void GenerateCodeletFromMapExpr::addFooter(std::stringstream &stream) {
+  stream << R"l(
+  } // end namespace map
+  } // end namespace popops
   )l";
 }
 
@@ -776,12 +786,14 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
       }
     }
   }
-  std::string vertexName =
+  const std::string vertexName =
       createVertexName(expr, inputs, inPlace, allInputsScalar);
 
-  if (graph.hasCodelet(vertexName)) {
-    logging::popops::debug("Codelet already in graph {}", vertexName);
-    return vertexName;
+  const std::string namespacedVertexName = "popops::map::" + vertexName;
+
+  if (graph.hasCodelet(namespacedVertexName)) {
+    logging::popops::debug("Codelet already in graph {}", namespacedVertexName);
+    return namespacedVertexName;
   }
 
   std::stringstream stream;
@@ -872,16 +884,18 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
     };
   )l";
 
-  logging::popops::debug("Adding codelet {} to graph", vertexName);
+  addFooter(stream);
+
+  logging::popops::debug("Adding codelet {} to graph", namespacedVertexName);
   graph.addCodelets(stream);
 
-  return vertexName;
+  return namespacedVertexName;
 }
 
 std::string GenerateCodeletFromMapExpr::createVertexName(
     const expr::Expr &expr, const std::vector<poplar::Tensor> &inputs,
     const bool inPlace, const bool allInputsScalar) {
-  std::string result = "Fused_" + expr.name(inputs);
+  std::string result = expr.name(inputs);
   result += std::to_string(inPlace);
   result += std::to_string(allInputsScalar);
   for (const auto &input : inputs) {
