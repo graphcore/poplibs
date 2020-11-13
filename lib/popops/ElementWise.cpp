@@ -9,6 +9,7 @@
 #include "popops/ElementWiseUtil.hpp"
 #include "popops/NaN.hpp"
 #include "poputil/Broadcast.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -35,6 +36,7 @@ using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
+using namespace popops::expr;
 
 using popops::expr::BinaryOpType;
 using popops::expr::TernaryOpType;
@@ -60,70 +62,7 @@ enum ternaryOpCodelets {
   NR_OF_CODELETS
 };
 
-struct MapOptions {
-  bool enableVectorBroadcastOptimisations = true;
-  bool enableGenerateCodelet = true;
-
-  // By default if there is only a single operation we will not fuse. For tests
-  // we will need to force it on.
-  bool forceGenerateCodelet = false;
-
-  // optimise expressions where possible
-  bool enableExpressionOptimizations = true;
-};
-
-MapOptions parseOptionFlags(const OptionFlags &options) {
-  MapOptions mapOpts;
-  const poplibs::OptionSpec mapSpec{
-      {"enableVectorBroadcastOptimisations",
-       poplibs::OptionHandler::createWithBool(
-           mapOpts.enableVectorBroadcastOptimisations)},
-      {"enableGenerateCodelet",
-       poplibs::OptionHandler::createWithBool(mapOpts.enableGenerateCodelet)},
-      {"forceGenerateCodelet",
-       poplibs::OptionHandler::createWithBool(mapOpts.forceGenerateCodelet)},
-      {"enableExpressionOptimizations",
-       poplibs::OptionHandler::createWithBool(
-           mapOpts.enableExpressionOptimizations)}};
-  for (const auto &entry : options) {
-    mapSpec.parse(entry.first, entry.second);
-  }
-  return mapOpts;
-}
-
-Type outputType(const Type &inType, enum UnaryOpType op) {
-  if (op == UnaryOpType::IS_FINITE || op == UnaryOpType::IS_INF ||
-      op == UnaryOpType::IS_NAN || op == UnaryOpType::LOGICAL_NOT) {
-    return BOOL;
-  } else {
-    return inType;
-  }
-}
-
-Type outputType(const Type &inType, BinaryOpType op) {
-  if (op == BinaryOpType::EQUAL || op == BinaryOpType::GREATER_THAN_EQUAL ||
-      op == BinaryOpType::GREATER_THAN || op == BinaryOpType::LESS_THAN_EQUAL ||
-      op == BinaryOpType::LOGICAL_AND || op == BinaryOpType::LOGICAL_OR ||
-      op == BinaryOpType::LESS_THAN || op == BinaryOpType::NOT_EQUAL) {
-    return BOOL;
-  } else {
-    return inType;
-  }
-}
-
-Type outputType(const Type &inType, TernaryOpType /*op*/) { return inType; }
-
-std::string vertexName(TernaryOpType op) {
-  switch (op) {
-  case TernaryOpType::CLAMP:
-    return "Clamp";
-  case TernaryOpType::SELECT:
-    return "Select";
-  }
-  throw poputil::poplibs_error("Op not supported");
-}
-
-std::string debugName(UnaryOpType op) {
+std::string debugName(expr::UnaryOpType op) {
   switch (op) {
   case UnaryOpType::ABSOLUTE:
     return "Absolute";
@@ -244,6 +183,69 @@ std::string debugName(BinaryOpType op) {
 }
 
 std::string debugName(TernaryOpType op) {
+  switch (op) {
+  case TernaryOpType::CLAMP:
+    return "Clamp";
+  case TernaryOpType::SELECT:
+    return "Select";
+  }
+  throw poputil::poplibs_error("Op not supported");
+}
+
+struct MapOptions {
+  bool enableVectorBroadcastOptimisations = true;
+  bool enableGenerateCodelet = true;
+
+  // By default if there is only a single operation we will not fuse. For tests
+  // we will need to force it on.
+  bool forceGenerateCodelet = false;
+
+  // optimise expressions where possible
+  bool enableExpressionOptimizations = true;
+};
+
+MapOptions parseOptionFlags(const OptionFlags &options) {
+  MapOptions mapOpts;
+  const poplibs::OptionSpec mapSpec{
+      {"enableVectorBroadcastOptimisations",
+       poplibs::OptionHandler::createWithBool(
+           mapOpts.enableVectorBroadcastOptimisations)},
+      {"enableGenerateCodelet",
+       poplibs::OptionHandler::createWithBool(mapOpts.enableGenerateCodelet)},
+      {"forceGenerateCodelet",
+       poplibs::OptionHandler::createWithBool(mapOpts.forceGenerateCodelet)},
+      {"enableExpressionOptimizations",
+       poplibs::OptionHandler::createWithBool(
+           mapOpts.enableExpressionOptimizations)}};
+  for (const auto &entry : options) {
+    mapSpec.parse(entry.first, entry.second);
+  }
+  return mapOpts;
+}
+
+Type outputType(const Type &inType, enum UnaryOpType op) {
+  if (op == UnaryOpType::IS_FINITE || op == UnaryOpType::IS_INF ||
+      op == UnaryOpType::IS_NAN || op == UnaryOpType::LOGICAL_NOT) {
+    return BOOL;
+  } else {
+    return inType;
+  }
+}
+
+Type outputType(const Type &inType, BinaryOpType op) {
+  if (op == BinaryOpType::EQUAL || op == BinaryOpType::GREATER_THAN_EQUAL ||
+      op == BinaryOpType::GREATER_THAN || op == BinaryOpType::LESS_THAN_EQUAL ||
+      op == BinaryOpType::LOGICAL_AND || op == BinaryOpType::LOGICAL_OR ||
+      op == BinaryOpType::LESS_THAN || op == BinaryOpType::NOT_EQUAL) {
+    return BOOL;
+  } else {
+    return inType;
+  }
+}
+
+Type outputType(const Type &inType, TernaryOpType /*op*/) { return inType; }
+
+std::string vertexName(TernaryOpType op) {
   switch (op) {
   case TernaryOpType::CLAMP:
     return "Clamp";
@@ -486,22 +488,23 @@ bool validateRegionSizeForSupervisorVertex(
 }
 
 Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
-               bool inPlace, const std::string &debugPrefix_) {
-  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
+               bool inPlace, const DebugNameAndId &dnai) {
+  const std::string layer = "Op/" + debugName(op);
   const auto inType = in.elementType();
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
+  const auto cs = graph.addComputeSet({dnai, layer});
   const auto numWorkers = target.getNumWorkerContexts();
 
-  logging::popops::debug("UnaryOp begin DebugStr: {}", debugPrefix);
+  logging::popops::debug("UnaryOp begin DebugStr: {}",
+                         dnai.getPathName() + "/" + layer);
   const auto outType = outputType(inType, op);
   Tensor out;
   if (inPlace) {
     out = in;
   } else {
     out = createOutputForElementWiseOp(graph, {in}, outType,
-                                       debugPrefix + "/Out");
+                                       {dnai, layer + "/Out"});
   }
 
   auto inFlat = in.flatten();
@@ -569,7 +572,7 @@ Tensor unaryOp(Graph &graph, Tensor in, Sequence &prog, UnaryOpType op,
       }
     }
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
   return out;
 }
 
@@ -652,13 +655,13 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
 
 void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
                      const Tensor &out, Sequence &prog, BinaryOpType op,
-                     bool inPlace, const std::string &debugPrefix = "") {
+                     bool inPlace, const DebugNameAndId &dnai) {
   auto in1Flat = in1.flatten();
   auto in2Flat = in2.flatten();
   auto outFlat = out.flatten();
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
+  const auto cs = graph.addComputeSet({dnai});
   graph.reorderToSimplify(&outFlat, {&in1Flat, &in2Flat}, false);
   const auto mapping = graph.getTileMapping(outFlat);
 
@@ -669,7 +672,7 @@ void binaryOpGeneral(Graph &graph, const Tensor &in1, const Tensor &in2,
     binaryOpGeneral(graph, in1Flat, in2Flat, outFlat, tileContiguousRegions,
                     tile, cs, op, inPlace);
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 }
 
 /** Generate vertices to perform an element-wise operation where
@@ -813,14 +816,14 @@ bool binaryOpBroadcastScalar(
 
 void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
                              const Tensor &out, Sequence &prog, BinaryOpType op,
-                             bool inPlace, const std::string &debugPrefix) {
+                             bool inPlace, const DebugNameAndId &dnai) {
   // Tensors in1, in2 and out will be the same broadcast shape.
   assert(in1.shape() == in2.shape() && in2.shape() == out.shape());
 
   auto in1Flat = in1.flatten();
   auto outFlat = out.flatten();
   const auto numTiles = graph.getTarget().getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
+  const auto cs = graph.addComputeSet({dnai});
   graph.reorderToSimplify(&outFlat, {&in1Flat}, false);
   const auto mapping = graph.getTileMapping(outFlat);
 
@@ -831,7 +834,7 @@ void binaryOpBroadcastScalar(Graph &graph, const Tensor &in1, const Tensor &in2,
     binaryOpBroadcastScalar(graph, in1Flat, in2, outFlat, tileContiguousRegions,
                             tile, cs, op, inPlace, true /* uniformScalar */);
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 }
 
 /** Generate vertices to perform an element-wise operation where
@@ -1406,7 +1409,7 @@ void validatePatterns(
 // some restrictions.
 void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
                                 Tensor in2, Tensor out, BinaryOpType op,
-                                bool inPlace, const std::string &debugPrefix) {
+                                bool inPlace, const DebugNameAndId &dnai) {
   // Tensors in1, in2 and out will be the same broadcast shape.
   assert(in1.shape() == in2.shape() && in2.shape() == out.shape());
   const auto &target = graph.getTarget();
@@ -1465,7 +1468,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
       // Reshape to copy between unbroadcast tensor and newly created tensor.
       const auto newUnbroadcastOperand =
           unfactorDims(newUnbroadcastOperandFactored, out.rank());
-      prog.add(Copy(unbroadcastOperand, newUnbroadcastOperand));
+      prog.add(Copy(unbroadcastOperand, newUnbroadcastOperand, false, {dnai}));
 
       // Use factored views of output and the newly created tensor to
       // broadcastToMatch as this requires that the size of each dimension of
@@ -1586,9 +1589,9 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
   static constexpr bool logRegions = false;
 
   // Generate vertices from the analyses
-  auto cs = graph.addComputeSet(debugPrefix);
+  auto cs = graph.addComputeSet({dnai});
 
-  logging::popops::debug("BinaryOp begin DebugStr: {}", debugPrefix);
+  logging::popops::debug("BinaryOp begin DebugStr: {}", dnai.getPathName());
   for (unsigned tile = 0; tile < numTiles; ++tile) {
     if (tileContiguousRegions[tile].empty()) {
       continue;
@@ -1730,15 +1733,15 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
     binaryOpGeneral(graph, in1, in2, out, tileContiguousRegions[tile], tile, cs,
                     op, inPlace);
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 }
 
 void validateBinaryOpInputs(BinaryOpType op, const Tensor &in1,
-                            const Tensor &in2, const std::string &debugPrefix) {
+                            const Tensor &in2, const DebugNameAndId &dnai) {
   if (in1.elementType() != in2.elementType()) {
     throw poputil::poplibs_error("Binary Op must have same type for "
                                  "both operands: " +
-                                 debugPrefix);
+                                 dnai.getPathName());
   }
 
   if ((op == BinaryOpType::INV_STD_DEV_TO_VARIANCE ||
@@ -1763,14 +1766,14 @@ void validateBinaryOpInputs(BinaryOpType op, const Tensor &in1,
 
 Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
                 BinaryOpType op, bool inPlace, const MapOptions &options,
-                const std::string &debugPrefix_) {
-  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
+                const DebugNameAndId &dnai) {
+  const std::string layer = "Op/" + debugName(op);
 
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
   const bool in1IsScalar = in1.numElements() == 1;
   const bool in2IsScalar = in2.numElements() == 1;
-  validateBinaryOpInputs(op, in1, in2, debugPrefix);
+  validateBinaryOpInputs(op, in1, in2, {dnai, layer});
 
   // Broadcast the inputs to have the same shape here to cover all paths
   // for binary ops
@@ -1783,7 +1786,7 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
     out = in1;
   } else {
     out = createOutputForElementWiseOp(graph, {in1, in2}, outType,
-                                       debugPrefix + "/Out");
+                                       {dnai, layer + "/Out"});
   }
 
   // Special case for scalar broadcast, because knowing this is a binary
@@ -1793,12 +1796,12 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
     // If it's the second operand to be a scalar we can always do it ...
     if (in2IsScalar) {
       binaryOpBroadcastScalar(graph, in1, in2, out, prog, op, inPlace,
-                              debugPrefix);
+                              {dnai, layer});
       return out;
       // ... if it's the first operand we have a couple of checks to do.
     } else if (in1IsScalar && !inPlace && isBinaryOpCommutative(op)) {
       binaryOpBroadcastScalar(graph, in2, in1, out, prog, op, inPlace,
-                              debugPrefix);
+                              {dnai, layer});
       return out;
     }
   }
@@ -1807,20 +1810,20 @@ Tensor binaryOp(Graph &graph, Tensor in1, Tensor in2, Sequence &prog,
   // way to perform the binary operation on each tile.
   if (options.enableVectorBroadcastOptimisations) {
     constructBroadcastBinaryOp(graph, prog, in1, in2, out, op, inPlace,
-                               debugPrefix);
+                               {dnai, layer});
     return out;
   }
 
   // General case which works for any given tensors and ops.
-  binaryOpGeneral(graph, in1, in2, out, prog, op, inPlace, debugPrefix);
+  binaryOpGeneral(graph, in1, in2, out, prog, op, inPlace, {dnai, layer});
   return out;
 }
 
 Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
                  Sequence &prog, TernaryOpType op, bool inPlace,
-                 const std::string &debugPrefix_) {
+                 const DebugNameAndId &dnai) {
 
-  const auto debugPrefix = debugPrefix_ + "/Op/" + debugName(op);
+  const std::string layer = "Op/" + debugName(op);
   const auto in1Type = in1.elementType();
   const auto in2Type = in2.elementType();
 
@@ -1840,7 +1843,7 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   if (in1Type != in2Type)
     throw poputil::poplibs_error("Ternary Op must have same type for "
                                  "first two operands: " +
-                                 debugPrefix);
+                                 dnai.getPathName() + "/" + layer);
 
   std::vector<Tensor> inputs;
   if (op == TernaryOpType::CLAMP) {
@@ -1887,14 +1890,14 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
   const auto outType = outputType(in1Type, op);
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
+  const auto cs = graph.addComputeSet({dnai, layer});
 
   Tensor out;
   if (inPlace) {
     out = referenceTensor;
   } else {
     out = createOutputForElementWiseOp(graph, inputs, outType,
-                                       debugPrefix + "/Out");
+                                       {dnai, layer + "/Out"});
   }
 
   auto in1Flat = in1.flatten();
@@ -1972,7 +1975,7 @@ Tensor ternaryOp(Graph &graph, Tensor in1, Tensor in2, Tensor in3,
     }
   }
 
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 
   return out;
 }
@@ -2249,19 +2252,18 @@ inferTile(const Graph &graph, const expr::Expr &expr,
 // transforming the operations.
 std::pair<Tensor, bool>
 map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
-    program::Sequence &prog, const poplar::DebugContext &debugContext,
+    program::Sequence &prog, const poplar::DebugNameAndId &dnai,
     const std::unordered_map<const expr::Expr *, Type> constTypes,
     const std::unordered_map<const expr::Expr *, unsigned> constTiles,
     bool topLevel, bool constructGraph, bool inPlace,
     const expr::Expr *&inPlaceExpr, const MapOptions &options) {
-  const auto debugPrefix = debugContext.getPathName();
+
   if (!constructGraph)
     assert(!inPlace);
   if (const expr::Const *c = expr.getAs<expr::Const>()) {
     assert(constTypes.find(&expr) != constTypes.end());
-    auto ct =
-        graph.addConstant(constTypes.at(&expr), {}, c->getData(),
-                          c->getTypeTraits(), false, debugPrefix + "/<const>");
+    auto ct = graph.addConstant(constTypes.at(&expr), {}, c->getData(),
+                                c->getTypeTraits(), false, {dnai, "<const>"});
     unsigned tile = 0;
     auto match = constTiles.find(&expr);
     if (match != constTiles.end())
@@ -2284,44 +2286,39 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
         // We are asked to return the very tensor specified by the placeholder
         // ('t'). We could simply return it, but we are requested not to do an
         // in-place operation, so we just make a copy.
-        auto t2 = graph.clone(t);
-        prog.add(Copy(t, t2));
+        auto t2 = graph.clone(t, {dnai});
+        prog.add(Copy(t, t2, false, {dnai}));
         return {t2, useInPlace};
       }
     }
     return {t, useInPlace};
   } else if (const expr::Cast *c = expr.getAs<expr::Cast>()) {
-    auto t =
-        map(graph, c->getLHS(), ts, prog, debugPrefix, constTypes, constTiles,
-            false, constructGraph, inPlace, inPlaceExpr, options);
+    auto t = map(graph, c->getLHS(), ts, prog, {dnai}, constTypes, constTiles,
+                 false, constructGraph, inPlace, inPlaceExpr, options);
     if (constructGraph) {
-      return {cast(graph, t.first, c->getRHSType(), prog, debugPrefix),
-              t.second};
+      return {cast(graph, t.first, c->getRHSType(), prog, {dnai}), t.second};
     } else {
-      return {graph.clone(c->getRHSType(), t.first, debugPrefix), t.second};
+      return {graph.clone(c->getRHSType(), t.first, {dnai}), t.second};
     }
   } else if (const expr::UnaryOp *u = expr.getAs<expr::UnaryOp>()) {
     auto opType = u->getOpType();
-    auto t =
-        map(graph, u->getArg(), ts, prog, debugPrefix, constTypes, constTiles,
-            false, constructGraph, inPlace, inPlaceExpr, options);
+    auto t = map(graph, u->getArg(), ts, prog, {dnai}, constTypes, constTiles,
+                 false, constructGraph, inPlace, inPlaceExpr, options);
     if (constructGraph) {
-      return {unaryOp(graph, t.first, prog, opType, t.second, debugPrefix),
+      return {unaryOp(graph, t.first, prog, opType, t.second, {dnai}),
               t.second};
     } else {
       return t;
     }
   } else if (const expr::BinaryOp *b = expr.getAs<expr::BinaryOp>()) {
     auto opType = b->getOpType();
-    auto lhs =
-        map(graph, b->getLHS(), ts, prog, debugPrefix, constTypes, constTiles,
-            false, constructGraph, inPlace, inPlaceExpr, options);
-    auto rhs =
-        map(graph, b->getRHS(), ts, prog, debugPrefix, constTypes, constTiles,
-            false, constructGraph, false, inPlaceExpr, options);
+    auto lhs = map(graph, b->getLHS(), ts, prog, {dnai}, constTypes, constTiles,
+                   false, constructGraph, inPlace, inPlaceExpr, options);
+    auto rhs = map(graph, b->getRHS(), ts, prog, {dnai}, constTypes, constTiles,
+                   false, constructGraph, false, inPlaceExpr, options);
     if (constructGraph) {
       return {binaryOp(graph, lhs.first, rhs.first, prog, opType, lhs.second,
-                       options, debugPrefix),
+                       options, {dnai}),
               lhs.second};
     } else {
       return lhs;
@@ -2330,17 +2327,17 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     auto opType = t->getOpType();
     if (opType == TernaryOpType::SELECT) {
       auto lhs =
-          map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-              constTiles, false, constructGraph, inPlace, inPlaceExpr, options);
+          map(graph, t->getArg0(), ts, prog, {dnai}, constTypes, constTiles,
+              false, constructGraph, inPlace, inPlaceExpr, options);
       auto rhs =
-          map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-              constTiles, false, constructGraph, false, inPlaceExpr, options);
+          map(graph, t->getArg1(), ts, prog, {dnai}, constTypes, constTiles,
+              false, constructGraph, false, inPlaceExpr, options);
       auto pred =
-          map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-              constTiles, false, constructGraph, false, inPlaceExpr, options);
+          map(graph, t->getArg2(), ts, prog, {dnai}, constTypes, constTiles,
+              false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         return {ternaryOp(graph, lhs.first, rhs.first, pred.first, prog, opType,
-                          lhs.second, debugPrefix),
+                          lhs.second, {dnai}),
                 lhs.second};
       } else {
         return lhs;
@@ -2348,17 +2345,17 @@ map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
     } else {
       assert(opType == TernaryOpType::CLAMP);
       auto in =
-          map(graph, t->getArg0(), ts, prog, debugPrefix, constTypes,
-              constTiles, false, constructGraph, inPlace, inPlaceExpr, options);
+          map(graph, t->getArg0(), ts, prog, {dnai}, constTypes, constTiles,
+              false, constructGraph, inPlace, inPlaceExpr, options);
       auto lower =
-          map(graph, t->getArg1(), ts, prog, debugPrefix, constTypes,
-              constTiles, false, constructGraph, false, inPlaceExpr, options);
+          map(graph, t->getArg1(), ts, prog, {dnai}, constTypes, constTiles,
+              false, constructGraph, false, inPlaceExpr, options);
       auto upper =
-          map(graph, t->getArg2(), ts, prog, debugPrefix, constTypes,
-              constTiles, false, constructGraph, false, inPlaceExpr, options);
+          map(graph, t->getArg2(), ts, prog, {dnai}, constTypes, constTiles,
+              false, constructGraph, false, inPlaceExpr, options);
       if (constructGraph) {
         return {ternaryOp(graph, in.first, lower.first, upper.first, prog,
-                          opType, in.second, debugPrefix),
+                          opType, in.second, {dnai}),
                 in.second};
       } else {
         return in;
@@ -2464,7 +2461,8 @@ ExprAndType optimise(const expr::Expr &expr,
 Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
            program::Sequence &prog, const poplar::DebugContext &debugContext,
            const OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
+
   auto opts = parseOptionFlags(options);
 
   std::unique_ptr<expr::Expr> newExpr;
@@ -2482,21 +2480,24 @@ Tensor map(Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &ts,
   if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
     return generateAndExecuteMappedOperations(
         graph, optExpr, ts, constTypes, prog, false,
-        canGenerateCodelet.allInputsScalar, debugPrefix);
+        canGenerateCodelet.allInputsScalar, {di});
   }
 
   auto constTiles = getConstTile(graph, optExpr, ts);
   const expr::Expr *inplaceExpr = nullptr;
-  return map(graph, optExpr, ts, prog, debugPrefix, constTypes, constTiles,
-             true, true, false, inplaceExpr, opts)
-      .first;
+  auto output = map(graph, optExpr, ts, prog, {di}, constTypes, constTiles,
+                    true, true, false, inplaceExpr, opts)
+                    .first;
+  di.addOutput(output);
+  return output;
 }
 
 void mapInPlace(Graph &graph, const expr::Expr &expr,
                 const std::vector<Tensor> &ts, program::Sequence &prog,
                 const poplar::DebugContext &debugContext,
                 const OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(ts, expr, options));
+
   auto opts = parseOptionFlags(options);
   std::unique_ptr<expr::Expr> newExpr;
   if (opts.enableExpressionOptimizations) {
@@ -2513,7 +2514,7 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   if (opts.enableGenerateCodelet && canGenerateCodelet.isSupported) {
     generateAndExecuteMappedOperations(graph, optExpr, ts, constTypes, prog,
                                        true, canGenerateCodelet.allInputsScalar,
-                                       debugPrefix);
+                                       {di});
     return;
   }
 
@@ -2523,11 +2524,11 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   if (doInPlace) {
     // As the tree is traversed, find the last expression which uses the
     // tensor used for in-place operation as a placeholder
-    map(graph, optExpr, ts, prog, debugPrefix, constTypes, constTiles, true,
-        false, false, inPlaceExpr, opts);
+    map(graph, optExpr, ts, prog, {di}, constTypes, constTiles, true, false,
+        false, inPlaceExpr, opts);
   }
-  auto t = map(graph, optExpr, ts, prog, debugPrefix, constTypes, constTiles,
-               true, true, doInPlace, inPlaceExpr, opts);
+  auto t = map(graph, optExpr, ts, prog, {di}, constTypes, constTiles, true,
+               true, doInPlace, inPlaceExpr, opts);
   // If in-place operations were not performed, then copy the final result
   // into the tensor supplied.
   // TODO T12943 Optimisation: If placeholder _1 is not used, a copy may be done
@@ -2537,8 +2538,25 @@ void mapInPlace(Graph &graph, const expr::Expr &expr,
   // the input tensors if the operation is in-place, or creates and output
   // tensor).
   if (!t.second) {
-    prog.add(Copy(t.first, ts[0]));
+    prog.add(Copy(t.first, ts[0], false, {di}));
   }
 }
 
 } // namespace popops
+
+namespace poputil {
+template <>
+poplar::ProfileValue toProfileValue(const popops::expr::UnaryOpType &op) {
+  return poplar::ProfileValue(popops::debugName(op));
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popops::expr::BinaryOpType &op) {
+  return poplar::ProfileValue(popops::debugName(op));
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const popops::expr::TernaryOpType &op) {
+  return poplar::ProfileValue(popops::debugName(op));
+}
+} // namespace poputil

@@ -23,6 +23,14 @@ using namespace poplar;
 
 namespace logging = poplibs_support::logging;
 
+namespace poputil {
+template <> poplar::ProfileValue toProfileValue(const popops::GatherParams &p) {
+  poplar::ProfileValue::Map v;
+  v.insert({"lookupSplit", toProfileValue(p.maxElementsPerTile)});
+  return v;
+}
+} // namespace poputil
+
 namespace {
 // Transposes the given indices such that the indexVectorDim becomes the
 // most-minor dimension.
@@ -246,7 +254,9 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::vector<std::size_t> &sliceSizes,
                                  std::vector<unsigned> startIndexMap,
                                  const poplar::DebugContext &debugContext) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(type, inputShape, sliceSizes, startIndexMap));
+
   std::vector<unsigned> permutation(inputShape.size());
   boost::iota(permutation, 0);
 
@@ -270,7 +280,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
   }
 
   auto input = internal::createGatherInputTensor(graph, type, canonShape,
-                                                 canonSliceSizes, name);
+                                                 canonSliceSizes, {di});
 
   std::vector<unsigned> inversePermutation(inputShape.size());
   for (auto i = 0ul; i < inputShape.size(); ++i) {
@@ -278,7 +288,7 @@ poplar::Tensor createGatherInput(poplar::Graph &graph, const poplar::Type &type,
   }
 
   input = input.dimShuffle(inversePermutation);
-
+  di.addOutput(input);
   return input;
 }
 
@@ -290,9 +300,12 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               const std::vector<unsigned> &startIndexMap,
               program::Sequence &prog,
               const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(input, indices, indexVectorDim, offsetDims,
+                            sliceSizes, collapsedSliceDims, startIndexMap));
+
   logging::popops::info("gather input={}, indices={}, name={}", input.shape(),
-                        indices.shape(), debugPrefix);
+                        indices.shape(), debugContext.getPathName());
 
   auto canonicalizedIndices =
       canonicalizeGatherIndices(indices, indexVectorDim, startIndexMap);
@@ -310,7 +323,7 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
 
   auto result =
       internal::gather(graph, canonicalizedInput, canonicalizedIndices,
-                       canonSliceSizes, prog, debugPrefix);
+                       canonSliceSizes, prog, {di});
 
   boost::transform(canonCollapsedSliceDims, canonCollapsedSliceDims.begin(),
                    [](std::size_t dim) { return dim + 1; });
@@ -321,27 +334,37 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
 
   const auto outputRank = (indices.rank() == indexVectorDim ? 0 : -1) +
                           offsetDims.size() + indices.rank();
-  return permuteBatchAndOffsetDims(result, offsetDims, outputRank);
+  auto output = permuteBatchAndOffsetDims(result, offsetDims, outputRank);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor createGatherInput(Graph &graph, const Type &type,
                          const std::vector<std::size_t> &operandShape,
                          unsigned axis, GatherParams params,
                          const poplar::DebugContext &debugContext) {
-  const auto name = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(type, operandShape, axis, params));
+
   if (operandShape[axis] > params.maxElementsPerTile) {
     std::vector<std::size_t> newOperandShape = operandShape;
     if (operandShape[axis] % 2 == 1) {
       newOperandShape[axis] += 1;
 
-      return createGatherInput(graph, type, newOperandShape, axis, params, name)
-          .slice(0, operandShape[axis], axis);
+      auto output =
+          createGatherInput(graph, type, newOperandShape, axis, params, {di})
+              .slice(0, operandShape[axis], axis);
+      di.addOutput(output);
+      return output;
     } else {
       newOperandShape[axis] /= 2;
       newOperandShape.insert(newOperandShape.begin() + axis + 1, 2);
 
-      return createGatherInput(graph, type, newOperandShape, axis, params, name)
-          .reshape(operandShape);
+      auto output =
+          createGatherInput(graph, type, newOperandShape, axis, params, {di})
+              .reshape(operandShape);
+      di.addOutput(output);
+      return output;
     }
   } else {
     const std::vector<std::size_t> sliceSizes = {1};
@@ -356,35 +379,39 @@ Tensor createGatherInput(Graph &graph, const Type &type,
     }
 
     auto input = internal::createGatherInputTensor(graph, type, canonShape,
-                                                   sliceSizes, name);
+                                                   sliceSizes, {di});
 
-    return input.dimShuffle(permutation);
+    auto output = input.dimShuffle(permutation);
+    di.addOutput(output);
+    return output;
   }
 }
 
 Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
               unsigned axis, program::Sequence &prog, GatherParams params,
               const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(input, indices, axis, params));
+
   if (input.dim(axis) > params.maxElementsPerTile) {
     if (input.dim(axis) % 2 == 1) {
       return gather(graph, pad(graph, input, 0, 1, axis), indices, axis, prog,
-                    params, debugPrefix);
+                    params, {di});
     }
 
     auto shape = input.shape();
     shape[axis] /= 2;
     shape.insert(shape.begin() + axis + 1, 2);
 
-    auto one = graph.addConstant(UNSIGNED_INT, {}, 1, debugPrefix + "const_1");
+    auto one = graph.addConstant(UNSIGNED_INT, {}, 1, {di, "const_1"});
     graph.setTileMapping(one, 0);
 
-    auto indicesDiv = shiftRight(graph, indices, one, prog);
-    auto indicesRem = bitwiseAnd(graph, indices, one, prog);
-    auto indicesPred = eq(graph, indicesRem, one, prog);
+    auto indicesDiv = shiftRight(graph, indices, one, prog, {di});
+    auto indicesRem = bitwiseAnd(graph, indices, one, prog, {di});
+    auto indicesPred = eq(graph, indicesRem, one, prog, {di});
 
     auto result = gather(graph, input.reshape(shape), indicesDiv, axis, prog,
-                         params, debugPrefix + "/halved");
+                         params, {di, "halved"});
 
     // The odd and even slice pairs from the split gather
     auto even = result.slice(0, 1, axis + 1);
@@ -396,7 +423,10 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
     indicesPred = indicesPred.reshape(s);
 
     poputil::broadcastToMatch(indicesPred, odd.shape());
-    return select(graph, odd, even, indicesPred, prog).squeeze({axis + 1});
+    auto output =
+        select(graph, odd, even, indicesPred, prog).squeeze({axis + 1});
+    di.addOutput(output);
+    return output;
   }
 
   const std::vector<std::size_t> sliceSizes = {1};
@@ -405,16 +435,18 @@ Tensor gather(Graph &graph, const Tensor &input, const Tensor &indices,
   boost::iota(inputPermutation, 0);
   std::swap(inputPermutation.front(), inputPermutation[axis]);
 
-  auto output = internal::gather(graph, input.dimShuffle(inputPermutation),
-                                 indices.flatten().expand({1}), sliceSizes,
-                                 prog, debugPrefix);
+  auto output =
+      internal::gather(graph, input.dimShuffle(inputPermutation),
+                       indices.flatten().expand({1}), sliceSizes, prog, {di});
   output = output.squeeze({1});
 
   std::vector<unsigned> outputPermutation(output.rank());
   boost::iota(outputPermutation, 0);
   std::swap(outputPermutation.front(), outputPermutation[axis]);
 
-  return output.dimShuffle(outputPermutation);
+  auto output_ = output.dimShuffle(outputPermutation);
+  di.addOutput(output_);
+  return output_;
 }
 
 } // namespace popops

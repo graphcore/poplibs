@@ -23,7 +23,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
     const std::vector<poplar::Tensor> &inputs,
     std::unordered_map<const expr::Expr *, poplar::Type> &constTypes,
     poplar::program::Sequence &prog, bool inPlace, bool allInputsScalar,
-    const std::string &debugPrefix = "");
+    const poplar::DebugNameAndId &dnai);
 
 struct ExprInfo {
   bool isSupported;

@@ -74,14 +74,14 @@ VertexType chooseVertexType(const std::vector<std::vector<Interval>> &intervals,
 poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
                              const poplar::Tensor &levels, bool absoluteOfInput,
                              poplar::program::Sequence &prog,
-                             const std::string &debugPrefix) {
+                             const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
   const auto inType = input.elementType();
   const auto vectorWidth = target.getVectorWidth(inType);
   const auto numWorkers = target.getNumWorkerContexts();
 
-  const auto cs = graph.addComputeSet(debugPrefix + "/Histogram");
+  const auto cs = graph.addComputeSet({dnai, "Histogram"});
 
   // As work is split by "limits" not data size, the rpt count is a severe
   // limitation on the input size when rptMax is small.  So in that case the
@@ -124,7 +124,7 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
 
       auto resultSize = levels.numElements() + 1;
       auto histogram = graph.addVariable(
-          FLOAT, {byLimit ? resultSize : numWorkers * resultSize});
+          FLOAT, {byLimit ? resultSize : numWorkers * resultSize}, {dnai});
       results.push_back(histogram.slice(0, resultSize));
       graph.setTileMapping(histogram, tile);
 
@@ -140,7 +140,8 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
       for (const auto &regions : vertexRegions) {
         auto v = graph.addVertex(cs, codeletName2D);
         graph.setTileMapping(v, tile);
-        results.push_back(graph.addVariable(FLOAT, {levels.numElements() + 1}));
+        results.push_back(
+            graph.addVariable(FLOAT, {levels.numElements() + 1}, {dnai}));
         graph.setTileMapping(results.back(), tile);
 
         graph.setInitialValue(v["histogramCount"],
@@ -151,7 +152,7 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
       }
     }
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 
   return concat(results).reshape({results.size(), results[0].numElements()});
 }
@@ -194,28 +195,34 @@ poplar::Tensor histogram(poplar::Graph &graph, const poplar::Tensor &input,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(input, levels, absoluteOfInput, options));
+
   const auto opts = parseOptionFlags(options);
   auto histogramResult =
-      histogramImpl(graph, input, levels, absoluteOfInput, prog, debugPrefix);
+      histogramImpl(graph, input, levels, absoluteOfInput, prog, {di});
 
   if (opts.useFloatArithmetic) {
     // Override all concerns over inaccurate integer representation as float,
     // but tolerate possible inaccurate results
-    return reduce(graph, histogramResult, FLOAT, {0}, popops::Operation::ADD,
-                  prog, debugPrefix);
+    auto output = reduce(graph, histogramResult, FLOAT, {0},
+                         popops::Operation::ADD, prog, {di});
+    di.addOutput(output);
+    return output;
   }
   // See the above explanation on numeric limits for exact integer
   // representation using float vs unsigned
   if (input.numElements() > maxElementsForFloatReduction) {
     // Reduce as INT, cast to unsigned to return
-    histogramResult = cast(graph, histogramResult, INT, prog, debugPrefix);
+    histogramResult = cast(graph, histogramResult, INT, prog, {di});
   }
   // Reduce, cast to unsigned to return
   auto output = reduce(graph, histogramResult, histogramResult.elementType(),
-                       {0}, popops::Operation::ADD, prog, debugPrefix);
+                       {0}, popops::Operation::ADD, prog, {di});
   // When casting int to unsigned this appears to generate nothing
-  return cast(graph, output, UNSIGNED_INT, prog, debugPrefix);
+  auto output_ = cast(graph, output, UNSIGNED_INT, prog, {di});
+  di.addOutput(output_);
+  return output_;
 }
 
 void histogram(poplar::Graph &graph, const poplar::Tensor &input,
@@ -223,38 +230,41 @@ void histogram(poplar::Graph &graph, const poplar::Tensor &input,
                const poplar::Tensor &levels, bool absoluteOfInput,
                poplar::program::Sequence &prog,
                const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(input, output, levels, updateOutput, absoluteOfInput));
+
   const auto useFloatArithmetic = (output.elementType() == FLOAT);
   auto histogramResult =
-      histogramImpl(graph, input, levels, absoluteOfInput, prog, debugPrefix);
+      histogramImpl(graph, input, levels, absoluteOfInput, prog, {di});
 
   if (useFloatArithmetic) {
     // Override all concerns over inaccurate integer representation as float,
     // but tolerate possible inaccurate results
     reduceWithOutput(graph, histogramResult, output, {0},
-                     {popops::Operation::ADD, updateOutput}, prog, debugPrefix);
+                     {popops::Operation::ADD, updateOutput}, prog, {di});
     return;
   }
   // See the above explanation on numeric limits for exact integer
   // representation using float vs unsigned
   if (input.numElements() > maxElementsForFloatReduction) {
     // Reduce as INT, cast to unsigned to return
-    output = cast(graph, output, INT, prog, debugPrefix);
-    histogramResult = cast(graph, histogramResult, INT, prog, debugPrefix);
+    output = cast(graph, output, INT, prog, {di});
+    histogramResult = cast(graph, histogramResult, INT, prog, {di});
     reduceWithOutput(graph, histogramResult, output, {0},
-                     {popops::Operation::ADD, updateOutput}, prog, debugPrefix);
-    output = cast(graph, output, UNSIGNED_INT, prog, debugPrefix);
+                     {popops::Operation::ADD, updateOutput}, prog, {di});
+    output = cast(graph, output, UNSIGNED_INT, prog, {di});
   } else {
     // Reduce as float
     auto result = reduce(graph, histogramResult, FLOAT, {0},
-                         popops::Operation::ADD, prog, debugPrefix);
+                         popops::Operation::ADD, prog, {di});
     if (updateOutput) {
       // Cast to unsigned and add to the result to return
-      result = cast(graph, result, UNSIGNED_INT, prog, debugPrefix);
-      addInPlace(graph, output, result, prog, debugPrefix);
+      result = cast(graph, result, UNSIGNED_INT, prog, {di});
+      addInPlace(graph, output, result, prog, {di});
     } else {
       // Cast to unsigned to return
-      output = cast(graph, result, UNSIGNED_INT, prog, debugPrefix);
+      output = cast(graph, result, UNSIGNED_INT, prog, {di});
     }
   }
 }

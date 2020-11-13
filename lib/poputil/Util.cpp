@@ -1,5 +1,6 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "poputil/Util.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 
 #include <algorithm>
@@ -297,8 +298,9 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
                          poplar::program::Sequence &p,
                          const poplar::DebugContext &debugContext,
                          poplar::TensorCloneMethod method) {
-  const auto name = debugContext.getPathName();
-  poplar::Tensor copy = graph.clone(src, name, method);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, method));
+
+  poplar::Tensor copy = graph.clone(src, {di}, method);
   poplar::Tensor copyDst = copy;
   poplar::Tensor copySrc = src;
   if (method == poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES &&
@@ -312,7 +314,7 @@ poplar::Tensor duplicate(poplar::Graph &graph, const poplar::Tensor &src,
     copySrc = poplar::concat(srcFlat.slices(srcFlatRegions));
   }
 
-  p.add(poplar::program::Copy(copySrc, copyDst));
+  p.add(poplar::program::Copy(copySrc, copyDst, false, {di}));
   return copy;
 }
 

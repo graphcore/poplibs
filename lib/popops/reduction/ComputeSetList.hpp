@@ -3,8 +3,8 @@
 #define ComputeSetList_hpp
 
 #include <cstdint>
+#include <poplar/DebugContext.hpp>
 #include <poplar/Graph.hpp>
-#include <poplar/StringRef.hpp>
 #include <vector>
 
 // This is a convenience class for using a vector<ComputeSet>/
@@ -17,7 +17,8 @@ public:
 
   // Return the compute set for the current pos() and increment pos(). If
   // there isn't one, create one with the given name.
-  poplar::ComputeSet add(poplar::Graph &graph, poplar::StringRef name);
+  poplar::ComputeSet add(poplar::Graph &graph,
+                         const poplar::DebugNameAndId &dani);
 
   // Return the number of times add() has been called for this list. Note
   // that the underlying vector<ComputeSet> may be larger.

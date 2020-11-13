@@ -15,11 +15,13 @@ namespace logging = poplibs_support::logging;
 poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
                       poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  logging::popops::info("hasNaN src={}, name={}", src.shape(), debugPrefix);
-  const auto &dType = src.elementType();
 
-  const auto cs = graph.addComputeSet(debugPrefix + "/hasNaN");
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src));
+
+  logging::popops::info("hasNaN src={}, name={}", src.shape(),
+                        debugContext.getPathName());
+  const auto &dType = src.elementType();
+  const auto cs = graph.addComputeSet({di, "hasNaN"});
 
   auto srcFlat = src.flatten();
   const auto &target = graph.getTarget();
@@ -72,17 +74,17 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
     }
   }
 
-  const auto out = graph.addVariable(poplar::BOOL, {1});
+  const auto out = graph.addVariable(poplar::BOOL, {1}, {di});
   graph.setTileMapping(out, 0);
 
-  prog.add(poplar::program::Execute(cs, out[0]));
+  prog.add(poplar::program::Execute(cs, out[0], {di}));
 
   // TODO: T12949 Improve efficiency. This could be achieved by inverting this
   // function (ie. change it to `hasNoNaNs`); but a more intuitive solution is
   // to add support to the Execute program to invert the consensus bit before
   // writing it to the out tensor.
-  popops::logicalNotInPlace(graph, out, prog, debugPrefix + "/hasNaN");
-
+  popops::logicalNotInPlace(graph, out, prog, {di, "hasNaN"});
+  di.addOutput(out);
   return out;
 }
 

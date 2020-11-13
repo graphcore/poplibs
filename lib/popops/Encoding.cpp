@@ -4,6 +4,7 @@
 #include "poplibs_support/logging.hpp"
 #include "popops/Rearrange.hpp"
 #include "popops/Zero.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
@@ -23,10 +24,11 @@ namespace {
 // we will go into the "slow" codelet.
 void encodeOneHotBase(Graph &graph, const Tensor &indices,
                       const Tensor &encoded, Sequence &prog, const Tensor *on,
-                      const Tensor *off, const std::string &debugPrefix) {
-  const std::string layerPrefix = debugPrefix + "/OneHot";
+                      const Tensor *off, const DebugNameAndId &dnai) {
+  const std::string layerPrefix = "OneHot";
   logging::popops::info("encodeOneHot indices={}, encoded={}, name={}",
-                        indices.shape(), encoded.shape(), layerPrefix);
+                        indices.shape(), encoded.shape(),
+                        dnai.getPathName() + "/" + layerPrefix);
 
   // Verify inputs
   const auto encodedShape = encoded.shape();
@@ -57,9 +59,8 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
   const auto elemsPerBatch = encodedShape[1];
   const auto numIndices = encodedShape[0];
 
-  auto oneHotOutput =
-      graph.addVariable(encoded.elementType(), {numIndices, elemsPerBatch},
-                        debugPrefix + "/encodedOut");
+  auto oneHotOutput = graph.addVariable(
+      encoded.elementType(), {numIndices, elemsPerBatch}, {dnai, "encodedOut"});
 
   // We want to maximise the innermost dimension sizes for one hot encoding
   // as we don't divide indices amongst workers on a tile. We form grains
@@ -91,7 +92,7 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
   const auto perBatchGrainsPerGroup =
       std::max(ceildiv(numPerBatchGrains, numPerBatchGroups), minGrainsPerTile);
 
-  auto cs = graph.addComputeSet(layerPrefix + "/OneHotEncode");
+  auto cs = graph.addComputeSet({dnai, layerPrefix + "/OneHotEncode"});
   const bool nonCustomValues = !on || !off;
 
   logging::popops::debug(
@@ -161,42 +162,42 @@ void encodeOneHotBase(Graph &graph, const Tensor &indices,
     }
   }
   if (!on || !off) { // Only zero out memory if we are using 0/1 encoding schema
-    popops::zero(graph, oneHotOutput, prog, layerPrefix + "/zero");
+    popops::zero(graph, oneHotOutput, prog, {dnai, layerPrefix + "/zero"});
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 
   auto oneHotOutputRegrouped = popops::rearrange::regroupIfBeneficial(
-      graph, oneHotOutput, encoded, prog, debugPrefix + "/postRegroup");
+      graph, oneHotOutput, encoded, prog, {dnai, "postRegroup"});
 
-  prog.add(Copy(oneHotOutputRegrouped, encoded));
+  prog.add(Copy(oneHotOutputRegrouped, encoded, false, {dnai}));
 }
 
 } // Namespace
 
 void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
                   Sequence &prog, const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(indices, encoded));
   // Mark "on" and "off" as null as we want to go down the default path which
   // has them hardcoded to 1 and 0 respectively.
-  encodeOneHotBase(graph, indices, encoded, prog, nullptr, nullptr,
-                   debugPrefix);
+  encodeOneHotBase(graph, indices, encoded, prog, nullptr, nullptr, {di});
 }
 
 void encodeOneHot(Graph &graph, const Tensor &indices, const Tensor &encoded,
                   Sequence &prog, const Tensor &on, const Tensor &off,
                   const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  encodeOneHotBase(graph, indices, encoded, prog, &on, &off, debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(indices, encoded, on, off));
+  encodeOneHotBase(graph, indices, encoded, prog, &on, &off, {di});
 }
 
 template <typename T>
 static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
-                       Sequence &prog, const std::string &debugPrefix) {
-  const auto fnPrefix = debugPrefix + "/iota";
+                       Sequence &prog, const DebugNameAndId &dnai) {
+  const std::string fnPrefix = "iota";
   const auto &dType = t.elementType();
 
   logging::popops::info("iota t={}, start={}, name={}", t.shape(), startInteger,
-                        fnPrefix);
+                        dnai.getPathName() + "/" + fnPrefix);
 
   // TODO: T12947 If the number of elements per tile is very small, it may be
   // better to construct a constant tensor and copy it.
@@ -215,7 +216,7 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
   }
 
   auto tileMapping = graph.getTileMapping(tFlat);
-  auto cs = graph.addComputeSet(fnPrefix);
+  auto cs = graph.addComputeSet({dnai, fnPrefix});
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(dType);
 
@@ -239,7 +240,7 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
         offsets[i] = regions[i].begin() + startInteger;
       }
       auto offsetTensor = graph.addConstant(dType, {regionSize}, offsets.data(),
-                                            fnPrefix + "/offsets");
+                                            {dnai, fnPrefix + "/offsets"});
       graph.setTileMapping(offsetTensor, tile);
       auto v = graph.addVertex(
           cs, templateVertex("popops::Iota", dType),
@@ -247,27 +248,28 @@ static void iotaCommon(Graph &graph, const Tensor &t, T startInteger,
       graph.setTileMapping(v, tile);
     }
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 }
 
 void iota(Graph &graph, const Tensor &t, unsigned startInteger, Sequence &prog,
           const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, startInteger));
+
   if (t.elementType() != UNSIGNED_INT) {
     throw poputil::poplibs_error("Tensor element type doesn't match start "
                                  "integer type");
   }
-  iotaCommon<unsigned>(graph, t, startInteger, prog, debugPrefix);
+  iotaCommon<unsigned>(graph, t, startInteger, prog, {di});
 }
 
 void iota(Graph &graph, const Tensor &t, int startInteger, Sequence &prog,
           const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, startInteger));
   if (t.elementType() != INT) {
     throw poputil::poplibs_error("Tensor element type doesn't match start "
                                  "integer type");
   }
-  iotaCommon<int>(graph, t, startInteger, prog, debugPrefix);
+  iotaCommon<int>(graph, t, startInteger, prog, {di});
 }
 
 } // end namespace popops

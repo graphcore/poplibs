@@ -40,6 +40,19 @@ using namespace poplar;
 using namespace poplibs;
 using namespace poplibs_support;
 
+namespace poputil {
+template <> poplar::ProfileValue toProfileValue(const popops::ReduceParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"op", toProfileValue(t.op)});
+  v.insert({"update", toProfileValue(t.update)});
+  v.insert({"useScale", toProfileValue(t.useScale)});
+  if (t.useScale) {
+    v.insert({"scale", toProfileValue(t.scale)});
+  }
+  return v;
+}
+} // namespace poputil
+
 namespace popops {
 
 namespace {
@@ -97,7 +110,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
                       const ReductionTypes &reductionTypes,
                       std::vector<ComputeSet> &css,
                       ResultTensors &reductionResultTensors,
-                      const std::string &debugPrefix) {
+                      const DebugNameAndId &dnai) {
   logging::popops::debug("Reducing first dimension");
   // We only accept reductions over 2D tensors.
   if (in_.rank() != 2) {
@@ -186,7 +199,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
       // being returned but also a copy.  The alternative is a potentially
       // complex tensor expression (Based on a concat of many 1 element slices)
       // which can cause slow compile times.
-      out = graph.addVariable(outputType, outputShape);
+      out = graph.addVariable(outputType, outputShape, {dnai});
       graph.setTileMapping(out.get(),
                            graph.getTileMapping(in.slice(0, 1, 0), false));
     }
@@ -253,10 +266,10 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
       groupedPartialsValid = true;
     }
     // Do the entire reduction on each tile with no exchange at all.
-    inputToOutputNoExchange(
-        graph, in, contiguousRegionsByTile, groupedPartials, out,
-        originalOutput, outputShape, reductionTypes.inVertex, outputType,
-        params, csList, reductionResultTensors, debugPrefix + "/ReduceOnTile");
+    inputToOutputNoExchange(graph, in, contiguousRegionsByTile, groupedPartials,
+                            out, originalOutput, outputShape,
+                            reductionTypes.inVertex, outputType, params, csList,
+                            reductionResultTensors, {dnai, "ReduceOnTile"});
     restoreOutputShape(out);
     return;
   } else {
@@ -278,7 +291,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
       ip = inputToIntermediateNoExchange(
           graph, in, contiguousRegionsByTile, groupedPartials, params.op,
           reductionTypes.inVertex, reductionTypes.interTile, csList,
-          reductionResultTensors, debugPrefix + "/ReduceOnTile");
+          reductionResultTensors, {dnai, "ReduceOnTile"});
       reductionStageInputType = reductionTypes.inVertex;
       // If it was a SQUARE_ADD, then at this point we have now done the
       // SQUARE - change it to an ADD.
@@ -310,7 +323,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
         ip = intermediateToIntermediate(
             graph, ip, params.op, reductionTypes.interTile, csList,
             reductionResultTensors, startTile,
-            debugPrefix + "/ReduceStage" + std::to_string(i));
+            {dnai, std::string("ReduceStage") + std::to_string(i)});
         // If it was a SQUARE_ADD, then at this point we have now done the
         // SQUARE - change it to an ADD.
         if (params.op == Operation::SQUARE_ADD)
@@ -322,7 +335,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
         intermediateToOutput(graph, ip, out, originalOutput, outputShape,
                              outputType, params, reductionStageInputType,
                              csList, reductionResultTensors, in,
-                             debugPrefix + "/ReduceFinalStage");
+                             {dnai, "ReduceFinalStage"});
 
         restoreOutputShape(out);
         return;
@@ -376,7 +389,7 @@ void reduceWithOutputProgOrCss(
     const poplar::Type &outputType, const std::vector<std::size_t> &dims,
     ReduceParams params,
     boost::variant<std::vector<ComputeSet> &, program::Sequence &> progOrCss,
-    const std::string &debugPrefix, const poplar::OptionFlags &options) {
+    const DebugNameAndId &dnai, const poplar::OptionFlags &options) {
 
   const auto getShape = [](const Tensor &t) {
     std::stringstream ss;
@@ -384,8 +397,8 @@ void reduceWithOutputProgOrCss(
     return ss.str();
   };
   logging::popops::info("reduce in={}, out={}, dims={}, name={}", in.shape(),
-                        fmap(out, getShape), dims, debugPrefix);
-  logging::popops::debug("Reduce begin DebugStr: {}", debugPrefix);
+                        fmap(out, getShape), dims, dnai.getPathName());
+  logging::popops::debug("Reduce begin DebugStr: {}", dnai.getPathName());
   bool isProg = progOrCss.which() == 1;
 
   // Decide the reduction types for each stage.
@@ -489,7 +502,7 @@ void reduceWithOutputProgOrCss(
         poputil::mapTensorLinearly(graph, out.get());
       }
     } else {
-      out = graph.addVariable(outputType, outputShape);
+      out = graph.addVariable(outputType, outputShape, {dnai});
       poputil::mapTensorLinearly(graph, out.get());
     }
 
@@ -502,14 +515,14 @@ void reduceWithOutputProgOrCss(
     if (isProg) {
       auto &prog = boost::get<program::Sequence &>(progOrCss);
       popops::fill(graph, out.get(), prog, initVal,
-                   debugPrefix + "/ReductionOnEmptyInputsFillOutput");
+                   {dnai, "ReductionOnEmptyInputsFillOutput"});
       return;
     }
 
     auto &computeSets = boost::get<std::vector<ComputeSet> &>(progOrCss);
     if (computeSets.empty())
-      computeSets.push_back(graph.addComputeSet(
-          debugPrefix + "/ReductionOnEmptyInputsFillOutputCS"));
+      computeSets.push_back(
+          graph.addComputeSet({dnai, "ReductionOnEmptyInputsFillOutputCS"}));
     auto &fillCS = computeSets.front();
 
     auto outFlat = out.get().flatten();
@@ -546,7 +559,7 @@ void reduceWithOutputProgOrCss(
       }
     } else {
       // Create the output Tensor
-      out = graph.clone(outputType, in, debugPrefix).reshape(outputShape);
+      out = graph.clone(outputType, in, {dnai}).reshape(outputShape);
     }
 
     // If it is a scale or update, or SQUARE_ADD we still need to do that.
@@ -593,18 +606,18 @@ void reduceWithOutputProgOrCss(
       if (params.useScale) {
         mapInPlace(graph, expr,
                    {out.get().flatten(), in.flatten(), params.scale}, prog,
-                   debugPrefix + "/ReduceExpression");
+                   {dnai, "ReduceExpression"});
       } else {
         mapInPlace(graph, expr, {out.get().flatten(), in.flatten()}, prog,
-                   debugPrefix + "/ReduceExpression");
+                   {dnai, "ReduceExpression"});
       }
 
     } else {
       // Cast is used here rather than copy because the type could be different
       // if ADD or MUL are used. If the type is the same cast() will
       // automatically switch to copy.
-      auto castProg = cast(graph, in.flatten(), out.get().flatten(),
-                           debugPrefix + "/ReduceCast");
+      auto castProg =
+          cast(graph, in.flatten(), out.get().flatten(), {dnai, "ReduceCast"});
       prog.add(castProg);
     }
     return;
@@ -625,7 +638,7 @@ void reduceWithOutputProgOrCss(
     std::vector<ComputeSet> css;
 
     reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
-                     reductionTypes, css, reductionResultTensors, debugPrefix);
+                     reductionTypes, css, reductionResultTensors, {dnai});
     auto &prog = boost::get<program::Sequence &>(progOrCss);
     // First mark with 'WriteUndef' any tensor that will be completely written
     // by this whole reduction, but may be written internally in two different
@@ -640,7 +653,7 @@ void reduceWithOutputProgOrCss(
       prog.add(program::WriteUndef(concat(reductionResultTensors.typeB)));
     }
     for (const auto &cs : css) {
-      prog.add(program::Execute(cs));
+      prog.add(program::Execute(cs, {dnai}));
     }
 
   } else {
@@ -648,7 +661,7 @@ void reduceWithOutputProgOrCss(
     reduceFirstDim2D(graph, input2D, out, outputShape, outputType, params,
                      reductionTypes,
                      boost::get<std::vector<ComputeSet> &>(progOrCss),
-                     reductionResultTensors, debugPrefix);
+                     reductionResultTensors, {dnai});
   }
 }
 } // end anonymous namespace
@@ -658,10 +671,12 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       std::vector<ComputeSet> &css,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in, out_, dims, params, css, options));
+
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                            css, debugPrefix, options);
+                            css, {di}, options);
 }
 
 void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
@@ -669,19 +684,25 @@ void reduceWithOutput(Graph &graph, const Tensor &in, const Tensor &out_,
                       program::Sequence &prog,
                       const poplar::DebugContext &debugContext,
                       const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in, out_, dims, params, options));
+
   boost::optional<Tensor> out = out_;
   reduceWithOutputProgOrCss(graph, in, out, out_.elementType(), dims, params,
-                            prog, debugPrefix, options);
+                            prog, {di}, options);
 }
 
 Tensor reduce(Graph &graph, const Tensor &in,
               const std::vector<std::size_t> &dims, ReduceParams params,
               program::Sequence &prog, const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
-  return reduce(graph, in, in.elementType(), dims, params, prog, debugPrefix,
-                options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in, dims, params, options));
+
+  auto output =
+      reduce(graph, in, in.elementType(), dims, params, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor reduce(Graph &graph, const Tensor &in,
@@ -689,9 +710,13 @@ Tensor reduce(Graph &graph, const Tensor &in,
               std::vector<ComputeSet> &css,
               const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
-  return reduce(graph, in, in.elementType(), dims, params, css, debugPrefix,
-                options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in, dims, params, css, options));
+
+  auto output =
+      reduce(graph, in, in.elementType(), dims, params, css, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
@@ -699,28 +724,36 @@ Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
               std::vector<ComputeSet> &css,
               const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(in, outType, dims, params, css, options));
+
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");
   boost::optional<Tensor> out;
-  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, css,
-                            debugPrefix, options);
-  return out.get();
+  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, css, {di},
+                            options);
+  auto output = out.get();
+  di.addOutput(output);
+  return output;
 }
 
 Tensor reduce(Graph &graph, const Tensor &in, const poplar::Type &outType,
               const std::vector<std::size_t> &dims, ReduceParams params,
               program::Sequence &prog, const poplar::DebugContext &debugContext,
               const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in, outType, dims, params, options));
+
   if (params.update)
     throw poputil::poplibs_error("Cannot do an update using reduce(); "
                                  "call reduceWithOutput() instead.");
   boost::optional<Tensor> out;
-  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, prog,
-                            debugPrefix, options);
-  return out.get();
+  reduceWithOutputProgOrCss(graph, in, out, outType, dims, params, prog, {di},
+                            options);
+  auto output = out.get();
+  di.addOutput(output);
+  return output;
 }
 
 Tensor mangleTo2D(const Tensor &A, std::set<unsigned> &reducedDims) {

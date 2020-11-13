@@ -7,6 +7,7 @@
 #include <poplar/Program.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/codelets.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
@@ -38,7 +39,7 @@ void create1DVertex(Graph &graph, ComputeSet &computeSet, Type type,
                     const Interval &interval, const Tensor &flatParams,
                     const Tensor &indices,
                     std::vector<std::vector<Tensor>> &partials,
-                    unsigned int width, int tile) {
+                    unsigned int width, int tile, const DebugNameAndId &dnai) {
   if (interval.size() == 0) {
     return;
   }
@@ -57,7 +58,8 @@ void create1DVertex(Graph &graph, ComputeSet &computeSet, Type type,
   Interval rows(startRow, startRow + bounds.size());
   const Tensor &vertexParams = flatParams.slice(interval);
   const Tensor &vertexIndices = indices.slice(rows);
-  Tensor output = graph.addVariable(flatParams.elementType(), {bounds.size()});
+  Tensor output =
+      graph.addVariable(flatParams.elementType(), {bounds.size()}, {dnai});
   graph.setTileMapping(output, tile);
   for (unsigned r = 0; r < bounds.size(); ++r) {
     partials[r + startRow].push_back(output.slice(r, r + 1));
@@ -81,7 +83,7 @@ void create2DVertex(Graph &graph, ComputeSet &computeSet, Type type,
                     const std::vector<Interval> &intervals,
                     const Tensor &flatParams, const Tensor &indices,
                     std::vector<std::vector<Tensor>> &partials, int width,
-                    int tile) {
+                    int tile, const DebugNameAndId &dnai) {
   std::vector<Tensor> vertexParams;
   std::vector<Tensor> vertexIndices;
   std::vector<Tensor> output;
@@ -117,7 +119,7 @@ void create2DVertex(Graph &graph, ComputeSet &computeSet, Type type,
     vertexIndices.push_back(intervalIndices);
 
     Tensor currentOutput =
-        graph.addVariable(flatParams.elementType(), {bounds.size()});
+        graph.addVariable(flatParams.elementType(), {bounds.size()}, {dnai});
     graph.setTileMapping(currentOutput, tile);
     for (unsigned r = 0; r < bounds.size(); ++r) {
       partials[r + startRow].push_back(currentOutput.slice(r, r + 1));
@@ -151,7 +153,7 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
                          const Regions &regions, const Tensor &flatParams,
                          const Tensor &indices,
                          std::vector<std::vector<Tensor>> &partials, int width,
-                         int tile) {
+                         int tile, const DebugNameAndId &dnai) {
   if (regions.empty()) {
     return;
   }
@@ -187,8 +189,9 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
         getSingleRowIntervalColumnIndices(region.front(), width).begin();
     firstColumns.push_back(firstColumn);
 
-    Tensor currentOutput = graph.addVariable(
-        flatParams.elementType(), {static_cast<std::size_t>(regionHeight)});
+    Tensor currentOutput =
+        graph.addVariable(flatParams.elementType(),
+                          {static_cast<std::size_t>(regionHeight)}, {dnai});
     graph.setTileMapping(currentOutput, tile);
     for (unsigned r = 0; r < regionHeight; ++r) {
       partials[r + firstRow].push_back(currentOutput.slice(r, r + 1));
@@ -212,7 +215,8 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
                                     const Tensor &indices, Sequence &program,
                                     const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, indices));
+
   // Check preconditions.
   expect(indices.rank() == 1, "indices must have rank 1");
   expect(indices.elementType() == UNSIGNED_INT,
@@ -228,8 +232,7 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
   auto mapping = graph.getTileMapping(params);
 
   const Tensor flatParams = params.flatten();
-  ComputeSet computeSet =
-      graph.addComputeSet(debugPrefix + "/SelectScalarFromRows");
+  ComputeSet computeSet = graph.addComputeSet({di, "SelectScalarFromRows"});
   const auto target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(elementType);
 
@@ -274,7 +277,7 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
                                   regionsPerThisVertex);
 
         createColumnsVertex(graph, computeSet, elementType, vertexRegions,
-                            flatParams, indices, partials, width, tile);
+                            flatParams, indices, partials, width, tile, {di});
         counter += regionsPerThisVertex;
       }
 
@@ -295,15 +298,15 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
       if (flatThisWorkerRegions.size() == 1) {
         create1DVertex(graph, computeSet, elementType,
                        flatThisWorkerRegions.front(), flatParams, indices,
-                       partials, width, tile);
+                       partials, width, tile, {di});
       } else {
         create2DVertex(graph, computeSet, elementType, flatThisWorkerRegions,
-                       flatParams, indices, partials, width, tile);
+                       flatParams, indices, partials, width, tile, {di});
       }
     }
   }
 
-  program.add(Execute(computeSet));
+  program.add(Execute(computeSet, {di}));
 
   // Now that we have the set of partial results we reduce over the 'columns' so
   // to get a 1D tensor.
@@ -321,7 +324,7 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
     Tensor toReduce = concat(rows, 1);
 
     Tensor output = reduce(graph, toReduce, elementType, {0}, Operation::ADD,
-                           program, debugPrefix);
+                           program, {di});
     return output;
   } else {
     // If the vectors in partials don't have the same size we perform
@@ -332,16 +335,16 @@ Tensor popops::selectScalarFromRows(Graph &graph, const Tensor &params,
     // Create an output for the reductions.  Map them across multiple tiles,
     // so that we have some control, and can prevent the reduction library
     // from putting them all on tile zero.
-    auto rowOutputs = graph.addVariable(elementType, {partials.size()});
+    auto rowOutputs = graph.addVariable(elementType, {partials.size()}, {di});
     mapTensorLinearly(graph, rowOutputs, vectorWidth, vectorWidth);
 
     for (std::size_t row = 0; row < partials.size(); ++row) {
       Tensor toReduce = concat(partials[row]).expand({1});
       reduceWithOutput(graph, toReduce, rowOutputs.slice(row, row + 1), {0},
-                       Operation::ADD, css, debugPrefix);
+                       Operation::ADD, css, {di});
     }
     for (const auto &cs : css) {
-      program.add(Execute(cs));
+      program.add(Execute(cs, {di}));
     }
 
     return rowOutputs;

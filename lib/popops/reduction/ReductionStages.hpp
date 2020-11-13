@@ -55,7 +55,7 @@ struct ResultTensors {
 ///                 added as a Sequence of Executes afterwards.
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
-/// \param debugPrefix
+/// \param dnai
 ///
 void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
                              const RegionsByTile &contiguousRegionsByTile,
@@ -66,7 +66,7 @@ void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
                              poplar::Type inVertexType, poplar::Type outputType,
                              ReduceParams params, ComputeSetList &css,
                              ResultTensors &reductionResultTensors,
-                             const std::string &debugPrefix);
+                             const poplar::DebugNameAndId &dnai);
 
 /// Take an input tensor and reduce it as much as possible on each tile without
 /// doing any exchange.
@@ -87,7 +87,7 @@ void inputToOutputNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
 /// \param reductionResultTensors   A struct into which this function will push
 ///                                 any tensor that is written to with a
 ///                                 reduction result.
-/// \param debugPrefix
+/// \param dnai
 ///
 /// \returns A structure containing the intermediate partials.
 IntermediatePartials
@@ -97,7 +97,7 @@ inputToIntermediateNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
                               Operation op, const poplar::Type &inVertexType,
                               const poplar::Type &outType, ComputeSetList &css,
                               ResultTensors &reductionResultTensors,
-                              const std::string &debugPrefix);
+                              const poplar::DebugNameAndId &dnai);
 
 /// Reduce an intermediate result to another intermediate result by the given
 /// ratio. This is the most difficult of the stages.
@@ -112,15 +112,14 @@ inputToIntermediateNoExchange(poplar::Graph &graph, const poplar::Tensor &in,
 ///                       any tensor that is written to with a reduction result.
 /// \param startTile The tile to begin linearly laying out the intermediate
 ///                  reduction stages.
-/// \param debugPrefix
+/// \param dnai
 ///
 /// \returns The intermediate partials produced by this reduction stage.
-IntermediatePartials
-intermediateToIntermediate(poplar::Graph &graph,
-                           const IntermediatePartials &ipIn, Operation op,
-                           const poplar::Type &outType, ComputeSetList &css,
-                           ResultTensors &reductionResultTensors,
-                           unsigned startTile, const std::string &debugPrefix);
+IntermediatePartials intermediateToIntermediate(
+    poplar::Graph &graph, const IntermediatePartials &ipIn, Operation op,
+    const poplar::Type &outType, ComputeSetList &css,
+    ResultTensors &reductionResultTensors, unsigned startTile,
+    const poplar::DebugNameAndId &dnai);
 
 /// Reduce an intermediate reduction to a final output tensor. The reduction
 /// may or may not be done at the location of the output tensor. If the output
@@ -142,7 +141,7 @@ intermediateToIntermediate(poplar::Graph &graph,
 ///                 added as a Sequence of Executes afterwards.
 /// \param reductionResultTensors   A struct into which this function will push
 ///                       any tensor that is written to with a reduction result.
-/// \param debugPrefix
+/// \param dnai
 ///
 void intermediateToOutput(poplar::Graph &graph,
                           const IntermediatePartials &ipIn,
@@ -153,7 +152,7 @@ void intermediateToOutput(poplar::Graph &graph,
                           poplar::Type inVertexType, ComputeSetList &css,
                           ResultTensors &reductionResultTensors,
                           const poplar::Tensor &in,
-                          const std::string &debugPrefix);
+                          const poplar::DebugNameAndId &dnai);
 
 unsigned findGrainSizeForOp(poplar::Graph &graph, poplar::Type partialType,
                             popops::Operation &operation);

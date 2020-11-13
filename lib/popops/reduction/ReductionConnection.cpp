@@ -497,7 +497,7 @@ static void createSingleOutputVertex(
 static void createReductionVertex(poplar::Graph &graph,
                                   const unsigned numOutputRegions,
                                   const RegionReductionRange reductions,
-                                  const std::string &debugPrefix,
+                                  const poplar::DebugNameAndId &dnai,
                                   const poplar::VertexRef vertex,
                                   const bool targetIsCpu) {
   // Work out the total number of partial regions.
@@ -527,7 +527,7 @@ static void createReductionVertex(poplar::Graph &graph,
   }
 
   auto t = graph.addConstant(poplar::UNSIGNED_SHORT, {numPartials.size()},
-                             numPartials.data(), debugPrefix + "/numPartials");
+                             numPartials.data(), {dnai, "numPartials"});
   graph.setTileMapping(t, 0);
   graph.connect(vertex["numPartials"], t);
 
@@ -793,7 +793,7 @@ void createVertex(poplar::Graph &graph,
                   const ReduceParams &params, const poplar::Type &partialType,
                   const poplar::Type &outputType, const poplar::ComputeSet &cs,
                   const unsigned tile, bool reductionUsesInput,
-                  const std::string &debugPrefix) {
+                  const poplar::DebugNameAndId &dnai) {
 
   const bool targetIsCpu =
       graph.getTarget().getTargetType() == poplar::TargetType::CPU;
@@ -875,7 +875,7 @@ void createVertex(poplar::Graph &graph,
       createContinuousReductionVertex(graph, range, vertex);
     } else {
 
-      createReductionVertex(graph, numOutputRegions, range, debugPrefix, vertex,
+      createReductionVertex(graph, numOutputRegions, range, {dnai}, vertex,
                             targetIsCpu);
     }
   }
@@ -996,7 +996,7 @@ void connectSingleStageReductions(
     poplar::Type partialType, poplar::Type outputType, unsigned tile,
     const std::vector<RegionReduction> &reductions,
     const std::vector<unsigned> &assignments, bool reductionUsesInput,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
   assert(reductions.size() == assignments.size());
 
@@ -1018,7 +1018,7 @@ void connectSingleStageReductions(
     const auto &vertexReductions = it.second;
 
     createVertex(graph, vertexReductions, params, partialType, outputType, cs,
-                 tile, reductionUsesInput, debugPrefix);
+                 tile, reductionUsesInput, {dnai});
   }
 }
 // Check if we should split some reductions to try to use all the workers.
@@ -1127,7 +1127,7 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
     const ReduceParams &params, poplar::Type inputType,
     poplar::Type partialType, poplar::Type outputType, unsigned tile,
     const std::vector<RegionReduction> &reductions, bool reductionUsesInput,
-    unsigned &remainingWorkers, const std::string &debugPrefix) {
+    unsigned &remainingWorkers, const poplar::DebugNameAndId &dnai) {
 
   const auto vectorWidth = graph.getTarget().getVectorWidth(inputType);
 
@@ -1203,7 +1203,7 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
         // Create and record the output of the 1st stage / partials for the 2nd
         twoStagePartials[partialsIndex].push_back(
             graph.addVariable(partialType, {firstStageOutputSize},
-                              debugPrefix + "/secondStagePartials"));
+                              {dnai, "secondStagePartials"}));
         graph.setTileMapping(twoStagePartials[partialsIndex].back(), tile);
 
         RegionReduction firstStage;
@@ -1217,7 +1217,7 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
 
         createVertex(graph, {firstStage}, params.op, inputType, partialType,
                      css.getCs1(reductionComputeSets), tile, reductionUsesInput,
-                     debugPrefix);
+                     {dnai});
         remainingWorkers = (remainingWorkers == 0) ? 0 : remainingWorkers - 1;
       }
       partialsIndex++;
@@ -1233,7 +1233,7 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
 
   // Create the second stage
   if (reductionComputeSets != 2) {
-    css.add(graph, debugPrefix + "/Reduce_Second_Stage");
+    css.add(graph, {dnai, "Reduce_Second_Stage"});
     reductionComputeSets++;
   }
   // Don't square again in the second stage.
@@ -1266,7 +1266,7 @@ std::vector<RegionReduction> connectProblemColumnCountReductions(
 
       createVertex(graph, {secondStageReduction}, secondStageParams,
                    partialType, outputType, css.getCs2(reductionComputeSets),
-                   tile, reductionUsesInput, debugPrefix);
+                   tile, reductionUsesInput, {dnai});
     }
     partialsIndex++;
   }
@@ -1289,7 +1289,7 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
     const ReduceParams &params, poplar::Type inputType,
     poplar::Type partialType, poplar::Type outputType, unsigned tile,
     const std::vector<RegionReduction> &reductions, bool reductionUsesInput,
-    unsigned &remainingWorkers, const std::string &debugPrefix) {
+    unsigned &remainingWorkers, const poplar::DebugNameAndId &dnai) {
 
   const auto reductionIsSuitable = [](const RegionReduction &r) {
     return r.innerFactor != 1 && r.output.numElements() != 1;
@@ -1372,9 +1372,8 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
     const auto &red = implementedReductions[i];
     auto firstStageOutputSize = red.output.numElements() * red.innerFactor;
     // Create and record the partials
-    twoStagePartials[i] =
-        graph.addVariable(partialType, {firstStageOutputSize},
-                          debugPrefix + "/secondStagePartials");
+    twoStagePartials[i] = graph.addVariable(partialType, {firstStageOutputSize},
+                                            {dnai, "secondStagePartials"});
     graph.setTileMapping(twoStagePartials[i].get(), tile);
 
     // Connect the first stage
@@ -1386,11 +1385,11 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
 
     createVertex(graph, {firstStage}, params.op, inputType, partialType,
                  css.getCs1(reductionComputeSets), tile, reductionUsesInput,
-                 debugPrefix);
+                 {dnai});
   }
   // Create the second stage
   if (reductionComputeSets != 2) {
-    css.add(graph, debugPrefix + "/Reduce_Second_Stage");
+    css.add(graph, {dnai, "Reduce_Second_Stage"});
     reductionComputeSets++;
   }
   // Don't square again in the second stage.
@@ -1422,7 +1421,7 @@ std::vector<RegionReduction> connectSmallInnerFactorReductions(
       }
       createVertex(graph, ssReductions, secondStageParams, partialType,
                    outputType, css.getCs2(reductionComputeSets), tile,
-                   reductionUsesInput, debugPrefix);
+                   reductionUsesInput, {dnai});
     }
   }
   return remainingReductions;
@@ -1443,7 +1442,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
                                const std::vector<RegionReduction> &reductions,
                                const std::vector<unsigned> &splits,
                                bool reductionUsesInput,
-                               const std::string &debugPrefix) {
+                               const poplar::DebugNameAndId &dnai) {
   // Triple check...
   assert(splits.size() == reductions.size());
   std::vector<RegionReduction> singleStageReductions;
@@ -1461,7 +1460,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     connectSingleStageReductions(graph, css.getCs1(reductionComputeSets),
                                  params, inputType, outputType, tile,
                                  singleStageReductions, singleStageAssignments,
-                                 reductionUsesInput, debugPrefix);
+                                 reductionUsesInput, {dnai});
   }
 
   // If there are no two-stage reductions, that's it!
@@ -1504,7 +1503,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
     // Create a tensor for all the partial results.
     secondStagePartials[i] =
         graph.addVariable(partialType, {outputSize * partialsPerWorker.size()},
-                          debugPrefix + "/secondStagePartials");
+                          {dnai, "secondStagePartials"});
     graph.setTileMapping(secondStagePartials[i], tile);
 
     // Now create the new RegionReductions.
@@ -1519,7 +1518,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
       ReduceParams firstStageParams(params.op);
       createVertex(graph, {firstStage}, firstStageParams, inputType,
                    partialType, css.getCs1(reductionComputeSets), tile,
-                   reductionUsesInput, debugPrefix);
+                   reductionUsesInput, {dnai});
     }
   }
 
@@ -1527,7 +1526,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
 
   // Add a second compute set if needed.
   if (reductionComputeSets != 2) {
-    css.add(graph, debugPrefix + "/Reduce_Second_Stage");
+    css.add(graph, {dnai, "Reduce_Second_Stage"});
     reductionComputeSets++;
   }
   // Work out which vertex should do each second stage. We just assign
@@ -1554,7 +1553,7 @@ void connectTwoStageReductions(poplar::Graph &graph, ComputeSetList &css,
 
     createVertex(graph, {secondStageReduction}, secondStageParams, partialType,
                  outputType, css.getCs2(reductionComputeSets), tile,
-                 reductionUsesInput, debugPrefix);
+                 reductionUsesInput, {dnai});
   }
 }
 // Distribute reductions between workers based on the number of outputs each
@@ -1608,7 +1607,7 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
     const ReduceParams &params, poplar::Type partialType,
     poplar::Type outputType, unsigned tile,
     const std::vector<RegionReduction> &reductions, bool reductionUsesInput,
-    unsigned &remainingWorkers, const std::string &debugPrefix) {
+    unsigned &remainingWorkers, const poplar::DebugNameAndId &dnai) {
 
   const auto reductionIsSuitable = [&](const RegionReduction &r) {
     return r.innerFactor != 1 && r.outerFactor == 1 &&
@@ -1678,7 +1677,7 @@ std::vector<RegionReduction> connectLargeInnerFactorReductions(
         // vertex and move onto the next worker if there is one
         createVertex(graph, red, params, partialType, outputType,
                      css.getCs1(reductionComputeSets), tile, reductionUsesInput,
-                     debugPrefix);
+                     {dnai});
         splitIndex++;
         red.clear();
         if (remainingWorkers > 0) {
@@ -1698,7 +1697,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
                        bool reductionUsesInput,
-                       const std::string &debugPrefix) {
+                       const poplar::DebugNameAndId &dnai) {
 
   const auto &target = graph.getTarget();
   // Optimisation: If there is just one partial for an output we don't need to
@@ -1753,14 +1752,14 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
   // There can be lots of reasons for creating 2 on tile reduction stages here.
   // We will make at least one compute set, maybe 2.  Start with one and keep
   // track of how many we have made
-  css.add(graph, debugPrefix + "/Reduce");
+  css.add(graph, {dnai, +"Reduce"});
   unsigned reductionComputeSets = 1;
 
   unsigned remainingWorkers = target.getNumWorkerContexts();
 
   auto remainingReductions = connectLargeInnerFactorReductions(
       graph, css, reductionComputeSets, params, inputType, outputType, tile,
-      reductions, reductionUsesInput, remainingWorkers, debugPrefix);
+      reductions, reductionUsesInput, remainingWorkers, {dnai});
   if (remainingReductions.size() == 0) {
     return;
   }
@@ -1768,7 +1767,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
   remainingReductions = connectSmallInnerFactorReductions(
       graph, css, reductionComputeSets, params, inputType, partialType,
       outputType, tile, remainingReductions, reductionUsesInput,
-      remainingWorkers, debugPrefix);
+      remainingWorkers, {dnai});
   if (remainingReductions.size() == 0) {
     return;
   }
@@ -1788,7 +1787,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
     remainingReductions = connectProblemColumnCountReductions(
         graph, css, reductionComputeSets, params, inputType, partialType,
         outputType, tile, remainingReductions, reductionUsesInput,
-        remainingWorkers, debugPrefix);
+        remainingWorkers, {dnai});
     if (remainingReductions.size() == 0) {
       return;
     }
@@ -1843,7 +1842,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
     connectTwoStageReductions(graph, css, reductionComputeSets, params,
                               inputType, partialType, outputType, tile,
                               remainingReductions, splits, reductionUsesInput,
-                              debugPrefix);
+                              {dnai});
 
   } else {
     logging::popops::trace("Using single stage reduction on tile {}", tile);
@@ -1854,7 +1853,7 @@ void connectReductions(poplar::Graph &graph, ComputeSetList &css,
     connectSingleStageReductions(graph, css.getCs1(reductionComputeSets),
                                  params, inputType, outputType, tile,
                                  remainingReductions, reductionAssignments,
-                                 reductionUsesInput, debugPrefix);
+                                 reductionUsesInput, {dnai});
   }
 }
 

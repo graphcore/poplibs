@@ -7,6 +7,7 @@
 #include <poplibs_support/gcd.hpp>
 #include <poplibs_support/logging.hpp>
 
+#include <poputil/DebugInfo.hpp>
 #include <poputil/Util.hpp>
 #include <poputil/VarStructure.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -230,7 +231,8 @@ void addTransposeVertices(
 
 Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
                         const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(in, cs));
+
   const auto rank = in.rank();
   const auto numSrcRows = in.dim(rank - 2);
   const auto numSrcColumns = in.dim(rank - 1);
@@ -244,8 +246,7 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
   const auto dType = in.elementType();
   auto outShape = in.shape();
   std::swap(outShape[rank - 2], outShape[rank - 1]);
-  auto out =
-      graph.addVariable(dType, outShape, debugPrefix + "/partialTranspose");
+  auto out = graph.addVariable(dType, outShape, {di, "partialTranspose"});
   auto inFlat = in.reshape({in.numElements() / (numSrcRows * numSrcColumns),
                             numSrcRows * numSrcColumns});
   auto outFlat = out.reshape(inFlat.shape());
@@ -260,6 +261,7 @@ Tensor partialTranspose(Graph &graph, const Tensor &in, const ComputeSet &cs,
                        transpositionMapping, [&](size_t index) {
                          return std::make_pair(inFlat[index], outFlat[index]);
                        });
+  di.addOutput(out);
   return out;
 }
 
@@ -380,13 +382,16 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_,
                      const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  logging::popops::debug("Regroup: debugstr={}", debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t, copies, transposeCS, from_, to_));
+
+  logging::popops::debug("Regroup: debugstr={}", debugContext.getPathName());
   logging::popops::debug("  t      shape={}", t.shape());
   logging::popops::debug("  from   grouping={{{},{}}}", from_.first,
                          from_.second);
   logging::popops::debug("  to     grouping={{{},{}}}", to_.first, to_.second);
   if (t.rank() <= 1) {
+    di.addOutput(t);
     return t;
   }
   const auto &validTypes = getValidTransposeDataTypes();
@@ -435,8 +440,8 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
   // regions to be contiguous. Performing a transpose alone
   // may leave multiple regions per-tile, one for each edge to a
   // transpose vertex.
-  auto preRegroup = graph.addVariable(t.elementType(), grouped.shape(),
-                                      debugPrefix + "/preRegroup");
+  auto preRegroup =
+      graph.addVariable(t.elementType(), grouped.shape(), {di, "preRegroup"});
   auto preRegroupTranspose = preRegroup.flatten(0, preRegroup.rank() - 2);
   auto preRegroupFlat =
       preRegroup.flatten(0, preRegroup.rank() - 2).flatten(1, 3);
@@ -529,10 +534,12 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
   copies.emplace_back(grouped, preRegroup);
 
   // Finally, transpose
-  auto partiallyTransposed = popops::rearrange::partialTranspose(
-      graph, preRegroup, transposeCS, debugPrefix);
+  auto partiallyTransposed =
+      popops::rearrange::partialTranspose(graph, preRegroup, transposeCS, {di});
 
-  return ungroupTensor(partiallyTransposed, from, to);
+  auto output = ungroupTensor(partiallyTransposed, from, to);
+  di.addOutput(output);
+  return output;
 }
 
 Tensor regroupTensor(Graph &graph, const Tensor &t_,
@@ -540,15 +547,15 @@ Tensor regroupTensor(Graph &graph, const Tensor &t_,
                      const ComputeSet &transposeCS, const GroupingInfo &from_,
                      const GroupingInfo &to_,
                      const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t_, transposeCS, from_, to_));
   std::vector<Copy> copies;
-  auto t =
-      regroupTensor(graph, t_, copies, transposeCS, from_, to_, debugPrefix);
+  auto t = regroupTensor(graph, t_, copies, transposeCS, from_, to_, {di});
 
   for (const auto &copy : copies) {
     prog.add(copy);
   }
-
+  di.addOutput(t);
   return t;
 }
 
@@ -556,8 +563,11 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            std::vector<Copy> &preTranspose,
                            ComputeSet transposeCS,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  logging::popops::debug("Regroup if beneficial: debugstr={}", debugPrefix);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in_, ref, preTranspose, transposeCS));
+
+  logging::popops::debug("Regroup if beneficial: debugstr={}",
+                         debugContext.getPathName());
   logging::popops::debug("  input      shape={}", in_.shape());
   logging::popops::debug("  reference  shape={}", ref.shape());
   auto in = in_;
@@ -591,35 +601,38 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
       (refGrouping[0].second % grainSize) == 0) {
     logging::popops::debug("  regrouped");
     in = regroupTensor(graph, in, preTranspose, transposeCS, inGrouping[0],
-                       refGrouping[0], debugPrefix);
+                       refGrouping[0], {di});
   }
+  di.addOutput(in);
   return in;
 }
 
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_, const Tensor &ref,
                            Sequence &prog,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  std::vector<Copy> preTranspose;
-  ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(in_, ref));
 
-  auto in = regroupIfBeneficial(graph, in_, ref, preTranspose, transposeCS,
-                                debugPrefix);
+  std::vector<Copy> preTranspose;
+  ComputeSet transposeCS = graph.addComputeSet({di, "Transpose"});
+
+  auto in =
+      regroupIfBeneficial(graph, in_, ref, preTranspose, transposeCS, {di});
 
   for (const auto &copy : preTranspose) {
     prog.add(copy);
   }
-  prog.add(Execute(transposeCS));
-
+  prog.add(Execute(transposeCS, {di}));
+  di.addOutput(in);
   return in;
 }
 
 Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
                            std::size_t preferredGrouping_, Sequence &prog,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(in_, preferredGrouping_));
   logging::popops::debug("Regroup if beneficial (preferred): debugstr={}",
-                         debugPrefix);
+                         debugContext.getPathName());
   logging::popops::debug("  input        shape={}", in_.shape());
   logging::popops::debug("  preferred grouping={}", preferredGrouping_);
   auto in = in_;
@@ -648,10 +661,10 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
       inGrouping[0].second % grainSize == 0 &&
       preferredGrouping.second % grainSize == 0) {
     logging::popops::debug("  regrouped");
-    ComputeSet transposeCS = graph.addComputeSet(debugPrefix + "/Transpose");
+    ComputeSet transposeCS = graph.addComputeSet({di, "Transpose"});
     in = regroupTensor(graph, in, prog, transposeCS, inGrouping[0],
-                       preferredGrouping, debugPrefix);
-    prog.add(Execute(transposeCS));
+                       preferredGrouping, {di});
+    prog.add(Execute(transposeCS, {di}));
   }
 
   return in;

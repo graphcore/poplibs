@@ -1,6 +1,7 @@
 // Copyright (c) 2016 Graphcore Ltd. All rights reserved.
 #include "popops/Cast.hpp"
 
+#include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
@@ -17,7 +18,8 @@ namespace popops {
 
 Program cast(Graph &graph, Tensor src, Tensor dst,
              const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dst));
+
   // Casting one type into itself, or int<->unsigned, is just a copy.
   // We use the '.reinterpret(dstType)' to bypass type checking in Copy for the
   // int<->unsigned case
@@ -28,9 +30,9 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
     logging::popops::trace("Cast is just a copy");
     return Copy(src.reinterpret(dstType), dst);
   }
-  auto cs = graph.addComputeSet(debugPrefix + "/Cast");
+  auto cs = graph.addComputeSet({di, "Cast"});
   cast(graph, src, dst, cs);
-  return Execute(cs);
+  return Execute(cs, {di});
 }
 
 void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
@@ -115,17 +117,19 @@ void cast(Graph &graph, Tensor src, Tensor dst, ComputeSet cs) {
 
 Tensor cast(Graph &graph, Tensor src, const Type &dstType, ComputeSet cs,
             const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto dst = graph.clone(dstType, src, debugPrefix + "/cast");
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType, cs));
+  auto dst = graph.clone(dstType, src, {di, "cast"});
   cast(graph, src, dst, cs);
+  di.addOutput(dst);
   return dst;
 }
 
 poplar::Tensor cast(Graph &graph, const Tensor &src, const Type &dstType,
                     Sequence &prog, const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto dst = graph.clone(dstType, src, debugPrefix + "/cast");
-  prog.add(cast(graph, src, dst, debugPrefix));
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, dstType));
+  auto dst = graph.clone(dstType, src, {di, "cast"});
+  prog.add(cast(graph, src, dst, {di}));
+  di.addOutput(dst);
   return dst;
 }
 
@@ -133,7 +137,9 @@ poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
                                      Type outputType, double tolerance,
                                      poplar::program::Sequence &prog,
                                      const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(input, outputType, tolerance));
+
   if ((input.elementType() != FLOAT && outputType != HALF) ||
       input.numElements() != 1) {
     throw poputil::poplibs_error(
@@ -142,11 +148,10 @@ poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
         " to float");
   }
 
-  auto cs = graph.addComputeSet(debugPrefix + "/checkAccuracyWhenCast");
+  auto cs = graph.addComputeSet({di, "checkAccuracyWhenCast"});
   auto v = graph.addVertex(cs, templateVertex("popops::CheckAccuracyWhenCast",
                                               input.elementType(), outputType));
-  auto isAccurate =
-      graph.addVariable(BOOL, {}, debugPrefix + "/checkAccuracyWhenCast");
+  auto isAccurate = graph.addVariable(BOOL, {}, {di, "checkAccuracyWhenCast"});
   const auto tile = std::min(graph.getTarget().getNumTiles(), 4u) - 1;
   graph.setTileMapping(isAccurate, tile);
 
@@ -154,7 +159,7 @@ poplar::Tensor checkAccuracyWhenCast(Graph &graph, const Tensor &input,
   graph.setInitialValue(v["tolerance"], tolerance);
   graph.setTileMapping(v, tile);
 
-  prog.add(Execute(cs, isAccurate));
+  prog.add(Execute(cs, isAccurate, {di}));
   return isAccurate;
 }
 

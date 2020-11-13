@@ -2,6 +2,7 @@
 
 #include "popops/Fill.hpp"
 
+#include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <poplar/Graph.hpp>
@@ -69,12 +70,13 @@ template <typename FillValueType>
 void fill(poplar::Graph &graph, const poplar::Tensor &t,
           poplar::program::Sequence &prog, FillValueType fillValue,
           const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto cs = graph.addComputeSet(debugPrefix + "/Fill");
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, fillValue));
+
+  auto cs = graph.addComputeSet({di, "Fill"});
   auto tFlat = t.flatten();
   graph.reorderToSimplify(&tFlat, {}, false);
   fill<FillValueType>(graph, tFlat, graph.getTileMapping(tFlat), cs, fillValue);
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {di}));
 }
 
 #define FILL_EXPLICIT_INSTANTIATIONS(Type)                                     \

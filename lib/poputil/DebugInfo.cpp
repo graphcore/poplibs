@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
+#include "poplar/TensorCloneMethod.hpp"
 #include <poputil/DebugInfo.hpp>
 
 #include <sstream>
@@ -10,13 +11,29 @@ template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t) {
   return poplar::ProfileValue(t.getId());
 }
 
-template <>
-poplar::ProfileValue toProfileValue(const poplar::program::Copy &t) {
-  return poplar::ProfileValue("program::Copy");
-}
-
 template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t) {
   return getAsProfileValue(t);
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const poplar::program::Copy &t) {
+  return poplar::ProfileValue("<poplar::program::Copy>");
+}
+
+template <>
+poplar::ProfileValue toProfileValue(const poplar::TensorCloneMethod &t) {
+  switch (t) {
+  case poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES:
+    return poplar::ProfileValue("PRESERVE_ORDER_AND_ALIASES");
+  case poplar::TensorCloneMethod::CREATE_NEW_ORDER:
+    return poplar::ProfileValue("CREATE_NEW_ORDER");
+  case poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES:
+    return poplar::ProfileValue("PRESERVE_ORDER_UNLESS_ALIASES");
+  case poplar::TensorCloneMethod::GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES:
+    return poplar::ProfileValue("GATHER_AND_PRESERVE_TILE_ORDER_AND_ALIASES");
+  default:
+    return poplar::ProfileValue("<UNKNOWN>");
+  }
 }
 
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t) {
@@ -47,19 +64,11 @@ template <> poplar::ProfileValue toProfileValue(const poplar::Type &t) {
   return poplar::ProfileValue(t.toString());
 }
 
-template <> poplar::ProfileValue toProfileValue(const bool &t) {
-  return poplar::ProfileValue(t);
-}
-
-template <> poplar::ProfileValue toProfileValue(const float &t) {
-  return poplar::ProfileValue(t);
-}
-
 template <> poplar::ProfileValue toProfileValue(const int &t) {
   return poplar::ProfileValue(t);
 }
 
-template <> poplar::ProfileValue toProfileValue(const double &t) {
+template <> poplar::ProfileValue toProfileValue(const unsigned long &t) {
   return poplar::ProfileValue(t);
 }
 
@@ -67,7 +76,19 @@ template <> poplar::ProfileValue toProfileValue(const unsigned int &t) {
   return poplar::ProfileValue(t);
 }
 
-template <> poplar::ProfileValue toProfileValue(const unsigned long &t) {
+template <> poplar::ProfileValue toProfileValue(const double &t) {
+  return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const float &t) {
+  return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const bool &t) {
+  return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const std::string &t) {
   return poplar::ProfileValue(t);
 }
 

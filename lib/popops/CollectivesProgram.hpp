@@ -77,14 +77,14 @@ struct ReduceProg {
   poplar::Tensor A;
   poplar::Tensor B;
   popops::Operation op;
-  std::string debugPrefix;
+  poplar::DebugNameAndId dnai;
   ReduceProg(poplar::Tensor A, poplar::Tensor B, popops::Operation op,
-             std::string prefix)
-      : A(A), B(B), op(op), debugPrefix(prefix) {}
+             const poplar::DebugNameAndId &dnai_)
+      : A(A), B(B), op(op), dnai(dnai_) {}
 
   ReduceProg operator+(const ReduceProg &other) const {
     assert(op == other.op);
-    return ReduceProg(concat(A, other.A), concat(B, other.B), op, debugPrefix);
+    return ReduceProg(concat(A, other.A), concat(B, other.B), op, dnai);
   }
 };
 
@@ -127,25 +127,25 @@ static poplar::program::Sequence sequenceFromCrossReplicaCopies(
 static void opInPlace(poplar::Graph &graph, popops::Operation op,
                       const poplar::Tensor &a, const poplar::Tensor &b,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix) {
+                      const poplar::DebugNameAndId &dnai) {
   switch (op) {
   case Operation::ADD:
-    addInPlace(graph, a, b, prog, debugPrefix);
+    addInPlace(graph, a, b, prog, {dnai});
     break;
   case Operation::MUL:
-    mulInPlace(graph, a, b, prog, debugPrefix);
+    mulInPlace(graph, a, b, prog, {dnai});
     break;
   case Operation::MIN:
-    minInPlace(graph, a, b, prog, debugPrefix);
+    minInPlace(graph, a, b, prog, {dnai});
     break;
   case Operation::MAX:
-    maxInPlace(graph, a, b, prog, debugPrefix);
+    maxInPlace(graph, a, b, prog, {dnai});
     break;
   case Operation::LOGICAL_AND:
-    logicalAndInPlace(graph, a, b, prog, debugPrefix);
+    logicalAndInPlace(graph, a, b, prog, {dnai});
     break;
   case Operation::LOGICAL_OR:
-    logicalOrInPlace(graph, a, b, prog, debugPrefix);
+    logicalOrInPlace(graph, a, b, prog, {dnai});
     break;
   case Operation::SQUARE_ADD:
     throw poputil::poplibs_error("Collective reduction using the SQUARE_ADD "
@@ -160,12 +160,13 @@ opInPlace(poplar::Graph &graph, const boost::optional<ReduceProg> &reduceProg) {
     return prog;
   }
   opInPlace(graph, reduceProg->op, reduceProg->A, reduceProg->B, prog,
-            reduceProg->debugPrefix);
+            reduceProg->dnai);
   return prog;
 }
 
-poplar::program::Sequence unidirectionalSequence(CollectivesProgram &program,
-                                                 poplar::Graph &graph) {
+poplar::program::Sequence
+unidirectionalSequence(CollectivesProgram &program, poplar::Graph &graph,
+                       const poplar::DebugNameAndId &dnai) {
   using namespace poplar::program;
   const auto sliceFunction =
       graph.addFunction(std::move(program.sliceFragments));
@@ -173,17 +174,19 @@ poplar::program::Sequence unidirectionalSequence(CollectivesProgram &program,
                     sequenceFromCrossReplicaCopies(program.exchangeProg),
                     std::move(program.allgatherCopy), Call(sliceFunction),
                     opInPlace(graph, program.reduceProg));
-  return Sequence(WriteUndef(program.undefTensor),
-                  std::move(program.rearrangePre), std::move(program.initIndex),
-                  std::move(program.firstGatherCopy), Call(sliceFunction),
-                  Repeat(program.repeatCounter, std::move(loopBody)),
-                  std::move(program.rearrangePost));
+  return Sequence(
+      {WriteUndef(program.undefTensor), std::move(program.rearrangePre),
+       std::move(program.initIndex), std::move(program.firstGatherCopy),
+       Call(sliceFunction), Repeat(program.repeatCounter, std::move(loopBody)),
+       std::move(program.rearrangePost)},
+      {dnai});
 }
 // Create a program that does a clockwise and anticlockwise collective
 // simultaneously
 poplar::program::Sequence
 bidirectionalSequence(CollectivesProgram &clockwise,
-                      CollectivesProgram &anticlockwise, poplar::Graph &graph) {
+                      CollectivesProgram &anticlockwise, poplar::Graph &graph,
+                      const poplar::DebugNameAndId &dnai) {
   assert(clockwise.repeatCounter == anticlockwise.repeatCounter);
   using namespace poplar::program;
   const auto sliceFunction =
@@ -204,31 +207,35 @@ bidirectionalSequence(CollectivesProgram &clockwise,
                     std::move(anticlockwise.allgatherCopy), Call(sliceFunction),
                     opInPlace(graph, combinedReduceProg));
   return Sequence(
-      WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
-      std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
-      std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
-      std::move(clockwise.firstGatherCopy),
-      std::move(anticlockwise.firstGatherCopy), Call(sliceFunction),
-      Repeat(clockwise.repeatCounter, std::move(loopBody)),
-      std::move(clockwise.rearrangePost),
-      std::move(anticlockwise.rearrangePost));
+      {WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
+       std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
+       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
+       std::move(clockwise.firstGatherCopy),
+       std::move(anticlockwise.firstGatherCopy), Call(sliceFunction),
+       Repeat(clockwise.repeatCounter, std::move(loopBody)),
+       std::move(clockwise.rearrangePost),
+       std::move(anticlockwise.rearrangePost)},
+      {dnai});
 }
 
 // Create the sequence needed for the meet in the middle collective
 poplar::program::Sequence meetInMiddleReduceScatterSequence(
     CollectivesProgram &clockwise, CollectivesProgram &anticlockwise,
     poplar::Graph &subGraph, poplar::program::Sequence combineBuffersProg,
-    unsigned controlTile) {
+    unsigned controlTile, const poplar::DebugNameAndId &dnai) {
   using namespace poplar;
   using namespace poplar::program;
   auto graph = subGraph.getTopLevelGraph();
-  const auto isFirstStep = graph.addVariable(BOOL, {}, "isFirstStep");
-  const auto trueConst = graph.addConstant(BOOL, {}, true, "trueConst");
-  const auto falseConst = graph.addConstant(BOOL, {}, false, "falseConst");
-  const auto zeroConst = graph.addConstant(UNSIGNED_INT, {}, 0, "zeroConst");
+  const auto isFirstStep = graph.addVariable(BOOL, {}, {dnai, "isFirstStep"});
+  const auto trueConst = graph.addConstant(BOOL, {}, true, {dnai, "trueConst"});
+  const auto falseConst =
+      graph.addConstant(BOOL, {}, false, {dnai, "falseConst"});
+  const auto zeroConst =
+      graph.addConstant(UNSIGNED_INT, {}, 0, {dnai, "zeroConst"});
   const auto lastConst = graph.addConstant(
-      UNSIGNED_INT, {}, clockwise.repeatCounter - 1, "lastConst");
-  const auto loopCounter = graph.addVariable(UNSIGNED_INT, {}, "loopCounter");
+      UNSIGNED_INT, {}, clockwise.repeatCounter - 1, {dnai, "lastConst"});
+  const auto loopCounter =
+      graph.addVariable(UNSIGNED_INT, {}, {dnai, "loopCounter"});
   graph.setTileMapping(isFirstStep, controlTile);
   graph.setTileMapping(trueConst, controlTile);
   graph.setTileMapping(falseConst, controlTile);
@@ -247,7 +254,8 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
       popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
 
   Sequence incrementLoopCounter;
-  popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter);
+  popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter,
+                     {dnai});
 
   assert(clockwise.repeatCounter - 1 == anticlockwise.repeatCounter);
   // I think it is possible to remove the anticlockwise slice for before the
@@ -287,17 +295,21 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
 poplar::program::Sequence
 meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
                               CollectivesProgram &anticlockwise,
-                              poplar::Graph &subGraph, unsigned controlTile) {
+                              poplar::Graph &subGraph, unsigned controlTile,
+                              const poplar::DebugNameAndId &dnai) {
   using namespace poplar;
   using namespace poplar::program;
   auto graph = subGraph.getTopLevelGraph();
-  const auto isFirstStep = graph.addVariable(BOOL, {}, "isFirstStep");
-  const auto trueConst = graph.addConstant(BOOL, {}, true, "trueConst");
-  const auto falseConst = graph.addConstant(BOOL, {}, false, "falseConst");
-  const auto zeroConst = graph.addConstant(UNSIGNED_INT, {}, 0, "zeroConst");
+  const auto isFirstStep = graph.addVariable(BOOL, {}, {dnai, "isFirstStep"});
+  const auto trueConst = graph.addConstant(BOOL, {}, true, {dnai, "trueConst"});
+  const auto falseConst =
+      graph.addConstant(BOOL, {}, false, {dnai, "falseConst"});
+  const auto zeroConst =
+      graph.addConstant(UNSIGNED_INT, {}, 0, {dnai, "zeroConst"});
   const auto lastConst = graph.addConstant(
-      UNSIGNED_INT, {}, clockwise.repeatCounter - 1, "lastConst");
-  const auto loopCounter = graph.addVariable(UNSIGNED_INT, {}, "loopCounter");
+      UNSIGNED_INT, {}, clockwise.repeatCounter - 1, {dnai, "lastConst"});
+  const auto loopCounter =
+      graph.addVariable(UNSIGNED_INT, {}, {dnai, "loopCounter"});
   graph.setTileMapping(isFirstStep, controlTile);
   graph.setTileMapping(trueConst, controlTile);
   graph.setTileMapping(falseConst, controlTile);

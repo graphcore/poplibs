@@ -5,6 +5,7 @@
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popops/HostSliceTensor.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/exceptions.hpp>
 #include <unordered_map>
 
@@ -192,12 +193,12 @@ static void createPerIpuTensors(std::vector<poplar::Tensor> &toConcat,
                                 poplar::Graph &graph, const poplar::Type &type,
                                 const std::vector<size_t> &shape,
                                 const bool isRead,
-                                const std::string &debugPrefix) {
+                                const poplar::DebugNameAndId &dnai) {
   assert(graph.getTarget().getNumIPUs() == 1U);
   toConcat.emplace_back(
-      graph.addVariable(type, shape, debugPrefix + "/HostSliceAble"));
+      graph.addVariable(type, shape, {dnai, "HostSliceAble"}));
   indicesToConcat.emplace_back(graph.addVariable(
-      poplar::UNSIGNED_INT, {shape[0]}, debugPrefix + "/HostSliceIndices"));
+      poplar::UNSIGNED_INT, {shape[0]}, {dnai, "HostSliceIndices"}));
   const auto xbs = findAvailableXBs(graph);
   auto &t = toConcat.back();
   auto &indices = indicesToConcat.back();
@@ -209,7 +210,8 @@ IndicesAndTensor
 createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
                           const std::vector<size_t> &shape, const bool isRead,
                           const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(type, shape, isRead));
+
   logging::popops::info("createHostSliceableTensor begin");
   if (shape.size() != 2U) {
     throw poputil::poplibs_error(
@@ -226,12 +228,13 @@ createHostSliceableTensor(poplar::Graph &graph, const poplar::Type &type,
   for (unsigned i = 0; i < numIpus; ++i) {
     auto ipuGraph = getIpuGraph(graph, target, i);
     createPerIpuTensors(toConcat, indicesToConcat, ipuGraph, type,
-                        perIpuShapes[i], isRead, debugPrefix);
+                        perIpuShapes[i], isRead, {di});
   }
   const auto result = concat(toConcat);
   const auto indices = concat(indicesToConcat);
   assert(result.shape() == shape);
   logging::popops::info("createHostSliceableTensor end");
+  di.addOutputs(DI_ARGS(indices, result));
   return {indices, result};
 }
 
@@ -239,13 +242,16 @@ poplar::Tensor
 createHostTransferableTensor(poplar::Graph &graph, const poplar::Type &type,
                              const std::vector<size_t> &shape, bool isRead,
                              const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(type, shape, isRead));
+
   size_t flattenedSize = std::accumulate(shape.begin(), shape.end(), 1U,
                                          std::multiplies<size_t>());
-  auto resultPair = createHostSliceableTensor(graph, type, {1, flattenedSize},
-                                              isRead, debugPrefix);
+  auto resultPair =
+      createHostSliceableTensor(graph, type, {1, flattenedSize}, isRead, {di});
 
-  return resultPair.tensor.reshape(shape);
+  auto output = resultPair.tensor.reshape(shape);
+  di.addOutput(output);
+  return output;
 }
 
 } // namespace popops

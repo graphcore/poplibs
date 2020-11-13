@@ -9,6 +9,7 @@
 #define popops_DynamicSlice_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@ public:
   SlicePlan &operator=(SlicePlan &&other);
 
   friend std::ostream &operator<<(std::ostream &o, const SlicePlan &p);
+  friend poplar::ProfileValue poputil::toProfileValue<>(const SlicePlan &p);
 
   // Implementation
   SlicePlan(std::unique_ptr<SlicePlanInternal> internal);

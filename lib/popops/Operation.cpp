@@ -1,9 +1,19 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include "popops/Operation.hpp"
-
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 #include <iostream>
+#include <sstream>
 #include <string>
+
+namespace poputil {
+template <> poplar::ProfileValue toProfileValue(const popops::Operation &op) {
+
+  std::stringstream ss;
+  ss << op;
+  return poplar::ProfileValue(ss.str());
+}
+} // namespace poputil
 
 namespace popops {
 

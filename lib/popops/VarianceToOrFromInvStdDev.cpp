@@ -2,6 +2,7 @@
 #include "ExprOpUtil.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/ExprOp.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
@@ -20,15 +21,15 @@ namespace popops {
 
 Program convertVariance(Graph &graph, Tensor src, Tensor dst,
                         const Tensor &epsilon, expr::BinaryOpType op,
-                        const std::string &debugPrefix) {
-  auto cs = graph.addComputeSet(debugPrefix);
+                        const DebugNameAndId &dnai) {
+  auto cs = graph.addComputeSet({dnai});
   src = src.flatten();
   dst = dst.flatten();
 
   logging::popops::info(
       "convertVariance src={}, dst={}, epsilon={}, op={}, name={}", src.shape(),
       dst.shape(), epsilon.shape(), expr::binaryOpTypeToString(op),
-      debugPrefix);
+      dnai.getPathName());
 
   if (epsilon.numElements() != 1) {
     throw poputil::poplibs_error("Epsilon must be a tensor with a single "
@@ -79,23 +80,25 @@ Program convertVariance(Graph &graph, Tensor src, Tensor dst,
       graph.setTileMapping(v, tile);
     };
   }
-  return Execute(cs);
+  return Execute(cs, {dnai});
 }
 
 Tensor varianceToInvStdDev(Graph &graph, const Tensor &src,
                            const Tensor &epsilon, Sequence &prog,
                            const Type dstType,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
+
   auto srcType = src.elementType();
   if (dstType != srcType && dstType != HALF) {
     throw poputil::poplibs_error("Cannot convert variance to inverse standard "
                                  "deviation using the data types provided.");
   }
-  auto dst = graph.clone(dstType, src, debugPrefix + "/varianceToInvStdDev");
+  auto dst = graph.clone(dstType, src, {di, "varianceToInvStdDev"});
   prog.add(convertVariance(graph, src, dst, epsilon,
                            expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV,
-                           debugPrefix + "/varianceToInvStdDev"));
+                           {di, "varianceToInvStdDev"}));
+  di.addOutput(dst);
   return dst;
 }
 
@@ -103,35 +106,43 @@ Tensor invStdDevToVariance(Graph &graph, const Tensor &src,
                            const Tensor &epsilon, Sequence &prog,
                            const Type dstType,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
+
   auto srcType = src.elementType();
   if (dstType != srcType && dstType != FLOAT) {
     throw poputil::poplibs_error("Cannot convert inverse standard deviation to"
                                  "variance using the data types provided.");
   }
-  auto dst = graph.clone(dstType, src, debugPrefix + "/invStdDevToVariance");
+  auto dst = graph.clone(dstType, src, {di, "invStdDevToVariance"});
   prog.add(convertVariance(graph, src, dst, epsilon,
                            expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE,
-                           debugPrefix + "/invStdDevToVariance"));
+                           {di, "invStdDevToVariance"}));
+  di.addOutput(dst);
   return dst;
 }
 
 Tensor varianceToInvStdDev(Graph &graph, const Tensor &src, const float epsilon,
                            Sequence &prog, const Type dstType,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto eps = graph.addConstant(src.elementType(), {}, epsilon);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
+
+  auto eps = graph.addConstant(src.elementType(), {}, epsilon, {di});
   graph.setTileMapping(eps, 0);
-  return varianceToInvStdDev(graph, src, eps, prog, dstType, debugPrefix);
+  auto output = varianceToInvStdDev(graph, src, eps, prog, dstType, {di});
+  di.addOutput(output);
+  return output;
 }
 
 Tensor invStdDevToVariance(Graph &graph, const Tensor &src, const float epsilon,
                            Sequence &prog, const Type dstType,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto eps = graph.addConstant(src.elementType(), {}, epsilon);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src, epsilon, dstType));
+
+  auto eps = graph.addConstant(src.elementType(), {}, epsilon, {di});
   graph.setTileMapping(eps, 0);
-  return invStdDevToVariance(graph, src, eps, prog, dstType, debugPrefix);
+  auto output = invStdDevToVariance(graph, src, eps, prog, dstType, {di});
+  di.addOutput(output);
+  return output;
 }
 
 } // end namespace popops

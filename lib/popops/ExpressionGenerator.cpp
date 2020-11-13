@@ -208,7 +208,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
 poplar::Tensor generateAndExecuteMappedOperations(
     Graph &graph, const expr::Expr &expr, const std::vector<Tensor> &inputs,
     std::unordered_map<const expr::Expr *, Type> &constTypes, Sequence &prog,
-    bool inPlace, bool allInputsScalar, const std::string &debugPrefix) {
+    bool inPlace, bool allInputsScalar, const DebugNameAndId &dnai) {
 
   GenerateCodeletFromMapExpr generate{inPlace, inputs};
 
@@ -251,12 +251,12 @@ poplar::Tensor generateAndExecuteMappedOperations(
   } else {
     out = createOutputForElementWiseOp(
         graph, vectorIns.size() == 0 ? inputs : vectorIns, returnType,
-        codeletName + "/Out");
+        {dnai, codeletName + "/Out"});
   }
   auto outFlat = out.flatten();
   const auto &target = graph.getTarget();
   const auto numTiles = target.getNumTiles();
-  const auto cs = graph.addComputeSet(debugPrefix);
+  const auto cs = graph.addComputeSet({dnai});
   graph.reorderToSimplify(&outFlat, asPtr, false);
   const auto mapping = graph.getTileMapping(outFlat);
   for (auto tile = 0U; tile != numTiles; ++tile) {
@@ -267,7 +267,7 @@ poplar::Tensor generateAndExecuteMappedOperations(
                    tileContiguousRegions, tile, cs, numFusedOp,
                    isVectorizationSupported, inPlace);
   }
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 
   return out;
 }

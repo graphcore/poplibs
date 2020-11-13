@@ -42,7 +42,7 @@ namespace internal {
  *  \param indices            The 2D indices tensor
  *  \param sliceSizes         The size of each sliced dimension
  *  \param prog               The program sequence to add this operation to
- *  \param debugPrefix        A debug name for the operation
+ *  \param dnai               The debug reference
  *
  *  \returns The gathered slices tensor
  */
@@ -50,13 +50,13 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices,
                       const std::vector<std::size_t> &sliceSizes,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix = "");
+                      const poplar::DebugNameAndId &dnai);
 
 poplar::Tensor
 createGatherInputTensor(poplar::Graph &graph, poplar::Type type,
                         const std::vector<std::size_t> &inputShape,
                         const std::vector<std::size_t> &sliceSizes,
-                        const std::string &name = "");
+                        const poplar::DebugNameAndId &dnai);
 
 } // namespace internal
 } // namespace popops

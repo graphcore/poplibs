@@ -74,29 +74,29 @@ poplar::Tensor
 createGatherInputTensor(poplar::Graph &graph, poplar::Type type,
                         const std::vector<std::size_t> &inputShape,
                         const std::vector<std::size_t> &sliceSizes,
-                        const std::string &name) {
+                        const poplar::DebugNameAndId &dnai) {
   std::vector<std::size_t> slicedDims;
   slicedDims.reserve(sliceSizes.size());
   for (unsigned d = 0; d != sliceSizes.size(); ++d)
     slicedDims.emplace_back(d);
   // TODO: T12948 If nonSlicedDimProduct is small we should add an outer stage.
   return createSliceableTensor(graph, type, inputShape, slicedDims, sliceSizes,
-                               SlicePlan(), poplar::OptionFlags(), name);
+                               SlicePlan(), poplar::OptionFlags(), {dnai});
 }
 
 poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
                       const poplar::Tensor &indices,
                       const std::vector<std::size_t> &sliceSizes,
                       poplar::program::Sequence &prog,
-                      const std::string &debugPrefix) {
+                      const poplar::DebugNameAndId &dnai) {
   checkGatherInputs(input, indices, sliceSizes);
 
   // This copy is to ensure we have the ideal tile mapping for `multiSlice`.
   // We expect this to be elided, when `input` already has this mapping.
   auto inputTemp =
       createGatherInputTensor(graph, input.elementType(), input.shape(),
-                              sliceSizes, debugPrefix + "/inputTemp");
-  prog.add(poplar::program::Copy(input, inputTemp));
+                              sliceSizes, dnai.getPathName() + "/inputTemp");
+  prog.add(poplar::program::Copy(input, inputTemp, false, {dnai}));
 
   // The dimensions that will be sliced
   std::vector<std::size_t> dims(indices.dim(1));
@@ -107,9 +107,9 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
   std::rotate(permutation.begin(), permutation.begin() + indices.dim(1),
               permutation.end());
 
-  auto result = multiSlice(graph, inputTemp.dimShuffle(permutation), indices,
-                           dims, sliceSizes, prog, SlicePlan(),
-                           poplar::OptionFlags(), debugPrefix);
+  auto result =
+      multiSlice(graph, inputTemp.dimShuffle(permutation), indices, dims,
+                 sliceSizes, prog, SlicePlan(), poplar::OptionFlags(), {dnai});
 
   std::vector<unsigned> inversePermutation(permutation.size());
   for (auto i = 0ul; i < permutation.size(); ++i) {

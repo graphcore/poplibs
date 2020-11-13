@@ -7,6 +7,7 @@
 #include <poplar/Program.hpp>
 #include <poplibs_support/Algorithms.hpp>
 #include <popops/codelets.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
@@ -184,7 +185,8 @@ void createColumnsVertex(Graph &graph, ComputeSet &computeSet, Type type,
 void popops::updateScalarInRows(Graph &graph, const Tensor &params,
                                 const Tensor &indices, Sequence &program,
                                 const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, indices));
+
   // Check preconditions.
   expect(indices.rank() == 1, "indices must have rank 1");
   expect(indices.elementType() == UNSIGNED_INT,
@@ -201,8 +203,7 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
   auto mapping = graph.getTileMapping(params);
 
   const Tensor flatParams = params.flatten();
-  ComputeSet computeSet =
-      graph.addComputeSet(debugPrefix + "/UpdateScalarInRows");
+  ComputeSet computeSet = graph.addComputeSet({di, "UpdateScalarInRows"});
   const auto target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(elementType);
 
@@ -268,5 +269,5 @@ void popops::updateScalarInRows(Graph &graph, const Tensor &params,
     }
   }
 
-  program.add(Execute(computeSet));
+  program.add(Execute(computeSet, {di}));
 }

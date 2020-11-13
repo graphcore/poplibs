@@ -1,10 +1,17 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #include <iomanip>
 #include <popops/Expr.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/exceptions.hpp>
 #include <regex>
 #include <sstream>
 #include <string>
+
+namespace poputil {
+template <> poplar::ProfileValue toProfileValue(const popops::expr::Expr &p) {
+  return poplar::ProfileValue("<expr::Expr>");
+}
+} // namespace poputil
 
 namespace popops {
 namespace expr {

@@ -10,6 +10,7 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Reduce.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
@@ -191,13 +192,12 @@ public:
   // using the replication index tensor create a new tensor with
   // value = the position in a clockwise ring of this replica is
   Tensor initRingIndexTensor(Graph &graph, const Tensor &repIndex,
-                             Sequence &prog, const std::string &debugPrefix,
+                             Sequence &prog, const DebugNameAndId &dnai,
                              const unsigned replicasPerRing,
                              const int startOffset) const {
     // determine the replica index within the local ring
-    auto localRingRepIndex =
-        popops::map(graph, popops::expr::_1 % replicasPerRing, {repIndex}, prog,
-                    debugPrefix);
+    auto localRingRepIndex = popops::map(
+        graph, popops::expr::_1 % replicasPerRing, {repIndex}, prog, {dnai});
 
     // start offset allows to initialise this at different positions
     // in the ring for clockwise and anticlockwise. Used by the meet
@@ -223,7 +223,7 @@ public:
         graph,
         (id + ((replicasPerRing + startOffset) % replicasPerRing)) %
             replicasPerRing,
-        {localRingRepIndex}, prog, debugPrefix);
+        {localRingRepIndex}, prog, {dnai});
   }
 };
 
@@ -307,7 +307,8 @@ static std::vector<std::size_t> getNumElementsPerIpu(const Graph &graph,
 }
 
 static Tensor concatSlices(const Tensor &t, Graph &graph,
-                           const std::vector<Interval> &intervals) {
+                           const std::vector<Interval> &intervals,
+                           const DebugNameAndId &dnai) {
   assert(t.rank() == 1);
   std::vector<Tensor> toConcat;
   toConcat.reserve(intervals.size());
@@ -315,19 +316,20 @@ static Tensor concatSlices(const Tensor &t, Graph &graph,
     toConcat.push_back(t.slice(interval.begin(), interval.end()));
   }
   if (toConcat.empty()) {
-    return graph.addVariable(t.elementType(), {0});
+    return graph.addVariable(t.elementType(), {0}, {dnai});
   }
   return concat(toConcat);
 }
 
 // Take a tensor and return a vector of tensors where each element
 // is a slice of the original tensor that spans only one ipu.
-static std::vector<Tensor> getPerIpuTensors(const Tensor &t, Graph &graph) {
+static std::vector<Tensor> getPerIpuTensors(const Tensor &t, Graph &graph,
+                                            const DebugNameAndId &dnai) {
   const auto ipuMapping = getIpuMapping(graph, t);
   const auto numIpus = ipuMapping.size();
   std::vector<Tensor> result;
   for (unsigned ipu = 0; ipu != numIpus; ++ipu) {
-    result.push_back(concatSlices(t, graph, ipuMapping[ipu]));
+    result.push_back(concatSlices(t, graph, ipuMapping[ipu], {dnai}));
   }
   return result;
 }
@@ -408,11 +410,11 @@ static CollectiveMethod pickReduceScatterMethod(Graph &graph, const Tensor &t) {
 // number of elements and the IPU mapping of each fragment is identical,
 // adding padding if necessary to achieve this.
 static Tensor replicatedSplitIntoFragments(const Tensor &t,
-                                           unsigned numFragments,
-                                           Graph &graph) {
+                                           unsigned numFragments, Graph &graph,
+                                           const DebugNameAndId &dnai) {
   logging::popops::debug("Split into fragments");
   std::vector<Tensor> perIpuFragments;
-  for (auto &ipuTensor : getPerIpuTensors(t, graph)) {
+  for (auto &ipuTensor : getPerIpuTensors(t, graph, {dnai})) {
     unsigned padding =
         (numFragments - ipuTensor.dim(0) % numFragments) % numFragments;
     auto padded = pad(graph, ipuTensor, {0}, {padding}, 0.0f,
@@ -447,29 +449,31 @@ static Tensor giveFragmentsRingOrder(const Tensor &input,
 
 static void internalReplicatedSlice(Graph &graph, const Tensor &fragmentsByRing,
                                     const Tensor &sliceIndex, const Tensor &dst,
-                                    Sequence &prog) {
+                                    Sequence &prog,
+                                    const DebugNameAndId &dnai) {
   auto dslice = dynamicSlice(graph, fragmentsByRing, sliceIndex.expand({0}),
                              {0}, {1}, prog);
   // this copy is probably avoidable
-  prog.add(Copy(dslice, dst));
+  prog.add(Copy(dslice, dst, false, {dnai}));
 }
 
 static void replicatedRankSlice(Graph &graph, const Tensor &fragmentsByRing,
                                 const Tensor &sliceIndex, const Tensor &dst,
                                 Sequence &prog,
-                                FragmentCopyMethod fragmentCopyMethod) {
+                                FragmentCopyMethod fragmentCopyMethod,
+                                const DebugNameAndId &dnai) {
   logging::popops::debug("Replicated rank slice");
   assert(fragmentsByRing.rank() == dst.rank() + 1);
   assert(fragmentsByRing[0].shape() == dst.shape());
   if (fragmentCopyMethod == FragmentCopyMethod::DYNAMIC_SLICE) {
     return internalReplicatedSlice(graph, fragmentsByRing, sliceIndex, dst,
-                                   prog);
+                                   prog, {dnai});
   }
   assert(fragmentCopyMethod == FragmentCopyMethod::SWITCH);
   unsigned n = fragmentsByRing.dim(0);
   auto swtch = Switch::switchWithUnreachableDefault(sliceIndex);
   for (unsigned i = 0; i < n; ++i) {
-    swtch.add(i, Copy(fragmentsByRing[i], dst));
+    swtch.add(i, Copy(fragmentsByRing[i], dst, false, {dnai}));
   }
   prog.add(swtch);
 }
@@ -485,7 +489,8 @@ static void internalReplicatedUpdate(Graph &graph, const Tensor &fragments,
 static void replicatedRankUpdate(Graph &graph, const Tensor &src,
                                  const Tensor &fragments,
                                  const Tensor &sliceIndex, Sequence &prog,
-                                 FragmentCopyMethod fragmentCopyMethod) {
+                                 FragmentCopyMethod fragmentCopyMethod,
+                                 const DebugNameAndId &dnai) {
   logging::popops::debug("replicatedRankUpdate begin");
   assert(src.rank() + 1 == fragments.rank());
   assert(src.shape() == fragments[0].shape());
@@ -498,7 +503,7 @@ static void replicatedRankUpdate(Graph &graph, const Tensor &src,
   unsigned n = fragments.dim(0);
   auto swtch = Switch::switchWithUnreachableDefault(sliceIndex);
   for (unsigned i = 0; i < n; ++i) {
-    swtch.add(i, Copy(src, fragments[i]));
+    swtch.add(i, Copy(src, fragments[i], false, {dnai}));
   }
   prog.add(swtch);
 }
@@ -518,7 +523,7 @@ crossReplicaCopy(Graph &graph, const Tensor &src, const Tensor &dst,
 // Map a buffer so each element is mapped to the same IPU as the
 // corresponding elements in the fragments.
 static void mapBuffer(Graph &graph, const Tensor &buffer,
-                      const Tensor &fragments) {
+                      const Tensor &fragments, const DebugNameAndId &dnai) {
   assert(buffer.numElements() == fragments[0].numElements());
   // The IPU mapping of all fragments should be identical so we only need
   // to look at the first fragment.
@@ -538,7 +543,8 @@ static void mapBuffer(Graph &graph, const Tensor &buffer,
     }
     virtualGraph = virtualGraph.createVirtualGraph(usedTiles);
     poputil::mapTensorLinearly(
-        virtualGraph, concatSlices(buffer, virtualGraph, ipuMapping[ipu]));
+        virtualGraph,
+        concatSlices(buffer, virtualGraph, ipuMapping[ipu], {dnai}));
   }
 }
 
@@ -581,7 +587,7 @@ Graph getReplicatedGraphWithAllIpus(Graph &graph) {
 */
 std::vector<std::pair<Tensor, Tensor>>
 splitExchangesToAvoidDeadlock(Graph &graph, const Tensor &src,
-                              const Tensor &dst) {
+                              const Tensor &dst, const DebugNameAndId &dnai) {
   if (graph.getTarget().getIpuLinkTopology() != IpuLinkTopology::Torus ||
       getIpusPerReplica(graph) <= 2) {
     // We only have problems with torus configuration and replica sizes which
@@ -595,9 +601,9 @@ splitExchangesToAvoidDeadlock(Graph &graph, const Tensor &src,
     throw poputil::poplibs_error("Odd sized replicas are unsupported");
   }
   const auto srcTensorPerIpu =
-      getPerIpuTensors(src, replicatedGraphWithAllIpus);
+      getPerIpuTensors(src, replicatedGraphWithAllIpus, {dnai});
   const auto dstTensorPerIpu =
-      getPerIpuTensors(dst, replicatedGraphWithAllIpus);
+      getPerIpuTensors(dst, replicatedGraphWithAllIpus, {dnai});
 
   std::vector<Tensor> evenRailSrcTensors;
   std::vector<Tensor> oddRailSrcTensors;
@@ -687,7 +693,8 @@ static std::size_t getMaxPerTileElements(Graph &graph, const Tensor &t) {
 
 static std::optional<Tensor>
 createSliceableTensorIfBenefical(Graph &graph, const Tensor &slice,
-                                 unsigned numSlices, const std::string &name) {
+                                 unsigned numSlices,
+                                 const DebugNameAndId &dnai) {
   // Copying the input to a sliceable tensor avoids a switch which reduces the
   // amount of control code required. The disadvantage is that it increases
   // the amount of live tensor data by introducing another copy of the input.
@@ -707,20 +714,20 @@ createSliceableTensorIfBenefical(Graph &graph, const Tensor &slice,
   if (switchCodePerTile < sliceableTensorMaxBytesPerTile)
     return {};
   return createSliceableTensorFromSlice(graph, slice.expand({0}), {0},
-                                        {numSlices}, name);
+                                        {numSlices}, {dnai});
 }
 
 static Tensor
 copyToSliceableTensorIfBeneficial(Graph &graph, const Tensor &fragments,
-                                  const Tensor &slice, const std::string &name,
-                                  Sequence &prog,
+                                  const Tensor &slice,
+                                  const DebugNameAndId &dnai, Sequence &prog,
                                   FragmentCopyMethod &fragmentCopyMethod) {
   auto rearranged =
-      createSliceableTensorIfBenefical(graph, slice, fragments.dim(0), name);
+      createSliceableTensorIfBenefical(graph, slice, fragments.dim(0), {dnai});
   if (!rearranged)
     return fragments;
   logging::popops::debug("Copy input to sliceable tensor");
-  prog.add(Copy(fragments, *rearranged));
+  prog.add(Copy(fragments, *rearranged, false, {dnai}));
   fragmentCopyMethod = FragmentCopyMethod::DYNAMIC_SLICE;
   return *rearranged;
 }
@@ -728,14 +735,14 @@ copyToSliceableTensorIfBeneficial(Graph &graph, const Tensor &fragments,
 static Tensor
 copyFromSliceableTensorIfBeneficial(Graph &graph, const Tensor &fragments,
                                     const Tensor &slice,
-                                    const std::string &name, Sequence &prog,
+                                    const DebugNameAndId &dnai, Sequence &prog,
                                     FragmentCopyMethod &fragmentCopyMethod) {
   auto rearranged =
-      createSliceableTensorIfBenefical(graph, slice, fragments.dim(0), name);
+      createSliceableTensorIfBenefical(graph, slice, fragments.dim(0), {dnai});
   if (!rearranged)
     return fragments;
   logging::popops::debug("Copy output from sliceable tensor");
-  prog.add(Copy(*rearranged, fragments));
+  prog.add(Copy(*rearranged, fragments, false, {dnai}));
   fragmentCopyMethod = FragmentCopyMethod::DYNAMIC_SLICE;
   return *rearranged;
 }
@@ -745,8 +752,8 @@ copyFromSliceableTensorIfBeneficial(Graph &graph, const Tensor &fragments,
 // number can be used to initialise the clockwise and anticlockwise ring
 static CollectivesProgram unidirectionalRingReduceScatter(
     Graph &graph, const Tensor &toReduce, popops::Operation op,
-    Direction direction, const std::string &debugPrefix,
-    const unsigned numSteps, const int startOffset = 0) {
+    Direction direction, const DebugNameAndId &dnai, const unsigned numSteps,
+    const int startOffset = 0) {
   logging::popops::debug("Unidirectional ring reduce scatter");
   CollectivesProgram program;
   auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
@@ -760,16 +767,16 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   auto numFragments = replicasPerRing;
 
   auto fragmentsByReplica =
-      replicatedSplitIntoFragments(toReduce, numFragments, graph);
+      replicatedSplitIntoFragments(toReduce, numFragments, graph, {dnai});
   auto fragmentsByRing = giveFragmentsRingOrder(fragmentsByReplica, ring);
   auto fragmentSize = fragmentsByRing.dim(1);
   auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize},
-                                     debugPrefix + "/ScatterSrc");
-  mapBuffer(graph, srcBuffer, fragmentsByRing);
+                                     {dnai, "ScatterSrc"});
+  mapBuffer(graph, srcBuffer, fragmentsByRing, {dnai});
   fragmentsByRing = copyToSliceableTensorIfBeneficial(
-      graph, fragmentsByRing, srcBuffer, debugPrefix + "/InputRearranged",
+      graph, fragmentsByRing, srcBuffer, {dnai, "InputRearranged"},
       program.rearrangePre, fragmentCopyMethod);
-  auto dstBuffer = graph.clone(srcBuffer, debugPrefix + "/ScatterDst");
+  auto dstBuffer = graph.clone(srcBuffer, {dnai, "ScatterDst"});
   auto repFactorTensor = graph.addReplicationIndexConstant();
 
   // Map index tensor to IPU involved in this collective program
@@ -779,17 +786,17 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   program.repeatCounter = numSteps - 1;
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
   auto sliceIndex = ring.initRingIndexTensor(
-      graph, repFactorTensor, program.initIndex, debugPrefix, replicasPerRing,
+      graph, repFactorTensor, program.initIndex, {dnai}, replicasPerRing,
       startOffset + incrementValue);
   // create program to change the slice index to it's next value.
   // called every iteration of the repeat
   popops::mapInPlace(graph,
                      (popops::expr::_1 + (replicasPerRing + incrementValue)) %
                          replicasPerRing,
-                     {sliceIndex}, program.incrementIndex);
+                     {sliceIndex}, program.incrementIndex, {dnai});
   // create the cross replica copy the collective needs
   const auto copies =
-      splitExchangesToAvoidDeadlock(graph, srcBuffer, dstBuffer);
+      splitExchangesToAvoidDeadlock(graph, srcBuffer, dstBuffer, {dnai});
   program.exchangeProg.resize(copies.size());
   for (unsigned i = 0; i < copies.size(); i++) {
     program.exchangeProg[i].setCopy(
@@ -802,10 +809,9 @@ static CollectivesProgram unidirectionalRingReduceScatter(
   // slice index created earlier. The slice index is incremented by the
   // increment program on each iteration of the repeat.
   replicatedRankSlice(graph, fragmentsByRing, sliceIndex, srcBuffer,
-                      program.sliceFragments, fragmentCopyMethod);
+                      program.sliceFragments, fragmentCopyMethod, {dnai});
   // perform the reduction with the received data and the value sliced
-  program.reduceProg =
-      ReduceProg(srcBuffer, dstBuffer, op, debugPrefix + "/Reduce");
+  program.reduceProg = ReduceProg(srcBuffer, dstBuffer, op, {dnai, "Reduce"});
   program.undefTensor = concat({srcBuffer, dstBuffer});
   program.srcBuffer = std::move(srcBuffer);
   program.dstBuffer = std::move(dstBuffer);
@@ -816,7 +822,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
 static Tensor
 bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
                                    popops::Operation op, Sequence &prog,
-                                   const std::string &debugPrefix) {
+                                   const poplar::DebugNameAndId &dnai) {
   const auto replicasPerRing = replicasPerILD(graph);
 
   // split to reduce in half and call the clockwise and anticlockwise on
@@ -830,18 +836,19 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
   }
 
   auto fragments =
-      replicatedSplitIntoFragments(toReduce, replicasPerRing, graph);
+      replicatedSplitIntoFragments(toReduce, replicasPerRing, graph, {dnai});
   auto fragmentSize = fragments.dim(1);
   auto clockwiseFragments = fragments.slice(0, fragmentSize / 2, 1);
   auto anticlockwiseFragments =
       fragments.slice(fragmentSize / 2, fragmentSize, 1);
   auto clockwiseProg = unidirectionalRingReduceScatter(
       graph, clockwiseFragments.flatten(), op, Direction::CLOCKWISE,
-      debugPrefix + "/clockwise", replicasPerRing);
+      {dnai, "clockwise"}, replicasPerRing);
   auto anticlockwiseProg = unidirectionalRingReduceScatter(
       graph, anticlockwiseFragments.flatten(), op, Direction::ANTICLOCKWISE,
-      debugPrefix + "/anticlockwise", replicasPerRing);
-  prog.add(bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph));
+      {dnai, "anticlockwise"}, replicasPerRing);
+  prog.add(
+      bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph, {dnai}));
   auto srcBuffer =
       concat(clockwiseProg.srcBuffer.get(), anticlockwiseProg.srcBuffer.get());
   return srcBuffer;
@@ -851,13 +858,13 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
                                             const Tensor &toReduce,
                                             popops::Operation op,
                                             Sequence &prog,
-                                            const std::string &debugPrefix) {
+                                            const DebugNameAndId &dnai) {
   logging::popops::debug("Meet in the middle reduce scatter");
   const auto replicasPerRing = replicasPerILD(graph);
   if (replicasPerRing <= 2) {
     auto program = unidirectionalRingReduceScatter(
-        graph, toReduce, op, CLOCKWISE, debugPrefix, replicasPerRing);
-    prog.add(unidirectionalSequence(program, graph));
+        graph, toReduce, op, CLOCKWISE, {dnai}, replicasPerRing);
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return program.srcBuffer.get();
   }
   auto numFragments = replicasPerRing;
@@ -866,11 +873,11 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   const int anticlockwiseOffset = (numFragments - numSteps) + 1;
 
   auto clockwiseProg = unidirectionalRingReduceScatter(
-      graph, toReduce, op, Direction::CLOCKWISE, debugPrefix + "/clockwise",
-      numSteps, clockwiseOffset);
+      graph, toReduce, op, Direction::CLOCKWISE, {dnai, "clockwise"}, numSteps,
+      clockwiseOffset);
   auto anticlockwiseProg = unidirectionalRingReduceScatter(
-      graph, toReduce, op, Direction::ANTICLOCKWISE,
-      debugPrefix + "/anticlockwise", numSteps - 1, anticlockwiseOffset);
+      graph, toReduce, op, Direction::ANTICLOCKWISE, {dnai, "anticlockwise"},
+      numSteps - 1, anticlockwiseOffset);
 
   unsigned topLevelControlTile =
       replicasPerRing == graph.getTopLevelGraph().getReplicationFactor()
@@ -880,17 +887,17 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   Sequence combineBuffers;
   opInPlace(graph, op, clockwiseProg.srcBuffer.get(),
             anticlockwiseProg.dstBuffer.get(), combineBuffers,
-            debugPrefix + "/Reduce");
+            {dnai, "Reduce"});
   prog.add(meetInMiddleReduceScatterSequence(clockwiseProg, anticlockwiseProg,
                                              graph, std::move(combineBuffers),
-                                             topLevelControlTile));
+                                             topLevelControlTile, {dnai}));
   logging::popops::debug("Meet in the middle ring reduce scatter end");
   return clockwiseProg.srcBuffer.get();
 }
 
 static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
                                     popops::Operation op, Sequence &prog,
-                                    const std::string &debugPrefix,
+                                    const poplar::DebugNameAndId &dnai,
                                     const CollectiveOptions &options) {
   CollectiveMethod method = options.method;
   if (method == CollectiveMethod::AUTO) {
@@ -903,29 +910,28 @@ static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
     logging::popops::debug(
         "Reduce scatter collective method is clockwise ring");
     auto program = unidirectionalRingReduceScatter(
-        graph, toReduce, op, CLOCKWISE, debugPrefix, replicasPerILD(graph));
-    prog.add(unidirectionalSequence(program, graph));
+        graph, toReduce, op, CLOCKWISE, {dnai}, replicasPerILD(graph));
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return program.srcBuffer.get();
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
     logging::popops::debug(
         "reduce scatter collective method is anti-clockwise ring");
     auto program = unidirectionalRingReduceScatter(
-        graph, toReduce, op, ANTICLOCKWISE, debugPrefix, replicasPerILD(graph));
-    prog.add(unidirectionalSequence(program, graph));
+        graph, toReduce, op, ANTICLOCKWISE, {dnai}, replicasPerILD(graph));
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return program.srcBuffer.get();
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
     logging::popops::debug(
         "Reduce scatter collective method is Bidirectional ring");
     return bidirectionalRingPairReduceScatter(graph, toReduce, op, prog,
-                                              debugPrefix);
+                                              {dnai});
   }
   case CollectiveMethod::MEET_IN_MIDDLE_RING: {
     logging::popops::debug("Reduce scatter collective "
                            "method is Meet in the middle ring");
-    return ringMeetInMiddleReduceScatter(graph, toReduce, op, prog,
-                                         debugPrefix);
+    return ringMeetInMiddleReduceScatter(graph, toReduce, op, prog, {dnai});
   }
   }
 }
@@ -947,9 +953,10 @@ static unsigned getTileOfLastElement(Graph &graph, const Tensor &t) {
 // IPU is equal to the number of elements of the fragment that is on that
 // IPU times the number of fragments.
 static Tensor padAllGatherResult(Graph &graph, const Tensor &fragment,
-                                 unsigned numFragments, const Tensor &result) {
+                                 unsigned numFragments, const Tensor &result,
+                                 const DebugNameAndId &dnai) {
   auto fragmentElementsPerIpu = getNumElementsPerIpu(graph, fragment);
-  auto referencePerIpu = getPerIpuTensors(result, graph);
+  auto referencePerIpu = getPerIpuTensors(result, graph, {dnai});
   const auto numIpus = fragmentElementsPerIpu.size();
   assert(referencePerIpu.size() == numIpus);
   std::vector<Tensor> toConcat = {result.flatten()};
@@ -961,7 +968,7 @@ static Tensor padAllGatherResult(Graph &graph, const Tensor &fragment,
         fragmentElements * numFragments - referenceElements;
     if (paddingElements > 0) {
       auto padding = graph.addVariable(result.elementType(), {paddingElements},
-                                       "AllGatherPadding");
+                                       {dnai, "AllGatherPadding"});
       auto tile = getTileOfLastElement(graph, referencePerIpu[ipu]);
       graph.setTileMapping(padding, tile);
       toConcat.push_back(padding);
@@ -972,14 +979,14 @@ static Tensor padAllGatherResult(Graph &graph, const Tensor &fragment,
 
 static CollectivesProgram unidirectionalRingAllGatherImpl(
     Graph &graph, const Tensor &toGather, const Tensor &fragmentsByRing,
-    const RingTopology &ring, Direction direction,
-    const std::string &debugPrefix, const unsigned numSteps,
-    const int startOffset, FragmentCopyMethod fragmentCopyMethod) {
+    const RingTopology &ring, Direction direction, const DebugNameAndId &dnai,
+    const unsigned numSteps, const int startOffset,
+    FragmentCopyMethod fragmentCopyMethod) {
   CollectivesProgram program;
 
   const auto replicasPerRing = replicasPerILD(graph);
-  auto srcBuffer = graph.clone(toGather, debugPrefix + "/GatherSrc");
-  auto dstBuffer = graph.clone(toGather, debugPrefix + "/GatherDst");
+  auto srcBuffer = graph.clone(toGather, {dnai, "GatherSrc"});
+  auto dstBuffer = graph.clone(toGather, {dnai, "GatherDst"});
   assert(fragmentsByRing.dim(1) == toGather.numElements());
 
   program.repeatCounter = numSteps - 1;
@@ -988,15 +995,15 @@ static CollectivesProgram unidirectionalRingAllGatherImpl(
                        getScalarTile(graph.getTileMapping(toGather)));
   auto sliceIndex =
       ring.initRingIndexTensor(graph, replicationIndex, program.initIndex,
-                               debugPrefix, replicasPerRing, startOffset);
-  program.firstGatherCopy.add(Copy(toGather, srcBuffer));
+                               {dnai}, replicasPerRing, startOffset);
+  program.firstGatherCopy.add(Copy(toGather, srcBuffer, false, {dnai}));
   const unsigned incrementValue = direction == Direction::CLOCKWISE ? -1 : 1;
   popops::mapInPlace(graph,
                      (popops::expr::_1 + (replicasPerRing + incrementValue)) %
                          replicasPerRing,
-                     {sliceIndex}, program.incrementIndex);
+                     {sliceIndex}, program.incrementIndex, {dnai});
   const auto copies =
-      splitExchangesToAvoidDeadlock(graph, srcBuffer, dstBuffer);
+      splitExchangesToAvoidDeadlock(graph, srcBuffer, dstBuffer, {dnai});
   program.exchangeProg.resize(copies.size());
   for (unsigned i = 0; i < copies.size(); i++) {
     program.exchangeProg[i].setCopy(
@@ -1005,17 +1012,18 @@ static CollectivesProgram unidirectionalRingAllGatherImpl(
             [&](unsigned src) { return ring.getRank(src, direction, 1); }),
         direction);
   }
-  program.allgatherCopy.add(Copy(dstBuffer, srcBuffer));
+  program.allgatherCopy.add(Copy(dstBuffer, srcBuffer, false, {dnai}));
   replicatedRankUpdate(graph, srcBuffer, fragmentsByRing, sliceIndex,
-                       program.sliceFragments, fragmentCopyMethod);
+                       program.sliceFragments, fragmentCopyMethod, {dnai});
   program.undefTensor = concat(
       {fragmentsByRing.flatten(), srcBuffer.flatten(), dstBuffer.flatten()});
   return program;
 }
 
-static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
-    Graph &graph, const Tensor &toGather, const std::optional<Tensor> &dst,
-    Direction direction, const std::string &debugPrefix) {
+static std::pair<CollectivesProgram, Tensor>
+unidirectionalRingAllGather(Graph &graph, const Tensor &toGather,
+                            const std::optional<Tensor> &dst,
+                            Direction direction, const DebugNameAndId &dnai) {
   logging::popops::debug("Unidirectional ring allGather");
   const auto replicasPerRing = replicasPerILD(graph);
   const unsigned ipusPerReplica = getIpusPerReplica(graph);
@@ -1030,25 +1038,24 @@ static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
   if (dst) {
     result = *dst;
     auto paddedResult =
-        padAllGatherResult(graph, toGather, numFragments, result);
+        padAllGatherResult(graph, toGather, numFragments, result, {dnai});
     auto fragmentsByReplica =
-        replicatedSplitIntoFragments(paddedResult, numFragments, graph);
+        replicatedSplitIntoFragments(paddedResult, numFragments, graph, {dnai});
     fragmentsByRing = giveFragmentsRingOrder(fragmentsByReplica, ring);
     fragmentsByRing = copyFromSliceableTensorIfBeneficial(
-        graph, fragmentsByRing, toGather, debugPrefix + "/SliceableOutput",
+        graph, fragmentsByRing, toGather, {dnai, "SliceableOutput"},
         resultRearrange, fragmentCopyMethod);
   } else {
     // Since we are free to choose the layout we can use dynamic slice without
     // the penalty of a rearranging copy.
-    fragmentsByRing =
-        createSliceableTensorFromSlice(graph, toGather.expand({0}), {0},
-                                       {numFragments}, debugPrefix + "/Output");
+    fragmentsByRing = createSliceableTensorFromSlice(
+        graph, toGather.expand({0}), {0}, {numFragments}, {dnai, "Output"});
     result = giveFragmentsRankOrder(fragmentsByRing, ring);
     fragmentCopyMethod = FragmentCopyMethod::DYNAMIC_SLICE;
   }
   auto prog = unidirectionalRingAllGatherImpl(
-      graph, toGather, fragmentsByRing, ring, direction, debugPrefix,
-      numFragments, 0, fragmentCopyMethod);
+      graph, toGather, fragmentsByRing, ring, direction, {dnai}, numFragments,
+      0, fragmentCopyMethod);
   prog.rearrangePost.add(resultRearrange);
   return {prog, result};
 }
@@ -1057,7 +1064,7 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
                                              const Tensor &toGather,
                                              const std::optional<Tensor> &dst,
                                              Sequence &prog,
-                                             const std::string &debugPrefix) {
+                                             const DebugNameAndId &dnai) {
   logging::popops::debug("Bidirectional ring allGather");
   const auto replicasPerRing = replicasPerILD(graph);
 
@@ -1066,9 +1073,10 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
   CollectivesProgram clockwiseProg, anticlockwiseProg;
   std::optional<Tensor> clockwiseDst, anticlockwiseDst;
   if (dst) {
-    auto resultPadded = padAllGatherResult(graph, toGather, numFragments, *dst);
+    auto resultPadded =
+        padAllGatherResult(graph, toGather, numFragments, *dst, {dnai});
     auto fragments =
-        replicatedSplitIntoFragments(resultPadded, numFragments, graph);
+        replicatedSplitIntoFragments(resultPadded, numFragments, graph, {dnai});
     clockwiseDst = fragments.slice(0, fragmentSize / 2, 1).flatten();
     anticlockwiseDst =
         fragments.slice(fragmentSize / 2, fragmentSize, 1).flatten();
@@ -1076,13 +1084,13 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
   Tensor clockwiseResult, anticlockwiseResult;
   std::tie(clockwiseProg, clockwiseResult) = unidirectionalRingAllGather(
       graph, toGather.flatten().slice(0, fragmentSize / 2), clockwiseDst,
-      Direction::CLOCKWISE, debugPrefix + "/clockwise");
+      Direction::CLOCKWISE, {dnai, "clockwise"});
   std::tie(anticlockwiseProg, anticlockwiseResult) =
       unidirectionalRingAllGather(
           graph, toGather.flatten().slice(fragmentSize / 2, fragmentSize),
-          anticlockwiseDst, Direction::ANTICLOCKWISE,
-          debugPrefix + "/anticlockwise");
-  prog.add(bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph));
+          anticlockwiseDst, Direction::ANTICLOCKWISE, {dnai, "anticlockwise"});
+  prog.add(
+      bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph, {dnai}));
   if (dst)
     return *dst;
   auto resultShape = toGather.expand({0}).broadcast(numFragments, 0).shape();
@@ -1092,15 +1100,15 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
 static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
                                         const std::optional<Tensor> &dst,
                                         Sequence &prog,
-                                        const std::string &debugPrefix) {
+                                        const DebugNameAndId &dnai) {
   const auto replicasPerRing = replicasPerILD(graph);
   logging::popops::debug("Meet in the middle ring allGather");
   if (replicasPerRing <= 2) {
     CollectivesProgram program;
     Tensor result;
     std::tie(program, result) = unidirectionalRingAllGather(
-        graph, toGather, dst, Direction::CLOCKWISE, debugPrefix);
-    prog.add(unidirectionalSequence(program, graph));
+        graph, toGather, dst, Direction::CLOCKWISE, {dnai});
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return result;
   }
   const unsigned ipusPerReplica = getIpusPerReplica(graph);
@@ -1123,31 +1131,29 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
 
   if (dst) {
     result = *dst;
-    result = padAllGatherResult(graph, toGather, numFragments, result);
-    result = replicatedSplitIntoFragments(result, numFragments, graph);
+    result = padAllGatherResult(graph, toGather, numFragments, result, {dnai});
+    result = replicatedSplitIntoFragments(result, numFragments, graph, {dnai});
     result = giveFragmentsRingOrder(result, ring);
     result = copyFromSliceableTensorIfBeneficial(
-        graph, result, toGather, debugPrefix + "/SliceableOutput",
-        resultRearrange, fragmentCopyMethod);
+        graph, result, toGather, {dnai, "SliceableOutput"}, resultRearrange,
+        fragmentCopyMethod);
   } else {
     // Since we are free to choose the layout we can use dynamic slice without
     // the penalty of a rearranging copy.
-    result =
-        createSliceableTensorFromSlice(graph, toGather.expand({0}), {0},
-                                       {numFragments}, debugPrefix + "/Output");
+    result = createSliceableTensorFromSlice(graph, toGather.expand({0}), {0},
+                                            {numFragments}, {dnai, "Output"});
     fragmentCopyMethod = FragmentCopyMethod::DYNAMIC_SLICE;
   }
 
   auto clockwiseProg = unidirectionalRingAllGatherImpl(
-      graph, toGather, result, ring, Direction::CLOCKWISE,
-      debugPrefix + "/clockwise", numSteps, clockwiseOffset,
-      fragmentCopyMethod);
+      graph, toGather, result, ring, Direction::CLOCKWISE, {dnai, "clockwise"},
+      numSteps, clockwiseOffset, fragmentCopyMethod);
   auto anticlockwiseProg = unidirectionalRingAllGatherImpl(
       graph, toGather, result, ring, Direction::ANTICLOCKWISE,
-      debugPrefix + "/anticlockwise", numSteps - 1, anticlockwiseOffset,
+      {dnai, "anticlockwise"}, numSteps - 1, anticlockwiseOffset,
       fragmentCopyMethod);
   prog.add(meetInMiddleAllGatherSequence(clockwiseProg, anticlockwiseProg,
-                                         graph, topLevelControlTile));
+                                         graph, topLevelControlTile, {dnai}));
   prog.add(resultRearrange);
   if (dst)
     return *dst;
@@ -1162,7 +1168,7 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
 // gathered elements are ignored
 static Tensor allGather(Graph &graph, const Tensor &toGather,
                         const std::optional<Tensor> &dst, Sequence &prog,
-                        const std::string &debugPrefix,
+                        const DebugNameAndId &dnai,
                         const CollectiveOptions &options) {
   CollectiveMethod method = options.method;
   if (method == CollectiveMethod::AUTO) {
@@ -1175,9 +1181,9 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
     logging::popops::debug("All gather collective method is clockwise ring");
     Tensor result;
     CollectivesProgram program;
-    std::tie(program, result) = unidirectionalRingAllGather(
-        graph, toGather, dst, CLOCKWISE, debugPrefix);
-    prog.add(unidirectionalSequence(program, graph));
+    std::tie(program, result) =
+        unidirectionalRingAllGather(graph, toGather, dst, CLOCKWISE, {dnai});
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return result;
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
@@ -1186,20 +1192,19 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
     Tensor result;
     CollectivesProgram program;
     std::tie(program, result) = unidirectionalRingAllGather(
-        graph, toGather, dst, ANTICLOCKWISE, debugPrefix);
-    prog.add(unidirectionalSequence(program, graph));
+        graph, toGather, dst, ANTICLOCKWISE, {dnai});
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return result;
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
     logging::popops::debug(
         "All gather collective method is Bidirectional ring");
-    return bidirectionalRingPairAllGather(graph, toGather, dst, prog,
-                                          debugPrefix);
+    return bidirectionalRingPairAllGather(graph, toGather, dst, prog, {dnai});
   }
   case CollectiveMethod::MEET_IN_MIDDLE_RING: {
     logging::popops::debug(
         "All gather collective method is Meet in the middle ring");
-    return ringMeetInMiddleAllGather(graph, toGather, dst, prog, debugPrefix);
+    return ringMeetInMiddleAllGather(graph, toGather, dst, prog, {dnai});
   }
   }
 }
@@ -1208,9 +1213,11 @@ poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
                                        popops::Operation op, Sequence &prog,
                                        const poplar::DebugContext &debugContext,
                                        const OptionFlags &optionFlags) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(toReduce, op, optionFlags));
+
   logging::popops::info("replicatedReduceScatter data={}, op={}, name={}",
-                        toReduce.shape(), op, debugPrefix);
+                        toReduce.shape(), op, debugContext.getPathName());
   logging::popops::debug("Replicated reduce scatter begin ({}B)",
                          toReduce.numElements() * graph.getTarget().getTypeSize(
                                                       toReduce.elementType()));
@@ -1223,30 +1230,31 @@ poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
   CollectiveOptions options;
   parseCollectiveOptions(optionFlags, options);
 
-  auto output =
-      internalReduceScatter(graph, toReduce, op, prog, debugPrefix, options);
+  auto output = internalReduceScatter(graph, toReduce, op, prog, {di}, options);
   logging::popops::debug("Replicated reduce scatter end");
+  di.addOutput(output);
   return output;
 }
 
 static Tensor
 noCheckReplicatedAllGather(Graph &graph, const Tensor &toGather,
                            const std::optional<Tensor> &dst, Sequence &prog,
-                           const std::string &debugPrefix,
+                           const DebugNameAndId &dnai,
                            const poplar::OptionFlags &optionFlags) {
   CollectiveOptions options;
   parseCollectiveOptions(optionFlags, options);
 
-  return allGather(graph, toGather, dst, prog, debugPrefix, options);
+  return allGather(graph, toGather, dst, prog, {dnai}, options);
 }
 
 poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
                                    Sequence &prog,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &optionFlags) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toGather, optionFlags));
+
   logging::popops::info("replicatedAllGather data={}, name={}",
-                        toGather.shape(), debugPrefix);
+                        toGather.shape(), debugContext.getPathName());
   logging::popops::debug("Replicated all gather begin ({}B)",
                          toGather.numElements() * graph.getTarget().getTypeSize(
                                                       toGather.elementType()));
@@ -1260,9 +1268,10 @@ poplar::Tensor replicatedAllGather(Graph &graph, const Tensor &toGather,
   }
 
   auto output = noCheckReplicatedAllGather(graph, toGather, std::nullopt, prog,
-                                           debugPrefix, optionFlags);
+                                           {di}, optionFlags);
 
   logging::popops::debug("Replicated all gather end");
+  di.addOutput(output);
   return output;
 }
 
@@ -1283,7 +1292,8 @@ getNumElements(Graph::TileToTensorMapping::const_iterator begin,
 // the specified number of fragments and apply the same permutation to the
 // result tensor.
 static void allReduceReorder(Graph &graph, poplar::Tensor *data,
-                             poplar::Tensor *result, unsigned numFragments) {
+                             poplar::Tensor *result, unsigned numFragments,
+                             const DebugNameAndId &dnai) {
   logging::popops::debug(
       "Reorder data tensor for an all-reduce with {} fragments", numFragments);
   auto dataReordered = data->flatten();
@@ -1367,8 +1377,8 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
       }
     }
   }
-  *data = concatSlices(dataReordered, graph, reorderedIntervals);
-  *result = concatSlices(resultReordered, graph, reorderedIntervals);
+  *data = concatSlices(dataReordered, graph, reorderedIntervals, {dnai});
+  *result = concatSlices(resultReordered, graph, reorderedIntervals, {dnai});
 }
 
 static unsigned getReduceScatterNumFragments(Graph &graph,
@@ -1426,7 +1436,7 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                                        const poplar::Tensor &result,
                                        popops::Operation op,
                                        program::Sequence &prog,
-                                       const std::string &debugPrefix,
+                                       const DebugNameAndId &dnai,
                                        const poplar::OptionFlags &optionFlags) {
   auto topLevelGraph = graph.getTopLevelGraph();
   auto topLevelReplicationFactor = topLevelGraph.getReplicationFactor();
@@ -1437,13 +1447,12 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
   auto dataReordered = data.flatten();
   auto resultReordered = result.flatten();
   allReduceReorder(graph, &dataReordered, &resultReordered,
-                   getAllReduceNumFragments(graph, options, data));
+                   getAllReduceNumFragments(graph, options, data), {dnai});
   if (options.useReplicatedImplementation) {
     logging::popops::debug("Using replicated version of allReduce");
-    auto reduceScattered = internalReduceScatter(graph, dataReordered, op, prog,
-                                                 debugPrefix, options);
-    allGather(graph, reduceScattered, resultReordered, prog, debugPrefix,
-              options);
+    auto reduceScattered =
+        internalReduceScatter(graph, dataReordered, op, prog, {dnai}, options);
+    allGather(graph, reduceScattered, resultReordered, prog, {dnai}, options);
   } else {
     if (topLevelReplicationFactor > 1) {
       throw poputil::poplibs_error("Can't use non replicated collective "
@@ -1452,9 +1461,10 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
     }
     auto reduced = allReduce(
         topLevelGraph, topLevelGraph.getNonReplicatedTensor(dataReordered), op,
-        prog, debugPrefix, optionFlags);
-    prog.add(
-        Copy(reduced, topLevelGraph.getNonReplicatedTensor(resultReordered)));
+        prog, {dnai}, optionFlags);
+    prog.add(Copy(reduced,
+                  topLevelGraph.getNonReplicatedTensor(resultReordered), false,
+                  {dnai}));
   }
 }
 
@@ -1463,10 +1473,12 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
                                    program::Sequence &prog,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &optionFlags) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(data, result, op, optionFlags));
+
   logging::popops::info(
       "replicatedAllReduceWithOutput data={}, result={}, op={}, name={}",
-      data.shape(), result.shape(), op, debugPrefix);
+      data.shape(), result.shape(), op, debugContext.getPathName());
 
   logging::popops::debug("Replicated all reduce begin ({}B)",
                          data.numElements() *
@@ -1492,10 +1504,9 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
       return graph.clone(data);
     }
   }();
-  noCheckReplicatedAllReduce(graph, data, output, op, prog, debugPrefix,
-                             optionFlags);
+  noCheckReplicatedAllReduce(graph, data, output, op, prog, {di}, optionFlags);
   if (!correctMapping) {
-    prog.add(Copy(output, result));
+    prog.add(Copy(output, result, false, {di}));
   }
   logging::popops::debug("Replicated all reduce end");
 }
@@ -1505,8 +1516,8 @@ void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext,
                                 const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
-  return replicatedAllReduceWithOutput(graph, data, data, op, prog, debugPrefix,
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(data, op, options));
+  return replicatedAllReduceWithOutput(graph, data, data, op, prog, {di},
                                        options);
 }
 
@@ -1514,18 +1525,18 @@ Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                            popops::Operation op, program::Sequence &prog,
                            const poplar::DebugContext &debugContext,
                            const poplar::OptionFlags &optionFlags) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(data, op, optionFlags));
 
   logging::popops::info("replicatedAllReduce data={}, op={}, name={}",
-                        data.shape(), op, debugPrefix);
+                        data.shape(), op, debugContext.getPathName());
 
   logging::popops::debug("Replicated all reduce begin ({}B)",
                          data.numElements() *
                              graph.getTarget().getTypeSize(data.elementType()));
-  auto result = graph.clone(data, debugPrefix + "/result");
-  noCheckReplicatedAllReduce(graph, data, result, op, prog, debugPrefix,
-                             optionFlags);
+  auto result = graph.clone(data, {di, "result"});
+  noCheckReplicatedAllReduce(graph, data, result, op, prog, {di}, optionFlags);
   logging::popops::debug("Replicated all reduce end");
+  di.addOutput(result);
   return result;
 }
 
@@ -1534,13 +1545,16 @@ Tensor replicatedAllReduce(Graph &graph, Graph &parentGraph,
                            program::Sequence &prog,
                            const poplar::DebugContext &debugContext,
                            const poplar::OptionFlags &optionFlags) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(data, op, optionFlags));
+
   auto parentGraphReplicationFactor = parentGraph.getReplicationFactor();
   if (parentGraphReplicationFactor != 1) {
     throw poputil::poplibs_error("replicatedAllReduce() does not support "
                                  "replicated parent graphs");
   }
-  return replicatedAllReduce(graph, data, op, prog, debugPrefix, optionFlags);
+  auto output = replicatedAllReduce(graph, data, op, prog, {di}, optionFlags);
+  di.addOutput(output);
+  return output;
 }
 
 static std::vector<std::map<unsigned, unsigned>>
@@ -1575,7 +1589,7 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
                                     program::Sequence &sequence,
                                     const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(input, options));
   // Options are currently not supported.
   (void)options;
   using namespace popops::expr;
@@ -1595,7 +1609,7 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
   unsigned replicationFactor = graph.getReplicationFactor();
 
   // Clone the output and source target.
-  Tensor output = poputil::duplicate(graph, input, sequence);
+  Tensor output = poputil::duplicate(graph, input, sequence, {di});
 
   // Slice up the input and output tensor into replica number of slices.
   std::vector<Interval> sliceIntervals;
@@ -1630,22 +1644,21 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
 
   // The index into the tensor we are sending this iteration.
   Tensor sendIndex =
-      poputil::duplicate(graph, replicationFactorTensor, sequence);
+      poputil::duplicate(graph, replicationFactorTensor, sequence, {di});
 
   // The index into the tensor we are recieving this iteration.
   Tensor recvIndex =
-      poputil::duplicate(graph, replicationFactorTensor, sequence);
+      poputil::duplicate(graph, replicationFactorTensor, sequence, {di});
 
   // The index into the tensor we are sending this iteration.
   Tensor zeroConstant =
-      graph.addConstant(UNSIGNED_INT, {}, 0, debugPrefix + "/ConstantZero");
+      graph.addConstant(UNSIGNED_INT, {}, 0, {di, "ConstantZero"});
   graph.setTileMapping(zeroConstant,
                        getScalarTile(graph.getTileMapping(input)));
 
-  Tensor stepIndex =
-      graph.addVariable(UNSIGNED_INT, {}, VariableMappingMethod::LINEAR,
-                        debugPrefix + "/StepCount");
-  sequence.add(Copy(zeroConstant, stepIndex));
+  Tensor stepIndex = graph.addVariable(
+      UNSIGNED_INT, {}, VariableMappingMethod::LINEAR, {di, "StepCount"});
+  sequence.add(Copy(zeroConstant, stepIndex, false, {di}));
 
   // The temporary memory buffer used on each replica to store the incoming
   // value before moving it to the correct location.
@@ -1664,20 +1677,22 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
   // Increment the send index, and clamp to range 0 to
   // replicationFactor-1.
   popops::mapInPlace(graph, Rem(Add(_1, Const(1u)), Const(replicationFactor)),
-                     {sendIndex}, loop_body, debugPrefix);
+                     {sendIndex}, loop_body, {di});
 
   // Before sending, extract the element to be sent by copying to tempBuffer
   // in a switch.
   Switch inputExtractionSwitch(sendIndex);
   for (unsigned i = 0; i < replicationFactor; ++i) {
-    inputExtractionSwitch.add(i, Copy(slicedInput[i], tempSendBuffer));
+    inputExtractionSwitch.add(
+        i, Copy(slicedInput[i], tempSendBuffer, false, {di}));
   }
 
   // After recieving, copy from the tempBuffer into the correct location using
   // the switch.
   Switch outputExtractionSwitch(recvIndex);
   for (unsigned i = 0; i < replicationFactor; ++i) {
-    outputExtractionSwitch.add(i, Copy(tempReceiveBuffer, slicedOutput[i]));
+    outputExtractionSwitch.add(
+        i, Copy(tempReceiveBuffer, slicedOutput[i], false, {di}));
   }
 
   // We calculate the IPU we are recieving from by decrementing the index
@@ -1685,24 +1700,25 @@ Tensor allToAllPersonalizedExchange(Graph &graph, const poplar::Tensor &input,
   popops::mapInPlace(
       graph,
       Rem(Add(_1, Const(replicationFactor - 1u)), Const(replicationFactor)),
-      {recvIndex}, loop_body, debugPrefix);
+      {recvIndex}, loop_body, {di});
 
   // Cross replica switch.
   Switch crossReplicaSwitch(stepIndex);
   for (unsigned step = 0; step < replicationFactor - 1; ++step) {
     crossReplicaSwitch.add(step,
                            CrossReplicaCopy(tempSendBuffer, tempReceiveBuffer,
-                                            communicationMap[step]));
+                                            communicationMap[step], {di}));
   }
 
   loop_body.add(inputExtractionSwitch);
   loop_body.add(crossReplicaSwitch);
   loop_body.add(outputExtractionSwitch);
 
-  popops::addInPlace(graph, stepIndex, 1u, loop_body, debugPrefix);
+  popops::addInPlace(graph, stepIndex, 1u, loop_body, {di});
 
-  sequence.add(Repeat(replicationFactor - 1, loop_body));
+  sequence.add(Repeat(replicationFactor - 1, loop_body, {di}));
 
+  di.addOutput(output);
   return output;
 }
 

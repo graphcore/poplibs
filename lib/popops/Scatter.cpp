@@ -140,7 +140,8 @@ namespace tf_compat {
 poplar::Tensor dynamicSlice(poplar::Graph &graph, poplar::Tensor input,
                             poplar::Tensor indices,
                             std::vector<std::size_t> sliceSizes,
-                            poplar::program::Sequence &prog) {
+                            poplar::program::Sequence &prog,
+                            const DebugNameAndId &dnai) {
   auto type = indices.elementType();
   if (type == poplar::INT) {
     indices = indices.reinterpret(poplar::UNSIGNED_INT);
@@ -175,7 +176,7 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, poplar::Tensor input,
                                newSliceSizes, prog);
   } else {
     poplar::Tensor copy = graph.clone(input);
-    prog.add(poplar::program::Copy(input, copy));
+    prog.add(poplar::program::Copy(input, copy, false, {dnai}));
     out = copy;
   }
 
@@ -185,7 +186,8 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, poplar::Tensor input,
 poplar::Tensor dynamicUpdateSlice(poplar::Graph &graph, poplar::Tensor input,
                                   poplar::Tensor update, poplar::Tensor indices,
                                   std::vector<std::size_t> sliceSizes,
-                                  poplar::program::Sequence &prog) {
+                                  poplar::program::Sequence &prog,
+                                  const DebugNameAndId &dnai) {
 
   auto type = indices.elementType();
   if (type == poplar::INT) {
@@ -216,7 +218,7 @@ poplar::Tensor dynamicUpdateSlice(poplar::Graph &graph, poplar::Tensor input,
     popops::dynamicUpdate(graph, input, update, sliceIndices, sliceDims,
                           newSliceSizes, prog);
   } else {
-    prog.add(poplar::program::Copy(update, input));
+    prog.add(poplar::program::Copy(update, input, false, {dnai}));
   }
 
   return input;
@@ -228,9 +230,9 @@ poplar::Tensor dynamicUpdateSlice(poplar::Graph &graph, poplar::Tensor input,
 poplar::Tensor expandIndexVectorIntoOperandSpace(
     poplar::Graph &graph, poplar::Tensor indices,
     std::vector<unsigned> scatterDimsToOperandDims, std::size_t rank,
-    const std::string &debugPrefix) {
+    const DebugNameAndId &dnai) {
   poplar::Tensor zero =
-      graph.addConstant(indices.elementType(), {1}, 0, debugPrefix + "/zero");
+      graph.addConstant(indices.elementType(), {1}, 0, {dnai, "zero"});
   graph.setTileMapping(zero, 0);
   std::vector<poplar::Tensor> expandedIndexComponents;
   expandedIndexComponents.reserve(rank);
@@ -255,13 +257,13 @@ poplar::Tensor expandIndexVectorIntoOperandSpace(
 }
 
 poplar::Tensor padVectorWithZeros(poplar::Graph &graph, poplar::Tensor t,
-                                  const std::string &debugPrefix,
+                                  const DebugNameAndId &dnai,
                                   std::size_t prepend = 0,
                                   std::size_t append = 0) {
   poplar::Tensor prefix =
-      graph.addConstant(t.elementType(), {prepend}, 0, debugPrefix + "/prefix");
+      graph.addConstant(t.elementType(), {prepend}, 0, {dnai, "prefix"});
   poplar::Tensor suffix =
-      graph.addConstant(t.elementType(), {append}, 0, debugPrefix + "/suffix");
+      graph.addConstant(t.elementType(), {append}, 0, {dnai, "suffix"});
   graph.setTileMapping(prefix, 0);
   graph.setTileMapping(suffix, 0);
   return poplar::concat({prefix, t, suffix});
@@ -288,7 +290,7 @@ void scatterInternal(
     std::vector<std::size_t> insertWindowDims,
     std::vector<unsigned> scatterDimsToOperandDims,
     boost::optional<popops::UpdateComputationFunc &> updateComputation,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const DebugNameAndId &dnai) {
 
   // If the updates tensor is empty, there is no need to update the operand. We
   // can return the operand as is.
@@ -318,7 +320,7 @@ void scatterInternal(
   // The while loop that implements the scatter operation.
   // for (i = 0; i < scatterLoopTripCount; ++i)
   prog.add(poputil::countedLoop(
-      graph, scatterLoopTrip, debugPrefix, [&](poplar::Tensor i) {
+      graph, scatterLoopTrip, {dnai}, [&](poplar::Tensor i) {
         poplar::program::Sequence prog;
 
         // Pick the index to scatter from scatterIndices based on the
@@ -326,31 +328,31 @@ void scatterInternal(
         poplar::Tensor indexVector;
         if (hasScalarIndices) {
           indexVector = tf_compat::dynamicSlice(graph, canonicalScatterIndices,
-                                                i, {1}, prog);
+                                                i, {1}, prog, {dnai});
         } else {
           std::size_t indexVectorSize = canonicalScatterIndices.dim(1);
 
-          indexVector = padVectorWithZeros(graph, i, debugPrefix, 0, 1);
-          indexVector =
-              tf_compat::dynamicSlice(graph, canonicalScatterIndices,
-                                      indexVector, {1, indexVectorSize}, prog);
+          indexVector = padVectorWithZeros(graph, i, {dnai}, 0, 1);
+          indexVector = tf_compat::dynamicSlice(
+              graph, canonicalScatterIndices, indexVector, {1, indexVectorSize},
+              prog, {dnai});
           indexVector = indexVector.squeeze({0});
         }
 
         poplar::Tensor scatterSliceStart = expandIndexVectorIntoOperandSpace(
             graph, indexVector, scatterDimsToOperandDims, operand.rank(),
-            debugPrefix);
+            {dnai});
 
         // Extract the slice to be used to update from `updates` tensor for the
         // inductionVar corresponding to this iteration of the while loop.
         poplar::Tensor indexIntoUpdates = padVectorWithZeros(
-            graph, i, debugPrefix, 0, adjustedCanonicalUpdates.rank() - 1);
+            graph, i, {dnai}, 0, adjustedCanonicalUpdates.rank() - 1);
 
         auto updateSliceBounds = adjustedCanonicalUpdates.shape();
         updateSliceBounds[0] = 1;
-        poplar::Tensor updateSlice =
-            tf_compat::dynamicSlice(graph, adjustedCanonicalUpdates,
-                                    indexIntoUpdates, updateSliceBounds, prog);
+        poplar::Tensor updateSlice = tf_compat::dynamicSlice(
+            graph, adjustedCanonicalUpdates, indexIntoUpdates,
+            updateSliceBounds, prog, {dnai});
 
         poplar::Tensor updateSliceWithDimsInserted = updateSlice.squeeze({0});
         for (auto dim : insertWindowDims) {
@@ -363,8 +365,9 @@ void scatterInternal(
 
         // If there is a user defined update computation
         if (updateComputation) {
-          poplar::Tensor existingSlice = tf_compat::dynamicSlice(
-              graph, operand, scatterSliceStart, updateSliceShape, prog);
+          poplar::Tensor existingSlice =
+              tf_compat::dynamicSlice(graph, operand, scatterSliceStart,
+                                      updateSliceShape, prog, {dnai});
 
           // Combine the existing slice with the update slice using the user
           // provided update computation.
@@ -375,7 +378,7 @@ void scatterInternal(
         // Copy the new slice into the tensor
         tf_compat::dynamicUpdateSlice(
             graph, operand, updateSliceWithDimsInserted, scatterSliceStart,
-            updateSliceShape, prog);
+            updateSliceShape, prog, {dnai});
 
         return prog;
       }));
@@ -391,11 +394,14 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              std::vector<unsigned> scatterDimsToOperandDims,
              poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(operand, indices, updates, indexVectorDim, updateWindowDims,
+              insertWindowDims, scatterDimsToOperandDims));
+
   return scatterInternal(graph, operand, indices, updates, indexVectorDim,
                          updateWindowDims, insertWindowDims,
-                         scatterDimsToOperandDims, boost::none, prog,
-                         debugPrefix);
+                         scatterDimsToOperandDims, boost::none, prog, {di});
 }
 
 void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
@@ -406,11 +412,15 @@ void scatter(poplar::Graph &graph, const poplar::Tensor &operand,
              UpdateComputationFunc &updateComputation,
              poplar::program::Sequence &prog,
              const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(operand, indices, updates, indexVectorDim, updateWindowDims,
+              insertWindowDims, scatterDimsToOperandDims));
+
   return scatterInternal(graph, operand, indices, updates, indexVectorDim,
                          updateWindowDims, insertWindowDims,
                          scatterDimsToOperandDims, {updateComputation}, prog,
-                         debugPrefix);
+                         {di});
 }
 
 } // namespace popops

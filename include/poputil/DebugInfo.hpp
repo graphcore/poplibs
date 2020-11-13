@@ -15,6 +15,7 @@
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
+#include <poplar/TensorCloneMethod.hpp>
 
 #if defined(__clang__)
 #define SUPPORTS_FUNCTION_BUILTINS __has_builtin(__builtin_FUNCTION)
@@ -37,15 +38,16 @@ template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
 template <> poplar::ProfileValue toProfileValue(const bool &v);
 template <> poplar::ProfileValue toProfileValue(const float &v);
 template <> poplar::ProfileValue toProfileValue(const double &v);
+template <> poplar::ProfileValue toProfileValue(const std::string &v);
 
 // template specializations for Poplar types
 template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::program::Copy &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
-template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
-template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Type &t);
+template <>
+poplar::ProfileValue toProfileValue(const poplar::TensorCloneMethod &t);
 
 // Generic case for a pointer
 template <typename T> poplar::ProfileValue toProfileValue(const T *t) {
@@ -75,6 +77,15 @@ poplar::ProfileValue toProfileValue(const std::vector<T> &vec) {
 }
 
 template <> poplar::ProfileValue toProfileValue(const std::vector<bool> &vec);
+
+// Generic case for pair
+template <typename T1, typename T2>
+poplar::ProfileValue toProfileValue(const std::pair<T1, T2> &pair) {
+  poplar::ProfileValue::Map v;
+  v.insert({"first", toProfileValue(pair.first)});
+  v.insert({"second", toProfileValue(pair.second)});
+  return v;
+}
 
 class ArgType {
 

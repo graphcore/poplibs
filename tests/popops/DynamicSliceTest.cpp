@@ -564,10 +564,9 @@ BOOST_AUTO_TEST_CASE(SliceOrder) {
   // so on.
 
   std::string cg = computeGraph.str();
-
-  auto d0_idx = cg.find("/dynamicSlice_d0/slice");
-  auto d1_idx = cg.find("/dynamicSlice_d1/slice");
-  auto d2_idx = cg.find("/dynamicSlice_d2/slice");
+  auto d0_idx = cg.find("dynamicSlice_d0/slice");
+  auto d1_idx = cg.find("dynamicSlice_d1/slice");
+  auto d2_idx = cg.find("dynamicSlice_d2/slice");
   const auto npos = std::string::npos;
   BOOST_CHECK(d0_idx != npos && d1_idx != npos && d2_idx != npos);
   BOOST_CHECK(d1_idx < d2_idx);

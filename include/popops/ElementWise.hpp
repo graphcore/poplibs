@@ -20,7 +20,17 @@
 #include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 #include <popops/Expr.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <string>
+
+namespace poputil {
+template <>
+poplar::ProfileValue toProfileValue(const popops::expr::UnaryOpType &op);
+template <>
+poplar::ProfileValue toProfileValue(const popops::expr::BinaryOpType &op);
+template <>
+poplar::ProfileValue toProfileValue(const popops::expr::TernaryOpType &op);
+} // namespace poputil
 
 namespace popops {
 
@@ -156,8 +166,12 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::UnaryOpType op,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOp(op, expr::_1), {t}, prog,
-             debugContext.getPathName(), options);
+
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(op, t, options));
+  auto output =
+      map(graph, expr::UnaryOp(op, expr::_1), {t}, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 inline poplar::Tensor map(poplar::Graph &graph, expr::BinaryOpType op,
@@ -165,8 +179,11 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::BinaryOpType op,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(op, a, b, options));
+  auto output = map(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
@@ -175,8 +192,11 @@ inline poplar::Tensor map(poplar::Graph &graph, expr::TernaryOpType op,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
-             {a, b, c}, prog, debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(op, a, b, c, options));
+  auto output = map(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
+                    {a, b, c}, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -194,8 +214,9 @@ inline void mapInPlace(poplar::Graph &graph, expr::UnaryOpType op,
                        const poplar::Tensor &t, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOp(op, expr::_1), {t}, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(op, t, options));
+
+  mapInPlace(graph, expr::UnaryOp(op, expr::_1), {t}, prog, {di}, options);
 }
 
 inline void mapInPlace(poplar::Graph &graph, expr::BinaryOpType op,
@@ -203,8 +224,10 @@ inline void mapInPlace(poplar::Graph &graph, expr::BinaryOpType op,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(op, a, b, options));
+
+  mapInPlace(graph, expr::BinaryOp(op, expr::_1, expr::_2), {a, b}, prog, {di},
+             options);
 }
 
 inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
@@ -212,8 +235,10 @@ inline void mapInPlace(poplar::Graph &graph, expr::TernaryOpType op,
                        const poplar::Tensor &c, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(op, a, b, c, options));
+
   mapInPlace(graph, expr::TernaryOp(op, expr::_1, expr::_2, expr::_3),
-             {a, b, c}, prog, debugContext.getPathName(), options);
+             {a, b, c}, prog, {di}, options);
 }
 /** @} */
 
@@ -237,8 +262,11 @@ inline poplar::Tensor abs(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::ABSOLUTE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::ABSOLUTE, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of abs().
@@ -247,8 +275,9 @@ inline void absInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::ABSOLUTE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::ABSOLUTE, A, prog, {di}, options);
 }
 /** @} */
 
@@ -268,8 +297,11 @@ inline poplar::Tensor asin(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::ASIN, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::ASIN, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of asin().
@@ -278,8 +310,9 @@ inline void asinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::ASIN, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::ASIN, A, prog, {di}, options);
 }
 
 /** Compute the bitwise NOT operation for each element in \p A.
@@ -298,8 +331,12 @@ inline poplar::Tensor bitwiseNot(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::BITWISE_NOT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output =
+      map(graph, expr::UnaryOpType::BITWISE_NOT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of bitwiseNot().
@@ -308,8 +345,9 @@ inline void bitwiseNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::BITWISE_NOT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::BITWISE_NOT, A, prog, {di}, options);
 }
 
 /** Compute the ceiling of each element in \p A.
@@ -328,8 +366,11 @@ inline poplar::Tensor ceil(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::CEIL, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::CEIL, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of ceil().
@@ -338,8 +379,9 @@ inline void ceilInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::CEIL, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::CEIL, A, prog, {di}, options);
 }
 
 /** Compute the number of binary leading zeros of each element in \p A.
@@ -361,8 +403,12 @@ countLeadingZeros(poplar::Graph &graph, const poplar::Tensor &A,
                   poplar::program::Sequence &prog,
                   const poplar::DebugContext &debugContext = {},
                   const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of countLeadingZeros().
@@ -372,8 +418,10 @@ countLeadingZerosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::COUNT_LEADING_ZEROS, A, prog, {di},
+             options);
 }
 
 /** Compute the cosine of each element in \p A.
@@ -392,8 +440,10 @@ inline poplar::Tensor cos(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::COS, A, prog, debugContext.getPathName(),
-             options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  auto output = map(graph, expr::UnaryOpType::COS, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of cos().
@@ -402,8 +452,8 @@ inline void cosInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::COS, A, prog, debugContext.getPathName(),
-             options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  mapInPlace(graph, expr::UnaryOpType::COS, A, prog, {di}, options);
 }
 
 /** Compute the exponential of each element in \p A.
@@ -422,8 +472,10 @@ inline poplar::Tensor exp(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::EXPONENT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  auto output = map(graph, expr::UnaryOpType::EXPONENT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of exp().
@@ -432,8 +484,8 @@ inline void expInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::EXPONENT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT, A, prog, {di}, options);
 }
 
 /** Compute the exponential of each element in \p A minus one.
@@ -452,8 +504,11 @@ inline poplar::Tensor expm1(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  auto output =
+      map(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of expm1().
@@ -462,8 +517,9 @@ inline void expm1InPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  mapInPlace(graph, expr::UnaryOpType::EXPONENT_MINUS_ONE, A, prog, {di},
+             options);
 }
 
 /** Compute the floor of each element in \p A.
@@ -482,8 +538,10 @@ inline poplar::Tensor floor(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::FLOOR, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  auto output = map(graph, expr::UnaryOpType::FLOOR, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of floor().
@@ -492,8 +550,8 @@ inline void floorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::FLOOR, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  mapInPlace(graph, expr::UnaryOpType::FLOOR, A, prog, {di}, options);
 }
 
 /** Compute the inverse of each element in \p A.
@@ -512,8 +570,10 @@ inline poplar::Tensor inv(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::INVERSE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  auto output = map(graph, expr::UnaryOpType::INVERSE, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of inv().
@@ -522,8 +582,8 @@ inline void invInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::INVERSE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+  mapInPlace(graph, expr::UnaryOpType::INVERSE, A, prog, {di}, options);
 }
 
 /** Compute the log base-e of each element in \p A.
@@ -542,8 +602,12 @@ inline poplar::Tensor log(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::LOGARITHM, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output =
+      map(graph, expr::UnaryOpType::LOGARITHM, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of log().
@@ -552,8 +616,9 @@ inline void logInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::LOGARITHM, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::LOGARITHM, A, prog, {di}, options);
 }
 
 /** Compute the log base-e of each element in \p A plus one.
@@ -572,8 +637,12 @@ inline poplar::Tensor log1p(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output =
+      map(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of log1p().
@@ -582,8 +651,10 @@ inline void log1pInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::LOGARITHM_ONE_PLUS, A, prog, {di},
+             options);
 }
 
 /** Compute the logical NOT of each element in \p A.
@@ -602,8 +673,12 @@ inline poplar::Tensor logicalNot(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output =
+      map(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of logicalNot().
@@ -612,8 +687,9 @@ inline void logicalNotInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::LOGICAL_NOT, A, prog, {di}, options);
 }
 
 /** Compute the negation of each element in \p A.
@@ -632,8 +708,11 @@ inline poplar::Tensor neg(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::NEGATE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::NEGATE, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of neg().
@@ -642,8 +721,9 @@ inline void negInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::NEGATE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::NEGATE, A, prog, {di}, options);
 }
 
 /** Compute the number of 1 bits in each element of \p A.
@@ -662,8 +742,11 @@ inline poplar::Tensor popcount(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
                                const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::POPCOUNT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::POPCOUNT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of popcount().
@@ -672,8 +755,9 @@ inline void popcountInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::POPCOUNT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::POPCOUNT, A, prog, {di}, options);
 }
 
 /** Compute the signum of each element in \p A.
@@ -693,8 +777,11 @@ inline poplar::Tensor signum(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SIGNUM, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::SIGNUM, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of signum().
@@ -703,8 +790,9 @@ inline void signumInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SIGNUM, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::SIGNUM, A, prog, {di}, options);
 }
 
 /** Compute the sine of each element in \p A.
@@ -723,8 +811,11 @@ inline poplar::Tensor sin(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SIN, A, prog, debugContext.getPathName(),
-             options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::SIN, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of sin().
@@ -733,8 +824,9 @@ inline void sinInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SIN, A, prog, debugContext.getPathName(),
-             options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::SIN, A, prog, {di}, options);
 }
 
 /** Compute the tangent of each element in \p A.
@@ -753,8 +845,11 @@ inline poplar::Tensor tan(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::TAN, A, prog, debugContext.getPathName(),
-             options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::TAN, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of tan().
@@ -763,8 +858,9 @@ inline void tanInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::TAN, A, prog, debugContext.getPathName(),
-             options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::TAN, A, prog, {di}, options);
 }
 
 /** Compute the hyperbolic tangent of each element in \p A.
@@ -783,8 +879,11 @@ inline poplar::Tensor tanh(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::TANH, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::TANH, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of tanh().
@@ -793,8 +892,9 @@ inline void tanhInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::TANH, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::TANH, A, prog, {di}, options);
 }
 
 /** Round each element in \p A.
@@ -813,8 +913,11 @@ inline poplar::Tensor round(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::ROUND, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::ROUND, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of round().
@@ -823,8 +926,9 @@ inline void roundInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::ROUND, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::ROUND, A, prog, {di}, options);
 }
 
 /** Compute the square-root for each element in \p A.
@@ -843,8 +947,11 @@ inline poplar::Tensor sqrt(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SQRT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::SQRT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of sqrt().
@@ -853,8 +960,9 @@ inline void sqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SQRT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::SQRT, A, prog, {di}, options);
 }
 
 /** Compute the square for each element in \p A.
@@ -873,8 +981,11 @@ inline poplar::Tensor square(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SQUARE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::SQUARE, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of square().
@@ -883,8 +994,9 @@ inline void squareInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SQUARE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::SQUARE, A, prog, {di}, options);
 }
 
 /** Compute the sigmoid (logistic) function for each element in \p A.
@@ -903,8 +1015,11 @@ inline poplar::Tensor sigmoid(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::SIGMOID, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::SIGMOID, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of sigmoid().
@@ -913,8 +1028,9 @@ inline void sigmoidInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::SIGMOID, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::SIGMOID, A, prog, {di}, options);
 }
 
 /** Compute the reciprocal square root for each element in \p A.
@@ -933,8 +1049,11 @@ inline poplar::Tensor rsqrt(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::RSQRT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output = map(graph, expr::UnaryOpType::RSQRT, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of rsqrt().
@@ -943,8 +1062,9 @@ inline void rsqrtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::UnaryOpType::RSQRT, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  mapInPlace(graph, expr::UnaryOpType::RSQRT, A, prog, {di}, options);
 }
 
 /** Check if each element in \p A is finite.
@@ -963,8 +1083,12 @@ inline poplar::Tensor isFinite(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
                                const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::UnaryOpType::IS_FINITE, A, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, options));
+
+  auto output =
+      map(graph, expr::UnaryOpType::IS_FINITE, A, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Check that the host compile-time type \p constType
@@ -1028,8 +1152,11 @@ inline poplar::Tensor add(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::ADD, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output = map(graph, expr::BinaryOpType::ADD, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1037,11 +1164,15 @@ inline poplar::Tensor add(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::ADD, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::ADD, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1050,11 +1181,15 @@ inline poplar::Tensor add(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::ADD, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::ADD, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1066,8 +1201,9 @@ inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::ADD, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::ADD, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1075,11 +1211,12 @@ inline void addInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::ADD, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::ADD, A, BTensor, prog, {di}, options);
 }
 /** @} */
 
@@ -1105,8 +1242,12 @@ inline poplar::Tensor atan2(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::ATAN2, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::ATAN2, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1114,11 +1255,15 @@ inline poplar::Tensor atan2(poplar::Graph &graph, const poplar::Tensor &A,
                             const constType B, poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1127,11 +1272,15 @@ inline poplar::Tensor atan2(poplar::Graph &graph, const constType A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::ATAN2, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::ATAN2, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1144,8 +1293,9 @@ inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1153,11 +1303,12 @@ inline void atan2InPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::ATAN2, A, BTensor, prog, {di}, options);
 }
 /** @} */
 
@@ -1182,8 +1333,12 @@ inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1192,24 +1347,31 @@ inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
-  graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
-             debugContext.getPathName(), options);
-}
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
 
+  checkTypes(A.elementType(), B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
+  graph.setTileMapping(BTensor, 0);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
+}
 template <typename constType>
 inline poplar::Tensor bitwiseAnd(poplar::Graph &graph, const constType A,
                                  const poplar::Tensor &B,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_AND, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_AND, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1222,8 +1384,9 @@ inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1232,11 +1395,13 @@ inline void bitwiseAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_AND, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1262,8 +1427,12 @@ inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1272,11 +1441,15 @@ inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const poplar::Tensor &A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1285,11 +1458,15 @@ inline poplar::Tensor bitwiseOr(poplar::Graph &graph, const constType A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_OR, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_OR, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1302,8 +1479,9 @@ inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1311,11 +1489,13 @@ inline void bitwiseOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const constType B, poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_OR, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1341,8 +1521,12 @@ inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1351,11 +1535,15 @@ inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1364,11 +1552,15 @@ inline poplar::Tensor bitwiseXor(poplar::Graph &graph, const constType A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_XOR, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_XOR, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1381,8 +1573,9 @@ inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1391,11 +1584,13 @@ inline void bitwiseXorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XOR, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1421,8 +1616,12 @@ inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const poplar::Tensor &A,
                                   poplar::program::Sequence &prog,
                                   const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1431,11 +1630,15 @@ inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const poplar::Tensor &A,
                                   poplar::program::Sequence &prog,
                                   const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1444,12 +1647,17 @@ inline poplar::Tensor bitwiseXnor(poplar::Graph &graph, const constType A,
                                   poplar::program::Sequence &prog,
                                   const poplar::DebugContext &debugContext = {},
                                   const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::BITWISE_XNOR, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::BITWISE_XNOR, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
+
 /** @} */
 
 /** Update the input tensor with the result of bitwiseXnor().
@@ -1461,8 +1669,10 @@ inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
                                const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, B, prog, {di},
+             options);
 }
 
 template <typename constType>
@@ -1471,11 +1681,13 @@ inline void bitwiseXnorInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                                poplar::program::Sequence &prog,
                                const poplar::DebugContext &debugContext = {},
                                const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::BITWISE_XNOR, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1500,8 +1712,12 @@ inline poplar::Tensor div(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::DIVIDE, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::DIVIDE, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1509,11 +1725,15 @@ inline poplar::Tensor div(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1522,11 +1742,15 @@ inline poplar::Tensor div(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::DIVIDE, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::DIVIDE, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1538,8 +1762,9 @@ inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1547,11 +1772,13 @@ inline void divInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::DIVIDE, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1576,8 +1803,12 @@ inline poplar::Tensor eq(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::EQUAL, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1585,11 +1816,15 @@ inline poplar::Tensor eq(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1598,11 +1833,15 @@ inline poplar::Tensor eq(poplar::Graph &graph, const constType A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::EQUAL, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::EQUAL, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1614,8 +1853,9 @@ inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -1623,11 +1863,12 @@ inline void eqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const constType B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::EQUAL, A, BTensor, prog, {di}, options);
 }
 /** @} */
 
@@ -1653,8 +1894,12 @@ inline poplar::Tensor gteq(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output = map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1662,11 +1907,15 @@ inline poplar::Tensor gteq(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1675,11 +1924,15 @@ inline poplar::Tensor gteq(poplar::Graph &graph, const constType A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, ATensor, B,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1692,8 +1945,10 @@ inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, B, prog, {di},
+             options);
 }
 
 template <typename constType>
@@ -1701,11 +1956,13 @@ inline void gteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         const constType B, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::GREATER_THAN_EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+             {di}, options);
 }
 /** @} */
 
@@ -1731,8 +1988,12 @@ inline poplar::Tensor gt(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1740,11 +2001,15 @@ inline poplar::Tensor gt(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1753,11 +2018,15 @@ inline poplar::Tensor gt(poplar::Graph &graph, const constType A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::GREATER_THAN, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::GREATER_THAN, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1769,8 +2038,10 @@ inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, B, prog, {di},
+             options);
 }
 
 template <typename constType>
@@ -1778,11 +2049,13 @@ inline void gtInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const constType B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::GREATER_THAN, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1808,8 +2081,12 @@ invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1818,11 +2095,15 @@ invStdDevToVariance(poplar::Graph &graph, const poplar::Tensor &A,
                     const constType B, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
-             prog, debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A,
+                    BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1831,11 +2112,15 @@ invStdDevToVariance(poplar::Graph &graph, const constType A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, ATensor, B,
-             prog, debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, ATensor,
+                    B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1849,8 +2134,10 @@ invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, B, prog,
-             debugContext.getPathName(), options);
+             {di}, options);
 }
 
 template <typename constType>
@@ -1859,11 +2146,13 @@ invStdDevToVarianceInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::INV_STD_DEV_TO_VARIANCE, A, BTensor,
-             prog, debugContext.getPathName(), options);
+             prog, {di}, options);
 }
 /** @} */
 
@@ -1889,8 +2178,12 @@ inline poplar::Tensor lteq(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output = map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1898,11 +2191,15 @@ inline poplar::Tensor lteq(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1911,11 +2208,15 @@ inline poplar::Tensor lteq(poplar::Graph &graph, const constType A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LESS_THAN_EQUAL, ATensor, B,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -1928,8 +2229,10 @@ inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, B, prog, {di},
+             options);
 }
 
 template <typename constType>
@@ -1937,11 +2240,13 @@ inline void lteqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                         const constType B, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN_EQUAL, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -1967,8 +2272,12 @@ inline poplar::Tensor logicalAnd(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1977,11 +2286,15 @@ inline poplar::Tensor logicalAnd(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -1990,11 +2303,15 @@ inline poplar::Tensor logicalAnd(poplar::Graph &graph, const constType A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::LOGICAL_AND, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LOGICAL_AND, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2007,8 +2324,9 @@ inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2017,11 +2335,13 @@ inline void logicalAndInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_AND, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2047,8 +2367,12 @@ inline poplar::Tensor logicalOr(poplar::Graph &graph, const poplar::Tensor &A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2057,11 +2381,15 @@ inline poplar::Tensor logicalOr(poplar::Graph &graph, const poplar::Tensor &A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2070,11 +2398,15 @@ inline poplar::Tensor logicalOr(poplar::Graph &graph, const constType A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::LOGICAL_OR, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LOGICAL_OR, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2087,8 +2419,9 @@ inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2096,11 +2429,13 @@ inline void logicalOrInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const constType B, poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::LOGICAL_OR, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2126,8 +2461,12 @@ inline poplar::Tensor lt(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::LESS_THAN, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::LESS_THAN, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2135,11 +2474,15 @@ inline poplar::Tensor lt(poplar::Graph &graph, const poplar::Tensor &A,
                          const constType B, poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2148,11 +2491,15 @@ inline poplar::Tensor lt(poplar::Graph &graph, const constType A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::LESS_THAN, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::LESS_THAN, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2164,8 +2511,9 @@ inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2173,11 +2521,13 @@ inline void ltInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                       const constType B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::LESS_THAN, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2203,8 +2553,12 @@ inline poplar::Tensor max(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::MAXIMUM, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::MAXIMUM, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2212,11 +2566,15 @@ inline poplar::Tensor max(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2225,11 +2583,15 @@ inline poplar::Tensor max(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::MAXIMUM, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::MAXIMUM, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2241,8 +2603,9 @@ inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2250,11 +2613,13 @@ inline void maxInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::MAXIMUM, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2280,8 +2645,12 @@ inline poplar::Tensor min(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::MINIMUM, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::MINIMUM, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2289,11 +2658,15 @@ inline poplar::Tensor min(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2302,11 +2675,15 @@ inline poplar::Tensor min(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::MINIMUM, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::MINIMUM, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2318,8 +2695,9 @@ inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2327,11 +2705,13 @@ inline void minInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::MINIMUM, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2356,8 +2736,12 @@ inline poplar::Tensor mul(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::MULTIPLY, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::MULTIPLY, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2365,11 +2749,15 @@ inline poplar::Tensor mul(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2378,11 +2766,15 @@ inline poplar::Tensor mul(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::MULTIPLY, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::MULTIPLY, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2394,8 +2786,9 @@ inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2403,11 +2796,13 @@ inline void mulInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::MULTIPLY, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2433,8 +2828,12 @@ inline poplar::Tensor neq(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2442,11 +2841,15 @@ inline poplar::Tensor neq(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2455,11 +2858,15 @@ inline poplar::Tensor neq(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::NOT_EQUAL, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::NOT_EQUAL, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2471,8 +2878,9 @@ inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2480,11 +2888,13 @@ inline void neqInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::NOT_EQUAL, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2509,8 +2919,12 @@ inline poplar::Tensor pow(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::POWER, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::POWER, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2518,11 +2932,15 @@ inline poplar::Tensor pow(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::POWER, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::POWER, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2531,11 +2949,15 @@ inline poplar::Tensor pow(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::POWER, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::POWER, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2547,8 +2969,9 @@ inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::POWER, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::POWER, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2556,11 +2979,12 @@ inline void powInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::POWER, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::POWER, A, BTensor, prog, {di}, options);
 }
 /** @} */
 
@@ -2585,8 +3009,12 @@ inline poplar::Tensor rem(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::REMAINDER, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::REMAINDER, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2594,11 +3022,15 @@ inline poplar::Tensor rem(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2607,11 +3039,15 @@ inline poplar::Tensor rem(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::REMAINDER, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::REMAINDER, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2623,8 +3059,9 @@ inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2632,11 +3069,13 @@ inline void remInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::REMAINDER, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2661,8 +3100,12 @@ inline poplar::Tensor shiftLeft(poplar::Graph &graph, const poplar::Tensor &A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2671,11 +3114,15 @@ inline poplar::Tensor shiftLeft(poplar::Graph &graph, const poplar::Tensor &A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2684,11 +3131,15 @@ inline poplar::Tensor shiftLeft(poplar::Graph &graph, const constType A,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::SHIFT_LEFT, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::SHIFT_LEFT, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2701,8 +3152,9 @@ inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2710,11 +3162,13 @@ inline void shiftLeftInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                              const constType B, poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_LEFT, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2740,8 +3194,12 @@ inline poplar::Tensor shiftRight(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2750,11 +3208,15 @@ inline poplar::Tensor shiftRight(poplar::Graph &graph, const poplar::Tensor &A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2763,11 +3225,15 @@ inline poplar::Tensor shiftRight(poplar::Graph &graph, const constType A,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::SHIFT_RIGHT, ATensor, B, prog,
+                    {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2780,8 +3246,9 @@ inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2790,11 +3257,13 @@ inline void shiftRightInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                               poplar::program::Sequence &prog,
                               const poplar::DebugContext &debugContext = {},
                               const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2821,8 +3290,12 @@ shiftRightSignExtend(poplar::Graph &graph, const poplar::Tensor &A,
                      const poplar::Tensor &B, poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output = map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2831,11 +3304,15 @@ shiftRightSignExtend(poplar::Graph &graph, const poplar::Tensor &A,
                      const constType B, poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, BTensor,
-             prog, debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A,
+                    BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2844,11 +3321,15 @@ shiftRightSignExtend(poplar::Graph &graph, const constType A,
                      const poplar::Tensor &B, poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, ATensor, B,
-             prog, debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, ATensor,
+                    B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2862,8 +3343,10 @@ shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, B, prog,
-             debugContext.getPathName(), options);
+             {di}, options);
 }
 
 template <typename constType>
@@ -2872,11 +3355,13 @@ shiftRightSignExtendInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                             const constType B, poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, A, BTensor,
-             prog, debugContext.getPathName(), options);
+             prog, {di}, options);
 }
 /** @} */
 
@@ -2901,8 +3386,12 @@ inline poplar::Tensor sub(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::SUBTRACT, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output =
+      map(graph, expr::BinaryOpType::SUBTRACT, A, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2910,11 +3399,15 @@ inline poplar::Tensor sub(poplar::Graph &graph, const poplar::Tensor &A,
                           const constType B, poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2923,11 +3416,15 @@ inline poplar::Tensor sub(poplar::Graph &graph, const constType A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::SUBTRACT, ATensor, B, prog,
-             debugContext.getPathName(), options);
+  auto output =
+      map(graph, expr::BinaryOpType::SUBTRACT, ATensor, B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -2939,8 +3436,9 @@ inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const poplar::Tensor &B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, B, prog, {di}, options);
 }
 
 template <typename constType>
@@ -2948,11 +3446,13 @@ inline void subInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                        const constType B, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog,
-             debugContext.getPathName(), options);
+  mapInPlace(graph, expr::BinaryOpType::SUBTRACT, A, BTensor, prog, {di},
+             options);
 }
 /** @} */
 
@@ -2977,8 +3477,12 @@ varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
+  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B,
+                    prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -2987,11 +3491,15 @@ varianceToInvStdDev(poplar::Graph &graph, const poplar::Tensor &A,
                     const constType B, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
-  return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
-             prog, debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A,
+                    BTensor, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 template <typename constType>
@@ -3000,11 +3508,15 @@ varianceToInvStdDev(poplar::Graph &graph, const constType A,
                     const poplar::Tensor &B, poplar::program::Sequence &prog,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(B.elementType(), A);
-  const auto ATensor = graph.addConstant(B.elementType(), {}, A);
+  const auto ATensor = graph.addConstant(B.elementType(), {}, A, {di});
   graph.setTileMapping(ATensor, 0);
-  return map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, ATensor, B,
-             prog, debugContext.getPathName(), options);
+  auto output = map(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, ATensor,
+                    B, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 /** @} */
 
@@ -3018,8 +3530,10 @@ varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, B, prog,
-             debugContext.getPathName(), options);
+             {di}, options);
 }
 
 template <typename constType>
@@ -3028,11 +3542,13 @@ varianceToInvStdDevInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                            const constType B, poplar::program::Sequence &prog,
                            const poplar::DebugContext &debugContext = {},
                            const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, options));
+
   checkTypes(A.elementType(), B);
-  const auto BTensor = graph.addConstant(A.elementType(), {}, B);
+  const auto BTensor = graph.addConstant(A.elementType(), {}, B, {di});
   graph.setTileMapping(BTensor, 0);
   mapInPlace(graph, expr::BinaryOpType::VARIANCE_TO_INV_STD_DEV, A, BTensor,
-             prog, debugContext.getPathName(), options);
+             prog, {di}, options);
 }
 /** @} */
 
@@ -3063,8 +3579,11 @@ inline poplar::Tensor select(poplar::Graph &graph, const poplar::Tensor &A,
                              poplar::program::Sequence &prog,
                              const poplar::DebugContext &debugContext = {},
                              const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::TernaryOpType::SELECT, A, B, C, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
+  auto output =
+      map(graph, expr::TernaryOpType::SELECT, A, B, C, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of select().
@@ -3074,8 +3593,8 @@ inline void selectInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                           poplar::program::Sequence &prog,
                           const poplar::DebugContext &debugContext = {},
                           const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, C, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
+  mapInPlace(graph, expr::TernaryOpType::SELECT, A, B, C, prog, {di}, options);
 }
 
 /** Populate the returned tensor with elements from \p A but clamp them such
@@ -3103,8 +3622,12 @@ inline poplar::Tensor clamp(poplar::Graph &graph, const poplar::Tensor &A,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext = {},
                             const poplar::OptionFlags &options = {}) {
-  return map(graph, expr::TernaryOpType::CLAMP, A, B, C, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
+
+  auto output =
+      map(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /** Update the input tensor with the result of clamp().
@@ -3114,8 +3637,9 @@ inline void clampInPlace(poplar::Graph &graph, const poplar::Tensor &A,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {},
                          const poplar::OptionFlags &options = {}) {
-  mapInPlace(graph, expr::TernaryOpType::CLAMP, A, B, C, prog,
-             debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, C, options));
+
+  mapInPlace(graph, expr::TernaryOpType::CLAMP, A, B, C, prog, {di}, options);
 }
 
 } // end namespace popops

@@ -7,14 +7,15 @@ using namespace poplar;
 
 ComputeSetList::ComputeSetList(std::vector<ComputeSet> &css) : css(css) {}
 
-ComputeSet ComputeSetList::add(Graph &graph, StringRef name) {
+ComputeSet ComputeSetList::add(Graph &graph,
+                               const poplar::DebugNameAndId &dnai) {
   if (pos_ > css.size()) {
     throw std::logic_error("ComputeSetList::add() with pos " +
                            std::to_string(pos_) + " and size " +
                            std::to_string(css.size()));
   } else if (pos_ == css.size()) {
     // Add a new compute set.
-    css.emplace_back(graph.addComputeSet(name));
+    css.emplace_back(graph.addComputeSet({dnai}));
   }
   return css[pos_++];
 }

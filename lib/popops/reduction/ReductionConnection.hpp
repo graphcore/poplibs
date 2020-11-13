@@ -184,14 +184,15 @@ inline std::ostream &operator<<(std::ostream &os, const RegionReduction &r) {
 ///                      reduction.
 /// \param tile          The tile to map the vertices to.
 /// \param reductions    The set of reductions to distribute between vertices.
-/// \param debugPrefix   Prefix for the compute sets that are added.
+/// \param dnai          Debug information
 ///
 void connectReductions(poplar::Graph &graph, ComputeSetList &css,
                        ReduceParams params, poplar::Type inputType,
                        poplar::Type partialType, poplar::Type outputType,
                        unsigned tile,
                        const std::vector<RegionReduction> &reductions,
-                       bool reductionUsesInput, const std::string &debugPrefix);
+                       bool reductionUsesInput,
+                       const poplar::DebugNameAndId &dnai);
 
 /// Find the appropriate vertex specialisation to use
 /// \param graph   The compute graph

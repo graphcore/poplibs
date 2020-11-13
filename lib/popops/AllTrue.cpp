@@ -2,6 +2,7 @@
 #include "popops/AllTrue.hpp"
 
 #include "popops/Reduce.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 
 using namespace poplar;
@@ -12,7 +13,8 @@ namespace popops {
 
 Tensor allTrue(Graph &graph, Tensor in, Sequence &prog,
                const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(in));
+
   const auto inType = in.elementType();
 
   if (inType != BOOL) {
@@ -20,8 +22,10 @@ Tensor allTrue(Graph &graph, Tensor in, Sequence &prog,
         "Operation allTrue only takes boolean tensors");
   }
   auto inFlat = in.flatten();
-  return reduce(graph, inFlat, inType, {0}, popops::Operation::LOGICAL_AND,
-                prog, debugPrefix);
+  auto output = reduce(graph, inFlat, inType, {0},
+                       popops::Operation::LOGICAL_AND, prog, {di});
+  di.addOutput(output);
+  return output;
 }
 
 } // end namespace popops
