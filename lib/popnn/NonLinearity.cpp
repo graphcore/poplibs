@@ -437,7 +437,7 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
   }
   ComputeSet cs = graph.addComputeSet({di, fnPrefix});
   auto out = createOutputForElementWiseOp(graph, {t}, t.elementType(),
-                                          {di, fnPrefix + "out"});
+                                          {di, fnPrefix + "/out"});
   nonLinearityInPlace(graph, nonLinearityType, out, cs, {di, fnPrefix});
 
   prog.add(Copy(t, out, false, {di}));

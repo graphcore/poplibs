@@ -383,7 +383,7 @@ Tensor normStatisticsGradients(Graph &graph, const Tensor &actsWhitened,
   // Br{invStdDev} .* (gradsIn - rScale * actsWhitened .* Br{varDelta}
   //                   + Br{meanDelta})
   auto invStdDevBroadcast = broadcastChannelToMatch(gradient, invStdDev);
-  mulInPlace(graph, gradient, invStdDevBroadcast, prog, layer);
+  mulInPlace(graph, gradient, invStdDevBroadcast, prog, {di, layer});
   di.addOutput(gradient);
   return gradient;
 }
