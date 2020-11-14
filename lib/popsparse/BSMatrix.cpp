@@ -10,11 +10,11 @@ namespace experimental {
 poplar::Tensor
 BlockMatrix::getDenseMatrix(poplar::Graph &graph,
                             poplar::program::Sequence &prog,
-                            const std::string &debugPrefix) const {
+                            const poplar::DebugNameAndId &dnai) const {
   poplar::Tensor dense = graph.addVariable(
       blockData[0].elementType(),
       {static_cast<unsigned long>(row), static_cast<unsigned long>(col)},
-      debugPrefix + "/dense_matrix");
+      {dnai, "dense_matrix"});
 
   std::vector<std::vector<int>> blockIdMatrix = getBlockIdMatrix();
 
@@ -33,7 +33,7 @@ BlockMatrix::getDenseMatrix(poplar::Graph &graph,
       if (blockIdMatrix[i][j] == -1) {
         // put zero block uniformly accross all tiles
         graph.setTileMapping(t, (i * ncol + j) % nTile);
-        popops::zero(graph, t, prog, debugPrefix);
+        popops::zero(graph, t, prog, {dnai});
       } else {
         poplar::Tensor oneBlock = blockData.at(blockIdMatrix[i][j]);
         graph.setTileMapping(t, graph.getTileMapping(oneBlock));
@@ -120,9 +120,10 @@ void BlockSparseMatrix::setBlockTensor(const poplar::Tensor &matrixData) {
   }
 }
 
-poplar::Tensor BlockSparseMatrix::createTensor(poplar::Graph &graph,
-                                               const poplar::Type &dataType,
-                                               const std::string &name) const {
+poplar::Tensor
+BlockSparseMatrix::createTensor(poplar::Graph &graph,
+                                const poplar::Type &dataType,
+                                const poplar::DebugNameAndId &dnai) const {
   int nonZeroBlocks = getNonZeroBlockCount();
   std::vector<poplar::Tensor> blocks(nonZeroBlocks);
   for (int i = 0; i < nonZeroBlocks; i++) {
@@ -130,7 +131,7 @@ poplar::Tensor BlockSparseMatrix::createTensor(poplar::Graph &graph,
         graph
             .addVariable(dataType,
                          {static_cast<unsigned long>(blockRow * blockCol)},
-                         name + "_" + std::to_string(i))
+                         {dnai, std::to_string(i)})
             .expand({0});
   }
   return concat(blocks);
@@ -174,16 +175,17 @@ void BlockDenseMatrix::setBlockTensor(const poplar::Tensor &matrixData) {
   }
 }
 
-poplar::Tensor BlockDenseMatrix::createTensor(poplar::Graph &graph,
-                                              const poplar::Type &dataType,
-                                              const std::string &name) const {
+poplar::Tensor
+BlockDenseMatrix::createTensor(poplar::Graph &graph,
+                               const poplar::Type &dataType,
+                               const poplar::DebugNameAndId &dnai) const {
   // Create variable with the memory layout we want
   auto t = graph.addVariable(dataType,
                              {static_cast<std::size_t>(row / blockRow),
                               static_cast<std::size_t>(col / blockCol),
                               static_cast<std::size_t>(blockRow),
                               static_cast<std::size_t>(blockCol)},
-                             name);
+                             {dnai});
   // Dimshuffle / reshape to 2D tensor with the correct dimensions for the
   // matrix.
   return t.dimShuffle({0, 2, 1, 3})

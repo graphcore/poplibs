@@ -115,7 +115,7 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
                        unsigned blockCol, unsigned blockRows,
                        unsigned blockCols, const unsigned char *sparsity,
                        unsigned numGroups, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix) {
+                       const poplar::DebugNameAndId &dnai) {
 
   if (blockRow == 0 || blockCol == 0 || blockRows == 0 || blockCols == 0) {
     throw poplibs_error("Block dimension cannot be zero");
@@ -137,7 +137,7 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
     std::vector<unsigned> diagBlockIdxs;
     bsCreateMaskTensor(graph, blockRow, blockCol, blockRows, blockCols,
                        sparsity, subBlockMask, 0.0f, 1.0f, dataType, maskBlocks,
-                       diagBlockIdxs, emptyRowsMask, debugPrefix);
+                       diagBlockIdxs, emptyRowsMask, {dnai});
     for (unsigned idxDiagBlock : diagBlockIdxs) {
       if (idxDiagBlock >= sparseTensor.dim(0)) {
         throw poplibs_error(
@@ -166,8 +166,7 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
       std::vector<poplar::Tensor> curMaskBlocks;
       bsCreateMaskTensor(graph, blockRow, blockCol, blockRows, blockCols,
                          curSparsity, subBlockMask, 0.0f, 1.0f, dataType,
-                         curMaskBlocks, diagBlockIdxs, emptyRowsMask,
-                         debugPrefix);
+                         curMaskBlocks, diagBlockIdxs, emptyRowsMask, {dnai});
       maskBlocks.insert(maskBlocks.end(), curMaskBlocks.begin(),
                         curMaskBlocks.end());
       for (unsigned idxDiagBlock : diagBlockIdxs) {
@@ -182,7 +181,7 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
 
   if (!diagonalBlocks.empty()) {
     popops::mulInPlace(graph, concat(diagonalBlocks), concat(maskBlocks), prog,
-                       debugPrefix + "/subBlockMasked");
+                       {dnai, "subBlockMasked"});
   }
 }
 

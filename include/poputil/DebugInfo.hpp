@@ -76,6 +76,7 @@ poplar::ProfileValue toProfileValue(const std::vector<T> &vec) {
   return v;
 }
 
+// Specialization of vector for bools. Required on macos
 template <> poplar::ProfileValue toProfileValue(const std::vector<bool> &vec);
 
 // Generic case for pair
@@ -84,6 +85,16 @@ poplar::ProfileValue toProfileValue(const std::pair<T1, T2> &pair) {
   poplar::ProfileValue::Map v;
   v.insert({"first", toProfileValue(pair.first)});
   v.insert({"second", toProfileValue(pair.second)});
+  return v;
+}
+
+// Generic case for std::array
+template <typename T, size_t N>
+poplar::ProfileValue toProfileValue(const std::array<T, N> &array) {
+  poplar::ProfileValue::Map v;
+  for (size_t i = 0; i < N; ++i) {
+    v.insert({std::to_string(i), toProfileValue(array[i])});
+  }
   return v;
 }
 

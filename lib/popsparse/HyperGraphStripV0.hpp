@@ -70,13 +70,13 @@ private:
 public:
   // Creates a graph for (sparse) matrix multiplication
   virtual void createGraphMatMul(poplar::Graph &graph,
-                                 const std::string &debugPrefix) override;
+                                 const poplar::DebugNameAndId &dnai) override;
 
   // Creates a graph for matrix multiplication and sparsifies the result
   virtual void
   createGraphMatMulSparsifyResult(poplar::Graph &graph,
                                   const unsigned char *sparsity,
-                                  const std::string &debugPrefix) override;
+                                  const poplar::DebugNameAndId &dnai) override;
 
   // Set the tile mapping for left hand matrix
   void setTileMappingLHS(poplar::Graph &graph,
@@ -90,7 +90,7 @@ public:
   virtual void createProgramMatMul(poplar::Graph &graph,
                                    SubBlockMask subBlockMask,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix) override;
+                                   const poplar::DebugNameAndId &dnai) override;
 
   // Adds a logic to perform matmul to existing compusets
   virtual void createProgramMatMul(poplar::Graph &graph,
@@ -98,7 +98,7 @@ public:
                                    poplar::ComputeSet &mulCS,
                                    poplar::ComputeSet &reduceCS,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix) override;
+                                   const poplar::DebugNameAndId &dnai) override;
 
 private:
   HyperGraphData getDataForPartitioner();
@@ -114,22 +114,22 @@ private:
   /////////////////////////////////////////////////////////////////////////////
   void createComputeSetRowSplitDSD(poplar::Graph &graph,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix);
+                                   const poplar::DebugNameAndId &dnai);
 
   void createComputeSetRowSplitDSD(
       poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
       std::vector<poplar::ComputeSet> &mulCSVec,
       std::vector<poplar::ComputeSet> &reduceCSVec,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   void createComputeSetColSplitDSD(poplar::Graph &graph,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix);
+                                   const poplar::DebugNameAndId &dnai);
 
   void createComputeSetColSplitDSD(
       poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
       std::vector<poplar::ComputeSet> &mulCSVec,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   void setLHSTileMapDSD(poplar::Graph &graph, std::vector<int> &blockTileId,
                         bool setTileMap);
@@ -155,44 +155,46 @@ private:
 
   void createComputeSetRowSplitDDS(poplar::Graph &graph,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix);
+                                   const poplar::DebugNameAndId &dnai);
 
   void createComputeSetRowSplitDDS(
       poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
       std::vector<poplar::ComputeSet> &mulCSVec,
       std::vector<poplar::ComputeSet> &reduceCSVec,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   void createComputeSetColSplitDDS(poplar::Graph &graph,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix);
+                                   const poplar::DebugNameAndId &dnai);
 
   void createComputeSetColSplitDDS(
       poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
       std::vector<poplar::ComputeSet> &mulCSVec,
       std::vector<poplar::ComputeSet> &reduceCSVec,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   typedef void (HyperGraphStripV0::*GenCs2)(
       poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
       std::vector<poplar::ComputeSet> &mulCSVec,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   // Generates program sequence with 2 computeset groups:
   // Transpose, Matmul
   void genSeq2(poplar::Graph &graph, GenCs2 genCs2,
-               poplar::program::Sequence &prog, const std::string &debugPrefix);
+               poplar::program::Sequence &prog,
+               const poplar::DebugNameAndId &dnai);
 
   typedef void (HyperGraphStripV0::*GenCs3)(
       poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
       std::vector<poplar::ComputeSet> &mulCSVec,
       std::vector<poplar::ComputeSet> &reduceCSVec,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   // Generates program sequence with 3 computeset groups:
   // Transpose, Matmul, Reduce
   void genSeq3(poplar::Graph &graph, GenCs3 genCs3,
-               poplar::program::Sequence &prog, const std::string &debugPrefix);
+               poplar::program::Sequence &prog,
+               const poplar::DebugNameAndId &dnai);
 
   void setLHSTileMapDDS(poplar::Graph &graph, std::vector<int> &blockTileId,
                         bool setTileMap);

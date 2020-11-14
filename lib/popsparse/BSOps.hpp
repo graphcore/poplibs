@@ -20,7 +20,7 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
                        unsigned blockCol, unsigned blockRows,
                        unsigned blockCols, const unsigned char *sparsity,
                        unsigned numGroups, poplar::program::Sequence &prog,
-                       const std::string &debugPrefix);
+                       const poplar::DebugNameAndId &dnai);
 
 } // namespace experimental
 } // namespace popsparse

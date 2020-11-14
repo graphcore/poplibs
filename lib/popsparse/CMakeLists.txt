@@ -53,6 +53,7 @@ add_library(popsparse SHARED
   SparseFormatsValidate.cpp
   SparseFormatsValidate.hpp
   SparsityParams.cpp
+  SparseTensor.cpp
   SparsePartitioner.cpp
   SparsePartitionerImpl.cpp
   SparsePartitionerImpl.hpp

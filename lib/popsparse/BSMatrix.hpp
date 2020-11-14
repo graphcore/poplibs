@@ -42,9 +42,9 @@ public:
     return blockData;
   }
 
-  virtual poplar::Tensor createTensor(poplar::Graph &graph,
-                                      const poplar::Type &dataType,
-                                      const std::string &name) const = 0;
+  virtual poplar::Tensor
+  createTensor(poplar::Graph &graph, const poplar::Type &dataType,
+               const poplar::DebugNameAndId &dnai) const = 0;
 
   int getRowCount() const {
     if (needTranspose) {
@@ -91,7 +91,7 @@ public:
   // matrix, it fills the non zero blocks with blockData and zeros for others
   poplar::Tensor getDenseMatrix(poplar::Graph &graph,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix) const;
+                                const poplar::DebugNameAndId &dnai) const;
 
 protected:
   int row;
@@ -130,9 +130,9 @@ public:
 
   virtual void setBlockTensor(const poplar::Tensor &matrixData) override;
 
-  virtual poplar::Tensor createTensor(poplar::Graph &graph,
-                                      const poplar::Type &dataType,
-                                      const std::string &name) const override;
+  virtual poplar::Tensor
+  createTensor(poplar::Graph &graph, const poplar::Type &dataType,
+               const poplar::DebugNameAndId &dnai) const override;
 
 private:
   void init(const unsigned char *sparsity);
@@ -157,9 +157,9 @@ public:
 
   virtual void setBlockTensor(const poplar::Tensor &matrixData) override;
 
-  virtual poplar::Tensor createTensor(poplar::Graph &graph,
-                                      const poplar::Type &dataType,
-                                      const std::string &name) const override;
+  virtual poplar::Tensor
+  createTensor(poplar::Graph &graph, const poplar::Type &dataType,
+               const poplar::DebugNameAndId &dnai) const override;
 
   poplar::Tensor denseMatrix;
 };

@@ -16,6 +16,7 @@
 #include "poputil/TileMapping.hpp"
 #include <popops/Expr.hpp>
 #include <poputil/Broadcast.hpp>
+#include <poputil/DebugInfo.hpp>
 #include <poputil/VertexTemplates.hpp>
 
 #include <boost/optional.hpp>
@@ -69,7 +70,8 @@ struct PlannedSplits {
   unsigned blockColumns;
 
   PlannedSplits(std::size_t numSlices, const FullyConnectedParams &params,
-                const fullyconnected::Plan &plan, const std::string &debugStr,
+                const fullyconnected::Plan &plan,
+                const poplar::DebugNameAndId &dnai,
                 boost::optional<std::size_t> plannedColumns = boost::none,
                 bool respectBlockSize = true) {
 
@@ -137,7 +139,7 @@ struct PlannedSplits {
 
     if (logging::popsparse::shouldLog(logging::Level::Debug)) {
       logging::popsparse::debug("Sparse Dense Embedding plan for {}:",
-                                debugStr);
+                                dnai.getPathName());
       logging::popsparse::debug("Sparse tensor has block size {},{}", blockRows,
                                 blockColumns);
       logging::popsparse::debug(
@@ -231,9 +233,9 @@ void generateSparseDenseMultiSliceVertices(
     const Tensor &nzBuckets, const PlannedSplits &nzSplits,
     const Tensor &metaInfoBuckets, const PlannedSplits &metaInfoSplits,
     const Tensor &slices, const PlannedSplits &plannedSplits,
-    const std::string &debugStr) {
+    const poplar::DebugNameAndId &dnai) {
 
-  auto computeSet = graph.addComputeSet(debugStr);
+  auto computeSet = graph.addComputeSet({dnai});
   const auto inputType = nzBuckets.elementType();
 
   auto bytesPerBlockRow =
@@ -308,9 +310,9 @@ void generateSparseDenseMultiUpdateVertices(
     Graph &graph, Sequence &prog, const Tensor &offsets,
     const Tensor &columnPartition, const Tensor &metaInfoBuckets,
     const Tensor &nzBuckets, const Tensor &slices, const Tensor &scale,
-    const PlannedSplits &plannedSplits, const std::string &debugStr) {
+    const PlannedSplits &plannedSplits, const poplar::DebugNameAndId &dnai) {
 
-  auto computeSet = graph.addComputeSet(debugStr);
+  auto computeSet = graph.addComputeSet({dnai});
   const auto target = graph.getTarget();
   const auto inputType = slices.elementType();
   const auto outputVectorWidth = target.getVectorWidth(nzBuckets.elementType());
@@ -368,7 +370,7 @@ void generateSparseDenseMultiUpdateVertices(
       }
     }
   }
-  prog.add(Execute(computeSet));
+  prog.add(Execute(computeSet, {dnai}));
 }
 
 // Create the slice result tensor, or exchange buffers for data that will
@@ -376,12 +378,12 @@ void generateSparseDenseMultiUpdateVertices(
 // according to the plan, mirroring the location of the input tensor
 Tensor createSliceTensor(Graph &graph, Type inputType, std::size_t numIndices,
                          const PlannedSplits &plannedSplits,
-                         const std::string &debugPrefix) {
+                         const poplar::DebugNameAndId &dnai) {
 
-  auto result = graph.addVariable(
-      inputType, {numIndices, plannedSplits.columns}, debugPrefix);
+  auto result =
+      graph.addVariable(inputType, {numIndices, plannedSplits.columns}, {dnai});
   logging::popsparse::debug("Creating slice tensor with shape {} for {}",
-                            result.shape(), debugPrefix);
+                            result.shape(), dnai.getPathName());
 
   for (unsigned cs = 0; cs < plannedSplits.columnSplits; cs++) {
     for (unsigned is = 0; is < plannedSplits.slicesIndicesSplits; is++) {
@@ -472,14 +474,14 @@ ExchangeTensors createExchangeTensors(Graph &graph, Sequence &prog,
                                       const PlannedSplits &plannedSplits,
                                       unsigned numBuffers, unsigned rows,
                                       bool isSlice,
-                                      const std::string &debugPrefix) {
+                                      const poplar::DebugNameAndId &dnai) {
 
   std::vector<Tensor> src(numBuffers), rowDst(numBuffers), colDst(numBuffers);
   for (unsigned i = 0; i < numBuffers; i++) {
     // Make a source buffer, mapped to tiles in the same way as slices tensors
     // in our plannedSplits
     src[i] = createSliceTensor(graph, dataType, rows, plannedSplits,
-                               debugPrefix + "/ExBuf" + std::to_string(i));
+                               {dnai, "ExBuf" + std::to_string(i)});
     // Ensure that he exchange buffers don't remain always live. This can
     // happen as they are not necessarily completely written, or it is not
     // clear that they are completely written due to the dynamic program flow
@@ -517,17 +519,17 @@ ExchangeTensors createExchangeTensors(Graph &graph, Sequence &prog,
 std::tuple<Sequence, Tensor>
 createDecisionProg(Graph &graph, Sequence &prog,
                    std::variant<unsigned, Tensor> loopCount,
-                   const std::string &debugPrefix) {
+                   const poplar::DebugNameAndId &dnai) {
 
-  auto decisionCount = graph.addVariable(UNSIGNED_INT, {}, debugPrefix);
+  auto decisionCount = graph.addVariable(UNSIGNED_INT, {}, {dnai});
   graph.setTileMapping(decisionCount, 0);
   Tensor decisionInitialValue;
   if (std::get_if<Tensor>(&loopCount)) {
-    decisionInitialValue = cast(graph, std::get<Tensor>(loopCount),
-                                UNSIGNED_INT, prog, debugPrefix);
+    decisionInitialValue =
+        cast(graph, std::get<Tensor>(loopCount), UNSIGNED_INT, prog, {dnai});
   } else {
     decisionInitialValue = graph.addConstant<unsigned>(
-        UNSIGNED_INT, {}, std::get<unsigned>(loopCount), debugPrefix);
+        UNSIGNED_INT, {}, std::get<unsigned>(loopCount), {dnai});
     graph.setTileMapping(decisionInitialValue, 0);
   }
 
@@ -535,21 +537,20 @@ createDecisionProg(Graph &graph, Sequence &prog,
   Sequence decisionProg;
   // Sample the result then subtract is an equivalent to a decrement after the
   // decision and avoids adding 1 to the loop count
-  const auto decision =
-      cast(graph, decisionCount, BOOL, decisionProg, debugPrefix);
-  subInPlace(graph, decisionCount, 1u, decisionProg, debugPrefix);
+  const auto decision = cast(graph, decisionCount, BOOL, decisionProg, {dnai});
+  subInPlace(graph, decisionCount, 1u, decisionProg, {dnai});
   return {decisionProg, decision};
 }
 
 // Update (toggle 0<->1) the buffer index
 void bufferIndexUpdate(Graph &graph, const Tensor &index, Sequence &prog,
-                       const std::string &debugPrefix) {
-  auto cs = graph.addComputeSet(debugPrefix + "/bufIncrement");
+                       const poplar::DebugNameAndId &dnai) {
+  auto cs = graph.addComputeSet({dnai, "bufIncrement"});
   auto v = graph.addVertex(
       cs, templateVertex("popsparse::BufferIndexUpdate", index.elementType()));
   graph.connect(v["index"], index);
   graph.setTileMapping(v, 0);
-  prog.add(Execute(cs));
+  prog.add(Execute(cs, {dnai}));
 }
 
 // Create a vector of programs to process (run Update vertices) for each of the
@@ -561,7 +562,7 @@ std::vector<Sequence> createUpdateComputeProg(
     const Tensor &bufferSelect, const Tensor &scale, unsigned numBuffers,
     const ExchangeTensors &slicesExBuf, const ExchangeTensors &offsetsExBuf,
     const ExchangeTensors &columnPartitionExBuf,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
   // Create programs to run in a loop, alternately on each pass
   std::vector<Sequence> loopBodyProg(numBuffers);
@@ -572,7 +573,7 @@ std::vector<Sequence> createUpdateComputeProg(
     generateSparseDenseMultiUpdateVertices(
         graph, loopBodyProg[srcBuf], offsetsExBuf.src[srcBuf],
         columnPartitionExBuf.src[srcBuf], metaInfoBuckets, nzBuckets,
-        slicesExBuf.src[srcBuf], scale, plannedSplits, debugPrefix);
+        slicesExBuf.src[srcBuf], scale, plannedSplits, {dnai});
 
     // Exchange for next time
     loopBodyProg[srcBuf].add(
@@ -586,7 +587,7 @@ std::vector<Sequence> createUpdateComputeProg(
     loopBodyProg[srcBuf].add(Copy(columnPartitionExBuf.src[srcBuf],
                                   columnPartitionExBuf.rowDst[dstBuf]));
     // Toggle the buffer used for next time: src<->dst
-    bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], debugPrefix);
+    bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], {dnai});
   }
   return loopBodyProg;
 }
@@ -596,7 +597,7 @@ std::vector<Sequence> createSliceComputeProg(
     const Tensor &slices, const Tensor &offsets, const Tensor &bufferSelect,
     unsigned numBuffers, const ExchangeTensors &nzExBuf,
     const PlannedSplits &nzSplits, const ExchangeTensors &metaInfoExBuf,
-    const PlannedSplits &metaInfoSplits, const std::string &debugPrefix) {
+    const PlannedSplits &metaInfoSplits, const poplar::DebugNameAndId &dnai) {
 
   // Create programs to run in a loop, alternately on each pass
   std::vector<Sequence> loopBodyProg(numBuffers);
@@ -607,7 +608,7 @@ std::vector<Sequence> createSliceComputeProg(
     generateSparseDenseMultiSliceVertices(
         graph, loopBodyProg[srcBuf], offsets, nzExBuf.src[srcBuf], nzSplits,
         metaInfoExBuf.src[srcBuf], metaInfoSplits, slices, plannedSplits,
-        debugPrefix);
+        {dnai});
 
     // Exchange for next time
     loopBodyProg[srcBuf].add(Copy(nzExBuf.src[srcBuf], nzExBuf.rowDst[dstBuf]));
@@ -615,7 +616,7 @@ std::vector<Sequence> createSliceComputeProg(
         Copy(metaInfoExBuf.src[srcBuf], metaInfoExBuf.rowDst[dstBuf]));
 
     // Toggle the buffer used for next time: src<->dst
-    bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], debugPrefix);
+    bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], {dnai});
   }
   return loopBodyProg;
 }
@@ -625,13 +626,13 @@ std::vector<Sequence> createSliceComputeProg(
 std::tuple<std::vector<Sequence>, Tensor>
 createExchangeProg(Graph &graph, Sequence &prog, unsigned numBuffers,
                    const std::vector<ExchangeTensors> &exBufs,
-                   const std::string &debugPrefix) {
+                   const poplar::DebugNameAndId &dnai) {
 
   // Create and initialise the buffer select variable
-  auto bufferSelect = graph.addVariable(UNSIGNED_INT, {});
+  auto bufferSelect = graph.addVariable(UNSIGNED_INT, {}, {dnai});
   graph.setTileMapping(bufferSelect, 0);
   auto bufferSelectInitialValue =
-      graph.addConstant<unsigned>(UNSIGNED_INT, {}, 0u);
+      graph.addConstant<unsigned>(UNSIGNED_INT, {}, 0u, {dnai});
   prog.add(Copy(bufferSelectInitialValue, bufferSelect));
   graph.setTileMapping(bufferSelectInitialValue, 0);
 
@@ -644,7 +645,7 @@ createExchangeProg(Graph &graph, Sequence &prog, unsigned numBuffers,
           Copy(exBufs[i].src[srcBuf], exBufs[i].columnDst[dstBuf]));
     }
     // Toggle the buffer used for next time: src<->dst
-    bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], debugPrefix);
+    bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], {dnai});
   }
   return {loopBodyProg, bufferSelect};
 }
@@ -675,10 +676,11 @@ Tensor createIndicesTensor(Graph &graph, const FullyConnectedParams &params,
                            const std::size_t numIndices,
                            const OptionFlags &optionFlags,
                            const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(params, numIndices));
+
   logging::popsparse::info("createIndicesTensor with {} indices", numIndices);
   const auto indices =
-      graph.addVariable(UNSIGNED_INT, {numIndices}, debugPrefix + "/indices");
+      graph.addVariable(UNSIGNED_INT, {numIndices}, {di, "indices"});
   mapTensorLinearly(graph, indices, minIndicesPerTile, 1);
   return indices;
 }
@@ -711,9 +713,10 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
                       const FullyConnectedParams &params,
                       const poplar::DebugContext &debugContext,
                       const OptionFlags &options, PlanningCache *cache) {
-  const auto debugPrefix_ = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(baseT, offsets, params, options, cache));
   const auto inputType = baseT.getNzValuesTensor().elementType();
-  const auto debugPrefix = debugPrefix_ + "/embeddingSlice";
+  const std::string layer = "embeddingSlice";
   const auto target = graph.getTarget();
   const auto plan =
       getFullyConnectedPlan(graph, inputType, params, options, cache);
@@ -727,7 +730,7 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   // columns that we would have with padding such that each partition is the
   // same size and has an even number of columns
 
-  const PlannedSplits splits(offsets.dim(0), params, plan, debugPrefix);
+  const PlannedSplits splits(offsets.dim(0), params, plan, {di, layer});
   const auto elementsPerWrite =
       target.getAtomicStoreGranularity() / target.getTypeSize(inputType);
   const auto requiredPadding = splits.splitColumns % elementsPerWrite;
@@ -735,10 +738,10 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
       splits.columnSplits * (splits.splitColumns + requiredPadding);
 
   // Create a result tensor with the padding and a plan to describe it
-  const PlannedSplits paddedSplits(offsets.dim(0), params, plan, debugPrefix,
+  const PlannedSplits paddedSplits(offsets.dim(0), params, plan, {di, layer},
                                    paddedColumns);
   const auto paddedSlices = createSliceTensor(graph, inputType, offsets.dim(0),
-                                              paddedSplits, debugPrefix);
+                                              paddedSplits, {di, layer});
   // Create a result, based on slicing the padded tensor
   const auto slices = [&]() {
     // Remove the padding that was added to each partition to make its width
@@ -785,26 +788,26 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   // offsets are not exchanged any more during this process
   const auto offsetsBroadcastPerTile =
       createSliceTensor(graph, offsets.elementType(), offsets.dim(0),
-                        offsetsSplits, debugPrefix + "/Offsets");
+                        offsetsSplits, {di, layer + "/Offsets"});
 
   // Create pairs of exchange buffers with the same mapping as the nz,metadata
   // and the 2D shape, plus a view into the buffer representing the exchange
   // patterns required to propogate over rows (z and row splits) and columns.
   const auto numBuffers = 2;
   auto metaInfoSplits = PlannedSplits(metaInfoShape2D[0], params, plan,
-                                      debugPrefix + "/metainfoExchange",
+                                      {di, layer + "/metainfoExchange"},
                                       metaInfoShape2D[1], false);
   auto nzSplits =
-      PlannedSplits(nzShape2D[0], params, plan, debugPrefix + "/nzExchange",
+      PlannedSplits(nzShape2D[0], params, plan, {di, layer + "/nzExchange"},
                     nzShape2D[1], false);
 
   // Create exchange buffers for the NZ and metaInfo
   const auto metaInfoExBuf = createExchangeTensors(
       graph, prog, metaInfoBuckets.elementType(), metaInfoSplits, numBuffers,
-      metaInfoShape2D[0], true, debugPrefix + "/metaInfo");
+      metaInfoShape2D[0], true, {di, layer + "/metaInfo"});
   const auto nzExBuf =
       createExchangeTensors(graph, prog, inputType, nzSplits, numBuffers,
-                            nzShape2D[0], true, debugPrefix + "/Nzero");
+                            nzShape2D[0], true, {di, layer + "/Nzero"});
 
   // Create program fragments used below
 
@@ -813,15 +816,15 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   auto columnOverFlowCount = overflowInfo.slice(
       {yPartitionOverflowIndex, yPartitionOverflowIndex + 1});
   auto [outerDecisionProg, outerDecisionFlag] = createDecisionProg(
-      graph, prog, columnOverFlowCount, debugPrefix + "/outerLoop");
+      graph, prog, columnOverFlowCount, {di, layer + "/outerLoop"});
 
   const auto [exchangeProg, bufferSelect] = createExchangeProg(
-      graph, prog, numBuffers, {nzExBuf, metaInfoExBuf}, debugPrefix);
+      graph, prog, numBuffers, {nzExBuf, metaInfoExBuf}, {di, layer});
 
   const auto computeProg = createSliceComputeProg(
       graph, prog, paddedSplits, paddedSlices, offsetsBroadcastPerTile,
       bufferSelect, numBuffers, nzExBuf, nzSplits, metaInfoExBuf,
-      metaInfoSplits, debugPrefix);
+      metaInfoSplits, {di, layer});
 
   // Prime the buffers.
   prog.add(Copy(metaInfoBuckets, metaInfoExBuf.src[0]));
@@ -830,7 +833,7 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
 
   // Zero the slices once as we'll gradually populate them with the sparse
   // NZ values on each call to the slice vertices.
-  zero(graph, paddedSlices, prog, debugPrefix);
+  zero(graph, paddedSlices, prog, {di, layer});
 
   // Now use the programs and variables created to make the program below. The
   // switch program is used to select the computeProg or exchangeProg
@@ -897,9 +900,12 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
                         const FullyConnectedParams &params,
                         const poplar::DebugContext &debugContext,
                         const OptionFlags &options, PlanningCache *cache) {
-  const auto debugPrefix_ = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(baseT, slices_, offsets_, scale, params, options, cache));
+
   const auto inputType = baseT.getNzValuesTensor().elementType();
-  const auto debugPrefix = debugPrefix_ + "/embeddingUpdateAdd";
+  const std::string layer = "embeddingUpdateAdd";
   const auto plan =
       getFullyConnectedPlan(graph, inputType, params, options, cache);
   const auto &opts = fullyconnected::parseOptionFlags(options);
@@ -916,13 +922,13 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   // accessed.
   const auto offsets = [&]() {
     const PlannedSplits splits(offsets_.dim(0), params, plan,
-                               debugPrefix + "/prePad");
+                               {di, layer + "/prePad"});
     const auto paddedSize =
         splits.zSplits * splits.rowSplits * splits.slicesSplitRows;
     const auto paddedValue = std::numeric_limits<unsigned>::max();
     auto pad = graph.addConstant<unsigned>(
         offsets_.elementType(), {paddedSize - offsets_.dim(0)}, paddedValue,
-        debugPrefix + "/PadOffsets");
+        {di, layer + "/PadOffsets"});
     graph.setTileMapping(pad, 0);
     return concat(offsets_, pad);
   }();
@@ -935,11 +941,11 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   const auto slices = [&]() {
     const auto slicesType = slices_.elementType();
     const PlannedSplits splits(offsets_.dim(0), params, plan,
-                               debugPrefix + "/prePad");
+                               {di, layer + "/prePad"});
     const auto paddedSize = splits.columnSplits * splits.splitColumns;
     auto pad = graph.addVariable(slicesType,
                                  {slices_.dim(0), paddedSize - slices_.dim(1)},
-                                 debugPrefix + "/PadSlices");
+                                 {di, layer + "/PadSlices"});
     graph.setTileMapping(pad, 0);
     auto slices = concat(slices_, pad, 1);
     // Now that's nice and regular we can pad again to make the columns in each
@@ -950,8 +956,9 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
     if (padToEven) {
       slices = slices.reshape(
           {slices.dim(0), splits.columnSplits, splits.splitColumns});
-      auto pad = graph.addVariable(
-          slicesType, {slices.dim(0), splits.columnSplits, 1}, "/PadSlices");
+      auto pad =
+          graph.addVariable(slicesType, {slices.dim(0), splits.columnSplits, 1},
+                            {di, layer + "/PadSlices"});
       graph.setTileMapping(pad, 0);
       slices = concat(slices, pad, 2);
     }
@@ -962,7 +969,7 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   // We want the same plan so present the same parameters, but the total
   // columns we operate on is different as we padded above
   const PlannedSplits plannedSplits(offsets.dim(0), params, plan,
-                                    debugPrefix + "/padded", slices.dim(1));
+                                    {di, layer + "/padded"}, slices.dim(1));
   const auto [overflowInfo, baseTBuckets] =
       getInternalSparseTensor(graph, baseT, plan);
 
@@ -1007,17 +1014,17 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   const auto numBuffers = 2;
   const auto slicesExBuf =
       createExchangeTensors(graph, prog, inputType, plannedSplits, numBuffers,
-                            offsets.dim(0), false, debugPrefix + "/Slices");
+                            offsets.dim(0), false, {di, layer + "/Slices"});
 
   const auto offsetsExBuf = createExchangeTensors(
       graph, prog, offsets.elementType(), offsetsSplits, numBuffers,
-      offsets.dim(0), false, debugPrefix + "/Offsets");
+      offsets.dim(0), false, {di, layer + "/Offsets"});
 
   auto columnPartitionExBuf = createExchangeTensors(
       graph, prog, columnPartitionBroadcast.elementType(),
       columnPartitionSplits, numBuffers,
       columnPartitionBroadcast.dim(0) * columnPartitionBroadcast.dim(1), false,
-      debugPrefix + "/ColumnPartition");
+      {di, layer + "/ColumnPartition"});
 
   for (unsigned i = 0; i < numBuffers; i++) {
     const auto shape = columnPartitionBroadcast.shape();
@@ -1037,8 +1044,8 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
       baseTBuckets.getNzValuesTensor(), plannedSplits.getPartitions());
 
   const auto nzVertexOutput =
-      graph.clone(FLOAT, nzBuckets, debugPrefix + "/nzPartials");
-  zero(graph, nzVertexOutput, prog, debugPrefix);
+      graph.clone(FLOAT, nzBuckets, {di, layer + "/nzPartials"});
+  zero(graph, nzVertexOutput, prog, {di, layer});
 
   // Create program fragments used below
 
@@ -1047,16 +1054,16 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   const auto columnOverFlowCount = overflowInfo.slice(
       {yPartitionOverflowIndex, yPartitionOverflowIndex + 1});
   const auto [outerDecisionProg, outerDecisionFlag] = createDecisionProg(
-      graph, prog, columnOverFlowCount, debugPrefix + "/outerLoop");
+      graph, prog, columnOverFlowCount, {di, layer + "/outerLoop"});
 
   const auto [exchangeProg, bufferSelect] = createExchangeProg(
       graph, prog, numBuffers,
-      {slicesExBuf, offsetsExBuf, columnPartitionExBuf}, debugPrefix);
+      {slicesExBuf, offsetsExBuf, columnPartitionExBuf}, {di, layer});
 
   const auto computeProg = createUpdateComputeProg(
       graph, prog, plannedSplits, metaInfoBuckets, nzVertexOutput, bufferSelect,
       scale, numBuffers, slicesExBuf, offsetsExBuf, columnPartitionExBuf,
-      debugPrefix);
+      {di, layer});
 
   // Prime the 1st buffer (Only the existing slices rows go in, although the
   // buffer can be larger if padding slices rows)
@@ -1106,7 +1113,7 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
 
   // Add the partials to the Nz-data. Scale was already applied
   // while adding to the partial result.
-  scaledAddTo(graph, nzBuckets, nzVertexOutput, 1.0, prog, debugPrefix);
+  scaledAddTo(graph, nzBuckets, nzVertexOutput, 1.0, prog, {di, layer});
 }
 
 // External function to be used to create the slice input for an update
@@ -1116,12 +1123,12 @@ Tensor createSliceTensor(Graph &graph, const Type &dataType,
                          std::size_t numIndices,
                          const poplar::DebugContext &debugContext,
                          const OptionFlags &options, PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(dataType, params, numIndices, options, cache));
   const auto plan =
       getFullyConnectedPlan(graph, dataType, params, options, cache);
-  const PlannedSplits plannedSplits(numIndices, params, plan, debugPrefix);
-  return createSliceTensor(graph, dataType, numIndices, plannedSplits,
-                           debugPrefix);
+  const PlannedSplits plannedSplits(numIndices, params, plan, {di});
+  return createSliceTensor(graph, dataType, numIndices, plannedSplits, {di});
 }
 
 } // end namespace dynamic

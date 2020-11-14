@@ -39,9 +39,9 @@ HyperGraphBlock::HyperGraphBlock(BlockMatrix &A, BlockMatrix &B,
 }
 
 void HyperGraphBlock::createGraphMatMul(poplar::Graph &graph,
-                                        const std::string &debugPrefix) {
+                                        const poplar::DebugNameAndId &dnai) {
   if (matA.isDense()) {
-    createGraphMatMulDSD(graph, debugPrefix);
+    createGraphMatMulDSD(graph, {dnai});
   } else {
     throw poputil::poplibs_error("Not implemented");
   }
@@ -50,9 +50,9 @@ void HyperGraphBlock::createGraphMatMul(poplar::Graph &graph,
 
 void HyperGraphBlock::createGraphMatMulSparsifyResult(
     poplar::Graph &graph, const unsigned char *sparsity,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
   if (matA.isDense() && matB.isDense()) {
-    createGraphMatMulDDSSparsiryResult(graph, sparsity, debugPrefix);
+    createGraphMatMulDDSSparsiryResult(graph, sparsity, {dnai});
   } else {
     throw poputil::poplibs_error("Not implemented");
   }
@@ -60,7 +60,7 @@ void HyperGraphBlock::createGraphMatMulSparsifyResult(
 }
 
 void HyperGraphBlock::createGraphMatMulDSD(poplar::Graph &graph,
-                                           const std::string &debugPrefix) {
+                                           const poplar::DebugNameAndId &dnai) {
   assert(!matC);
   assert(matA.getColCount() == matB.getRowCount());
   assert(matA.getBlockCol() == matB.getBlockRow());
@@ -124,7 +124,7 @@ unsigned int HyperGraphBlock::getMulsPerVNode() const {
 
 void HyperGraphBlock::createGraphMatMulDDSSparsiryResult(
     poplar::Graph &graph, const unsigned char *sparsity,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
   assert(!matC);
   assert(matA.getColCount() == matB.getRowCount());
   assert(matA.getBlockCol() == matB.getBlockRow());
@@ -336,15 +336,15 @@ void HyperGraphBlock::addCodelets(poplar::Graph &graph) {
 void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
                                           SubBlockMask subBlockMask,
                                           poplar::program::Sequence &prog,
-                                          const std::string &debugPrefix) {
+                                          const poplar::DebugNameAndId &dnai) {
   std::map<unsigned int, poplar::Tensor> partialData;
 
-  createComputeSetMatMul(graph, partialData, prog, debugPrefix);
+  createComputeSetMatMul(graph, partialData, prog, {dnai});
 
-  createComputeSetReduce(graph, partialData, prog, debugPrefix);
+  createComputeSetReduce(graph, partialData, prog, {dnai});
 
   if (subBlockMask != SubBlockMask::None) {
-    applySubBlockMask(graph, subBlockMask, prog, debugPrefix);
+    applySubBlockMask(graph, subBlockMask, prog, {dnai});
   }
 }
 
@@ -353,41 +353,38 @@ void HyperGraphBlock::createProgramMatMul(poplar::Graph &graph,
                                           poplar::ComputeSet &mulCS,
                                           poplar::ComputeSet &reduceCS,
                                           poplar::program::Sequence &prog,
-                                          const std::string &debugPrefix) {
+                                          const poplar::DebugNameAndId &dnai) {
 
   std::map<unsigned int, poplar::Tensor> partialData;
 
-  createComputeSetMatMul(graph, partialData, mulCS, transposeCS, prog,
-                         debugPrefix);
+  createComputeSetMatMul(graph, partialData, mulCS, transposeCS, prog, {dnai});
 
-  createComputeSetReduce(graph, partialData, reduceCS, debugPrefix);
+  createComputeSetReduce(graph, partialData, reduceCS, {dnai});
 }
 
 void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
 
-  poplar::ComputeSet mulCS = graph.addComputeSet(debugPrefix + "/mulCS");
+  poplar::ComputeSet mulCS = graph.addComputeSet({dnai, "mulCS"});
   if (!matB.getNeedTranspose()) {
-    poplar::ComputeSet transposeCS =
-        graph.addComputeSet(debugPrefix + "/transposeCS");
+    poplar::ComputeSet transposeCS = graph.addComputeSet({dnai, "transposeCS"});
     prog.add(poplar::program::Execute(transposeCS));
     createComputeSetMatMul(graph, partialData, mulCS, &transposeCS, prog,
-                           debugPrefix);
+                           {dnai});
   } else {
-    createComputeSetMatMul(graph, partialData, mulCS, nullptr, prog,
-                           debugPrefix);
+    createComputeSetMatMul(graph, partialData, mulCS, nullptr, prog, {dnai});
   }
-  prog.add(poplar::program::Execute(mulCS));
+  prog.add(poplar::program::Execute(mulCS, {dnai}));
 }
 
 void HyperGraphBlock::createComputeSetMatMul(
     poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
     poplar::ComputeSet &mulCS, poplar::ComputeSet *transposeCS,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
 
   poplar::Tensor matCTensor =
-      matC->createTensor(graph, outDataType, debugPrefix + "/matC");
+      matC->createTensor(graph, outDataType, {dnai, "matC"});
   matC->setBlockTensor(matCTensor);
 
   // set tile mapping for tensors in all nodes
@@ -408,7 +405,7 @@ void HyperGraphBlock::createComputeSetMatMul(
   const std::vector<poplar::Tensor> &blockDataB = matB.getBlockTensor();
 
   std::vector<int> rhsBlockTileId(blockDataB.size());
-  const std::string debugPrefix1 = debugPrefix + "transposed_matBblock_";
+  const std::string debugPrefix1 = "transposed_matBblock_";
   for (const auto &n : nodeB) {
     unsigned int blockId = n.blockId;
     unsigned int nodeId = n.id;
@@ -423,19 +420,18 @@ void HyperGraphBlock::createComputeSetMatMul(
 
   std::vector<poplar::Tensor> processedBlockDataA, processedBlockDataB;
   preprocessBlocks(graph, matA, matB, processedBlockDataA, processedBlockDataB,
-                   lhsBlockTileId, rhsBlockTileId, transposeCS, prog,
-                   debugPrefix);
+                   lhsBlockTileId, rhsBlockTileId, transposeCS, prog, {dnai});
 
   unsigned int vNodeCount = 0;
   std::vector<int> tileNodes(nTile, 0);
 
-  const std::string &debugPrefix2 = debugPrefix + "/partial_block_";
+  const std::string &debugPrefix2 = "partial_block_";
   for (const auto &n : nodeV) {
     unsigned int nodeId = n.id;
     poplar::Tensor t = graph.addVariable(
         partialDataType,
         {static_cast<unsigned long>(matC->getBlockRow() * matC->getBlockCol())},
-        debugPrefix2 + std::to_string(nodeId));
+        {dnai, debugPrefix2 + std::to_string(nodeId)});
     if (tileAssignment[nodeId] < 0) {
       throw poputil::poplibs_error(
           "Invalid tile id: " + std::to_string(tileAssignment[nodeId]) +
@@ -503,7 +499,7 @@ void HyperGraphBlock::createComputeSetMatMul(
     vNodeCount++;
 
     addConv1x1Vertex(graph, inputA, inputB, partialData[nodeId], tileId, mulCS,
-                     debugPrefix);
+                     {dnai});
   }
 }
 
@@ -549,17 +545,17 @@ void HyperGraphBlock::mapCNodes(poplar::Graph &graph) {
 void HyperGraphBlock::createComputeSetReduce(
     poplar::Graph &graph,
     const std::map<unsigned int, poplar::Tensor> &partialDataIn,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
 
-  poplar::ComputeSet reduceCS = graph.addComputeSet(debugPrefix + "/reduceCS");
-  createComputeSetReduce(graph, partialDataIn, reduceCS, debugPrefix);
+  poplar::ComputeSet reduceCS = graph.addComputeSet({dnai, "reduceCS"});
+  createComputeSetReduce(graph, partialDataIn, reduceCS, {dnai});
   prog.add(poplar::program::Execute(reduceCS));
 }
 
 void HyperGraphBlock::createComputeSetReduce(
     poplar::Graph &graph,
     const std::map<unsigned int, poplar::Tensor> &partialDataIn,
-    poplar::ComputeSet &reduceCS, const std::string &debugPrefix) {
+    poplar::ComputeSet &reduceCS, const poplar::DebugNameAndId &dnai) {
   unsigned int minC = INT_MAX, maxC = 0;
 
   for (unsigned int i = 0; i < edgeC.size(); i++) {

@@ -162,17 +162,18 @@ public:
 
   // Creates a graph for (sparse) matrix multiplication
   void createGraphMatMul(poplar::Graph &graph,
-                         const std::string &debugPrefix) override;
+                         const poplar::DebugNameAndId &dnai) override;
 
   // Creates a graph for matrix multiplication and sparsifies the result
-  void createGraphMatMulSparsifyResult(poplar::Graph &graph,
-                                       const unsigned char *sparsity,
-                                       const std::string &debugPrefix) override;
+  void
+  createGraphMatMulSparsifyResult(poplar::Graph &graph,
+                                  const unsigned char *sparsity,
+                                  const poplar::DebugNameAndId &dnai) override;
 
   // Creates a program to perform matmul
   void createProgramMatMul(poplar::Graph &graph, SubBlockMask subBlockMask,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix) override;
+                           const poplar::DebugNameAndId &dnai) override;
 
   // Adds a logic to perform matmul to existing compusets
   void createProgramMatMul(poplar::Graph &graph,
@@ -180,29 +181,29 @@ public:
                            poplar::ComputeSet &mulCS,
                            poplar::ComputeSet &reduceCS,
                            poplar::program::Sequence &prog,
-                           const std::string &debugPrefix) override;
+                           const poplar::DebugNameAndId &dnai) override;
   // Creates a compute set to perform a partial matmul
   void createComputeSetMatMul(
       poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   // Creates a compute set to perform a partial matmul
   void createComputeSetMatMul(
       poplar::Graph &graph, std::map<unsigned int, poplar::Tensor> &partialData,
       poplar::ComputeSet &mulCS, poplar::ComputeSet *transposeCS,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   // Creates a compute set to perform reduce
   void createComputeSetReduce(
       poplar::Graph &graph,
       const std::map<unsigned int, poplar::Tensor> &partialDataIn,
-      poplar::program::Sequence &prog, const std::string &debugPrefix);
+      poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
   // Creates a compute set to perform reduce
   void createComputeSetReduce(
       poplar::Graph &graph,
       const std::map<unsigned int, poplar::Tensor> &partialDataIn,
-      poplar::ComputeSet &reduceCS, const std::string &debugPrefix);
+      poplar::ComputeSet &reduceCS, const poplar::DebugNameAndId &dnai);
 
   // Set the tile mapping for left hand matrix
   void setTileMappingLHS(poplar::Graph &graph,
@@ -228,12 +229,12 @@ protected:
 
   // Creates a graph for dense * sparse = dense matrix multiplication
   void createGraphMatMulDSD(poplar::Graph &graph,
-                            const std::string &debugPrefix);
+                            const poplar::DebugNameAndId &dnai);
 
   // Creates a graph for dense * dense -> sparse matrix multiplication
   void createGraphMatMulDDSSparsiryResult(poplar::Graph &graph,
                                           const unsigned char *sparsity,
-                                          const std::string &debugPrefix);
+                                          const poplar::DebugNameAndId &dnai);
 
   // Helper methods
   // Populates nodes and edges for a node group A, B or C

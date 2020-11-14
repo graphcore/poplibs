@@ -2,11 +2,28 @@
 #include <popsparse/FullyConnectedParams.hpp>
 #include <tuple>
 
+#include "poplibs_support/StructHelper.hpp"
+#include <poputil/DebugInfo.hpp>
 #include <poputil/exceptions.hpp>
 
-#include "poplibs_support/StructHelper.hpp"
-
 #include "FullyConnectedUtils.hpp"
+
+namespace poputil {
+template <>
+poplar::ProfileValue
+toProfileValue(const popsparse::dynamic::FullyConnectedParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"sparsityParams", toProfileValue(t.getSparsityParams())});
+  v.insert({"nzRatio", toProfileValue(t.getNzRatio())});
+  v.insert({"batchSize", toProfileValue(t.getBatchSize())});
+  v.insert({"numGroups", toProfileValue(t.getNumGroups())});
+  v.insert(
+      {"inputChannelsPerGroup", toProfileValue(t.getInputChannelsPerGroup())});
+  v.insert({"outputChannelsPerGroup",
+            toProfileValue(t.getOutputChannelsPerGroup())});
+  return v;
+}
+} // namespace poputil
 
 namespace popsparse {
 

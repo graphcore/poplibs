@@ -2,8 +2,14 @@
 
 #include "poputil/TensorMetaData.hpp"
 #include "TensorMetaDataBase.hpp"
+#include "poputil/DebugInfo.hpp"
 
 namespace poputil {
+
+template <>
+poplar::ProfileValue toProfileValue(const poputil::TensorMetaData &t) {
+  return poplar::ProfileValue("<poputil::TensorMetaData>");
+}
 
 TensorMetaData::TensorMetaData() = default;
 TensorMetaData::TensorMetaData(const TensorMetaData &other) {

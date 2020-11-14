@@ -3,9 +3,24 @@
 #include "popsparse/MatMulParams.hpp"
 
 #include "poplibs_support/StructHelper.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 
 #include "FullyConnectedUtils.hpp"
+
+namespace poputil {
+template <>
+poplar::ProfileValue toProfileValue(const popsparse::dynamic::MatMulParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"sparsityParams", toProfileValue(t.getSparsityParams())});
+  v.insert({"nzRatio", toProfileValue(t.getNzRatio())});
+  v.insert({"groups", toProfileValue(t.getNumGroups())});
+  v.insert({"m", toProfileValue(t.getM())});
+  v.insert({"k", toProfileValue(t.getK())});
+  v.insert({"n", toProfileValue(t.getN())});
+  return v;
+}
+} // namespace poputil
 
 namespace popsparse {
 

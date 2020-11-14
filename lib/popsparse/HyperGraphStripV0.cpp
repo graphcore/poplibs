@@ -38,7 +38,7 @@ HyperGraphStripV0::HyperGraphStripV0(BlockMatrix &A, BlockMatrix &B,
 }
 
 void HyperGraphStripV0::createGraphMatMul(poplar::Graph &graph,
-                                          const std::string &debugPrefix) {
+                                          const poplar::DebugNameAndId &dnai) {
   assert(matA.isDense() && !matB.isDense());
 
   assert(matC == nullptr);
@@ -107,7 +107,7 @@ void HyperGraphStripV0::createGraphMatMul(poplar::Graph &graph,
 
 void HyperGraphStripV0::createGraphMatMulSparsifyResult(
     poplar::Graph &graph, const unsigned char *sparsity,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
   assert(matA.isDense() && matB.isDense());
   assert(matC == nullptr);
   assert(matA.getColCount() == matB.getRowCount());
@@ -202,34 +202,31 @@ void HyperGraphStripV0::setTileMappingRHS(poplar::Graph &graph,
   }
 }
 
-void HyperGraphStripV0::createProgramMatMul(poplar::Graph &graph,
-                                            SubBlockMask subBlockMask,
-                                            poplar::program::Sequence &prog,
-                                            const std::string &debugPrefix) {
+void HyperGraphStripV0::createProgramMatMul(
+    poplar::Graph &graph, SubBlockMask subBlockMask,
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
   if (!isResultSparse) {
     if (doRowSplit) {
-      createComputeSetRowSplitDSD(graph, prog, debugPrefix);
+      createComputeSetRowSplitDSD(graph, prog, {dnai});
     } else {
-      createComputeSetColSplitDSD(graph, prog, debugPrefix);
+      createComputeSetColSplitDSD(graph, prog, {dnai});
     }
   } else {
     if (doRowSplit) {
-      createComputeSetRowSplitDDS(graph, prog, debugPrefix);
+      createComputeSetRowSplitDDS(graph, prog, {dnai});
     } else {
-      createComputeSetColSplitDDS(graph, prog, debugPrefix);
+      createComputeSetColSplitDDS(graph, prog, {dnai});
     }
     if (subBlockMask != SubBlockMask::None) {
-      applySubBlockMask(graph, subBlockMask, prog, debugPrefix);
+      applySubBlockMask(graph, subBlockMask, prog, {dnai});
     }
   }
 }
 
-void HyperGraphStripV0::createProgramMatMul(poplar::Graph &graph,
-                                            poplar::ComputeSet *transposeCS,
-                                            poplar::ComputeSet &mulCS,
-                                            poplar::ComputeSet &reduceCS,
-                                            poplar::program::Sequence &prog,
-                                            const std::string &debugPrefix) {
+void HyperGraphStripV0::createProgramMatMul(
+    poplar::Graph &graph, poplar::ComputeSet *transposeCS,
+    poplar::ComputeSet &mulCS, poplar::ComputeSet &reduceCS,
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
   assert(nPass == 1);
   std::vector<poplar::ComputeSet> transposeCSVec;
   std::vector<poplar::ComputeSet> mulCSVec;
@@ -243,18 +240,18 @@ void HyperGraphStripV0::createProgramMatMul(poplar::Graph &graph,
   if (!isResultSparse) {
     if (doRowSplit) {
       createComputeSetRowSplitDSD(graph, transposeCSVec, mulCSVec, reduceCSVec,
-                                  prog, debugPrefix);
+                                  prog, {dnai});
     } else {
       createComputeSetColSplitDSD(graph, transposeCSVec, mulCSVec, prog,
-                                  debugPrefix);
+                                  {dnai});
     }
   } else {
     if (doRowSplit) {
       createComputeSetRowSplitDDS(graph, transposeCSVec, mulCSVec, reduceCSVec,
-                                  prog, debugPrefix);
+                                  prog, {dnai});
     } else {
       createComputeSetColSplitDDS(graph, transposeCSVec, mulCSVec, reduceCSVec,
-                                  prog, debugPrefix);
+                                  prog, {dnai});
     }
   }
 }
@@ -659,19 +656,18 @@ void HyperGraphStripV0::setResultTileMapDSD(poplar::Graph &graph) {
 
 void HyperGraphStripV0::createComputeSetColSplitDSD(
     poplar::Graph &graph, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
-  genSeq2(graph, &HyperGraphStripV0::createComputeSetColSplitDSD, prog,
-          debugPrefix);
+  genSeq2(graph, &HyperGraphStripV0::createComputeSetColSplitDSD, prog, {dnai});
 }
 
 void HyperGraphStripV0::createComputeSetColSplitDSD(
     poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
     std::vector<poplar::ComputeSet> &mulCSVec, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
   poplar::Tensor matCTensor =
-      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
+      matC->createTensor(graph, inDataType, {dnai, "matrix_c"});
   matC->setBlockTensor(matCTensor);
 
   std::vector<int> lhsBlockTileId;
@@ -687,7 +683,7 @@ void HyperGraphStripV0::createComputeSetColSplitDSD(
     transposeCS = &transposeCSVec[0];
   }
   preprocessBlocks(graph, matA, matB, blockDataA, blockDataB, lhsBlockTileId,
-                   rhsBlockTileId, transposeCS, prog, debugPrefix);
+                   rhsBlockTileId, transposeCS, prog, {dnai});
 
   const int nColA = matA.getBlockColCount();
   const int nRowC = matC->getBlockRowCount();
@@ -723,7 +719,7 @@ void HyperGraphStripV0::createComputeSetColSplitDSD(
         } else {
           addConv1x1Vertex(graph, inputA, inputB,
                            blockDataC[blockIdMatrixC[r][c]], tileId, mulCS,
-                           debugPrefix);
+                           {dnai});
         }
       }
 
@@ -735,81 +731,79 @@ void HyperGraphStripV0::createComputeSetColSplitDSD(
 
 void HyperGraphStripV0::genSeq2(poplar::Graph &graph, GenCs2 genCs2,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix) {
+                                const poplar::DebugNameAndId &dnai) {
 
   std::vector<poplar::ComputeSet> transposeCSVec;
   std::vector<poplar::ComputeSet> mulCSVec;
 
   if (!matB.getNeedTranspose()) {
-    transposeCSVec.push_back(graph.addComputeSet(debugPrefix + "/transposeCS"));
+    transposeCSVec.push_back(graph.addComputeSet({dnai, "transposeCS"}));
   }
 
   for (int p = 0; p < nPass; p++) {
     mulCSVec.push_back(
-        graph.addComputeSet(debugPrefix + "/mulCS" + std::to_string(p)));
+        graph.addComputeSet({dnai, "mulCS" + std::to_string(p)}));
   }
 
   if (!matB.getNeedTranspose()) {
     prog.add(poplar::program::Execute(transposeCSVec[0]));
   }
 
-  (this->*genCs2)(graph, transposeCSVec, mulCSVec, prog, debugPrefix);
+  (this->*genCs2)(graph, transposeCSVec, mulCSVec, prog, {dnai});
 
   for (int p = 0; p < nPass; p++) {
-    prog.add(poplar::program::Execute(mulCSVec[p]));
+    prog.add(poplar::program::Execute(mulCSVec[p], {dnai}));
   }
 }
 
 void HyperGraphStripV0::genSeq3(poplar::Graph &graph, GenCs3 genCs3,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix) {
+                                const poplar::DebugNameAndId &dnai) {
 
   std::vector<poplar::ComputeSet> transposeCSVec;
   std::vector<poplar::ComputeSet> mulCSVec;
   std::vector<poplar::ComputeSet> reduceCSVec;
 
   if (!matB.getNeedTranspose()) {
-    transposeCSVec.push_back(graph.addComputeSet(debugPrefix + "/transposeCS"));
+    transposeCSVec.push_back(graph.addComputeSet({dnai, "transposeCS"}));
   }
 
   for (int p = 0; p < nPass; p++) {
     mulCSVec.push_back(
-        graph.addComputeSet(debugPrefix + "/mulCS" + std::to_string(p)));
+        graph.addComputeSet({dnai, "mulCS" + std::to_string(p)}));
     reduceCSVec.push_back(
-        graph.addComputeSet(debugPrefix + "/reduceCS" + std::to_string(p)));
+        graph.addComputeSet({dnai, "reduceCS" + std::to_string(p)}));
   }
 
   if (!matB.getNeedTranspose()) {
     prog.add(poplar::program::Execute(transposeCSVec[0]));
   }
 
-  (this->*genCs3)(graph, transposeCSVec, mulCSVec, reduceCSVec, prog,
-                  debugPrefix);
+  (this->*genCs3)(graph, transposeCSVec, mulCSVec, reduceCSVec, prog, {dnai});
 
   for (int p = 0; p < nPass; p++) {
-    prog.add(poplar::program::Execute(mulCSVec[p]));
-    prog.add(poplar::program::Execute(reduceCSVec[p]));
+    prog.add(poplar::program::Execute(mulCSVec[p], {dnai}));
+    prog.add(poplar::program::Execute(reduceCSVec[p], {dnai}));
   }
 }
 
 void HyperGraphStripV0::createComputeSetRowSplitDSD(
     poplar::Graph &graph, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
-  genSeq3(graph, &HyperGraphStripV0::createComputeSetRowSplitDSD, prog,
-          debugPrefix);
+  genSeq3(graph, &HyperGraphStripV0::createComputeSetRowSplitDSD, prog, dnai);
 }
 
 void HyperGraphStripV0::createComputeSetRowSplitDSD(
     poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
     std::vector<poplar::ComputeSet> &mulCSVec,
     std::vector<poplar::ComputeSet> &reduceCSVec,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
 
   const unsigned nColB = matB.getBlockColCount();
 
   poplar::Tensor matCTensor =
-      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
+      matC->createTensor(graph, inDataType, {dnai, "matrix_c"});
   matC->setBlockTensor(matCTensor);
 
   std::vector<int> lhsBlockTileId;
@@ -825,7 +819,7 @@ void HyperGraphStripV0::createComputeSetRowSplitDSD(
     transposeCS = &transposeCSVec[0];
   }
   preprocessBlocks(graph, matA, matB, blockDataA, blockDataB, lhsBlockTileId,
-                   rhsBlockTileId, transposeCS, prog, debugPrefix);
+                   rhsBlockTileId, transposeCS, prog, {dnai});
 
   const std::vector<std::vector<int>> blockIdMatrixB = matB.getBlockIdMatrix();
   std::vector<Strip> tileStrips;
@@ -850,9 +844,8 @@ void HyperGraphStripV0::createComputeSetRowSplitDSD(
               partialDataType,
               {static_cast<unsigned long>(matC->getBlockRow() *
                                           matC->getBlockCol())},
-              debugPrefix + "/paritial_block_group_" + std::to_string(g) +
-                  "_tile_" + std::to_string(tileId) + "_col_" +
-                  std::to_string(c));
+              {dnai, "paritial_block_group_" + std::to_string(g) + "_tile_" +
+                         std::to_string(tileId) + "_col_" + std::to_string(c)});
           graph.setTileMapping(tileStrips[tileId].tensors[g][c],
                                tileId + g * nTilePerGroup);
         }
@@ -892,7 +885,7 @@ void HyperGraphStripV0::createComputeSetRowSplitDSD(
           if (isNonZero) {
             addConv1x1Vertex(graph, inputA, inputB,
                              tileStrips[i].tensors[g - startR][c], tileId,
-                             mulCS, debugPrefix);
+                             mulCS, {dnai});
           }
         }
       }
@@ -1280,20 +1273,19 @@ void HyperGraphStripV0::setOutputTileMapDDS(poplar::Graph &graph,
 
 void HyperGraphStripV0::createComputeSetColSplitDDS(
     poplar::Graph &graph, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
-  genSeq3(graph, &HyperGraphStripV0::createComputeSetColSplitDDS, prog,
-          debugPrefix);
+  genSeq3(graph, &HyperGraphStripV0::createComputeSetColSplitDDS, prog, dnai);
 }
 
 void HyperGraphStripV0::createComputeSetColSplitDDS(
     poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
     std::vector<poplar::ComputeSet> &mulCSVec,
     std::vector<poplar::ComputeSet> &reduceCSVec,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
 
   poplar::Tensor matCTensor =
-      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
+      matC->createTensor(graph, inDataType, {dnai, "matrix_c"});
   matC->setBlockTensor(matCTensor);
 
   std::vector<int> lhsBlockTileId;
@@ -1310,7 +1302,7 @@ void HyperGraphStripV0::createComputeSetColSplitDDS(
     transposeCS = &transposeCSVec[0];
   }
   preprocessBlocks(graph, matA, matB, blockDataA, blockDataB, lhsBlockTileId,
-                   rhsBlockTileId, transposeCS, prog, debugPrefix);
+                   rhsBlockTileId, transposeCS, prog, {dnai});
 
   const unsigned nRowC = matC->getBlockRowCount();
   const unsigned nColC = matC->getBlockColCount();
@@ -1335,7 +1327,7 @@ void HyperGraphStripV0::createComputeSetColSplitDDS(
             partialDataType,
             {static_cast<unsigned long>(matC->getBlockRow() *
                                         matC->getBlockCol())},
-            debugPrefix + "/partial_matC_block_" + std::to_string(blockId));
+            {dnai, "partial_matC_block_" + std::to_string(blockId)});
         graph.setTileMapping(partialSum[i][blockId], tileId);
       }
     }
@@ -1368,7 +1360,7 @@ void HyperGraphStripV0::createComputeSetColSplitDDS(
 
           addConv1x1Vertex(graph, inputA, inputB,
                            partialSum[g - gStart][blockIdMatrixC[r][c]], tileId,
-                           mulCS, debugPrefix);
+                           mulCS, {dnai});
         }
       }
       tileOffset += nTilePerGroup;
@@ -1398,20 +1390,19 @@ void HyperGraphStripV0::createComputeSetColSplitDDS(
 
 void HyperGraphStripV0::createComputeSetRowSplitDDS(
     poplar::Graph &graph, poplar::program::Sequence &prog,
-    const std::string &debugPrefix) {
+    const poplar::DebugNameAndId &dnai) {
 
-  genSeq3(graph, &HyperGraphStripV0::createComputeSetRowSplitDDS, prog,
-          debugPrefix);
+  genSeq3(graph, &HyperGraphStripV0::createComputeSetRowSplitDDS, prog, dnai);
 }
 
 void HyperGraphStripV0::createComputeSetRowSplitDDS(
     poplar::Graph &graph, std::vector<poplar::ComputeSet> &transposeCSVec,
     std::vector<poplar::ComputeSet> &mulCSVec,
     std::vector<poplar::ComputeSet> &reduceCSVec,
-    poplar::program::Sequence &prog, const std::string &debugPrefix) {
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
 
   poplar::Tensor matCTensor =
-      matC->createTensor(graph, inDataType, debugPrefix + "/matrix_c");
+      matC->createTensor(graph, inDataType, {dnai, "matrix_c"});
   matC->setBlockTensor(matCTensor);
 
   std::vector<int> lhsBlockTileId;
@@ -1428,7 +1419,7 @@ void HyperGraphStripV0::createComputeSetRowSplitDDS(
     transposeCS = &transposeCSVec[0];
   }
   preprocessBlocks(graph, matA, matB, blockDataA, blockDataB, lhsBlockTileId,
-                   rhsBlockTileId, transposeCS, prog, debugPrefix);
+                   rhsBlockTileId, transposeCS, prog, {dnai});
 
   const unsigned nRowC = matC->getBlockRowCount();
   const unsigned nColC = matC->getBlockColCount();
@@ -1453,7 +1444,7 @@ void HyperGraphStripV0::createComputeSetRowSplitDDS(
             partialDataType,
             {static_cast<unsigned long>(matC->getBlockRow() *
                                         matC->getBlockCol())},
-            debugPrefix + "/partial_matC_block_" + std::to_string(blockId));
+            {dnai, "partial_matC_block_" + std::to_string(blockId)});
         graph.setTileMapping(partialSum[i][blockId], tileId);
       }
     }
@@ -1487,7 +1478,7 @@ void HyperGraphStripV0::createComputeSetRowSplitDDS(
 
           addConv1x1Vertex(graph, inputA, inputB,
                            partialSum[g - gStart][blockIdMatrixC[r][c]], tileId,
-                           mulCS, debugPrefix);
+                           mulCS, {dnai});
         }
       }
       tileOffset += nTilePerGroup;

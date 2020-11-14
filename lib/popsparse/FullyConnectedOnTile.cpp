@@ -67,7 +67,7 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
                 const Tensor &weights, const Tensor &acts,
                 const Tensor &partials,
                 const std::array<std::size_t, 2> &blockDimensions,
-                const std::string &debugPrefix) {
+                const poplar::DebugNameAndId &dnai) {
   // Verify input shapes with respect to shape of on-tile partition
   assert(acts.elementType() == weights.elementType());
   assert(metaInfoBuckets.elementType() == UNSIGNED_SHORT);
@@ -173,7 +173,7 @@ void onTileImpl(Graph &graph, const ComputeSet &cs, unsigned tile,
 
     const auto tOffsetAndNumZByWorker = graph.addConstant(
         UNSIGNED_SHORT, {offsetAndNumZByWorker.size()},
-        offsetAndNumZByWorker.data(), debugPrefix + "/offsetAndNumZByWorker");
+        offsetAndNumZByWorker.data(), {dnai, "offsetAndNumZByWorker"});
     graph.setTileMapping(tOffsetAndNumZByWorker, tile);
     graph.connect(v["offsetAndNumZByWorker"], tOffsetAndNumZByWorker);
 

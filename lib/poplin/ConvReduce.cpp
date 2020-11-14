@@ -197,7 +197,7 @@ static Tensor multiStageGroupedReduce(
       getMultiStageReducePlan(partialsDepth, options.enableMultiStageReduce);
   for (unsigned i = computeSets.size(); i <= plan.size(); ++i) {
     computeSets.push_back(
-        graph.addComputeSet({dnai, std::string("Reduce") + std::to_string(i)}));
+        graph.addComputeSet({dnai, "Reduce" + std::to_string(i)}));
   }
   const auto partialsType = partials.elementType();
   logging::poplin::debug("  Multistage: {} stages", plan.size() + 1);

@@ -28,7 +28,7 @@ void onTileImpl(
     const poplar::Tensor &weights, const poplar::Tensor &acts,
     const poplar::Tensor &partials,
     const std::array<std::size_t, 2> &blockDimensions,
-    const std::string &debugPrefix);
+    const poplar::DebugNameAndId &dnai);
 
 // Describes the desired ordering in memory of activations given to onTileImpl
 // dependent on the method. For the time being this is the only information

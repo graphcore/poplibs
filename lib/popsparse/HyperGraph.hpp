@@ -32,19 +32,19 @@ public:
 
   // Creates a graph for dense x sparse matrix multiplication
   virtual void createGraphMatMul(poplar::Graph &graph,
-                                 const std::string &debugPrefix) = 0;
+                                 const poplar::DebugNameAndId &dnai) = 0;
 
   // Creates a graph for dense x dense matrix multiplication and sparsifies the
   // result
   virtual void
   createGraphMatMulSparsifyResult(poplar::Graph &graph,
                                   const unsigned char *sparsity,
-                                  const std::string &debugPrefix) = 0;
+                                  const poplar::DebugNameAndId &dnai) = 0;
   // Creates a program to perform matmul
   virtual void createProgramMatMul(poplar::Graph &graph,
                                    SubBlockMask subBlockMask,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix) = 0;
+                                   const poplar::DebugNameAndId &dnai) = 0;
 
   // Adds a logic to perform matmul to existing compute sets
   virtual void createProgramMatMul(poplar::Graph &graph,
@@ -52,7 +52,7 @@ public:
                                    poplar::ComputeSet &mulCS,
                                    poplar::ComputeSet &reduceCS,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix) = 0;
+                                   const poplar::DebugNameAndId &dnai) = 0;
 
   // Follow the simple and clear contract that all poplibs' APIs should not
   // change the input tensors' tile mapping,  setTileMappingLHS and
@@ -80,7 +80,7 @@ public:
   // Applies sub-block mask to the result tensor
   void applySubBlockMask(poplar::Graph &graph, SubBlockMask subBlockMask,
                          poplar::program::Sequence &prog,
-                         const std::string &debugPrefix);
+                         const poplar::DebugNameAndId &dnai);
 
   // Util functions:
   void addConv1x1Vertex(poplar::Graph &graph,
@@ -88,7 +88,7 @@ public:
                         const std::vector<poplar::Tensor> &rhs,
                         const poplar::Tensor &output, unsigned int tileId,
                         poplar::ComputeSet &mulCS,
-                        const std::string &debugPrefix);
+                        const poplar::DebugNameAndId &dnai);
 
   void addReduceVertex(poplar::Graph &graph,
                        const std::vector<poplar::Tensor> &partialBlocks,
@@ -104,7 +104,7 @@ public:
                         const std::vector<int> &rhsTileAssignment,
                         poplar::ComputeSet *transposeCS,
                         poplar::program::Sequence &prog,
-                        const std::string &debugPrefix);
+                        const poplar::DebugNameAndId &dnai);
 
 public:
   BlockMatrix &matA;

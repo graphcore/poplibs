@@ -17,7 +17,7 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
                                   const poplar::Tensor &output,
                                   unsigned int tileId,
                                   poplar::ComputeSet &mulCS,
-                                  const std::string &debugPrefix) {
+                                  const poplar::DebugNameAndId &dnai) {
   const unsigned convInChannels = (inDataType == poplar::FLOAT ? 8 : 16);
   assert(static_cast<unsigned int>(matB.getBlockRow()) % convInChannels == 0);
 
@@ -57,7 +57,7 @@ void HyperGraph::addConv1x1Vertex(poplar::Graph &graph,
 
     worklistTensor = graph.addConstant(
         poplar::UNSIGNED_SHORT, {static_cast<unsigned long>(nWorker * 3)},
-        worklist.data(), debugPrefix + "/worklists");
+        worklist.data(), {dnai, "worklists"});
     graph.setTileMapping(worklistTensor, getRandomTile(nTile));
     worklistTensorMap[batchSize] = worklistTensor;
   }
@@ -136,7 +136,7 @@ void HyperGraph::addReduceVertex(
 void HyperGraph::applySubBlockMask(poplar::Graph &graph,
                                    SubBlockMask subBlockMask,
                                    poplar::program::Sequence &prog,
-                                   const std::string &debugPrefix) {
+                                   const poplar::DebugNameAndId &dnai) {
   const unsigned blockRowC = static_cast<unsigned>(matC->getBlockRow());
   const unsigned blockColC = static_cast<unsigned>(matC->getBlockCol());
   const unsigned rowC = static_cast<unsigned>(matC->getRowCount());
@@ -163,9 +163,9 @@ void HyperGraph::applySubBlockMask(poplar::Graph &graph,
       }
     }
   }
-  popsparse::experimental::applySubBlockMask(
-      graph, matcBsFormat, subBlockMask, blockRowC, blockColC, nRowC, nColC,
-      sparsity.data(), 1, prog, debugPrefix);
+  popsparse::experimental::applySubBlockMask(graph, matcBsFormat, subBlockMask,
+                                             blockRowC, blockColC, nRowC, nColC,
+                                             sparsity.data(), 1, prog, {dnai});
 }
 
 poplar::Tensor HyperGraph::getResultTensor() const {
@@ -200,7 +200,7 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
                                   const std::vector<int> &rhsTileAssignment,
                                   poplar::ComputeSet *transposeCS,
                                   poplar::program::Sequence &prog,
-                                  const std::string &debugPrefix) {
+                                  const poplar::DebugNameAndId &dnai) {
 
   const unsigned inChansPerGroup = (inDataType == poplar::FLOAT ? 8 : 16);
   if (lhs.getBlockCol() % inChansPerGroup != 0) {
@@ -245,7 +245,7 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
         inDataType,
         {needArrangeLHS.size(), numInGroups,
          static_cast<unsigned long>(lhsBlockRow * lhsBlockCol / numInGroups)},
-        debugPrefix + "/rearranged_lhs_block");
+        {dnai, "rearranged_lhs_block"});
     unsigned count = 0;
     for (unsigned i = 0; i < lhsInBlocks.size(); i++) {
       if (!lhsBlocks[i].valid()) {
@@ -313,8 +313,8 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
               graph.addVariable(inDataType,
                                 {static_cast<unsigned long>(
                                     rhsBlockRow * rhsBlockCol / numInGroups)},
-                                debugPrefix + "/transposed_block_" + buffer +
-                                    std::to_string(blockId));
+                                {dnai, std::string("transposed_block_") +
+                                           buffer + std::to_string(blockId)});
           std::vector<poplar::Tensor> src, dst;
           src.push_back(oneSlice);
           dst.push_back(transposedSlice);
@@ -350,7 +350,7 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
         inDataType,
         {needArrangeRHS.size(), numInGroups,
          static_cast<unsigned long>(rhsBlockRow * rhsBlockCol / numInGroups)},
-        debugPrefix + "/rhs_rearranged_block");
+        {dnai, "rhs_rearranged_block"});
     for (unsigned i = 0; i < rhsInBlocks.size(); i++) {
       if (!rhsBlocks[i].valid()) {
         graph.setTileMapping(rearrangedRHS[blockIdMap[i]],

@@ -21,7 +21,7 @@ void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
                         const Type &dataType, std::vector<Tensor> &maskBlocks,
                         std::vector<unsigned> &diagBlockIdxs,
                         std::vector<bool> &emptyRowsMask,
-                        const std::string &debugStr) {
+                        const poplar::DebugNameAndId &dnai) {
   if (subBlockMaskType == SubBlockMask::None) {
     throw poplibs_error("No valid masking rule was specified");
   }
@@ -63,7 +63,7 @@ void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
             }
             maskBlock =
                 graph.addConstant(dataType, {1, blockRow * blockCol},
-                                  valuesInMask.data(), debugStr + "/maskBlock");
+                                  valuesInMask.data(), {dnai, "maskBlock"});
             mapTensorLinearly(graph, maskBlock);
             maskBlocksPool[rowDiagOffset] = maskBlock;
           } else {

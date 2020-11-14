@@ -1,9 +1,46 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "popsparse/SparsityParams.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 #include <tuple>
 
 #include "poplibs_support/StructHelper.hpp"
+
+namespace poputil {
+
+template <>
+poplar::ProfileValue toProfileValue(const popsparse::dynamic::SparsityType &t) {
+  switch (t) {
+  case popsparse::dynamic::SparsityType::Element:
+    return poplar::ProfileValue("Element");
+  case popsparse::dynamic::SparsityType::Block:
+    return poplar::ProfileValue("Block");
+  default:
+    return poplar::ProfileValue("<UNKNOWN>");
+  }
+}
+
+template <>
+poplar::ProfileValue
+toProfileValue(const popsparse::dynamic::SparsityStructure &t) {
+  switch (t) {
+  case popsparse::dynamic::SparsityStructure::Unstructured:
+    return poplar::ProfileValue("Unstructured");
+  default:
+    return poplar::ProfileValue("<UNKNOWN>");
+  }
+}
+
+template <>
+poplar::ProfileValue
+toProfileValue(const popsparse::dynamic::SparsityParams &t) {
+  poplar::ProfileValue::Map v;
+  v.insert({"type", toProfileValue(t.type)});
+  v.insert({"structure", toProfileValue(t.structure)});
+  v.insert({"blockDimensions", toProfileValue(t.blockDimensions)});
+  return v;
+}
+} // namespace poputil
 
 namespace popsparse {
 namespace dynamic {

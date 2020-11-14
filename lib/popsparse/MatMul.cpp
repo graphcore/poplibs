@@ -9,6 +9,7 @@
 
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/print.hpp"
+#include "poputil/DebugInfo.hpp"
 
 #include "popsparse/FullyConnected.hpp"
 
@@ -26,17 +27,18 @@ SparseTensor createSparseDenseMatMulLHS(
     Graph &graph, const Type &inputType, const MatMulParams &params,
     const poplar::DebugContext &debugContext, const OptionFlags &optionFlags,
     PlanningCache *cache) {
-  const auto debugName = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(inputType, params, optionFlags, cache));
   const auto options = parseMatMulOptionFlags(optionFlags);
   logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulLHS: '{}' params={}, options={}",
-      debugName, params, options);
+      debugContext.getPathName(), params, options);
 
   const auto fcParams = getFullyConnectedParams(params);
   const auto fcOptions = getFullyConnectedOptions(options);
 
   const auto weights = createFullyConnectedWeights(graph, inputType, fcParams,
-                                                   debugName, fcOptions, cache);
+                                                   {di}, fcOptions, cache);
 
   // Create new meta-data for the sparse tensor referencing the fully-connected
   // meta-data
@@ -56,16 +58,17 @@ Tensor createSparseDenseMatMulRHS(Graph &graph, const Type &inputType,
                                   const poplar::DebugContext &debugContext,
                                   const OptionFlags &optionFlags,
                                   PlanningCache *cache) {
-  const auto debugName = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(inputType, params, optionFlags, cache));
   const auto options = parseMatMulOptionFlags(optionFlags);
   logging::popsparse::debug(
       "popsparse::createSparseDenseMatMulRHS: '{}' params={}, options={}",
-      debugName, params, options);
+      debugContext.getPathName(), params, options);
   const auto fcParams = getFullyConnectedParams(params);
   const auto fcOptions = getFullyConnectedOptions(options);
 
-  const auto input = createFullyConnectedInput(graph, inputType, fcParams,
-                                               debugName, fcOptions, cache);
+  const auto input = createFullyConnectedInput(graph, inputType, fcParams, {di},
+                                               fcOptions, cache);
   return fcActsToMatrix(input, params.getNumGroups()).dimRoll(1, 2);
 }
 
@@ -118,7 +121,9 @@ poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
                                  const poplar::DebugContext &debugContext,
                                  const OptionFlags &optionFlags,
                                  PlanningCache *cache) {
-  const auto debugPrefix = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(lhs_, rhs_, transposeLHS, transposeRHS, optionFlags, cache));
   auto lhs = lhs_;
   auto rhs = rhs_;
   const auto options = parseMatMulOptionFlags(optionFlags);
@@ -129,8 +134,8 @@ poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
 
   logging::popsparse::debug("popsparse::sparseDenseMatMul: '{}' params={}, "
                             "transposeLHS={}, transposeRHS={}, options={}",
-                            debugPrefix, opMetaData.mmParams, transposeLHS,
-                            transposeRHS, options);
+                            debugContext.getPathName(), opMetaData.mmParams,
+                            transposeLHS, transposeRHS, options);
 
   if (transposeRHS) {
     rhs = rhs.dimRoll(1, 2);
@@ -145,11 +150,11 @@ poplar::Tensor sparseDenseMatMul(poplar::Graph &graph, const SparseTensor &lhs_,
 
   Tensor out;
   if (transposeLHS) {
-    out = fullyConnectedGradA(graph, lhs, rhs, fcParams, prog, debugPrefix,
-                              fcOptions, cache);
+    out = fullyConnectedGradA(graph, lhs, rhs, fcParams, prog, {di}, fcOptions,
+                              cache);
   } else {
-    out = fullyConnectedFwd(graph, lhs, rhs, fcParams, prog, debugPrefix,
-                            fcOptions, cache);
+    out = fullyConnectedFwd(graph, lhs, rhs, fcParams, prog, {di}, fcOptions,
+                            cache);
   }
   return fcActsToMatrix(out, numGroups).dimRoll(1, 2);
 }

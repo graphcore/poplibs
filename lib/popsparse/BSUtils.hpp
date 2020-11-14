@@ -19,7 +19,7 @@ void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
                         std::vector<poplar::Tensor> &maskBlocks,
                         std::vector<unsigned> &diagBlockIdxs,
                         std::vector<bool> &emptyRowsMask,
-                        const std::string &debugStr = "");
+                        const poplar::DebugNameAndId &dnai);
 
 } // namespace experimental
 } // namespace popsparse
