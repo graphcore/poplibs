@@ -117,7 +117,10 @@ BOOST_AUTO_TEST_CASE(DebugInfoTest) {
     }
   }();
 
-  std::string filename = "popfloat_debuginfotest.json";
+  // Make the filename unique so that this test can be run in parallel with
+  // itself, for example when run with multiple device types in parallel.
+  std::string filename =
+      std::to_string(getpid()) + "-popfloat_debuginfotest.json";
 
   poplar::DebugInfo::initializeStreamer(filename,
                                         poplar::DebugSerializationFormat::JSON);
