@@ -107,12 +107,8 @@ target_include_directories(popops
 )
 
 set(codelet_asm_sources
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/AddToChannel_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Cast.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ChannelMul_float.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ChannelMul_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S
@@ -150,6 +146,12 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_bool.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/select_int_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerAdd_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerAdd_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerDiv_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerDiv_half.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerMul_float.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorInnerMul_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/vectorOuterSupervisorOps.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByLimit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByData.S
@@ -215,7 +217,6 @@ add_gp_library(
   HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ElementOp.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp

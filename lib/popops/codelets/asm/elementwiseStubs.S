@@ -240,4 +240,8 @@ INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, ADD, half_true, float
 INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, MULTIPLY, half_true, float_true, half_false, float_false
 INSTANTIATE_OP BinaryOp, BroadcastVectorOuterByRowInPlace, SUBTRACT, half_true, float_true, half_false, float_false
 
+
+INSTANTIATE_OP BinaryOp, BroadcastVectorInner, DIVIDE, half, float
+INSTANTIATE_OP BinaryOp, BroadcastVectorInnerInPlace, DIVIDE, half, float
+
 #endif

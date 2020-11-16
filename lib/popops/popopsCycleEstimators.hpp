@@ -454,8 +454,8 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
     {{BinaryOpType::BITWISE_XNOR, SHORT}, {4, false, 2}},
     {{BinaryOpType::BITWISE_XNOR, UNSIGNED_SHORT}, {4, false, 2}},
 
-    {{BinaryOpType::DIVIDE, FLOAT}, {8, false, 2}},
-    {{BinaryOpType::DIVIDE, HALF}, {21, false, 4}},
+    {{BinaryOpType::DIVIDE, FLOAT}, {6, false, 2}},
+    {{BinaryOpType::DIVIDE, HALF}, {8, false, 2}},
     {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
     {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {260, false, 1}},
     {{BinaryOpType::LOGICAL_AND, BOOL}, {12, false, 4}},
@@ -552,8 +552,8 @@ inline const BinaryOpPerfTable broadcastOpInPlacePerfInfo = {
     {{BinaryOpType::BITWISE_XNOR, SHORT}, {4, false, 2}},
     {{BinaryOpType::BITWISE_XNOR, UNSIGNED_SHORT}, {4, false, 2}},
 
-    {{BinaryOpType::DIVIDE, FLOAT}, {8, false, 2}},
-    {{BinaryOpType::DIVIDE, HALF}, {21, false, 4}},
+    {{BinaryOpType::DIVIDE, FLOAT}, {6, false, 2}},
+    {{BinaryOpType::DIVIDE, HALF}, {8, false, 2}},
     {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
     {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {260, false, 1}},
     {{BinaryOpType::LOGICAL_AND, BOOL}, {12, false, 4}},

@@ -361,6 +361,7 @@ bool haveInnerVectorBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   }
   switch (op) {
   case BinaryOpType::ADD:
+  case BinaryOpType::DIVIDE:
   case BinaryOpType::SUBTRACT:
   case BinaryOpType::MULTIPLY:
     return true;
@@ -872,13 +873,14 @@ bool binaryOpBroadcastInnerVector(
   const auto &target = graph.getTarget();
   const auto vectorWidth = target.getVectorWidth(dType);
 
-  // The implementation for the float vertices is slower than that possible
-  // with a vectorised version.  Compared to the method of copy to
-  // broadcast, then using a binary op the inner vector method is only faster
-  // for shorter data (< 50 floats), when there are also an odd number of
-  // floats. On that basis it doesn't seem worthwhile using this method for
-  // floats at present. (It is possible but not optimal)
-  if (dType == FLOAT) {
+  // The VectorInner implementation for the float vertices for ADD, SUB, MUL
+  // is sometimes slightly faster, sometimes slower (depending on the size of
+  // both operands) than broadcasting the second operand (with copies) and then
+  // performing a BinaryOp, because the vertices for BinaryOp are optimised
+  // (vectorised). So we don't select the VectorInner vertices for those
+  // operations but only for DIVIDE which is advantageous for almost all the
+  // input sizes.
+  if (dType == FLOAT && op != BinaryOpType::DIVIDE) {
     return false;
   }
 
@@ -947,6 +949,25 @@ bool binaryOpBroadcastInnerVector(
     return (size % subSize) == 0 &&
            (size / subSize) <= (target.getRptCountMax() & ~1UL) * 6;
   };
+  // The division of work among 6 workers is done when creating the vertex
+  // (contrary to other types of vertices that do that in the device code).
+  //
+  // The amount of work to do is expressed by:
+  //        dataBlockCount = data.size() / B.size();
+  // i.e. how many times the 'B' vector fits inside 'data'
+  // This is divided by 6; the quotient and remainder of this division is
+  // packed into 'dataBlockCountPacked'
+  //
+  //                         31 30 29 28 27 26            4  3  2  1  0
+  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
+  // dataBlockCountPacked:  |           29 bits               | 3 bits |
+  //                        +--+--+--+--+--+--+--  .... +--+--+--+--+--+
+  //
+  //                        |                                 |        |
+  //                        +---------------+-----------------+----+---+
+  //                                        |                      |
+  //                            floor(dataBlockCount/6)    dataBlockCount % 6
+  //
   auto packCount = [](std::size_t size, std::size_t subSize) -> std::uint16_t {
     auto blockCount = size / subSize;
     return ((blockCount / 6) << 3) | blockCount % 6;

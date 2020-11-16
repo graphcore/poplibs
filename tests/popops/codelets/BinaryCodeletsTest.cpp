@@ -226,7 +226,11 @@ bool isValidCombination(const VertexDesc &vertex, const BinaryOpType op,
   }
 
   // VectorInner and Outer vertices have a restricted set of operation/types
-  if (vertex.isVectorInner || vertex.isVectorOuter) {
+  if (vertex.isVectorInner) {
+    return ((op == BinaryOpType::ADD || op == BinaryOpType::DIVIDE ||
+             op == BinaryOpType::MULTIPLY || op == BinaryOpType::SUBTRACT) &&
+            (type == HALF || type == FLOAT));
+  } else if (vertex.isVectorOuter) {
     return ((op == BinaryOpType::ADD || op == BinaryOpType::SUBTRACT ||
              op == BinaryOpType::MULTIPLY) &&
             (type == HALF || type == FLOAT));
@@ -321,6 +325,11 @@ struct TensorSizes {
         op2Str = to_string(nElems2);
       } else if (vertex.isVectorInner) {
         if (vertex.is2D) {
+          // if too many rows for second operand, just trim it
+          if (op2RowSizes.size() > rows) {
+            op2RowSizes = std::vector<unsigned>(op2RowSizes.begin(),
+                                                op2RowSizes.begin() + rows);
+          }
           op2Str = vector2str(op2RowSizes);
           nElems2 = std::accumulate(op2RowSizes.begin(), op2RowSizes.end(), 0);
           for (unsigned i = 0; i < rows; i++) {

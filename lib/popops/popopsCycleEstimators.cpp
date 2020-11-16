@@ -781,6 +781,139 @@ std::uint64_t vectorInnerSupervisorAddCycles(unsigned numWorkerContexts,
   return numCycles + 1; // return; should we count extra cycles for sync?
 }
 
+std::uint64_t vectorInnerDivCoreCycles_float(unsigned BLen,
+                                             unsigned blockCount) {
+  // NOTE: We use 3 cycles for each 'f32div' instruction (which takes
+  // 1 or 3 cycles depending on input)
+  const unsigned f32divCycles = 3;
+
+  std::uint64_t cycles = 1; // brz .Lreturn
+  if (blockCount != 0) {
+    cycles += 5; // down to brz .Lfast_path
+    if (BLen & 1) {
+      // odd BLen
+      cycles += 2 + BLen * (3 + (blockCount - 1) * (f32divCycles + 1) +
+                            f32divCycles + 3);
+    } else {
+      // even BLen
+      const unsigned pairs = BLen / 2;
+      cycles += 3 + pairs * (2 + f32divCycles +
+                             (blockCount - 1) * (2 * f32divCycles) +
+                             f32divCycles + 3);
+    }
+  }
+  return cycles + 1; // return
+}
+
+std::uint64_t vectorInnerDivCoreCycles_half(unsigned BLen,
+                                            unsigned blockCount) {
+  // NOTE: We use 3 cycles for each 'f32div' instruction (which takes
+  // 1 or 3 cycles depending on input)
+  const unsigned f32divCycles = 3;
+
+  std::uint64_t cycles = 1; // brz $data_block_count, .Lreturn
+  if (blockCount != 0) {
+    if (BLen == 1) {
+      // BLen==1 (like a BroadcastScalar!)
+      cycles += 7;
+      if (blockCount == 1) {
+        cycles += 7 + 2 + f32divCycles + 3;
+      } else {
+        const unsigned pairs = blockCount / 2;
+        const unsigned innerCycles = 2 + 2 * f32divCycles;
+        cycles += 10 + f32divCycles * 2 + (pairs - 1) * innerCycles + 3;
+        if (blockCount & 1) {
+          cycles += 2 + f32divCycles + 3;
+        }
+      }
+    } else if (BLen & 1) {
+      // odd BLen
+      cycles += 8;
+      const unsigned rptCount = BLen / 2 - 1;
+      const unsigned inner1 =
+          3 + f32divCycles * 2 + rptCount * (3 + f32divCycles * 2) + 3;
+      const unsigned inner2 = 5 + f32divCycles * 2 + 1 +
+                              rptCount * (4 + f32divCycles * 2) + 3 +
+                              f32divCycles * 2 + 3;
+      cycles += blockCount / 2 * (inner1 + inner2) +
+                ((blockCount & 1) ? (inner1 + 2 + f32divCycles + 3) : 0);
+    } else {
+      // even BLen, we process in pairs of values
+      const unsigned pairs = BLen / 2;
+      const unsigned innerCycles = 2 + 2 * f32divCycles;
+      cycles +=
+          8 +
+          pairs * (3 + f32divCycles * 2 + (blockCount - 1) * innerCycles + 4) +
+          4;
+    }
+  }
+  return cycles + 1; // return
+}
+
+// Cycle count for the common part of all the VectorInner2D DIVIDE codelets
+// (from the .Lworker2d label)
+std::uint64_t
+vectorInner2DDivCycles(uint32_t n, const std::vector<uint32_t> &BLen,
+                       const std::vector<uint32_t> &dataBlockCount,
+                       const Type &type) {
+
+  if (BLen.size() != n || dataBlockCount.size() != n) {
+    throw poputil::poplibs_error("n (" + std::to_string(n) +
+                                 ") does not "
+                                 "match BLen or dataBlockCount "
+                                 "length (" +
+                                 std::to_string(BLen.size()) + " & " +
+                                 std::to_string(dataBlockCount.size()) +
+                                 " respectively) in Broadcast ADD vertex");
+  }
+
+  std::uint64_t numCycles = 8; // pre-loop
+
+  for (unsigned i = 0; i != n; ++i) {
+    // loop overhead. A bit more for halves
+    if (type == HALF)
+      numCycles += 17;
+    else
+      numCycles += 11;
+
+    auto coreFunc = type == HALF ? vectorInnerDivCoreCycles_half
+                                 : vectorInnerDivCoreCycles_float;
+
+    numCycles += coreFunc(BLen[i], dataBlockCount[i]);
+  }
+
+  return numCycles + 1; // exitnz
+}
+
+// Cycle count for the common part of all the VectorInnerSupervisor DIV
+// codelets.
+std::uint64_t vectorInnerSupervisorDivCycles(unsigned numWorkerContexts,
+                                             uint32_t BLen,
+                                             uint16_t dataBlockCountPacked,
+                                             const Type &type) {
+  // These numbers may not be exact (e.g. the remainder of
+  // dataBlockCountPacked is ignored).
+
+  // Supervisor overhead.
+  std::uint64_t numCycles = 1 + 6 + 6;
+
+  // We need to count the *maximum* block per worker.
+  auto remainder = dataBlockCountPacked & 0x7;
+  auto blocksPerWorker = (dataBlockCountPacked >> 3) + (remainder ? 1 : 0);
+
+  // Worker cycles (from the .Lworker label)
+  numCycles += numWorkerContexts * (type == HALF ? 24 : 19);
+
+  auto coreFunc = type == HALF ? vectorInnerDivCoreCycles_half
+                               : vectorInnerDivCoreCycles_float;
+
+  numCycles += numWorkerContexts * coreFunc(BLen, blocksPerWorker);
+
+  // Exit
+  numCycles += 1;
+
+  return numCycles;
+}
 // Exact worker cycle count for VectorInnerMul_core_float
 std::uint64_t vectorInnerMulCoreCycles_float(unsigned scaleLen,
                                              unsigned blockCount,
@@ -938,6 +1071,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            1 + 3;
+  case BinaryOpType::DIVIDE:
+    return vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
+                                          dataBlockCountPacked, type) +
+           1 + 3;
   case BinaryOpType::SUBTRACT:
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
@@ -964,6 +1101,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
   switch (op) {
   case BinaryOpType::ADD:
     return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+                                          dataBlockCountPacked, type) +
+           2;
+  case BinaryOpType::DIVIDE:
+    return vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            2;
   case BinaryOpType::SUBTRACT:
@@ -994,6 +1135,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   case BinaryOpType::ADD:
     // an additional branch at the start.
     return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 3;
+  case BinaryOpType::DIVIDE:
+    // an additional branch at the start.
+    return vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 3;
   case BinaryOpType::MULTIPLY:
     return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 2;
   default:
@@ -1015,6 +1159,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   case BinaryOpType::ADD:
     // an additional branch at the start.
     return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 2;
+  case BinaryOpType::DIVIDE:
+    // an additional branch at the start.
+    return vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 2;
   case BinaryOpType::MULTIPLY:
     return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 3;
   default:
@@ -2246,6 +2393,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
 #define VECTOR_INNER_CYCLE_ESTIM_ENTRIES(name)                                 \
   CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::ADD, FLOAT),               \
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::ADD, HALF),            \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::DIVIDE, FLOAT),        \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::DIVIDE, HALF),         \
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::SUBTRACT, FLOAT),      \
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::SUBTRACT, HALF),       \
       CYCLE_ESTIMATOR_ENTRY(popops, name, BinaryOpType::MULTIPLY, FLOAT),      \

@@ -257,8 +257,14 @@ bool equalValues(const bool isIpuModel, const BinaryOpType op,
         return expected <= -clipValueHalf;
       }
 
-      // POWER in half is not very precise
-      tolerance = (op == BinaryOpType::POWER) ? 0.012 : 0.003;
+      tolerance = 0.003;
+
+      if (op == BinaryOpType::DIVIDE && expected < 1e-4) {
+        tolerance = 0.01;
+      } else if (op == BinaryOpType::POWER) {
+        // POWER in half is not very precise
+        tolerance = 0.012;
+      }
     }
 
     bool isEqual = false;
@@ -328,7 +334,7 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
       } else if (op == BinaryOpType::DIVIDE) {
         // In case of HALF,DIVIDE we must avoid overflow, so we choose a
         // limited range for the divisor
-        min2 = 0.5;
+        min2 = 0.7;
         max2 = 600;
       }
     }

@@ -5,18 +5,12 @@
 #include <poplar/Vertex.hpp>
 #include <type_traits>
 
-#include "ElementOp.hpp"
+#include "elemwiseBinaryOps.hpp"
 #include "poplibs_support/ExternalCodelet.hpp"
 #include "poplibs_support/TileConstants.hpp"
 #include "popops/ExprOp.hpp"
 
 using namespace poplar;
-
-static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
-static constexpr auto SPAN = poplar::VectorLayout::SPAN;
-static constexpr auto DELTAN = poplar::VectorListLayout::DELTAN;
-static constexpr auto SCALED_PTR32 = poplar::VectorLayout::SCALED_PTR32;
-static constexpr auto SCALED_PTR64 = poplar::VectorLayout::SCALED_PTR64;
 
 namespace popops {
 
@@ -49,7 +43,8 @@ public:
       for (unsigned b = 0; b != blockCount; ++b) {
         for (unsigned a = 0; a != len; ++a) {
           data[i][b * len + a] =
-              ElementOp<op, FPType>::fn(data[i][b * len + a], B[i][a]);
+              BinaryOpFn<op, FPType, architecture::active>::fn(
+                  data[i][b * len + a], B[i][a]);
         }
       }
     }
@@ -62,6 +57,8 @@ public:
 // BroadcastVectorInner2D.cpp, about the old SCALED_ADD operation type.
 template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::ADD, float>;
 template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::ADD, half>;
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::DIVIDE, float>;
+template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::DIVIDE, half>;
 template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::MULTIPLY,
                                              float>;
 template class BroadcastVectorInner2DInPlace<expr::BinaryOpType::MULTIPLY,

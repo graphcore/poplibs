@@ -24,7 +24,7 @@
 // and there are fewer paths.
 //
 //
-// ADD and SUBTRACT use the same inner loop where the addendhas been pre-
+// ADD and SUBTRACT use the same inner loop where the addend has been pre-
 // multiplied by 1.0 or -1.0 respectively.
 //
 // ## Fast Paths
