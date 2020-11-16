@@ -1,7 +1,7 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
 #ifdef __IPU__
 
-// Assembly implementation of popops::UnaryOp2DInPlace vertices for the three 
+// Assembly implementation of popops::UnaryOp2DInPlace vertices for the three
 // non linearities SIGMOID RELU, TANH.
 
 // Restrictions
@@ -14,10 +14,10 @@
 
 // Symbols
 #define HALF_SYMBOL \
-  __runCodelet_popops__UnaryOp2DInPlace___popops__expr__UnaryOpType__@NL_TYPE_UPPER@_half
-  
+  __runCodelet_popops__UnaryOp2DInPlace___popops__expr__UnaryOpType__\NL_TYPE\()_half
+
 #define FLOAT_SYMBOL \
-  __runCodelet_popops__UnaryOp2DInPlace___popops__expr__UnaryOpType__@NL_TYPE_UPPER@_float
+  __runCodelet_popops__UnaryOp2DInPlace___popops__expr__UnaryOpType__\NL_TYPE\()_float
 
 // Constants
 #define BASE_AND_N0_VOFFSET 0
@@ -67,19 +67,8 @@
 #define ASCRATCH a6
 #define ASCRATCH_PAIR a6:7
 
-// Macros
-#define v1 // Scalar
-#define VECTOR_INSTRUCTION(type, vector_width, op) type ## vector_width ## op
-
-#define CALC_SIGMOID(type, vector_width, dst, src) \
-  VECTOR_INSTRUCTION(type, vector_width, sigm) dst, src
-#define CALC_RELU(type, vector_width, dst, src) \
-  VECTOR_INSTRUCTION(type, vector_width, max) dst, src, $azero
-#define CALC_TANH(type, vector_width, dst, src) \
-  VECTOR_INSTRUCTION(type, vector_width, tanh) dst, src
-
-#define CALC(type, vector_width, dst, src) \
-  CALC_@NL_TYPE_UPPER@(type, vector_width, dst, src)
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_HALF NL_TYPE OP OPTIONAL_OPERAND_C=""
 
 DEF_STACK_USAGE 0 HALF_SYMBOL
 .section .text.HALF_SYMBOL
@@ -122,7 +111,7 @@ HALF_SYMBOL:
 
     // Top-level loop through each DeltaN
     add $N0, $N0, -1
-.Lhalf_n0_loop:
+.Lhalf_n0_loop\@:
     ld32step $MSCRATCH, $MEMORY_BASE, $DELTAN_PTR+=, 1
     and $DATA_PTR, $MSCRATCH, $MASK
 #if !defined(VECTORLIST_AVAIL_DELTAN)
@@ -134,7 +123,7 @@ HALF_SYMBOL:
     add $DATA_PTR, $BASE_PTR, $DATA_PTR
 
     and $MSCRATCH, $DATA_PTR, 0x3
-    brz $MSCRATCH, .Lhalf_32_bit_aligned
+    brz $MSCRATCH, .Lhalf_32_bit_aligned\@
 
     // Handle the first 16-bit element. We'll always have
     // at least 1 element here.
@@ -142,76 +131,80 @@ HALF_SYMBOL:
     ldb16 $ACTS_0, $DATA_PTR, $mzero, 1
     {
       ldb16 $ASCRATCH, $DATA_PTR, $mzero, 0
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
     roll16 $RESULTS_0, $ASCRATCH, $RESULTS_0
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
     add $N1, $N1, -1
-    brz $N1, .Lhalf_n0_loop_cond
+    brz $N1, .Lhalf_n0_loop_cond\@
 
-.Lhalf_32_bit_aligned:
+.Lhalf_32_bit_aligned\@:
     and $MSCRATCH, $DATA_PTR, 0x7
-    brz $MSCRATCH, .Lhalf_64_bit_aligned
+    brz $MSCRATCH, .Lhalf_64_bit_aligned\@
 
     // Special case for a single 16-bit element at 32-bit
     // aligned address.
     cmpult $MSCRATCH, $N1, 2
-    brnz $MSCRATCH, .Lhalf_16_bit_remainder
+    brnz $MSCRATCH, .Lhalf_16_bit_remainder\@
 
     ld32 $ACTS_0, $DATA_PTR, $mzero, 0
-    CALC(f16, v2, $RESULTS_0, $ACTS_0)
+    {
+      add $N1, $N1, -2
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
+    }
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
-    add $N1, $N1, -2
 
-.Lhalf_64_bit_aligned:
+.Lhalf_64_bit_aligned\@:
     shr $N1_64BIT, $N1, 2
 
-    brz $N1_64BIT, .Lhalf_32_bit_remainder
+    brz $N1_64BIT, .Lhalf_32_bit_remainder\@
     add $N1_64BIT, $N1_64BIT, -1
     ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 0
     {
       rpt $N1_64BIT, (2f - 1f) / 8 - 1
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 1
-      CALC(f16, v2, $RESULTS_1, $ACTS_1)
+      \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     }
     {
       st64step $RESULTS_PAIR, $mzero, $DATA_PTR+=, 1
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 2:
-    CALC(f16, v2, $RESULTS_1, $ACTS_1)
+    \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     st64step $RESULTS_PAIR, $mzero, $DATA_PTR+=, 1
 
-.Lhalf_32_bit_remainder:
+.Lhalf_32_bit_remainder\@:
     and $MSCRATCH, $N1, 0x2
-    brz $MSCRATCH, .Lhalf_16_bit_remainder
+    brz $MSCRATCH, .Lhalf_16_bit_remainder\@
 
     ld32 $ACTS_0, $DATA_PTR, $mzero, 0
-    CALC(f16, v2, $RESULTS_0, $ACTS_0)
+    \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
 
-.Lhalf_16_bit_remainder:
+.Lhalf_16_bit_remainder\@:
     and $MSCRATCH, $N1, 0x1
-    brz $MSCRATCH, .Lhalf_n0_loop_cond
+    brz $MSCRATCH, .Lhalf_n0_loop_cond\@
 
     ldb16 $ACTS_0, $DATA_PTR, $mzero, 0
     {
       ldb16 $ASCRATCH, $DATA_PTR, $mzero, 1
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
     roll16 $RESULTS_0, $RESULTS_0, $ASCRATCH
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
 
-.Lhalf_n0_loop_cond:
-    brnzdec $N0, .Lhalf_n0_loop
+.Lhalf_n0_loop_cond\@:
+    brnzdec $N0, .Lhalf_n0_loop\@
     exitz $mzero
 
 .size HALF_SYMBOL, .-HALF_SYMBOL
-
+.endm
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_FLOAT NL_TYPE OP OPTIONAL_OPERAND_C=""
 DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .section .text.FLOAT_SYMBOL
 .globl FLOAT_SYMBOL
@@ -253,7 +246,7 @@ FLOAT_SYMBOL:
 
     // Top-level loop through each DeltaN
     add $N0, $N0, -1
-.Lfloat_n0_loop:
+.Lfloat_n0_loop\@:
     ld32step $MSCRATCH, $MEMORY_BASE, $DELTAN_PTR+=, 1
     and $DATA_PTR, $MSCRATCH, $MASK
 #if !defined(VECTORLIST_AVAIL_DELTAN)
@@ -265,52 +258,69 @@ FLOAT_SYMBOL:
     add $DATA_PTR, $BASE_PTR, $DATA_PTR
 
     // DATA_PTR and N1 give us the regions to actually loop
-.Lfloat_32_bit_aligned:
+.Lfloat_32_bit_aligned\@:
     and $MSCRATCH, $DATA_PTR, 0x7
-    brz $MSCRATCH, .Lfloat_64_bit_aligned
+    brz $MSCRATCH, .Lfloat_64_bit_aligned\@
 
     // Handle the first 32-bit element. We'll always have
     // at least 1 element here.
     ld32 $ACTS_0, $DATA_PTR, $mzero, 0
-    CALC(f32, v1, $RESULTS_0, $ACTS_0)
+    {
+      add $N1, $N1, -1
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
+    }
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
-    add $N1, $N1, -1
 
-.Lfloat_64_bit_aligned:
+.Lfloat_64_bit_aligned\@:
     shr $N1_64BIT, $N1, 1
 
-    brz $N1_64BIT, .Lfloat_32_bit_remainder
+    brz $N1_64BIT, .Lfloat_32_bit_remainder\@
     add $N1_64BIT, $N1_64BIT, -1
     ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 0
     {
       rpt $N1_64BIT, (2f - 1f) / 8 - 1
-      CALC(f32, v1, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $mzero, 1
-      CALC(f32, v1, $RESULTS_1, $ACTS_1)
+      \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     }
     {
       st64step $RESULTS_PAIR, $mzero, $DATA_PTR+=, 1
-      CALC(f32, v1, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 2:
-    CALC(f32, v1, $RESULTS_1, $ACTS_1)
+    \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     st64step $RESULTS_PAIR, $mzero, $DATA_PTR+=, 1
 
-.Lfloat_32_bit_remainder:
+.Lfloat_32_bit_remainder\@:
     and $MSCRATCH, $N1, 0x1
-    brz $MSCRATCH, .Lfloat_n0_loop_cond
+    brz $MSCRATCH, .Lfloat_n0_loop_cond\@
 
     ld32 $ACTS_0, $DATA_PTR, $mzero, 0
-    CALC(f32, v1, $RESULTS_0, $ACTS_0)
+    \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     st32step $RESULTS_0, $mzero, $DATA_PTR+=, 1
 
-.Lfloat_n0_loop_cond:
-    brnzdec $N0, .Lfloat_n0_loop
+.Lfloat_n0_loop_cond\@:
+    brnzdec $N0, .Lfloat_n0_loop\@
     exitz $mzero
 
 .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+.endm
+
+//------------------------------------------------------------------------------
+// Use the macros above to create each vertex for each type of non linearity.
+//
+// Each specifies an instruction.  In the case of RELU that instruction has a
+// third operand which must be passed in as well
+INSTANTIATE_FLOAT TANH f32tanh
+INSTANTIATE_HALF TANH f16v2tanh
+
+INSTANTIATE_FLOAT RELU f32max ",$azero"
+INSTANTIATE_HALF RELU f16v2max ",$azero"
+
+INSTANTIATE_FLOAT SIGMOID f32sigm
+INSTANTIATE_HALF SIGMOID f16v2sigm
 
 #endif // __IPU__

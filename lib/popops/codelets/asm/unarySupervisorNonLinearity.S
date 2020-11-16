@@ -14,10 +14,10 @@
 
 // Symbols
 #define HALF_SYMBOL \
-  __runCodelet_popops__UnaryOp1DInPlaceSupervisor___popops__expr__UnaryOpType__@NL_TYPE_UPPER@_half
-  
+  __runCodelet_popops__UnaryOp1DInPlaceSupervisor___popops__expr__UnaryOpType__\NL_TYPE\()_half
+
 #define FLOAT_SYMBOL \
-  __runCodelet_popops__UnaryOp1DInPlaceSupervisor___popops__expr__UnaryOpType__@NL_TYPE_UPPER@_float
+  __runCodelet_popops__UnaryOp1DInPlaceSupervisor___popops__expr__UnaryOpType__\NL_TYPE\()_float
 
 // Constants
 #if defined(VECTOR_AVAIL_SCALED_PTR32)
@@ -59,26 +59,6 @@
 #define ASCRATCH a6
 #define ASCRATCH_PAIR a6:7
 
-// Macros
-#define v1 // Scalar
-#define VECTOR_INSTRUCTION(type, vector_width, op) type ## vector_width ## op
-
-#define CALC_SIGMOID(type, vector_width, dst, src) \
-  VECTOR_INSTRUCTION(type, vector_width, sigm) dst, src
-#define CALC_RELU(type, vector_width, dst, src) \
-  VECTOR_INSTRUCTION(type, vector_width, max) dst, src, $azero
-#define CALC_TANH(type, vector_width, dst, src) \
-  VECTOR_INSTRUCTION(type, vector_width, tanh) dst, src
-
-#define CALC(type, vector_width, dst, src) \
-  CALC_@NL_TYPE_UPPER@(type, vector_width, dst, src)
-  
-DEF_STACK_USAGE 0 HALF_SYMBOL
-.section .text.HALF_SYMBOL
-
-.globl HALF_SYMBOL
-.type HALF_SYMBOL, @function
-
 // All inputs must be separate registers
 // Splits 64-bit chunks of n elements between workers.
 // The result we want is n / (no. of worker contexts * elements per-64-bits).
@@ -96,17 +76,36 @@ DEF_STACK_USAGE 0 HALF_SYMBOL
     sub \rem, \n, \rem
 .endm
 
+// All inputs must be separate registers
+// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
+// divisor.
+.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
+    setzi \size, RECIPROCAL_3_SHL17
+    mul \size, \n, \size
+    shr \size, \size, (17 + LOG2_12_OVER_3)
+    mul \rem, \size, 12
+    sub \rem, \n, \rem
+.endm
+
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_HALF NL_TYPE OP OPTIONAL_OPERAND_C=""
+DEF_STACK_USAGE 0 HALF_SYMBOL
+.section .text.HALF_SYMBOL
+
+.globl HALF_SYMBOL
+.type HALF_SYMBOL, @function
+
 .align 8
 .supervisor
 HALF_SYMBOL:
-    setzi $WORKER_ENTRY, .Lhalf_worker
+    setzi $WORKER_ENTRY, .Lhalf_worker\@
     runall $WORKER_ENTRY, $SUPER_BASE, 0
     sync TEXCH_SYNCZONE_LOCAL
     br $lr
 
     // For rpt alignment below.
     nop
-.Lhalf_worker:
+.Lhalf_worker\@:
 .worker
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
@@ -130,41 +129,41 @@ HALF_SYMBOL:
 
     // Check if address is 64-bit aligned
     and $MSCRATCH, $DATA_PTR, 0x7
-    brz $MSCRATCH, .Lhalf_64_bit_aligned
+    brz $MSCRATCH, .Lhalf_64_bit_aligned\@
 
-.Lhalf_32_bit_aligned:
+.Lhalf_32_bit_aligned\@:
     // Catch special case for just 1 or 2 elements at a 32-bit aligned address.
     setzi $MSCRATCH, 2
     cmpult $MSCRATCH, $MSCRATCH, $REM
     or $MSCRATCH, $MSCRATCH, $SIZE
-    brnz $MSCRATCH, .Lhalf_32_bit_lead
+    brnz $MSCRATCH, .Lhalf_32_bit_lead\@
 
 
     shr $REM_32BIT, $REM, 1
     and $REM_16BIT, $REM, 0x1
     shr $REM_32BIT, $REM_32BIT, $WORKER_ID
     shr $REM_16BIT, $REM_16BIT, $WORKER_ID
-    bri .Lhalf_32_bit_remainder
+    bri .Lhalf_32_bit_remainder\@
 
-.Lhalf_32_bit_lead:
+.Lhalf_32_bit_lead\@:
     // Select a single worker to do this
     cmpeq $MSCRATCH, $WORKER_ID, 0
-    brz $MSCRATCH, .Lhalf_skip_32_bit_lead
+    brz $MSCRATCH, .Lhalf_skip_32_bit_lead\@
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC(f16, v2, $RESULTS_0, $ACTS_0)
+    \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
-.Lhalf_skip_32_bit_lead:
+.Lhalf_skip_32_bit_lead\@:
     ld32step $ASCRATCH, $BASE, $DATA_PTR+=, 1
 
     // Decrement remaining element count
     add $REM, $REM, -2
-    brpos $REM, .Lhalf_64_bit_aligned
+    brpos $REM, .Lhalf_64_bit_aligned\@
     add $REM, $REM, (CTXT_WORKERS * 4)
     add $SIZE, $SIZE, -1
 
-.Lhalf_64_bit_aligned:
+.Lhalf_64_bit_aligned\@:
     // $REM_32BIT = Non-zero if a remaining 32-bit load
     // $REM_16BIT = Non-zero if a remaining 16-bit load
     // $REM = No. of remaining 64-bit loads
@@ -181,86 +180,77 @@ HALF_SYMBOL:
     ld64step $ASCRATCH_PAIR, $BASE, $DATA_PTR+=, $WORKER_ID
 
     // Overlap 64-bit loads/stores with vector 2 half calculations
-    brz $SIZE, .Lhalf_64_bit_loop_exit
+    brz $SIZE, .Lhalf_64_bit_loop_exit\@
     add $SIZE, $SIZE, -1
     ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
     {
       rpt $SIZE, (2f - 1f) / 8 - 1
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
-    }
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
+   }
 1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $BASE, CTXT_WORKERS
-      CALC(f16, v2, $RESULTS_1, $ACTS_1)
+      \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     }
     {
       st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 2:
-    CALC(f16, v2, $RESULTS_1, $ACTS_1)
+    \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-.Lhalf_64_bit_loop_exit:
+.Lhalf_64_bit_loop_exit\@:
 
     // Handle remaining elements with the worker with the correct $DATA_PTR.
     // $REM = Num of remaining 64-bit loads possible = index to first worker
     // for which 64-bit load isn't possible
     cmpeq $MSCRATCH, $WORKER_ID, $REM
-    brz $MSCRATCH, .Lhalf_end
+    brz $MSCRATCH, .Lhalf_end\@
 
-.Lhalf_32_bit_remainder:
-    brz $REM_32BIT, .Lhalf_16_bit_remainder
+.Lhalf_32_bit_remainder\@:
+    brz $REM_32BIT, .Lhalf_16_bit_remainder\@
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC(f16, v2, $RESULTS_0, $ACTS_0)
+    \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     st32step $RESULTS_0, $BASE, $DATA_PTR+=, 1
 
-.Lhalf_16_bit_remainder:
-    brz $REM_16BIT, .Lhalf_end
+.Lhalf_16_bit_remainder\@:
+    brz $REM_16BIT, .Lhalf_end\@
 
     // Load the first and second half in the word to store along
     // with the remaining
     ldb16 $ACTS_0, $DATA_PTR, $BASE, 0
     {
       ldb16 $ASCRATCH, $DATA_PTR, $BASE, 1
-      CALC(f16, v2, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
     roll16 $RESULTS_0, $RESULTS_0, $ASCRATCH
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
-.Lhalf_end:
+.Lhalf_end\@:
     exitz $mzero
 
 .size HALF_SYMBOL, .-HALF_SYMBOL
-
+.endm
+//------------------------------------------------------------------------------
+.macro INSTANTIATE_FLOAT NL_TYPE OP OPTIONAL_OPERAND_C=""
 DEF_STACK_USAGE 0 FLOAT_SYMBOL
 .section .text.FLOAT_SYMBOL
 
 .globl FLOAT_SYMBOL
 .type FLOAT_SYMBOL, @function
 
-// All inputs must be separate registers
-// As described above in HALF_SPLIT_BETWEEN_WORKERS with different
-// divisor.
-.macro FLOAT_SPLIT_BETWEEN_WORKERS n size rem
-    setzi \size, RECIPROCAL_3_SHL17
-    mul \size, \n, \size
-    shr \size, \size, (17 + LOG2_12_OVER_3)
-    mul \rem, \size, 12
-    sub \rem, \n, \rem
-.endm
-
 .align 8
 .supervisor
 FLOAT_SYMBOL:
-    setzi $WORKER_ENTRY, .Lfloat_worker
+    setzi $WORKER_ENTRY, .Lfloat_worker\@
     runall $WORKER_ENTRY, $SUPER_BASE, 0
     sync TEXCH_SYNCZONE_LOCAL
     br $lr
 
     // For rpt alignment below.
     nop
-.Lfloat_worker:
+.Lfloat_worker\@:
 .worker
     ldz16 $MSCRATCH, $mvertex_base, $mzero, SIZE_VOFFSET/2
 
@@ -284,27 +274,27 @@ FLOAT_SYMBOL:
 
     // Check if address is 64-bit aligned
     and $MSCRATCH, $DATA_PTR, 0x7
-    brz $MSCRATCH, .Lfloat_64_bit_aligned
+    brz $MSCRATCH, .Lfloat_64_bit_aligned\@
 
-.Lfloat_32_bit_aligned:
+.Lfloat_32_bit_aligned\@:
     // Select a single worker to do this
     cmpeq $MSCRATCH, $WORKER_ID, 0
-    brz $MSCRATCH, .Lfloat_skip_32_bit_lead
+    brz $MSCRATCH, .Lfloat_skip_32_bit_lead\@
 
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC(f32, v1, $RESULTS_0, $ACTS_0)
+    \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     st32 $RESULTS_0, $DATA_PTR, $BASE, 0
 
-.Lfloat_skip_32_bit_lead:
+.Lfloat_skip_32_bit_lead\@:
     ld32step $ASCRATCH, $BASE, $DATA_PTR+=, 1
 
     // Decrement remaining element count
     add $REM, $REM, -1
-    brpos $REM, .Lfloat_64_bit_aligned
+    brpos $REM, .Lfloat_64_bit_aligned\@
     add $REM, $REM, (CTXT_WORKERS * 2)
     add $SIZE, $SIZE, -1
 
-.Lfloat_64_bit_aligned:
+.Lfloat_64_bit_aligned\@:
     // $SIZE = No. of 64-bit loads/stores possible
     // $REM_32BIT = No. of remaining 32-bit loads
     // $REM = No. of remaining 64-bit loads
@@ -320,42 +310,57 @@ FLOAT_SYMBOL:
     ld64step $ASCRATCH_PAIR, $BASE, $DATA_PTR+=, $WORKER_ID
 
     // Overlap 64-bit loads/stores with float calculations
-    brz $SIZE, .Lfloat_64_bit_loop_exit
+    brz $SIZE, .Lfloat_64_bit_loop_exit\@
     add $SIZE, $SIZE, -1
     ld64 $ACTS_PAIR, $DATA_PTR, $BASE, 0
     {
       rpt $SIZE, (2f - 1f) / 8 - 1
-      CALC(f32, v1, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 1:
     {
       ld64 $ACTS_PAIR, $DATA_PTR, $BASE, CTXT_WORKERS
-      CALC(f32, v1, $RESULTS_1, $ACTS_1)
+      \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     }
     {
       st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-      CALC(f32, v1, $RESULTS_0, $ACTS_0)
+      \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     }
 2:
-    CALC(f32, v1, $RESULTS_1, $ACTS_1)
+    \OP $RESULTS_1, $ACTS_1 \OPTIONAL_OPERAND_C
     st64step $RESULTS_PAIR, $BASE, $DATA_PTR+=, CTXT_WORKERS
-.Lfloat_64_bit_loop_exit:
+.Lfloat_64_bit_loop_exit\@:
 
     // Handle remaining elements with the worker with the correct $DATA_PTR.
     // $REM = Num of remaining 64-bit loads possible = index to first worker
     // for which 64-bit load isn't possible
     cmpeq $MSCRATCH, $WORKER_ID, $REM
     and $MSCRATCH, $MSCRATCH, $REM_32BIT
-    brz $MSCRATCH, .Lfloat_end
+    brz $MSCRATCH, .Lfloat_end\@
 
-.Lfloat_32_bit_remainder:
+.Lfloat_32_bit_remainder\@:
     ld32 $ACTS_0, $DATA_PTR, $BASE, 0
-    CALC(f32, v1, $RESULTS_0, $ACTS_0)
+    \OP $RESULTS_0, $ACTS_0 \OPTIONAL_OPERAND_C
     st32step $RESULTS_0, $BASE, $DATA_PTR+=, 1
 
-.Lfloat_end:
+.Lfloat_end\@:
     exitz $mzero
 
 .size FLOAT_SYMBOL, .-FLOAT_SYMBOL
+.endm
+
+//------------------------------------------------------------------------------
+// Use the macros above to create each vertex for each type of non linearity.
+//
+// Each specifies an instruction.  In the case of RELU that instruction has a
+// third operand which must be passed in as well
+INSTANTIATE_FLOAT TANH f32tanh
+INSTANTIATE_HALF TANH f16v2tanh
+
+INSTANTIATE_FLOAT RELU f32max ",$azero"
+INSTANTIATE_HALF RELU f16v2max ",$azero"
+
+INSTANTIATE_FLOAT SIGMOID f32sigm
+INSTANTIATE_HALF SIGMOID f16v2sigm
 
 #endif // __IPU__

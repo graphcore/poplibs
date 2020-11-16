@@ -156,21 +156,9 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByLimit.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramSupervisorByData.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogram2D.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unary2DNonLinearity.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unarySupervisorNonLinearity.S
 )
-
-# Generate non-linearity (SIGMOID, TANH, RELU) optimized assembly implementation
-# variants from '.S.in' template
-foreach(VERTEX_TYPE Supervisor 2D)
-  set(VARIANT_TEMPLATE "codelets/asm/unary${VERTEX_TYPE}NonLinearity.S.in")
-  foreach(NL_TYPE sigmoid relu tanh)
-    set(VARIANT_NAME "unary${VERTEX_TYPE}NonLinearity_${NL_TYPE}")
-    set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/codelets/${VARIANT_NAME}.S")
-    string(TOUPPER "${NL_TYPE}" NL_TYPE_UPPER)
-    configure_file(${VARIANT_TEMPLATE} ${VARIANT_SRC})
-    list(APPEND codelet_asm_sources ${VARIANT_SRC})
-  endforeach()
-endforeach()
-
 
 add_gp_library(
   NAME popops
