@@ -2,32 +2,26 @@
 #include "CycleEstimationFunctions.hpp"
 
 #include "ReductionConnection.hpp"
+#include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/cyclesTables.hpp>
+#include <poplibs_support/gcd.hpp>
 #include <poputil/VertexTemplates.hpp>
+
+using namespace poplibs_support;
 
 namespace popops {
 
 namespace {
 
-bool vectorised4ReductionOp(popops::Operation operation,
-                            popops::ReductionSpecialisation specialisation) {
-  if (specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
-      specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
-    return false;
-  }
-  return (operation == popops::Operation::MUL ||
-          operation == popops::Operation::MAX ||
-          operation == popops::Operation::MIN);
+bool isAccumOp(Operation operation) {
+  return (operation == Operation::ADD || operation == Operation::SQUARE_ADD);
 }
 
-bool vectorised8ReductionOp(popops::Operation operation,
-                            popops::ReductionSpecialisation specialisation) {
-  if (specialisation == ReductionSpecialisation::STRIDED_REDUCE ||
-      specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
-    return false;
-  }
-  return (operation == popops::Operation::ADD ||
-          operation == popops::Operation::SQUARE_ADD);
+bool vectorisedOp(popops::Operation operation,
+                  popops::ReductionSpecialisation specialisation) {
+  return (operation == Operation::MUL || operation == Operation::MAX ||
+          operation == Operation::MIN || operation == Operation::ADD ||
+          operation == Operation::SQUARE_ADD);
 }
 
 // Get the sizes of a Vector<Vector<>> vertex field.
@@ -45,7 +39,10 @@ std::vector<std::size_t> fieldSizes(const poplar::FieldData &field) {
 std::uint64_t getCyclesEstimateForReduce(
     const std::vector<std::size_t> &partialsSizes,
     const std::vector<std::size_t> &outSizes,
-    const std::vector<unsigned> &numPartials, unsigned vectorWidth,
+    const std::vector<unsigned> &numPartials,
+    const std::optional<unsigned> &stride, const unsigned dataPathWidth,
+    unsigned vectorWidth, const unsigned accVectorWidth,
+    unsigned outTypeVectorWidth, const unsigned partialsPer64Bits,
     const poplar::Type &partialsType, const poplar::Type &outType,
     popops::Operation operation, bool isUpdate,
     popops::ReductionSpecialisation specialisation) {
@@ -54,140 +51,157 @@ std::uint64_t getCyclesEstimateForReduce(
   std::size_t numReductions = outSizes.size();
 
   // Additional cycles required for scaling, updating and format conversion.
-  unsigned scaleAndUpdateCycles = isUpdate * 2 + 1;
+  unsigned scaleAndUpdateCycles = isUpdate + 1;
   unsigned conversionCyles = outType == partialsType ? 0 : 1;
+
+  const auto usesAccumulators = isAccumOp(operation);
+  const auto opVectorWidth = usesAccumulators ? accVectorWidth : vectorWidth;
+  assert(opVectorWidth % dataPathWidth == 0 ||
+         dataPathWidth % opVectorWidth == 0);
 
   // Total execution cycles.
   std::uint64_t cycles = 5 + 1 + 1; // entry/exit
 
   if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
+    assert(bool(stride));
     assert(numPartials.size() == 1);
     auto numOutputs = std::accumulate(outSizes.cbegin(), outSizes.cend(), 0u);
     cycles += 17; // non-loop overhead
-    unsigned opPerLoop = 1;
-    if (partialsType == poplar::FLOAT)
-      opPerLoop = 2;
-    else if (partialsType == poplar::HALF)
-      opPerLoop = 4;
-    // outer loop runs once per 64bits of input
-    cycles += (numOutputs + opPerLoop - 1) / opPerLoop * 6;
-    // double-width accumulation is not used
-    cycles += partialsSizes[0] / vectorWidth; // inner loop
+
+    // We do not take advantage of interleaved memory so the elements
+    // processed per loop is limited by the data path width and the
+    // op width, so with 64-bit data path width and 128-bit accumulator
+    // based ops we only manage 64-bits per-cycle.
+    //
+    // Additionally when performing modelling experiments, elemsPerLoop may
+    // be greater than that for 64-bits but our graph construction allows
+    // a stride with any multiple of 64-bits. In order to do elemsPerCycle
+    // each loop we need the stride to be compatible with the number of
+    // elements processed per cycle or else we won't be aligned on the
+    // second (or more) iteration(s) hence we take a gcd.
+    const auto elemsPerLoop =
+        gcd(std::min(opVectorWidth, dataPathWidth), *stride);
+
+    // Estimate the number of outer loops. If elemsPerLoop is equivalent to
+    // 64-bits of input data per cycle this is exact.
+    const auto numOuterLoops = ceildiv(numOutputs, elemsPerLoop);
+
+    cycles += numOuterLoops * 6;
+    cycles += partialsSizes[0] / elemsPerLoop; // inner loop
     return cycles;
   }
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
+    assert(accVectorWidth % vectorWidth == 0);
+    // We don't take advantage of interleaved memory so take the minimum
+    // of the data path width and the op width to get the elements we
+    // can do per cycle.
     // This is for the ASM vertices. The C vertices are worse
+    const auto elemsPerCycle = std::min(accVectorWidth, vectorWidth);
     cycles += 8;
     // other init / checking
     cycles += 11;
-    auto accVectorWidth = 2 * vectorWidth;
     if (partialsSizes[0] < 6) {
       cycles += 6;
     } else {
-      // 2 cycles per vector to avoid requiring 128B loads
-      cycles += (partialsSizes[0] / accVectorWidth) * 2;
+      cycles += partialsSizes[0] / elemsPerCycle;
       // 1 cycle per element for the remainder
-      cycles += partialsSizes[0] % accVectorWidth;
+      cycles += partialsSizes[0] % elemsPerCycle;
     }
     if (outType != poplar::FLOAT)
       cycles += 5;
     return cycles;
   }
 
-  if (vectorised4ReductionOp(operation, specialisation)) {
-    const unsigned partialsOverhead = 11;
-    cycles += 3 + 23; // load state
+  // Trying to generalise vectorised vertex estimates...
+  if (vectorisedOp(operation, specialisation)) {
+    cycles += 3 + 23; // load state etc.
 
+    // We do scale + store in output type so the cycles for scale, update,
+    // and store are a function of the number of output type vector widths
+    // that fit into the op vector width. When using accumulators there
+    // is a cycle's delay on getting the first value for scale/update/
+    // store.
+    const auto getStoreCycles = [&](const auto width) {
+      assert(width % outTypeVectorWidth == 0 ||
+             outTypeVectorWidth % width == 0);
+      return (2 + isUpdate) * std::min(width, outTypeVectorWidth) +
+             usesAccumulators;
+    };
+
+    assert((opVectorWidth & (opVectorWidth - 1)) == 0);
+    std::size_t partialsIndex = 0;
     for (unsigned r = 0; r < numReductions; ++r) {
-      const unsigned cyclesPerInnerLoop = vectorWidth == 2 ? 5 : 8;
-      // Overhead - per reduction
-      cycles += 16 +    // Unpack offsets and sizes
-                5 +     // Check for vectorwidth loop being needed
-                2 + 2 + // Check if remainders loops needed: 2, 1
-                2;      // Loop end condition
-      // Will there be a vector loop to execute?
-      const unsigned vectorAccumulating = outSizes[r] / vectorWidth ? 1 : 0;
-      // Number of remainder loops to execute
-      const unsigned remLoops[] = {0, 1, 1, 2};
-      const unsigned remainderAccumulating =
-          remLoops[outSizes[r] % vectorWidth];
-      // Account for overhead for setting up the 2 partials loops:
-      // vectorAcc loop, and remAcc loop(s)
-      cycles += vectorAccumulating * 6;
-      cycles += remainderAccumulating * 4;
+      // Load cycles are based on how many cycles it takes
+      // to call to a function that handles mis-aligned data
+      // but assuming we take the fastest (most aligned) path
+      // so this doesn't (or shouldn't) vary based on vector width but
+      // our assembly differs between using a function call and
+      // an inline load between accumulator/non-accumulator version.
+      const auto loadOverhead = usesAccumulators ? 2 : 0; // call, br $lr
+      // In the best case we get 2 cycles to check alignment and then
+      // load the data path width determines how quickly we can load each
+      // vector. Lastly we have 2 cycles to check for loop exit and branch
+      // back to the start of the loop.
+      const auto loadWidth = std::min(opVectorWidth, dataPathWidth);
+      const auto cyclesPerVectorLoad =
+          loadOverhead + 2 + opVectorWidth / loadWidth;
 
-      for (unsigned i = 0; i < numPartials[r]; i++) {
-        unsigned reductionRatio = 1;
-        if (outSizes[r]) {
-          reductionRatio = partialsSizes[i] / outSizes[r];
-        }
-        const unsigned vectorAccumulatingLoops =
-            (outSizes[r] / vectorWidth) * reductionRatio;
-        // Overhead in setting up the loop per vectorwidth piece of
-        // partial (if there is a loop)
-        if (reductionRatio && vectorAccumulating) {
-          cycles += partialsOverhead * partialsSizes[i] /
-                    (vectorWidth * reductionRatio);
-        }
-        // Inner loop for vector accumulation
-        cycles += cyclesPerInnerLoop * vectorAccumulatingLoops;
-        cycles += remainderAccumulating * partialsOverhead;
-        if (outSizes[r] != 0) {
-          // Inner loop(s) for remainder accumulation
-          cycles += 4 * remainderAccumulating * partialsSizes[i] / outSizes[r];
+      // Will there be a vector loop to execute?
+      const unsigned vectorOuterLoops = outSizes[r] / opVectorWidth;
+      const auto remaining = outSizes[r] % opVectorWidth;
+      // The number of checks left to do
+      const auto remainingChecks = ceilLog2(opVectorWidth);
+
+      // Cycles for _Reduce_zero_and_load excluding call
+      constexpr unsigned reduceZeroAndLoadCycles = 3;
+      // Cycles for _Reduce_ptr_fetch excluding call
+      constexpr unsigned fetchPtrCycles = 7;
+
+      // Common per-reduction overhead:
+      // setzi, ld32, call _Reduce_outer_loop_setup
+      cycles += 16;
+      // Setup remainder and check for vector-width loop being needed
+      cycles += 6;
+      // Check if remainders loops needed: 2 cycles for each
+      cycles += remainingChecks * 2;
+      // Loop end condition
+      cycles += 2;
+
+      // Cycles per outer loop over vectors (pre-loop cycles, store/scale/update
+      // cycles + brnzdec)
+      cycles += vectorOuterLoops *
+                ((usesAccumulators ? reduceZeroAndLoadCycles + 2 : 3) +
+                 getStoreCycles(opVectorWidth) + 1);
+      // Cycles per outer loop over vectors for numPartials[r]
+      cycles += vectorOuterLoops * numPartials[r] * (fetchPtrCycles + 3);
+
+      for (unsigned i = 0; i < remainingChecks; ++i) {
+        const auto remainder = (1u << i);
+        if (remaining & remainder) {
+          cycles += (usesAccumulators ? reduceZeroAndLoadCycles + 1 : 2) +
+                    getStoreCycles(remainder);
+          cycles += numPartials[r] * (fetchPtrCycles + 3);
         }
       }
-    }
-  } else if (vectorised8ReductionOp(operation, specialisation)) {
-    // Double width operations/data proessed per loop
-    vectorWidth *= 2;
 
-    const unsigned partialsOverhead = 11;
-    cycles += 3 + 23; // load state etc
-
-    for (unsigned r = 0; r < numReductions; ++r) {
-      // Each inner loop reads 128 bits.  Cycles taken varies based on alignment
-      // (and consistent alignement for the latter pieces of the partials)
-      // but is approximately given by this:
-      const unsigned cyclesPerReadHalf = (outSizes[r] / vectorWidth) ? 11 : 6;
-      const unsigned cyclesPerInnerLoop =
-          (vectorWidth == 4) ? 7 : cyclesPerReadHalf + 3;
-      // Overhead - per reduction
-      cycles += 16 +        // Unpack offsets and sizes
-                5 +         // Check for vectorwidth loop being needed
-                2 + 2 + 2 + // Check if remainders loops needed: 4, 2, 1
-                2;          // Loop end condition
-      // Will there be a vector loop to execute?
-      const unsigned vectorAccumulating = outSizes[r] / vectorWidth ? 1 : 0;
-      // Number of remainder loops to execute based on remainder
-      const unsigned remLoops[] = {0, 1, 1, 2, 1, 2, 2, 3};
-      const unsigned remainderAccumulating =
-          remLoops[outSizes[r] % vectorWidth];
-      // Account for overhead of vectorAcc loop, and remAcc loop(s)
-      cycles += vectorAccumulating * 22;
-      cycles += remainderAccumulating * 8;
-
-      for (unsigned i = 0; i < numPartials[r]; i++) {
-        unsigned reductionRatio = 1;
-        if (outSizes[r]) {
-          reductionRatio = partialsSizes[i] / outSizes[r];
-        }
-        const unsigned vectorAccumulatingLoops =
-            (outSizes[r] / vectorWidth) * reductionRatio;
-        // Overhead in setting up the loop per vectorwidth piece of
-        // partial (if there is a loop)
-        if (reductionRatio && vectorAccumulating) {
-          cycles += partialsOverhead * partialsSizes[i] /
-                    (vectorWidth * reductionRatio);
-        }
-        // Inner loop for vector accumulation
-        cycles += cyclesPerInnerLoop * vectorAccumulatingLoops;
-        cycles += remainderAccumulating * partialsOverhead;
-        if (outSizes[r] != 0) {
-          // Inner loop(s) for remainder accumulation
-          cycles += 8 * remainderAccumulating * partialsSizes[i] / outSizes[r];
+      for (std::size_t i = partialsIndex; i < partialsIndex + numPartials[r];
+           ++i) {
+        const auto numAccumulations = partialsSizes[i] / outSizes[r];
+        const auto vectorLoops = vectorOuterLoops * numAccumulations;
+        // Cycles per partial vector (load, compute, loop)
+        cycles += vectorLoops * (cyclesPerVectorLoad + 3);
+        for (unsigned j = 0; j < remainingChecks; ++j) {
+          const auto remainder = (1u << j);
+          if (remaining & remainder) {
+            // Make the assumption that each load is a check for alignment
+            // (2 cycles) and however many loads of data path width it takes
+            // to load the remainder, all inline.
+            const auto numLoads = remainder / std::min(remainder, vectorWidth);
+            cycles += numAccumulations * (2 + numLoads + 3);
+          }
         }
       }
+      partialsIndex += numPartials[r];
     }
   } else {
     // Non-accumulator code.
@@ -236,9 +250,17 @@ std::uint64_t getCyclesEstimateForReduce(
 
 std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
     const unsigned numPartials, const unsigned numOutputs,
-    const unsigned vectorWidth, bool isUpdate) {
+    const unsigned dataPathWidth, const unsigned accVectorWidth,
+    bool isUpdate) {
+  assert(accVectorWidth % dataPathWidth == 0 ||
+         dataPathWidth % accVectorWidth == 0);
+
+  // We don't take advantage of interleaved memory, hence the achieved
+  // elements per cycle is the minimum of the accumulator vector width
+  // and the data path width.
+  const auto elemsPerInnerLoop = std::min(accVectorWidth, dataPathWidth);
   // Estimate based on the code structure
-  std::uint64_t cycles = numOutputs * (numPartials / vectorWidth);
+  std::uint64_t cycles = numOutputs * (numPartials / elemsPerInnerLoop);
   cycles += (numPartials & 1 ? 2 : 0);
   cycles += 12 * numOutputs;
   cycles += 10;
@@ -255,10 +277,18 @@ std::uint64_t getCycleEstimateForReduceVertex(
     const popops::Operation operation, bool isUpdate,
     popops::ReductionSpecialisation specialisation) {
 
+  const auto partialsTypeSize = target.getTypeSize(partialsType);
+  const auto accVectorWidth = partialsType == poplar::HALF    ? 8
+                              : partialsType == poplar::FLOAT ? 4
+                                                              : 1;
+  const auto partialsPer64Bits = partialsTypeSize / 8;
+  const auto dataPathWidth = target.getDataPathWidth() / (partialsTypeSize * 8);
+
   std::vector<unsigned> numPartialEdges;
   std::vector<size_t> partialsPerEdge;
   CODELET_FIELD(out);
   CODELET_FIELD(partials);
+  std::optional<unsigned> stride;
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     // single edge case
     // paritalsPerEdge takes the number of partials for the corresponding
@@ -268,15 +298,16 @@ std::uint64_t getCycleEstimateForReduceVertex(
   } else if (specialisation == ReductionSpecialisation::STRIDED_REDUCE) {
     numPartialEdges.emplace_back(1);
     CODELET_SCALAR_VAL(numPartialsM1, unsigned);
-    CODELET_SCALAR_VAL(numOutputs, unsigned)
+    CODELET_SCALAR_VAL(numOutputs, unsigned);
+    CODELET_SCALAR_VAL(partialsWidth, unsigned);
     partialsPerEdge.emplace_back((numPartialsM1 + 1) * numOutputs);
+    stride = partialsWidth;
   } else if (specialisation ==
              ReductionSpecialisation::ALL_REGIONS_CONTINUOUS) {
     CODELET_SCALAR_VAL(numPartials, unsigned);
     CODELET_SCALAR_VAL(numOutputsM1, unsigned);
     return getCycleEstimateReduceAllRegionsContinuous(
-        numPartials, numOutputsM1, target.getVectorWidth(partialsType),
-        isUpdate);
+        numPartials, numOutputsM1, dataPathWidth, accVectorWidth, isUpdate);
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);
@@ -285,9 +316,10 @@ std::uint64_t getCycleEstimateForReduceVertex(
   }
 
   return getCyclesEstimateForReduce(
-      partialsPerEdge, fieldSizes(out), numPartialEdges,
-      target.getVectorWidth(partialsType), partialsType, outType, operation,
-      isUpdate, specialisation);
+      partialsPerEdge, fieldSizes(out), numPartialEdges, stride, dataPathWidth,
+      target.getVectorWidth(partialsType), accVectorWidth,
+      target.getVectorWidth(outType), partialsPer64Bits, partialsType, outType,
+      operation, isUpdate, specialisation);
 }
 
 } // namespace popops

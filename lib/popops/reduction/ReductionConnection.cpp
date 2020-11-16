@@ -400,14 +400,15 @@ poplar::Tensor flattenAndCheckPartials(const poplar::Graph &graph,
   // requiring a rearrangement due to misalignment. If this is not the
   // case we should be using the generic vertex
   if (!reductions[0].regularPartials()) {
+    const auto &target = graph.getTarget();
+    const auto atomicWriteSize = target.getAtomicStoreGranularity();
     unsigned numBytes = 0;
     for (const auto &p : reductions[0].getPartials()) {
-      if (numBytes % 4) {
+      if (numBytes % atomicWriteSize) {
         throw poputil::poplibs_error(
             "Generating a singleIO reduction vertex with misaligned partials");
       }
-      numBytes +=
-          p.numElements() * graph.getTarget().getTypeSize(p.elementType());
+      numBytes += p.numElements() * target.getTypeSize(p.elementType());
     }
   }
   return concat(extractPartials({reductions.begin(), reductions.begin() + 1}));
@@ -419,8 +420,9 @@ static void createStridedReduceVertex(
     const ReductionSpecialisation specialisation) {
 
   const auto &r0 = reductions[0];
+  const auto &target = graph.getTarget();
   auto partialsElemWidth =
-      graph.getTarget().getTypeSize(r0.getPartials()[0].elementType());
+      target.getTypeSize(r0.getPartials()[0].elementType());
   unsigned numPartials, partialsWidth;
   if (r0.regularPartials()) {
     // Partials information is regular and we may be able to use the stride
@@ -1880,12 +1882,11 @@ static bool isScalarOutputReduction(const poplar::Graph &graph,
   if (params.update == true || params.useScale == true) {
     return false;
   }
+  const auto atomicWriteSize = target.getAtomicStoreGranularity();
+  const auto inType = r0.getPartials()[0].elementType();
+  const auto inTypeSize = target.getTypeSize(inType);
   if (r0.regularPartials()) {
-    return (outputElements *
-            target.getTypeSize(r0.getPartials()[0].elementType())) %
-               4 ==
-           0;
-
+    return (outputElements * inTypeSize) % atomicWriteSize == 0;
   } else {
     bool nextIsMisaligned = false;
     for (const auto &p : r0.getPartials()) {
@@ -1898,8 +1899,7 @@ static bool isScalarOutputReduction(const poplar::Graph &graph,
       if (nextIsMisaligned) {
         return false;
       }
-      nextIsMisaligned =
-          p.numElements() * target.getTypeSize(p.elementType()) % 4;
+      nextIsMisaligned = (p.numElements() * inTypeSize) % atomicWriteSize;
     }
     return true;
   }
@@ -1911,10 +1911,12 @@ static bool isStridedReduction(const poplar::Graph &graph,
 
   const auto &target = graph.getTarget();
   const auto &r0 = r.front();
-  const auto inTypeSize = target.getTypeSize(r0.getPartials()[0].elementType());
+  const auto inType = r0.getPartials()[0].elementType();
+  const auto inTypeSize = target.getTypeSize(inType);
   const auto outTypeSize = target.getTypeSize(r0.output.elementType());
-  // The output must be  4byte writable
-  if (r0.output.numElements() * outTypeSize % 4 != 0) {
+  const auto atomicWriteSize = target.getAtomicStoreGranularity();
+  // The output must be 4byte writable
+  if ((r0.output.numElements() * outTypeSize) % atomicWriteSize != 0) {
     return false;
   }
   std::vector<poplar::Tensor> outputs;
@@ -1922,7 +1924,7 @@ static bool isStridedReduction(const poplar::Graph &graph,
     outputs.push_back(region.output);
   }
   const auto output = concat(outputs);
-  if (output.numElements() * inTypeSize % 8 != 0) {
+  if ((output.numElements() * inTypeSize) % 8 != 0) {
     return false;
   }
   auto outputElements = r0.output.numElements();
@@ -1952,11 +1954,7 @@ static bool isStridedReduction(const poplar::Graph &graph,
     }
   }
   if (r0.regularPartials()) {
-    return (r0.output.numElements() *
-            target.getTypeSize(r0.getPartials()[0].elementType())) %
-               4 ==
-           0;
-
+    return (r0.output.numElements() * inTypeSize) % atomicWriteSize == 0;
   } else {
     bool nextIsMisaligned = false;
     for (const auto &p : r0.getPartials()) {
@@ -1969,8 +1967,7 @@ static bool isStridedReduction(const poplar::Graph &graph,
       if (nextIsMisaligned) {
         return false;
       }
-      nextIsMisaligned =
-          p.numElements() * target.getTypeSize(p.elementType()) % 4;
+      nextIsMisaligned = (p.numElements() * outTypeSize) % atomicWriteSize;
     }
     return true;
   }
@@ -2012,6 +2009,8 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
   bool nextIsMisaligned = false;
   bool partialsCopyIsCheap = true;
   if (!concat(allPartials).isContiguous()) {
+    const auto &target = graph.getTarget();
+    const auto atomicWriteSize = target.getAtomicStoreGranularity();
     for (const auto &p : allPartials) {
       // If not contiguous it should be possible to copy all the partials
       // together cheaply. This could be worthwhile even if the copy isn't this
@@ -2021,7 +2020,8 @@ static bool allRegionsContinuous(const poplar::Graph &graph,
         break;
       }
       nextIsMisaligned =
-          p.numElements() * graph.getTarget().getTypeSize(p.elementType()) % 4;
+          (p.numElements() * target.getTypeSize(p.elementType())) %
+          atomicWriteSize;
     }
   }
   return singleOut && (partialsCopyIsCheap || (!reductionUsesInput));
