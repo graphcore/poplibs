@@ -88,6 +88,8 @@ std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
   os << opts.disableTransformations << "\n";
   os << "        insertTransformsCycleCountProgs ";
   os << opts.insertTransformsCycleCountProgs << "\n";
+  os << "        enableTransformsConvTable       ";
+  os << opts.enableTransformsConvTable << "\n";
   return os;
 }
 
@@ -128,7 +130,10 @@ void ConvOptions::parseConvOptions(const poplar::OptionFlags &options) {
       {"disableTransformations",
        OptionHandler::createWithBool(disableTransformations)},
       {"insertTransformsCycleCountProgs",
-       OptionHandler::createWithBool(insertTransformsCycleCountProgs)}};
+       OptionHandler::createWithBool(insertTransformsCycleCountProgs)},
+      {"enableTransformsConvTable",
+       OptionHandler::createWithBool(enableTransformsConvTable)},
+  };
   for (const auto &entry : options) {
     convSpec.parse(entry.first, entry.second);
   }

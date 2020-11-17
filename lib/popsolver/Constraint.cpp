@@ -396,3 +396,4 @@ bool GenericAssignment<T>::propagate(Scheduler &scheduler) {
 
 template class popsolver::GenericAssignment<DataType>;
 template class popsolver::GenericAssignment<unsigned>;
+template class popsolver::GenericAssignment<uint64_t>;

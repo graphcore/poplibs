@@ -101,6 +101,16 @@ bool operator<(const ConvTransform &a, const ConvTransform &b) {
   return helper.lt(a, b);
 }
 
+bool operator==(const ConvTransform &a, const ConvTransform &b) {
+  constexpr static auto helper = poplibs_support::makeStructHelper(
+      &ConvTransform::extraFieldDims, &ConvTransform::dilatePostConv,
+      &ConvTransform::swapOperands, &ConvTransform::expandDims,
+      &ConvTransform::outChanFlattenDims, &ConvTransform::flattenDims,
+      &ConvTransform::combineConvGroupsFactor);
+
+  return helper.eq(a, b);
+}
+
 std::ostream &operator<<(std::ostream &os, const ConvTransform &t) {
   os << "  Transform: extraFieldDims          " << t.extraFieldDims
      << "\n"

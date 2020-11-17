@@ -1,13 +1,65 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "ConvModel.hpp"
+#include "ConvTransformsBytesToCycles.hpp"
 #include "ExchangeEstimator.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
 #include "poplibs_support/popopsPerformanceEstimation.hpp"
+#include <boost/functional/hash.hpp>
 #include <poputil/exceptions.hpp>
 
 namespace poplin {
 
 using namespace poplibs_support;
+
+template <>
+std::size_t
+ConvTransformsHasher<ConvTransform>::operator()(const ConvTransform &ct) const {
+  std::size_t seed = 0;
+  boost::hash_combine(seed, ct.extraFieldDims);
+  boost::hash_range(seed, std::begin(ct.dilatePostConv),
+                    std::end(ct.dilatePostConv));
+  boost::hash_combine(seed, ct.swapOperands);
+
+  boost::hash_range(seed, std::begin(ct.expandDims), std::end(ct.expandDims));
+  boost::hash_range(seed, std::begin(ct.outChanFlattenDims),
+                    std::end(ct.outChanFlattenDims));
+  boost::hash_range(seed, std::begin(ct.flattenDims), std::end(ct.flattenDims));
+  boost::hash_combine(seed, ct.combineConvGroupsFactor);
+
+  return seed;
+}
+
+// Convert transforms bytes into cycles only if transforms params are present
+// in the conversion table. If unsupported transforms requested existent
+// candidate will be invalided. Missing transforms params will be added in the
+// future to increase planner coverage.
+static inline bool transformsEstimatesCanConvert(const ConvTransform &key) {
+  const auto iter = conversionTable.find(key);
+  return iter != conversionTable.end();
+}
+
+static inline uint64_t
+transformsEstimatesConvertBytes2Cycles(const ConvTransform &key,
+                                       const unsigned defaultBytesPerCycle,
+                                       const uint64_t &bytes) {
+  const auto iter = conversionTable.find(key);
+  if (iter == conversionTable.end()) {
+    std::stringstream ss;
+    ss << "Unsupported transforms requested <" << key << ">";
+    throw poputil::poplibs_error(ss.str());
+  } else {
+    int64_t cycles = (*iter->second)(bytes);
+    // For cases where the estimated cycles is negative, or less than a
+    // threshold, we assume the estimate is unreliable, so return instead a
+    // default conversion to cycles from bytes.
+    int64_t defaultCycles = static_cast<int64_t>(bytes) / defaultBytesPerCycle;
+    if (cycles < defaultCycles) {
+      return defaultCycles;
+    } else {
+      return cycles;
+    }
+  }
+}
 
 static unsigned getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
                                      const ConvParams &params,
@@ -1321,9 +1373,6 @@ addTransformCycleEstimate(
   bool regroupWeights = options.pass == Pass::TRAINING_FWD &&
                         partialChansPerGroup % weightsPerConvUnit != 0;
   const auto inputBytesPerElement = target.getTypeSize(params.outputType);
-  const auto regroupBytesPerCycle =
-      std::min<unsigned>(target.getMemcpyBytesPerCycle(),
-                         partialChansPerGroup * inputBytesPerElement);
 
   if (!rearrangeInput && !rearrangeOutput && !rearrangeWeights &&
       !regroupOutput && !regroupWeights) {
@@ -1380,10 +1429,9 @@ addTransformCycleEstimate(
   std::vector<popsolver::Variable> memoryUsage;
   std::vector<popsolver::Variable> copyCyclesOperands;
   std::vector<popsolver::Variable> exchangeCyclesOperands;
+  popsolver::Variable copyCyclesEstimates;
 
   if (rearrangeInput || rearrangeWeights || regroupWeights) {
-    const auto reorderBytesPerCycle = std::min<unsigned>(
-        target.getMemcpyBytesPerCycle(), inputBytesPerElement);
     std::vector<popsolver::Variable> numElementsOperands;
     if (rearrangeInput) {
       auto totalInputFieldSize = m.product(inputFieldSizes);
@@ -1404,12 +1452,15 @@ addTransformCycleEstimate(
         const auto factor = getScaleFactorForTransform(
             transformedOnceUnpaddedParams.inputType,
             transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
+        const auto regroupBytesPerCycle =
+            std::min<unsigned>(target.getMemcpyBytesPerCycle(),
+                               partialChansPerGroup * inputBytesPerElement);
         auto cycles =
             m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                       m.addConstant(factor[1] * regroupBytesPerCycle));
 
-        memoryUsage.push_back(bytesPerTile);
         copyCyclesOperands.push_back(cycles);
+        memoryUsage.push_back(bytesPerTile);
       }
     }
     auto numElements = m.sum(numElementsOperands);
@@ -1423,6 +1474,8 @@ addTransformCycleEstimate(
         transformedOnceUnpaddedParams.inputType,
         transformedOnceUnpaddedParams.inputChannelsPerConvGroup *
             transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
+    const auto reorderBytesPerCycle = std::min<unsigned>(
+        target.getMemcpyBytesPerCycle(), inputBytesPerElement);
 
     copyCyclesOperands.push_back(
         m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
@@ -1444,14 +1497,14 @@ addTransformCycleEstimate(
     if (rearrangeOutput) {
       const auto outputReorderBytesPerCycle = std::min<unsigned>(
           target.getMemcpyBytesPerCycle(), outputBytesPerElement);
-      exchangeCyclesOperands.push_back(
-          m.ceildiv(bytesPerTile, m.addConstant(exchangeBytesPerCycle)));
       const auto factor = getScaleFactorForTransform(
           transformedOnceUnpaddedParams.outputType,
           transformedOnceUnpaddedParams.outputChannelsPerConvGroup);
       copyCyclesOperands.push_back(
           m.ceildiv(m.product({bytesPerTile, m.addConstant(factor[0])}),
                     m.addConstant(outputReorderBytesPerCycle * factor[1])));
+      exchangeCyclesOperands.push_back(
+          m.ceildiv(bytesPerTile, m.addConstant(exchangeBytesPerCycle)));
       memoryUsage.push_back(bytesPerTile);
     } else if (regroupOutput) {
       const auto factor = getScaleFactorForTransform(
@@ -1466,13 +1519,45 @@ addTransformCycleEstimate(
 
   // the transforms happen serially therefore we sum the cycles and take the
   // max of the bytes. we also decide that the amount of temporary memory
-  // required is two times the usage as the input and output must be live at the
-  // same time. of course this assumes that the inputs and outputs are the same
-  // size which is not always the case.
-  const auto copyCyclesEstimates =
-      m.sum(copyCyclesOperands, "transformCopyCycleEstimate");
-  const auto exchangeCyclesEstimates =
-      m.sum(exchangeCyclesOperands, "transformExchangeCycleEstimate");
+  // required is two times the usage as the input and output must be live at
+  // the same time. of course this assumes that the inputs and outputs are
+  // the same size which is not always the case.
+
+  // We don't have a regression analysis for the fully_connected_layer
+  // benchmarks hence allowing to fallback into an old way of getting estimates
+  if (transforms[ipuLevel].extraFieldDims != 0 ||
+      options.enableTransformsConvTable == false) {
+    copyCyclesEstimates =
+        m.sum(std::move(copyCyclesOperands), "transformCopyCycleEstimate");
+
+  } else {
+    const auto plannedBytes = m.sum(memoryUsage);
+    const auto ipuTransforms = transforms[ipuLevel];
+    const auto defaultBytesPerCycle = target.getMemcpyBytesPerCycle();
+
+    if (transformsEstimatesCanConvert(ipuTransforms)) {
+      copyCyclesEstimates = m.call<uint64_t>(
+          {plannedBytes},
+          [ipuTransforms, defaultBytesPerCycle](
+              const std::vector<uint64_t> &vars) -> popsolver::DataType {
+            const auto pbytes = vars[0];
+
+            uint64_t cycles = transformsEstimatesConvertBytes2Cycles(
+                ipuTransforms, defaultBytesPerCycle, pbytes);
+
+            return popsolver::DataType{cycles};
+          },
+          "transformCopyCycleEstimate");
+    } else {
+      // If transforms aren't supported deliberately invalidate this case.
+      // From popsolver performance perspective setting false constraint is a
+      // way faster than setting tempBytes to popsolver::DataType::max()
+      m.equal(m.addConstant(0), m.addConstant(1));
+    }
+  }
+
+  const auto exchangeCyclesEstimates = m.sum(std::move(exchangeCyclesOperands),
+                                             "transformExchangeCycleEstimate");
 
   const auto tempBytes =
       m.product({m.max(std::move(memoryUsage)), m.addConstant(2u)},

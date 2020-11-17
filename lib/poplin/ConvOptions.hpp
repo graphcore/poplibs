@@ -63,6 +63,8 @@ public:
   bool disableTransformations = false;
   // Enables insertion of cycle counts progs around convolution sequences
   bool insertTransformsCycleCountProgs = false;
+  // Enables conversion table for transforms estimates
+  bool enableTransformsConvTable = false;
 
   void parseConvOptions(const poplar::OptionFlags &options);
 
@@ -77,7 +79,8 @@ private:
       &ConvOptions::enableMultiStageReduce, &ConvOptions::enableFastReduce,
       &ConvOptions::remapOutputTensor, &ConvOptions::enableConvDithering,
       &ConvOptions::disableTransformations,
-      &ConvOptions::insertTransformsCycleCountProgs);
+      &ConvOptions::insertTransformsCycleCountProgs,
+      &ConvOptions::enableTransformsConvTable);
 
 public:
   bool operator<(const ConvOptions &other) const {

@@ -346,6 +346,12 @@ Model::call<unsigned>(std::vector<Variable>,
                           const std::vector<unsigned> &values)>,
                       const std::string &);
 
+template Variable
+Model::call<uint64_t>(std::vector<Variable>,
+                      std::function<boost::optional<DataType>(
+                          const std::vector<uint64_t> &values)>,
+                      const std::string &);
+
 static bool foundLowerCostSolution(const Domains domains,
                                    const std::vector<Variable> &objectives,
                                    Solution &previousSolution) {

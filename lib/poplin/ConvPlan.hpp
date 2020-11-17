@@ -116,6 +116,7 @@ struct ConvTransform {
 };
 
 bool operator<(const ConvTransform &a, const ConvTransform &b);
+bool operator==(const ConvTransform &a, const ConvTransform &b);
 
 std::ostream &operator<<(std::ostream &os, const ConvTransform &t);
 
@@ -318,4 +319,5 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
                  const Plan &plan);
 
 } // namespace poplin
+
 #endif // poplin_internal_ConvPlan_hpp
