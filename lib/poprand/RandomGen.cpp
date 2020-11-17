@@ -6,14 +6,15 @@
 #include "poplar/Tensor.hpp"
 #include "poplar/exceptions.hpp"
 #include "poplibs_support/logging.hpp"
+#include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
+#include "popops/Expr.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
-#include <cmath>
 #include <cstdint>
 #include <limits>
 
@@ -21,6 +22,7 @@ using namespace poputil;
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
+namespace pe = popops::expr;
 
 namespace poprand {
 
@@ -51,6 +53,83 @@ static void seedTensorChecks(const Tensor *seed) {
   }
 }
 
+// wrapper for nextafterf which doesn't take a step if 'from' is already
+// representable as a float
+template <typename T, typename T2> static float maybenextafterf(T from, T2 to) {
+  float fromF = from;
+  if ((from > to && fromF > from) || (from < to && fromF < from))
+    fromF = std::nextafterf(fromF, to);
+  return fromF;
+}
+
+// Basic implementation of maybenextafterf for IEEE FP16 (10 mantissa bits)
+// Should generalise for any number of mantissa or exponent bits.
+template <typename T, typename T2> static double maybenextafterh(T d, T2 to) {
+  // Hard code for IEEE half
+  const int mantissaBits = 10;
+  const int exponentBits = 5;
+
+  const int exponentBias = std::pow(2, exponentBits - 1) - 1;
+  const int exponentMin = 1 - exponentBias;
+  const double minSubnormal = std::pow(2, exponentMin - mantissaBits);
+  const double minNormal = std::pow(2, exponentMin);
+  // Maximum representable value is 1 step lower than maximum exponent
+  const double maxNormal =
+      std::pow(2, exponentBias + 1) - std::pow(2, exponentBias - mantissaBits);
+
+  // Remember the sign and treat negatives like positives
+  int sign = std::signbit(d) ? -1 : 1;
+  int toSign = std::signbit(to) ? -1 : 1;
+  d = std::abs(d);
+  to = std::abs(to);
+  bool sameSign = sign == toSign;
+
+  // Handle d in [maxNormal, infinity)
+  if (d > maxNormal) {
+    if (to < d || sameSign)
+      return sign * maxNormal;
+    throw poputil::poplibs_error(
+        "maybenextafterh: Next representable value in"
+        " HALF type for " +
+        std::to_string(d) + " towards " + std::to_string(to) +
+        " failed. Make sure your range fits inside a HALF.");
+  }
+
+  // Handle d in [0, minSubnormal)
+  if (d < minSubnormal)
+    // Note: Either go up to the min subnormal or down to 0 based on 'to'
+    return minSubnormal * (to > d) * sign * sameSign;
+
+  // Determine the range d is enclosed in: 2^x <= d < 2^(x+1)
+  double x = std::floor(std::log2(d));
+
+  // Determine the step size from the range 2^x/2^m = 2^(x-m)
+  double stepSize = std::pow(2, x - mantissaBits); // x in [2^x, 2^(x+1))
+
+  // Handle d in [minSubnormal, minNormal) - special case for stepSize
+  if (d < minNormal)
+    stepSize = minSubnormal;
+
+  // Round to the next multiple of stepSize from d ...
+  double rem = std::fmod(d - std::pow(2, x), stepSize);
+  // Note: If rem is 0 then d is representable in half
+  if (rem == 0)
+    return sign * d;
+  // ... in the direction of 'to'
+  return sign * (d + stepSize * (to > d) * sameSign - rem);
+}
+
+// Squeezes a double range [a, b] inward based on a poplar Type.
+static std::pair<double, double> squeezeRange(Type ptype, double a, double b) {
+  if (ptype == INT || ptype == UNSIGNED_INT)
+    return std::make_pair(std::ceil(a), std::floor(b));
+  if (ptype == FLOAT)
+    return std::make_pair(maybenextafterf(a, b), maybenextafterf(b, a));
+  if (ptype == HALF)
+    return std::make_pair(maybenextafterh(a, b), maybenextafterh(b, a));
+  throw poputil::poplibs_error("squeezeRange: unsupported Poplar type");
+}
+
 // Convert a range [minVal, maxVal] for uniform number generation into a
 // scale and offset used internally by the uniform random number generator
 static std::pair<double, double>
@@ -58,20 +137,13 @@ uniformScaleAndOffset(double minVal, double maxVal, const Type &dType) {
   if (dType != INT) {
     // round the limits inwards to representable floats
     // avoid STDC FPENV_ACCESS due to incomplete clang support
-
-    // coerce limits inwards to float representable values
-    float minValF = minVal, maxValF = maxVal;
-    if (minValF < minVal)
-      minValF = std::nextafterf(minValF, maxVal);
-    if (maxValF > maxVal)
-      maxValF = std::nextafterf(maxValF, minVal);
+    float minValF = maybenextafterf(minVal, maxVal);
+    float maxValF = maybenextafterf(maxVal, minVal);
     minVal = minValF;
     maxVal = maxValF;
 
     double scale = double(maxValF) - minValF;
-    float scaleF = scale;
-    if (scaleF > scale)
-      scaleF = std::nextafterf(scaleF, 0.f);
+    float scaleF = maybenextafterf(scale, 0.f);
     float offsetF = scaleF / 2.f + minValF;
 
     // The core generator returns numbers in the range [-0.5:+0.5] not [0:1]
@@ -217,6 +289,86 @@ Tensor uniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
   maybeRestoreHwSeeds(graph, hwSeeds, prog, {di, fnPrefix});
   di.addOutput(out);
   return out;
+}
+
+Tensor logUniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
+                  const Tensor &reference, const Type &outType, double minVal,
+                  double maxVal, Sequence &prog, double base,
+                  const poplar::DebugContext &debugContext) {
+  const auto debugPrefix = debugContext.getPathName();
+  auto fnPrefix = debugPrefix + "/logUniform";
+
+  if (minVal < 1)
+    throw poputil::poplibs_error("logUniform: minVal must be >= 1");
+  if (maxVal <= minVal)
+    throw poputil::poplibs_error("logUniform: maxVal must be > minVal");
+  if (outType == INT &&
+      ((std::trunc(minVal) != minVal) || (std::trunc(maxVal) != maxVal)))
+    throw poputil::poplibs_error(
+        "logUniform: For INT outType, minVal and"
+        " maxVal should represent integers, otherwise there could be"
+        " significant bias at the edges of the distribution.");
+
+  // Determine if we're using the default, natural base
+  double tolerance = 1e-7;
+  float lnBase = std::log(base);
+  bool useNaturalLog = std::abs(1.0 - lnBase) < tolerance;
+  logging::poprand::debug(
+      "logUniform: Using base [{}] - recognised as natural log: {}", base,
+      useNaturalLog);
+
+  // Determine range of the underlying uniform distribution in log space
+  // Note: narrow the range inward to float representable values
+  float minValF = maybenextafterf(minVal, maxVal);
+  float maxValF = maybenextafterf(maxVal, minVal);
+  float logMinVal = std::log(minValF);
+  float logMaxVal = std::log(maxValF);
+  if (!useNaturalLog) {
+    logMinVal /= lnBase;
+    logMaxVal /= lnBase;
+  }
+  logging::poprand::debug(
+      "logUniform: Squeezed uniform range [{}, {}] to [{}, {}] based on"
+      " type 'float'",
+      minVal, maxVal, minValF, maxValF);
+
+  // Generate uniformly distributed values in the log space
+  poplar::Tensor x = uniform(graph, masterSeed, seedModifier, reference, FLOAT,
+                             logMinVal, logMaxVal, prog, fnPrefix);
+
+  // Exponentiate back into initial space
+  if (!useNaturalLog) {
+    // Note: avoid using Pow by rearranging y = b^x into y = e^(x * log(b))
+    popops::mapInPlace(graph, pe::Mul(pe::_1, pe::Const(lnBase)), {x}, prog,
+                       fnPrefix);
+  }
+  // Note: exp(log(x)) is not necessarily an identity in fp arithmetic, which
+  // means samples in x could go out of bounds at the borders. Additionally,
+  // the cast can go OOB too. To fix these, we clamp to a narrower range that
+  // is based on the output type.
+  auto squeezed = squeezeRange(outType, minValF, maxValF);
+  logging::poprand::debug(
+      "logUniform: Squeezed range [{}, {}] to [{}, {}] based on type '{}'",
+      minValF, maxValF, squeezed.first, squeezed.second, outType);
+  // Make sure that the squeezed range still satisfies minVal < maxVal
+  // e.g. [28392,28393] maps to [28400,28384] for half
+  if (squeezed.second < squeezed.first)
+    throw poputil::poplibs_error(
+        "logUniform: Range is too small for outType's"
+        " representability. Try widening the range for this output type.");
+  // Give a warning if squeezing loses more than 1% of the range
+  if (squeezed.second - squeezed.first < (maxVal - minVal) * 0.99)
+    logging::poprand::warn(
+        "logUniform: Reducing size of range by more than one"
+        " percent due to output type representability. Make sure your range is"
+        " appropriate for your output type.");
+
+  popops::mapInPlace(graph,
+                     pe::Clamp(pe::Exp(pe::_1),
+                               pe::Const(static_cast<float>(squeezed.first)),
+                               pe::Const(static_cast<float>(squeezed.second))),
+                     {x}, prog, fnPrefix);
+  return popops::cast(graph, x, outType, prog, fnPrefix);
 }
 
 Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,

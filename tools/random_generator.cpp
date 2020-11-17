@@ -4,28 +4,30 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <random>
+#include <unordered_map>
+
+#include <boost/math/distributions/chi_squared.hpp>
+#include <boost/program_options.hpp>
+
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Engine.hpp>
 #include <poplar/IPUModel.hpp>
 #include <poplar/RandomSeed.hpp>
 #include <poplar/Target.hpp>
+#include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/Pass.hpp>
 #include <poplibs_test/Util.hpp>
 #include <poplibs_test/exceptions.hpp>
+#include <popops/ElementWise.hpp>
+#include <popops/codelets.hpp>
 #include <poprand/RandomGen.hpp>
 #include <poprand/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
-
-#include "poputil/VertexTemplates.hpp"
-#include <boost/program_options.hpp>
-#include <iostream>
-#include <memory>
-#include <popops/ElementWise.hpp>
-#include <random>
-
-#include <poplibs_support/Compiler.hpp>
-#include <poplibs_test/Pass.hpp>
+#include <poputil/VertexTemplates.hpp>
 
 #define FLOAT_REL_TOL 1e-5
 #define HALF_REL_TOL 1e-3
@@ -138,6 +140,79 @@ static bool validateUniform(const std::vector<T> &mat, unsigned int inSize,
   auto failed = !(boundsMet && meanTest && stdDevTest);
   if (failed) {
     std::cerr << "Validation of Uniform failed\n";
+  }
+  return failed;
+}
+
+template <typename T>
+static bool validateLogUniform(const std::vector<T> &mat, unsigned int inSize,
+                               double minVal, double maxVal,
+                               double rejectionThreshold, double base,
+                               double percentError) {
+  double logMinVal = std::log(minVal);
+  double logMaxVal = std::log(maxVal);
+
+  // If we're using integers, do a chi-squared test on the integer bins
+  if (std::is_same<T, int>::value) {
+    // Get frequencies of samples
+    std::unordered_map<int, unsigned int> counter;
+    for (const auto &sample : mat) {
+      if (counter.find(sample) == counter.end()) {
+        counter[sample] = 1;
+      } else {
+        counter[sample]++;
+      }
+    }
+
+    // Calculate chi_squared critical value with expected function
+    double critVal = 0.0;
+    double logRange = logMaxVal - logMinVal;
+    for (const auto &count : counter) {
+      T bin = count.first;
+      unsigned int freq = count.second;
+      double expected = inSize * (std::log((bin + 1.0) / bin) / logRange);
+      critVal += std::pow(freq - expected, 2) / expected;
+    }
+
+    // Find p value with chi squared cdf
+    boost::math::chi_squared chi_dist(maxVal - minVal - 1);
+    double p = boost::math::cdf(chi_dist, critVal);
+    // The null hypothesis is that the samples come from a log-uniform dist.
+    // We reject this null hypothesis if the p value is > some number
+    bool failed = p > (1.0 - rejectionThreshold);
+    if (failed) {
+      std::cerr << "Log Uniform did not pass chi-squared distribution test\n";
+      return failed;
+    }
+  }
+
+  // Helper to handle non-default bases
+  double tolerance = 1e-7;
+  float lnBase = std::log(base);
+  bool useNaturalLog = std::abs(1.0 - lnBase) < tolerance;
+  auto adjustForBase = [&useNaturalLog, &lnBase](double x) {
+    return useNaturalLog ? x : (x / lnBase);
+  };
+
+  // Check the log of the matrix is uniformly distributed
+  // Note: important to do this calculation in double so logMat doesn't go OOB
+  // on [logMinVal, logMaxVal] since the bounds were calculated in double.
+  std::vector<double> logMat;
+  for (const T item : mat) {
+    double logItem = adjustForBase(std::log(static_cast<double>(item)));
+    logMat.push_back(logItem);
+  }
+  // Note: Here we try to reverse the exponential in the logUniform call to
+  // recover the original uniform distribution in [log(minVal), log(maxVal)] and
+  // check its validity. However, the reversal is not perfect -
+  // x ~= log(cast(exp(x))) will be biased toward outType representable values
+  // in log-space, particularly for integers. Therefore we need a slightly
+  // higher tolerance.
+  bool failed = validateUniform(logMat, inSize, adjustForBase(logMinVal),
+                                adjustForBase(logMaxVal), percentError);
+  if (failed) {
+    std::cerr << "Expected log of Log Uniform distribution to be uniformly"
+              << " distributed, but it was not\n";
   }
   return failed;
 }
@@ -301,6 +376,8 @@ enum class TestType {
   BernoulliInt,
   Uniform,
   UniformInt,
+  LogUniform,
+  LogUniformInt,
   Normal,
   TruncatedNormal,
   Dropout
@@ -319,6 +396,10 @@ static TestType getTestType(const std::string &testType) {
     return TestType::Uniform;
   } else if (testType == "UniformInt") {
     return TestType::UniformInt;
+  } else if (testType == "LogUniform") {
+    return TestType::LogUniform;
+  } else if (testType == "LogUniformInt") {
+    return TestType::LogUniformInt;
   } else if (testType == "Normal") {
     return TestType::Normal;
   } else if (testType == "TruncatedNormal") {
@@ -342,6 +423,7 @@ int main(int argc, char **argv) {
   float alpha;
   float prob;
   float percentError;
+  float rejectionThreshold;
   bool deviceHalf;
   bool fpChecking;
   unsigned inSize;
@@ -351,6 +433,7 @@ int main(int argc, char **argv) {
   unsigned seed;
   unsigned seedModifier;
   unsigned numLoops;
+  double base;
 
   po::options_description desc("Options");
   // clang-format off
@@ -388,10 +471,16 @@ int main(int argc, char **argv) {
     ("rand-test",
      po::value<std::string>(&randTest)->default_value("None"),
      "Random Test: Uniform | UniformInt | Bernoulli| BernoulliInt | Normal "
-     "| TruncatedNormal | Dropout | SetSeeds | SetHwSeeds")
+     "| TruncatedNormal | Dropout | SetSeeds | SetHwSeeds | LogUniformInt")
     ("in-size",
      po::value<unsigned>(&inSize)->default_value(12),
      "Vector size")
+    ("rejection-threshold",
+     po::value<float>(&rejectionThreshold)->default_value(false),
+     "Chi squared p value threshold used for log uniform tests")
+    ("base",
+     po::value<double>(&base)->default_value(M_E),
+     "Base of logarithm for log uniform tests")
     ("fp-checking",
      po::value(&fpChecking)->default_value(true),
      "Enable hardware floating-point checks"
@@ -435,6 +524,7 @@ int main(int argc, char **argv) {
   const auto &target = dev.getTarget();
   Graph graph(target);
   poprand::addCodelets(graph);
+  popops::addCodelets(graph);
 
   auto randProg = Sequence();
   auto checkSeedSeq = Sequence();
@@ -445,7 +535,7 @@ int main(int argc, char **argv) {
   hSeed[0] = seed;
   hSeed[1] = ~seed;
 
-  Type dType = (randTest == "UniformInt")
+  Type dType = (randTest == "UniformInt" || randTest == "LogUniformInt")
                    ? poplar::INT
                    : (deviceHalf ? poplar::HALF : poplar::FLOAT);
 
@@ -544,16 +634,20 @@ int main(int argc, char **argv) {
       if (dType == poplar::INT) {
         return validateUniform(intRandOut, inSize, minVal, maxVal,
                                percentError);
-      } else {
-        return validateUniform(flpRandOut, inSize, minVal, maxVal,
-                               percentError);
       }
+      return validateUniform(flpRandOut, inSize, minVal, maxVal, percentError);
+    } else if ((randTest == "LogUniform") || (randTest == "LogUniformInt")) {
+      if (dType == poplar::INT) {
+        return validateLogUniform<int>(intRandOut, inSize, minVal, maxVal,
+                                       rejectionThreshold, base, percentError);
+      }
+      return validateLogUniform<float>(flpRandOut, inSize, minVal, maxVal,
+                                       rejectionThreshold, base, percentError);
     } else if ((randTest == "Bernoulli") or (randTest == "BernoulliInt")) {
       if (dType == poplar::INT) {
         return validateBernoulli<int>(intRandOut, inSize, prob, percentError);
-      } else {
-        return validateBernoulli<float>(flpRandOut, inSize, prob, percentError);
       }
+      return validateBernoulli<float>(flpRandOut, inSize, prob, percentError);
     } else if (randTest == "Dropout") {
       return validateDropout<float>(flpRandOut, inSize, prob,
                                     deviceHalf ? HALF_REL_TOL : FLOAT_REL_TOL,
@@ -660,6 +754,10 @@ int main(int argc, char **argv) {
                testType == TestType::UniformInt) {
       out = poprand::uniform(graph, seedToUseInTest, seedModifier, reference,
                              dType, minVal, maxVal, randProg);
+    } else if (testType == TestType::LogUniformInt ||
+               testType == TestType::LogUniform) {
+      out = poprand::logUniform(graph, seedToUseInTest, seedModifier, reference,
+                                dType, minVal, maxVal, randProg, base);
     } else if (testType == TestType::Bernoulli ||
                testType == TestType::BernoulliInt) {
       out = poprand::bernoulli(graph, seedToUseInTest, seedModifier, reference,
@@ -674,6 +772,11 @@ int main(int argc, char **argv) {
     graph.createHostRead("seedsReadAfter", seedsReadAfter);
 
     Engine engine(graph, randProg);
+
+    // We can't check pre and post seeds for LogUniform since it involves a
+    // cast which changes the RNG state.
+    bool checkSeed =
+        testType != TestType::LogUniformInt && testType != TestType::LogUniform;
 
     dev.bind([&](const Device &d) {
       engine.load(d);
@@ -696,20 +799,23 @@ int main(int argc, char **argv) {
         engine.readTensor("seedsReadAfter", hostSeedsReadAfter.data(),
                           hostSeedsReadAfter.data() +
                               hostSeedsReadAfter.size());
-        if (seedToUseInTest) {
-          if (!std::equal(hostSeedsReadBefore.begin(),
-                          hostSeedsReadBefore.end(),
-                          hostSeedsReadAfter.begin())) {
-            std::cerr << " hw seeds read before and after do not match \n";
-            std::exit(1);
-          }
-        } else if (deviceType != DeviceType::Cpu && !isIpuModel(deviceType)) {
-          if (std::equal(hostSeedsReadBefore.begin(), hostSeedsReadBefore.end(),
-                         hostSeedsReadAfter.begin())) {
-            // there is always some work done and hw seeds should change
-            std::cerr << "hw seeds read before and after match when they "
-                         "should not\n";
-            std::exit(1);
+        if (checkSeed) {
+          if (seedToUseInTest) {
+            if (!std::equal(hostSeedsReadBefore.begin(),
+                            hostSeedsReadBefore.end(),
+                            hostSeedsReadAfter.begin())) {
+              std::cerr << " hw seeds read before and after do not match \n";
+              std::exit(1);
+            }
+          } else if (deviceType != DeviceType::Cpu && !isIpuModel(deviceType)) {
+            if (std::equal(hostSeedsReadBefore.begin(),
+                           hostSeedsReadBefore.end(),
+                           hostSeedsReadAfter.begin())) {
+              // there is always some work done and hw seeds should change
+              std::cerr << "hw seeds read before and after match when they "
+                           "should not\n";
+              std::exit(1);
+            }
           }
         }
         auto invalid = validate();

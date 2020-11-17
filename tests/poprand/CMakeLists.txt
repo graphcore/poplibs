@@ -69,6 +69,100 @@ add_multitarget_test(
                  VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
 
 add_multitarget_test(
+         NAME random_gen_log_uniform_int
+         COMMAND random_generator
+                 --rand-test=LogUniformInt
+                 --min-val=1.0
+                 --max-val=500.0
+                 --rejection-threshold 0.015
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=20001
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 --percent-error=10.0
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+add_multitarget_test(
+         NAME random_gen_log_uniform_int_base_2
+         COMMAND random_generator
+                 --rand-test=LogUniformInt
+                 --min-val=1.0
+                 --max-val=500.0
+                 --rejection-threshold 0.015
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=20001
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 --percent-error=10.0
+                 --base 2
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+
+add_multitarget_test(
+         NAME random_gen_log_uniform_int_offset
+         COMMAND random_generator
+                 --rand-test=LogUniformInt
+                 --min-val=200.0
+                 --max-val=700.0
+                 --rejection-threshold 0.015
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=20001
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 --percent-error=10.0
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+add_multitarget_test(
+         NAME random_gen_log_uniform_int_base_2_offset
+         COMMAND random_generator
+                 --rand-test=LogUniformInt
+                 --min-val=200.0
+                 --max-val=700.0
+                 --rejection-threshold 0.015
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=20001
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 --percent-error=10.0
+                 --base 2
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+add_multitarget_test(
+         NAME random_gen_log_uniform_float
+         COMMAND random_generator
+                 --rand-test=LogUniform
+                 --min-val=1.0
+                 --max-val=500.0
+                 --rejection-threshold 0.015
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=20001
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 --percent-error=5.0
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+add_multitarget_test(
+         NAME random_gen_log_uniform_half
+         COMMAND random_generator
+                 --rand-test=LogUniform
+                 --min-val=2048.0
+                 --max-val=4098.0
+                 --half-data-type=true
+                 --rejection-threshold 0.015
+                 --seed=4538342
+                 --seed-modifier=1243547
+                 --in-size=20001
+                 --fp-checking=true
+                 --tiles-per-ipu=1
+                 --percent-error=5.0
+                 VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS};Hw)
+
+add_multitarget_test(
          NAME random_gen_bernoulli_half
          COMMAND random_generator
                  --rand-test=Bernoulli

@@ -5,6 +5,7 @@
 
 #include "poputil/exceptions.hpp"
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
@@ -113,12 +114,60 @@ poplar::Tensor shapedDropout(poplar::Graph &graph, const poplar::Tensor *seed,
  *  \returns A tensor with elements having a uniform distribution of random
  *           values.
  */
-
 poplar::Tensor uniform(poplar::Graph &graph, const poplar::Tensor *seed,
                        uint32_t seedModifier, const poplar::Tensor &reference,
                        const poplar::Type &outType, double minVal,
                        double maxVal, poplar::program::Sequence &prog,
                        const poplar::DebugContext &debugContext = {});
+
+/** Log-uniform distribution over a closed interval [\p minVal, \p maxVal]
+ *
+ *  Generates random data log-uniformly distributed in the closed interval
+ *  [\p minVal, \p maxVal]. The output may be of type \c float, \c half or
+ *  \c int. The base of the log can be specified, but defaults to the natural
+ *  base.
+ *
+ *  The actual interval of the samples depends on the representable values of
+ *  the \p outType and is a subset of the initial interval; the interval will be
+ *  squeezed inward to the next representable values of \p outType. For example,
+ *  for \c half, the interval [2049.0, 4098.0] would be squeezed to
+ *  [2050.0, 4096.0].
+ *  Depending on the interval's representability, this may cause spikes in the
+ *  distribution at the boundaries - careful choice of interval is suggested.
+ *
+ *  \param graph            The graph to add this operation to.
+ *  \param seed             If not null, this is a pair of 32-bit integers used
+ *                          to seed the random number generator that generates
+ *                          the distribution.
+ *  \param seedModifier     Provides a further modification of the seed value.
+ *                          Ignored if \p seed is null.
+ *  \param reference        A tensor that specifies the layout of the output
+ *                          tensor.
+ *  \param outType          Type of the output tensor. One of \c float, \c half
+ *                          or \c int.
+ *  \param minVal           The minimum value of the distribution.
+ *  \param maxVal           The maximum value of the distribution.
+ *  \param prog             The program to add this operation to.
+ *  \param base             Optional base of the log / exponent of the
+ *                          underlying uniform distribution. Defaults to Euler's
+ *                          number (natural base).
+ *  \param debugContext     Optional debug information.
+ *
+ *  \returns A tensor the same size as \p reference with elements having a
+ *           log-uniform distribution of random values of type \p outType.
+ *
+ *  \throw poputil::poplibs_error If \p minVal < 1
+ *  \throw poputil::poplibs_error If \p maxVal <= \p minVal
+ *  \throw poputil::poplibs_error If \p minVal and \p maxVal are not suitable
+ *         for the \p outType (for example the range is too narrow)
+ */
+poplar::Tensor logUniform(poplar::Graph &graph, const poplar::Tensor *seed,
+                          uint32_t seedModifier,
+                          const poplar::Tensor &reference,
+                          const poplar::Type &outType, double minVal,
+                          double maxVal, poplar::program::Sequence &prog,
+                          double base = M_E,
+                          const poplar::DebugContext &debugContext = {});
 
 /** Bernoulli distribution which has the value 1 with the specified probability.
  *
