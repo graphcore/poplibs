@@ -531,7 +531,7 @@ Tensor regroupTensor(Graph &graph, const Tensor &t, std::vector<Copy> &copies,
     }
   }
 
-  copies.emplace_back(grouped, preRegroup);
+  copies.emplace_back(grouped, preRegroup, false, di);
 
   // Finally, transpose
   auto partiallyTransposed =

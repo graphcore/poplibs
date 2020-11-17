@@ -342,7 +342,7 @@ poplar::Tensor rnnFwdSequence(
   popops::zero(graph, seqIdx, prog, {di, "seqIdx"});
 
   // state for current layer, start from initialiser
-  Tensor thisState = poputil::duplicate(graph, fwdStateInit, prog);
+  Tensor thisState = poputil::duplicate(graph, fwdStateInit, prog, {di});
 
   // core rnn loop
   auto loop = Sequence({}, {di});

@@ -176,25 +176,47 @@ normStatistics(Graph &graph, const Tensor &acts, float eps, Sequence &prog,
   return std::make_pair(mean, iStdDev);
 }
 
-Tensor createNormGamma(Graph &graph, const Tensor &acts, const Type &type) {
-  return createBroadcastOperand(graph, acts, type, 1, true, "gamma");
+Tensor createNormGamma(Graph &graph, const Tensor &acts, const Type &type,
+                       const poplar::DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, type));
+  auto output =
+      createBroadcastOperand(graph, acts, type, 1, true, {di, "gamma"});
+  di.addOutput(output);
+  return output;
 }
 
-Tensor createNormGamma(Graph &graph, const Tensor &acts) {
-  return createNormGamma(graph, acts, acts.elementType());
+Tensor createNormGamma(Graph &graph, const Tensor &acts,
+                       const poplar::DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
+  auto output = createNormGamma(graph, acts, acts.elementType(), {di});
+  di.addOutput(output);
+  return output;
 }
 
-Tensor createNormBeta(Graph &graph, const Tensor &acts, const Type &type) {
-  return createBroadcastOperand(graph, acts, type, 1, true, "beta");
+Tensor createNormBeta(Graph &graph, const Tensor &acts, const Type &type,
+                      const poplar::DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts, type));
+  auto output =
+      createBroadcastOperand(graph, acts, type, 1, true, {di, "beta"});
+  di.addOutput(output);
+  return output;
 }
 
-Tensor createNormBeta(Graph &graph, const Tensor &acts) {
-  return createNormBeta(graph, acts, acts.elementType());
+Tensor createNormBeta(Graph &graph, const Tensor &acts,
+                      const poplar::DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
+  auto output = createNormBeta(graph, acts, acts.elementType(), {di});
+  di.addOutput(output);
+  return output;
 }
 
-std::pair<Tensor, Tensor> createNormParams(Graph &graph, const Tensor &acts) {
-  auto gamma = createNormGamma(graph, acts);
-  auto beta = createNormBeta(graph, acts);
+std::pair<Tensor, Tensor>
+createNormParams(Graph &graph, const Tensor &acts,
+                 const poplar::DebugContext &debugContext) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts));
+  auto gamma = createNormGamma(graph, acts, {di});
+  auto beta = createNormBeta(graph, acts, {di});
+  di.addOutputs(DI_ARGS(gamma, beta));
   return std::make_pair(gamma, beta);
 }
 

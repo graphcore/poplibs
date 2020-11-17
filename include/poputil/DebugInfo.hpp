@@ -35,6 +35,7 @@ template <typename T> poplar::ProfileValue toProfileValue(const T &t);
 template <> poplar::ProfileValue toProfileValue(const int &v);
 template <> poplar::ProfileValue toProfileValue(const unsigned int &v);
 template <> poplar::ProfileValue toProfileValue(const unsigned long &v);
+template <> poplar::ProfileValue toProfileValue(const unsigned char &v);
 template <> poplar::ProfileValue toProfileValue(const bool &v);
 template <> poplar::ProfileValue toProfileValue(const float &v);
 template <> poplar::ProfileValue toProfileValue(const double &v);
@@ -44,6 +45,8 @@ template <> poplar::ProfileValue toProfileValue(const std::string &v);
 template <> poplar::ProfileValue toProfileValue(const poplar::ComputeSet &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::OptionFlags &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::program::Copy &t);
+template <>
+poplar::ProfileValue toProfileValue(const poplar::program::Sequence &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Tensor &t);
 template <> poplar::ProfileValue toProfileValue(const poplar::Type &t);
 template <>

@@ -885,7 +885,8 @@ void tilePartitions(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
 void createPoolingVertex(Graph &graph, const PoolParams &poolParams,
                          const poplar::Tensor &prevAct,
                          const poplar::Tensor &nextAct,
-                         poplar::program::Sequence &prog) {
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugNameAndId &dnai) {
 
   auto convParams = makeConvParams(poolParams);
   std::vector<ComputeSet> cs;
@@ -898,7 +899,7 @@ void createPoolingVertex(Graph &graph, const PoolParams &poolParams,
   generateVertices(graph, {poolParams.poolingType, PoolPass::POOL_FWD, false},
                    prevAct, nextAct, nullptr, nullptr, convParams, cs, 0, slice,
                    "TestPoolingVertex");
-  prog.add(Execute(cs[0]));
+  prog.add(Execute(cs[0], {dnai}));
 }
 
 // Cycle estimator call for use by the planner

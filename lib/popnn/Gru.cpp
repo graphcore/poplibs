@@ -480,7 +480,7 @@ static void gruCellForwardPassCalcUnits(
   {
     auto out = rearrangeUnitsOutputFwd(graph, numUnit, unitsOutput,
                                        unitsOutputRearranged, prog, {dnai});
-    prog.add(Copy(out, unitsOutputRearranged));
+    prog.add(Copy(out, unitsOutputRearranged, false, {dnai}));
   }
 
   for (unsigned u = 0; u != numUnit; ++u) {
@@ -564,7 +564,7 @@ static void gruCellForwardPassCalcUnitsResetAfter(
         graph, BASIC_GRU_CELL_NUM_UNITS, unitsOutputAll,
         unitsOutputRearranged.broadcast(2, 0), prog, {dnai});
     auto len = unitsOutputRearranged.dim(2);
-    prog.add(Copy(out.slice(0, len, 2), unitsOutputRearranged));
+    prog.add(Copy(out.slice(0, len, 2), unitsOutputRearranged, false, {dnai}));
     recurrentUnitsOutputRearranged = out.slice(len, len * 2, 2);
   }
 
@@ -595,10 +595,10 @@ static void gruCellForwardPassCalcUnitsResetAfter(
   }
 
   if (candidateRecurrant) {
-    *candidateRecurrant =
-        graph.clone(recurrentUnitsOutputRearranged[BASIC_GRU_CELL_CANDIDATE]);
+    *candidateRecurrant = graph.clone(
+        recurrentUnitsOutputRearranged[BASIC_GRU_CELL_CANDIDATE], {dnai});
     prog.add(Copy(recurrentUnitsOutputRearranged[BASIC_GRU_CELL_CANDIDATE],
-                  *candidateRecurrant));
+                  *candidateRecurrant, false, {dnai}));
   }
 
   // Add recurrent component for Reset/Update
@@ -678,7 +678,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
     candidate = unitsOutput[BASIC_GRU_CELL_CANDIDATE];
   } else {
     resetGateOut = graph.clone(resetGate, {dnai, "resetGateOut"});
-    prog.add(Copy(resetGate, resetGateOut));
+    prog.add(Copy(resetGate, resetGateOut, false, {dnai}));
 
     const Tensor weightsInput3 = weightsInput->slice(2, 3);
     const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
@@ -771,11 +771,12 @@ static void basicGruCellForwardPassInPlace(
   } else {
     const Tensor weightsInput3 = weightsInput->slice(2, 3);
     const Tensor weightsOutput3 = weightsOutput.slice(2, 3);
-    mulInPlace(graph, resetGate, output, prog, baseStr + "resetGate * output");
+    mulInPlace(graph, resetGate, output, prog,
+               {dnai, baseStr + "resetGate * output"});
     Tensor candidateExpand = candidate.expand({0});
     gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
                                 &weightsInput3, weightsOutput3, prog, opt,
-                                candidateExpand, baseStr, cache);
+                                candidateExpand, {dnai, baseStr}, cache);
     candidate = candidateExpand[0];
   }
 
@@ -817,7 +818,7 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
   // make a copy of the activations so that they are sliced efficiently
   auto prevLayerActsCopy =
       createInput(graph, params, {dnai, "prevLayerActsCopy"}, options, cache);
-  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy));
+  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy, false, {dnai}));
 
   Tensor mask;
   Tensor seqLen;
@@ -1208,11 +1209,11 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     matmul::PlanningCache *cache, bool outputFullSequence) {
   const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
-  Tensor d_h = graph.clone(outputGrad);
+  Tensor d_h = graph.clone(outputGrad, {dnai});
   debug_tensor(prog, "bwd outGrad", outputGrad);
   if (gradNextLayer)
     debug_tensor(prog, "bwd gradNextLayer", *gradNextLayer);
-  prog.add(Copy(outputGrad, d_h));
+  prog.add(Copy(outputGrad, d_h, false, {dnai}));
   if (gradNextLayer)
     d_h = popops::add(graph, d_h, *gradNextLayer, prog,
                       {dnai, fPrefix + "/AddActGrads"});
@@ -1237,7 +1238,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
       graph.addVariable(outputGrad.elementType(), outputGrad.shape(),
                         {dnai, fPrefix + "/var_one_matrix"});
   graph.setTileMapping(var_one_matrix, graph.getTileMapping(u));
-  prog.add(Copy(one_matrix, var_one_matrix));
+  prog.add(Copy(one_matrix, var_one_matrix, false, {dnai}));
 
   debug_tensor(prog, "bwd d_h", d_h);
   debug_tensor(prog, "bwd r", r);
@@ -1611,8 +1612,8 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   Tensor start = graph.addConstant(UNSIGNED_INT, {1}, seqSize, {dnai, "start"});
   graph.setTileMapping(start, 0);
 
-  prog.add(Copy(start, seqIdx));
-  subInPlace(graph, seqIdx, one, prog);
+  prog.add(Copy(start, seqIdx, false, {dnai}));
+  subInPlace(graph, seqIdx, one, prog, {dnai});
 
   auto lastOutGrad = createOutputTensor(graph, params, 1, {dnai, "outGrad"})[0];
 
@@ -1620,7 +1621,7 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   if (params.outputFullSequence) {
     gradLayerNextRearranged = createOutputTensor(
         graph, params, seqSize, {dnai, "gradLayerNextRearranged"});
-    prog.add(Copy(gradLayerNext, gradLayerNextRearranged));
+    prog.add(Copy(gradLayerNext, gradLayerNextRearranged, false, {dnai}));
     zero(graph, lastOutGrad, prog, {dnai, "initLastOutGrad"});
   } else {
     prog.add(Copy(gradLayerNext, lastOutGrad, false, {dnai}));

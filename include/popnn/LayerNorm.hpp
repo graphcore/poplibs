@@ -3,6 +3,7 @@
 #ifndef popnn_LayerNorm_hpp
 #define popnn_LayerNorm_hpp
 #include "popnn/GroupNorm.hpp"
+#include "poputil/DebugInfo.hpp"
 
 // Layer norm uses group norm with number of groups = 1
 
@@ -23,9 +24,17 @@ layerNormStatistics(poplar::Graph &graph, const poplar::Tensor acts, float eps,
                     const poplar::Type &partialsType = poplar::FLOAT,
                     const poplar::DebugContext &debugContext = {},
                     const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormStatistics(
-      graph, acts, eps, prog, 1, unbiasedVarEstimate, stableAlgo, partialsType,
-      debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(acts, eps, unbiasedVarEstimate,
+                                         stableAlgo, partialsType, options));
+
+  auto outputs = popnn::gn::groupNormStatistics(graph, acts, eps, prog, 1,
+                                                unbiasedVarEstimate, stableAlgo,
+                                                partialsType, {di}, options);
+
+  di.addOutputs({{"mean", poputil::toProfileValue(outputs.first)},
+                 {"iStdDev", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Whiten activations given mean and standard deviation.
@@ -35,8 +44,13 @@ layerNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                 poplar::program::Sequence &prog,
                 const poplar::DebugContext &debugContext = {},
                 const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormWhiten(graph, acts, mean, invStdDev, prog,
-                                    debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(acts, mean, invStdDev, options));
+
+  auto output = popnn::gn::groupNormWhiten(graph, acts, mean, invStdDev, prog,
+                                           {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /// Layer normalise activations given mean, standard deviation and norm
@@ -52,8 +66,15 @@ layerNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                poplar::program::Sequence &prog,
                const poplar::DebugContext &debugContext = {},
                const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev,
-                                   prog, debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(acts, gamma, beta, mean, invStdDev, options));
+
+  auto outputs = popnn::gn::groupNormalise(graph, acts, gamma, beta, mean,
+                                           invStdDev, prog, {di}, options);
+
+  di.addOutputs({{"normActs", poputil::toProfileValue(outputs.first)},
+                 {"whitenedActs", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -64,9 +85,17 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormParamGradients(
-      graph, acts, gradsIn, mean, iStdDev, prog, partialsType,
-      debugContext.getPathName(), options);
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(acts, gradsIn, mean, iStdDev, partialsType, options));
+
+  auto outputs = popnn::gn::groupNormParamGradients(
+      graph, acts, gradsIn, mean, iStdDev, prog, partialsType, {di}, options);
+
+  di.addOutputs({{"meanGrad", poputil::toProfileValue(outputs.first)},
+                 {"iStdDevGrad", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -76,9 +105,15 @@ inline std::pair<poplar::Tensor, poplar::Tensor> layerNormParamGradients(
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormParamGradients(
-      graph, actsWhitened, gradsIn, prog, partialsType,
-      debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(actsWhitened, gradsIn, partialsType, options));
+
+  auto outputs = popnn::gn::groupNormParamGradients(
+      graph, actsWhitened, gradsIn, prog, partialsType, {di}, options);
+
+  di.addOutputs({{"meanGrad", poputil::toProfileValue(outputs.first)},
+                 {"iStdDevGrad", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Compute gradients w.r.t input activations for the layer norm layer.
@@ -92,9 +127,15 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormGradients(graph, acts, gradsIn, mean, invStdDev,
-                                       gamma, prog, partialsType,
-                                       debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(acts, gradsIn, mean, invStdDev, gamma, partialsType, options));
+
+  auto output =
+      popnn::gn::groupNormGradients(graph, acts, gradsIn, mean, invStdDev,
+                                    gamma, prog, partialsType, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /// Compute gradients w.r.t input activations for the layer norm layer.
@@ -108,9 +149,15 @@ layerNormGradients(poplar::Graph &graph, const poplar::Tensor &actsWhitened,
                    const poplar::Type &partialsType = poplar::FLOAT,
                    const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev,
-                                       gamma, prog, partialsType,
-                                       debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(actsWhitened, gradsIn, invStdDev, gamma, partialsType, options));
+
+  auto output =
+      popnn::gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev,
+                                    gamma, prog, partialsType, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /// Update layer norm parameters given the gradients w.r.t. parameters.
@@ -121,9 +168,12 @@ inline void layerNormParamUpdate(poplar::Graph &graph,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(gammaDelta, betaDelta, scale, gamma, beta, options));
+
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
-                                         gamma, beta, prog,
-                                         debugContext.getPathName(), options);
+                                         gamma, beta, prog, {di}, options);
 }
 
 inline void layerNormParamUpdate(poplar::Graph &graph,
@@ -134,9 +184,12 @@ inline void layerNormParamUpdate(poplar::Graph &graph,
                                  poplar::program::Sequence &prog,
                                  const poplar::DebugContext &debugContext = {},
                                  const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(gammaDelta, betaDelta, scale, gamma, beta, options));
+
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
-                                         gamma, beta, prog,
-                                         debugContext.getPathName(), options);
+                                         gamma, beta, prog, {di}, options);
 }
 } // namespace ln
 } // namespace popnn

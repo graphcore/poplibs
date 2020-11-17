@@ -632,10 +632,11 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
       prod.slice(forgetGate.dim(0), forgetGate.dim(0) + candidate.dim(0));
 
   addInPlace(graph, updatedCellState, updatedCandidate, prog,
-             baseStr + "/AddCellCand");
-  auto tanhOutput = popops::tanh(graph, updatedCellState, prog, baseStr);
+             {dnai, baseStr + "/AddCellCand"});
+  auto tanhOutput =
+      popops::tanh(graph, updatedCellState, prog, {dnai, baseStr});
   auto output =
-      mul(graph, tanhOutput, outputGate, prog, baseStr + "/OutputGate");
+      mul(graph, tanhOutput, outputGate, prog, {dnai, baseStr + "/OutputGate"});
   LstmState recurrentState = {output, updatedCellState};
   LstmInternalState internalState = {forgetGate, inputGate, candidate,
                                      outputGate, tanhOutput};
@@ -860,8 +861,8 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
             .reshapePartial(0, 1, {seqSize, numIntermediates});
     auto intermediatesRearranged = createOutputTensor(
         graph, params, numIntermediates, {di, "fwdIntermediatesRearranged"});
-    loop.add(Copy(intermediates, intermediatesRearranged));
-    fwdProg.add(WriteUndef(*intermediatesSeq));
+    loop.add(Copy(intermediates, intermediatesRearranged, false, {di}));
+    fwdProg.add(WriteUndef(*intermediatesSeq, {di}));
     popops::dynamicUpdate(graph, *intermediatesSeq,
                           intermediatesRearranged.expand({0}), seqIdx, {0}, {1},
                           loop, {di, "lstmUpdateIntermediates"});
@@ -1466,7 +1467,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
   // TODO: T12912 Last loop iteration is unrolled here to insert copy instead of
   // slice even when we don't need weightsGrad. It would be a minor optimisation
   // in this case to do the full loop in one.
-  prog.add(Repeat(seqSize - 1, loop));
+  prog.add(Repeat(seqSize - 1, loop, {dnai}));
   prog.add(bwdLoopBody);
   if (weightsGrad) {
     prog.add(Copy(fwdStateInit.output, prevStepOut, false, {dnai}));

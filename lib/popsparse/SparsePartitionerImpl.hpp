@@ -7,6 +7,7 @@
 
 #include "SparsePartitionerOptions.hpp"
 #include "SparseStorageInternal.hpp"
+#include "poplar/DebugContext.hpp"
 #include "poplar/Interval.hpp"
 #include "poplar/OptionFlags.hpp"
 #include "poplar/Target.hpp"
@@ -148,7 +149,7 @@ public:
   template <typename T>
   std::pair<std::vector<std::size_t>, std::vector<T>>
   bucketForForward(const PNBucket &pnBucket, const std::vector<T> &nzValues,
-                   const std::string &debugStr = "") const;
+                   const poplar::DebugNameAndId &dnai = {}) const;
 
   // Build real buckets as required by implementation for Forward and GradW
   // The first in the output pair is the metainformation buckets and the
@@ -156,13 +157,13 @@ public:
   template <typename T>
   std::pair<std::vector<std::vector<std::size_t>>, std::vector<std::vector<T>>>
   bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
-                    const std::string &debugStr = "") const;
+                    const poplar::DebugNameAndId &dnai = {}) const;
 
   // Build real metainformation bucket for a single PN bucket for a GradA pass
   template <typename T>
   std::vector<std::size_t>
   bucketForGradA(const PNBucket &pnBuckets, const std::vector<T> &nzValues,
-                 const std::string &debugStr = "") const;
+                 const poplar::DebugNameAndId &dnai = {}) const;
 
   // Build buckets as required by implementation GradA. The NZ values are the
   // same the forward and onlythe meta information containing the transposition
@@ -170,7 +171,7 @@ public:
   template <typename T>
   std::vector<std::vector<std::size_t>>
   bucketsForGradA(const PNBucketsImpl<T> &pnBucketsImpl,
-                  const std::string &debugStr = "") const;
+                  const poplar::DebugNameAndId &dnai = {}) const;
 
   // Creates a pair of flat bucket for metaInfo and NZ values
   // The metaInfo bucket contains the following and in that order
@@ -189,7 +190,7 @@ public:
   template <typename T>
   std::pair<std::vector<std::size_t>, std::vector<T>>
   bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
-                      const std::string &debugStr = "") const;
+                      const poplar::DebugNameAndId &dnai = {}) const;
 
   // Overflow information for Fwd. This gives the implementation specific
   // information on the max distance of overflow bucket. The information is

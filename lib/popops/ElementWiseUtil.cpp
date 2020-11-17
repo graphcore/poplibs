@@ -2,6 +2,7 @@
 #include "popops/ElementWiseUtil.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 
@@ -35,7 +36,9 @@ Tensor createOutputForElementWiseOp(Graph &graph,
                                     const std::vector<Tensor> &inputs,
                                     const Type &outputType,
                                     const poplar::DebugContext &debugContext) {
-  const auto debugName = debugContext.getPathName();
+
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(inputs, outputType));
+
   if (inputs.size() < 1) {
     throw poplibs_error("createOutputForElementWiseOp: Must provide at "
                         "least one input tensor as a reference but none "
@@ -44,7 +47,8 @@ Tensor createOutputForElementWiseOp(Graph &graph,
 
   for (std::size_t i = 1; i < inputs.size(); ++i) {
     if (inputs[i - 1].shape() != inputs[i].shape()) {
-      throw poplibs_error("createOutputForElementWiseOp '" + debugName +
+      throw poplibs_error("createOutputForElementWiseOp '" +
+                          debugContext.getPathName() +
                           "': "
                           "Shapes of input tensors do not match");
     }
@@ -114,15 +118,16 @@ Tensor createOutputForElementWiseOp(Graph &graph,
   // restrictions on grain size and no. of grains per-tile).
   Tensor output;
   if (best >= 0) {
-    output = graph.clone(outputType, inputs[best], debugName);
+    output = graph.clone(outputType, inputs[best], {di});
   } else {
     logging::popops::warn(
         "createOutputForElementWiseOp '{}' ({}): No suitable input "
         "found, creating new variable with linear tile mapping",
-        debugName, inputs[0].shape());
-    output = graph.addVariable(outputType, inputs[0].shape(), debugName);
+        debugContext, inputs[0].shape());
+    output = graph.addVariable(outputType, inputs[0].shape(), {di});
     poputil::mapTensorLinearly(graph, output);
   }
+  di.addOutput(output);
   return output;
 }
 

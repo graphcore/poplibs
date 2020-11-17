@@ -255,7 +255,8 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
       }
     }
     assert(count == needArrangeLHS.size());
-    prog.add(poplar::program::Copy(concat(needArrangeLHS), rearrangedLHS));
+    prog.add(poplar::program::Copy(concat(needArrangeLHS), rearrangedLHS, false,
+                                   {dnai}));
   }
 
   const std::vector<poplar::Tensor> rhsInBlocks = rhs.getBlockTensor();
@@ -358,7 +359,8 @@ void HyperGraph::preprocessBlocks(poplar::Graph &graph, const BlockMatrix &lhs,
         rhsBlocks[i] = rearrangedRHS[blockIdMap[i]];
       }
     }
-    prog.add(poplar::program::Copy(concat(needArrangeRHS), rearrangedRHS));
+    prog.add(poplar::program::Copy(concat(needArrangeRHS), rearrangedRHS, false,
+                                   {dnai}));
   }
 }
 

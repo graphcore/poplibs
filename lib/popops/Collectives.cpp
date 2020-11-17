@@ -322,7 +322,8 @@ static void checkTensorIpuMappings(const Graph &graph, const Tensor &toReduce) {
 }
 
 static poplar::Tensor cloneToRank(poplar::Graph &graph, const poplar::Tensor &t,
-                                  unsigned dstRank, unsigned numRanks) {
+                                  unsigned dstRank, unsigned numRanks,
+                                  const poplar::DebugNameAndId &dnai) {
   auto mapping = graph.getTileMapping(t);
   const auto &target = graph.getTarget();
   const auto tilesPerIPU = target.getTilesPerIPU();
@@ -350,7 +351,7 @@ static poplar::Tensor cloneToRank(poplar::Graph &graph, const poplar::Tensor &t,
       oldTileIntervals.clear();
     }
   }
-  auto tLocal = graph.clone(t);
+  auto tLocal = graph.clone(t, {dnai});
   graph.setTileMapping(tLocal, mapping);
   return tLocal;
 }
@@ -435,7 +436,8 @@ static void ringReduceScatterStep(
     Graph &graph, const std::vector<std::vector<Tensor>> &fragments,
     const std::vector<unsigned> &ring, unsigned step, std::vector<Tensor> &data,
     std::vector<Tensor> &copySrcs, std::vector<Tensor> &copyDsts,
-    std::vector<Tensor> &addOp0, std::vector<Tensor> &addOp1, bool clockwise) {
+    std::vector<Tensor> &addOp0, std::vector<Tensor> &addOp1, bool clockwise,
+    const DebugNameAndId &dnai) {
   const auto numFragments = fragments.size();
   const auto numSteps = numFragments - 1;
   assert(step < numSteps);
@@ -470,7 +472,7 @@ static void ringReduceScatterStep(
     auto recvRank = ring[recvIndex];
     auto copySrc =
         step == 0 ? fragments[recvRank][fragmentNum] : data[recvIndex];
-    auto copyDst = cloneToRank(graph, copySrc, rank, ring.size());
+    auto copyDst = cloneToRank(graph, copySrc, rank, ring.size(), {dnai});
     copySrcs.push_back(copySrc);
     copyDsts.push_back(copyDst);
     addOp0.push_back(copyDst);
@@ -485,7 +487,8 @@ static void meetInMiddleReduceScatterStep(
     const std::vector<unsigned> &ring, unsigned step,
     std::vector<Tensor> &clockwiseData, std::vector<Tensor> &anticlockwiseData,
     std::vector<Tensor> &copySrcs, std::vector<Tensor> &copyDsts,
-    std::vector<Tensor> &addOp0, std::vector<Tensor> &addOp1) {
+    std::vector<Tensor> &addOp0, std::vector<Tensor> &addOp1,
+    const DebugNameAndId &dnai) {
   // The slice that ends up on a single IPU is calculated as follows:
   // In the first step:
   // - The IPU (numIpus - 1) / 2 hops in the anticlockwise direction sends
@@ -539,7 +542,7 @@ static void meetInMiddleReduceScatterStep(
       auto recvRank = ring[recvIndex];
       auto copySrc =
           step == 0 ? fragments[recvRank][fragmentNum] : data[recvIndex];
-      auto copyDst = cloneToRank(graph, copySrc, rank, ring.size());
+      auto copyDst = cloneToRank(graph, copySrc, rank, ring.size(), {dnai});
       copySrcs.push_back(copySrc);
       copyDsts.push_back(copyDst);
       addOp0.push_back(copyDst);
@@ -586,7 +589,7 @@ static Chunks unidirectionalRingReduceScatter(Graph &graph,
     std::vector<Tensor> addOp0;
     std::vector<Tensor> addOp1;
     ringReduceScatterStep(graph, fragments, ring, step, data, copySrcs,
-                          copyDsts, addOp0, addOp1, clockwise);
+                          copyDsts, addOp0, addOp1, clockwise, {dnai});
     prog.add(Copy(concat(copySrcs), concat(copyDsts), false, {dnai}));
     opInPlace(graph, op, concat(addOp0), concat(addOp1), prog,
               {dnai, std::string("Step") + std::to_string(step)});
@@ -627,7 +630,7 @@ static Chunks ringMeetInMiddleReduceScatter(Graph &graph,
     std::vector<Tensor> addOp1;
     meetInMiddleReduceScatterStep(graph, fragments, ring, step, clockwiseData,
                                   anticlockwiseData, copySrcs, copyDsts, addOp0,
-                                  addOp1);
+                                  addOp1, {dnai});
     prog.add(Copy(concat(copySrcs), concat(copyDsts), false, {dnai}));
     opInPlace(graph, op, concat(addOp0), concat(addOp1), prog,
               {dnai, std::string("Step") + std::to_string(step)});
@@ -675,10 +678,10 @@ static Chunks bidirectionalRingPairReduceScatter(Graph &graph,
     std::vector<Tensor> addOp0;
     std::vector<Tensor> addOp1;
     ringReduceScatterStep(graph, clockwiseFragments, ring, step, clockwiseData,
-                          copySrcs, copyDsts, addOp0, addOp1, true);
+                          copySrcs, copyDsts, addOp0, addOp1, true, {dnai});
     ringReduceScatterStep(graph, anticlockwiseFragments, ring, step,
                           anticlockwiseData, copySrcs, copyDsts, addOp0, addOp1,
-                          false);
+                          false, {dnai});
     prog.add(Copy(concat(copySrcs), concat(copyDsts), false, {dnai}));
     opInPlace(graph, op, concat(addOp0), concat(addOp1), prog,
               {dnai, std::string("Step") + std::to_string(step)});
@@ -763,7 +766,8 @@ static void ringAllGatherStep(Graph &graph, const std::vector<Chunk> &toGather,
                               std::vector<Chunk> &data,
                               std::vector<std::vector<Tensor>> &resultChunks,
                               std::vector<Tensor> &copySrcs,
-                              std::vector<Tensor> &copyDsts, bool clockwise) {
+                              std::vector<Tensor> &copyDsts, bool clockwise,
+                              const DebugNameAndId &dnai) {
   const auto numChunksToGather = toGather.size();
   std::vector<Chunk> nextData(numChunksToGather);
   for (unsigned i = 0; i != numChunksToGather; ++i) {
@@ -775,7 +779,8 @@ static void ringAllGatherStep(Graph &graph, const std::vector<Chunk> &toGather,
       recvIndex = (i + 1) % numChunksToGather;
     }
     auto &copySrc = step == 0 ? toGather[ring[recvIndex]] : data[recvIndex];
-    auto copyDst = cloneToRank(graph, copySrc.tensor, rank, ring.size());
+    auto copyDst =
+        cloneToRank(graph, copySrc.tensor, rank, ring.size(), {dnai});
     copySrcs.push_back(copySrc.tensor);
     copyDsts.push_back(copyDst);
     nextData[i] = {copyDst, copySrc.index, ~0U};
@@ -789,7 +794,8 @@ static void ringMeetInMiddleAllGatherStep(
     const std::vector<unsigned> &ring, unsigned step,
     std::vector<Chunk> &clockwiseData, std::vector<Chunk> &anticlockwiseData,
     std::vector<std::vector<Tensor>> &resultChunks,
-    std::vector<Tensor> &copySrcs, std::vector<Tensor> &copyDsts) {
+    std::vector<Tensor> &copySrcs, std::vector<Tensor> &copyDsts,
+    const DebugNameAndId &dnai) {
   const auto numChunksToGather = toGather.size();
   const auto numSteps = numChunksToGather / 2;
   assert(step < numSteps);
@@ -808,7 +814,8 @@ static void ringMeetInMiddleAllGatherStep(
       }
       auto &data = clockwise ? clockwiseData : anticlockwiseData;
       auto &copySrc = step == 0 ? toGather[ring[recvIndex]] : data[recvIndex];
-      auto copyDst = cloneToRank(graph, copySrc.tensor, rank, ring.size());
+      auto copyDst =
+          cloneToRank(graph, copySrc.tensor, rank, ring.size(), {dnai});
       copySrcs.push_back(copySrc.tensor);
       copyDsts.push_back(copyDst);
       auto &nextData = clockwise ? nextClockwiseData : nextAnticlockwiseData;
@@ -997,7 +1004,7 @@ static Tensor unidirectionalRingAllGather(Graph &graph,
     std::vector<Tensor> copySrcs;
     std::vector<Tensor> copyDsts;
     ringAllGatherStep(graph, concatenatedChunks, ring, step, data, resultChunks,
-                      copySrcs, copyDsts, clockwise);
+                      copySrcs, copyDsts, clockwise, {dnai});
     prog.add(Copy(concat(copySrcs), concat(copyDsts), false, {dnai}));
   }
   return convertChunksToTensor(graph, resultChunks,
@@ -1043,10 +1050,10 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
     std::vector<Tensor> copySrcs;
     std::vector<Tensor> copyDsts;
     ringAllGatherStep(graph, clockwiseToGather, ring, step, clockwiseData,
-                      clockwiseResultChunks, copySrcs, copyDsts, true);
+                      clockwiseResultChunks, copySrcs, copyDsts, true, {dnai});
     ringAllGatherStep(graph, anticlockwiseToGather, ring, step,
                       anticlockwiseData, anticlockwiseResultChunks, copySrcs,
-                      copyDsts, false);
+                      copyDsts, false, {dnai});
     prog.add(Copy(concat(copySrcs), concat(copyDsts), false, {dnai}));
   }
   std::vector<Tensor> result;
@@ -1094,7 +1101,7 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph,
     std::vector<Tensor> copyDsts;
     ringMeetInMiddleAllGatherStep(graph, concatenatedChunks, ring, step,
                                   clockwiseData, anticlockwiseData,
-                                  resultChunks, copySrcs, copyDsts);
+                                  resultChunks, copySrcs, copyDsts, {dnai});
     prog.add(Copy(concat(copySrcs), concat(copyDsts), false, {dnai}));
   }
   return convertChunksToTensor(graph, resultChunks,

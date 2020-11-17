@@ -37,7 +37,7 @@ BlockMatrix::getDenseMatrix(poplar::Graph &graph,
       } else {
         poplar::Tensor oneBlock = blockData.at(blockIdMatrix[i][j]);
         graph.setTileMapping(t, graph.getTileMapping(oneBlock));
-        prog.add(poplar::program::Copy(t, oneBlock));
+        prog.add(poplar::program::Copy(t, oneBlock, false, {dnai}));
       }
     }
   }

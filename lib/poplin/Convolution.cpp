@@ -849,7 +849,8 @@ static CanonicalConvParams convolutionPreprocess(
                         {dnai, "actsRearranged"}, plan, options);
 
     assert(rearrangeProg);
-    rearrangeProg->postTranspose.emplace_back(*acts, actsRearranged);
+    rearrangeProg->postTranspose.emplace_back(*acts, actsRearranged, false,
+                                              dnai);
     auto actsType = actsRearranged.elementType();
     if (rearrangeWritten->count(actsType) == 0) {
       rearrangeWritten->insert(
@@ -868,7 +869,8 @@ static CanonicalConvParams convolutionPreprocess(
                           {dnai, "weightsRearranged"}, plan, options);
 
     assert(rearrangeProg);
-    rearrangeProg->postTranspose.emplace_back(*weights, weightsRearranged);
+    rearrangeProg->postTranspose.emplace_back(*weights, weightsRearranged,
+                                              false, dnai);
     auto weightsType = weightsRearranged.elementType();
     if (rearrangeWritten->count(weightsType) == 0) {
       rearrangeWritten->insert(std::make_pair(
@@ -1038,7 +1040,7 @@ static Tensor convolutionPostprocess(Graph &graph,
                                       activationsView.shape(),
                                       {dnai, "activationsPostDilate"});
       graph.setTileMapping(activations, graph.getTileMapping(mappingView));
-      transformPost.emplace_back(activationsView, activations);
+      transformPost.emplace_back(activationsView, activations, false, dnai);
       activations = unsplitActivationFromGroups(activations);
     }
     // Remove extra dimensions.
@@ -1646,7 +1648,8 @@ void ConvProgramTree::ComputeSetsGroup::lower(
         "#convolution post program bunch copies of type {} = {}",
         p.first.toString(), p.second.first.size());
     assert(p.second.first.size());
-    prog.add(Copy(concat(p.second.first), concat(p.second.second)));
+    prog.add(
+        Copy(concat(p.second.first), concat(p.second.second), false, {dnai}));
   }
   if (post) {
     prog.add(Execute(post.get(), {dnai}));
@@ -1914,7 +1917,7 @@ void ConvProgramTree::TransformPreProgram::lower(
     poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai) {
   // TODO: make a map of type and concat same types together.
   for (const auto &t : writeUndef) {
-    prog.add(WriteUndef(t));
+    prog.add(WriteUndef(t, {dnai}));
   }
 
   add(prog, preTranspose);
@@ -1937,10 +1940,10 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
     : weightsTranspose(graph, {dnai, "WeightsTranspose"}), transformPre(),
       transformPost(plan.numLevels()),
       transformPreSerial(graph, {dnai, "PreTranspose"}),
-      transformPostSerial(graph, {dnai, "CastSerialOut"}),
-      loopCount(plan.totalSerialSplit()),
+      transformPostSerial(graph, {dnai, "CastSerialOut"}), loopPost({}, {dnai}),
+      loopCount(plan.totalSerialSplit()), slice({}, {dnai}), update({}, {dnai}),
       convolveCSGroup(graph.addComputeSet({dnai, "Convolve"})),
-      reduceOrCastComputeSets(plan.numLevels()) {
+      reduceOrCastComputeSets(plan.numLevels()), finalizeProg({}, {dnai}) {
   transformPre.reserve(plan.numLevels());
   for (unsigned i = 0; i < plan.numLevels(); ++i) {
     transformPre.emplace_back(ConvProgramTree::TransformPreProgram(
@@ -1952,7 +1955,7 @@ template <typename T>
 static void lowerAndAddCycleCount(Graph &graph, Sequence &prog,
                                   const bool insertCycleCount, T &tpp,
                                   const poplar::DebugNameAndId &dnai) {
-  Sequence seq;
+  Sequence seq({}, {dnai});
   tpp.lower(seq, {dnai});
   if (insertCycleCount == true) {
     cycleCount(graph, seq, 0, dnai.getPathName());
@@ -1964,7 +1967,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
                             const bool insertCycleCount,
                             const poplar::DebugNameAndId &dnai) {
   for (const auto &c : copyWritten) {
-    prog.add(WriteUndef(c.second));
+    prog.add(WriteUndef(c.second, {dnai}));
   }
 
   // weightsTranspose
@@ -1976,7 +1979,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   assert(numLevels > 1);
   assert(numLevels == reduceOrCastComputeSets.size());
 
-  Sequence body;
+  Sequence body({}, {dnai});
 
   // lower the transforms in ascending order as we climb the hierarchy.
   for (unsigned level = 0; level < numLevels; ++level) {
@@ -1995,11 +1998,11 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
     }
 
     // transformPost[level]
-    Sequence reduceTransformPostSeq;
+    Sequence reduceTransformPostSeq({}, {dnai});
     add(reduceTransformPostSeq, transformPost[level]);
     if (insertCycleCount == true) {
       cycleCount(graph, reduceTransformPostSeq, 0,
-                 "transformPost" + std::to_string(level));
+                 dnai.getPathName() + "/transformPost" + std::to_string(level));
     }
     body.add(reduceTransformPostSeq);
   }
@@ -2012,7 +2015,8 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
     prog.add(body);
   } else {
     assert(loopCount != 0);
-    prog.add(Repeat(loopCount, Sequence(slice, body, update, loopPost)));
+    prog.add(Repeat(loopCount,
+                    Sequence({slice, body, update, loopPost}, {dnai}), {dnai}));
   }
 
   // transformPostSerial
@@ -2078,8 +2082,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
             graph, slice, sliceRearranged, cpt.transformPreSerial.preTranspose,
             cpt.transformPreSerial.transposeCS,
             {dnai, sliceKind + "RegroupBeforeSlice"});
-        cpt.transformPreSerial.postTranspose.emplace_back(slice,
-                                                          sliceRearranged);
+        cpt.transformPreSerial.postTranspose.emplace_back(
+            slice, sliceRearranged, false, dnai);
 
         return sliceRearranged;
       };
@@ -2102,8 +2106,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       const auto zeroConstant =
           graph.addConstant(UNSIGNED_INT, {1}, 0, {dnai, "zero" + levelSuffix});
       graph.setTileMapping(zeroConstant, 0);
-      cpt.transformPreSerial.postTranspose.emplace_back(zeroConstant,
-                                                        loopCounter);
+      cpt.transformPreSerial.postTranspose.emplace_back(
+          zeroConstant, loopCounter, false, dnai);
 
       // per iteration slices of input.
       if (partition.inChanSplit.serial > 1) {
@@ -2360,7 +2364,8 @@ convolutionImpl(Graph &graph, const CanonicalConvParams &originalParams,
       graph.setTileMapping(zero, mapping);
 
       // Zero-Initialise destination tensor
-      cpt.transformPreSerial.postTranspose.emplace_back(zero, serialOut);
+      cpt.transformPreSerial.postTranspose.emplace_back(zero, serialOut, false,
+                                                        dnai);
 
       // Accumulate the results into the destination tensor serialOut
       addInPlace(graph, serialOut, out, cpt.update,
@@ -2786,7 +2791,8 @@ void weightsTransposeChansFlipXY(
   auto maybeRegroupedFlipped = popops::rearrange::regroupIfBeneficial(
       graph, flipped, weightsOutUnGrouped, preTranspose, transposeCS,
       {di, "attemptRegroup"});
-  postTranspose.emplace_back(maybeRegroupedFlipped, weightsOutUnGrouped);
+  postTranspose.emplace_back(maybeRegroupedFlipped, weightsOutUnGrouped, false,
+                             di);
 }
 
 void weightsTransposeChansFlipXY(Graph &graph, const Tensor &weightsInUnGrouped,

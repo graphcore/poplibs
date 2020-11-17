@@ -7,6 +7,7 @@
 
 #ifndef poputil_TileMapping_hpp
 #define poputil_TileMapping_hpp
+#include "poplar/DebugContext.hpp"
 #include "poplar/Graph.hpp"
 #include "poplar/Tensor.hpp"
 #include <vector>
@@ -234,7 +235,7 @@ public:
  */
 poplar::Tensor
 cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
-           poplar::StringRef name = "",
+           const poplar::DebugContext &debugContext = {},
            poplar::TensorCloneMethod method =
                poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
@@ -247,7 +248,7 @@ cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
  * \param t           The tensor to move from one IPU to another.
  * \param prog        A program sequence to add the Copy to.
  * \param dstIPU      The index of the IPU onto which the tensor will be moved.
- * \param name        A debug name to give to the tensor created on dstIPU.
+ * \param debugContext  A debug name to give to the tensor created on dstIPU.
  *                    If this is empty then the debug names will be derived from
  *                    existing tensor debug names.
  * \param method      The method to use for cloning of the tensor on the
@@ -257,7 +258,7 @@ cloneToIpu(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIPU,
 poplar::Tensor
 copyToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
           poplar::program::Sequence &prog, unsigned dstIPU,
-          poplar::StringRef name = "",
+          const poplar::DebugContext &debugContext = {},
           poplar::TensorCloneMethod method =
               poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 
@@ -273,7 +274,7 @@ copyToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
  * \param dstIPU      The index of the IPU onto which the tensor will be moved.
  * \param copySrc     A tensor that can be used as the source to do the copy.
  * \param copyDst     A tensor that can be used as the destination of the copy.
- * \param name        A debug name to give to the tensor created on dstIPU.
+ * \param debugContext  A debug name to give to the tensor created on dstIPU.
  *                    If this is empty then the debug names will be derived from
  *                    existing tensor debug names.
  * \param method      The method to use for cloning of the tensor on the
@@ -283,7 +284,7 @@ copyToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
 poplar::Tensor
 createIpuCopy(poplar::Graph &graph, const poplar::Tensor &t, unsigned dstIpu,
               poplar::Tensor &copySrc, poplar::Tensor &copyDst,
-              poplar::StringRef name = "",
+              const poplar::DebugContext &debugContext = {},
               poplar::TensorCloneMethod method =
                   poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES);
 

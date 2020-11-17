@@ -15,13 +15,13 @@ poplar::Tensor bsSoftmaxInternal(
     unsigned blockRow, unsigned blockCol, unsigned blockRows,
     unsigned blockCols, const unsigned char *sparsity,
     popsparse::experimental::SubBlockMask subBlockMaskType,
-    poplar::program::Sequence &prog, const std::string &debugStr = "");
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
 poplar::Tensor bsSoftmaxGradInternal(
     poplar::Graph &graph, poplar::Tensor sparseOut,
     poplar::Tensor sparseOutGrad, unsigned blockRow, unsigned blockCol,
     unsigned blockRows, unsigned blockCols, const unsigned char *sparsity,
-    poplar::program::Sequence &prog, const std::string &debugStr = "");
+    poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
 } // namespace experimental
 } // namespace popsparse

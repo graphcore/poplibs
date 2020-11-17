@@ -1143,18 +1143,17 @@ PartitionerImpl::createBuckets(const COOMatrix<T> &matrix_) const {
 }
 
 template <typename T>
-static std::pair<std::vector<std::size_t>, std::vector<T>>
-bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
-                    const std::vector<std::size_t> &xSplits,
-                    const std::vector<std::size_t> &ySplits,
-                    const std::vector<std::size_t> &zSplits, std::size_t numZ,
-                    std::size_t grainX, std::size_t grainY, std::size_t grainZ,
-                    bool useBlockMetaInfoFormat, bool includeGradW,
-                    bool genForGradA, const poplar::Type &dataType,
-                    const poplar::Type &accumType,
-                    std::size_t metaInfoBucketElements,
-                    std::size_t nzElemsBucketBlocks, std::size_t numWorkers,
-                    std::size_t bucketsPerZ, const std::string &debugStr = "") {
+static std::pair<std::vector<std::size_t>, std::vector<T>> bucketsImplInternal(
+    const PNBucket &bucket, const std::vector<T> &nzValues,
+    const std::vector<std::size_t> &xSplits,
+    const std::vector<std::size_t> &ySplits,
+    const std::vector<std::size_t> &zSplits, std::size_t numZ,
+    std::size_t grainX, std::size_t grainY, std::size_t grainZ,
+    bool useBlockMetaInfoFormat, bool includeGradW, bool genForGradA,
+    const poplar::Type &dataType, const poplar::Type &accumType,
+    std::size_t metaInfoBucketElements, std::size_t nzElemsBucketBlocks,
+    std::size_t numWorkers, std::size_t bucketsPerZ,
+    const poplar::DebugNameAndId &dnai) {
   const std::size_t yOffsetTypeFactor =
       popsparse::getYOffsetTypeScaleFactor(dataType == poplar::FLOAT);
   const auto blockSize = grainX * grainY;
@@ -1446,9 +1445,9 @@ bucketsImplInternal(const PNBucket &bucket, const std::vector<T> &nzValues,
     group.emplace_back(MetaInfo<std::size_t>::endSubGroupId);
   }
 
-  if (!debugStr.empty()) {
-    logging::popsparse::debug("{} : mi {} nz {}  ", debugStr, group.size(),
-                              nzBucket.size());
+  if (!dnai.getPathName().empty()) {
+    logging::popsparse::debug("{} : mi {} nz {}  ", dnai.getPathName(),
+                              group.size(), nzBucket.size());
   }
   if (group.size() > metaInfoBucketElements) {
     throw poputil::poplibs_error("Meta info exceeds specified bucket size}");
@@ -1475,19 +1474,19 @@ template <typename T>
 std::pair<std::vector<std::size_t>, std::vector<T>>
 PartitionerImpl::bucketForForward(const PNBucket &pnBucket,
                                   const std::vector<T> &nzValues,
-                                  const std::string &debugStr) const {
+                                  const poplar::DebugNameAndId &dnai) const {
   return bucketsImplInternal<T>(
       pnBucket, nzValues, xSplits, ySplits, zSplits, numZ, grainX, grainY,
       grainZ, useBlockMetaInfoFormat, gradWEnabled, false, dataType, accumType,
       metaInfoBucketElements, nzElemsBucketBlocks, numWorkerContexts,
-      bucketsPerZ, debugStr);
+      bucketsPerZ, {dnai});
 }
 
 template <typename T>
 std::vector<std::size_t>
 PartitionerImpl::bucketForGradA(const PNBucket &pnBucket,
                                 const std::vector<T> &nzValues,
-                                const std::string &debugStr) const {
+                                const poplar::DebugNameAndId &dnai) const {
   PNBucket indicesBucket;
   indicesBucket.metaInfoElements = pnBucket.metaInfoElements;
   indicesBucket.numNzElements = pnBucket.numNzElements;
@@ -1519,14 +1518,14 @@ PartitionerImpl::bucketForGradA(const PNBucket &pnBucket,
              indicesBucket, nzValues, ySplits, xSplits, zSplits, numZ, grainX,
              grainY, grainZ, useBlockMetaInfoFormat, false, true, dataType,
              accumType, metaInfoBucketElementsGradA, nzElemsBucketBlocks,
-             numWorkerContexts, bucketsPerZ, debugStr)
+             numWorkerContexts, bucketsPerZ, {dnai})
       .first;
 }
 
 template <typename T>
 std::pair<std::vector<std::vector<std::size_t>>, std::vector<std::vector<T>>>
 PartitionerImpl::bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
-                                   const std::string &debugStr) const {
+                                   const poplar::DebugNameAndId &dnai) const {
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   const auto numBuckets = pnBuckets.size();
@@ -1534,7 +1533,7 @@ PartitionerImpl::bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
   std::vector<std::vector<T>> nzBucket(numBuckets);
 
   for (std::size_t b = 0; b != numBuckets; ++b) {
-    auto pnImpl = bucketForForward(pnBuckets[b], nzValues, debugStr);
+    auto pnImpl = bucketForForward(pnBuckets[b], nzValues, {dnai});
     metaInfoBucket[b] = std::move(pnImpl.first);
     nzBucket[b] = std::move(pnImpl.second);
   }
@@ -1544,7 +1543,7 @@ PartitionerImpl::bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
 template <typename T>
 std::vector<std::vector<std::size_t>>
 PartitionerImpl::bucketsForGradA(const PNBucketsImpl<T> &pnBucketsImpl,
-                                 const std::string &debugStr) const {
+                                 const poplar::DebugNameAndId &dnai) const {
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   const auto numBuckets = pnBuckets.size();
@@ -1552,7 +1551,7 @@ PartitionerImpl::bucketsForGradA(const PNBucketsImpl<T> &pnBucketsImpl,
   std::vector<std::vector<T>> nzBucket(numBuckets);
 
   for (std::size_t b = 0; b != numBuckets; ++b) {
-    auto metaInfoBucketImpl = bucketForGradA(pnBuckets[b], nzValues, debugStr);
+    auto metaInfoBucketImpl = bucketForGradA(pnBuckets[b], nzValues, {dnai});
     metaInfoBucket[b] = std::move(metaInfoBucketImpl);
   }
   return metaInfoBucket;
@@ -1582,7 +1581,7 @@ std::vector<std::size_t> PartitionerImpl::overflowInfoForGradW(
 template <typename T>
 std::pair<std::vector<std::size_t>, std::vector<T>>
 PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
-                                     const std::string &debugStr) const {
+                                     const poplar::DebugNameAndId &dnai) const {
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   // We use the same overflow info for all passes
@@ -1590,11 +1589,11 @@ PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
 
   std::vector<T> nzBucket;
   for (std::size_t b = 0; b != pnBuckets.size(); ++b) {
-    auto str = debugStr;
+    std::string str = "";
     if (logging::popsparse::shouldLog(logging::Level::Debug)) {
       str = "Real forward buckets for PN " + std::to_string(b);
     }
-    auto bucketFwd = bucketForForward(pnBuckets[b], nzValues, str);
+    auto bucketFwd = bucketForForward(pnBuckets[b], nzValues, {dnai, str});
 
     metaInfoBucket.insert(metaInfoBucket.end(), bucketFwd.first.begin(),
                           bucketFwd.first.end());
@@ -1602,12 +1601,12 @@ PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
                     bucketFwd.second.end());
 
     if (!sharedBuckets && gradAEnabled) {
-      auto str = debugStr;
-      if (!debugStr.empty() &&
+      std::string str = "";
+      if (!dnai.getPathName().empty() &&
           logging::popsparse::shouldLog(logging::Level::Debug)) {
         str = "Real forward buckets for PN " + std::to_string(b);
       }
-      auto bucketGradA = bucketForGradA(pnBuckets[b], nzValues, str);
+      auto bucketGradA = bucketForGradA(pnBuckets[b], nzValues, {dnai, str});
 
       metaInfoBucket.insert(metaInfoBucket.end(), bucketGradA.begin(),
                             bucketGradA.end());
@@ -1902,17 +1901,17 @@ PartitionerImpl::bucketsToCOOMatrix<float>(const std::vector<std::size_t> &,
 
 template std::vector<std::vector<std::size_t>>
 PartitionerImpl::bucketsForGradA<double>(const PNBucketsImpl<double> &,
-                                         const std::string &) const;
+                                         const poplar::DebugNameAndId &) const;
 template std::vector<std::vector<std::size_t>>
 PartitionerImpl::bucketsForGradA<float>(const PNBucketsImpl<float> &,
-                                        const std::string &) const;
+                                        const poplar::DebugNameAndId &) const;
 
 template std::pair<std::vector<std::size_t>, std::vector<double>>
-PartitionerImpl::bucketImplAllPasses<double>(const PNBucketsImpl<double> &,
-                                             const std::string &) const;
+PartitionerImpl::bucketImplAllPasses<double>(
+    const PNBucketsImpl<double> &, const poplar::DebugNameAndId &) const;
 
 template std::pair<std::vector<std::size_t>, std::vector<float>>
-PartitionerImpl::bucketImplAllPasses<float>(const PNBucketsImpl<float> &,
-                                            const std::string &) const;
+PartitionerImpl::bucketImplAllPasses<float>(
+    const PNBucketsImpl<float> &, const poplar::DebugNameAndId &) const;
 
 } // namespace popsparse

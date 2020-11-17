@@ -89,6 +89,9 @@ struct ReduceProg {
 };
 
 struct CollectivesProgram {
+
+  CollectivesProgram(const poplar::DebugNameAndId &dnai);
+
   unsigned repeatCounter = 0;
   // Program to rearrange the input before the start of the loop.
   poplar::program::Sequence rearrangePre;
@@ -116,8 +119,9 @@ struct CollectivesProgram {
 
 static poplar::program::Sequence sequenceFromCrossReplicaCopies(
     const std::vector<BufferCopies<poplar::program::CrossReplicaCopy>>
-        &bufferCopies) {
-  poplar::program::Sequence s;
+        &bufferCopies,
+    const poplar::DebugNameAndId &dnai) {
+  poplar::program::Sequence s({}, {dnai});
   for (const auto &b : bufferCopies) {
     s.add(b.createProgram());
   }
@@ -170,14 +174,17 @@ unidirectionalSequence(CollectivesProgram &program, poplar::Graph &graph,
   using namespace poplar::program;
   const auto sliceFunction =
       graph.addFunction(std::move(program.sliceFragments));
-  Sequence loopBody(std::move(program.incrementIndex),
-                    sequenceFromCrossReplicaCopies(program.exchangeProg),
-                    std::move(program.allgatherCopy), Call(sliceFunction),
-                    opInPlace(graph, program.reduceProg));
+  Sequence loopBody(
+      {std::move(program.incrementIndex),
+       sequenceFromCrossReplicaCopies(program.exchangeProg, {dnai}),
+       std::move(program.allgatherCopy), Call(sliceFunction, {dnai}),
+       opInPlace(graph, program.reduceProg)},
+      {dnai});
   return Sequence(
-      {WriteUndef(program.undefTensor), std::move(program.rearrangePre),
+      {WriteUndef(program.undefTensor, {dnai}), std::move(program.rearrangePre),
        std::move(program.initIndex), std::move(program.firstGatherCopy),
-       Call(sliceFunction), Repeat(program.repeatCounter, std::move(loopBody)),
+       Call(sliceFunction, {dnai}),
+       Repeat(program.repeatCounter, std::move(loopBody), {dnai}),
        std::move(program.rearrangePost)},
       {dnai});
 }
@@ -199,20 +206,24 @@ bidirectionalSequence(CollectivesProgram &clockwise,
     combinedReduceProg =
         clockwise.reduceProg.get() + anticlockwise.reduceProg.get();
   }
-  Sequence loopBody(std::move(clockwise.incrementIndex),
-                    std::move(anticlockwise.incrementIndex),
-                    sequenceFromCrossReplicaCopies(clockwise.exchangeProg),
-                    sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg),
-                    std::move(clockwise.allgatherCopy),
-                    std::move(anticlockwise.allgatherCopy), Call(sliceFunction),
-                    opInPlace(graph, combinedReduceProg));
+  Sequence loopBody(
+      {std::move(clockwise.incrementIndex),
+       std::move(anticlockwise.incrementIndex),
+       sequenceFromCrossReplicaCopies(clockwise.exchangeProg, {dnai}),
+       sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg, {dnai}),
+       std::move(clockwise.allgatherCopy),
+       std::move(anticlockwise.allgatherCopy), Call(sliceFunction, {dnai}),
+       opInPlace(graph, combinedReduceProg)},
+      {dnai});
+
   return Sequence(
-      {WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
+      {WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor),
+                  {dnai}),
        std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
        std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
        std::move(clockwise.firstGatherCopy),
-       std::move(anticlockwise.firstGatherCopy), Call(sliceFunction),
-       Repeat(clockwise.repeatCounter, std::move(loopBody)),
+       std::move(anticlockwise.firstGatherCopy), Call(sliceFunction, {dnai}),
+       Repeat(clockwise.repeatCounter, std::move(loopBody), {dnai}),
        std::move(clockwise.rearrangePost),
        std::move(anticlockwise.rearrangePost)},
       {dnai});
@@ -249,11 +260,11 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
       graph.addFunction(std::move(anticlockwise.sliceFragments));
 
   using namespace popops::expr;
-  Sequence isLastProg;
+  Sequence isLastProg({}, {dnai});
   auto isLastStep =
       popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
 
-  Sequence incrementLoopCounter;
+  Sequence incrementLoopCounter({}, {dnai});
   popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter,
                      {dnai});
 
@@ -261,34 +272,46 @@ poplar::program::Sequence meetInMiddleReduceScatterSequence(
   // I think it is possible to remove the anticlockwise slice for before the
   // loop and use conditionals within the loop to do it
   Sequence loopBody(
-      std::move(clockwise.incrementIndex),
-      sequenceFromCrossReplicaCopies(clockwise.exchangeProg),
-      // here unconditionally create the cross replica copy. In the first
-      // step this will transfer the uninitialised data but as the rest of the
-      // repeat will be conditional on it not being step 0 it won't be
-      // used and it will be overwritten in the next iteration of the repeat
-      // It being done unconditionally means it can be merged with the
-      // clockwise cross replica copy
-      sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg),
-      Call(clockwiseSliceFunction), opInPlace(subGraph, clockwise.reduceProg),
-      If(isFirstStep, Sequence(Copy(falseConst, isFirstStep)),
-         Sequence(std::move(isLastProg),
-                  If(isLastStep, Sequence(std::move(combineBuffersProg)),
-                     Sequence(Call(anticlockwiseSliceFunction),
-                              opInPlace(subGraph, anticlockwise.reduceProg))))),
-      std::move(anticlockwise.incrementIndex), std::move(incrementLoopCounter));
+      {std::move(clockwise.incrementIndex),
+       sequenceFromCrossReplicaCopies(clockwise.exchangeProg, {dnai}),
+       // here unconditionally create the cross replica copy. In the first
+       // step this will transfer the uninitialised data but as the rest of the
+       // repeat will be conditional on it not being step 0 it won't be
+       // used and it will be overwritten in the next iteration of the repeat
+       // It being done unconditionally means it can be merged with the
+       // clockwise cross replica copy
+       sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg, {dnai}),
+       Call(clockwiseSliceFunction, {dnai}),
+       opInPlace(subGraph, clockwise.reduceProg),
+       If(isFirstStep,
+          Sequence({Copy(falseConst, isFirstStep, false, {dnai})}, {dnai}),
+          Sequence(
+              {std::move(isLastProg),
+               If(isLastStep, Sequence({std::move(combineBuffersProg)}, {dnai}),
+                  Sequence({Call(anticlockwiseSliceFunction, {dnai}),
+                            opInPlace(subGraph, anticlockwise.reduceProg)},
+                           {dnai}),
+                  {dnai})},
+              {dnai}),
+          {dnai}),
+       std::move(anticlockwise.incrementIndex),
+       std::move(incrementLoopCounter)},
+      {dnai});
   return Sequence(
-      WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
-      std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
-      Copy(std::move(trueConst), isFirstStep), Copy(falseConst, isLastStep),
-      Copy(std::move(zeroConst), std::move(loopCounter)),
-      std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
-      Call(clockwiseSliceFunction),
-      // TODO: T12922 Put this in first iteration of repeat loop.
-      Call(anticlockwiseSliceFunction),
-      Repeat(clockwise.repeatCounter, std::move(loopBody)),
-      std::move(clockwise.rearrangePost),
-      std::move(anticlockwise.rearrangePost));
+      {WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor),
+                  {dnai}),
+       std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
+       Copy(std::move(trueConst), isFirstStep, false, {dnai}),
+       Copy(falseConst, isLastStep, false, {dnai}),
+       Copy(std::move(zeroConst), std::move(loopCounter), false, {dnai}),
+       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
+       Call(clockwiseSliceFunction, {dnai}),
+       // TODO: T12922 Put this in first iteration of repeat loop.
+       Call(anticlockwiseSliceFunction, {dnai}),
+       Repeat(clockwise.repeatCounter, std::move(loopBody), {dnai}),
+       std::move(clockwise.rearrangePost),
+       std::move(anticlockwise.rearrangePost)},
+      {dnai});
 }
 
 // Create the sequence needed for the meet in the middle collective
@@ -323,11 +346,11 @@ meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
       graph.addFunction(std::move(anticlockwise.sliceFragments));
 
   using namespace popops::expr;
-  Sequence isLastProg;
+  Sequence isLastProg({}, {dnai});
   auto isLastStep =
       popops::map(graph, _1 == _2, {loopCounter, lastConst}, isLastProg);
 
-  Sequence incrementLoopCounter;
+  Sequence incrementLoopCounter({}, {dnai});
   popops::mapInPlace(graph, _1 + 1, {loopCounter}, incrementLoopCounter);
 
   assert(clockwise.repeatCounter - 1 == anticlockwise.repeatCounter);
@@ -336,33 +359,38 @@ meetInMiddleAllGatherSequence(CollectivesProgram &clockwise,
   // opportunity for the allgatherCopy to be merged with the clockwise one. This
   // decision should be reviewed if we ever merge the slice copies.
   Sequence loopBody(
-      std::move(clockwise.incrementIndex),
-      std::move(anticlockwise.incrementIndex),
-      sequenceFromCrossReplicaCopies(clockwise.exchangeProg),
-      // here unconditionally create the cross replica copy. In the first
-      // step this will transfer the uninitialised data but as the rest of the
-      // repeat will be conditional on it not being step 0 it won't be
-      // used and it will be overwritten in the next iteration of the repeat
-      // It being done unconditionally means it can be merged with the
-      // clockwise cross replica copy (same for the gather copy)
-      sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg),
-      std::move(clockwise.allgatherCopy),
-      std::move(anticlockwise.allgatherCopy), Call(clockwiseSliceFunction),
-      std::move(isLastProg),
-      If(isLastStep, Sequence(), Sequence(Call(anticlockwiseSliceFunction))),
-      std::move(incrementLoopCounter));
+      {std::move(clockwise.incrementIndex),
+       std::move(anticlockwise.incrementIndex),
+       sequenceFromCrossReplicaCopies(clockwise.exchangeProg, {dnai}),
+       // here unconditionally create the cross replica copy. In the first
+       // step this will transfer the uninitialised data but as the rest of the
+       // repeat will be conditional on it not being step 0 it won't be
+       // used and it will be overwritten in the next iteration of the repeat
+       // It being done unconditionally means it can be merged with the
+       // clockwise cross replica copy (same for the gather copy)
+       sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg, {dnai}),
+       std::move(clockwise.allgatherCopy),
+       std::move(anticlockwise.allgatherCopy),
+       Call(clockwiseSliceFunction, {dnai}), std::move(isLastProg),
+       If(isLastStep, Sequence({}, {dnai}),
+          Sequence({Call(anticlockwiseSliceFunction, {dnai})}, {dnai}), {dnai}),
+       std::move(incrementLoopCounter)},
+      DebugContext(dnai));
   return Sequence(
-      WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor)),
-      std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
-      Copy(std::move(trueConst), std::move(isFirstStep)),
-      Copy(std::move(falseConst), std::move(isLastStep)),
-      Copy(std::move(zeroConst), std::move(loopCounter)),
-      std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
-      std::move(clockwise.firstGatherCopy),
-      std::move(anticlockwise.firstGatherCopy), Call(clockwiseSliceFunction),
-      Repeat(clockwise.repeatCounter, std::move(loopBody)),
-      std::move(clockwise.rearrangePost),
-      std::move(anticlockwise.rearrangePost));
+      {WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor),
+                  {dnai}),
+       std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
+       Copy(std::move(trueConst), std::move(isFirstStep), false, {dnai}),
+       Copy(std::move(falseConst), std::move(isLastStep), false, {dnai}),
+       Copy(std::move(zeroConst), std::move(loopCounter), false, {dnai}),
+       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
+       std::move(clockwise.firstGatherCopy),
+       std::move(anticlockwise.firstGatherCopy),
+       Call(clockwiseSliceFunction, {dnai}),
+       Repeat(clockwise.repeatCounter, std::move(loopBody), {dnai}),
+       std::move(clockwise.rearrangePost),
+       std::move(anticlockwise.rearrangePost)},
+      DebugContext(dnai));
 }
 
 } // namespace popops

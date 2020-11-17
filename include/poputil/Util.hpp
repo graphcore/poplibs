@@ -124,7 +124,7 @@ duplicate(poplar::Graph &graph, const poplar::Tensor &in,
  */
 poplar::Tensor
 cloneN(poplar::Graph &graph, const poplar::Tensor &t, unsigned N,
-       poplar::StringRef name = "",
+       const poplar::DebugContext &debugContext = {},
        poplar::TensorCloneMethod method =
            poplar::TensorCloneMethod::PRESERVE_ORDER_UNLESS_ALIASES);
 

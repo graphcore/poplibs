@@ -207,8 +207,9 @@ int main(int argc, char **argv) {
   // and MaxPoolingGradientScale(half,float) are supported.
   // MaxPoolingGradientScale doesn't have an assembler implementation so a
   // codelet test is probably not necessary.
-  popnn::pooling::createPoolingVertex(graph, poolParams, prevAct, nextAct,
-                                      prog);
+  const poplar::DebugNameAndId dnai;
+  popnn::pooling::createPoolingVertex(graph, poolParams, prevAct, nextAct, prog,
+                                      {dnai});
 
   // Roll the channel to before the spatial dimensions as
   // Pooling vertices work with [batches, spatial dims, channels]

@@ -28,7 +28,7 @@ Program cast(Graph &graph, Tensor src, Tensor dst,
   if ((srcType == dstType) || ((srcType == INT) && (dstType == UNSIGNED_INT)) ||
       ((srcType == UNSIGNED_INT) && (dstType == INT))) {
     logging::popops::trace("Cast is just a copy");
-    return Copy(src.reinterpret(dstType), dst);
+    return Copy(src.reinterpret(dstType), dst, false, {di});
   }
   auto cs = graph.addComputeSet({di, "Cast"});
   cast(graph, src, dst, cs);

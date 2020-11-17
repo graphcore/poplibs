@@ -95,7 +95,7 @@ poplar::Tensor gather(poplar::Graph &graph, const poplar::Tensor &input,
   // We expect this to be elided, when `input` already has this mapping.
   auto inputTemp =
       createGatherInputTensor(graph, input.elementType(), input.shape(),
-                              sliceSizes, dnai.getPathName() + "/inputTemp");
+                              sliceSizes, {dnai, "inputTemp"});
   prog.add(poplar::program::Copy(input, inputTemp, false, {dnai}));
 
   // The dimensions that will be sliced

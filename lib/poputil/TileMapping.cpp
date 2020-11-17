@@ -1,6 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poputil/TileMapping.hpp"
 #include "poplar/Program.hpp"
+#include "poputil/DebugInfo.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/functional/hash.hpp>
@@ -69,9 +70,13 @@ unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
 }
 
 poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
-                          unsigned dstIpu, poplar::StringRef name,
+                          unsigned dstIpu,
+                          const poplar::DebugContext &debugContext,
                           poplar::TensorCloneMethod method) {
-  auto tLocal = masterGraph.clone(t, name, method);
+
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dstIpu, method));
+
+  auto tLocal = masterGraph.clone(t, {di}, method);
   auto tSimple = t.flatten();
   auto tLocalSimple = tLocal.flatten();
   masterGraph.reorderToSimplify(&tSimple, {&tLocalSimple});
@@ -99,15 +104,19 @@ poplar::Tensor cloneToIpu(poplar::Graph &masterGraph, const poplar::Tensor &t,
     }
   }
   masterGraph.setTileMapping(tLocalSimple, mapping);
+  di.addOutput(tLocal);
   return tLocal;
 }
 
 poplar::Tensor createIpuCopy(poplar::Graph &masterGraph,
                              const poplar::Tensor &t, unsigned dstIpu,
                              poplar::Tensor &copySrc, poplar::Tensor &copyDst,
-                             poplar::StringRef name,
+                             const poplar::DebugContext &debugContext,
                              poplar::TensorCloneMethod method) {
-  auto tLocal = poputil::cloneToIpu(masterGraph, t, dstIpu, name, method);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(t, dstIpu, copySrc, copyDst, method));
+
+  auto tLocal = poputil::cloneToIpu(masterGraph, t, dstIpu, {di}, method);
   // Create source and destination tensor for the copy. These are different
   // from the source and cloned tensor only if the order and aliases are
   // preserved in the cloned tensor
@@ -122,17 +131,21 @@ poplar::Tensor createIpuCopy(poplar::Graph &masterGraph,
     copyDst = concat(tLocalFlat.slices(tFlatRegions));
     copySrc = concat(tFlat.slices(tFlatRegions));
   }
+  di.addOutput(tLocal);
   return tLocal;
 }
 
 poplar::Tensor copyToIpu(poplar::Graph &graph, const poplar::Tensor &t,
                          poplar::program::Sequence &prog, unsigned dstIpu,
-                         poplar::StringRef name,
+                         const poplar::DebugContext &debugContext,
                          poplar::TensorCloneMethod method) {
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dstIpu, method));
+
   poplar::Tensor tLocalForCopy, tForCopy;
   auto tLocal =
-      createIpuCopy(graph, t, dstIpu, tForCopy, tLocalForCopy, name, method);
-  prog.add(poplar::program::Copy(tForCopy, tLocalForCopy));
+      createIpuCopy(graph, t, dstIpu, tForCopy, tLocalForCopy, {di}, method);
+  prog.add(poplar::program::Copy(tForCopy, tLocalForCopy, false, {di}));
+  di.addOutput(tLocal);
   return tLocal;
 }
 
@@ -192,12 +205,15 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
                        const poplar::Type &type, unsigned dim,
                        bool ditherMapping,
                        const poplar::DebugContext &debugContext) {
-  const auto name = debugContext.getPathName();
+
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(fullTensor, type, dim, ditherMapping));
+
   assert(dim < fullTensor.rank());
   const auto &target = graph.getTarget();
   auto t = fullTensor.dimRoll(dim, fullTensor.rank() - 1);
   const auto numDimElems = fullTensor.dim(dim);
-  auto out = graph.addVariable(type, {numDimElems}, name);
+  auto out = graph.addVariable(type, {numDimElems}, {di});
 
   TensorUseTracker useTracker(target.getNumTiles());
 
@@ -250,6 +266,7 @@ createBroadcastOperand(poplar::Graph &graph, const poplar::Tensor &fullTensor,
     }
     graph.setTileMapping(out, newMapping);
   }
+  di.addOutput(out);
   return out;
 }
 

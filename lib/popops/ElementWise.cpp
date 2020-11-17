@@ -1482,7 +1482,7 @@ void constructBroadcastBinaryOp(Graph &graph, Sequence &prog, Tensor in1,
       auto newUnbroadcastOperandFactored =
           poputil::createBroadcastOperand(
               graph, outFactored.flatten(out.rank(), out.rank() * 2), dType,
-              out.rank())
+              out.rank(), false, {dnai})
               .reshape(newOperandShape);
       assert(newUnbroadcastOperandFactored.rank() == outFactored.rank());
 

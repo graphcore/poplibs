@@ -303,7 +303,7 @@ void generateSparseDenseMultiSliceVertices(
       }
     }
   }
-  prog.add(Execute(computeSet));
+  prog.add(Execute(computeSet, {dnai}));
 }
 
 void generateSparseDenseMultiUpdateVertices(
@@ -485,7 +485,7 @@ ExchangeTensors createExchangeTensors(Graph &graph, Sequence &prog,
     // Ensure that he exchange buffers don't remain always live. This can
     // happen as they are not necessarily completely written, or it is not
     // clear that they are completely written due to the dynamic program flow
-    prog.add(WriteUndef(src[i]));
+    prog.add(WriteUndef(src[i], {dnai}));
     // Create views into the src tensors which become the destination
     // These are just a view into the source tensor but with the
     // rows circularly modified so that a tile's data gets copied to the
@@ -533,8 +533,8 @@ createDecisionProg(Graph &graph, Sequence &prog,
     graph.setTileMapping(decisionInitialValue, 0);
   }
 
-  prog.add(Copy(decisionInitialValue, decisionCount));
-  Sequence decisionProg;
+  prog.add(Copy(decisionInitialValue, decisionCount, false, {dnai}));
+  Sequence decisionProg({}, {dnai});
   // Sample the result then subtract is an equivalent to a decrement after the
   // decision and avoids adding 1 to the loop count
   const auto decision = cast(graph, decisionCount, BOOL, decisionProg, {dnai});
@@ -576,16 +576,17 @@ std::vector<Sequence> createUpdateComputeProg(
         slicesExBuf.src[srcBuf], scale, plannedSplits, {dnai});
 
     // Exchange for next time
-    loopBodyProg[srcBuf].add(
-        Copy(slicesExBuf.src[srcBuf], slicesExBuf.rowDst[dstBuf]));
-    loopBodyProg[srcBuf].add(
-        Copy(offsetsExBuf.src[srcBuf], offsetsExBuf.rowDst[dstBuf]));
+    loopBodyProg[srcBuf].add(Copy(slicesExBuf.src[srcBuf],
+                                  slicesExBuf.rowDst[dstBuf], false, {dnai}));
+    loopBodyProg[srcBuf].add(Copy(offsetsExBuf.src[srcBuf],
+                                  offsetsExBuf.rowDst[dstBuf], false, {dnai}));
 
     // We don't really need to exchange this here but we do need it to
     // end up in the correct srcBuf[0] or [1] to then run an exchange prog.
     // It's small so shouldn't be too much overhead.
     loopBodyProg[srcBuf].add(Copy(columnPartitionExBuf.src[srcBuf],
-                                  columnPartitionExBuf.rowDst[dstBuf]));
+                                  columnPartitionExBuf.rowDst[dstBuf], false,
+                                  {dnai}));
     // Toggle the buffer used for next time: src<->dst
     bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], {dnai});
   }
@@ -611,9 +612,10 @@ std::vector<Sequence> createSliceComputeProg(
         {dnai});
 
     // Exchange for next time
-    loopBodyProg[srcBuf].add(Copy(nzExBuf.src[srcBuf], nzExBuf.rowDst[dstBuf]));
     loopBodyProg[srcBuf].add(
-        Copy(metaInfoExBuf.src[srcBuf], metaInfoExBuf.rowDst[dstBuf]));
+        Copy(nzExBuf.src[srcBuf], nzExBuf.rowDst[dstBuf], false, {dnai}));
+    loopBodyProg[srcBuf].add(Copy(metaInfoExBuf.src[srcBuf],
+                                  metaInfoExBuf.rowDst[dstBuf], false, {dnai}));
 
     // Toggle the buffer used for next time: src<->dst
     bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], {dnai});
@@ -633,7 +635,7 @@ createExchangeProg(Graph &graph, Sequence &prog, unsigned numBuffers,
   graph.setTileMapping(bufferSelect, 0);
   auto bufferSelectInitialValue =
       graph.addConstant<unsigned>(UNSIGNED_INT, {}, 0u, {dnai});
-  prog.add(Copy(bufferSelectInitialValue, bufferSelect));
+  prog.add(Copy(bufferSelectInitialValue, bufferSelect, false, {dnai}));
   graph.setTileMapping(bufferSelectInitialValue, 0);
 
   // Create programs to run in a loop, alternately on each pass
@@ -641,8 +643,8 @@ createExchangeProg(Graph &graph, Sequence &prog, unsigned numBuffers,
   for (unsigned srcBuf = 0; srcBuf < numBuffers; srcBuf++) {
     const auto dstBuf = srcBuf ? 0u : 1u;
     for (unsigned i = 0; i < exBufs.size(); i++) {
-      loopBodyProg[srcBuf].add(
-          Copy(exBufs[i].src[srcBuf], exBufs[i].columnDst[dstBuf]));
+      loopBodyProg[srcBuf].add(Copy(
+          exBufs[i].src[srcBuf], exBufs[i].columnDst[dstBuf], false, {dnai}));
     }
     // Toggle the buffer used for next time: src<->dst
     bufferIndexUpdate(graph, bufferSelect, loopBodyProg[srcBuf], {dnai});
@@ -827,9 +829,9 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
       metaInfoSplits, {di, layer});
 
   // Prime the buffers.
-  prog.add(Copy(metaInfoBuckets, metaInfoExBuf.src[0]));
-  prog.add(Copy(nzBuckets, nzExBuf.src[0]));
-  prog.add(Copy(offsetsBroadcast, offsetsBroadcastPerTile));
+  prog.add(Copy(metaInfoBuckets, metaInfoExBuf.src[0], false, {di}));
+  prog.add(Copy(nzBuckets, nzExBuf.src[0], false, {di}));
+  prog.add(Copy(offsetsBroadcast, offsetsBroadcastPerTile, false, {di}));
 
   // Zero the slices once as we'll gradually populate them with the sparse
   // NZ values on each call to the slice vertices.
@@ -861,14 +863,15 @@ Tensor embeddingSlice(Graph &graph, const SparseTensor &baseT,
   //   columnLoops--;
   // }
 
-  Sequence innerProg, outerProg;
+  Sequence innerProg, outerProg({}, {di});
   innerProg.add(
-      Switch(bufferSelect, {{0, computeProg[0]}, {1, computeProg[1]}}));
+      Switch(bufferSelect, {{0, computeProg[0]}, {1, computeProg[1]}}, {di}));
   outerProg.add(
-      Repeat(paddedSplits.rowSplits * paddedSplits.zSplits, innerProg));
+      Repeat(paddedSplits.rowSplits * paddedSplits.zSplits, innerProg, {di}));
   outerProg.add(
-      Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}));
-  prog.add(RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg));
+      Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}, {di}));
+  prog.add(
+      RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg, {di}));
 
   return slices;
 }
@@ -1067,9 +1070,11 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
 
   // Prime the 1st buffer (Only the existing slices rows go in, although the
   // buffer can be larger if padding slices rows)
-  prog.add(Copy(slices, slicesExBuf.src[0].slice(0, slices.dim(0))));
-  prog.add(Copy(offsetsBroadcast, offsetsExBuf.src[0]));
-  prog.add(Copy(columnPartitionBroadcast, columnPartitionExBuf.src[0]));
+  prog.add(
+      Copy(slices, slicesExBuf.src[0].slice(0, slices.dim(0)), false, {di}));
+  prog.add(Copy(offsetsBroadcast, offsetsExBuf.src[0], false, {di}));
+  prog.add(
+      Copy(columnPartitionBroadcast, columnPartitionExBuf.src[0], false, {di}));
 
   // Now use the programs and variables created to make the program below. The
   // switch program is used to select the computeProg or exchangeProg
@@ -1099,17 +1104,18 @@ void embeddingUpdateAdd(Graph &graph, const SparseTensor &baseT,
   //   columnLoops--;
   // }
 
-  Sequence innerProg, outerProg;
+  Sequence innerProg, outerProg({}, {di});
   innerProg.add(
-      Switch(bufferSelect, {{0, computeProg[0]}, {1, computeProg[1]}}));
+      Switch(bufferSelect, {{0, computeProg[0]}, {1, computeProg[1]}}, {di}));
 
   outerProg.add(
       Repeat(plannedSplits.slicesRowSplits * plannedSplits.slicesIndicesSplits,
-             innerProg));
+             innerProg, {di}));
   outerProg.add(
-      Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}));
+      Switch(bufferSelect, {{0, exchangeProg[0]}, {1, exchangeProg[1]}}, {di}));
 
-  prog.add(RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg));
+  prog.add(
+      RepeatWhileTrue(outerDecisionProg, outerDecisionFlag, outerProg, {di}));
 
   // Add the partials to the Nz-data. Scale was already applied
   // while adding to the partial result.

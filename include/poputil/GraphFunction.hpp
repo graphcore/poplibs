@@ -12,6 +12,7 @@
 
 #ifndef poputil_GraphFunction_hpp
 #define poputil_GraphFunction_hpp
+#include <poplar/DebugContext.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 
@@ -63,9 +64,20 @@ public:
                std::function<void(std::vector<poplar::Tensor> &,
                                   poplar::program::Sequence &)>
                    f,
-               bool inlined = false);
+               bool inlined = false,
+               const poplar::DebugContext &debugContext = {});
+
+  VoidFunction(poplar::Graph &graph, Signature sig,
+               std::function<void(std::vector<poplar::Tensor> &,
+                                  poplar::program::Sequence &,
+                                  const poplar::DebugNameAndId &)>
+                   f,
+               bool inlined = false,
+               const poplar::DebugContext &debugContext = {});
+
   void operator()(std::vector<poplar::Tensor> &args,
-                  poplar::program::Sequence &seq);
+                  poplar::program::Sequence &seq,
+                  const poplar::DebugContext &dc = {});
 };
 
 class ProgramFunction {
@@ -75,8 +87,18 @@ public:
   ProgramFunction(
       poplar::Graph &graph, Signature sig,
       std::function<poplar::program::Program(std::vector<poplar::Tensor> &)> f,
-      bool inlined = false);
-  poplar::program::Program operator()(std::vector<poplar::Tensor> &args);
+      bool inlined = false, const poplar::DebugContext &debugContext = {});
+
+  ProgramFunction(
+      poplar::Graph &graph, Signature sig,
+      std::function<poplar::program::Program(std::vector<poplar::Tensor> &,
+                                             const poplar::DebugNameAndId &)>
+          f,
+      bool inlined = false, const poplar::DebugContext &debugContext = {});
+
+  poplar::program::Program
+  operator()(std::vector<poplar::Tensor> &args,
+             const poplar::DebugContext &debugContext = {});
 };
 
 class TensorFunction {
@@ -87,9 +109,20 @@ public:
                  std::function<poplar::Tensor(std::vector<poplar::Tensor> &,
                                               poplar::program::Sequence &)>
                      f,
-                 bool inlined = false);
+                 bool inlined = false,
+                 const poplar::DebugContext &debugContext = {});
+
+  TensorFunction(poplar::Graph &graph, Signature sig,
+                 std::function<poplar::Tensor(std::vector<poplar::Tensor> &,
+                                              poplar::program::Sequence &,
+                                              const poplar::DebugNameAndId &)>
+                     f,
+                 bool inlined = false,
+                 const poplar::DebugContext &debugContext = {});
+
   poplar::Tensor operator()(std::vector<poplar::Tensor> &args,
-                            poplar::program::Sequence &prog);
+                            poplar::program::Sequence &prog,
+                            const poplar::DebugContext &debugContext = {});
 };
 
 } // namespace graphfn

@@ -368,7 +368,7 @@ Tensor dropout(Graph &graph, const Tensor *masterSeed,
 
   // Maximum probability in hw implies no dropout
   if (probHw == maxProbInHw) {
-    return poputil::duplicate(graph, in, prog);
+    return poputil::duplicate(graph, in, prog, {di});
   }
 
   auto out = graph.clone(in.elementType(), reference, {di, fnPrefix + "/out"});
@@ -436,7 +436,7 @@ Tensor shapedDropout(Graph &graph, const Tensor *masterSeed,
 
   // Maximum probability in hw implies no dropout
   if (probHw == maxProbInHw) {
-    return poputil::duplicate(graph, in, prog, fnPrefix);
+    return poputil::duplicate(graph, in, prog, {di, fnPrefix});
   }
 
   auto hwSeeds = maybeSaveHwSeedsAndSetSeeds(graph, masterSeed, seedModifier,

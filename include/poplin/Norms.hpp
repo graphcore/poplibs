@@ -27,9 +27,11 @@ namespace poplin {
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field.
 /// \param type            The type of the output tensor.
+/// \param debugContext   Optional debug information.
 /// \returns               Gamma vector of dimension `C`.
 poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
-                               const poplar::Type &type);
+                               const poplar::Type &type,
+                               const poplar::DebugContext &debugContext = {});
 
 /// Create and map the per-channel multiplicative gamma parameter tensor used
 /// for normalisation in convolution layers.
@@ -39,9 +41,10 @@ poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field.
+/// \param debugContext   Optional debug information.
 /// \returns               Gamma vector of dimension `C`.
-poplar::Tensor createNormGamma(poplar::Graph &graph,
-                               const poplar::Tensor &acts);
+poplar::Tensor createNormGamma(poplar::Graph &graph, const poplar::Tensor &acts,
+                               const poplar::DebugContext &debugContext = {});
 
 /// Create and map the per-channel additive beta parameter tensor used for
 /// normalisation in convolution layers.
@@ -52,9 +55,11 @@ poplar::Tensor createNormGamma(poplar::Graph &graph,
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field
 /// \param type            The type of the output tensor.
+/// \param debugContext   Optional debug information.
 /// \returns               Beta vector of dimension `C`.
 poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts,
-                              const poplar::Type &type);
+                              const poplar::Type &type,
+                              const poplar::DebugContext &debugContext = {});
 
 /// Create and map the per-channel additive beta parameter tensor used for
 /// normalisation in convolution layers.
@@ -64,8 +69,10 @@ poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts,
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field
+/// \param debugContext   Optional debug information.
 /// \returns               Beta vector of dimension `C`.
-poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
+poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts,
+                              const poplar::DebugContext &debugContext = {});
 
 /// Creates a tensor pair of normalisation parameters (gamma, beta).
 /// \param graph           The graph with the activations and beta/gamma
@@ -75,9 +82,11 @@ poplar::Tensor createNormBeta(poplar::Graph &graph, const poplar::Tensor &acts);
 ///                           - `N` is the batch size
 ///                           - `C` is the number of channels
 ///                           - `..F..` is dimensions of a N-dimensional field
+/// \param debugContext   Optional debug information.
 /// \returns               A pair of vectors of dimension `C`.
 std::pair<poplar::Tensor, poplar::Tensor>
-createNormParams(poplar::Graph &graph, const poplar::Tensor &acts);
+createNormParams(poplar::Graph &graph, const poplar::Tensor &acts,
+                 const poplar::DebugContext &debugContext = {});
 
 /// Compute the normalisation statistics from the activations tensor. The
 /// activations tensor is of shape `[N][C][..F..]`. The mean and inverse

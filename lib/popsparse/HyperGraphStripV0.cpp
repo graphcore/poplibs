@@ -746,7 +746,7 @@ void HyperGraphStripV0::genSeq2(poplar::Graph &graph, GenCs2 genCs2,
   }
 
   if (!matB.getNeedTranspose()) {
-    prog.add(poplar::program::Execute(transposeCSVec[0]));
+    prog.add(poplar::program::Execute(transposeCSVec[0], {dnai}));
   }
 
   (this->*genCs2)(graph, transposeCSVec, mulCSVec, prog, {dnai});
@@ -776,7 +776,7 @@ void HyperGraphStripV0::genSeq3(poplar::Graph &graph, GenCs3 genCs3,
   }
 
   if (!matB.getNeedTranspose()) {
-    prog.add(poplar::program::Execute(transposeCSVec[0]));
+    prog.add(poplar::program::Execute(transposeCSVec[0], {dnai}));
   }
 
   (this->*genCs3)(graph, transposeCSVec, mulCSVec, reduceCSVec, prog, {dnai});

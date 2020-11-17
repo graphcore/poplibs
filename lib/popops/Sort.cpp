@@ -17,7 +17,7 @@ poplar::program::Program predicatedSwap(poplar::Graph &graph,
                                         poplar::Tensor pred, poplar::Tensor a,
                                         poplar::Tensor b,
                                         const poplar::DebugNameAndId &dnai) {
-  poplar::program::Sequence result;
+  poplar::program::Sequence result({}, {dnai});
 
   poplar::Tensor tmp =
       popops::select(graph, b, a, pred, result, {dnai, "select_left"});
@@ -151,7 +151,7 @@ poplar::program::Sequence createExchange(poplar::Graph &graph,
                                          poplar::Tensor input,
                                          const std::size_t startIndex,
                                          const poplar::DebugNameAndId &dnai) {
-  poplar::program::Sequence result;
+  poplar::program::Sequence result({}, {dnai});
 
   for (std::size_t i = 0; i < input.dim(0); ++i) {
     poplar::Tensor inputSlice = input[i];
@@ -191,7 +191,7 @@ poplar::program::Sequence createExchange(poplar::Graph &graph,
                                          poplar::Tensor value,
                                          const std::size_t startIndex,
                                          const poplar::DebugNameAndId &dnai) {
-  poplar::program::Sequence result;
+  poplar::program::Sequence result({}, {dnai});
 
   for (std::size_t i = 0; i < key.dim(0); ++i) {
     poplar::Tensor keySlice = key[i];
@@ -287,7 +287,7 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
   poplar::Tensor tView = flattenDimension(t, dim);
   poplar::ComputeSet sortCS = sortSlice(graph, tView, {di});
 
-  poplar::program::Sequence sortStep;
+  poplar::program::Sequence sortStep({}, {di});
 
   // swap the even interval edges
   sortStep.add(createEvenExchange(graph, tView, {di}));
@@ -302,7 +302,7 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
   prog.add(poplar::program::Execute(sortCS, {di}));
 
   // Repeat the sort step until all edges are in order
-  poplar::program::Sequence cond;
+  poplar::program::Sequence cond({}, {di});
   poplar::Tensor pred = isNotSortedPredicate(graph, cond, tView, {di});
   prog.add(poplar::program::RepeatWhileTrue(cond, pred, sortStep, {di}));
 }
@@ -344,7 +344,7 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
 
   poplar::ComputeSet sortCS = sortSlice(graph, keyView, valueView, {di});
 
-  poplar::program::Sequence sortStep;
+  poplar::program::Sequence sortStep({}, {di});
 
   // swap the even interval edges
   sortStep.add(createEvenExchange(graph, keyView, valueView, {di}));
@@ -359,7 +359,7 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
   prog.add(poplar::program::Execute(sortCS, {di}));
 
   // Repeat the sort step until all edges are in order
-  poplar::program::Sequence cond;
+  poplar::program::Sequence cond({}, {di});
   poplar::Tensor pred = isNotSortedPredicate(graph, cond, keyView, {di});
   poplar::program::RepeatWhileTrue repeat(cond, pred, sortStep, {di});
   prog.add(repeat);

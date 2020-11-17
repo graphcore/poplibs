@@ -424,7 +424,7 @@ public:
                             ArrayRef<unsigned>(startingIndices), {dnai});
       logging::popsparse::debug("startingIndices={}", startingIndices);
       graph.setTileMapping(initialIndices, controlFlowTile);
-      progs.back().add(Copy(initialIndices, indices));
+      progs.back().add(Copy(initialIndices, indices, false, {dnai}));
 
       const std::array<std::string, numDirections> dimNames = {"X", "Y", "Z"};
 
@@ -433,7 +433,7 @@ public:
            dimIt != std::prev(dimsToIterate.rend()); ++dimIt) {
         progs.emplace_back();
 
-        progs.back().add(Copy(zero, indices[*dimIt]));
+        progs.back().add(Copy(zero, indices[*dimIt], false, {dnai}));
         popops::addInPlace(graph, indices[*std::next(dimIt)], one, progs.back(),
                            {dnai, "adjust" + dimNames[*dimIt] +
                                       "StartingIndicesToLoopBounds"});
@@ -444,8 +444,8 @@ public:
         const auto doesNotFitInLoopBound = popops::gteq(
             graph, indices[*dimIt], endIndices[*dimIt], progs.back(),
             {dnai, "is" + dimNames[*dimIt] + "StartingIndexOutsideLoopBounds"});
-        progs.back().add(
-            If(doesNotFitInLoopBound, std::move(prog), Sequence()));
+        progs.back().add(If(doesNotFitInLoopBound, std::move(prog),
+                            Sequence({}, {dnai}), {dnai}));
       }
       for (std::size_t i = 0; i < dimsToIterate.size(); ++i) {
         progs.emplace_back();
@@ -477,7 +477,7 @@ public:
                                {"index", indices[*dimIt]},
                                {"out", doIteration}});
           graph.setTileMapping(v, controlFlowTile);
-          progs.back().add(Execute(cs));
+          progs.back().add(Execute(cs, {dnai}));
           Sequence falseBody;
           // We need to reduce the total remaining by the same number as would
           // have been processed if we performed all the inner loops.
@@ -498,7 +498,7 @@ public:
                              placeholders, falseBody,
                              {dnai, "decrementTotalRemaining"});
           progs.back().add(
-              Switch(doIteration, {{0, falseBody}}, std::move(prog)));
+              Switch(doIteration, {{0, falseBody}}, std::move(prog), {dnai}));
         }
 
         // If there is any work left to do, do the exchange for this dimension,
@@ -508,20 +508,21 @@ public:
           progs.back().add(propagationExchanges.at(*dimIt));
 
           const auto increment =
-              graph.addConstant(UNSIGNED_INT, {1}, increments[*dimIt]);
+              graph.addConstant(UNSIGNED_INT, {1}, increments[*dimIt], {dnai});
           graph.setTileMapping(increment, controlFlowTile);
           popops::addInPlace(graph, indices[*dimIt], increment, progs.back(),
                              {dnai, "increment" + dimNames[*dimIt] + "Index"});
 
           // Zero next inner-most dimension's index (if there is one)
           if (dimIt != dimsToIterate.rbegin()) {
-            progs.back().add(Copy(zero, indices[*std::prev(dimIt)]));
+            progs.back().add(
+                Copy(zero, indices[*std::prev(dimIt)], false, {dnai}));
           }
 
           auto prog = std::move(progs.back());
           progs.pop_back();
-          progs.back().add(
-              If(totalRemainingIsNotZero, std::move(prog), Sequence()));
+          progs.back().add(If(totalRemainingIsNotZero, std::move(prog),
+                              Sequence({}, {dnai}), {dnai}));
         }
 
         auto prog = std::move(progs.back());
@@ -533,7 +534,7 @@ public:
             {totalRemainingIsNotZero, indices[*dimIt], endIndices[*dimIt]},
             condBody, {dnai, "isDim" + dimNames[*dimIt] + "Finished"});
         progs.back().add(RepeatWhileTrue(std::move(condBody), dimIsNotFinished,
-                                         std::move(prog)));
+                                         std::move(prog), {dnai}));
       }
 
       // If we need to get back to the starting offset we can check
@@ -577,8 +578,10 @@ public:
               {dnai, "updateRemainingExchanges" + dimNames[dim]});
           progs.back().add(
               RepeatWhileTrue(std::move(condBody), haveRemainingExchanges,
-                              Sequence(propagationExchanges.at(dim),
-                                       std::move(updateRemainingExchanges))));
+                              Sequence({propagationExchanges.at(dim),
+                                        std::move(updateRemainingExchanges)},
+                                       {dnai}),
+                              {dnai}));
         }
       }
 
@@ -590,8 +593,8 @@ public:
         auto prog = std::move(progs.back());
         progs.pop_back();
         progs.back().add(checkTotalRemainingIsNotZero);
-        progs.back().add(
-            If(totalRemainingIsNotZero, std::move(prog), Sequence()));
+        progs.back().add(If(totalRemainingIsNotZero, std::move(prog),
+                            Sequence({}, {dnai}), {dnai}));
       }
 
       assert(progs.size() == 1);
@@ -846,7 +849,7 @@ static void getNextLevelInputs(Graph &graph, const Vector<unsigned> &shape,
 static void copyPartitions(Graph &graph, Sequence &prog,
                            const std::vector<Tensor> &src,
                            const std::vector<Tensor> &dst,
-                           bool padSrc = false) {
+                           const DebugNameAndId &dnai, bool padSrc = false) {
   assert(src.size() == dst.size());
   // Just flatten to a single source/dest tensor!
   std::vector<Tensor> flatSrc, flatDst;
@@ -871,7 +874,7 @@ static void copyPartitions(Graph &graph, Sequence &prog,
     flatSrc.emplace_back(s.flatten());
     flatDst.emplace_back(d.flatten());
   }
-  prog.add(Copy(concat(flatSrc), concat(flatDst)));
+  prog.add(Copy(concat(flatSrc), concat(flatDst), false, {dnai}));
 }
 
 // Rearrange partitions and return a view of an already mapped tensor.
@@ -963,7 +966,8 @@ static std::vector<Tensor> rearrangePartitions(
 
   if (!copySrcTensors.empty()) {
     logging::popsparse::debug("copies added in GradW {}", dnai.getPathName());
-    preCopies.add(Copy(concat(copySrcTensors), concat(copyDstTensors)));
+    preCopies.add(
+        Copy(concat(copySrcTensors), concat(copyDstTensors), false, {dnai}));
   }
   return dstView;
 }
@@ -1441,13 +1445,13 @@ finalReduction(Graph &graph, ProgBuilder &progBuilder,
   return result;
 }
 
-static void writeUndefPartitions(Sequence &prog,
-                                 const std::vector<Tensor> &ts) {
+static void writeUndefPartitions(Sequence &prog, const std::vector<Tensor> &ts,
+                                 const DebugNameAndId &dnai) {
   std::vector<Tensor> flattenedTs;
   for (const auto &t : ts) {
     flattenedTs.emplace_back(t.flatten());
   }
-  prog.add(WriteUndef(concat(flattenedTs)));
+  prog.add(WriteUndef(concat(flattenedTs), {dnai}));
 }
 
 static void mapBuckets(Graph &graph,
@@ -1627,13 +1631,14 @@ static void addPropagationExchanges(
   // We also set buffer index before exchanging.
   constexpr std::size_t initialBufferIdx = 0;
   const auto bufferIdxInitialVal =
-      graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx);
+      graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx, {dnai});
   graph.setTileMapping(bufferIdxInitialVal, controlFlowTile);
-  progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
+  progBuilder.prePropagation.add(
+      Copy(bufferIdxInitialVal, bufferIdx, false, {dnai}));
   copyPartitions(graph, progBuilder.prePropagation, homeSources.metaInfo,
-                 buffers.metaInfo.at(initialBufferIdx));
+                 buffers.metaInfo.at(initialBufferIdx), {dnai});
   copyPartitions(graph, progBuilder.prePropagation, homeSources.values,
-                 buffers.values.at(initialBufferIdx));
+                 buffers.values.at(initialBufferIdx), {dnai});
   const auto getDir = [](std::size_t dirIdx) -> Vector<unsigned> {
     std::vector<unsigned> v(4, 0);
     v[1 + dirIdx] = 1;
@@ -1653,9 +1658,10 @@ static void addPropagationExchanges(
                                     buffers.values.at(sourceBuffer), {},
                                     bufferSources.values, {dnai});
       copyPartitions(graph, exchangeProgs.at(destBuffer),
-                     bufferSources.metaInfo, buffers.metaInfo.at(destBuffer));
+                     bufferSources.metaInfo, buffers.metaInfo.at(destBuffer),
+                     {dnai});
       copyPartitions(graph, exchangeProgs.at(destBuffer), bufferSources.values,
-                     buffers.values.at(destBuffer));
+                     buffers.values.at(destBuffer), {dnai});
     }
     // We also toggle buffer index before exchanging
     Sequence prog;
@@ -1663,7 +1669,7 @@ static void addPropagationExchanges(
     addBufferIncrementProg(graph, bufferIdx, prog, controlFlowTile,
                            {dnai, "toggleBuffer"});
     prog.add(Switch(bufferIdx, {{0, exchangeProgs.at(false)}},
-                    exchangeProgs.at(true)));
+                    exchangeProgs.at(true), {dnai}));
     progBuilder.propagationExchanges.at(dirIdx) = prog;
   }
 }
@@ -1696,42 +1702,43 @@ static void addPropagationExchangesGradW(
   const auto bufferIdxInitialVal =
       graph.addConstant(UNSIGNED_INT, {1}, initialBufferIdx, {dnai});
   graph.setTileMapping(bufferIdxInitialVal, controlFlowTile);
-  progBuilder.prePropagation.add(Copy(bufferIdxInitialVal, bufferIdx));
+  progBuilder.prePropagation.add(
+      Copy(bufferIdxInitialVal, bufferIdx, false, {dnai}));
   // WriteUndef the initial buffers. They may be partially written
   // by the first copy of partitions from home locations if there
   // is padding necessary.
   if (plan.exchangeBuckets) {
     writeUndefPartitions(progBuilder.prePropagation,
-                         metaInfoBuffers.at(initialBufferIdx));
+                         metaInfoBuffers.at(initialBufferIdx), {dnai});
     writeUndefPartitions(progBuilder.prePropagation,
-                         partialBuffers.at(initialBufferIdx));
+                         partialBuffers.at(initialBufferIdx), {dnai});
     getPropagationExchangeSources(graph, plan, options, homeOffset, metaInfo,
                                   {}, metaInfoHomeSources, {dnai});
     copyPartitions(graph, progBuilder.prePropagation, metaInfoHomeSources,
-                   metaInfoBuffers.at(initialBufferIdx));
+                   metaInfoBuffers.at(initialBufferIdx), {dnai});
     getPropagationExchangeSources(graph, plan, options, homeOffset, partials,
                                   {}, partialHomeSources, {dnai});
     copyPartitions(graph, progBuilder.prePropagation, partialHomeSources,
-                   partialBuffers.at(initialBufferIdx));
+                   partialBuffers.at(initialBufferIdx), {dnai});
   } else {
     writeUndefPartitions(progBuilder.prePropagation,
-                         inputBuffers.at(initialBufferIdx));
+                         inputBuffers.at(initialBufferIdx), {dnai});
     writeUndefPartitions(progBuilder.prePropagation,
-                         weightBuffers.at(initialBufferIdx));
+                         weightBuffers.at(initialBufferIdx), {dnai});
     writeUndefPartitions(progBuilder.prePropagation,
-                         subGroupIdBuffers.at(initialBufferIdx));
+                         subGroupIdBuffers.at(initialBufferIdx), {dnai});
     getPropagationExchangeSources(graph, plan, options, homeOffset, inputs, {},
                                   inputHomeSources, {dnai});
     copyPartitions(graph, progBuilder.prePropagation, inputHomeSources,
-                   inputBuffers.at(initialBufferIdx), true);
+                   inputBuffers.at(initialBufferIdx), {dnai}, true);
     getPropagationExchangeSources(graph, plan, options, homeOffset, weights, {},
                                   weightHomeSources, {dnai});
     copyPartitions(graph, progBuilder.prePropagation, weightHomeSources,
-                   weightBuffers.at(initialBufferIdx), true);
+                   weightBuffers.at(initialBufferIdx), {dnai}, true);
     getPropagationExchangeSources(graph, plan, options, homeOffset, subGroupIds,
                                   {}, subGroupIdHomeSources, {dnai});
     copyPartitions(graph, progBuilder.prePropagation, subGroupIdHomeSources,
-                   subGroupIdBuffers.at(initialBufferIdx));
+                   subGroupIdBuffers.at(initialBufferIdx), {dnai});
   }
   // WriteUndef the other buffers. We do this after the initial copy from
   // home location to ensure these buffers aren't live at the same
@@ -1740,15 +1747,16 @@ static void addPropagationExchangesGradW(
        buffer != initialBufferIdx; buffer = (buffer + 1) % numBuffers) {
     if (plan.exchangeBuckets) {
       writeUndefPartitions(progBuilder.prePropagation,
-                           metaInfoBuffers.at(buffer));
+                           metaInfoBuffers.at(buffer), {dnai});
       writeUndefPartitions(progBuilder.prePropagation,
-                           partialBuffers.at(buffer));
+                           partialBuffers.at(buffer), {dnai});
     } else {
-      writeUndefPartitions(progBuilder.prePropagation, inputBuffers.at(buffer));
+      writeUndefPartitions(progBuilder.prePropagation, inputBuffers.at(buffer),
+                           {dnai});
+      writeUndefPartitions(progBuilder.prePropagation, weightBuffers.at(buffer),
+                           {dnai});
       writeUndefPartitions(progBuilder.prePropagation,
-                           weightBuffers.at(buffer));
-      writeUndefPartitions(progBuilder.prePropagation,
-                           subGroupIdBuffers.at(buffer));
+                           subGroupIdBuffers.at(buffer), {dnai});
     }
   }
 
@@ -1766,7 +1774,7 @@ static void addPropagationExchangesGradW(
   // We have 3 directions, X, Y, and Z, in which to propagate.
   for (std::size_t dirIdx = 0; dirIdx < numDirections; ++dirIdx) {
     const auto offset = getDir(1 + dirIdx);
-    Switch exchangeSwitch(bufferIdx);
+    Switch exchangeSwitch(bufferIdx, {dnai});
 
     unsigned bitsToFlip = 0;
     if (plan.exchangeBuckets) {
@@ -1780,7 +1788,7 @@ static void addPropagationExchangesGradW(
                                         metaInfoBuffers.at(sourceBuffer), {},
                                         sources, {dnai});
           copyPartitions(graph, exchangeProg, sources,
-                         metaInfoBuffers.at(buffer));
+                         metaInfoBuffers.at(buffer), {dnai});
         }
         {
           std::vector<Tensor> sources;
@@ -1788,7 +1796,7 @@ static void addPropagationExchangesGradW(
                                         partialBuffers.at(sourceBuffer), {},
                                         sources, {dnai});
           copyPartitions(graph, exchangeProg, sources,
-                         partialBuffers.at(buffer));
+                         partialBuffers.at(buffer), {dnai});
         }
         exchangeSwitch.add(buffer, std::move(exchangeProg));
       }
@@ -1820,7 +1828,7 @@ static void addPropagationExchangesGradW(
                                             inputBuffers.at(inputSourceBuffer),
                                             {}, sources, {dnai});
               copyPartitions(graph, exchangeProg, sources,
-                             inputBuffers.at(inputDestBuffer));
+                             inputBuffers.at(inputDestBuffer), {dnai});
             }
             if (moveWeights) {
               std::vector<Tensor> sources;
@@ -1828,7 +1836,7 @@ static void addPropagationExchangesGradW(
                   graph, plan, options, offset,
                   weightBuffers.at(weightSourceBuffer), {}, sources, {dnai});
               copyPartitions(graph, exchangeProg, sources,
-                             weightBuffers.at(weightDestBuffer));
+                             weightBuffers.at(weightDestBuffer), {dnai});
             }
             if (moveSubGroupIds) {
               std::vector<Tensor> sources;
@@ -1837,7 +1845,8 @@ static void addPropagationExchangesGradW(
                   subGroupIdBuffers.at(subGroupIdSourceBuffer), {}, sources,
                   {dnai});
               copyPartitions(graph, exchangeProg, sources,
-                             subGroupIdBuffers.at(subGroupIdDestBuffer));
+                             subGroupIdBuffers.at(subGroupIdDestBuffer),
+                             {dnai});
             }
             exchangeSwitch.add(inputDestBuffer * numBuffers * numBuffers +
                                    weightDestBuffer * numBuffers +
@@ -1863,10 +1872,11 @@ static void addPropagationExchangesGradW(
   // updated. We ensure these always end up at their original position
   // when doing propagation phases.
   if (plan.exchangeBuckets) {
-    Switch exchangeSwitch(bufferIdx);
+    Switch exchangeSwitch(bufferIdx, {dnai});
     for (std::size_t buffer = 0; buffer < numBuffers; ++buffer) {
       Sequence exchangeProg;
-      copyPartitions(graph, exchangeProg, partialBuffers.at(buffer), partials);
+      copyPartitions(graph, exchangeProg, partialBuffers.at(buffer), partials,
+                     {dnai});
       exchangeSwitch.add(buffer, std::move(exchangeProg));
     }
     progBuilder.postPropagation.add(exchangeSwitch);
@@ -1984,11 +1994,11 @@ static Tensor fullyConnectedImpl(
                                hierarchy, 0, perPartitionInputs,
                                {dnai, "partitionedInputs"});
     copyPartitions(graph, progBuilder.preDistribution, nextLevelInputs,
-                   perPartitionInputs);
+                   perPartitionInputs, {dnai});
     std::swap(nextLevelInputs, perPartitionInputs);
   }
 
-  writeUndefPartitions(progBuilder.preDistribution, partials);
+  writeUndefPartitions(progBuilder.preDistribution, partials, {dnai});
   const auto distributionCS =
       graph.addComputeSet({dnai, "ComputePartialsInitialDistribution"});
   compute(graph, distributionCS, shape, {}, plan, options, hierarchy, 0, true,
@@ -2013,8 +2023,8 @@ static Tensor fullyConnectedImpl(
                           propagationBuffers.values[buffer]);
     // WriteUndef buffers as they are written to/read from during dynamic
     // control flow
-    progBuilder.prePropagation.add(WriteUndef(metaInfoBuffer));
-    progBuilder.prePropagation.add(WriteUndef(nzValueBuffer));
+    progBuilder.prePropagation.add(WriteUndef(metaInfoBuffer, {dnai}));
+    progBuilder.prePropagation.add(WriteUndef(nzValueBuffer, {dnai}));
   }
   addPropagationExchanges(graph, progBuilder, shape, plan, options, hierarchy,
                           nextLevelPropagationBuckets, propagationBuffers,
@@ -2029,8 +2039,8 @@ static Tensor fullyConnectedImpl(
         propagationBuffers.metaInfo.at(buffer), partials, subGroupIds, {dnai});
   }
   progBuilder.propagationCompute =
-      Switch(bufferIdx, {{0, Execute(propagationCS.at(false))}},
-             Execute(propagationCS.at(true)));
+      Switch(bufferIdx, {{0, Execute(propagationCS.at(false), {dnai})}},
+             Execute(propagationCS.at(true), {dnai}), {dnai});
   const auto output =
       finalReduction(graph, progBuilder, shape, resultType, {}, plan, options,
                      hierarchy, 0, partials, false, {dnai});
@@ -2085,13 +2095,13 @@ static void computeInitialDistributionGradW(
     // WriteUndef the buffers we use in the compute programs when Z is
     // split. These may be partially written when copying partitions.
     if (moveInputs) {
-      writeUndefPartitions(computeProg, inputBuffer);
+      writeUndefPartitions(computeProg, inputBuffer, {dnai});
     }
     if (moveWeights) {
-      writeUndefPartitions(computeProg, weightBuffer);
+      writeUndefPartitions(computeProg, weightBuffer, {dnai});
     }
     if (moveSubGroupIds) {
-      writeUndefPartitions(computeProg, subGroupIdBuffer);
+      writeUndefPartitions(computeProg, subGroupIdBuffer, {dnai});
     }
     iteratePartitions(broadcastFactor, [&](const auto &i) {
       if (moveInputs) {
@@ -2100,7 +2110,7 @@ static void computeInitialDistributionGradW(
                                                broadcastFactor, nextLevelInputs,
                                                broadcastInputSource);
         copyPartitions(graph, computeProg, broadcastInputSource, inputBuffer,
-                       true);
+                       {dnai}, true);
       }
       if (moveWeights) {
         std::vector<Tensor> broadcastWeightSource;
@@ -2108,7 +2118,7 @@ static void computeInitialDistributionGradW(
             plan, options, i, broadcastFactor, nextLevelWeights,
             broadcastWeightSource);
         copyPartitions(graph, computeProg, broadcastWeightSource, weightBuffer,
-                       true);
+                       {dnai}, true);
       }
       if (moveSubGroupIds) {
         std::vector<Tensor> broadcastSubGroupIdSource;
@@ -2116,7 +2126,7 @@ static void computeInitialDistributionGradW(
                                                broadcastFactor, subGroupIds,
                                                broadcastSubGroupIdSource);
         copyPartitions(graph, computeProg, broadcastSubGroupIdSource,
-                       subGroupIdBuffer);
+                       subGroupIdBuffer, {dnai});
       }
       computeProg.add(Execute(computeCSs[zeroPartials], {dnai}));
       zeroPartials = false;
@@ -2168,9 +2178,10 @@ static void computePropagationGradW(
                   inputBuffers.at(inputBuffer), weightBuffers.at(weightBuffer),
                   metaInfo, partials, subGroupIdBuffers.at(subGroupIdBuffer),
                   {dnai});
-          computeProgs.at(flattenIndex(
-              computeProgIndexedShape,
-              {inputBuffer, weightBuffer, subGroupIdBuffer})) = Execute(cs);
+          computeProgs.at(
+              flattenIndex(computeProgIndexedShape,
+                           {inputBuffer, weightBuffer, subGroupIdBuffer})) =
+              Execute(cs, {dnai});
         }
       }
     }
@@ -2208,7 +2219,7 @@ static void computePropagationGradW(
                     plan, options, i, broadcastFactor,
                     inputBuffers.at(inputBuffer), broadcastSource);
                 copyPartitions(graph, computeProg, broadcastSource,
-                               inputBuffers.at(computeInputBuffer));
+                               inputBuffers.at(computeInputBuffer), {dnai});
               }
               if (moveWeights) {
                 std::vector<Tensor> broadcastSource;
@@ -2216,7 +2227,7 @@ static void computePropagationGradW(
                     plan, options, i, broadcastFactor,
                     weightBuffers.at(weightBuffer), broadcastSource);
                 copyPartitions(graph, computeProg, broadcastSource,
-                               weightBuffers.at(computeWeightBuffer));
+                               weightBuffers.at(computeWeightBuffer), {dnai});
               }
               if (moveSubGroupIds) {
                 std::vector<Tensor> broadcastSource;
@@ -2224,7 +2235,8 @@ static void computePropagationGradW(
                     plan, options, i, broadcastFactor,
                     subGroupIdBuffers.at(subGroupIdBuffer), broadcastSource);
                 copyPartitions(graph, computeProg, broadcastSource,
-                               subGroupIdBuffers.at(computeSubGroupIdBuffer));
+                               subGroupIdBuffers.at(computeSubGroupIdBuffer),
+                               {dnai});
               }
               computeProg.add(computeCS);
             });
@@ -2238,7 +2250,7 @@ static void computePropagationGradW(
     }
   }
 
-  auto computeSwitch = Switch(bufferIdx);
+  auto computeSwitch = Switch(bufferIdx, {dnai});
 
   for (std::size_t i = 0; i < computeProgs.size(); ++i) {
     computeSwitch.add(i, computeProgs[i]);
@@ -2328,7 +2340,7 @@ static Tensor fullyConnectedSparseGradWImpl(
                         {dnai, "partitionedMetaInfoBuckets"});
       getBucketsByPartition(plan, prearranged, perPartition);
       copyPartitions(graph, progBuilder.preDistribution,
-                     nextLevelMetaInfoBuckets, perPartition);
+                     nextLevelMetaInfoBuckets, perPartition, {dnai});
       std::swap(nextLevelMetaInfoBuckets, perPartition);
     }
 
@@ -2394,7 +2406,7 @@ static Tensor fullyConnectedSparseGradWImpl(
     }
   }
 
-  writeUndefPartitions(progBuilder.preDistribution, partials);
+  writeUndefPartitions(progBuilder.preDistribution, partials, {dnai});
   computeInitialDistributionGradW(
       graph, progBuilder.distributionCompute, shape, plan, options, hierarchy,
       nextLevelInputs, nextLevelWeights, nextLevelMetaInfoBuckets, partials,

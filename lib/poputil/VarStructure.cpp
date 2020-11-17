@@ -5,6 +5,7 @@
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 
+#include "poputil/DebugInfo.hpp"
 #include "poputil/exceptions.hpp"
 
 #include <algorithm>
@@ -90,10 +91,12 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
                                  const std::vector<std::size_t> &shape,
                                  const std::vector<std::size_t> &nPartitions,
                                  const poplar::DebugContext &debugContext) {
-  const auto debugName = debugContext.getPathName();
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(type, shape, nPartitions));
+
   logging::poputil::debug("createPartitionableTensor '{}' with shape={} and "
                           "nPartitions={}",
-                          debugName, shape, nPartitions);
+                          debugContext.getPathName(), shape, nPartitions);
 
   if (shape.size() != nPartitions.size()) {
     throw poplibs_error("createPartitionableTensor: shape.size() (" +
@@ -107,7 +110,7 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
   // so just return an appropriately shaped tensor.
   if (std::any_of(shape.begin(), shape.end(),
                   [](std::size_t n) { return n == 0; })) {
-    return graph.addVariable(type, shape, debugName);
+    return graph.addVariable(type, shape, {di});
   }
 
   // The problem we want to solve is that we want the slice of the returned
@@ -211,10 +214,9 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
             // Shuffle then flatten the number of partitions in each dimension
             // together with the shape of the partition in that dimension
             // (through a reshape to the permuted shape).
-            vars.push_back(
-                graph.addVariable(type, splitPermutedShape, debugName)
-                    .dimShuffle(inversePermutation)
-                    .reshape(permutedShape));
+            vars.push_back(graph.addVariable(type, splitPermutedShape, {di})
+                               .dimShuffle(inversePermutation)
+                               .reshape(permutedShape));
           });
 
   // Finally, stitch the variables created back together to form the full
@@ -255,6 +257,7 @@ Tensor createPartitionableTensor(Graph &graph, const Type &type,
   } while (nPartials != 1);
   const auto result = vars[0];
 
+  di.addOutput(result);
   return result;
 }
 

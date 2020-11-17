@@ -290,7 +290,7 @@ struct Padder {
                             0, {dnai, "paddingTensor"});
       graph.setTileMapping(c, 0);
       graph.setTileMapping(paddingTensor, tile);
-      transformPre.emplace_back(c, paddingTensor);
+      transformPre.emplace_back(c, paddingTensor, false, dnai);
 
       if (copyWritten.count(type) == 0) {
         copyWritten.insert(

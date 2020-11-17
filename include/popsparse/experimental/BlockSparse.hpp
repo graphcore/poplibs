@@ -58,7 +58,7 @@ poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
                          const std::vector<unsigned char> &sparsity,
                          SubBlockMask subBlockMaskType,
                          poplar::program::Sequence &prog,
-                         const std::string &debugStr = "");
+                         const poplar::DebugContext &debugContext = {});
 
 /** This function computes softmax on a sparse tensor, in place.
  *
@@ -89,7 +89,7 @@ void bsSoftmaxInPlace(poplar::Graph &graph, poplar::Tensor sparseTensor,
                       const std::vector<unsigned char> &sparsity,
                       SubBlockMask subBlockMaskType,
                       poplar::program::Sequence &prog,
-                      const std::string &debugStr = "");
+                      const poplar::DebugContext &debugContext = {});
 
 /** This function computes softmax gradient on a sparse tensor.
  *
@@ -120,7 +120,7 @@ poplar::Tensor bsSoftmaxGrad(poplar::Graph &graph, poplar::Tensor sparseOut,
                              const std::array<int, 2> &blockSize,
                              const std::vector<unsigned char> &sparsity,
                              poplar::program::Sequence &prog,
-                             const std::string &debugStr = "");
+                             const poplar::DebugContext &debugContext = {});
 
 } // namespace experimental
 } // namespace popsparse

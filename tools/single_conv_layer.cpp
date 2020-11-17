@@ -692,7 +692,7 @@ int main(int argc, char **argv) try {
 
     const auto conv = [&](std::vector<Tensor> &args, Sequence &prog) {
       return poplin::convolution(graph, args[0], args[1], params, false, prog,
-                                 "fwd/", fwdOptions, &cache);
+                                 "fwd", fwdOptions, &cache);
     };
 
     return {graph, {input(prevAct, "in"), input(weights, "weights")}, conv};

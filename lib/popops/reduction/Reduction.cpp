@@ -477,7 +477,7 @@ void reduceWithOutputProgOrCss(
     logging::popops::debug("Empty output tensor");
     if (params.update) {
       if (!out) {
-        out = graph.addVariable(outputType, {0});
+        out = graph.addVariable(outputType, {0}, {dnai, "emptyOutput"});
       }
     }
   }
@@ -647,10 +647,12 @@ void reduceWithOutputProgOrCss(
     // The tensors are all concatenated together before being passed to
     // WriteUndef for efficiency.
     if (reductionResultTensors.typeA.size() > 0) {
-      prog.add(program::WriteUndef(concat(reductionResultTensors.typeA)));
+      prog.add(
+          program::WriteUndef(concat(reductionResultTensors.typeA), {dnai}));
     }
     if (reductionResultTensors.typeB.size() > 0) {
-      prog.add(program::WriteUndef(concat(reductionResultTensors.typeB)));
+      prog.add(
+          program::WriteUndef(concat(reductionResultTensors.typeB), {dnai}));
     }
     for (const auto &cs : css) {
       prog.add(program::Execute(cs, {dnai}));

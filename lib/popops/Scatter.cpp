@@ -175,7 +175,7 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, poplar::Tensor input,
     out = popops::dynamicSlice(graph, input, sliceIndices, sliceDims,
                                newSliceSizes, prog);
   } else {
-    poplar::Tensor copy = graph.clone(input);
+    poplar::Tensor copy = graph.clone(input, {dnai});
     prog.add(poplar::program::Copy(input, copy, false, {dnai}));
     out = copy;
   }
@@ -321,7 +321,7 @@ void scatterInternal(
   // for (i = 0; i < scatterLoopTripCount; ++i)
   prog.add(poputil::countedLoop(
       graph, scatterLoopTrip, {dnai}, [&](poplar::Tensor i) {
-        poplar::program::Sequence prog;
+        poplar::program::Sequence prog({}, {dnai});
 
         // Pick the index to scatter from scatterIndices based on the
         // inductionVar and transform that to an index into the `operand` space.

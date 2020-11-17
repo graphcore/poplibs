@@ -2029,7 +2029,7 @@ Tensor multiSlice(Graph &graph, const Tensor &t, const Tensor &offset,
 
   prog.add(poputil::countedLoop(
       graph, offset.dim(0), {di, dName + "/loop"}, [&](poplar::Tensor sIdx) {
-        Sequence body;
+        Sequence body({}, {di});
         auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
                                  {di, dName + "/sliceIndex"})
                         .squeeze({0});
@@ -2101,7 +2101,7 @@ void multiUpdate(Graph &graph, const Tensor &t, const Tensor &sMulti,
   // looping case
   prog.add(countedLoop(
       graph, offset.dim(0), {di, dName + "/loop"}, [&](poplar::Tensor sIdx) {
-        Sequence body;
+        Sequence body({}, {di});
         auto tIdx = dynamicSlice(graph, offset, sIdx, {0}, {1}, body,
                                  {di, dName + "/sliceIndex"})
                         .squeeze({0});

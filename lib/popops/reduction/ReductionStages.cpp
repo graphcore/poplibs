@@ -218,7 +218,8 @@ void createInputReductions(
         } else {
           // Get the output slice.
           reductions[i].output = graph.addVariable(
-              outputType, {splitGroupedPartials[i].columns.size()});
+              outputType, {splitGroupedPartials[i].columns.size()},
+              {dnai, "output"});
           graph.setTileMapping(reductions[i].output, tile);
           // Record the outputs from the reduction ready to make the output
           // tensor, created in this function, to avoid re ordering

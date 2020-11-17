@@ -413,8 +413,8 @@ def capture_exec_cycles(log_output):
 #   //  - transformPostSerial
 #   //  - finalizeProg
 
-    exec_start_capture = re.compile(r'^([a-zA-Z]+\d)/timeBeforeCS_(\d+)$')
-    exec_end_capture = re.compile(r'^([a-zA-Z]+\d)/timeAfterCS_(\d+)$')
+    exec_start_capture = re.compile(r'^([a-zA-Z]+)/([a-zA-Z]+\d)/timeBeforeCS_(\d+)$')
+    exec_end_capture = re.compile(r'^([a-zA-Z]+)/([a-zA-Z]+\d)/timeAfterCS_(\d+)$')
     ExecStepsInfo = collections.namedtuple('ExecStepsInfo', ['location', 'cs', 'cycles'])
 
     valid = False
@@ -425,13 +425,13 @@ def capture_exec_cycles(log_output):
     for step in log_output:
         exec_steps_named = ExecStepsInfo._make(x for x in step)
         start_match = exec_start_capture.match(exec_steps_named.cs)
-        if start_match and start_match.group(1) in execution_fields_names:
-            execution_step_name = start_match.group(1)
-            compute_set_id = start_match.group(2)
+        if start_match and start_match.group(2) in execution_fields_names:
+            execution_step_name = start_match.group(2)
+            compute_set_id = start_match.group(3)
             continue
         end_match = exec_end_capture.match(exec_steps_named.cs)
-        if end_match and end_match.group(1) in execution_fields_names:
-            if compute_set_id != end_match.group(2):
+        if end_match and end_match.group(2) in execution_fields_names:
+            if compute_set_id != end_match.group(3):
                 logging.debug('Expected timeAfterCS_%s. Got timeAfterCS_%s', compute_set_id, end_match.group(2))
                 raise 'Couldn\'t find timeAfterCS_'
             compute_set_id = 0 # reset

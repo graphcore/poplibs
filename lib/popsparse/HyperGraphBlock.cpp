@@ -369,7 +369,7 @@ void HyperGraphBlock::createComputeSetMatMul(
   poplar::ComputeSet mulCS = graph.addComputeSet({dnai, "mulCS"});
   if (!matB.getNeedTranspose()) {
     poplar::ComputeSet transposeCS = graph.addComputeSet({dnai, "transposeCS"});
-    prog.add(poplar::program::Execute(transposeCS));
+    prog.add(poplar::program::Execute(transposeCS, {dnai}));
     createComputeSetMatMul(graph, partialData, mulCS, &transposeCS, prog,
                            {dnai});
   } else {
@@ -549,7 +549,7 @@ void HyperGraphBlock::createComputeSetReduce(
 
   poplar::ComputeSet reduceCS = graph.addComputeSet({dnai, "reduceCS"});
   createComputeSetReduce(graph, partialDataIn, reduceCS, {dnai});
-  prog.add(poplar::program::Execute(reduceCS));
+  prog.add(poplar::program::Execute(reduceCS, {dnai}));
 }
 
 void HyperGraphBlock::createComputeSetReduce(

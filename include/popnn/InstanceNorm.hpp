@@ -3,6 +3,7 @@
 #ifndef popnn_InstanceNorm_hpp
 #define popnn_InstanceNorm_hpp
 #include "popnn/GroupNorm.hpp"
+#include "poputil/DebugInfo.hpp"
 
 // Instance norm uses group norm with number of groups = number of channels
 
@@ -23,9 +24,17 @@ instanceNormStatistics(poplar::Graph &graph, const poplar::Tensor acts,
                        const poplar::Type &partialsType = poplar::FLOAT,
                        const poplar::DebugContext &debugContext = {},
                        const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormStatistics(
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(acts, eps, unbiasedVarEstimate,
+                                         stableAlgo, partialsType, options));
+
+  auto outputs = popnn::gn::groupNormStatistics(
       graph, acts, eps, prog, acts.dim(1), unbiasedVarEstimate, stableAlgo,
-      partialsType, debugContext.getPathName(), options);
+      partialsType, {di}, options);
+
+  di.addOutputs({{"mean", poputil::toProfileValue(outputs.first)},
+                 {"iStd", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Whiten activations given mean and standard deviation.
@@ -35,8 +44,13 @@ instanceNormWhiten(poplar::Graph &graph, const poplar::Tensor &acts,
                    poplar::program::Sequence &prog,
                    const poplar::DebugContext &debugContext = {},
                    const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormWhiten(graph, acts, mean, invStdDev, prog,
-                                    debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(acts, mean, invStdDev, options));
+
+  auto output = popnn::gn::groupNormWhiten(graph, acts, mean, invStdDev, prog,
+                                           {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /// Instance normalise activations given mean, standard deviation and norm
@@ -52,8 +66,15 @@ instanceNormalise(poplar::Graph &graph, const poplar::Tensor &acts,
                   poplar::program::Sequence &prog,
                   const poplar::DebugContext &debugContext = {},
                   const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormalise(graph, acts, gamma, beta, mean, invStdDev,
-                                   prog, debugContext.getPathName(), options);
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(acts, gamma, beta, mean, invStdDev, options));
+
+  auto outputs = popnn::gn::groupNormalise(graph, acts, gamma, beta, mean,
+                                           invStdDev, prog, {di}, options);
+
+  di.addOutputs({{"normActs", poputil::toProfileValue(outputs.first)},
+                 {"whitenedActs", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -64,9 +85,17 @@ inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormParamGradients(
-      graph, acts, gradsIn, mean, iStdDev, prog, partialsType,
-      debugContext.getPathName(), options);
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(acts, gradsIn, mean, iStdDev, partialsType, options));
+
+  auto outputs = popnn::gn::groupNormParamGradients(
+      graph, acts, gradsIn, mean, iStdDev, prog, partialsType, {di}, options);
+
+  di.addOutputs({{"meanGrad", poputil::toProfileValue(outputs.first)},
+                 {"iStdDevGrad", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Compute gradients w.r.t parameters for parameter update.
@@ -76,9 +105,16 @@ inline std::pair<poplar::Tensor, poplar::Tensor> instanceNormParamGradients(
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormParamGradients(
-      graph, actsWhitened, gradsIn, prog, partialsType,
-      debugContext.getPathName(), options);
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext, DI_ARGS(actsWhitened, gradsIn, partialsType, options));
+
+  auto outputs = popnn::gn::groupNormParamGradients(
+      graph, actsWhitened, gradsIn, prog, partialsType, {di}, options);
+
+  di.addOutputs({{"meanGrad", poputil::toProfileValue(outputs.first)},
+                 {"iStdDevGrad", poputil::toProfileValue(outputs.second)}});
+  return outputs;
 }
 
 /// Compute gradients w.r.t input activations for the instance norm layer.
@@ -93,9 +129,17 @@ instanceNormGradients(poplar::Graph &graph, const poplar::Tensor &acts,
                       const poplar::Type &partialsType = poplar::FLOAT,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormGradients(graph, acts, gradsIn, mean, invStdDev,
-                                       gamma, prog, partialsType,
-                                       debugContext.getPathName(), options);
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(acts, gradsIn, mean, invStdDev, gamma, partialsType, options));
+
+  auto output =
+      popnn::gn::groupNormGradients(graph, acts, gradsIn, mean, invStdDev,
+                                    gamma, prog, partialsType, {di}, options);
+
+  di.addOutput(output);
+  return output;
 }
 
 /// Compute gradients w.r.t input activations for the instance norm layer.
@@ -108,9 +152,16 @@ inline poplar::Tensor instanceNormGradients(
     const poplar::Type &partialsType = poplar::FLOAT,
     const poplar::DebugContext &debugContext = {},
     const poplar::OptionFlags &options = {}) {
-  return popnn::gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev,
-                                       gamma, prog, partialsType,
-                                       debugContext.getPathName(), options);
+
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(actsWhitened, gradsIn, invStdDev, gamma, partialsType, options));
+
+  auto output =
+      popnn::gn::groupNormGradients(graph, actsWhitened, gradsIn, invStdDev,
+                                    gamma, prog, partialsType, {di}, options);
+  di.addOutput(output);
+  return output;
 }
 
 /// Update parameters given gradients w.r.t. parameters.
@@ -121,9 +172,12 @@ instanceNormParamUpdate(poplar::Graph &graph, const poplar::Tensor &gammaDelta,
                         poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(gammaDelta, betaDelta, scale, gamma, beta, options));
+
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
-                                         gamma, beta, prog,
-                                         debugContext.getPathName(), options);
+                                         gamma, beta, prog, {di}, options);
 }
 
 inline void
@@ -133,9 +187,11 @@ instanceNormParamUpdate(poplar::Graph &graph, const poplar::Tensor &gammaDelta,
                         poplar::Tensor &beta, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         const poplar::OptionFlags &options = {}) {
+  poputil::PoplibsOpDebugInfo di(
+      debugContext,
+      DI_ARGS(gammaDelta, betaDelta, scale, gamma, beta, options));
   return popnn::gn::groupNormParamUpdate(graph, gammaDelta, betaDelta, scale,
-                                         gamma, beta, prog,
-                                         debugContext.getPathName(), options);
+                                         gamma, beta, prog, {di}, options);
 }
 
 /// In flop computation, the following applies:

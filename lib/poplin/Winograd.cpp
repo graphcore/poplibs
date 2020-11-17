@@ -851,7 +851,8 @@ static Program kernelTransform(Graph &graph, const WinogradOptions &options,
 }
 
 static std::vector<Tensor> allocateKernelTfTensor(Graph &graph,
-                                                  const WgdTilePartition &tp) {
+                                                  const WgdTilePartition &tp,
+                                                  const DebugNameAndId &dnai) {
   std::vector<Tensor> kernelTf;
 
   if (!tp.replicateKTf) {
@@ -860,7 +861,7 @@ static std::vector<Tensor> allocateKernelTfTensor(Graph &graph,
     kernelTf[0] = graph.addVariable(
         tp.dType,
         {tp.zog, tp.zig, tp.patchSizeY, tp.patchSizeX, tp.zoc, tp.zic},
-        "WgdKernelTransform");
+        {dnai, "WgdKernelTransform"});
 
   } else {
     kernelTf.resize(graph.getTarget().getNumTiles());
@@ -1136,7 +1137,8 @@ static Program dataTransform(Graph &graph, const WinogradOptions &options,
 }
 
 static std::vector<Tensor> allocateDataTfTensor(Graph &graph,
-                                                const WgdTilePartition &tp) {
+                                                const WgdTilePartition &tp,
+                                                const DebugNameAndId &dnai) {
   std::vector<Tensor> dataTf;
 
   assert(tp.zic % WgdTilePartition::dUnitSize == 0);
@@ -1147,7 +1149,7 @@ static std::vector<Tensor> allocateDataTfTensor(Graph &graph,
     dataTf[0] = graph.addVariable(
         tp.dType,
         {tp.zig, tp.getNumPatches(), tp.patchSizeY, tp.patchSizeX, tp.zic},
-        "WgdDataTransform");
+        {dnai, "WgdDataTransform"});
   } else {
     dataTf.resize(graph.getTarget().getNumTiles());
   }
@@ -1274,7 +1276,7 @@ static Program accum(Graph &graph, const WgdTilePartition &tp,
     numZig -= zigThisTile;
   }
 
-  Sequence prog;
+  Sequence prog({}, {dnai});
   prog.add(Execute(cs, {dnai}));
   return std::move(prog);
 }
@@ -1589,11 +1591,11 @@ extern Program winogradConvolution(Graph &graph, const WinogradOptions &options,
 
   wgdMapWeights(graph, options, tp, weights);
 
-  std::vector<Tensor> dataTf = allocateDataTfTensor(graph, tp);
+  std::vector<Tensor> dataTf = allocateDataTfTensor(graph, tp, {dnai});
   prog.add(
       computeDataTransform(graph, options, tp, {dnai, layerName}, in, dataTf));
 
-  std::vector<Tensor> kernelTf = allocateKernelTfTensor(graph, tp);
+  std::vector<Tensor> kernelTf = allocateKernelTfTensor(graph, tp, {dnai});
   prog.add(computeKernelTransform(graph, options, tp, {dnai, layerName},
                                   weights, kernelTf));
 
@@ -1633,7 +1635,7 @@ Program winogradConvolution(Graph &graph, const WinogradParams &params,
                             unsigned patchSizeX, unsigned patchSizeY,
                             const Type &partialsType,
                             const poplar::DebugNameAndId &dnai) {
-  Sequence prog;
+  Sequence prog({}, {dnai});
   const auto batchSize = in.dim(0);
   const auto dType = in.elementType();
   // Perform each element of the batch serially

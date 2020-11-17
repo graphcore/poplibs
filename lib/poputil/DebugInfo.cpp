@@ -21,6 +21,11 @@ poplar::ProfileValue toProfileValue(const poplar::program::Copy &t) {
 }
 
 template <>
+poplar::ProfileValue toProfileValue(const poplar::program::Sequence &t) {
+  return poplar::ProfileValue("<poplar::program::Sequence>");
+}
+
+template <>
 poplar::ProfileValue toProfileValue(const poplar::TensorCloneMethod &t) {
   switch (t) {
   case poplar::TensorCloneMethod::PRESERVE_ORDER_AND_ALIASES:
@@ -73,6 +78,10 @@ template <> poplar::ProfileValue toProfileValue(const unsigned long &t) {
 }
 
 template <> poplar::ProfileValue toProfileValue(const unsigned int &t) {
+  return poplar::ProfileValue(t);
+}
+
+template <> poplar::ProfileValue toProfileValue(const unsigned char &t) {
   return poplar::ProfileValue(t);
 }
 

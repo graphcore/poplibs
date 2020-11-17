@@ -450,7 +450,7 @@ poplar::Tensor triangularSolve(
 
   auto x = graph.addVariable(a.elementType(), batchB.shape(), {di});
   poputil::mapTensorLinearly(graph, x);
-  popops::zero(graph, x, prog);
+  popops::zero(graph, x, prog, {di});
   params.x = x;
 
   solve(graph, batchA, batchB, 0, 0, params, prog, {di, "solve"});

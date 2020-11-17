@@ -12,7 +12,8 @@ namespace pooling {
 void createPoolingVertex(poplar::Graph &graph, const PoolParams &params,
                          const poplar::Tensor &prevAct,
                          const poplar::Tensor &nextAct,
-                         poplar::program::Sequence &prog);
+                         poplar::program::Sequence &prog,
+                         const poplar::DebugNameAndId &dnai);
 
 poplin::ConvParams makeConvParams(const PoolParams &poolParams);
 

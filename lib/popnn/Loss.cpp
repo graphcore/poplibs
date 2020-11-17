@@ -318,7 +318,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
     break;
   }
 
-  Sequence prog;
+  Sequence prog({}, {dnai});
   const auto &target = graph.getTarget();
   const auto &dType = modelOutputs.elementType();
   const unsigned atomicStoreGranularity = target.getAtomicStoreGranularity();
@@ -398,7 +398,7 @@ Program calcLoss(Graph &graph, const Tensor &modelOutputs,
 /// \param[in] resultType  type to use for the result elements
 /// \param[in] prog        the sequence to add compute sets to
 /// \param[in] resultTile  the tile where the final result must be placed
-/// \param[in] debugPrefix as the name says
+/// \param[in] debugContext as the name says
 /// \param[in] max         if True find max, else find min
 ///
 /// \return a 1-D tensor of integral type with as many elements as the rows of
@@ -782,7 +782,7 @@ Tensor argMin(Graph &graph, const Tensor &input, Sequence &prog,
 ///                         place the result: the number of elements in
 ///                         'expected' that correctly indicate the max for their
 //                          rows
-/// \param[in] debugPrefix  as the name says
+/// \param[in] debugContext  as the name says
 Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
                      const Tensor &expected, const Tensor &numCorrect,
                      const poplar::DebugContext &debugContext) {
@@ -820,7 +820,7 @@ Program calcAccuracy(Graph &graph, const Tensor &modelOutputs,
   assert(numCorrectTile);
 
   // Get the indices of the max value of each row of 'modelOutput'
-  Sequence prog;
+  Sequence prog({}, {di});
   auto maxIndices = argMinOrMax(graph, modelOutputs, expected.elementType(),
                                 prog, *numCorrectTile, {di, layerPrefix});
 
