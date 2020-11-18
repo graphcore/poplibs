@@ -4,6 +4,8 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include <limits>
+
 using namespace poplar;
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 

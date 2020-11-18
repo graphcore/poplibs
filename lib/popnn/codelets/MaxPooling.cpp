@@ -6,6 +6,8 @@
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
 
+#include <limits>
+
 using namespace poplar;
 #if defined(VECTOR_AVAIL_SCALED_PTR32) &&                                      \
     defined(VECTOR_AVAIL_SCALED_PTR64) && defined(VECTORLIST_AVAIL_DELTAN)
