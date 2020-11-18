@@ -14,7 +14,7 @@
 #define MTOA_SCRATCH_OFFSET              0
 
 // Number of 64-bits read from PRNG for warm-up after seed is set
-#define WARMUP_RPT_COUNT                 10
+#define WARMUP_RPT_COUNT                 15
 
 //Supervisor registers
 #define mWrkrEntry  m1

@@ -130,7 +130,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DropoutSupervisor)(
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(SetSeedSupervisor)(const VertexIntrospector &vertex,
                                              const Target &target) {
-  return 14 + 22 * target.getNumWorkerContexts();
+  return 14 + 27 * target.getNumWorkerContexts();
 }
 
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
