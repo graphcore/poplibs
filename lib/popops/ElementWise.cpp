@@ -925,8 +925,12 @@ bool binaryOpBroadcastInnerVector(
       const auto size = std::min(
           cIntervalIt->size() + offset - cIntervalIt->begin(), numRemaining);
       // The implementation for  half vertices is slow for the non-vectorised
-      // case. Avoid using this case until a better implementation is written.
-      if (dType == HALF && (size % vectorWidth)) {
+      // add, mul cases. Avoid using this case until a better implementation is
+      // written.
+      // The slow path is picked when the vector that is repeated has a length
+      // which is not a multiple of the vectorWidth
+      if (op != BinaryOpType::DIVIDE && dType == HALF &&
+          (pIt->regionNumElements() % vectorWidth)) {
         return false;
       }
       splitIntervalsIt->emplace_back(offset, offset + size);
