@@ -17,8 +17,30 @@ namespace pooling {
 // The preferred channel grouping is one which is beneficial to other operations
 // we will pick pooling plans with this grouping if the cost to the pooling
 // operation is not excessive.
-inline unsigned getPreferredChannelGrouping(poplar::Type type) {
-  return type == poplar::HALF ? 16 : 8;
+inline unsigned getPreferredChannelGrouping(poplar::Type type, PoolingType op) {
+  if (op == PoolingType::MAX) {
+    return type == poplar::HALF ? 16 : 8;
+  } else {
+    // Note that for HALF data AVG or SUM pool, Tensorflow will:
+    // cast to FLOAT, call pool, cast to HALF
+    // in order to use FLOAT partials for accuracy.  This means here we are
+    // dealing with FLOAT data, but the grouping that is useful elsewhere is
+    // different.  The parameter below allows the planner to pick favourable
+    // plans with a grouping of 4 floats (cast to halves) and therefore later
+    // operations function better due to the preferred groupign provided.
+    // TODO - T7321 Would allow the pooling library to know that the case
+    //        described above is active and to target it more specifically.
+    return type == poplar::HALF ? 16 : 4;
+  }
+}
+// The min channel grouping is that which is as small as possible to help the
+// pooling operation be planned flexibly.
+inline unsigned getMinChannelGrouping(poplar::Type type, PoolingType op) {
+  if (op == PoolingType::MAX) {
+    return type == poplar::HALF ? 4 : 2;
+  } else {
+    return type == poplar::HALF ? 4 : 2;
+  }
 }
 
 // Captures details of the transformed pooling input Tensor and parameters

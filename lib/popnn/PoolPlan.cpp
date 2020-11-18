@@ -417,7 +417,7 @@ PlanResult getPlan(const poplar::Graph &graph, const PoolConfig &poolCfg,
   // so that channels were combined into the spatial dimensions no longer
   // giving enough channels to meet the preferred channel grouping.
   const auto minChannelsPerGroup =
-      getPreferredChannelGrouping(inputGrouped.params.inputType);
+      getPreferredChannelGrouping(inputGrouped.params.inputType, poolCfg.type);
   auto numChannelsGrouped = inputGrouped.in.shape().back();
   if (plan.partition.chansPerGroup < minChannelsPerGroup &&
       numChannelsGrouped >= minChannelsPerGroup) {

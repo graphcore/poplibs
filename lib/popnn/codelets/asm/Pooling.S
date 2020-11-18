@@ -1,4 +1,37 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
+
+// Data arrangement.
+// Each of the data vectors: in, out, fwdActIn, fwdActsOut is laid out in this way:
+
+// ------------------------------------------------------------------------
+// | Slice 0 Row 0 | Slice 0 Row 1 || Slice 1 Row 0  | Slice 1 Row 1 || Slice 2....
+// ------------------------------------------------------------------------
+//                Slice 0          ||              Slice 1           || Slice 2
+//
+// The vertex processes a number of slices, each of which is split into a
+// number of rows.  Each slice is the same size and represents a channel group.
+// A channel group can have any multiple of 4 (half) or 2 (float) channels in it.
+// Each worker is responsible for a part of the workList.  A piece of its workList
+// will process Slice0-Row0 and Slice1-Row0 in an identical way.
+//
+// Due to the possibility of a stride in the pooling operation, an `in` vector
+// can be a different size to an `out` vector.
+//
+// The outmost loop is for each row.
+// The next loop in is for each worklist entry
+// The next loop is over the slices
+// So the inner most loop processes a worklist entry over a given row within the slice.
+//
+// Observations on efficiency:
+// We need the effective row length to be large to get to use the inner loop with a
+// large loop count - this is the most efficient the vertex can be.
+// Several worklist entries are required to process any output - a 2x2 kernel needs
+// 4 worklist entries, so the worklist loop needs to run several times.
+// There can be just one row, one slice (Possible with work division between tiles),
+// so the slice loop is inside the worklist loop and the slice loop may not even run.
+// We could swap the worklist and slice loops, but the slice loop is simple and the
+// worklist loop complex.
+
 #ifdef __IPU__
 
 #include "poplibs_support/TileConstants.hpp"
@@ -15,8 +48,8 @@
 // vertex state, all offsets are 16-bit. all of the output and inputs (inc.
 // the activations) are aligned to 64-bit and the size is guaranteed to align
 // to 32-bits (so, there will be an even amount of halves).
-#define VERTEX_OUT_PTR_PTR_OFFSET 0
-#define VERTEX_IN_PTR_PTR_OFFSET 2
+#define VERTEX_OUT_PTR_OFFSET 0
+#define VERTEX_IN_PTR_OFFSET 2
 #define VERTEX_START_POS_PTR_OFFSET 4
 #define VERTEX_OFFSET_BASE_PTR_OFFSET 6
 #define VERTEX_WORK_LIST_BASE_OFFSET 8
@@ -26,12 +59,16 @@
 #define VERTEX_CHANS_PER_GROUP_OFFSET 18
 #define VERTEX_IN_STRIDE_OFFSET 20
 #define VERTEX_OUT_STRIDE_OFFSET 24
-#define VERTEX_SCALE_OFFSET 28 // SumPooling only
-#define VERTEX_FWD_ACTS_IN_PTR_PTR_OFFSET 28 // MaxPoolingGrad only
-#define VERTEX_FWD_ACTS_OUT_PTR_PTR_OFFSET 30 // MaxPoolingGrad only
+#define VERTEX_IN_SLICE_SIZE  28
+#define VERTEX_OUT_SLICE_SIZE 32
+#define VERTEX_SCALE_OFFSET 36 // SumPooling only
+#define VERTEX_FWD_ACTS_IN_PTR_OFFSET 36 // MaxPoolingGrad only
+#define VERTEX_FWD_ACTS_OUT_PTR_OFFSET 38 // MaxPoolingGrad only
+
 #else
-#define VERTEX_OUT_PTR_PTR_OFFSET 0
-#define VERTEX_IN_PTR_PTR_OFFSET 4
+
+#define VERTEX_OUT_PTR_OFFSET 0
+#define VERTEX_IN_PTR_OFFSET 4
 #define VERTEX_START_POS_PTR_OFFSET 8
 #define VERTEX_OFFSET_BASE_PTR_OFFSET 12
 #define VERTEX_WORK_LIST_BASE_OFFSET 16
@@ -41,23 +78,25 @@
 #define VERTEX_CHANS_PER_GROUP_OFFSET 28
 #define VERTEX_IN_STRIDE_OFFSET 32
 #define VERTEX_OUT_STRIDE_OFFSET 36
-#define VERTEX_SCALE_OFFSET 40 // SumPooling only
-#define VERTEX_FWD_ACTS_IN_PTR_PTR_OFFSET 40 // MaxPoolingGrad only
-#define VERTEX_FWD_ACTS_OUT_PTR_PTR_OFFSET 44 // MaxPoolingGrad only
+#define VERTEX_IN_SLICE_SIZE  40
+#define VERTEX_OUT_SLICE_SIZE 44
+#define VERTEX_SCALE_OFFSET 48 // SumPooling only
+#define VERTEX_FWD_ACTS_IN_PTR_OFFSET 48 // MaxPoolingGrad only
+#define VERTEX_FWD_ACTS_OUT_PTR_OFFSET 52 // MaxPoolingGrad only
 #endif
 
 // stack state, all offsets are 32-bit
 #define STACK_NUM_ROWS_OFFSET 0
 #define STACK_NUM_WORK_ITEMS_OFFSET 1
 #define STACK_START_POS_OFFSET 2
-#define STACK_WORK_LIST_OFFSET_OFFSET 3
+#define STACK_WORK_LIST_BASE_OFFSET 3
 #define STACK_PACKED_INOUT_POS_OFFSET 4
-#define STACK_IN_POS_OFFSET 5
-#define STACK_OUT_POS_OFFSET 6
-#define STACK_OUT_PTR_PTR_OFFSET 7
-#define STACK_IN_PTR_PTR_OFFSET 8
-#define STACK_FWD_ACTS_IN_PTR_PTR_OFFSET 9
-#define STACK_FWD_ACTS_OUT_PTR_PTR_OFFSET 10
+#define STACK_OFFSET_BASE_PTR_OFFSET 5
+#define STACK_WORKLIST_DELTA_PTR_OFFSET 6
+#define STACK_OUT_PTR_OFFSET 7
+#define STACK_IN_PTR_OFFSET 8
+#define STACK_FWD_ACTS_IN_PTR_OFFSET 9
+#define STACK_FWD_ACTS_OUT_PTR_OFFSET 10
 
 // constants
 #define LDCONST_MASK ((1<<20)-1)
@@ -83,44 +122,23 @@
 
 // integer variables, due to register pressure there is quite a bit of overlap.
 // we must be careful that the liveness of aliases registers does not clash.
-#define outPtrPtr m0
-#define fwdActsOutPtrPtr m0 // same as outPtrPtr
-#define fwdActsOutPtr m0 // same as outPtrPtr
-#define numChanGroupsM1 m1
-#define chansPerGroup m2
-#define inPtrPtr m3
-#define fwdActsInPtrPtr m3 // same as inPtrPtr
-#define fwdActsInPtr m3 // same as inPtrPtr
-#define inPtr m4
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-#define base m4 // also inPtr
-#else
-#define base mzero
-#endif
-#define workListBase m5
-#define initInfo m5 // also workListBase
-#define outPos m6
-#define workListDeltaPtr m6 // also outPos and outOffset
-#define outOffset m6 // also outPos and workListDeltaPtr
-#define inPos m7
-#define startPosPtr m7 // also inPos and inOffset
-#define inOffset m7 // also inPos and startPosPtr
-#define numRows m8
-#define outPtr m8 // also numRows
-#define workListOffset m9
-#define inStride m9 // also workListOffset
-#define numWorkItems m10
-#define offsetBasePtr m10 // also numWorkItems and outStride
-#define outStride m10 // also numWorkItems and offsetBasePtr
-#define numElementsM1 m11
-#define startPos m11 // also numElementsM1
-#define workerPtr m11 // also startPos and numElementsM1
 
-// variables used for initialising the output buffers
-#define numElems_i  m9
-#define rem_i       m10
-#define extra_i     m10
-#define worker_x8_i m5
+// Define loop variables - need to be the same as those defined before the inner loop macros
+// are used
+#define fwdActsOutPtr m0
+#define fwdActsInPtr m3
+#define inPtr m4
+#define outPtr m8
+#define outOffset m6
+#define inOffset m7
+#define inStride m9
+#define outStride m10
+
+#define numElementsM1 m11
+
+
+// NumRows isn't valid throughout but is referenced throughout
+#define numRows m8
 
 // =============================================================================
 // Inner loop macros
@@ -329,6 +347,19 @@
   st64step $a0:1, $outPtr, $outOffset+=, $outStride
 .endm
 
+// ============================
+#undef fwdActsOutPtr
+#undef fwdActsInPtr
+#undef inPtr
+#undef outPtr
+#undef outOffset
+#undef inOffset
+#undef inStride
+#undef outStride
+
+#undef numElementsM1
+// ============================
+
 // =============================================================================
 // Macro for supervisor entry then worker function
 .macro DEFINE_VERTEX symbol isMaxPool isFloat isBwdPass INNER_LOOP_FUNCTION
@@ -361,20 +392,44 @@ DEF_STACK_USAGE 0 \symbol
 // Worker entry
 .align 8
 .worker
+  nop       // rpt alignment
 kernel\@:
+
+// ============================
+#define numChanGroupsM1 m1
+
+#define chansPerGroup m2
+#define initInfo m5
+#define worker_x8_i m5
+
+#define outPtr_i m7
+#define numElems_i  m9
+#define outPtr m8
+#define rem_i       m10
+#define extra_i     m10
+#define workerPtr m11
+#if COMPACT_VECTOR_TYPES_AVAILABLE
+#define base m4
+#else
+#define base mzero
+#endif
+// ============================
+
   // load vertex state needed for initialisation first.
   ldz16 $initInfo, $mzero, $mvertex_base, VERTEX_INIT_INFO_OFFSET/2
   ldz16 $numChanGroupsM1, $mzero, $mvertex_base, VERTEX_NUM_CHAN_GROUPS_OFFSET/2
   ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET/2
+  add   $chansPerGroup, $chansPerGroup, 1
 
   // unpack the scaled output pointer
 #if COMPACT_VECTOR_TYPES_AVAILABLE
   setzi $base, TMEM_REGION0_BASE_ADDR
-  ldz16 $outPtrPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_PTR_OFFSET/2
-  shl $outPtrPtr, $outPtrPtr, SCALED_PTR32_SHL_BITS
+  ldz16 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/2
+  shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
 #else
-  ld32 $outPtrPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_PTR_OFFSET/4
+  ld32 $outPtr, $mzero, $mvertex_base, VERTEX_OUT_PTR_OFFSET/4
 #endif
+  st32 $outPtr, $mzero, $mworker_base, STACK_OUT_PTR_OFFSET
 
   // most of the state (including the offsets inside the work list) are scaled
   // by chansPerGroup to save memory, expand init info now, we will scale up
@@ -404,27 +459,43 @@ kernel\@:
   add $numElems_i, $numElems_i, $extra_i
   shl $worker_x8_i, $workerPtr, 3
 
+  ld32 $chansPerGroup, $mzero, $mvertex_base, VERTEX_OUT_SLICE_SIZE/4
+.if \isFloat
+  shl $chansPerGroup, $chansPerGroup, 2   // Floats - 4 bytes per
+.else
+  shl $chansPerGroup, $chansPerGroup, 1   // Halves - 2 bytes per
+.endif
+
 init_loop\@:
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  ldz16 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
-  shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
-#else
-  {
-    ld32 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
-    fnop // rpt alignment
-  }
-#endif
+  mov $outPtr_i, $outPtr
+
   {
     rpt $numElems_i, (2f-1f)/8-1
     mov $a1, $a0
   }
 1:
   {
-    st64step $a0:1, $worker_x8_i, $outPtr+=, 6
+    st64step $a0:1, $worker_x8_i, $outPtr_i+=, 6
     fnop
   }
 2:
+  add $worker_x8_i, $worker_x8_i, $chansPerGroup
   brnzdec $numChanGroupsM1, init_loop\@
+
+// ============================
+#undef chansPerGroup
+#undef numElems_i
+#undef rem_i
+#undef extra_i
+#undef worker_x8_i
+#undef outPtr_i
+#undef initInfo
+#undef outPtr
+#undef numChanGroupsM1
+
+#define startPosPtr m7
+#define startPos m11
+// ============================
 
   // next we initialise the numRows and startPos registers, do this before
   // loading more state so we can reuse the startPosPtr register afterwards.
@@ -455,13 +526,26 @@ init_loop\@:
   // save startPos to the stack to ease register pressure.
   st32 $startPos, $mzero, $mworker_base, STACK_START_POS_OFFSET
 
-  // load the rest of the vertex state, in preperation for the main loop.
+// ============================
+#undef startPosPtr
+#undef workerPtr
+#undef startPos
+
+#define inPtrTemp m3
+// ============================
+ // load the rest of the vertex state, in preperation for the main loop.
 #if COMPACT_VECTOR_TYPES_AVAILABLE
-  ldz16 $inPtrPtr, $mzero, $mvertex_base, VERTEX_IN_PTR_PTR_OFFSET/2
-  shl $inPtrPtr, $inPtrPtr, SCALED_PTR32_SHL_BITS
+  ldz16 $inPtrTemp, $mzero, $mvertex_base, VERTEX_IN_PTR_OFFSET/2
+  shl $inPtrTemp, $inPtrTemp, SCALED_PTR64_SHL_BITS
 #else
-  ld32 $inPtrPtr, $mzero, $mvertex_base, VERTEX_IN_PTR_PTR_OFFSET/4
+  ld32 $inPtrTemp, $mzero, $mvertex_base, VERTEX_IN_PTR_OFFSET/4
 #endif
+  st32 $inPtrTemp, $mzero, $mworker_base, STACK_IN_PTR_OFFSET
+// ============================
+#undef inPtrTemp
+
+#define workListBase m9
+// ============================
 
   // sum pooling state includes a scale too.
 .if \isMaxPool
@@ -485,66 +569,87 @@ init_loop\@:
   }
 .endif
 
-
+// ============================
+#define fwdActsOutPtr m0
+#define fwdActsInPtr m3
+// ============================
 .if \isBwdPass
-  // save the two outer pointers on the stack and then load and unpack the
-  // activations pointers for the backwards pass (they share the same registers)
-  st32 $outPtrPtr, $mzero, $mworker_base, STACK_OUT_PTR_PTR_OFFSET
-  st32 $inPtrPtr, $mzero, $mworker_base, STACK_IN_PTR_PTR_OFFSET
-
+  // Load and unpack the activations pointers for the backwards pass
 #if COMPACT_VECTOR_TYPES_AVAILABLE
-  ldz16 $fwdActsOutPtrPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_OUT_PTR_PTR_OFFSET/2
-  ldz16 $fwdActsInPtrPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_IN_PTR_PTR_OFFSET/2
+  ldz16 $fwdActsOutPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_OUT_PTR_OFFSET/2
+  ldz16 $fwdActsInPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_IN_PTR_OFFSET/2
 
-  shl $fwdActsOutPtrPtr, $fwdActsOutPtrPtr, SCALED_PTR32_SHL_BITS
-  shl $fwdActsInPtrPtr, $fwdActsInPtrPtr, SCALED_PTR32_SHL_BITS
+  shl $fwdActsOutPtr, $fwdActsOutPtr, SCALED_PTR64_SHL_BITS
+  shl $fwdActsInPtr, $fwdActsInPtr, SCALED_PTR64_SHL_BITS
 #else
-  ld32 $fwdActsOutPtrPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_OUT_PTR_PTR_OFFSET/4
-  ld32 $fwdActsInPtrPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_IN_PTR_PTR_OFFSET/4
+  ld32 $fwdActsOutPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_OUT_PTR_OFFSET/4
+  ld32 $fwdActsInPtr, $mzero, $mvertex_base, VERTEX_FWD_ACTS_IN_PTR_OFFSET/4
 #endif
 
-  st32 $fwdActsOutPtrPtr, $mzero, $mworker_base, STACK_FWD_ACTS_OUT_PTR_PTR_OFFSET
-  st32 $fwdActsInPtrPtr, $mzero, $mworker_base, STACK_FWD_ACTS_IN_PTR_PTR_OFFSET
+  st32 $fwdActsOutPtr, $mzero, $mworker_base, STACK_FWD_ACTS_OUT_PTR_OFFSET
+  st32 $fwdActsInPtr, $mzero, $mworker_base, STACK_FWD_ACTS_IN_PTR_OFFSET
 .endif
+// ============================
+#undef fwdActsInPtr
+#undef fwdActsOutPtr
+// ============================
 
   // we only want the work list base, not the size.
   shl $workListBase, $workListBase, DELTAN_COUNT_BITS
   shr $workListBase, $workListBase, DELTAN_COUNT_BITS
+  st32 $workListBase, $mzero, $mworker_base, STACK_WORK_LIST_BASE_OFFSET
 
-  sub $numRows, $numRows, 1
+  // load and expand offsetBasePtr and workListDeltaPtr and store them on the
+  // stack for later use.
+// ============================
+#define workListDeltaPtr m6
+#define offsetBasePtr m10
+// ============================
 
-row_loop\@:
-  // load and expand offsetBasePtr and workListDeltaPtr each row iteration.
-  // TODO - T15184: Expand pointers once and store them on the stack for later
-  // use. Note that this routine already uses up most of the available scratch
-  // space.
 #if COMPACT_VECTOR_TYPES_AVAILABLE
   ldz16 $offsetBasePtr, $mzero, $mvertex_base, VERTEX_OFFSET_BASE_PTR_OFFSET/2
   ldz16 $workListDeltaPtr, $mzero, $mvertex_base, VERTEX_WORK_LIST_DELTA_PTR_OFFSET/2
 
   shl $offsetBasePtr, $offsetBasePtr, SCALED_PTR32_SHL_BITS
   shl $workListDeltaPtr, $workListDeltaPtr, SCALED_PTR32_SHL_BITS
+  // Adding and applying base address costs time but means we don't need to load it
+  // inside a loop
+  add  $workListDeltaPtr, $workListDeltaPtr, $base
+  add  $offsetBasePtr, $offsetBasePtr, $base
 
-  setzi $base, TMEM_REGION0_BASE_ADDR
 #else
   ld32 $offsetBasePtr, $mzero, $mvertex_base, VERTEX_OFFSET_BASE_PTR_OFFSET/4
-  {
     ld32 $workListDeltaPtr, $mzero, $mvertex_base, VERTEX_WORK_LIST_DELTA_PTR_OFFSET/4
-    fnop // rpt alignment
-  }
   // we only want the work list base, not the size.
   shl $workListDeltaPtr, $workListDeltaPtr, DELTAN_COUNT_BITS
   shr $workListDeltaPtr, $workListDeltaPtr, DELTAN_COUNT_BITS
 #endif
+  st32 $offsetBasePtr, $mzero, $mworker_base, STACK_OFFSET_BASE_PTR_OFFSET
+  st32 $workListDeltaPtr, $mzero, $mworker_base, STACK_WORKLIST_DELTA_PTR_OFFSET
+
+// ============================
+#undef base
+// ============================
+
+  sub $numRows, $numRows, 1
+
+row_loop\@:
+  ld32 $offsetBasePtr, $mzero, $mworker_base, STACK_OFFSET_BASE_PTR_OFFSET
+  ld32 $workListDeltaPtr, $mzero, $mworker_base, STACK_WORKLIST_DELTA_PTR_OFFSET
 
   // our loop counter gets trashed by an inner loop so save it now.
   st32 $numRows, $mzero, $mworker_base, STACK_NUM_ROWS_OFFSET
 
-  // startPos aliases to numElementsM1 so it is safe it use it here.
+// ============================
+#define startPos m11 // also numElementsM1
+#define inPos m7
+#define workListOffset m5
+// ============================
+ // startPos aliases to numElementsM1 so it is safe it use it here.
   ld32 $startPos, $mzero, $mworker_base, STACK_START_POS_OFFSET
   add $startPos, $startPos, $numRows
 
-  ld32 $workListOffset, $base, $workListDeltaPtr, $startPos
+  ld32 $workListOffset, $mzero, $workListDeltaPtr, $startPos
 
   // before we lose startPos, use it to load the out and in offset bases.
   // these form the base of our eventual indices into the vectors in the
@@ -552,9 +657,15 @@ row_loop\@:
 
   // dummy load to setup pointer. Since offsetBasePtr is SCALED_PTR32 it is
   // always guaranteed to be a multiple of 4
-  ld32 $inPos, $base, $offsetBasePtr, $startPos
+  ld32 $inPos, $mzero, $offsetBasePtr, $startPos
+// ============================
+#undef startPos
+#undef offsetBasePtr
+#undef workListDeltaPtr
 
-  // store are current intermediate outPos and inPos onto the stack for
+#define numWorkItems m10
+// ============================
+  // store our current intermediate outPos and inPos onto the stack for
   // access each iteration of the next loop (where they are altered for the
   // current work list).
   st32 $inPos, $mzero, $mworker_base, STACK_PACKED_INOUT_POS_OFFSET
@@ -568,48 +679,58 @@ row_loop\@:
 #else
   shr $workListOffset, $workListOffset, DELTAN_LENGTH_BITS-PTR16_SHL_BITS
 #endif
-  // the workListOffset and inStride registers alias each other so save the
-  // offset to the stack.
-  st32 $workListOffset, $mzero, $mworker_base, STACK_WORK_LIST_OFFSET_OFFSET
+
+// ============================
+#define chansPerGroup m2
+#define outPos m6
+#define scratch m11
+// ============================
 
 work_loop\@:
   // chansPerGroup gets trashed by an inner loop so reload now.
   ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET/2
+  add $chansPerGroup, $chansPerGroup, 1
 
   // numWorkItems and outStride registers alias each other so save numWorkItems.
   st32 $numWorkItems, $mzero, $mworker_base, STACK_NUM_WORK_ITEMS_OFFSET
 
-  ld32 $workListOffset, $mzero, $mworker_base, STACK_WORK_LIST_OFFSET_OFFSET
+  ld32 $workListBase, $mzero, $mworker_base, STACK_WORK_LIST_BASE_OFFSET
 
   // modify the outPos and inPos by the offsets contained in the work list.
-  // use numElementsM1 as a scratch register.
   ldz16step $outPos, $workListBase, $workListOffset+=, 1
-  ldz16 $numElementsM1, $mzero, $mworker_base, 2*STACK_PACKED_INOUT_POS_OFFSET
-  add $outPos, $outPos, $numElementsM1
+  ldz16 $scratch, $mzero, $mworker_base, 2*STACK_PACKED_INOUT_POS_OFFSET
+  add $outPos, $outPos, $scratch
   mul $outPos, $outPos, $chansPerGroup
 
   ldz16step $inPos, $workListBase, $workListOffset+=, 1
-  ldz16 $numElementsM1, $mzero, $mworker_base, 2*STACK_PACKED_INOUT_POS_OFFSET + 1
-  add $inPos, $inPos, $numElementsM1
+  ldz16 $scratch, $mzero, $mworker_base, 2*STACK_PACKED_INOUT_POS_OFFSET + 1
+  add $inPos, $inPos, $scratch
   mul $inPos, $inPos, $chansPerGroup
+// ============================
+#undef scratch
+#undef chansPerGroup
+// Define loop variables - need to be the same as those defined before the inner loop macros
+// are defined
+#define fwdActsOutPtr m0
+#define numChanGroupsM1 m1
 
-.if \isFloat
-  shl $inPos, $inPos, 1
-  shl $outPos, $outPos, 1
-.else
-  shl $inPos, $inPos, 2
-  shl $outPos, $outPos, 2
-.endif
+#define fwdActsInPtr m3
+#define inPtr m4
+#define outOffset m6
+#define inOffset m7
+#define outPtr m8
+#define inStride m9
+#define outStride m10
 
-  // save the final positions onto the stack so we can reuse the registers.
-  st32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
-  st32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET
+#define numElementsM1 m11
+// ============================
 
   // load the numElementsM1, which is used for the innermost loop.
   ldz16step $numElementsM1, $workListBase, $workListOffset+=, 1
 
-  // we have modified workListOffset so save it again
-  st32 $workListOffset, $mzero, $mworker_base, STACK_WORK_LIST_OFFSET_OFFSET
+// ============================
+#undef workListOffset
+// ============================
 
   // finally load the strides.
   ld32 $outStride, $mzero, $mvertex_base, VERTEX_OUT_STRIDE_OFFSET/4
@@ -617,76 +738,67 @@ work_loop\@:
 
   // reload the loop condition variable.
   ldz16 $numChanGroupsM1, $mzero, $mvertex_base, VERTEX_NUM_CHAN_GROUPS_OFFSET/2
-chan_groups_loop\@:
-  ld32 $outPos, $mzero, $mworker_base, STACK_OUT_POS_OFFSET
-  ld32 $inPos, $mzero, $mworker_base, STACK_IN_POS_OFFSET
 
 .if \isBwdPass
-  // For the backwards pass the outer pointer registers are reused so we must
-  // load them off the stack.
-  ld32 $outPtrPtr, $mzero, $mworker_base, STACK_OUT_PTR_PTR_OFFSET
-  ld32 $inPtrPtr, $mzero, $mworker_base, STACK_IN_PTR_PTR_OFFSET
-.endif
-
-  // at this point we should load the correct output and input pointers. use
-  // chansPerGroup as a scratch register.
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  setzi $chansPerGroup, TMEM_REGION0_BASE_ADDR
-  ldz16 $outPtr, $chansPerGroup, $outPtrPtr, $numChanGroupsM1
-  shl $outPtr, $outPtr, SCALED_PTR64_SHL_BITS
-  ldz16 $inPtr, $chansPerGroup, $inPtrPtr, $numChanGroupsM1
-  shl $inPtr, $inPtr, SCALED_PTR64_SHL_BITS
-#else
-  ld32 $outPtr, $base, $outPtrPtr, $numChanGroupsM1
-  {
-    ld32 $inPtr, $base, $inPtrPtr, $numChanGroupsM1
-    fnop
-  }
-#endif
-
-.if \isBwdPass
-  // The inner fwdActs pointers use the same registers as their outer
-  // counterparts.
-  ld32 $fwdActsOutPtrPtr, $mzero, $mworker_base, STACK_FWD_ACTS_OUT_PTR_PTR_OFFSET
-  ld32 $fwdActsInPtrPtr, $mzero, $mworker_base, STACK_FWD_ACTS_IN_PTR_PTR_OFFSET
-
-#if COMPACT_VECTOR_TYPES_AVAILABLE
-  ldz16 $fwdActsOutPtr, $chansPerGroup, $fwdActsOutPtrPtr, $numChanGroupsM1
-  shl $fwdActsOutPtr, $fwdActsOutPtr, SCALED_PTR64_SHL_BITS
-  ldz16 $fwdActsInPtr, $chansPerGroup, $fwdActsInPtrPtr, $numChanGroupsM1
-  shl $fwdActsInPtr, $fwdActsInPtr, SCALED_PTR64_SHL_BITS
-#else
-  ld32 $fwdActsOutPtr, $base, $fwdActsOutPtrPtr, $numChanGroupsM1
-  ld32 $fwdActsInPtr, $base, $fwdActsInPtrPtr, $numChanGroupsM1
-#endif
-.endif //isBwdPass
-
-  // move the two pointers on by the current positions with a dummy load.
-.if \isFloat
-  ld32step $mzero, $mzero, $outPtr+=, $outPos
-  ld32step $mzero, $mzero, $inPtr+=, $inPos
-
-  .if \isBwdPass
+  // For the backwards pass load and offset the acts pointers
+  ld32 $fwdActsOutPtr, $mzero, $mworker_base, STACK_FWD_ACTS_OUT_PTR_OFFSET
+  ld32 $fwdActsInPtr, $mzero, $mworker_base, STACK_FWD_ACTS_IN_PTR_OFFSET
     // note fwdActsInPtr is being offset by outPos and vice versa.
     // this is intentional.
-    ld32step $mzero, $mzero, $fwdActsInPtr+=, $outPos
-    ld32step $mzero, $mzero, $fwdActsOutPtr+=, $inPos
+  ld64step $azeros, $mzero, $fwdActsInPtr+=, $outPos
+  ld64step $azeros, $mzero, $fwdActsOutPtr+=, $inPos
+.endif
+  // Offset the in, out pointers by their respective worklist positions,
+  // The pointer is always 64 bit aligned, so ld64step is safe regardless of the
+  // data type.
+  ld32 $outPtr, $mzero, $mworker_base, STACK_OUT_PTR_OFFSET
+  ld32 $inPtr, $mzero, $mworker_base, STACK_IN_PTR_OFFSET
+.if \isFloat
+  ld64step $azeros, $mzero, $outPtr+=, $outPos
+  ld64step $azeros, $mzero, $inPtr+=, $inPos
+.else
+  ld64step $azeros, $mzero, $outPtr+=, $outPos
+  ld64step $azeros, $mzero, $inPtr+=, $inPos
+.endif
+ bri   chan_groups_loop_first_time\@
+// ============================
+#undef outPos
+#undef inPos
+// ============================
+
+chan_groups_loop\@:
+  // Offset to the next slice (Input/output flattened vector)
+  // With one loop pass this wouldn't be needed at all, and as this can frequently be
+  // the case putting it here saves a few cycles
+  ld32 $outOffset, $mzero, $mvertex_base, VERTEX_OUT_SLICE_SIZE/4
+  ld32 $inOffset, $mzero, $mvertex_base, VERTEX_IN_SLICE_SIZE/4
+.if \isFloat
+ ld32step $mzero, $mzero, $outPtr+=, $outOffset
+ ld32step $mzero, $mzero, $inPtr+=, $inOffset
+  .if \isBwdPass
+    // note fwdActsInPtr is being offset by outOffset and vice versa.
+    // this is intentional.
+   ld32step $mzero, $mzero, $fwdActsInPtr+=, $outOffset
+   ld32step $mzero, $mzero, $fwdActsOutPtr+=, $inOffset
   .endif
 .else
-  ldz16step $mzero, $mzero, $outPtr+=, $outPos
-  ldz16step $mzero, $mzero, $inPtr+=, $inPos
-
+ ldz16step $mzero, $mzero, $outPtr+=, $outOffset
+ ldz16step $mzero, $mzero, $inPtr+=, $inOffset
   .if \isBwdPass
-    // note fwdActsInPtr is being offset by outPos and vice versa.
+    // note fwdActsInPtr is being offset by outOffset and vice versa.
     // this is intentional.
-    ldz16step $mzero, $mzero, $fwdActsInPtr+=, $outPos
-    ldz16step $mzero, $mzero, $fwdActsOutPtr+=, $inPos
+   ldz16step $mzero, $mzero, $fwdActsInPtr+=, $outOffset
+   ldz16step $mzero, $mzero, $fwdActsOutPtr+=, $inOffset
   .endif
 .endif
+
+chan_groups_loop_first_time\@:
+// ============================
+#define chansPerGroup m2
+// ============================
 
   // reload the loop condition variable.
   ldz16 $chansPerGroup, $mzero, $mvertex_base, VERTEX_CHANS_PER_GROUP_OFFSET/2
-  sub $chansPerGroup, $chansPerGroup, 1
 chans_per_group_loop\@:
   // turn the loop counter into a byte offset that is incremented in the rpt
   // loop for each of the strides.
@@ -699,10 +811,13 @@ chans_per_group_loop\@:
   \INNER_LOOP_FUNCTION
 
   brnzdec $chansPerGroup, chans_per_group_loop\@
+
   brnzdec $numChanGroupsM1, chan_groups_loop\@
+
   ld32 $numWorkItems, $mzero, $mworker_base, STACK_NUM_WORK_ITEMS_OFFSET
   add $numWorkItems, $numWorkItems, -3
   brnz $numWorkItems, work_loop\@
+
   ld32 $numRows, $mzero, $mworker_base, STACK_NUM_ROWS_OFFSET
   brnzdec $numRows, row_loop\@
 

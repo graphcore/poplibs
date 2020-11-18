@@ -347,7 +347,8 @@ void createWorklists(
   logging::popnn::trace("Tile: {}", tile);
   contextStartPos.reserve(numContexts);
   for (std::size_t c = 0; c != numContexts; ++c) {
-    std::string loggingStr = "Worklist " + std::to_string(c) + ": ";
+    std::string loggingStr = "StartPos:" + std::to_string(contextStart) +
+                             " Worklist " + std::to_string(c) + ": ";
 
     for (auto &rowWorkList : worklistEntries[c]) {
       const auto inBase = rowWorkList.at(0).inBeginOffset;
@@ -523,14 +524,14 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
 
   auto codeletName = getVertexName(poolCfg, in.elementType());
   auto v = graph.addVertex(cs[0], codeletName);
-  graph.connect(v["in"], inWindows);
-  graph.connect(v["out"], outWindows);
+  graph.connect(v["in"], concat(inWindows));
+  graph.connect(v["out"], concat(outWindows));
   graph.setInitialValue(v["initInfo"],
                         outWindows[0].numElements() / chansPerGroup);
   const auto vectorWidth = (in.elementType() == HALF ? 4 : 2);
   assert(chansPerGroup % vectorWidth == 0);
   const auto chansPerGroupD = chansPerGroup / vectorWidth;
-  graph.setInitialValue(v["chansPerGroupD"], chansPerGroupD);
+  graph.setInitialValue(v["chansPerGroupDM1"], chansPerGroupD - 1);
   const auto numChanGroups = slice.getNumChans() / chansPerGroup;
   assert(numChanGroups != 0);
   graph.setInitialValue(v["numChanGroupsM1"], numChanGroups - 1);
@@ -560,18 +561,22 @@ generateVertices(Graph &graph, const PoolConfig &poolCfg, const Tensor &in,
   graph.setInitialValue(v["outStrideD"], outStride / vectorWidth);
 
   logging::popnn::trace(
-      "chansPerGroup: {} Groups: {} inStride: {} outStride: {}", chansPerGroup,
+      "Slice size in: {} out:{} chansPerGroup: {} chanGroups: {} "
+      "inStride: {} outStride: {}",
+      inWindows[0].numElements(), outWindows[0].numElements(), chansPerGroup,
       numChanGroups, inStride, outStride);
+  graph.setInitialValue(v["inSliceSize"], inWindows[0].numElements());
+  graph.setInitialValue(v["outSliceSize"], outWindows[0].numElements());
 
   if (poolCfg.pass == PoolPass::POOL_BWD &&
       poolCfg.type == popnn::PoolingType::MAX) {
-    graph.connect(v["fwdActsIn"], fwdInputActsWindows);
-    graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
+    graph.connect(v["fwdActsIn"], concat(fwdInputActsWindows));
+    graph.connect(v["fwdActsOut"], concat(fwdOutputActsWindows));
   }
 
   if (poolCfg.pass == PoolPass::POOL_FWD &&
       poolCfg.type == popnn::PoolingType::MAX && poolCfg.scaledGradient) {
-    graph.connect(v["fwdActsOut"], fwdOutputActsWindows);
+    graph.connect(v["fwdActsOut"], concat(fwdOutputActsWindows));
   }
 
   // extract a common scale factor for the whole field if possible

@@ -41,8 +41,8 @@ public:
 
   IS_EXTERNAL_CODELET(true);
 
-  Vector<Output<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> out;
-  Vector<Input<Vector<FPType, PTR_ALIGN64, 8>>, PTR_ALIGN32> in;
+  Output<Vector<FPType, PTR_ALIGN64, 8>> out;
+  Input<Vector<FPType, PTR_ALIGN64, 8>> in;
   // starting position within vector list for each context. The number
   // to process can be found from the difference from previous
   Input<Vector<unsigned short, PTR_ALIGN32, 4>> startPos;
@@ -67,21 +67,23 @@ public:
   const unsigned short initInfo;
   const unsigned short numChanGroupsM1;
   // the following are scaled by the amount of FPType we can fit into 64-bits.
-  const unsigned short chansPerGroupD;
+  const unsigned short chansPerGroupDM1;
   const unsigned inStrideD;
   const unsigned outStrideD;
+  const unsigned inSliceSize;
+  const unsigned outSliceSize;
 
   bool compute() {
     const auto scaleFactor = std::is_same<FPType, half>::value ? 4 : 2;
     const auto numChanGroups = numChanGroupsM1 + 1;
-    const auto chansPerGroup = chansPerGroupD * scaleFactor;
+    const auto chansPerGroup = (chansPerGroupDM1 + 1) * scaleFactor;
     const auto inStride = inStrideD * scaleFactor;
     const auto outStride = outStrideD * scaleFactor;
 
     // initialise output
     for (unsigned cg = 0; cg != numChanGroups; ++cg) {
       for (unsigned i = 0; i != initInfo * chansPerGroup; ++i) {
-        out[cg][i] = identity();
+        out[cg * (initInfo * chansPerGroup) + i] = identity();
       }
     }
 
@@ -105,14 +107,15 @@ public:
           const auto inBeginOffset = workList[pos][w + 1] + inOffsetBase;
           const auto numElements = workList[pos][w + 2] + 1;
           for (unsigned cg = 0; cg != numChanGroups; ++cg) {
-            const auto in_ = in[cg];
-            auto out_ = out[cg];
-            for (unsigned c = 0; c != chansPerGroup / 2; ++c) {
-              unsigned outPos = (chansPerGroup * outBeginOffset) + c * 2;
-              unsigned inPos = (chansPerGroup * inBeginOffset) + c * 2;
+            const auto inBase = cg * inSliceSize;
+            const auto outBase = cg * outSliceSize;
+            for (unsigned c = 0; c != (chansPerGroup / 2); ++c) {
+              unsigned outPos =
+                  (chansPerGroup * outBeginOffset) + outBase + c * 2;
+              unsigned inPos = (chansPerGroup * inBeginOffset) + inBase + c * 2;
               for (unsigned f = 0; f != numElements; ++f) {
-                out_[outPos] = max(out_[outPos], in_[inPos]);
-                out_[outPos + 1] = max(out_[outPos + 1], in_[inPos + 1]);
+                out[outPos] = max(out[outPos], in[inPos]);
+                out[outPos + 1] = max(out[outPos + 1], in[inPos + 1]);
 
                 outPos += outStride;
                 inPos += inStride;

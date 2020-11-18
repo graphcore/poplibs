@@ -246,7 +246,7 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
                                     const PoolingType &pType,
                                     const bool isBwdPass) {
   CODELET_SCALAR_VAL(initInfo, unsigned short);
-  CODELET_SCALAR_VAL(chansPerGroupD, unsigned short);
+  CODELET_SCALAR_VAL(chansPerGroupDM1, unsigned short);
   CODELET_SCALAR_VAL(numChanGroupsM1, unsigned short);
   CODELET_VECTOR_VALS(startPos, unsigned short);
   CODELET_VECTOR_2D_VALS(workList, unsigned short);
@@ -263,12 +263,8 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
   UnpackCosts unpackCosts;
   unpackCosts.outLayout =
       poplibs::getUnpackCost(out.getProfilerVectorLayout(0));
-  unpackCosts.outInnerLayout =
-      poplibs::getUnpackCost(out.getProfilerVectorLayout(1));
 
   unpackCosts.inLayout = poplibs::getUnpackCost(in.getProfilerVectorLayout(0));
-  unpackCosts.inInnerLayout =
-      poplibs::getUnpackCost(in.getProfilerVectorLayout(1));
   unpackCosts.fwdOutLayout = unpackCosts.outLayout;
   unpackCosts.fwdInLayout = unpackCosts.inLayout;
 
@@ -276,7 +272,7 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
   unpackCosts.workListLayout = poplibs::getUnpackCost(workListLayout);
 
   auto result = getPoolingCycles(
-      initInfo, chansPerGroupD, numChanGroupsM1, startPos, workList,
+      initInfo, chansPerGroupDM1 + 1, numChanGroupsM1, startPos, workList,
       unpackCosts, pType == PoolingType::MAX, isBwdPass, numWorkers);
 
   return result;

@@ -74,6 +74,7 @@ int main(int argc, char **argv) {
   namespace po = boost::program_options;
 
   unsigned chans;
+  unsigned channelGroups = 1;
   unsigned batchSize;
   Type dataType;
   bool debugOutput = false;
@@ -99,6 +100,8 @@ int main(int argc, char **argv) {
     ("debug", "Output debug information - in, out, vertex state")
     ("channels", po::value<unsigned>(&chans)->required(),
      "Number of channels")
+    ("channel-groups", po::value<unsigned>(&channelGroups)->default_value(channelGroups),
+     "Number of channel groups")
     ("field",
      po::value<ShapeOption<std::size_t>>(&inputFieldSizeOption)->required(),
      "Field size")
@@ -146,6 +149,16 @@ int main(int argc, char **argv) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;
   }
+  if (chans % channelGroups) {
+    throw poputil::poplibs_error(
+        "Channels must be divisible by channel groups");
+  }
+  const auto chansPerGroup = chans / channelGroups;
+  const auto vertexVectorWidth = dataType == HALF ? 4 : 2;
+  if (chansPerGroup % vertexVectorWidth) {
+    throw poputil::poplibs_error(
+        "Channels per group must be divisible by 4 (half) or 2 (float)");
+  }
 
   auto &inputFieldSize = inputFieldSizeOption.val;
   const auto numFieldDims = inputFieldSize.size();
@@ -174,8 +187,10 @@ int main(int argc, char **argv) {
 
   // Create input tensor.
   Tensor prevAct = [&] {
-    std::vector<std::size_t> prevActShape = {1, batchSize, chans};
-    // Create an input Tensor [ChannelGroups=1, batchSize, x,y... , channels]
+    std::vector<std::size_t> prevActShape = {channelGroups, batchSize,
+                                             chansPerGroup};
+    // Create an input Tensor
+    // [ChannelGroups, batchSize, x,y... , channelsPerGroup]
     prevActShape.insert(prevActShape.begin() + 2, inputFieldSize.begin(),
                         inputFieldSize.end());
 
@@ -200,6 +215,7 @@ int main(int argc, char **argv) {
     outShape[dim] = outShape[dim] - kernelSize[dim - 2] + 1;
     outShape[dim] = (outShape[dim] + stride[0] - 1) / stride[0];
   }
+
   auto nextAct = graph.addVariable(dataType, outShape, "nextAct");
 
   // Call the test function to create the vertex.

@@ -560,8 +560,10 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
   bool isFwdPass =
       (poolCfg.pass == PoolPass::POOL_FWD) && !poolCfg.scaledGradient;
   if (isFwdPass) {
-    const unsigned vectorWidth = (in_.elementType() == HALF ? 4 : 2);
-    const auto groupedWidth = getPreferredChannelGrouping(in_.elementType());
+    const auto vectorWidth =
+        getMinChannelGrouping(in_.elementType(), poolCfg.type);
+    const auto groupedWidth =
+        getPreferredChannelGrouping(in_.elementType(), poolCfg.type);
     transformVectorWidth = gatherDimsTransformIn(in_, params, vectorWidth);
     transformGroupedWidth = gatherDimsTransformIn(in_, params, groupedWidth);
   } else {

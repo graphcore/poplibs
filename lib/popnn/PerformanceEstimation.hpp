@@ -57,9 +57,7 @@ inline uint64_t getLossTransformCycles(const bool isFloat, const bool isSoftmax,
 }
 struct UnpackCosts {
   unsigned outLayout;
-  unsigned outInnerLayout;
   unsigned inLayout;
-  unsigned inInnerLayout;
   unsigned fwdInLayout;
   unsigned fwdOutLayout;
   unsigned startPosLayout;
@@ -74,7 +72,8 @@ inline std::uint64_t poolVertexCyclesPerVector(bool isMaxPool, bool isBwdPass) {
   return 3;
 }
 // Overhead for the big row loop, used by the planner
-inline std::uint64_t poolVertexCyclesPerRow(void) { return 54; }
+inline std::uint64_t poolVertexCyclesPerRow(void) { return 30; }
+
 inline uint64_t getPoolingCycles(
     const unsigned initInfo, const unsigned chansPerGroupD,
     const unsigned numChanGroupsM1, const std::vector<unsigned short> &startPos,
@@ -87,16 +86,16 @@ inline uint64_t getPoolingCycles(
   const unsigned itemsPerWorklistEntry = planningEstimates ? 1 : 3;
   const unsigned workListLengthItemIndex = planningEstimates ? 0 : 2;
   // Unpack costs for use when planning - passed in for profiling
-  const UnpackCosts defaultUnpackCosts = {2, 1, 2, 1, 2, 2, 2, 2};
+  const UnpackCosts defaultUnpackCosts = {2, 2, 2, 2, 2, 2};
   const UnpackCosts &unpackCosts =
       unpackCosts_ ? unpackCosts_.get() : defaultUnpackCosts;
   // per-worker cycles
   const auto workerCycles = [&](unsigned wId) {
-    std::uint64_t cycles = 4   // load vertex state
-                           + 1 // scale initInfo
-                           + 2 // get $WSR and load identity
-                           + 7 // divide init work
-        ;
+    std::uint64_t cycles = 4    // load vertex state
+                           + 2  // scale initInfo
+                           + 2  // get $WSR and load identity
+                           + 7  // divide init work
+                           + 2; // Fetch and shift vertex slice size for init
     // maybe unpack outPtrPtr
     cycles += unpackCosts.outLayout;
 
@@ -111,12 +110,10 @@ inline uint64_t getPoolingCycles(
     // init loop overhead, number of rpt loop cycles, number of brnzdec cycles.
     cycles += (4 + initElems) * (numChanGroupsM1 + 1);
 
-    cycles += 5   // load startPosPtr, numRows and startPos
-              + 1 // bnz numRows
-        ;
+    cycles += 5    // load startPosPtr, numRows and startPos
+              + 1; // bnz numRows
 
-    // maybe unpack outPtr and startPosPtr
-    cycles += unpackCosts.outInnerLayout;
+    // maybe unpack startPosPtr
     cycles += unpackCosts.startPosLayout;
 
     // if numRows is zero this worker is done.
@@ -127,38 +124,34 @@ inline uint64_t getPoolingCycles(
     }
 
     cycles += 2 // save startPos, load inPtrPtr and workListBase
-              + (isMaxPool ? 1 : 2) // unpack inPtrPtr, maybe load scale
-              + unpackCosts.inInnerLayout;
+              + (isMaxPool ? 1 : 2); // unpack inPtrPtr, maybe load scale
 
     // load and (possibly) unpack acts pointer pointers
     if (isBwdPass) {
       cycles += 6 + unpackCosts.outLayout + unpackCosts.inLayout;
     }
 
-    cycles += 2   // unpack workListBase
-              + 1 // decrement numRows
-        ;
+    cycles += 3 // unpack workListBase, store it
+              + 2 + unpackCosts.workListLayout * 2 // Unpack worklist ptr
+              + 1;                                 // decrement numRows
 
     for (unsigned row = 0; row < numRows; ++row) {
-      cycles += 13 + unpackCosts.workListLayout; // row_loop overhead
+      cycles += 13; // row_loop overhead
 
       const unsigned sPos = wId == 0 ? 0 : startPos[wId - 1];
       const unsigned numWorkItems = workList[sPos + row].size();
       for (unsigned w = 0; w < numWorkItems; w += itemsPerWorklistEntry) {
         cycles += 20; // work_loop overhead
         for (unsigned cg = 0; cg < numChanGroupsM1 + 1u; ++cg) {
-          cycles += 2 // reload outPos and inPos
-                    + unpackCosts.outLayout + unpackCosts.inLayout +
-                    2   // reload chansPerGroupD, decrement it
-                    + 4 // move pointers on by outPos and inPos
-              ;
+          if (cg != 0) {   // Pointer offsets avoided on the 1st pass
+            cycles += 2    // load inSliceSize, outSliceSize
+                      + 2; // move pointers on by inSliceSize, outSliceSize
 
-          if (isBwdPass) {
-            cycles += unpackCosts.outInnerLayout + unpackCosts.inInnerLayout +
-                      unpackCosts.fwdInLayout + unpackCosts.fwdOutLayout +
-                      4 // move pointers on by outPos and inPos
-                ;
+            if (isBwdPass) {
+              cycles += 2; // move pointers on by inSliceSize, outSliceSize
+            }
           }
+          cycles += 1; // reload chansPerGroupD
 
           for (unsigned c = 0; c < chansPerGroupD; ++c) {
             // rpt loop cycles.
@@ -178,8 +171,7 @@ inline uint64_t getPoolingCycles(
 
             cycles += 2           // chans_per_group_loop overhead
                       + rptCycles // innermost loop
-                      + 1         // brnzdec chansPerGroupD
-                ;
+                      + 1;        // brnzdec chansPerGroupD
           }
           ++cycles; // brnzdec numChanGroupsM1
         }

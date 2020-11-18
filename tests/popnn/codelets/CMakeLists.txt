@@ -49,17 +49,20 @@ endforeach()
 add_multi_target_test_executable(PoolingCodeletTest PoolingCodeletTest.cpp)
 foreach (FIELD 8 9 10 11 12)
   foreach (KERNEL 2 3 4)
-    foreach (CHANNELS 4 8)
-      foreach (DATA_TYPE half float)
-        foreach(POOLING_TYPE max avg sum)
-          add_multitarget_test(NAME "PoolingCodelet_f${FIELD}_k${KERNEL}_c${CHANNELS}_${DATA_TYPE}_${POOLING_TYPE}"
-          COMMAND PoolingCodeletTest
-            --field=${FIELD}
-            --kernel=${KERNEL}
-            --channels=${CHANNELS}
-            --pooling-type=${POOLING_TYPE}
-            --data-type=${DATA_TYPE}
-          LABELS codelet)
+    foreach (CHANNELS 8 16)
+      foreach (CHANNEL_GROUPS 1 2)
+        foreach (DATA_TYPE half float)
+          foreach(POOLING_TYPE max avg sum)
+            add_multitarget_test(NAME "PoolingCodelet_f${FIELD}_k${KERNEL}_c${CHANNELS}_g${CHANNEL_GROUPS}_${DATA_TYPE}_${POOLING_TYPE}"
+            COMMAND PoolingCodeletTest
+              --field=${FIELD}
+              --kernel=${KERNEL}
+              --channels=${CHANNELS}
+              --pooling-type=${POOLING_TYPE}
+              --data-type=${DATA_TYPE}
+              --channel-groups=${CHANNEL_GROUPS}
+            LABELS codelet)
+          endforeach()
         endforeach()
       endforeach()
     endforeach()
