@@ -14,7 +14,7 @@ poplar::Tensor bsSoftmaxInternal(
     poplar::Graph &graph, poplar::Tensor sparseTensor, bool inPlace,
     unsigned blockRow, unsigned blockCol, unsigned blockRows,
     unsigned blockCols, const unsigned char *sparsity,
-    popsparse::experimental::SubBlockMask subBlockMaskType,
+    popsparse::experimental::SubBlockMask subBlockMaskType, unsigned numGroups,
     poplar::program::Sequence &prog, const poplar::DebugNameAndId &dnai);
 
 poplar::Tensor bsSoftmaxGradInternal(

@@ -211,8 +211,8 @@ BOOST_AUTO_TEST_CASE(slice_test) {
 
 void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                  unsigned blockCols, const std::vector<unsigned char> &sparsity,
-                 const Type &dataType, bool filterUpperTriangle, bool inPlace,
-                 float multiplier = 1.0f) {
+                 const Type &dataType, bool filterUpperTriangle,
+                 unsigned numGroups, bool inPlace, float multiplier = 1.0f) {
   auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -271,10 +271,10 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
 
   Tensor bsSoftmax =
       bsSoftmaxInternal(graph, sparseTensor, inPlace, blockRow, blockCol,
-                        blockRows, blockCols, sparsity.data(),
+                        blockRows * numGroups, blockCols, sparsity.data(),
                         filterUpperTriangle ? SubBlockMask::ZeroUpperTriangle
                                             : SubBlockMask::None,
-                        softmaxProg, "bSsoftmax");
+                        numGroups, softmaxProg, "bSsoftmax");
   if (inPlace) {
     bsSoftmax = sparseTensor;
   }
@@ -390,7 +390,7 @@ BOOST_AUTO_TEST_CASE(softmax_testF32) {
   sparsity[2 * blockCols + 1] = 1; // 2,1
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, FLOAT, false,
-              false);
+              1, false);
 }
 
 BOOST_AUTO_TEST_CASE(softmax_testF32_largeValues) {
@@ -405,7 +405,7 @@ BOOST_AUTO_TEST_CASE(softmax_testF32_largeValues) {
   sparsity[2 * blockCols + 1] = 1; // 2,1
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, FLOAT, false,
-              false, 1000.0f);
+              1, false, 1000.0f);
 }
 
 BOOST_AUTO_TEST_CASE(softmax_testF32inPlace) {
@@ -420,7 +420,7 @@ BOOST_AUTO_TEST_CASE(softmax_testF32inPlace) {
   sparsity[2 * blockCols + 1] = 1; // 2,1
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, FLOAT, false,
-              true);
+              1, true);
 }
 
 BOOST_AUTO_TEST_CASE(softmax_testF16) {
@@ -435,7 +435,7 @@ BOOST_AUTO_TEST_CASE(softmax_testF16) {
   sparsity[2 * blockCols + 1] = 1; // 2,1
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, false,
-              false);
+              1, false);
 }
 
 // Testing softmax() with subblock mask
@@ -486,7 +486,7 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF32) {
   sparsity[3 * blockCols + 2] = 1; // 3,2
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, FLOAT, true,
-              false);
+              1, false);
 }
 
 BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16) {
@@ -500,7 +500,7 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16) {
   sparsity[2 * blockCols + 0] = 1; // 2,0
   sparsity[3 * blockCols + 2] = 1; // 3,2
 
-  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true,
+  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true, 1,
               false);
 }
 
@@ -515,7 +515,7 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16_largeValues) {
   sparsity[2 * blockCols + 0] = 1; // 2,0
   sparsity[3 * blockCols + 2] = 1; // 3,2
 
-  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true,
+  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true, 1,
               false, 30000.0f);
 }
 

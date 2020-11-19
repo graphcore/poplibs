@@ -133,50 +133,18 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
     throw poplibs_error("The last dimension of sparse tensor must be equal "
                         "to the block area");
   }
-  if (numGroups == 1) {
-    std::vector<unsigned> diagBlockIdxs;
-    bsCreateMaskTensor(graph, blockRow, blockCol, blockRows, blockCols,
-                       sparsity, subBlockMask, 0.0f, 1.0f, dataType, maskBlocks,
-                       diagBlockIdxs, emptyRowsMask, {dnai});
-    for (unsigned idxDiagBlock : diagBlockIdxs) {
-      if (idxDiagBlock >= sparseTensor.dim(0)) {
-        throw poplibs_error(
-            "The number of blocks in sparse tensor is less "
-            "than the number of non-zero elements in sparsity mask");
-      }
-      diagonalBlocks.push_back(sparseTensor[idxDiagBlock].expand({0}));
+  std::vector<unsigned> diagBlockIdxs;
+  bsCreateMaskTensor(graph, blockRow, blockCol, blockRows * numGroups,
+                     blockCols, sparsity, subBlockMask, numGroups, 0.0f, 1.0f,
+                     dataType, maskBlocks, diagBlockIdxs, emptyRowsMask,
+                     dnai);
+  for (unsigned idxDiagBlock : diagBlockIdxs) {
+    if (idxDiagBlock >= sparseTensor.dim(0)) {
+      throw poplibs_error(
+          "The number of blocks in sparse tensor is less "
+          "than the number of non-zero elements in sparsity mask");
     }
-  } else {
-    std::size_t denseSize = blockRows * blockCols;
-    const unsigned char *curSparsity = sparsity;
-    std::size_t dim0Start = 0;
-    for (unsigned g = 0; g < numGroups; ++g) {
-      unsigned nonZeroBlock =
-          std::accumulate(curSparsity, curSparsity + denseSize, 0);
-      std::size_t dim0End = dim0Start + nonZeroBlock;
-      if (dim0End > sparseTensor.dim(0)) {
-        throw poplibs_error(
-            "The number of blocks in sparse tensor is less "
-            "than the number of non-zero elements in sparsity mask");
-      }
-      poplar::Tensor sparseSubTensor =
-          sparseTensor.slice(dim0Start, dim0End, 0);
-
-      std::vector<unsigned> diagBlockIdxs;
-      std::vector<poplar::Tensor> curMaskBlocks;
-      bsCreateMaskTensor(graph, blockRow, blockCol, blockRows, blockCols,
-                         curSparsity, subBlockMask, 0.0f, 1.0f, dataType,
-                         curMaskBlocks, diagBlockIdxs, emptyRowsMask, {dnai});
-      maskBlocks.insert(maskBlocks.end(), curMaskBlocks.begin(),
-                        curMaskBlocks.end());
-      for (unsigned idxDiagBlock : diagBlockIdxs) {
-        assert(idxDiagBlock < sparseSubTensor.dim(0));
-        diagonalBlocks.push_back(sparseSubTensor[idxDiagBlock].expand({0}));
-      }
-
-      curSparsity += denseSize;
-      dim0Start = dim0End;
-    }
+    diagonalBlocks.push_back(sparseTensor[idxDiagBlock].expand({0}));
   }
 
   if (!diagonalBlocks.empty()) {

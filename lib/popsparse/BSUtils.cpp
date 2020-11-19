@@ -16,7 +16,7 @@ namespace experimental {
 void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
                         unsigned blockCol, unsigned blockRows,
                         unsigned blockCols, const unsigned char *sparsity,
-                        popsparse::experimental::SubBlockMask subBlockMaskType,
+                        popsparse::experimental::SubBlockMask subBlockMaskType, unsigned numGroups,
                         float maskedValue, float unMaskedValue,
                         const Type &dataType, std::vector<Tensor> &maskBlocks,
                         std::vector<unsigned> &diagBlockIdxs,
@@ -32,13 +32,15 @@ void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
   diagBlockIdxs.clear();
   emptyRowsMask.resize(rows, false);
   std::unordered_map<int, Tensor> maskBlocksPool;
+  assert(blockRows % numGroups == 0);
+  unsigned groupLen = blockRows / numGroups;
 
   unsigned idxBlockSparse = 0;
   unsigned idxBlockDense = 0;
   for (unsigned int br = 0; br < blockRows; ++br) {
     for (unsigned int bc = 0; bc < blockCols; ++bc, ++idxBlockDense) {
       if (sparsity[idxBlockDense]) {
-        unsigned top = br * blockRow;
+        unsigned top = (br % groupLen) * blockRow;
         unsigned bottom = top + blockRow;
         unsigned left = bc * blockCol;
         unsigned right = left + blockCol;
@@ -90,7 +92,8 @@ void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
           throw poplibs_error(
               std::string(
                   "Incorrect sparsity mask is provided. The whole block # ") +
-              std::to_string(idxBlockSparse) + " is above the diagonal");
+              std::to_string(idxBlockSparse) + " [" + std::to_string(br) + "," +
+              std::to_string(bc) + "]" + " is above the diagonal");
         } else if (right <= top &&
                    subBlockMaskType == SubBlockMask::ZeroLowerTriangle) {
           // The whole block must be masked out - we treat this as user input
@@ -98,7 +101,8 @@ void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
           throw poplibs_error(
               std::string(
                   "Incorrect sparsity mask is provided. The whole block # ") +
-              std::to_string(idxBlockSparse) + " is below the diagonal");
+              std::to_string(idxBlockSparse) + " [" + std::to_string(br) + "," +
+              std::to_string(bc) + "]" + " is below the diagonal");
         }
         ++idxBlockSparse;
       }

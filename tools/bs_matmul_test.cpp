@@ -429,7 +429,7 @@ int main(int argc, char **argv) {
       ("scenario",
        po::value<std::string>(&scenarioName)->default_value(scenarioName),
        "Scenario: "
-       "ddd|dsd|dds|dsd-bwd|dsd-wu|dsd-all|dds-bwd|dds-wu|dds-"
+       "ddd|ddd-sm|dsd|dds|dsd-bwd|dsd-wu|dsd-all|dds-bwd|dds-wu|dds-"
        "all|dds-sm|dds-sm-all|sm|smd|sms-bwd|smd-bwd\n"
        "ddd = dense x dense = dense\n"
        "dsd = dense x sparse = dense\n"
@@ -521,6 +521,8 @@ int main(int argc, char **argv) {
       ("number-of-reps", po::value<int>(&numReps), "Number of repetitions")
       // number-or-groups
       ("number-of-groups", po::value<int>(&numGroups), "Number of groups")
+      // in-place
+      ("in-place", "perform softmax operation in place if possible")
       // check-result
       ("check-result", "check if the result is correct");
 
@@ -557,6 +559,11 @@ int main(int argc, char **argv) {
     scenario = Scenario::dds;
     operandsType[0] = OperandsType::dds;
     runType[0] = Pass::FWD;
+  } else if (scenarioName == "ddd-sm") {
+    scenario = Scenario::ddd;
+    operandsType[0] = OperandsType::ddd;
+    runType[0] = Pass::FWD;
+    computeSoftmax = true;
   } else if (scenarioName == "dds-sm") {
     scenario = Scenario::dds;
     operandsType[0] = OperandsType::dds;
@@ -716,11 +723,23 @@ int main(int argc, char **argv) {
           ? createTestDevice(deviceType, numIPUs, *tilesPerIPU, compileIPUCode)
           : createTestDeviceFullSize(deviceType, numIPUs, compileIPUCode);
 
+  bool inPlace = vm.count("in-place") > 0;
+  if (!computeSoftmax) {
+    logging::popsparse::warn(
+        "Option in-place is used only with softmax scenarios. Ignored.");
+  }
+
   bool checkResult = vm.count("check-result") > 0;
 
   if (checkResult && (((scenario & Scenario::bwd) == Scenario::bwd) ||
                       ((scenario & Scenario::wu) == Scenario::wu))) {
     std::cerr << "Checking results in not supported in scenario "
+              << scenarioName << std::endl;
+    return -1;
+  }
+  if (checkResult && inPlace &&
+      (scenario == Scenario::smd || scenario == Scenario::sms)) {
+    std::cerr << "Checking results in not supported in in-place scenario "
               << scenarioName << std::endl;
     return -1;
   }
@@ -732,7 +751,8 @@ int main(int argc, char **argv) {
   }
 
   if (((scenario & Scenario::fwdMask) != Scenario::dsd) &&
-      ((scenario & Scenario::fwdMask) != Scenario::dds)) {
+      ((scenario & Scenario::fwdMask) != Scenario::dds) &&
+      ((scenario & Scenario::fwdMask) != Scenario::sms)) {
     numGroups = 1;
   }
 
@@ -839,6 +859,7 @@ int main(int argc, char **argv) {
       resRows0 = resBlockRows0 * resBlockRowSize0;
       resCols0 = resBlockCols0 * resBlockColSize0;
     } else {
+      rhsNeedTranspose0 = false;
       resRows0 = lhsRows0;
       resCols0 = rhsCols0;
     }
@@ -1058,6 +1079,18 @@ int main(int argc, char **argv) {
           poplar::Tensor outTensor =
               matMul(graph, lhsTensor, rhsTensor, matSeq,
                      debugPrefix + "/lhsxrhs", mmOpt, &cache);
+          if (runType[nStep] == Pass::FWD && computeSoftmax) {
+            float nonLinearityScaling;
+            if (!inPlace) {
+              outTensor = popnn::nonLinearity(
+                  graph, popnn::NonLinearityType::SOFTMAX_STABLE, outTensor,
+                  nonLinearityScaling, matSeq, debugPrefix + "/softmax");
+            } else {
+              popnn::nonLinearity(
+                  graph, popnn::NonLinearityType::SOFTMAX_STABLE, outTensor,
+                  nonLinearityScaling, matSeq, debugPrefix + "/softmax");
+            }
+          }
           if (checkResult == 1) {
             outputRawHost = poplibs_test::util::allocateHostMemoryForTensor(
                 outTensor, debugPrefix + "/matrix_output" + stepSuffix, graph,
@@ -1165,10 +1198,16 @@ int main(int argc, char **argv) {
             blockSizeSm[0] = resBlockRowSize;
             blockSizeSm[1] = resBlockColSize;
 
-            Tensor softmaxTensor =
-                bsSoftmax(graph, outTensor, dimSm, blockSizeSm, sparsity, mask,
-                          matSeq, debugPrefix + "/bs-softmax");
-            outTensor = softmaxTensor;
+            if (!inPlace) {
+              Tensor softmaxTensor = bsSoftmax(
+                  graph, outTensor, dimSm, blockSizeSm, sparsity, mask,
+                  numGroups, matSeq, debugPrefix + "/bs-softmax");
+              outTensor = softmaxTensor;
+            } else {
+              bsSoftmaxInPlace(graph, outTensor, dimSm, blockSizeSm, sparsity,
+                               mask, numGroups, matSeq,
+                               debugPrefix + "/bs-softmax");
+            }
             if (((scenario & Scenario::bwd) == Scenario::bwd) ||
                 ((scenario & Scenario::wu) == Scenario::wu)) {
               // Create helper BSMatMulParams in order to generate a matrix in
@@ -1188,9 +1227,9 @@ int main(int argc, char **argv) {
               Tensor outerGrad =
                   createBSMatMulInputRHS(graph, bsMatMulObjHelper,
                                          debugPrefix + "/outer_grad", options);
-              assert(outerGrad.shape() == softmaxTensor.shape());
+              assert(outerGrad.shape() == outTensor.shape());
               Tensor softmaxGradTensor = bsSoftmaxGrad(
-                  graph, softmaxTensor, outerGrad, dimSm, blockSizeSm, sparsity,
+                  graph, outTensor, outerGrad, dimSm, blockSizeSm, sparsity,
                   matSeq, debugPrefix + "/bs-softmax-grad");
             }
           }
@@ -1285,18 +1324,30 @@ int main(int argc, char **argv) {
 
           Tensor inputTensor = createBSMatMulInputRHS(
               graph, bsMatMulObjHelper, debugPrefix + "/input", options);
+          // Ignore hypergraph mapping
+          poputil::mapTensorLinearly(graph, inputTensor);
 
           Tensor outerGradTensor;
           if (scenario == Scenario::smsBwd) {
             outerGradTensor = createBSMatMulInputRHS(
                 graph, bsMatMulObjHelper, debugPrefix + "/outer_grad", options);
             assert(outerGradTensor.shape() == inputTensor.shape());
+            // Ignore hypergraph mapping
+            poputil::mapTensorLinearly(graph, outerGradTensor);
           }
 
           poplar::Tensor outTensor;
           if (scenario == Scenario::sms) {
-            outTensor = bsSoftmax(graph, inputTensor, dim, blockSize, sparsity,
-                                  mask, matSeq, debugPrefix + "/bs-softmax");
+            if (!inPlace) {
+              outTensor =
+                  bsSoftmax(graph, inputTensor, dim, blockSize, sparsity, mask,
+                            numGroups, matSeq, debugPrefix + "/bs-softmax");
+            } else {
+              bsSoftmaxInPlace(graph, inputTensor, dim, blockSize, sparsity,
+                               mask, numGroups, matSeq,
+                               debugPrefix + "/bs-softmax");
+              outTensor = inputTensor;
+            }
           } else if (scenario == Scenario::smsBwd) {
             outTensor = bsSoftmaxGrad(graph, inputTensor, outerGradTensor, dim,
                                       blockSize, sparsity, matSeq,
@@ -1342,9 +1393,16 @@ int main(int argc, char **argv) {
           poplar::Tensor outTensor;
           if (scenario == Scenario::smd) {
             float nonLinearityScaling;
-            outTensor = popnn::nonLinearity(
-                graph, popnn::NonLinearityType::SOFTMAX_STABLE, inputTensor,
-                nonLinearityScaling, matSeq, debugPrefix + "/softmax");
+            if (!inPlace) {
+              outTensor = popnn::nonLinearity(
+                  graph, popnn::NonLinearityType::SOFTMAX_STABLE, inputTensor,
+                  nonLinearityScaling, matSeq, debugPrefix + "/softmax");
+            } else {
+              popnn::nonLinearity(
+                  graph, popnn::NonLinearityType::SOFTMAX_STABLE, inputTensor,
+                  nonLinearityScaling, matSeq, debugPrefix + "/softmax");
+              outTensor = inputTensor;
+            }
           } else if (scenario == Scenario::smdBwd) {
             outTensor = popnn::nonLinearityInputGradient(
                 graph, popnn::NonLinearityType::SOFTMAX_STABLE, inputTensor,

@@ -49,6 +49,13 @@ enum class SubBlockMask {
  * \param subBlockMaskType  Sub-block mask type. Elements in upper (or lower)
  *                          triangle are filled by zeroes in the result.
  *
+ * \param numGroups     The umber of groups for group operation
+ *                      or 1 for non-group operation.
+ *                      This parameter affects sub-block mask application only.
+ *                      The 0 dimension of the dense representation is
+ *                      logically divided into groups and sub-block mask
+ *                      applies individually for each group.
+ *
  * \param prog          A reference to the program sequence to which
  *                      the code to perform the softmax will be appended.
  */
@@ -56,7 +63,7 @@ poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
                          const std::array<int, 2> &dim,
                          const std::array<int, 2> &blockSize,
                          const std::vector<unsigned char> &sparsity,
-                         SubBlockMask subBlockMaskType,
+                         SubBlockMask subBlockMaskType, unsigned numGroups,
                          poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext = {});
 
@@ -80,6 +87,13 @@ poplar::Tensor bsSoftmax(poplar::Graph &graph, poplar::Tensor sparseTensor,
  * \param subBlockMaskType  Sub-block mask type. Elements in upper (or lower)
  *                          triangle are filled by zeroes in the result.
  *
+ * \param numGroups     The umber of groups for group operation
+ *                      or 1 for non-group operation.
+ *                      This parameter affects sub-block mask application only.
+ *                      The 0 dimension of the dense representation is
+ *                      logically divided into groups and sub-block mask
+ *                      applies individually for each group.
+ *
  * \param prog          A reference to a program sequence which will
  *                      be appended with the code to perform the softmax.
  */
@@ -87,7 +101,7 @@ void bsSoftmaxInPlace(poplar::Graph &graph, poplar::Tensor sparseTensor,
                       const std::array<int, 2> &dim,
                       const std::array<int, 2> &blockSize,
                       const std::vector<unsigned char> &sparsity,
-                      SubBlockMask subBlockMaskType,
+                      SubBlockMask subBlockMaskType, unsigned numGroups,
                       poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {});
 
