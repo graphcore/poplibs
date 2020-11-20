@@ -63,73 +63,8 @@
 #include "MathConstants.S"
 #include "poplar/StackSizeDefs.hpp"
 
-#if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
-#define OUT_OFF          0
-#define OUT_OFFSET       4
-#define NUM_PART_OFF     6
-#define IN_OFF           8
-#define IN_OFFSET        12
-#define SCALE_OFF        14
-
-#define DELTAN_SIZE_OFF  20
-#define DELTAN_SIZE_CLR  12
-#define DELTAN_OFFSET_MASK ((1 << DELTAN_SIZE_OFF) - 1)
-#define SCPTR_SIZE_OFF   18
-#define SCPTR_SIZE_CLR   14
-#else
-#define OUT_OFF          0
-#define OUT_OFFSET       4
-#define NUM_PART_OFF     8
-#define IN_OFF           12
-#define IN_OFFSET        16
-#define SCALE_OFF        20
-
-#define DELTAN_SIZE_OFF  24
-#define DELTAN_SIZE_CLR  8
-#define DELTAN_OFFSET_MASK ((1 << DELTAN_SIZE_OFF) - 1)
-#define SCPTR_SIZE_OFF   21
-#define SCPTR_SIZE_CLR   11
-
-#endif
-
-
-// all scratch offsets given in words
-#define REM_SCRATCH      0
-#define IN_PTR_SCRATCH   1
-#define BASE_SCRATCH     2
-#define NP_PTR_SCRATCH   3
-#define OUT_PTR_SCRATCH  4
-#define NP_SCRATCH       5
-#define OUT_j_SIZE_SCRATCH  6
-#define FN_REDUCE_OUTER_LOOP_SCRATCH  7
-
-
-#define ZAACC_BITMASK (CSR_W_FP_CLR__ZAACC__MASK << CSR_W_FP_CLR__ZAACC__SHIFT)
-
-#define NUM_ELEM        m0
-#define OUT_i_PTR       m0
-#define OUT_j_PTR       m1
-#define IN_i_PTR        m2
-#define IN_j_PTR        m3
-#define OUT_i_SIZE      m4
-#define OUT_j_SIZE      m5
-#define OUT_BASE        m6
-#define IN_j_DELTA      m6
-#define NUM_PART_PTR    m7
-#define SCRATCH2        m7
-#define SCRATCH         m8
-#define NUM_PART        m9
-#define IN_BASE         m10
-#define IN_j_SIZE       m11
-
-#define VALUES_0        a0
-#define VALUES_1        a1
-#define VALUES_2        a2
-#define VALUES_3        a3
-#define ASCRATCH_0      a5
-#define ZAACC           a4
-#define SCALE           a6
-#define SCALE2          a7
+// Register, vertex state definitions
+#include "ReductionsCommon.h.S"
 
 // ld macros populate the arf (VALUES_0:4) with partial data that
 // will be used as the input to the accumulation instuction
@@ -161,42 +96,69 @@
 
 // ------------------------------------------------------- //
 // Macros to apply scaling and conditionally update the output.
-// Each can deal with a variable number of items
 
-.macro DO_SCALE_AND_UPDATE_HALF UPDATE SIZE
+.macro DO_SCALE_AND_UPDATE_HALF_1 UPDATE
+  // Apply scale as 32 bit for improved accuracy, especially as scale itself
+  // can be small
 .ifc "\UPDATE","true"
-  .ifc "\SIZE","4"
-   {ld64 $VALUES_2:3, $OUT_j_PTR, $mzero, 0
-    f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1}
-  .endif
-  .ifc "\SIZE","2"
-   {ld32 $VALUES_2, $OUT_j_PTR, $mzero, 0
-    f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1}
-  .endif
-  .ifc "\SIZE","1"
-   {ldb16 $VALUES_2, $OUT_j_PTR, $mzero, 0
-    f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1}
-  .endif
+  {ldb16 $VALUES_2, $OUT_j_PTR, $mzero, 0
+   f32v2mul $VALUES_0:1, $SCALE:B, $VALUES_0:1}
+  {ldb16 $ASCRATCH_0, $OUT_j_PTR, $mzero, 1
+   f32v2tof16 $VALUES_0, $VALUES_0:1}
+  f16v2add $VALUES_0, $VALUES_0, $VALUES_2
+.else
+  f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1
+  {ldb16 $ASCRATCH_0, $OUT_j_PTR, $mzero, 1
+    f32v2tof16 $VALUES_0, $VALUES_0:1}
+.endif
+.endm
 
+.macro DO_SCALE_AND_UPDATE_HALF_2 UPDATE
+  // Apply scale as 32 bit for improved accuracy, especially as scale itself
+  // can be small
+.ifc "\UPDATE","true"
+  {ld32 $VALUES_2, $OUT_j_PTR, $mzero, 0
+   f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1}
+  f32v2tof16 $VALUES_0, $VALUES_0:1
+  f16v2add $VALUES_0, $VALUES_0, $VALUES_2
+.else
+  f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1
+  f32v2tof16 $VALUES_0, $VALUES_0:1
+.endif
+.endm
+
+.macro DO_SCALE_AND_UPDATE_HALF_4 UPDATE
+  // Apply scale as 32 bit for improved accuracy, especially as scale itself
+  // can be small
+.ifc "\UPDATE","true"
+  f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1
+  f32v2gina  $VALUES_4:5, $azeros, 0
+  f32v2mul   $VALUES_2:3, $SCALE:B, $VALUES_4:5
+  {ld64 $VALUES_2:3, $OUT_j_PTR, $mzero, 0
+   f32v4tof16 $VALUES_0:1, $VALUES_0:3}
   f16v4add $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
 .else
-  f16v4mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1
+  f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1
+  f32v2gina  $VALUES_4:5, $azeros, 0
+  f32v2mul   $VALUES_2:3, $SCALE:B, $VALUES_4:5
+  f32v4tof16 $VALUES_0:1, $VALUES_0:3
 .endif
 .endm
 
 // ------------------------------------------------------- //
+// The float macro deals with multiple sizes
 .macro DO_SCALE_AND_UPDATE_FLOAT UPDATE SIZE
 .ifc "\UPDATE","true"
   .ifc "\SIZE","2"
    {ld64 $VALUES_2:3, $OUT_j_PTR, $mzero, 0
-    f32v2mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1}
+    f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1}
   .else
    {ld32 $VALUES_2, $OUT_j_PTR, $mzero, 0
-    f32v2mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1}
+    f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1}
   .endif
   f32v2add $VALUES_0:1, $VALUES_0:1, $VALUES_2:3
 .else
-  f32v2mul   $VALUES_0:1, $SCALE:7, $VALUES_0:1
+  f32v2mul   $VALUES_0:1, $SCALE:B, $VALUES_0:1
 .endif
 .endm
 
@@ -545,8 +507,7 @@ REDUCE_HALF_HALF(ScaledReduce,SCALAR___OUTPUT___REGIONS):
 #endif
 
 2:
- {call       $IN_j_SIZE, _Reduce_load_state_process_common
-  f32tof16   $SCALE, $SCALE}
+ call       $IN_j_SIZE, _Reduce_load_state_process_common
 
 _loop_over_reductions.\@:
 // ************************************************* //
@@ -600,21 +561,15 @@ _in_j_loop_start.\@:
 // ************************************************* //
 // end of 8 vector accumulating, scale and store
 // ************************************************* //
-  // instead of f16v4mul could have done f16v4mac, for those that are bored of
-  // the regular instruction set
-  // TODO: T12919 Use f16v4gacc here as uput later removes need for gina.
   {
     add $IN_j_DELTA, $IN_j_DELTA, 16
-    f16v2gina  $VALUES_0, $azero, 0
+    f32v2gina  $VALUES_0:1, $azeros, 0
   }
-  f16v2gina $VALUES_1, $azero, 0
-  DO_SCALE_AND_UPDATE_HALF \UPDATE 4
-  {
-    st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
-    f16v2gina  $VALUES_0, $azero, 0
-  }
-  f16v2gina $VALUES_1, $azero, 0
-  DO_SCALE_AND_UPDATE_HALF \UPDATE 4
+  DO_SCALE_AND_UPDATE_HALF_4 \UPDATE
+  {st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
+   f32v2gina  $VALUES_0:1, $azeros, 0}
+
+  DO_SCALE_AND_UPDATE_HALF_4 \UPDATE
   st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
 
   brnzdec    $OUT_j_SIZE, _out_j_loop.\@
@@ -648,12 +603,11 @@ _in_j_loop_start_4_rem.\@:
 // ************************************************* //
   {
     add $IN_j_DELTA, $IN_j_DELTA, 8
-    f16v2gina  $VALUES_0, $azero, 0
+    f32v2gina  $VALUES_0:1, $azeros, 0
   }
-  f16v2gina $VALUES_1, $azero, 0
-  DO_SCALE_AND_UPDATE_HALF \UPDATE 4
-
+  DO_SCALE_AND_UPDATE_HALF_4 \UPDATE
   st64step   $VALUES_0:1, $mzero, $OUT_j_PTR+=, 1
+
 
 // ************************************************* //
 // 2 vector remainder accumulate, scale and store
@@ -684,10 +638,9 @@ _in_j_loop_start_2_rem.\@:
 // ************************************************* //
   {
     add $IN_j_DELTA, $IN_j_DELTA, 4
-    f16v2gina  $VALUES_0, $azero, 0
+    f32v2gina  $VALUES_0:1, $azeros, 0
   }
-  DO_SCALE_AND_UPDATE_HALF \UPDATE 2
-
+  DO_SCALE_AND_UPDATE_HALF_2 \UPDATE
   st32step   $VALUES_0, $mzero, $OUT_j_PTR+=, 1
 
 // ************************************************* //
@@ -719,11 +672,10 @@ _in_j_loop_start_1_rem.\@:
 // ************************************************* //
   {
     add $IN_j_DELTA, $IN_j_DELTA, 2
-    f16v2gina  $VALUES_0, $azero, 0
+    f32v2gina  $VALUES_0:1, $azeros, 0
   }
-  DO_SCALE_AND_UPDATE_HALF \UPDATE 1
+  DO_SCALE_AND_UPDATE_HALF_1 \UPDATE
 
-  ldb16 $ASCRATCH_0, $OUT_j_PTR, $mzero, 1
   sort4x16lo $VALUES_0, $VALUES_0, $ASCRATCH_0
   st32 $VALUES_0, $OUT_j_PTR, $mzero, 0
 
@@ -1283,5 +1235,8 @@ INSTANTIATE_FLOAT_FLOAT true sqacc ReduceSquareAdd
 INSTANTIATE_FLOAT_FLOAT false acc ReduceAdd
 INSTANTIATE_FLOAT_FLOAT false sqacc ReduceSquareAdd
 
+//******************************************************************************
+// Use macros to create various common functions
+CREATE_COMMON_FUNCTIONS
 
 #endif

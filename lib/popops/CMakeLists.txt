@@ -120,7 +120,6 @@ set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial01NoAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial2.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionSpecial3.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2DXminusaXPlusbY_half.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ScaledAdd2D_float_half.S
@@ -203,6 +202,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseScaledAddCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
   HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/HeapSort.hpp

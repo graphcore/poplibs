@@ -35,7 +35,7 @@ IpuModel1,default,bert_proj_128x768x768,28626,-0.1,25719950,0.0,135192,0.0
 IpuModel1,default,bert_proj_384x1024x1024,90369,-0.1,74123426,0.0,142040,0.0
 IpuModel1,default,bert_proj_384x768x768,58622,-0.1,45975212,0.0,139288,0.0
 IpuModel1,default,bert_proj_512x1024x1024,112242,-0.0,94150086,0.0,145688,0.0
-IpuModel1,default,bert_proj_512x768x768,71887,0.0,57240824,0.0,139288,0.0
+IpuModel1,default,bert_proj_512x768x768,71887,-0.1,57240824,0.0,139288,0.0
 IpuModel1,default,bert_reduce_0,1466,0.0,600904,-3.9,864,-2.7
 IpuModel1,default,bert_reduce_1,1882,0.0,859208,-2.8,972,-2.4
 IpuModel1,default,bert_reduce_2,2758,0.0,553960,-4.2,2568,-0.9
@@ -257,7 +257,7 @@ IpuModel2,default,bert_proj_384x768x768,50608,-0.2,46302330,0.0,217944,0.0
 IpuModel2,default,bert_proj_512x1024x1024,98493,-0.0,71394226,0.0,229400,0.0
 IpuModel2,default,bert_proj_512x768x768,62214,-0.1,59917434,0.0,220056,0.0
 IpuModel2,default,bert_reduce_0,1466,0.0,613448,-3.9,888,-2.6
-IpuModel2,default,bert_reduce_1,1882,0.0,894536,-2.7,1008,-2.3
+IpuModel2,default,bert_reduce_1,1882,0.0,894536,0.0,1008,0.0
 IpuModel2,default,bert_reduce_2,2758,0.0,588936,-4.0,2608,-0.9
 IpuModel2,default,bert_reduce_3,2758,0.0,588936,-4.0,2608,-0.9
 IpuModel2,default,bert_reduce_4,2587,0.0,1125576,-3.1,1024,-2.3
@@ -409,7 +409,7 @@ IpuModel2,default,oct_resnet50_tr_bs4_bm64L0_projection_a25,59084,-0.1,59389768,
 IpuModel2,default,oct_resnet50_tr_bs4_bm64L1A0_a25,54097,-0.1,63169344,0.0,224088,0.0
 IpuModel2,default,oct_resnet50_tr_bs4_cnv_ain0_aout25,156904,0.0,137777103,0.0,249144,0.0
 IpuModel2,default,resnet50_tr_bs1_bm128L0A0_reduce,2606,11.6,336360,10.5,1008,0.0
-IpuModel2,default,resnet50_tr_bs1_bm128L0_reduce,3357,0.0,978379,-3.5,16440,0.0
+IpuModel2,default,resnet50_tr_bs1_bm128L0_reduce,3357,0.0,978379,0.0,16440,0.0
 IpuModel2,default,resnet50_tr_bs1_bm64L0A0_reduce,2811,0.0,545479,-5.0,16440,0.0
 IpuModel2,default,resnet50_tr_bs1_cnv_reduce,3040,0.0,2040736,-1.7,2080,-1.1
 IpuModel2,default,resnet50_tr_bs4_bm128L0A0,36567,-0.2,61045922,0.0,217432,0.0

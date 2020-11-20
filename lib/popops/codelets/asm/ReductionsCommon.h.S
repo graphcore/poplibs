@@ -76,12 +76,12 @@
 #define VALUES_1        a1
 #define VALUES_2        a2
 #define VALUES_3        a3
+#define VALUES_4        a4
 #define ACC_0           a2
 #define ACC_1           a3
 #define ASCRATCH_0      a5
-#define ZAACC           a4
 #define SCALE           a6
-#define SCALE2          a7
+#define ZAACC           a7
 
 
 //******************************************************************************
@@ -127,6 +127,10 @@
 // Function declarations
 //******************************************************************************
 
+// Use a macro so that although this file is included in multiple files the
+// shared functions can be assembled only once
+.macro CREATE_COMMON_FUNCTIONS
+
  .global _Reduce_load_state_process_common
  .type _Reduce_load_state_process_common, @function
 
@@ -152,28 +156,17 @@ _Reduce_load_state_process_common:
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
   ldz16      $OUT_i_PTR, $mvertex_base, $mzero, OUT_OFFSET/2
   ldz16      $IN_i_PTR, $mvertex_base, $mzero, IN_OFFSET/2
-  {
-    ldz16      $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/2
-    mov        $SCALE2, $SCALE
-  }
+  ldz16      $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/2
 #else
   ld32       $OUT_i_PTR, $mvertex_base, $mzero, OUT_OFFSET/4
   ld32       $IN_i_PTR, $mvertex_base, $mzero, IN_OFFSET/4
-  {
-    ld32       $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/4
-    mov        $SCALE2, $SCALE
-  }
-#endif
+  ld32       $NUM_PART_PTR, $mvertex_base, $mzero, NUM_PART_OFF/4
+ #endif
 // ************************************************* //
 // Useful constants
 // ************************************************* //
 #if defined(VECTOR_AVAIL_SCALED_PTR32) && defined(VECTORLIST_AVAIL_DELTAN)
-  {
-    setzi    $SCRATCH, TMEM_REGION0_BASE_ADDR
-    setzi    $ZAACC, ZAACC_BITMASK
-  }
-#else
-  setzi    $ZAACC, ZAACC_BITMASK
+  setzi    $SCRATCH, TMEM_REGION0_BASE_ADDR
 #endif
 
 // ************************************************* //
@@ -212,7 +205,8 @@ _Reduce_load_state_process_common:
   st32       $IN_i_PTR, $mworker_base, $mzero, IN_PTR_SCRATCH
   st32       $OUT_BASE, $mworker_base, $mzero, BASE_SCRATCH
   st32       $NUM_PART_PTR, $mworker_base, $mzero, NP_PTR_SCRATCH
-  st32       $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
+  {st32      $OUT_i_PTR, $mworker_base, $mzero, OUT_PTR_SCRATCH
+   setzi     $ZAACC, ZAACC_BITMASK}
   brnzdec    $OUT_i_SIZE, 1f
   exitz      $mzero
 
@@ -312,4 +306,7 @@ _Reduce_zero_and_load:
     zero       $VALUES_2:3
   }
  .size Reductions_common_zero_and_load,.-_Reduce_zero_and_load
+
+.endm
+
 #endif
