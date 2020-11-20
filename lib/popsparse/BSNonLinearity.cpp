@@ -350,8 +350,9 @@ Tensor bsSoftmaxInternal(Graph &graph, Tensor sparseTensor, bool inPlace,
   // 5. Compute the sum of each row
   css.clear();
   for (const auto &slicesAsRectFiltered : slicesAsRectFilteredVec) {
-    Tensor sumByRow = popops::reduce(graph, slicesAsRectFiltered, FLOAT, {1},
-                                     popops::Operation::ADD, css, {dnai, layer});
+    Tensor sumByRow =
+        popops::reduce(graph, slicesAsRectFiltered, FLOAT, {1},
+                       popops::Operation::ADD, css, {dnai, layer});
     assert(sumByRow.shape() ==
            std::vector<std::size_t>({slicesAsRectFiltered.shape()[0]}));
 
@@ -516,7 +517,8 @@ Tensor bsSoftmax(Graph &graph, Tensor sparseTensor,
                  const std::array<int, 2> &blockSize,
                  const std::vector<unsigned char> &sparsity,
                  SubBlockMask subBlockMaskType, unsigned numGroups,
-                 program::Sequence &prog, const poplar::DebugContext &debugContext) {
+                 program::Sequence &prog,
+                 const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
       DI_ARGS(sparseTensor, dim, blockSize, sparsity, subBlockMaskType));
@@ -567,8 +569,8 @@ void bsSoftmaxInPlace(Graph &graph, Tensor sparseTensor,
                     static_cast<unsigned>(blockSize[0]),
                     static_cast<unsigned>(blockSize[1]),
                     static_cast<unsigned>(dim[0] / blockSize[0] * numGroups),
-                    static_cast<unsigned>(dim[1] / blockSize[1]), sparsity.data(),
-                    subBlockMaskType, numGroups, prog, {di});
+                    static_cast<unsigned>(dim[1] / blockSize[1]),
+                    sparsity.data(), subBlockMaskType, numGroups, prog, {di});
 }
 
 Tensor bsSoftmaxGrad(Graph &graph, Tensor sparseOut, Tensor sparseOutGrad,

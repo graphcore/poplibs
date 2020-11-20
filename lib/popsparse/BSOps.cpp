@@ -136,8 +136,7 @@ void applySubBlockMask(poplar::Graph &graph, const poplar::Tensor &sparseTensor,
   std::vector<unsigned> diagBlockIdxs;
   bsCreateMaskTensor(graph, blockRow, blockCol, blockRows * numGroups,
                      blockCols, sparsity, subBlockMask, numGroups, 0.0f, 1.0f,
-                     dataType, maskBlocks, diagBlockIdxs, emptyRowsMask,
-                     dnai);
+                     dataType, maskBlocks, diagBlockIdxs, emptyRowsMask, dnai);
   for (unsigned idxDiagBlock : diagBlockIdxs) {
     if (idxDiagBlock >= sparseTensor.dim(0)) {
       throw poplibs_error(

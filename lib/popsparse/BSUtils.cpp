@@ -13,15 +13,13 @@ using namespace poputil;
 namespace popsparse {
 namespace experimental {
 
-void bsCreateMaskTensor(poplar::Graph &graph, unsigned blockRow,
-                        unsigned blockCol, unsigned blockRows,
-                        unsigned blockCols, const unsigned char *sparsity,
-                        popsparse::experimental::SubBlockMask subBlockMaskType, unsigned numGroups,
-                        float maskedValue, float unMaskedValue,
-                        const Type &dataType, std::vector<Tensor> &maskBlocks,
-                        std::vector<unsigned> &diagBlockIdxs,
-                        std::vector<bool> &emptyRowsMask,
-                        const poplar::DebugNameAndId &dnai) {
+void bsCreateMaskTensor(
+    poplar::Graph &graph, unsigned blockRow, unsigned blockCol,
+    unsigned blockRows, unsigned blockCols, const unsigned char *sparsity,
+    popsparse::experimental::SubBlockMask subBlockMaskType, unsigned numGroups,
+    float maskedValue, float unMaskedValue, const Type &dataType,
+    std::vector<Tensor> &maskBlocks, std::vector<unsigned> &diagBlockIdxs,
+    std::vector<bool> &emptyRowsMask, const poplar::DebugNameAndId &dnai) {
   if (subBlockMaskType == SubBlockMask::None) {
     throw poplibs_error("No valid masking rule was specified");
   }
