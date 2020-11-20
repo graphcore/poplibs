@@ -234,34 +234,6 @@ void zeroInitialState(Graph &graph, const Tensor &init_output, Sequence &prog,
 // those weights are associated with.
 constexpr auto gateDim = 0u;
 
-// rearrange the gate dimension to reflect the order provided by the user.
-static poplar::Tensor
-toCellOrder(poplar::Tensor tensor,
-            const std::vector<BasicGruCellUnit> &cellOrder) {
-  assert(tensor.shape().at(0) == BASIC_GRU_CELL_NUM_UNITS);
-
-  std::vector<poplar::Tensor> rearranged;
-  rearranged.reserve(BASIC_GRU_CELL_NUM_UNITS);
-
-  for (const auto &gate : cellOrder) {
-    const auto idx = static_cast<std::size_t>(gate);
-    rearranged.push_back(tensor.slice(idx, idx + 1, gateDim));
-  }
-
-  return concat(std::move(rearranged));
-}
-
-static GruWeights toCellOrder(GruWeights weights,
-                              const std::vector<BasicGruCellUnit> &cellOrder) {
-  weights.inputWeights =
-      toCellOrder(std::move(weights.inputWeights), cellOrder);
-  weights.outputWeights =
-      toCellOrder(std::move(weights.outputWeights), cellOrder);
-  weights.biases = toCellOrder(std::move(weights.biases), cellOrder);
-
-  return weights;
-}
-
 // rearrange the gate dimension back from the user configured order to the
 // internal order (which is the order that the gates appear in the enum).
 static poplar::Tensor
@@ -344,8 +316,7 @@ createWeightsKernel(poplar::Graph &graph, const GruParams &params,
   }
   // rearrange the outermost dimension according to the cellOrder parameter.
   std::pair<poplar::Tensor, poplar::Tensor> outputs = {
-      toCellOrder(std::move(inputWeights), params.cellOrder),
-      toCellOrder(std::move(outputWeights), params.cellOrder)};
+      std::move(inputWeights), std::move(outputWeights)};
   di.addOutputs({{"inputWeights", toProfileValue(outputs.first)},
                  {"outputWeights", toProfileValue(outputs.second)}});
   return outputs;
@@ -374,9 +345,8 @@ createWeightsBiases(poplar::Graph &graph, const GruParams &params,
                                {di, "biases"});
   }
   mapTensorLinearly(graph, biases);
-  auto output = toCellOrder(biases, params.cellOrder);
-  di.addOutput(output);
-  return output;
+  di.addOutput(biases);
+  return biases;
 }
 
 GruWeights createWeights(Graph &graph, const GruParams &params,
@@ -1501,7 +1471,8 @@ static void basicGruParamUpdate(Graph &graph, const Tensor &prevLayerActs,
 static GruWeights
 basicGruParamUpdateFinal(Graph &graph, const GruWeights &weights,
                          const GruWeights &weightGrads, Sequence &prog,
-                         const DebugNameAndId &dnai, bool resetAfter) {
+                         const DebugNameAndId &dnai, bool resetAfter,
+                         const std::vector<BasicGruCellUnit> &cellOrder) {
   // The accumulated bias gradients still has a batch axis that we must
   // accumulate over - do this now.
   auto biasGrad = graph.clone(weights.biases, {dnai, "biasGrad"});
@@ -1567,7 +1538,7 @@ static void zeroWeightAccumulators(Graph &graph, program::Sequence &prog,
 static Tensor
 gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
            const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-           const GruWeights &weights, const Tensor &fwdInputSeq,
+           const GruWeights &weights_, const Tensor &fwdInputSeq,
            const Tensor &fwdOutput, const Tensor &gradLayerNext,
            Tensor *inputGradSeq, Tensor *bwdIntermediatesPtr,
            GruWeights *weightsGrad,
@@ -1578,6 +1549,8 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   logging::popnn::info("gruBwdImpl(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
                        dnai.getPathName());
+
+  const auto weights = fromCellOrder(weights_, params.cellOrder);
 
   debug_tensor(prog, "bwd fwdIntermediatesSeq", fwdIntermediatesSeq);
 
@@ -1752,13 +1725,15 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
     loop.add(bwdLoopBody);
 
     if (weightsGrad) {
-      *weightsGrad = createWeightAccumulators(
-          graph, weights, bwdIntermediates, options, {dnai}, params.resetAfter);
+      *weightsGrad =
+          createWeightAccumulators(graph, weights_, bwdIntermediates, options,
+                                   {dnai}, params.resetAfter);
       zeroWeightAccumulators(graph, prog, *weightsGrad, {dnai});
 
-      basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
-                          bwdIntermediates, *weightsGrad, wuLoopBody, options,
-                          {dnai}, cache, params.resetAfter);
+      basicGruParamUpdate(
+          graph, prevLayerOut, prevStepOut, fwdIntermediates, bwdIntermediates,
+          fromCellOrder(*weightsGrad, params.cellOrder), wuLoopBody, options,
+          {dnai}, cache, params.resetAfter);
     }
     loop.add(wuLoopBody);
     // Go to next step
@@ -1771,8 +1746,9 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
   prog.add(bwdLoopBody);
   if (weightsGrad) {
     prog.add(wuLoopBody);
-    *weightsGrad = basicGruParamUpdateFinal(graph, weights, *weightsGrad, prog,
-                                            {dnai}, params.resetAfter);
+    *weightsGrad =
+        basicGruParamUpdateFinal(graph, weights, *weightsGrad, prog, {dnai},
+                                 params.resetAfter, params.cellOrder);
   }
 
   return lastOutGrad;
@@ -1780,7 +1756,7 @@ gruBwdImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-              const GruWeights &weights_, const Tensor &fwdInputSeq,
+              const GruWeights &weights, const Tensor &fwdInputSeq,
               const Tensor &fwdOutput, const Tensor &gradLayerNext,
               Tensor *inputGrad, Tensor *bwdIntermediates,
               const poplar::DebugContext &debugContext,
@@ -1788,7 +1764,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights, fwdInputSeq,
               fwdOutput, gradLayerNext, params, inputGrad, bwdIntermediates,
               options_, planningCache));
 
@@ -1800,8 +1776,6 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
 
   boost::optional<const Tensor &> realTimeStepsOpt(boost::none);
   boost::optional<const Tensor &> attScoresOpt(boost::none);
@@ -1816,7 +1790,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-              const GruWeights &weights_, const Tensor &fwdInputSeq,
+              const GruWeights &weights, const Tensor &fwdInputSeq,
               const Tensor &realTimeSteps, const Tensor &fwdOutput,
               const Tensor &gradLayerNext, Tensor *inputGrad,
               Tensor *bwdIntermediates,
@@ -1825,7 +1799,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
               poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights, fwdInputSeq,
               realTimeSteps, fwdOutput, gradLayerNext, params, inputGrad,
               bwdIntermediates, options_, planningCache));
 
@@ -1837,8 +1811,6 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
 
   boost::optional<const Tensor &> realTimeStepsOpt(realTimeSteps);
   boost::optional<const Tensor &> attScoresOpt(boost::none);
@@ -1853,7 +1825,7 @@ Tensor gruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-                const GruWeights &weights_, const Tensor &fwdInputSeq,
+                const GruWeights &weights, const Tensor &fwdInputSeq,
                 const Tensor &fwdOutput, const Tensor &gradLayerNext,
                 Tensor *inputGrad, Tensor *bwdIntermediates,
                 const Tensor &attentions, Tensor *attentionsGrad,
@@ -1862,7 +1834,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights, fwdInputSeq,
               fwdOutput, gradLayerNext, inputGrad, bwdIntermediates, attentions,
               attentionsGrad, params, options_, planningCache));
 
@@ -1875,8 +1847,6 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         (inputGrad ? "true" : "false"));
   }
 
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-
   boost::optional<const Tensor &> timeSteps;
   boost::optional<const Tensor &> attScores(attentions);
   return gruBwdImpl(graph, params, prog, fwdOutputInit, fwdIntermediatesSeq,
@@ -1887,7 +1857,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
 
 Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 const Tensor &fwdOutputInit, const Tensor &fwdIntermediatesSeq,
-                const GruWeights &weights_, const Tensor &fwdInputSeq,
+                const GruWeights &weights, const Tensor &fwdInputSeq,
                 const Tensor &realTimeSteps, const Tensor &fwdOutput,
                 const Tensor &gradLayerNext, Tensor *inputGrad,
                 Tensor *bwdIntermediates, const Tensor &attentions,
@@ -1897,7 +1867,7 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                 poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights_, fwdInputSeq,
+      DI_ARGS(fwdOutputInit, fwdIntermediatesSeq, weights, fwdInputSeq,
               realTimeSteps, fwdOutput, gradLayerNext, inputGrad,
               bwdIntermediates, attentions, attentionsGrad, params, options_,
               planningCache));
@@ -1909,8 +1879,6 @@ Tensor auGruBwd(Graph &graph, const GruParams &params, program::Sequence &prog,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
 
   boost::optional<const Tensor &> timeSteps(realTimeSteps);
   boost::optional<const Tensor &> attScores(attentions);
@@ -1982,32 +1950,34 @@ gruWUImpl(Graph &graph, const GruParams &params, program::Sequence &prog,
     subInPlace(graph, seqIdx, one, sliceLoopBody, {dnai, "seqIdxDecr"});
     loop.add(sliceLoopBody);
 
-    basicGruParamUpdate(graph, prevLayerOut, prevStepOut, fwdIntermediates,
-                        bwdIntermediates, weightGrads, wuLoopBody, options,
-                        {dnai}, planningCache, params.resetAfter);
+    basicGruParamUpdate(
+        graph, prevLayerOut, prevStepOut, fwdIntermediates, bwdIntermediates,
+        fromCellOrder(weightGrads, params.cellOrder), wuLoopBody, options,
+        {dnai}, planningCache, params.resetAfter);
     loop.add(wuLoopBody);
   }
   prog.add(Repeat(params.timeSteps - 1, loop, {dnai}));
   prog.add(sliceLoopBody);
   prog.add(wuLoopBody);
 
-  weightGrads = basicGruParamUpdateFinal(graph, weights, weightGrads, prog,
-                                         {dnai}, params.resetAfter);
+  weightGrads =
+      basicGruParamUpdateFinal(graph, weights, weightGrads, prog, {dnai},
+                               params.resetAfter, params.cellOrder);
 
   return weightGrads;
 }
 
 GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
                  const Tensor &fwdOutputInit, const Tensor &fwdIntermediates,
-                 const Tensor &bwdIntermediates, const GruWeights &weights_,
+                 const Tensor &bwdIntermediates, const GruWeights &weights,
                  const Tensor &input, const Tensor &output,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options_,
                  poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediates, bwdIntermediates, weights_,
-              input, output, params, options_, planningCache));
+      DI_ARGS(fwdOutputInit, fwdIntermediates, bwdIntermediates, weights, input,
+              output, params, options_, planningCache));
 
   logging::popnn::info("gruWU(steps={}, batch {} x layers {}, name{}",
                        params.timeSteps, params.batchSize, params.layerSizes,
@@ -2015,28 +1985,25 @@ GruWeights gruWU(Graph &graph, const GruParams &params, program::Sequence &prog,
   validateParams(params);
   auto options = parseOptions(options_);
 
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-
   auto grads = gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
                          bwdIntermediates, weights, input, output, {di},
                          std::move(options), planningCache);
-  auto outputs = toCellOrder(std::move(grads), params.cellOrder);
-  di.addOutputs(DI_ARGS(outputs));
-  return outputs;
+  di.addOutputs(DI_ARGS(grads));
+  return grads;
 }
 
 GruWeights augruWU(Graph &graph, const GruParams &params,
                    program::Sequence &prog, const Tensor &fwdOutputInit,
                    const Tensor &fwdIntermediates,
-                   const Tensor &bwdIntermediates, const GruWeights &weights_,
+                   const Tensor &bwdIntermediates, const GruWeights &weights,
                    const Tensor &input, const Tensor &output,
                    const poplar::DebugContext &debugContext,
                    const poplar::OptionFlags &options_,
                    poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediates, bwdIntermediates, weights_,
-              input, output, params, options_, planningCache));
+      DI_ARGS(fwdOutputInit, fwdIntermediates, bwdIntermediates, weights, input,
+              output, params, options_, planningCache));
   logging::popnn::info("gruWU(steps={}, batch {} x layers {}, name{}",
                        params.timeSteps, params.batchSize, params.layerSizes,
                        debugContext.getPathName());
@@ -2044,15 +2011,12 @@ GruWeights augruWU(Graph &graph, const GruParams &params,
   validateParams(params);
   auto options = parseOptions(options_);
 
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-
   auto grads = gruWUImpl(graph, params, prog, fwdOutputInit, fwdIntermediates,
                          bwdIntermediates, weights, input, output, {di},
                          std::move(options), planningCache);
-  auto outputs = toCellOrder(std::move(grads), params.cellOrder);
-  di.addOutputs(DI_ARGS(outputs));
+  di.addOutputs(DI_ARGS(grads));
 
-  return outputs;
+  return grads;
 }
 
 // Is it beneficial memory-wise to interleave weight update with
@@ -2074,15 +2038,15 @@ static bool interleavedWUIsBeneficial(const GruParams &params) {
 Tensor
 gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
-             const poplar::Tensor &fwdIntermediates, const GruWeights &weights_,
+             const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
              const poplar::Tensor &input, const poplar::Tensor &output,
              const poplar::Tensor &outputGrad, poplar::Tensor *inputGrad,
-             GruWeights &weightsGrad_, const poplar::DebugContext &debugContext,
+             GruWeights &weightsGrad, const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input,
-                            output, outputGrad, inputGrad, weightsGrad_, params,
+      debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights, input,
+                            output, outputGrad, inputGrad, weightsGrad, params,
                             options_, planningCache));
   logging::popnn::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
@@ -2096,9 +2060,6 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-  GruWeights weightsGrad;
 
   bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
@@ -2122,7 +2083,6 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                             output, {di}, std::move(options), planningCache);
   }
 
-  weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
   di.addOutput(outGrads);
   return outGrads;
 }
@@ -2130,17 +2090,17 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
 Tensor
 gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
              poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
-             const poplar::Tensor &fwdIntermediates, const GruWeights &weights_,
+             const poplar::Tensor &fwdIntermediates, const GruWeights &weights,
              const poplar::Tensor &input, const poplar::Tensor &realTimeSteps,
              const poplar::Tensor &output, const poplar::Tensor &outputGrad,
-             poplar::Tensor *inputGrad, GruWeights &weightsGrad_,
+             poplar::Tensor *inputGrad, GruWeights &weightsGrad,
              const poplar::DebugContext &debugContext,
              const poplar::OptionFlags &options_,
              poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input,
+      debugContext, DI_ARGS(fwdOutputInit, fwdIntermediates, weights, input,
                             realTimeSteps, output, outputGrad, inputGrad,
-                            weightsGrad_, params, options_, planningCache));
+                            weightsGrad, params, options_, planningCache));
 
   logging::popnn::info("gruBwdWithWU(steps={}, batch {} x layers {}, name {}",
                        params.timeSteps, params.batchSize, params.layerSizes,
@@ -2153,9 +2113,6 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-  GruWeights weightsGrad;
 
   bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
@@ -2178,7 +2135,6 @@ gruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                             output, {di}, std::move(options), planningCache);
   }
 
-  weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
   di.addOutput(outGrads);
   return outGrads;
 }
@@ -2187,17 +2143,17 @@ Tensor
 auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
                const poplar::Tensor &fwdIntermediates,
-               const GruWeights &weights_, const poplar::Tensor &input,
+               const GruWeights &weights, const poplar::Tensor &input,
                const poplar::Tensor &output, const poplar::Tensor &outputGrad,
-               poplar::Tensor *inputGrad, GruWeights &weightsGrad_,
+               poplar::Tensor *inputGrad, GruWeights &weightsGrad,
                const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
                const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options_,
                poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input, output,
-              outputGrad, inputGrad, weightsGrad_, attentions, attentionsGrad,
+      DI_ARGS(fwdOutputInit, fwdIntermediates, weights, input, output,
+              outputGrad, inputGrad, weightsGrad, attentions, attentionsGrad,
               params, options_, planningCache));
 
   logging::popnn::info("auGruBwdWithWU(steps={}, batch {} x layers {}, name {}",
@@ -2211,9 +2167,6 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-  GruWeights weightsGrad;
 
   bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
@@ -2236,7 +2189,6 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                             output, {di}, std::move(options), planningCache);
   }
 
-  weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
   di.addOutput(outGrads);
   return outGrads;
 }
@@ -2245,18 +2197,18 @@ Tensor
 auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                poplar::program::Sequence &prog, const Tensor &fwdOutputInit,
                const poplar::Tensor &fwdIntermediates,
-               const GruWeights &weights_, const poplar::Tensor &input,
+               const GruWeights &weights, const poplar::Tensor &input,
                const poplar::Tensor &realTimeSteps,
                const poplar::Tensor &output, const poplar::Tensor &outputGrad,
-               poplar::Tensor *inputGrad, GruWeights &weightsGrad_,
+               poplar::Tensor *inputGrad, GruWeights &weightsGrad,
                const poplar::Tensor &attentions, poplar::Tensor *attentionsGrad,
                const poplar::DebugContext &debugContext,
                const poplar::OptionFlags &options_,
                poplin::matmul::PlanningCache *planningCache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(fwdOutputInit, fwdIntermediates, weights_, input, realTimeSteps,
-              output, outputGrad, inputGrad, weightsGrad_, attentions,
+      DI_ARGS(fwdOutputInit, fwdIntermediates, weights, input, realTimeSteps,
+              output, outputGrad, inputGrad, weightsGrad, attentions,
               attentionsGrad, params, options_, planningCache));
 
   logging::popnn::info("auGruBwdWithWU(steps={}, batch {} x layers {}, name {}",
@@ -2270,9 +2222,6 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                         " if and only if params.calcInputGradients is " +
                         (inputGrad ? "true" : "false"));
   }
-
-  auto weights = fromCellOrder(weights_, params.cellOrder);
-  GruWeights weightsGrad;
 
   bool interleaveWU = interleavedWUIsBeneficial(params);
   Tensor bwdIntermediates;
@@ -2295,7 +2244,6 @@ auGruBwdWithWU(poplar::Graph &graph, const GruParams &params,
                             output, {di}, std::move(options), planningCache);
   }
 
-  weightsGrad_ = toCellOrder(weightsGrad, params.cellOrder);
   di.addOutput(outGrads);
   return outGrads;
 }
