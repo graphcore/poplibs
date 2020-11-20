@@ -33,6 +33,15 @@ void mergeAdjacentRegions(std::vector<std::vector<poplar::Interval>> &mapping) {
   }
 }
 
+std::vector<poplar::Interval>
+flattenIntervals(const std::vector<std::vector<poplar::Interval>> &intervals) {
+  std::vector<poplar::Interval> result;
+  for (const auto &ivals : intervals) {
+    result.insert(result.end(), ivals.begin(), ivals.end());
+  }
+  return result;
+}
+
 // Take a vector of items, which each has a size and split them into sets. If
 // both minSizePerPartition and maxSizePerPartition can be satisfied there will
 // be `maxPartitions` different sets. Typically the item is an interval

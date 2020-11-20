@@ -1308,7 +1308,7 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
       "Reorder data tensor for an all-reduce with {} fragments", numFragments);
   auto dataReordered = data->flatten();
   auto resultReordered = result->flatten();
-  graph.reorderToSimplify(&dataReordered, {&resultReordered});
+  graph.reorderToSimplify(&dataReordered, {&resultReordered}, false);
   auto tileMapping = graph.getTileMapping(dataReordered);
   auto numIpus = graph.getTarget().getNumIPUs();
   auto tilesPerIpu = graph.getTarget().getTilesPerIPU();
@@ -1347,6 +1347,14 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
     auto numElements = getNumElements(tileMapping.begin() + tileBegin,
                                       tileMapping.begin() + tileEnd);
     auto elementsPerFragment = ceildiv(numElements, numFragments);
+    std::vector<std::vector<Interval>> tileMappingOrderedContiguously(
+        tilesPerIpu);
+    for (unsigned tile = tileBegin; tile < tileEnd; ++tile) {
+      const auto &contiguousRegions =
+          graph.getSortedContiguousRegions(dataReordered, tileMapping[tile]);
+      tileMappingOrderedContiguously[tile - tileBegin] =
+          poputil::flattenIntervals(contiguousRegions);
+    }
     std::vector<MappingOffset> offsets(tilesPerIpu);
     unsigned tile = tileBegin;
     auto ipuElementsRemaining = numElements;
@@ -1360,9 +1368,11 @@ static void allReduceReorder(Graph &graph, poplar::Tensor *data,
             std::min(tileElementsPerFragment, fragmentElementsRemaining);
         auto &offset = offsets[tile - tileBegin];
         while (tileElementsRemaining > 0) {
-          if (offset.interval == tileMapping[tile].size())
+          if (offset.interval ==
+              tileMappingOrderedContiguously[tile - tileBegin].size())
             break;
-          const auto &interval = tileMapping[tile][offset.interval];
+          const auto &interval =
+              tileMappingOrderedContiguously[tile - tileBegin][offset.interval];
           auto sliceBegin = interval.begin() + offset.offsetInInterval;
           auto sliceEnd =
               std::min(sliceBegin + tileElementsRemaining, interval.end());

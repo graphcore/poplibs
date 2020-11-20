@@ -26,6 +26,11 @@ void mergeAdjacentRegions(std::vector<poplar::Interval> &regions);
 
 void mergeAdjacentRegions(std::vector<std::vector<poplar::Interval>> &mapping);
 
+/// Flatten a vector of vectors of intervals to a vector, maintaining
+/// ordering.
+std::vector<poplar::Interval>
+flattenIntervals(const std::vector<std::vector<poplar::Interval>> &intervals);
+
 /// Given a set of contiguous regions, partition these regions while trying to
 /// balance the number of elements in each partition and respecting the
 /// specified grain size. At most \p maxPartitions partitions are created.
