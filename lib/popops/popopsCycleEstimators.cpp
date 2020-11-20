@@ -283,11 +283,13 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
 
   // calculate count, rem and final
   const auto numWorkers = target.getNumWorkerContexts();
-  const unsigned atomSize = 8 / target.getTypeSize(dataType);
-  const unsigned count = (A.size() / numWorkers / atomSize) * atomSize;
-  const unsigned final = A.size() % numWorkers;
-  const unsigned rem =
-      (A.size() / numWorkers) % numWorkers + iceil(final, atomSize);
+  const unsigned vectorWidth = target.getVectorWidth(dataType);
+
+  const unsigned totalVectors = A.size() / vectorWidth;
+  const unsigned remainingElems = A.size() % vectorWidth;
+
+  const unsigned vectorsPerWorker = totalVectors / numWorkers;
+  const unsigned remainingVectors = totalVectors % numWorkers;
 
   const auto aLayout = A.getProfilerVectorLayout(0);
   const auto bLayout = B.getProfilerVectorLayout(0);
@@ -301,7 +303,7 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
 
   std::uint64_t supervisorCycles = perTypeSupervisorOverhead +
                                    basicOpSupervisorOverhead() +
-                                   +(final == 0 ? 7 : 13) + 12;
+                                   +(remainingElems == 0 ? 7 : 13) + 12;
 
   if (operation == ScaledArithmeticOp::AXPLUSBY && !isConstant) {
     supervisorCycles +=
@@ -315,28 +317,31 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
     supervisorCycles += 6;
   }
 
-  std::vector<unsigned> workerCycles(numWorkers);
+  std::vector<unsigned> workerCycles;
+  workerCycles.reserve(numWorkers);
   // Specific mixed precision half, float version
   if (dataType == HALF && dataBType == FLOAT) {
-    for (unsigned wid = 0; wid <= numWorkers; ++wid) {
+    const auto innerLoopCycles = memConstrained ? 2 : 3;
+    for (unsigned wid = 0; wid < numWorkers; ++wid) {
       std::uint64_t cycles = 16; // constant worker prologue cycles
-      if (count / atomSize != 0) {
-        if (count / atomSize < 3) {
+      const auto numVectors = vectorsPerWorker + (wid < remainingVectors);
+      if (numVectors != 0) {
+        if (numVectors < 3) {
           cycles += 8 // inner loop for < 3 constant overhead (processes 1)
-                    + (4 * (count / atomSize - 1)); // loop cycles
+                    + (4 * (numVectors - 1)); // loop cycles
         } else {
           cycles += 16 // inner loop for >= 3 constant overhead (processes 3)
-                    + (2 * (count / atomSize - 3)); // loop cycles
+                    + (innerLoopCycles * (numVectors - 3)); // loop cycles
         }
       }
       cycles += 2; // workerID == rem
-      if (wid == rem) {
+      if (wid == remainingVectors) {
         cycles += 1; // final == 0?
-        if (final != 0) {
+        if (remainingElems != 0) {
           cycles += 5; // unpack triPtr and check if at least 2 remain
-          if (final >= 2) {
+          if (remainingElems >= 2) {
             cycles += 7; // process 2 of the remainder.
-            if (final == 3) {
+            if (remainingElems == 3) {
               cycles += 6; // process final half
             }
           }
@@ -348,27 +353,29 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
   }
   // (half,half), (float, half) and (float, float) versions
   else {
+    // half/float case handled above
+    assert(dataType != HALF || dataBType != FLOAT);
     const unsigned innerLoopCycles =
-        memConstrained ? 2
-                       : (dataType == dataBType || dataBType == HALF ? 3 : 4);
+        memConstrained ? 2 : (dataType == dataBType ? 3 : 4);
 
-    for (unsigned wid = 0; wid <= numWorkers; ++wid) {
+    for (unsigned wid = 0; wid < numWorkers; ++wid) {
       std::uint64_t cycles = 15; // constant worker prologue cycles
-      if (count / atomSize != 0) {
+      const auto numVectors = vectorsPerWorker + (remainingVectors < 0);
+      if (numVectors != 0) {
         cycles += 6 // inner loop constant overhead
-                  + (innerLoopCycles * (count / atomSize - 1)); // loop cycles
+                  + (innerLoopCycles * (numVectors - 1)); // loop cycles
       }
       cycles += 2; // workerID == rem
-      if (wid == rem) {
+      if (wid == remainingVectors) {
         cycles += 1; // final == 0?
-        if (final != 0) {
+        if (remainingElems != 0) {
           if (dataType == FLOAT) {
             cycles += 8; // process final float.
           } else {
             cycles += 5; // unpack triPtr and check if at least 2 remain
-            if (final >= 2) {
+            if (remainingElems >= 2) {
               cycles += 7; // process 2 of the remainder.
-              if (final == 3) {
+              if (remainingElems == 3) {
                 cycles += 6; // process final half
               }
             }
@@ -529,7 +536,7 @@ std::uint64_t ScaledArithmetic2DCycleEstimate(
   }
 
   const unsigned innerLoopCycles = memConstrained ? 2 : 3;
-  const auto grain = type == HALF ? 4 : 2;
+  const auto grain = target.getVectorWidth(type);
   std::uint64_t cycles = 9; // prologue and epilogue overhead.
   if (!isConstant)
     cycles += 1;
