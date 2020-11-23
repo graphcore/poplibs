@@ -267,7 +267,7 @@ struct PartitionVariables {
       product[level] = m.product(partition[level].asStdVector());
     }
     // Calculate no. of tile-level partitions at each level
-    tile[mPartitions.size() + 1] = m.one();
+    tile[mPartitions.size()] = m.one();
     for (int level = partition.size() - 1; level >= 0; --level) {
       tile[level] = m.product({product[level], tile[level + 1]});
     }
