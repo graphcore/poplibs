@@ -257,7 +257,6 @@ int main(int argc, char **argv) try {
     const auto getOpsPerOutputElementEstimate =
         [&](const bool lhsTransposed) -> int {
       const auto numAccumulations = lhsTransposed ? maxM : maxK;
-      assert(numAccumulations < std::numeric_limits<int>::max());
       return numAccumulations;
     };
     // We use a modifier to account for the unlikeliness of picking all positive

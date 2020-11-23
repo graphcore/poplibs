@@ -364,7 +364,6 @@ int main(int argc, char **argv) try {
       // given by the likely maximum number of indices that will be
       // equal.
       const auto numAccumulations = pass == Pass::FWD ? maxEmbeddingSize : 0;
-      assert(numAccumulations < std::numeric_limits<int>::max());
       return numAccumulations;
     };
     // We use a modifier to account for the unlikeliness of picking all positive

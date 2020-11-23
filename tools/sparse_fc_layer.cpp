@@ -352,7 +352,6 @@ int main(int argc, char **argv) try {
       const auto numAccumulations = pass == Pass::FWD   ? maxInputChannels
                                     : pass == Pass::BWD ? maxOutputChannels
                                                         : params.getBatchSize();
-      assert(numAccumulations < std::numeric_limits<int>::max());
       return numAccumulations;
     };
     // We use a modifier to account for the unlikeliness of picking all positive
