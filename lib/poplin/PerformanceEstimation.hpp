@@ -18,6 +18,8 @@
 #include <utility>
 #include <vector>
 
+using namespace poplibs_support;
+
 inline static std::uint64_t convHorizontalMacOverhead(bool floatActivations) {
   return floatActivations ? 58 : 63;
 }
@@ -891,79 +893,77 @@ inline uint64_t getReduceCycleEstimate(unsigned outSize, unsigned partialsSize,
                                        bool isPartialsFloat, bool singleInput,
                                        bool constrainPartials,
                                        unsigned numWorkers) {
-  unsigned cycles = 0;
+  const unsigned accVectorWidth = isPartialsFloat ? 4 : 8;
+  const unsigned partialsTypeSize = isPartialsFloat ? 4 : 2;
+  const unsigned partialsInDataPathWidth =
+      dataPathWidth / (partialsTypeSize * 8);
+
   if (singleInput) {
     unsigned supervisorCycles = 33;
+    // If we use interleaved mem for partials, we can achieve double the
+    // load bandwidth.
+    const unsigned loadElemsPerCycle =
+        partialsInDataPathWidth * (1 + constrainPartials);
+    assert(loadElemsPerCycle % accVectorWidth == 0 ||
+           accVectorWidth % loadElemsPerCycle == 0);
     // Simpler optimised vertex, 1 or 2 cycle inner loop
-    const auto cyclesPerInnerLoop = constrainPartials ? 1 : 2;
-    const auto loops = isPartialsFloat ? (outSize / 4) : (outSize / 8);
+    const auto cyclesPerLoop =
+        accVectorWidth / std::min(accVectorWidth, loadElemsPerCycle);
+    const auto loops = outSize / accVectorWidth;
     auto loopsDividedBetweenWorkers = loops / numWorkers;
     if (loops % numWorkers) {
       loopsDividedBetweenWorkers++;
     }
-    cycles = 20;
+    unsigned cycles = 20;
     unsigned outerLoopOverHead;
     if (isPartialsFloat) {
       outerLoopOverHead = isOutTypeFloat ? 8 : 7;
     } else {
       outerLoopOverHead = isOutTypeFloat ? 10 : 9;
     }
-    cycles += (cyclesPerInnerLoop * partialsSize + outerLoopOverHead) *
+    cycles += (cyclesPerLoop * partialsSize + outerLoopOverHead) *
               loopsDividedBetweenWorkers;
     return cycles * numWorkers + supervisorCycles;
   }
 
   // Supervisor vertex, and new implementation
-  if (isPartialsFloat) {
-    cycles = 32;
-    // Float - workers process 4 at once, and account for remainder loops
-    auto loops = outSize / 4;
-    if (outSize & 1)
+  unsigned cycles = 32;
+  assert(partialsInDataPathWidth % accVectorWidth == 0 ||
+         accVectorWidth % partialsInDataPathWidth == 0);
+  // Cycles per loop is calculated based on processing accVectorWidth
+  // per-loop, so assume 1 cycle for accumulator op, then load bandwidth
+  // is limiting factor. We take the data path width for load bandwidth
+  // because we do not use interleaved memory here and + 1 for cycle to
+  // load next pointer because it is not a single input.
+  const auto cyclesPerLoop =
+      (accVectorWidth / std::min(accVectorWidth, partialsInDataPathWidth)) + 1;
+  auto loops = outSize / accVectorWidth;
+  for (unsigned i = 0; i < ceilLog2(accVectorWidth); ++i) {
+    if (outSize & (1u << i)) {
       loops++;
-    if (outSize & 2)
-      loops++;
-    // Account for time at full load - all workers busy
-    auto loopsDividedBetweenWorkers = loops / numWorkers;
-    // and a remainder where only some are busy which can be a shorter loop
-    if (loops % numWorkers) {
-      if (outSize & 3)
-        cycles += (2 * partialsSize + 13);
-      else
-        loopsDividedBetweenWorkers++;
     }
-
-    if (isOutTypeFloat)
-      cycles += (3 * partialsSize + 7) * loopsDividedBetweenWorkers;
-    else
-      cycles += (3 * partialsSize + 6) * loopsDividedBetweenWorkers;
-  } else {
-    cycles = 32;
-    // Half - workers process 8 at once, and account for remainder loops
-    auto loops = outSize / 8;
-    if (outSize & 1)
-      loops++;
-    if (outSize & 2)
-      loops++;
-    if (outSize & 4)
-      loops++;
-    // Account for time at full load - all workers busy
-    auto loopsDividedBetweenWorkers = loops / numWorkers;
-    // and a remainder where only some are busy which can be a shorter loop
-    if (loops % numWorkers) {
-      if (outSize & 7)
-        cycles += (2 * partialsSize + 11);
-      else
-        loopsDividedBetweenWorkers++;
-    }
-
-    if (isOutTypeFloat)
-      cycles += (3 * partialsSize + 9) * loopsDividedBetweenWorkers;
-    else
-      cycles += (3 * partialsSize + 8) * loopsDividedBetweenWorkers;
   }
-  cycles = cycles * numWorkers;
+  // Account for time at full load - all workers busy
+  auto loopsDividedBetweenWorkers = loops / numWorkers;
+  // and a remainder where only some are busy which can be a shorter loop
+  if (loops % numWorkers) {
+    if (outSize & (accVectorWidth - 1))
+      cycles += (2 * partialsSize + (isPartialsFloat ? 13 : 11));
+    else
+      loopsDividedBetweenWorkers++;
+  }
 
-  return cycles;
+  // TODO: Should this account for store bandwidth/accumulator output vector
+  // width?
+  if (isOutTypeFloat) {
+    cycles += (cyclesPerLoop * partialsSize + (isPartialsFloat ? 7 : 9)) *
+              loopsDividedBetweenWorkers;
+  } else {
+    cycles += (cyclesPerLoop * partialsSize + (isPartialsFloat ? 6 : 8)) *
+              loopsDividedBetweenWorkers;
+  }
+
+  return cycles * numWorkers;
 }
 
 namespace poplin {
@@ -1013,8 +1013,6 @@ inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
     unsigned numWorkerContexts, bool floatWeights, bool floatPartials,
     const std::vector<unsigned> &inputDilation,
     const std::vector<unsigned> &stride) {
-  using poplibs_support::ceildiv;
-
   const auto kernelElements = product(kernelShape);
   const auto partition = partitionConvPartialByWorker(
       batchElements, vectorConvert<unsigned>(outShape), numWorkerContexts,
@@ -1151,8 +1149,6 @@ estimateConvReduceCycles(unsigned outputSize, unsigned reductionDepth,
                          const std::vector<unsigned> &memoryElementOffsets,
                          unsigned bytesPerPartialsElement,
                          bool enableMultiStageReduce, bool enableFastReduce) {
-  using poplibs_support::ceildiv;
-
   if (reductionDepth == 0)
     return 0;
   if (reductionDepth == 1) {
