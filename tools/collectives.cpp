@@ -239,17 +239,17 @@ static Tensor concatChunks(popops::Chunks chunks) {
   return aa;
 }
 
-static double getOpInitialValue(popops::Operation op) {
+static double getOpInitialValue(popops::CollectiveOperator op) {
   switch (op) {
   default:
     assert(0 && "Unexpected op");
-  case popops::Operation::ADD:
+  case popops::CollectiveOperator::ADD:
     return 0.0;
-  case popops::Operation::MUL:
+  case popops::CollectiveOperator::MUL:
     return 1.0;
-  case popops::Operation::MIN:
+  case popops::CollectiveOperator::MIN:
     return std::numeric_limits<double>::infinity();
-  case popops::Operation::MAX:
+  case popops::CollectiveOperator::MAX:
     return -std::numeric_limits<double>::infinity();
   }
 }
@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
   unsigned numElements = 1024;
   unsigned ipusPerRank = 1;
   CollectiveOp collectiveOp = CollectiveOp::ALL_REDUCE;
-  popops::Operation reduceOp = popops::Operation::ADD;
+  auto reduceOp = popops::CollectiveOperator::ADD;
   CollectiveMethod collectiveMethod = CollectiveMethod::AUTO;
   bool shuffleMapping = false;
   const auto type = poplar::HALF;
@@ -327,10 +327,11 @@ int main(int argc, char **argv) {
   po::notify(vm);
 
   switch (reduceOp) {
-  case popops::Operation::ADD:
-  case popops::Operation::MIN:
-  case popops::Operation::MAX:
-  case popops::Operation::MUL:
+  case popops::CollectiveOperator::ADD:
+  case popops::CollectiveOperator::MIN:
+  case popops::CollectiveOperator::MAX:
+  case popops::CollectiveOperator::MUL:
+  case popops::CollectiveOperator::LOCAL:
     break;
   default:
     std::cerr << "Unsupported reduction operator " << reduceOp << "\n";
@@ -433,16 +434,16 @@ int main(int argc, char **argv) {
         switch (reduceOp) {
         default:
           assert(0 && "Unexpected op");
-        case popops::Operation::ADD:
+        case popops::CollectiveOperator::ADD:
           hostChunks[i] += partial[i];
           break;
-        case popops::Operation::MUL:
+        case popops::CollectiveOperator::MUL:
           hostChunks[i] *= partial[i];
           break;
-        case popops::Operation::MIN:
+        case popops::CollectiveOperator::MIN:
           hostChunks[i] = std::min(hostChunks[i], partial[i]);
           break;
-        case popops::Operation::MAX:
+        case popops::CollectiveOperator::MAX:
           hostChunks[i] = std::max(hostChunks[i], partial[i]);
           break;
         }

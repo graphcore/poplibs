@@ -2,6 +2,7 @@
 #ifndef _poplibs_popops_CollectivesProgram_hpp_
 #define _poplibs_popops_CollectivesProgram_hpp_
 
+#include "poplibs_support/Compiler.hpp"
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
 #include <cassert>
@@ -76,9 +77,9 @@ template <class CopyType> struct BufferCopies {
 struct ReduceProg {
   poplar::Tensor A;
   poplar::Tensor B;
-  popops::Operation op;
+  popops::CollectiveOperator op;
   poplar::DebugNameAndId dnai;
-  ReduceProg(poplar::Tensor A, poplar::Tensor B, popops::Operation op,
+  ReduceProg(poplar::Tensor A, poplar::Tensor B, popops::CollectiveOperator op,
              const poplar::DebugNameAndId &dnai_)
       : A(A), B(B), op(op), dnai(dnai_) {}
 
@@ -128,32 +129,35 @@ static poplar::program::Sequence sequenceFromCrossReplicaCopies(
   return s;
 }
 
-static void opInPlace(poplar::Graph &graph, popops::Operation op,
+static void opInPlace(poplar::Graph &graph, popops::CollectiveOperator op,
                       const poplar::Tensor &a, const poplar::Tensor &b,
                       poplar::program::Sequence &prog,
                       const poplar::DebugNameAndId &dnai) {
   switch (op) {
-  case Operation::ADD:
+  case CollectiveOperator::ADD:
     addInPlace(graph, a, b, prog, {dnai});
     break;
-  case Operation::MUL:
+  case CollectiveOperator::MUL:
     mulInPlace(graph, a, b, prog, {dnai});
     break;
-  case Operation::MIN:
+  case CollectiveOperator::MIN:
     minInPlace(graph, a, b, prog, {dnai});
     break;
-  case Operation::MAX:
+  case CollectiveOperator::MAX:
     maxInPlace(graph, a, b, prog, {dnai});
     break;
-  case Operation::LOGICAL_AND:
+  case CollectiveOperator::LOGICAL_AND:
     logicalAndInPlace(graph, a, b, prog, {dnai});
     break;
-  case Operation::LOGICAL_OR:
+  case CollectiveOperator::LOGICAL_OR:
     logicalOrInPlace(graph, a, b, prog, {dnai});
     break;
-  case Operation::SQUARE_ADD:
+  case CollectiveOperator::SQUARE_ADD:
     throw poputil::poplibs_error("Collective reduction using the SQUARE_ADD "
                                  "operation is not yet supported");
+  case CollectiveOperator::LOCAL:
+    POPLIB_UNREACHABLE();
+    break;
   }
 }
 

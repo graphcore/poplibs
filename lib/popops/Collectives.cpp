@@ -23,6 +23,14 @@ template <> poplar::ProfileValue toProfileValue(const popops::Chunks &p) {
   v.insert({"originalInput", toProfileValue(p.originalInput)});
   return v;
 }
+
+template <>
+poplar::ProfileValue toProfileValue(const popops::CollectiveOperator &op) {
+  std::stringstream ss;
+  ss << op;
+  return poplar::ProfileValue(ss.str());
+}
+
 } // namespace poputil
 
 namespace popops {
@@ -52,6 +60,75 @@ enum class CollectiveMethod {
   // larger fragments.
   MEET_IN_MIDDLE_RING,
 };
+} // namespace
+
+std::istream &operator>>(std::istream &in, CollectiveOperator &op) {
+  std::string opStr;
+  in >> opStr;
+
+  if (opStr == "ADD") {
+    op = CollectiveOperator::ADD;
+  } else if (opStr == "MUL") {
+    op = CollectiveOperator::MUL;
+  } else if (opStr == "MIN") {
+    op = CollectiveOperator::MIN;
+  } else if (opStr == "MAX") {
+    op = CollectiveOperator::MAX;
+  } else if (opStr == "LOGICAL_AND") {
+    op = CollectiveOperator::LOGICAL_AND;
+  } else if (opStr == "LOGICAL_OR") {
+    op = CollectiveOperator::LOGICAL_OR;
+  } else if (opStr == "SQUARE_ADD") {
+    op = CollectiveOperator::SQUARE_ADD;
+  } else if (opStr == "LOCAL") {
+    op = CollectiveOperator::LOCAL;
+  } else {
+    throw poputil::poplibs_error("Unrecognised operation " + opStr);
+  }
+
+  return in;
+}
+
+std::ostream &operator<<(std::ostream &os, const CollectiveOperator &op) {
+  switch (op) {
+  case CollectiveOperator::ADD:
+    return os << "ADD";
+  case CollectiveOperator::MUL:
+    return os << "MUL";
+  case CollectiveOperator::MIN:
+    return os << "MIN";
+  case CollectiveOperator::MAX:
+    return os << "MAX";
+  case CollectiveOperator::LOGICAL_AND:
+    return os << "LOGICAL_AND";
+  case CollectiveOperator::LOGICAL_OR:
+    return os << "LOGICAL_OR";
+  case CollectiveOperator::SQUARE_ADD:
+    return os << "SQUARE_ADD";
+  case CollectiveOperator::LOCAL:
+    return os << "LOCAL";
+  }
+  throw poputil::poplibs_error("Unrecognised operation.");
+}
+
+CollectiveOperator operationToCollectiveOperator(const Operation &col) {
+  switch (col) {
+  case Operation::ADD:
+    return CollectiveOperator::ADD;
+  case Operation::MUL:
+    return CollectiveOperator::MUL;
+  case Operation::MIN:
+    return CollectiveOperator::MIN;
+  case Operation::MAX:
+    return CollectiveOperator::MAX;
+  case Operation::LOGICAL_AND:
+    return CollectiveOperator::LOGICAL_AND;
+  case Operation::LOGICAL_OR:
+    return CollectiveOperator::LOGICAL_OR;
+  case Operation::SQUARE_ADD:
+    return CollectiveOperator::SQUARE_ADD;
+  }
+  throw poputil::poplibs_error("Unrecognised operation.");
 }
 
 static CollectiveMethod
@@ -409,26 +486,28 @@ static Chunks createChunks(Graph &graph, const Tensor &originalInput,
   return chunks;
 }
 
-static void opInPlace(Graph &graph, popops::Operation op, const Tensor &a,
-                      const Tensor &b, Sequence &prog,
+static void opInPlace(Graph &graph, popops::CollectiveOperator op,
+                      const Tensor &a, const Tensor &b, Sequence &prog,
                       const DebugNameAndId &dnai) {
   using namespace popops::expr;
   switch (op) {
-  case Operation::ADD:
+  case CollectiveOperator::ADD:
     return addInPlace(graph, a, b, prog, {dnai});
-  case Operation::MUL:
+  case CollectiveOperator::MUL:
     return mulInPlace(graph, a, b, prog, {dnai});
-  case Operation::MIN:
+  case CollectiveOperator::MIN:
     return minInPlace(graph, a, b, prog, {dnai});
-  case Operation::MAX:
+  case CollectiveOperator::MAX:
     return maxInPlace(graph, a, b, prog, {dnai});
-  case Operation::LOGICAL_AND:
+  case CollectiveOperator::LOGICAL_AND:
     return logicalAndInPlace(graph, a, b, prog, {dnai});
-  case Operation::LOGICAL_OR:
+  case CollectiveOperator::LOGICAL_OR:
     return logicalOrInPlace(graph, a, b, prog, {dnai});
-  case Operation::SQUARE_ADD:
+  case CollectiveOperator::SQUARE_ADD:
     throw poputil::poplibs_error("Collective reduction using the SQUARE_ADD "
                                  "operation is not yet supported");
+  case CollectiveOperator::LOCAL:
+    return;
   }
 }
 
@@ -564,7 +643,7 @@ static void meetInMiddleReduceScatterStep(
 // Perform a collective reduce scatter operation.
 static Chunks unidirectionalRingReduceScatter(Graph &graph,
                                               const Tensor toReduce,
-                                              popops::Operation op,
+                                              popops::CollectiveOperator op,
                                               Sequence &prog, bool clockwise,
                                               const DebugNameAndId &dnai) {
   const auto numPartials = toReduce.dim(0);
@@ -600,7 +679,7 @@ static Chunks unidirectionalRingReduceScatter(Graph &graph,
 
 static Chunks ringMeetInMiddleReduceScatter(Graph &graph,
                                             const Tensor &toReduce,
-                                            popops::Operation op,
+                                            popops::CollectiveOperator op,
                                             Sequence &prog,
                                             const DebugNameAndId &dnai) {
   const auto numPartials = toReduce.dim(0);
@@ -642,7 +721,7 @@ static Chunks ringMeetInMiddleReduceScatter(Graph &graph,
 
 static Chunks bidirectionalRingPairReduceScatter(Graph &graph,
                                                  const Tensor &toReduce,
-                                                 popops::Operation op,
+                                                 popops::CollectiveOperator op,
                                                  Sequence &prog,
                                                  const DebugNameAndId &dnai) {
   const auto numPartials = toReduce.dim(0);
@@ -695,7 +774,7 @@ static Chunks bidirectionalRingPairReduceScatter(Graph &graph,
 }
 
 static CollectiveMethod pickReduceScatterMethod(Graph &graph, const Tensor &t,
-                                                popops::Operation op) {
+                                                popops::CollectiveOperator op) {
   const auto numIpus = graph.getTarget().getNumIPUs();
   if (t.dim(0) != numIpus || numIpus <= 2)
     return CollectiveMethod::CLOCKWISE_RING;
@@ -733,8 +812,8 @@ pickAllGatherMethod(Graph &graph, const std::vector<Chunk> &toGather) {
 }
 
 static Chunks internalReduceScatter(Graph &graph, const Tensor &toReduce,
-                                    popops::Operation op, Sequence &prog,
-                                    const DebugNameAndId &dnai,
+                                    popops::CollectiveOperator op,
+                                    Sequence &prog, const DebugNameAndId &dnai,
                                     const poplar::OptionFlags &options) {
   if (toReduce.rank() != 2) {
     poputil::poplibs_error("Reduce scatter input tensor does not have rank 2");
@@ -1137,8 +1216,9 @@ static Tensor internalAllGather(Graph &graph, const Chunks &toGather,
   }
 }
 
-Chunks reduceScatter(Graph &graph, const Tensor &toReduce, popops::Operation op,
-                     Sequence &prog, const poplar::DebugContext &debugContext,
+Chunks reduceScatter(Graph &graph, const Tensor &toReduce,
+                     popops::CollectiveOperator op, Sequence &prog,
+                     const poplar::DebugContext &debugContext,
                      const poplar::OptionFlags &options) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toReduce, op, options));
 
@@ -1172,7 +1252,8 @@ Tensor allGather(Graph &graph, const Chunks &toGather, Sequence &prog,
 }
 
 poplar::Tensor allReduce(poplar::Graph &graph, const poplar::Tensor &toReduce,
-                         popops::Operation op, poplar::program::Sequence &prog,
+                         popops::CollectiveOperator op,
+                         poplar::program::Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(toReduce, op, options));

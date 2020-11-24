@@ -758,7 +758,7 @@ copyFromSliceableTensorIfBeneficial(Graph &graph, const Tensor &fragments,
 // way through the iterations. can be positive or negative so that the same
 // number can be used to initialise the clockwise and anticlockwise ring
 static CollectivesProgram unidirectionalRingReduceScatter(
-    Graph &graph, const Tensor &toReduce, popops::Operation op,
+    Graph &graph, const Tensor &toReduce, CollectiveOperator op,
     Direction direction, const DebugNameAndId &dnai, const unsigned numSteps,
     const int startOffset = 0) {
   logging::popops::debug("Unidirectional ring reduce scatter");
@@ -829,7 +829,7 @@ static CollectivesProgram unidirectionalRingReduceScatter(
 
 static Tensor
 bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
-                                   popops::Operation op, Sequence &prog,
+                                   CollectiveOperator op, Sequence &prog,
                                    const poplar::DebugNameAndId &dnai) {
   const auto replicasPerRing = replicasPerILD(graph);
 
@@ -864,7 +864,7 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
 
 static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
                                             const Tensor &toReduce,
-                                            popops::Operation op,
+                                            CollectiveOperator op,
                                             Sequence &prog,
                                             const DebugNameAndId &dnai) {
   logging::popops::debug("Meet in the middle reduce scatter");
@@ -903,10 +903,43 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   return clockwiseProg.srcBuffer.get();
 }
 
+// For CollectiveOperator::LOCAL we bypass the method picking, repeats and
+// CrossReplica copy and just copy the slice.
+static Tensor localReduceScatter(Graph &graph, const Tensor &toReduce,
+                                 Sequence &prog,
+                                 const poplar::DebugNameAndId &dnai) {
+  auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
+                                ? FragmentCopyMethod::SWITCH
+                                : FragmentCopyMethod::DYNAMIC_SLICE;
+  auto numFragments = replicasPerILD(graph);
+  auto fragmentsByReplica =
+      replicatedSplitIntoFragments(toReduce, numFragments, graph, {dnai});
+  auto fragmentSize = fragmentsByReplica.dim(1);
+  auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize},
+                                     {dnai, "ScatterSrc"});
+  mapBuffer(graph, srcBuffer, fragmentsByReplica, {dnai});
+  auto dstBuffer = graph.clone(srcBuffer, {dnai, "ScatterDst"});
+  prog.add(WriteUndef(concat({srcBuffer, dstBuffer})));
+  fragmentsByReplica = copyToSliceableTensorIfBeneficial(
+      graph, fragmentsByReplica, srcBuffer, {dnai, "InputRearranged"}, prog,
+      fragmentCopyMethod);
+  auto replicationIndex = graph.addReplicationIndexConstant();
+  graph.setTileMapping(replicationIndex,
+                       getScalarTile(graph.getTileMapping(toReduce)));
+  replicatedRankSlice(graph, fragmentsByReplica, replicationIndex, srcBuffer,
+                      prog, fragmentCopyMethod, {dnai});
+  return srcBuffer;
+}
+
 static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
-                                    popops::Operation op, Sequence &prog,
+                                    CollectiveOperator op, Sequence &prog,
                                     const poplar::DebugNameAndId &dnai,
                                     const CollectiveOptions &options) {
+
+  if (op == CollectiveOperator::LOCAL) {
+    return localReduceScatter(graph, toReduce, prog, dnai);
+  }
+
   CollectiveMethod method = options.method;
   if (method == CollectiveMethod::AUTO) {
     method = pickReduceScatterMethod(graph, toReduce);
@@ -1220,7 +1253,7 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
 }
 
 poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
-                                       popops::Operation op, Sequence &prog,
+                                       CollectiveOperator op, Sequence &prog,
                                        const poplar::DebugContext &debugContext,
                                        const OptionFlags &optionFlags) {
   poputil::PoplibsOpDebugInfo di(debugContext,
@@ -1454,7 +1487,7 @@ static unsigned getAllReduceNumFragments(Graph &graph,
 
 static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
                                        const poplar::Tensor &result,
-                                       popops::Operation op,
+                                       CollectiveOperator op,
                                        program::Sequence &prog,
                                        const DebugNameAndId &dnai,
                                        const poplar::OptionFlags &optionFlags) {
@@ -1489,7 +1522,8 @@ static void noCheckReplicatedAllReduce(Graph &graph, const poplar::Tensor &data,
 }
 
 void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
-                                   poplar::Tensor &result, popops::Operation op,
+                                   poplar::Tensor &result,
+                                   CollectiveOperator op,
                                    program::Sequence &prog,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &optionFlags) {
@@ -1532,7 +1566,7 @@ void replicatedAllReduceWithOutput(Graph &graph, const poplar::Tensor &data,
 }
 
 void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
-                                popops::Operation op,
+                                CollectiveOperator op,
                                 poplar::program::Sequence &prog,
                                 const poplar::DebugContext &debugContext,
                                 const poplar::OptionFlags &options) {
@@ -1542,7 +1576,7 @@ void replicatedAllReduceInPlace(poplar::Graph &graph, poplar::Tensor &data,
 }
 
 Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
-                           popops::Operation op, program::Sequence &prog,
+                           CollectiveOperator op, program::Sequence &prog,
                            const poplar::DebugContext &debugContext,
                            const poplar::OptionFlags &optionFlags) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(data, op, optionFlags));
@@ -1561,7 +1595,7 @@ Tensor replicatedAllReduce(Graph &graph, const poplar::Tensor &data,
 }
 
 Tensor replicatedAllReduce(Graph &graph, Graph &parentGraph,
-                           const poplar::Tensor &data, popops::Operation op,
+                           const poplar::Tensor &data, CollectiveOperator op,
                            program::Sequence &prog,
                            const poplar::DebugContext &debugContext,
                            const poplar::OptionFlags &optionFlags) {

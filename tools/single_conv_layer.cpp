@@ -748,8 +748,9 @@ int main(int argc, char **argv) try {
     } else {
       auto weightDeltas = poplin::calculateWeightDeltas(
           graph, zDeltas, prevAct, params, revProg, "wu", wuOptions, &cache);
-      auto weightDeltasReduced = popops::replicatedAllReduce(
-          graph, parentGraph, weightDeltas, popops::Operation::ADD, revProg);
+      auto weightDeltasReduced =
+          popops::replicatedAllReduce(graph, parentGraph, weightDeltas,
+                                      popops::CollectiveOperator::ADD, revProg);
       popops::scaledAddTo(graph, weights, weightDeltasReduced, -learningRate,
                           revProg, "wu/UpdateWeights");
     }
@@ -767,7 +768,8 @@ int main(int argc, char **argv) try {
                                  popops::Operation::ADD, revProg,
                                  "wu/CalcBiasDeltas");
         auto biasDeltasReduced = popops::replicatedAllReduce(
-            graph, parentGraph, biasDeltas, popops::Operation::ADD, revProg);
+            graph, parentGraph, biasDeltas, popops::CollectiveOperator::ADD,
+            revProg);
         popops::scaledAddTo(graph, biases, biasDeltasReduced, -learningRate,
                             revProg, "wu/UpdateBiases");
       }

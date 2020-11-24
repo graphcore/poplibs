@@ -1005,6 +1005,58 @@ foreach(collective all_reduce)
   endforeach()
 endforeach()
 
+# replicated reduce_scatter
+# Separate modified block due to limited test support
+# (in_place = false, ipus_per_rank=1)
+foreach(collective reduce_scatter)
+  foreach(operator ADD LOCAL)
+    foreach(method bidirectional_ring_pair
+                   meet_in_middle_ring
+                   clockwise_ring
+                   anticlockwise_ring)
+      foreach(num_ipus 2 4 8 16)
+        add_multitarget_test(
+          NAME replicated_collective_${method}_${collective}_${num_ipus}ipus_${operator}
+          COMMAND replicated_collectives
+                  --use-replicated-implementation
+                  --reduction-operator=${operator}
+                  --collective=${collective}
+                  --ipus=${num_ipus}
+                  --tiles-per-ipu=64
+                  --elements=1024
+                  --method=${method}
+                  --shuffle-mapping=true
+                  --in-place=false
+          LABELS Collectives
+          VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
+    endforeach()
+
+    foreach(ipus_per_rank 1)
+      foreach(method clockwise_ring
+                     anticlockwise_ring
+                     bidirectional_ring_pair
+                     meet_in_middle_ring)
+        add_multitarget_test(
+          NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${method}_${operator}
+          COMMAND replicated_collectives
+                  --use-replicated-implementation
+                  --replicate-top-level-graph=true
+                  --reduction-operator=${operator}
+                  --collective=${collective}
+                  --method=${method}
+                  --ipus-per-rank=${ipus_per_rank}
+                  --ipus=8
+                  --tiles-per-ipu=64
+                  --elements=1399
+                  --shuffle-mapping=true
+          LABELS Collectives multicard
+          VARIANTS Hw)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
 add_multitarget_test(NAME replicated_collectives_few_elements
                      COMMAND replicated_collectives
                              --use-replicated-implementation
