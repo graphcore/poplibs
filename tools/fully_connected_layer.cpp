@@ -439,13 +439,30 @@ int main(int argc, char **argv) {
   if (bias) {
     copy(target, hostBiases, outputType, rawHostBiases.get());
   }
+  auto modelWeights = hostWeights;
+  auto modelBiases = hostBiases;
+  boost::multi_array<double, 3> hostZDeltas(
+      boost::extents[numGroups][batchSize][outputSize]);
+  if (doBwdPass || doWuPass) {
+    // Run the backwards pass.
+    if (useUniformRandomData)
+      writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0,
+                        randomEngine);
+    else
+      writeRandomBinaryValues(target, inputType, hostZDeltas, -1.0, 1.0,
+                              randomEngine);
+    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
+  }
   // Run the forward pass.
   device.bind([&](const Device &d) {
     engine.load(d);
     if (!ignoreData) {
       engine.run(uploadProgIndex);
     }
-    engine.run(fwdProgIndex); // Run.
+    engine.run(fwdProgIndex);
+    if (doBwdPass || doWuPass) {
+      engine.run(bwdProgIndex);
+    }
     if (!ignoreData) {
       engine.run(downloadProgIndex);
     }
@@ -463,57 +480,30 @@ int main(int argc, char **argv) {
       matchesModel &= checkIsClose("fwd", hostNextAct, modelNextAct,
                                    relativeTolerance, absoluteTolerance);
     }
-  }
-  if (doBwdPass || doWuPass) {
-    boost::multi_array<double, 3> hostZDeltas(
-        boost::extents[numGroups][batchSize][outputSize]);
-    boost::multi_array<double, 3> hostPrevDeltas(
-        boost::extents[numGroups][batchSize][inputSize]);
-    auto modelWeights = hostWeights;
-    auto modelBiases = hostBiases;
-    // Run the backwards pass.
-    if (useUniformRandomData)
-      writeRandomValues(target, inputType, hostZDeltas, -5.0, 5.0,
-                        randomEngine);
-    else
-      writeRandomBinaryValues(target, inputType, hostWeights, -1.0, 1.0,
-                              randomEngine);
-    copy(target, hostZDeltas, inputType, rawHostZDeltas.get());
-    device.bind([&](const Device &d) {
-      engine.load(d);
-      if (!ignoreData) {
-        engine.run(uploadProgIndex);
+    // Validate against a reference model.
+    if (doBwdPass) {
+      boost::multi_array<double, 3> hostPrevDeltas(
+          boost::extents[numGroups][batchSize][inputSize]);
+      copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
+      boost::multi_array<double, 3> modelPrevDeltas(
+          boost::extents[numGroups][batchSize][inputSize]);
+      poplibs_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
+                                               modelPrevDeltas);
+      matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+                                   relativeTolerance, absoluteTolerance);
+    }
+    if (doWuPass) {
+      copy(target, inputType, rawHostWeights.get(), hostWeights);
+      if (bias) {
+        copy(target, outputType, rawHostBiases.get(), hostBiases);
       }
-      engine.run(bwdProgIndex); // Run.
-      if (!ignoreData) {
-        engine.run(downloadProgIndex);
-      }
-    });
-
-    if (!ignoreData) {
-      // Validate against a reference model.
-      if (doBwdPass) {
-        copy(target, outputType, rawHostPrevDeltas.get(), hostPrevDeltas);
-        boost::multi_array<double, 3> modelPrevDeltas(
-            boost::extents[numGroups][batchSize][inputSize]);
-        poplibs_test::fc::fullyConnectedBackward(hostZDeltas, modelWeights,
-                                                 modelPrevDeltas);
-        matchesModel &= checkIsClose("bwd", hostPrevDeltas, modelPrevDeltas,
+      poplibs_test::fc::fullyConnectedWeightUpdate(
+          learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
+      matchesModel &= checkIsClose("weights", hostWeights, modelWeights,
+                                   relativeTolerance, absoluteTolerance);
+      if (bias) {
+        matchesModel &= checkIsClose("biases", hostBiases, modelBiases,
                                      relativeTolerance, absoluteTolerance);
-      }
-      if (doWuPass) {
-        copy(target, inputType, rawHostWeights.get(), hostWeights);
-        if (bias) {
-          copy(target, outputType, rawHostBiases.get(), hostBiases);
-        }
-        poplibs_test::fc::fullyConnectedWeightUpdate(
-            learningRate, hostPrevAct, hostZDeltas, modelWeights, modelBiases);
-        matchesModel &= checkIsClose("weights", hostWeights, modelWeights,
-                                     relativeTolerance, absoluteTolerance);
-        if (bias) {
-          matchesModel &= checkIsClose("biases", hostBiases, modelBiases,
-                                       relativeTolerance, absoluteTolerance);
-        }
       }
     }
   }
