@@ -294,7 +294,7 @@ void scaledArithmeticTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
 
   auto aFlat = A.flatten();
   auto bFlat = B.flatten();
-  graph.reorderToSimplify(&aFlat, {&bFlat});
+  graph.reorderToSimplify(&aFlat, {&bFlat}, false);
   const auto mapping = graph.getTileMapping(aFlat);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     // On each tile split the elements of the output up between the workers.
