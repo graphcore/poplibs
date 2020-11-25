@@ -120,7 +120,8 @@ public:
   OpDebugInfo(const OpDebugInfo &) = delete;
   virtual ~OpDebugInfo() = default;
 
-  void add(const std::string &name, const std::vector<ArgType> &args);
+  void add(std::string name, const std::vector<ArgType> &args);
+  void add(std::string name, poplar::ProfileValue pv);
 };
 
 class PoplibsOpDebugInfo : public OpDebugInfo {

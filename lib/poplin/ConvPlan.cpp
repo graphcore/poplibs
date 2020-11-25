@@ -1188,6 +1188,64 @@ static ConvOptions getFullyConnectedPassOptions(const ConvOptions &options,
   return newOptions;
 }
 
+// Creates a ProfileValue with the relevant info from the minimization step
+static poplar::ProfileValue getMinimization(const ConvOptions &options,
+                                            const PlanningObjective &objective,
+                                            bool isJointPlan,
+                                            const Cost &cost) {
+  poplar::ProfileValue::Map p;
+
+  std::ostringstream s;
+  s << options.pass;
+  p["pass"] = s.str();
+
+  auto getType = [](const PlanningObjective &objective) -> std::string {
+    switch (objective.getType()) {
+    case PlanningObjective::MINIMIZE_CYCLES:
+      return "MINIMIZE_CYCLES";
+    case PlanningObjective::MINIMIZE_COST_DIFF:
+      return std::string("MINIMIZE_COST_DIFF ") +
+             (objective.getMinimizeForTiles() ? "(tiles)" : "(memory)");
+    case PlanningObjective::MINIMIZE_TILE_TEMP_MEMORY:
+      return "MINIMIZE_TILE_TEMP_MEMORY";
+    case PlanningObjective::MINIMIZE_TILES:
+      return "MINIMIZE_TILES";
+    }
+    return "UNKNOWN";
+  };
+  p["type"] = getType(objective);
+
+  const auto cyclesBound = objective.getCyclesBound();
+  if (popsolver::DataType::max() != cyclesBound) {
+    p["cycleBound"] = *cyclesBound;
+  }
+  const auto memBound = objective.getTileTempMemoryBound();
+  if (popsolver::DataType::max() != memBound) {
+    p["memBound"] = *memBound;
+  }
+
+  p["isJointPlan"] = isJointPlan;
+
+  poplar::ProfileValue::Map costPV;
+  if (popsolver::DataType::max() != cost.totalTiles) {
+    costPV["totalTiles"] = *cost.totalTiles;
+  }
+  if (popsolver::DataType::max() != cost.totalCycles) {
+    costPV["totalCycles"] = *cost.totalCycles;
+  }
+  if (popsolver::DataType::max() != cost.totalTempBytes) {
+    costPV["totalTempBytes"] = *cost.totalTempBytes;
+  }
+  if (popsolver::DataType::max() != cost.totalPerStepCycleDiff) {
+    costPV["totalPerStepCycleDiff"] = *cost.totalPerStepCycleDiff;
+  }
+  p["success"] = !costPV.empty();
+  if (!costPV.empty()) {
+    p["cost"] = costPV;
+  }
+  return p;
+}
+
 static std::pair<Plan, Cost>
 createPlan(const ConvParams &params, const ConvOptions &options,
            const PlanningObjective &objective, const poplar::Target &target,
@@ -1196,7 +1254,8 @@ createPlan(const ConvParams &params, const ConvOptions &options,
            const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
-               *additionalPlansToCache) {
+               *additionalPlansToCache,
+           poplar::ProfileValue::Map *pv = nullptr) {
   const auto memBound = objective.getTileTempMemoryBound();
   const bool hasMemBound = memBound != popsolver::DataType::max();
   // we only support joint plans for fully connected layers for now.
@@ -1212,12 +1271,19 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     logging::poplin::debug("Creating {} plan ({} pass)...", planDesc, pass);
   };
 
+  // Enhanced Debug Information
+  poplar::ProfileValue::Vector minimizations;
+
   auto createMyPlan = [&](const ConvParams &params, const ConvOptions &options,
                           bool isJointPlan, const PlanningObjective &objective,
                           const boost::optional<Cost> &referenceCost) {
-    return createPlan(params, options, isJointPlan, objective, target,
-                      startTileIdxForVirtualHierarchy, referencePlan,
-                      referenceCost, cache);
+    auto planAndCost = createPlan(params, options, isJointPlan, objective,
+                                  target, startTileIdxForVirtualHierarchy,
+                                  referencePlan, referenceCost, cache);
+    const auto m =
+        getMinimization(options, objective, isJointPlan, planAndCost.second);
+    minimizations.emplace_back(std::move(m));
+    return planAndCost;
   };
 
   auto minimizeCycles = [&](const ConvParams &params,
@@ -1264,10 +1330,17 @@ createPlan(const ConvParams &params, const ConvOptions &options,
     if (hasMemBound) {
       auto planAndCost = minimizeCycles(params, options, false);
       if (isSet(planAndCost.second)) {
+        if (pv) {
+          (*pv)["minimizations"] = std::move(minimizations);
+        }
         return planAndCost;
       }
     }
-    return minimizeMemory(params, options, false);
+    auto planAndCost = minimizeMemory(params, options, false);
+    if (pv) {
+      (*pv)["minimizations"] = std::move(minimizations);
+    }
+    return planAndCost;
   }
 
   // It doesn't make sense to compare joint and separate planning when the
@@ -1316,6 +1389,10 @@ createPlan(const ConvParams &params, const ConvOptions &options,
       std::tie(wuPlan, wuCost) =
           minimizeMemory(wuParams.getParams(), wuOptions, false);
     }
+  }
+
+  if (pv) {
+    (*pv)["minimizations"] = std::move(minimizations);
   }
 
   auto separateCost = fwdCost;
@@ -1456,7 +1533,8 @@ static std::pair<Plan, Cost>
 runPlanner(const ConvDescription &conv,
            PlanningCacheImpl::CycleEstimationImpl *cache,
            std::vector<std::pair<PlanningCacheImpl::Key, std::pair<Plan, Cost>>>
-               *additionalPlansToCache) {
+               *additionalPlansToCache,
+           poplar::ProfileValue::Map *pv = nullptr) {
   // we first attempt to find the fastest plan that we think will fit, if that
   // fails we replan, but minimising for memory instead. in an effort to fit in
   // memory we will apply an architecturally relevent memory limit to this first
@@ -1516,7 +1594,7 @@ runPlanner(const ConvDescription &conv,
   const auto &params = ccParams.getParams();
   std::tie(plan, cost) = createPlan(
       params, options, objective, target, startTileIndicesForVirtualHierarchy,
-      referencePlan, referenceCost, cache, additionalPlansToCache);
+      referencePlan, referenceCost, cache, additionalPlansToCache, pv);
 
   if (cost.totalCycles == popsolver::DataType::max()) {
     throw poputil::poplibs_error("No base plan found for unbounded plan");
@@ -1641,14 +1719,15 @@ void preplanConvolutionsImpl(const poplar::Target &target,
 }
 
 Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
-             const ConvOptions &options, PlanningCache *cache) {
+             const ConvOptions &options, PlanningCache *cache,
+             poplar::ProfileValue::Map *pv) {
   if (options.pass == Pass::FC_TRAINING_WU ||
       options.pass == Pass::FC_TRAINING_BWD) {
     auto fwdParams =
         getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_FWD);
     auto fwdOptions =
         getFullyConnectedPassOptions(options, Pass::FC_TRAINING_FWD);
-    const auto fwdPlan = getPlan(target, fwdParams, fwdOptions, cache);
+    const auto fwdPlan = getPlan(target, fwdParams, fwdOptions, cache, pv);
     if (fwdPlan.isJointPlan) {
       if (options.pass == Pass::FC_TRAINING_WU) {
         return getFullyConnectedWUPlan(target, fwdParams, fwdOptions, fwdPlan);
@@ -1671,9 +1750,10 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
       plansToCache;
   Plan plan;
   Cost cost;
-  std::tie(plan, cost) = runPlanner({params, options, target, boost::none,
-                                     boost::none, false, boost::none, 0},
-                                    &cacheImpl->cycleEstimation, &plansToCache);
+  std::tie(plan, cost) =
+      runPlanner({params, options, target, boost::none, boost::none, false,
+                  boost::none, 0},
+                 &cacheImpl->cycleEstimation, &plansToCache, pv);
   plansToCache.emplace_back(key, std::make_pair(plan, cost));
   for (const auto &entry : plansToCache) {
     cacheImpl->addPlanToCache({entry.first}, {entry.second});

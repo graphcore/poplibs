@@ -1940,10 +1940,10 @@ ConvProgramTree::ConvProgramTree(Graph &graph, const Plan &plan,
     : weightsTranspose(graph, {dnai, "WeightsTranspose"}), transformPre(),
       transformPost(plan.numLevels()),
       transformPreSerial(graph, {dnai, "PreTranspose"}),
-      transformPostSerial(graph, {dnai, "CastSerialOut"}), loopPost({}, {dnai}),
-      loopCount(plan.totalSerialSplit()), slice({}, {dnai}), update({}, {dnai}),
+      transformPostSerial(graph, {dnai, "CastSerialOut"}), loopPost{{dnai}},
+      loopCount(plan.totalSerialSplit()), slice{{dnai}}, update{{dnai}},
       convolveCSGroup(graph.addComputeSet({dnai, "Convolve"})),
-      reduceOrCastComputeSets(plan.numLevels()), finalizeProg({}, {dnai}) {
+      reduceOrCastComputeSets(plan.numLevels()), finalizeProg{{dnai}} {
   transformPre.reserve(plan.numLevels());
   for (unsigned i = 0; i < plan.numLevels(); ++i) {
     transformPre.emplace_back(ConvProgramTree::TransformPreProgram(
@@ -1955,7 +1955,7 @@ template <typename T>
 static void lowerAndAddCycleCount(Graph &graph, Sequence &prog,
                                   const bool insertCycleCount, T &tpp,
                                   const poplar::DebugNameAndId &dnai) {
-  Sequence seq({}, {dnai});
+  Sequence seq{{dnai}};
   tpp.lower(seq, {dnai});
   if (insertCycleCount == true) {
     cycleCount(graph, seq, 0, dnai.getPathName());
@@ -1979,7 +1979,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
   assert(numLevels > 1);
   assert(numLevels == reduceOrCastComputeSets.size());
 
-  Sequence body({}, {dnai});
+  Sequence body{{dnai}};
 
   // lower the transforms in ascending order as we climb the hierarchy.
   for (unsigned level = 0; level < numLevels; ++level) {
@@ -1998,7 +1998,7 @@ void ConvProgramTree::lower(Graph &graph, Sequence &prog,
     }
 
     // transformPost[level]
-    Sequence reduceTransformPostSeq({}, {dnai});
+    Sequence reduceTransformPostSeq{{dnai}};
     add(reduceTransformPostSeq, transformPost[level]);
     if (insertCycleCount == true) {
       cycleCount(graph, reduceTransformPostSeq, 0,
@@ -2631,8 +2631,10 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   const ConvOptions options(options_);
 
   const std::string layerName = "Conv_" + convSuffix(params);
-  const auto plan = getPlan(graph.getTarget(), params, options, cache);
+  poplar::ProfileValue::Map pv;
+  const auto plan = getPlan(graph.getTarget(), params, options, cache, &pv);
   ConvProgramTree cpt(graph, plan, {di, layerName});
+  di.add("planInfo", pv);
 
   auto out =
       convolution(graph, in, weights, plan, params, transposeAndFlipWeights,

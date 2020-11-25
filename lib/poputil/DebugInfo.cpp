@@ -118,15 +118,18 @@ OpDebugInfo::OpDebugInfo(const poplar::DebugContext &debugContext,
   setValue("api", api);
 }
 
-void OpDebugInfo::add(const std::string &name,
-                      const std::vector<ArgType> &args) {
+void OpDebugInfo::add(std::string name, const std::vector<ArgType> &args) {
   if (args.size() > 0) {
     poplar::ProfileValue::Map argsPV;
     for (auto &a : args) {
       argsPV.insert({a.n, a.pv});
     }
-    setValue(name, argsPV);
+    setValue(std::move(name), argsPV);
   }
+}
+
+void OpDebugInfo::add(std::string name, poplar::ProfileValue pv) {
+  setValue(std::move(name), std::move(pv));
 }
 
 PoplibsOpDebugInfo::PoplibsOpDebugInfo(const poplar::DebugContext &debugContext,

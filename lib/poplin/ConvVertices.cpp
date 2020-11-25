@@ -276,9 +276,9 @@ static Tensor padWithVariable(Graph &graph, Tensor t, unsigned paddingLower,
 struct Padder {
   Padder(Graph &graph, const unsigned tile, std::vector<Copy> &transformPre,
          std::map<Type, Tensor> &copyWritten, const Type &type,
-         const DebugNameAndId &dnai_)
+         const DebugNameAndId &dnai)
       : graph(graph), tile(tile), transformPre(transformPre), type(type),
-        copyWritten(copyWritten), dnai(dnai_) {
+        copyWritten(copyWritten), dnai(dnai) {
     paddingTensor = graph.addConstant(type, {0}, 0, {dnai, "paddingTensor"});
     graph.setTileMapping(paddingTensor, 0);
   }

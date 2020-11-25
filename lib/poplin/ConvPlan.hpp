@@ -267,7 +267,8 @@ class CanonicalConvParams;
 // Plan for a convolution with the specified parameters. The target's
 // virtual-graph dependent fields are not used.
 Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
-             const ConvOptions &options, PlanningCache *cache);
+             const ConvOptions &options, PlanningCache *cache,
+             poplar::ProfileValue::Map *pv = nullptr);
 
 // A multiplan which is executed sequentially, each plan using all tiles on the
 // target
