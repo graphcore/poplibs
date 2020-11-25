@@ -5,6 +5,7 @@
 #include "PoolPlan.hpp"
 #include "PoolVertices.hpp"
 #include "poplibs_support/Compiler.hpp"
+#include "poplibs_support/Trace.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/print.hpp"
@@ -571,8 +572,9 @@ static Tensor poolingImpl(Graph &graph, const PoolConfig &poolCfg,
     transformVectorWidth.params = params;
     transformGroupedWidth = transformVectorWidth;
   }
-  auto poolMethodResult =
-      getPlan(graph, poolCfg, transformVectorWidth, transformGroupedWidth);
+  auto poolMethodResult = trace(graph, "popnn::pooling::getPlan", [&]() {
+    return getPlan(graph, poolCfg, transformVectorWidth, transformGroupedWidth);
+  });
   auto &chosenTransform = poolMethodResult.useGroupedWidth
                               ? transformGroupedWidth
                               : transformVectorWidth;
@@ -749,9 +751,10 @@ static bool substPoolingWithReduction(const ConvParams &params) {
   return detectMatchingFieldAndKernel(params);
 }
 
-Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
-            Sequence &prog, const poplar::DebugContext &debugContext,
-            const poplar::OptionFlags &options) {
+static Tensor poolImpl(Graph &graph, const PoolParams &poolParams,
+                       const Tensor &in_, Sequence &prog,
+                       const poplar::DebugContext &debugContext,
+                       const poplar::OptionFlags &options) {
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(in_, poolParams, options));
 
@@ -827,12 +830,21 @@ Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
   return output;
 }
 
-void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
-                           const Tensor &in_, const Tensor &pooled_,
-                           const Tensor &pooledGradient_, Tensor &output,
-                           const bool useScaledGradForMaxPool, Sequence &prog,
-                           const DebugNameAndId &dnai,
-                           const poplar::OptionFlags &options) {
+Tensor pool(Graph &graph, const PoolParams &poolParams, const Tensor &in_,
+            Sequence &prog, const poplar::DebugContext &debugContext,
+            const poplar::OptionFlags &options) {
+  const auto debugPrefix = debugContext.getPathName();
+  return trace(graph, {"popnn::pooling::pool", debugPrefix}, [&]() {
+    return poolImpl(graph, poolParams, in_, prog, debugContext, options);
+  });
+}
+
+static void poolInputGradientImpl(Graph &graph, const PoolParams &poolParams,
+                                  const Tensor &in_, const Tensor &pooled_,
+                                  const Tensor &pooledGradient_, Tensor &output,
+                                  const bool useScaledGradForMaxPool,
+                                  Sequence &prog, const DebugNameAndId &dnai,
+                                  const poplar::OptionFlags &options) {
   checkWindowParameters(poolParams);
   const auto poolOptions = parsePoolOptions(options);
   const auto poolingType = poolParams.poolingType;
@@ -952,16 +964,19 @@ Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
                          Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
-  poputil::PoplibsOpDebugInfo di(
-      debugContext, DI_ARGS(in_, pooled_, pooledGradient_, poolParams, options,
-                            useScaledGradient));
+  const auto debugPrefix = debugContext.getPathName();
+  return trace(graph, {"popnn::pooling::poolInputGradient", debugPrefix}, [&] {
+    poputil::PoplibsOpDebugInfo di(
+        debugContext, DI_ARGS(in_, pooled_, pooledGradient_, poolParams,
+                              options, useScaledGradient));
 
-  // create the output tensor, based on the input
-  auto output = graph.clone(in_, {di});
-  poolInputGradientImpl(graph, poolParams, in_, pooled_, pooledGradient_,
-                        output, useScaledGradient, prog, {di}, options);
-  di.addOutput(output);
-  return output;
+    // create the output tensor, based on the input
+    auto output = graph.clone(in_, {di});
+    poolInputGradientImpl(graph, poolParams, in_, pooled_, pooledGradient_,
+                          output, useScaledGradient, prog, {di}, options);
+    di.addOutput(output);
+    return output;
+  });
 }
 
 Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
@@ -969,30 +984,33 @@ Tensor poolInputGradient(Graph &graph, const PoolParams &poolParams,
                          const Tensor &pooledGradient_, Sequence &prog,
                          const poplar::DebugContext &debugContext,
                          const poplar::OptionFlags &options) {
-  poputil::PoplibsOpDebugInfo di(
-      debugContext,
-      DI_ARGS(pooledGradient_, poolParams, fwdChansPerGroup, options));
+  const auto debugPrefix = debugContext.getPathName();
+  return trace(graph, {"popnn::pooling::poolInputGradient", debugPrefix}, [&] {
+    poputil::PoplibsOpDebugInfo di(
+        debugContext,
+        DI_ARGS(pooledGradient_, poolParams, fwdChansPerGroup, options));
 
-  assert(poolParams.poolingType != PoolingType::MAX);
+    assert(poolParams.poolingType != PoolingType::MAX);
 
-  // Create the output tensor, based on the parameters provided
-  std::vector<std::size_t> shape;
-  shape.reserve(2 + poolParams.inputFieldShape.size() + 1);
-  shape.push_back(poolParams.numChannels / fwdChansPerGroup);
-  shape.push_back(poolParams.batchSize);
-  shape.insert(std::end(shape), std::begin(poolParams.inputFieldShape),
-               std::end(poolParams.inputFieldShape));
-  shape.push_back(fwdChansPerGroup);
+    // Create the output tensor, based on the parameters provided
+    std::vector<std::size_t> shape;
+    shape.reserve(2 + poolParams.inputFieldShape.size() + 1);
+    shape.push_back(poolParams.numChannels / fwdChansPerGroup);
+    shape.push_back(poolParams.batchSize);
+    shape.insert(std::end(shape), std::begin(poolParams.inputFieldShape),
+                 std::end(poolParams.inputFieldShape));
+    shape.push_back(fwdChansPerGroup);
 
-  const auto elementType = pooledGradient_.elementType();
-  Tensor output = graph.addVariable(elementType, std::move(shape), {di});
-  mapTensorLinearly(graph, output);
-  output = output.dimShufflePartial({0, output.rank() - 1}, {1, 2})
-               .reshapePartial(1, 3, {poolParams.numChannels});
-  poolInputGradientImpl(graph, poolParams, {}, {}, pooledGradient_, output,
-                        false, prog, {di}, options);
-  di.addOutput(output);
-  return output;
+    const auto elementType = pooledGradient_.elementType();
+    Tensor output = graph.addVariable(elementType, std::move(shape), {di});
+    mapTensorLinearly(graph, output);
+    output = output.dimShufflePartial({0, output.rank() - 1}, {1, 2})
+                 .reshapePartial(1, 3, {poolParams.numChannels});
+    poolInputGradientImpl(graph, poolParams, {}, {}, pooledGradient_, output,
+                          false, prog, {di}, options);
+    di.addOutput(output);
+    return output;
+  });
 }
 
 } // namespace pooling

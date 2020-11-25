@@ -1,5 +1,7 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "popops/ScaledAdd.hpp"
+#include "poplar/Program.hpp"
+#include "poplibs_support/Trace.hpp"
 #include "popops/Cast.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Rearrange.hpp"
@@ -9,11 +11,10 @@
 #include "poputil/exceptions.hpp"
 #include <boost/optional.hpp>
 
-#include "poplar/Program.hpp"
-
 using namespace poplar;
 using namespace poplar::program;
 using namespace poputil;
+using namespace poplibs_support;
 
 namespace poputil {
 template <>
@@ -446,72 +447,80 @@ bool specialisedVertexExists(const Tensor &A, const Tensor &B,
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, Tensor scaleB,
                  Sequence &prog, const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, scaleB, options));
-  const auto targetType = A.elementType();
-  const std::string layer = "scaledAdd";
+  const auto debugPrefix = debugContext.getPathName();
+  trace(graph, {"popops::scaledAddTo(scaleB=tensor)", debugPrefix}, [&] {
+    poputil::PoplibsOpDebugInfo di(debugContext,
+                                   DI_ARGS(A, B, scaleB, options));
+    const auto targetType = A.elementType();
+    const std::string layer = "scaledAdd";
 
-  const auto opts = parseOptionFlags(options);
-  if (A.elementType() == HALF && B.elementType() == HALF &&
-      scaleB.elementType() == FLOAT) {
-    // The vertex will select float or half scale based on the accuracy of the
-    // scale, using the tolerance option
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
-                               ScaledAddSpecialisation::DEFAULT, prog,
-                               /* attemptRegroup */ true, {di}, opts);
-  } else {
-    bool regroupBeforeCast = false;
-    if (!specialisedVertexExists(A, B, scaleB)) {
-      regroupBeforeCast = shouldRegroupBeforeCast(graph.getTarget(),
-                                                  B.elementType(), targetType);
-      if (regroupBeforeCast) {
-        B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                                   {di, layer + "/regroupB"});
+    const auto opts = parseOptionFlags(options);
+    if (A.elementType() == HALF && B.elementType() == HALF &&
+        scaleB.elementType() == FLOAT) {
+      // The vertex will select float or half scale based on the accuracy of the
+      // scale, using the tolerance option
+      scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+                                 ScaledAddSpecialisation::DEFAULT, prog,
+                                 /* attemptRegroup */ true, {di}, opts);
+    } else {
+      bool regroupBeforeCast = false;
+      if (!specialisedVertexExists(A, B, scaleB)) {
+        regroupBeforeCast = shouldRegroupBeforeCast(
+            graph.getTarget(), B.elementType(), targetType);
+        if (regroupBeforeCast) {
+          B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
+                                                     {di, layer + "/regroupB"});
+        }
+        const auto cs = graph.addComputeSet({di, layer + "/cast"});
+        if (B.elementType() != targetType) {
+          B = cast(graph, B, targetType, cs, {di, layer + "/B"});
+        }
+        if (scaleB.elementType() != targetType) {
+          scaleB = cast(graph, scaleB, targetType, cs, {di, layer + "/scaleB"});
+        }
+        prog.add(Execute(cs, {di}));
       }
-      const auto cs = graph.addComputeSet({di, layer + "/cast"});
-      if (B.elementType() != targetType) {
-        B = cast(graph, B, targetType, cs, {di, layer + "/B"});
-      }
-      if (scaleB.elementType() != targetType) {
-        scaleB = cast(graph, scaleB, targetType, cs, {di, layer + "/scaleB"});
-      }
-      prog.add(Execute(cs, {di}));
+      scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
+                                 ScaledAddSpecialisation::DEFAULT, prog,
+                                 !regroupBeforeCast, {di}, opts);
     }
-    scaledArithmeticTensorImpl(graph, A, scaleB, B, scaleB, false, false,
-                               ScaledAddSpecialisation::DEFAULT, prog,
-                               !regroupBeforeCast, {di}, opts);
-  }
+  });
 }
 
 void scaledAddTo(Graph &graph, Tensor A, Tensor B, float scaleB, Sequence &prog,
                  const poplar::DebugContext &debugContext,
                  const poplar::OptionFlags &options) {
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(A, B, scaleB, options));
+  const auto debugPrefix = debugContext.getPathName();
+  trace(graph, {"popops::scaledAddTo(scaleB=float)", debugPrefix}, [&] {
+    poputil::PoplibsOpDebugInfo di(debugContext,
+                                   DI_ARGS(A, B, scaleB, options));
 
-  const auto opts = parseOptionFlags(options);
-  const auto targetType = A.elementType();
+    const auto opts = parseOptionFlags(options);
+    const auto targetType = A.elementType();
 
-  bool regroupBeforeCast =
-      shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
-  if (regroupBeforeCast) {
-    B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
-                                               {di, "scaledAdd/regroupB"});
-  }
-  if (B.elementType() != targetType && !specialisedVertexExists(A, B, B)) {
-    B = cast(graph, B, targetType, prog, {di, "scaledAdd/B"});
-  }
-  bool useFloatScale = false;
-  auto scaleType =
-      specialisedVertexExists(A, B, B) ? B.elementType() : targetType;
-  if ((A.elementType() == HALF || A.elementType() == FLOAT) &&
-      B.elementType() == HALF) {
-    // Consider doing arithmetic as float internally to the codelet if scale
-    // can't be correctly represented as a half, using this function:
-    useFloatScale = !(poputil::checkAccuracyWhenCast(
-        graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
-  }
-  scaledArithmeticConstImpl(
-      graph, A, 1.0, B, scaleB, useFloatScale ? FLOAT : scaleType,
-      ScaledAddSpecialisation::DEFAULT, prog, !regroupBeforeCast, {di}, opts);
+    bool regroupBeforeCast =
+        shouldRegroupBeforeCast(graph.getTarget(), B.elementType(), targetType);
+    if (regroupBeforeCast) {
+      B = popops::rearrange::regroupIfBeneficial(graph, B, A, prog,
+                                                 {di, "scaledAdd/regroupB"});
+    }
+    if (B.elementType() != targetType && !specialisedVertexExists(A, B, B)) {
+      B = cast(graph, B, targetType, prog, {di, "scaledAdd/B"});
+    }
+    bool useFloatScale = false;
+    auto scaleType =
+        specialisedVertexExists(A, B, B) ? B.elementType() : targetType;
+    if ((A.elementType() == HALF || A.elementType() == FLOAT) &&
+        B.elementType() == HALF) {
+      // Consider doing arithmetic as float internally to the codelet if scale
+      // can't be correctly represented as a half, using this function:
+      useFloatScale = !(poputil::checkAccuracyWhenCast(
+          graph.getTarget(), scaleB, FLOAT, HALF, opts.floatToHalfTolerance));
+    }
+    scaledArithmeticConstImpl(
+        graph, A, 1.0, B, scaleB, useFloatScale ? FLOAT : scaleType,
+        ScaledAddSpecialisation::DEFAULT, prog, !regroupBeforeCast, {di}, opts);
+  });
 }
 
 void scaledSubtractFrom(Graph &graph, Tensor A, Tensor B, Tensor scaleB,

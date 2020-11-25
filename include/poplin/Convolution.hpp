@@ -287,6 +287,22 @@ using ConvPlanParams = std::tuple<const poplar::Target *, const ConvParams,
 void preplanConvolutions(const std::set<ConvPlanParams> &convs,
                          PlanningCache &cache);
 
+/**
+ * Plan the specified convolutions.
+ *
+ * \param graph   The graph the convolutions will belong to
+ * \param convs   A set of tuples of:
+ *                  - conv-specific target for tile / IPU sizing
+ *                  - convolution parameters
+ *                  - implementation options. See createWeights().
+ *
+ *                All entries must have matching machine parameters.
+ * \param cache   The planning cache to update.
+ */
+void preplanConvolutions(poplar::Graph &graph,
+                         const std::set<ConvPlanParams> &convs,
+                         PlanningCache &cache);
+
 /** Copy the weights in \p weightsIn into \p weightsOut such that
  * each element of the kernel is transposed with respect to the input and
  * output channels and flip each spatial dimension of the kernel.

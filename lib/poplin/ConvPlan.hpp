@@ -270,6 +270,11 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
              const ConvOptions &options, PlanningCache *cache,
              poplar::ProfileValue::Map *pv = nullptr);
 
+// same as above but includes tracing support.
+Plan getPlan(poplar::Graph &graph, const poplar::Target &target,
+             const CanonicalConvParams &params, const ConvOptions &options,
+             PlanningCache *cache);
+
 // A multiplan which is executed sequentially, each plan using all tiles on the
 // target
 struct SerialPlan {

@@ -114,6 +114,7 @@ int main(int argc, char **argv) try {
   bool enableConvolutionReuse;
   bool remapOutputTensor;
   bool useCreateInput;
+  bool preplan;
 
   Pass pass = Pass::ALL;
   std::string fwdPlanConstraints, fwdPlanConstraintsFile, bwdPlanConstraints,
@@ -337,6 +338,9 @@ int main(int argc, char **argv) try {
      po::value<unsigned>(&numDeterminismChecks)->default_value(0),
      "The amount of additional identical executions (results are compared to check determinism)."
      "This option is required to be 0 if ignore-data is set or single-phase is not 'all' or device-type is not Hw.")
+    ("preplan",
+     po::value<bool>(&preplan)->default_value(true),
+     "Whether or not to preplan the convolutions")
   ;
   // clang-format on
   po::variables_map vm;
@@ -545,6 +549,27 @@ int main(int argc, char **argv) try {
   overloadConstraintsFromFile(wuPlanConstraintsFile, wuPlanConstraints);
   wuOptions.set("planConstraints", wuPlanConstraints);
 
+  if (preplan) {
+    const auto &replicatedTarget = graph.getTarget();
+    std::set<poplin::ConvPlanParams> convs;
+
+    if (doFwdPass) {
+      convs.insert(std::make_tuple(&replicatedTarget, params, &fwdOptions));
+    }
+
+    if (doBwdPass) {
+      convs.insert(std::make_tuple(&replicatedTarget, bwdParams, &bwdOptions));
+    }
+
+    if (doWuPass) {
+      auto wuParams = getWeightUpdateParams(params);
+      convs.insert(
+          std::make_tuple(&replicatedTarget, std::move(wuParams), &wuOptions));
+    }
+
+    poplin::preplanConvolutions(graph, convs, cache);
+  }
+
   if (reportPlan) {
     std::cout << "Convolution parameters:\n"
                  " Batch size: "
@@ -704,7 +729,7 @@ int main(int argc, char **argv) try {
   Tensor biases;
   if (bias) {
     biases = poplin::createBiases(graph, nextAct);
-    poplin::addBias(graph, nextAct, biases, fwdProg, "");
+    poplin::addBias(graph, nextAct, biases, fwdProg, "bias");
   }
   if (!doFwdPass) {
     fwdProg = Sequence();

@@ -13,6 +13,7 @@
 #include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/Compiler.hpp"
 #include "poplibs_support/TileHierarchy.hpp"
+#include "poplibs_support/Trace.hpp"
 #include "poplibs_support/VectorUtils.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -1759,6 +1760,13 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
     cacheImpl->addPlanToCache({entry.first}, {entry.second});
   }
   return plan;
+}
+
+Plan getPlan(poplar::Graph &graph, const poplar::Target &target,
+             const CanonicalConvParams &params, const ConvOptions &options,
+             PlanningCache *cache) {
+  return trace(graph, "poplin::getPlan",
+               [&] { return getPlan(target, params, options, cache); });
 }
 
 namespace {

@@ -239,6 +239,7 @@ def get_list_of_tests(cmd, device_type):
                     test_cmd.insert(0, match.group(5))
                     test_cmd.append(f'--device-type={device_type}')
                     test_cmd.append(r'--profile')
+                    test_cmd.append('--preplan=0')
                     tests_dict[match.group(2)] = test_cmd
     return tests_dict
 
@@ -637,6 +638,7 @@ def generate_ci_tests(workspace, test_binary, device_type):
                         '--ignore-data', '--profile-format', 'experimental', f'--device-type={device_type}', '--profile',
                         f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
+                        '--preplan', '0',
                         transform_constraints(phase, 'true', '[]', '[]', '1')]
 
         # Remove ci-test logs to guarantee tests run
