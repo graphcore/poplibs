@@ -768,8 +768,10 @@ bool binaryOpBroadcastScalar(
     for (const auto &regions : intervals) {
       const auto outRegion = concat(out.flatten().slices(regions));
       const auto in1Region = concat(in1.flatten().slices(regions));
-      const auto in2Region = concat(in2.flatten().slices(regions));
-      const auto in2ScalarRegion = in2Region[0];
+      // We know that for this interval the second operand is a single
+      // scalar value so we can just slice a single element.
+      assert(!regions.empty());
+      const auto in2ScalarRegion = in2.flatten()[regions.front().begin()];
       const auto v = graph.addVertex(
           cs, vertexClass, {{"data", in1Region}, {"B", in2ScalarRegion}});
       if (!inPlace) {
@@ -791,21 +793,25 @@ bool binaryOpBroadcastScalar(
     for (const auto &regions : vertexRegions) {
       const auto outRegions = out.flatten().slices(regions);
       const auto in1Regions = in1.flatten().slices(regions);
-      const auto in2Regions = in2.flatten().slices(regions);
       const auto v = graph.addVertex(cs, vertexClass, {{"data", in1Regions}});
       if (!inPlace) {
         graph.connect(v["out"], outRegions);
       }
+      assert(!regions.empty());
       if (uniformScalar) {
-        auto in2ScalarRegion = concat(in2Regions).flatten()[0];
+        const auto &region = regions.front();
+        assert(!region.empty());
+        const auto in2ScalarRegion = in2.flatten()[region.front().begin()];
         graph.connect(v["B"], in2ScalarRegion);
       } else {
         // Take the first element in each region as the scalar.
         // We know that this must be the same element for all in each
         // region, otherwise calling this function is invalid.
-        auto in2ScalarRegions = in2Regions;
-        for (auto &region : in2ScalarRegions) {
-          region = region[0];
+        std::vector<Tensor> in2ScalarRegions;
+        in2ScalarRegions.reserve(regions.size());
+        for (const auto &region : regions) {
+          assert(!region.empty());
+          in2ScalarRegions.push_back(in2.flatten()[region.front().begin()]);
         }
         graph.connect(v["B"], in2ScalarRegions);
       }
