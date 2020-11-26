@@ -137,13 +137,47 @@ public:
   EstimateCache() : mPoolVertexCycleEstimate(poolVertexCycleEstimate) {}
 };
 
-std::uint64_t getNumberOfOperations(const poplin::ConvParams &params) {
+static std::uint64_t getNumberOfOperations(const poplin::ConvParams &params) {
   // The operations used in pooling can be calculated in a similar way to
   // convolution, except that each channel is independent.
   auto convParams = params;
   convParams.inputChannelsPerConvGroup = 1;
 
   return getNumberOfMACs(convParams);
+}
+
+static std::size_t getBytesRequiredPerTile(const Partition &perTile,
+                                           const poplin::ConvParams &params,
+                                           const PoolConfig &poolCfg,
+                                           unsigned bytesPerInputElement) {
+  // In each dimension that the kernel moves in, each new output needs a
+  // contiguous slice of input of size "stride" plus the amount the kernel adds
+  // which is "kernelSize-stride"
+  std::size_t inFieldElementsPerTile = 1;
+  for (unsigned i = 0; i < perTile.field.size(); i++) {
+    const auto factor = perTile.field[i] * params.outputTransform.stride[i] +
+                        perTile.kernel[i] - params.outputTransform.stride[i];
+    inFieldElementsPerTile *= factor;
+  }
+  const std::size_t inBytesPerTile =
+      inFieldElementsPerTile * perTile.batch * perTile.chanGroups *
+      perTile.chansPerGroup * bytesPerInputElement;
+  const std::size_t outBytesPerTile =
+      product(perTile.field) * perTile.batch * perTile.chanGroups *
+      perTile.chansPerGroup * bytesPerInputElement;
+  // Some vertices require more inputs.
+  if (poolCfg.pass == PoolPass::POOL_BWD && poolCfg.type == PoolingType::MAX) {
+    // 3 inputs: `fwdActsIn` is the size of the output field, `fwdActsOut` and
+    // `in` are the size of the input field
+    return 2 * inBytesPerTile + outBytesPerTile;
+  }
+  if (poolCfg.pass == PoolPass::POOL_FWD && poolCfg.type == PoolingType::MAX &&
+      poolCfg.scaledGradient) {
+    // 2 inputs: `fwdActsOut` is the size of the output field, `in` is the size
+    // of the input field
+    return inBytesPerTile + outBytesPerTile;
+  }
+  return inBytesPerTile;
 }
 
 // Build a popsolver model with the appropriate Pooling Planning variables and
@@ -272,19 +306,11 @@ static popsolver::Variable constructModel(
         }
         // But the partitioned field size is the output, we'll be exchanging
         // and rearranging the input - scale to find the input needed to
-        // produce the tile's partitioned output
-        std::vector<std::size_t> inFieldPerTile;
-        for (unsigned i = 0; i < perTile.field.size(); i++) {
-          const auto factor =
-              params.outputTransform.stride[i] +
-              (perTile.kernel[i] - params.outputTransform.stride[i]) -
-              params.inputTransform.paddingLower[i];
-          inFieldPerTile.push_back(perTile.field[i] * factor);
-        }
-        std::uint64_t bytesPerTile =
-            product(inFieldPerTile) * perTile.batch * perTile.chanGroups *
-            perTile.chansPerGroup * target.getTypeSize(params.inputType);
+        // produce the tile's partitioned output.  In some cases there are
+        // multiple inputs
         // exchange cost: assume everything brought onto tile
+        const auto bytesPerTile = getBytesRequiredPerTile(
+            perTile, params, poolCfg, target.getTypeSize(params.inputType));
         const unsigned exchangeBytesPerCycle =
             target.getExchangeBytesPerCycle();
         uint64_t exchangeCost = bytesPerTile / exchangeBytesPerCycle;
