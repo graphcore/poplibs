@@ -764,7 +764,7 @@ static void generatePlannedMultiUpdateAdd(
         // TODO: T12934 Pad if not a multiple of grain size to ensure uniform
         // execution time of update on each tile given an uneven split.
         bool needSubwordWrites =
-            target.getTypeSize(type) == 2 && numOffsets % 2 != 0;
+            target.getTypeSize(stage0OutputType) == 2 && numOffsets % 2 != 0;
 
         if (needSubwordWrites) {
           multiUpdateSubwordTiles.emplace_back(tile);

@@ -853,6 +853,14 @@ add_multitarget_test(
                  --plan-constraints={\"unslicedDimSplit\":\"6\",\"slicedDimSplit\":\"6\",\"lookupSplit\":\"19\"}
          VARIANTS ${TimesOutOnSim})
 
+add_multitarget_test(
+         NAME embedding_layer_T30781
+         COMMAND embedding_layer
+                 --num-indices {36}
+                 --shape {180,1}
+                 --data-type=half
+                 --tiles-per-ipu 30)
+
 # Collective operations
 foreach(collective reduce_scatter
                    all_gather
