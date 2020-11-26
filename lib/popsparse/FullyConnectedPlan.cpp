@@ -1544,6 +1544,20 @@ static void addMetaInfoRangeLimits(popsolver::Model &m,
   }
 }
 
+// For now just make this such that it never gets picked. In future
+// will change this so that the planner will pick this variable
+// based on the plan returned for the dense operation
+static popsolver::Variable
+addUseDenseVariable(popsolver::Model &m,
+                    const poplibs_support::PlanConstraints &constraints) {
+  const auto denseConstraint = constraints.get_optional<bool>("useDense");
+  unsigned useDenseValue = 0;
+  if (denseConstraint) {
+    useDenseValue = static_cast<unsigned>(*denseConstraint);
+  }
+  return m.addConstant(useDenseValue);
+}
+
 static std::tuple<Plan, Cost, CostBreakdown>
 createPlan(const PlanningObjective &objective, const Target &target,
            const Type &inputType, const FullyConnectedParams &params,
@@ -1703,6 +1717,8 @@ createPlan(const PlanningObjective &objective, const Target &target,
         mRElemsPerGroup, mRFwdMetaInfoElemsPerBucket, options);
   }
 
+  const auto useDense = addUseDenseVariable(m, options.planConstraints);
+
   const CostVariables mCost(
       m.sum({fwdCost.cycles, gradACost.cycles, gradWCost.cycles}),
       m.max({fwdCost.tempBytes, gradACost.tempBytes, gradWCost.tempBytes}));
@@ -1770,6 +1786,8 @@ createPlan(const PlanningObjective &objective, const Target &target,
   plan.exchangePlan.gradWMapping =
       PartitionToPNMapping({oldGradWMapping.groups, oldGradWMapping.x,
                             oldGradWMapping.z, oldGradWMapping.y});
+
+  plan.useDense = solution[useDense].getAs<unsigned>();
 
   Cost cost;
   cost.cycles = solution[mCost.cycles];
@@ -2065,7 +2083,8 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
      << "\n  no. of meta-info elements per bucket (forward): "
      << p.fwdMetaInfoElemsPerBucket
      << "\n  no. of meta-info elements per bucket (grad-a): "
-     << p.gradAMetaInfoElemsPerBucket << "\n";
+     << p.gradAMetaInfoElemsPerBucket << "\n use dense operation:" << p.useDense
+     << "\n";
   return os;
 }
 

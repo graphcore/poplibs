@@ -119,6 +119,9 @@ struct Plan {
   unsigned fwdMetaInfoElemsPerBucket;
   // Number of meta-info elements per bucket (GradA pass).
   unsigned gradAMetaInfoElemsPerBucket;
+  // Whether to perform the layer as a dense operation instead of a sparse
+  bool useDense;
+
   // returns true if the same bucket is shared between passes
   bool sharedBuckets() const {
     return method.gradA == OnTileMethod::Transpose ||

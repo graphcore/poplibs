@@ -78,6 +78,11 @@ void validatePlanConstraintsPartition(const std::string &path, const ptree &t) {
   }
 }
 
+static void validatePlanConstraintsUseDense(const std::string &path,
+                                            const ptree &t) {
+  validatePlanConstraintsBoolean(path, t);
+}
+
 namespace {
 
 struct ValidatePlanConstraintsOption {
@@ -91,6 +96,8 @@ struct ValidatePlanConstraintsOption {
         validatePlanConstraintsExchange(child.first, child.second);
       } else if (child.first == "partition") {
         validatePlanConstraintsPartition(child.first, child.second);
+      } else if (child.first == "useDense") {
+        validatePlanConstraintsUseDense(child.first, child.second);
       } else {
         throw poplar::invalid_option(
             child.first + " is not currently handled or does not exist");
