@@ -2659,11 +2659,11 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
     const CanonicalConvParams params(params_);
     const ConvOptions options(options_);
 
-  const std::string layerName = "Conv_" + convSuffix(params);
-  poplar::ProfileValue::Map pv;
-  const auto plan = getPlan(graph.getTarget(), params, options, cache, &pv);
-  ConvProgramTree cpt(graph, plan, {di, layerName});
-  di.add("planInfo", pv);
+    const std::string layerName = "Conv_" + convSuffix(params);
+    poplar::ProfileValue::Map pv;
+    const auto plan = getPlan(graph.getTarget(), params, options, cache, &pv);
+    ConvProgramTree cpt(graph, plan, {di, layerName});
+    di.add("planInfo", pv);
 
     auto out =
         convolution(graph, in, weights, plan, params, transposeAndFlipWeights,
