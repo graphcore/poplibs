@@ -71,12 +71,14 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPE
 //************************************************
 
 // outputting bool :
-INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN___EQUAL, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN___EQUAL, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1D EQUAL, float, half
-INSTANTIATE_OP BinaryOp BinaryOp1D NOT___EQUAL, float, half
+INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN___EQUAL, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN___EQUAL, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D EQUAL, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D NOT___EQUAL, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D, LOGICAL___AND, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D, LOGICAL___OR, bool
 
 INSTANTIATE_OP BinaryOp BinaryOp1D ADD, float, half, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1D ATAN2, float, half
@@ -163,6 +165,14 @@ INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT___LEFT, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT___RIGHT, int, unsigned_int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, SUBTRACT, float, half, int, unsigned_int
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, GREATER___THAN, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, GREATER___THAN___EQUAL, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, LESS___THAN, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, LESS___THAN___EQUAL, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, EQUAL, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, NOT___EQUAL, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, LOGICAL___AND, bool
+INSTANTIATE_OP BinaryOp BinaryOp1DInPlace, LOGICAL___OR, bool
 
 // Broadcasting 2nd operand without producing copies to memory
 

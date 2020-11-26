@@ -29,6 +29,134 @@ struct BinaryOpDispatch {
 
 #ifdef __IPU__
 
+/// Performs the bulk of a binary 'op' that has bool as output
+/// type:  T op T => BOOL (i.e. the comparison operator EQUAL, LESS_THAN etc
+/// plus LOGICAL_AND/OR).
+/// This processes 4 elements of type T in each cycle of the loop, and writes
+/// the 4 aggregated boolean results (1 full word) at a time, avoiding calls
+/// to __st8/__st16.
+/// This is run both by the '2D' vertices and by the 1D workers started
+/// by the '1DSupervisor'.
+/// Implemented as as a struct with a static function instead of a templated
+/// function because you cannot partially specialise a templated function
+/// (also, doesn't use operator() because it cannot be static)
+///
+///  \tparam     op        Operation to perform. One of the comparison ops
+///                        (EQUAL, LESS_THAN, ...)
+///
+///  \tparam     T         Type of the operands
+///
+///  \tparam     stride    Stride (in units of 4 elements) to advance
+///                        in/out at each cycle of the loop.
+///
+///  \param[in]  loopCount How many groups of 4 elements to process.
+///
+///  \param[in]  in1       Pointer to an array of T with first operand.
+///
+///  \param[in]  in2       Pointer to an array of T with the second operand.
+///
+///  \param[out] out       Pointer to an array of boolean (1 byte each) that
+///                        will be populated with the results
+///
+template <BinaryOpType op, typename T, unsigned stride>
+struct binaryBoolOpBulk {
+  static void compute(unsigned loopCount, const T *in1, const T *in2,
+                      int *out) {
+    for (unsigned i = 0; i < loopCount; i++) {
+      unsigned result4 = 0;
+      // Accumulate in 'result4' the 4 bytes for this loop
+      for (unsigned j = 0, shifts = 0; j != 4; ++j, shifts += 8) {
+        bool res = BinaryOpFn<op, T, architecture::active>::fn(in1[j], in2[j]);
+        result4 |= res << shifts;
+      }
+      in1 += 4 * stride;
+      in2 += 4 * stride;
+      *out = result4;
+      out += stride;
+    }
+  }
+};
+
+// Optimisations for operators processing 4 boolean stored in a single word.
+// Some of them can be done by a 'vectorized' operation on the whole word
+// 'OP_FN' is the code that returns the result of the operation (taking 'word1'
+// and 'word2' as the two operands).
+#define OPTIMIZED_BOOL_OP_BULK(op, OP_FN)                                      \
+  template <unsigned stride> struct binaryBoolOpBulk<op, bool, stride> {       \
+    static void compute(unsigned loopCount, const bool *in1, const bool *in2,  \
+                        int *out) {                                            \
+      const unsigned *b4In1 = reinterpret_cast<const unsigned *>(in1);         \
+      const unsigned *b4In2 = reinterpret_cast<const unsigned *>(in2);         \
+      for (unsigned i = 0; i < loopCount; i++) {                               \
+        unsigned word1 = *b4In1;                                               \
+        unsigned word2 = *b4In2;                                               \
+        *out = OP_FN;                                                          \
+        b4In1 += stride;                                                       \
+        b4In2 += stride;                                                       \
+        out += stride;                                                         \
+      }                                                                        \
+    }                                                                          \
+  };
+
+//  EQUAL is XNOR (then AND-away the other bits) of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::EQUAL, ~(word1 ^ word2) & 0x01010101)
+
+//  NOT_EQUAL is XOR of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::NOT_EQUAL, word1 ^ word2)
+
+//  LOGICAL_AND is BITWISE_AND of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::LOGICAL_AND, word1 &word2)
+
+//  LOGICAL_OR is BITWISE_OR of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::LOGICAL_OR, word1 | word2)
+
+/// Binary 'op' for bool output type ( T op T => BOOL) for the
+/// trailing 0..3 elements of the input data (used in conjunction with
+/// 'binaryBoolOpBulk')
+/// This is run both by the '2D' vertices and by the 1D workers started
+/// by the '1DSupervisor'
+///
+///  \tparam     op        Operation to perform. One of the comparison ops
+///                        (EQUAL, LESS_THAN, ...)
+///
+///  \tparam     T         data type (float or half)
+///
+///  \param[in]  size      Total number of data elements
+///
+///  \param[in]  in1       Pointer to an array of T with first operand.
+///
+///  \param[in]  in2       Pointer to an array of T with the second operand.
+///
+///  \param[out] out       Pointer to an array of boolean (1 byte each) that
+///                        is/will be populated with the results
+///
+template <BinaryOpType op, typename T>
+void binaryBoolOpRemainder(unsigned size,
+                           const __attribute__((align_value(8))) T *in1,
+                           const __attribute__((align_value(8))) T *in2,
+                           __attribute__((align_value(8))) bool *out) {
+  unsigned remainder = size & 3;
+  if (remainder) {
+    unsigned offs = size - remainder;
+    in1 = &in1[offs]; // make it point to the 'remainder'
+    in2 = &in2[offs]; // make it point to the 'remainder'
+    // Read the word of the output in memory that will contain the 1-3 bytes
+    // of the remainder, so that we can write back the byte(s) we will not be
+    // updating.
+    unsigned *out4 = reinterpret_cast<unsigned *>(&out[offs]);
+    unsigned result4 = *out4;
+    // Accumulate in 'result4' the 1-3 bytes of the remainder
+    unsigned mask = 0xff;
+    for (unsigned j = 0, shifts = 0; j != remainder; ++j, shifts += 8) {
+      bool res = BinaryOpFn<op, T, architecture::active>::fn(in1[j], in2[j]);
+      result4 &= ~(mask << shifts);
+      result4 |= res << shifts;
+    }
+    // Do a single word write back to memory
+    *out4 = result4;
+  }
+}
+
 /// Performs the bulk of any operation that can be performed on a 'short2'
 /// vector (starting from an array of 16 bit short integers).
 ///
@@ -145,6 +273,24 @@ static void binaryShort2_2D(unsigned size,
   binaryShort2Bulk<op, T, 1>(loopCount, in1, in2, out);
   binaryShort2Short4Remainder<op, T, 1>(size, in1, in2, out);
 }
+
+// Run by the 2D worker for  binary ops that have bool as output
+// type:  T op T => BOOL (i.e. the comparison operator EQUAL, LESS_THAN etc
+// plus LOGICAL_AND/OR)
+template <BinaryOpType op, typename T>
+struct BinaryOpDispatch<op, T, bool, architecture::ipu> {
+  static void compute(unsigned size,
+                      const __attribute__((align_value(8))) T *in1,
+                      const __attribute__((align_value(8))) T *in2,
+                      __attribute__((align_value(8))) bool *out) {
+    if (size >= 4) {
+      const unsigned loopCount = maskForRepeat(size / 4u);
+      binaryBoolOpBulk<op, T, 1>::compute(loopCount, in1, in2,
+                                          reinterpret_cast<int *>(out));
+    }
+    binaryBoolOpRemainder<op, T>(size, in1, in2, out);
+  }
+};
 
 template <expr::BinaryOpType op>
 struct BinaryOpDispatch<op, float, bool, architecture::ipu> {
@@ -435,6 +581,28 @@ public:
 
 #ifdef __IPU__
 
+/// Processing for operators that return a bool (comparison: EQUAL, LESS_THAN,
+/// etc plus LOGICAL_AND/OR), for workers started by Supervisor vertices.
+template <BinaryOpType op, typename T, typename A>
+class BinaryOpDispatchSupervisor<op, T, bool, A> {
+public:
+  static void compute(unsigned size, unsigned worker,
+                      const __attribute__((align_value(8))) T *in1,
+                      const __attribute__((align_value(8))) T *in2,
+                      __attribute__((align_value(8))) bool *out) {
+    const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
+    binaryBoolOpBulk<op, T, CTXT_WORKERS>::compute(
+        loopCount, in1 + 4 * worker, in2 + 4 * worker,
+        reinterpret_cast<int *>(out) + worker);
+
+    // To process the trailing elements (if any) use the last worker as it is
+    // most likely to have less to do than the others.
+    if (worker == (CTXT_WORKERS - 1)) {
+      binaryBoolOpRemainder<op, T>(size, in1, in2, out);
+    }
+  }
+};
+
 template <expr::BinaryOpType op>
 struct BinaryOpDispatchSupervisor<op, half, bool, architecture::ipu> {
 
@@ -622,9 +790,7 @@ public:
 #endif
 
 template <expr::BinaryOpType op, typename T>
-class BinaryOp1DSupervisor
-    : public SupervisorVertexIf<binaryOp1DIsSupervisor<op, T>() &&
-                                ASM_CODELETS_ENABLED> {
+class BinaryOp1DSupervisor : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, T>::type OutputType;
 
 public:
@@ -632,7 +798,7 @@ public:
   Input<Vector<T, ONE_PTR, 8>> in2;
   Output<Vector<OutputType, SPAN, 8>> out;
 
-  IS_EXTERNAL_CODELET((binaryOp1DIsSupervisor<op, T>()));
+  IS_EXTERNAL_CODELET(true);
 
   bool compute() {
     for (unsigned j = 0; j != out.size(); ++j) {
@@ -644,8 +810,7 @@ public:
 
 template <expr::BinaryOpType op, typename T>
 class BinaryOp1DInPlaceSupervisor
-    : public SupervisorVertexIf<binaryOp1DInPlaceIsSupervisor<op, T>() &&
-                                ASM_CODELETS_ENABLED> {
+    : public SupervisorVertexIf<ASM_CODELETS_ENABLED> {
   typedef typename BinaryOpOutputType<op, T>::type OutputType;
   static_assert(std::is_same<T, OutputType>::value,
                 "In, Out types must match for in place operations");
@@ -654,7 +819,7 @@ public:
   InOut<Vector<OutputType, SPAN, 8>> in1Out;
   Input<Vector<T, ONE_PTR, 8>> in2;
 
-  IS_EXTERNAL_CODELET((binaryOp1DInPlaceIsSupervisor<op, T>()));
+  IS_EXTERNAL_CODELET(true);
   bool compute() {
     for (unsigned j = 0; j != in1Out.size(); ++j) {
       in1Out[j] =
@@ -756,9 +921,7 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, int)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::SUBTRACT, float, half, int,
                unsigned)
 
-// BinaryOp1DSupervisor - supervisor stubs for all types except bool.  If bool
-// they will generate single worker code. See T4642 - a task to add
-// these.
+// BinaryOp1DSupervisor - supervisor stubs for all types.
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ADD, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::ATAN2, float, half)
@@ -804,7 +967,7 @@ INSTANTIATE_OP(BinaryOp1DSupervisor,
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::SUBTRACT, float, half,
                int, unsigned)
 
-// BinaryOp1D  - Worker code for all types except bool
+// BinaryOp1D  - Worker code for all types.
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ADD, float, half, int, unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::ATAN2, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_AND, int, unsigned,
@@ -818,15 +981,17 @@ INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::EQUAL, float, half, int,
-               unsigned)
+               unsigned, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN_EQUAL, float, half,
-               int, unsigned)
+               int, unsigned, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN, float, half, int,
-               unsigned)
+               unsigned, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LESS_THAN_EQUAL, float, half,
-               int, unsigned)
+               int, unsigned, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LESS_THAN, float, half, int,
-               unsigned)
+               unsigned, bool)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LOGICAL_AND, bool)
+INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::LOGICAL_OR, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MAXIMUM, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MINIMUM, float, half, int,
@@ -834,7 +999,7 @@ INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MINIMUM, float, half, int,
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MULTIPLY, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
-               unsigned)
+               unsigned, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::REMAINDER, float, half, int,
                unsigned)
@@ -959,5 +1124,12 @@ INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND,
                int)
 INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::SUBTRACT, float, half,
                int, unsigned)
-
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::GREATER_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::GREATER_THAN, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::LESS_THAN_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::LOGICAL_AND, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::LOGICAL_OR, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::NOT_EQUAL, bool)
+INSTANTIATE_OP(BinaryOp1DInPlace, expr::BinaryOpType::LESS_THAN, bool)
 } // namespace popops

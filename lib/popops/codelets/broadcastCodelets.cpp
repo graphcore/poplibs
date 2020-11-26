@@ -124,6 +124,38 @@ struct broadcastBoolOpBulk {
   }
 };
 
+// Optimisations for operators processing 4 boolean stored in a single word.
+// Some of them can be done by a 'vectorized' operation on the whole word
+// 'OP_FN' is the code that returns the result of the operation (taking 'word1'
+// and 'word2' as the two operands).
+#define OPTIMIZED_BOOL_OP_BULK(op, OP_FN)                                      \
+  template <unsigned stride> struct broadcastBoolOpBulk<op, bool, stride> {    \
+    static void compute(unsigned loopCount, const bool *in, int *out,          \
+                        const bool K) {                                        \
+      const unsigned *b4In = reinterpret_cast<const unsigned *>(in);           \
+      const char4 K4 = {K, K, K, K};                                           \
+      const unsigned word2 = reinterpret_cast<const unsigned>(K4);             \
+      for (unsigned i = 0; i < loopCount; i++) {                               \
+        unsigned word1 = *b4In;                                                \
+        *out = OP_FN;                                                          \
+        b4In += stride;                                                        \
+        out += stride;                                                         \
+      }                                                                        \
+    }                                                                          \
+  };
+
+//  EQUAL is XNOR (then AND-away the other bits) of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::EQUAL, ~(word1 ^ word2) & 0x01010101)
+
+//  NOT_EQUAL is XOR of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::NOT_EQUAL, word1 ^ word2)
+
+//  LOGICAL_AND is BITWISE_AND of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::LOGICAL_AND, word1 &word2)
+
+//  LOGICAL_OR is BITWISE_OR of the two words
+OPTIMIZED_BOOL_OP_BULK(BinaryOpType::LOGICAL_OR, word1 | word2)
+
 // Partial specialisation of 'broadcastBoolOpBulk' for float, to use vector
 // instructions
 template <BinaryOpType op, unsigned stride>

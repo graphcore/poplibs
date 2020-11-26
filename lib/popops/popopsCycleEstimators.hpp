@@ -281,8 +281,8 @@ inline const BinaryOpPerfTable binaryOpPerfInfo = {
     {{BinaryOpType::DIVIDE, HALF}, {21, false, 4}},
     {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
     {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {265, false, 1}},
-    {{BinaryOpType::LOGICAL_AND, BOOL}, {49, false, 4}},
-    {{BinaryOpType::LOGICAL_OR, BOOL}, {23, false, 4}},
+    {{BinaryOpType::LOGICAL_AND, BOOL}, {5, false, 4}},
+    {{BinaryOpType::LOGICAL_OR, BOOL}, {5, false, 4}},
     {{BinaryOpType::MAXIMUM, FLOAT}, {4, false, 2}},
     {{BinaryOpType::MAXIMUM, HALF}, {4, false, 4}},
     {{BinaryOpType::MAXIMUM, INT}, {7, false, 1}},
@@ -320,36 +320,36 @@ inline const BinaryOpPerfTable binaryOpPerfInfo = {
 
     {{BinaryOpType::EQUAL, FLOAT}, {14, false, 4}},
     {{BinaryOpType::EQUAL, HALF}, {9, false, 4}},
-    {{BinaryOpType::EQUAL, INT}, {29, false, 2}},
-    {{BinaryOpType::EQUAL, UNSIGNED_INT}, {29, false, 2}},
-    {{BinaryOpType::EQUAL, BOOL}, {49, false, 4}},
+    {{BinaryOpType::EQUAL, INT}, {22, false, 4}},
+    {{BinaryOpType::EQUAL, UNSIGNED_INT}, {22, false, 4}},
+    {{BinaryOpType::EQUAL, BOOL}, {6, false, 4}},
     // same as B < A
     // E = A and B, result = A andc E
     {{BinaryOpType::GREATER_THAN, FLOAT}, {14, false, 4}},
     {{BinaryOpType::GREATER_THAN, HALF}, {9, false, 4}},
-    {{BinaryOpType::GREATER_THAN, INT}, {30, false, 2}},
-    {{BinaryOpType::GREATER_THAN, UNSIGNED_INT}, {29, false, 2}},
-    {{BinaryOpType::GREATER_THAN, BOOL}, {49, false, 4}},
+    {{BinaryOpType::GREATER_THAN, INT}, {22, false, 4}},
+    {{BinaryOpType::GREATER_THAN, UNSIGNED_INT}, {22, false, 4}},
+    {{BinaryOpType::GREATER_THAN, BOOL}, {31, false, 4}},
     {{BinaryOpType::GREATER_THAN_EQUAL, FLOAT}, {14, false, 4}},
     {{BinaryOpType::GREATER_THAN_EQUAL, HALF}, {9, false, 4}},
-    {{BinaryOpType::GREATER_THAN_EQUAL, INT}, {31, false, 2}},
-    {{BinaryOpType::GREATER_THAN_EQUAL, UNSIGNED_INT}, {31, false, 2}},
-    {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {17, false, 4}},
+    {{BinaryOpType::GREATER_THAN_EQUAL, INT}, {26, false, 4}},
+    {{BinaryOpType::GREATER_THAN_EQUAL, UNSIGNED_INT}, {26, false, 4}},
+    {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {28, false, 4}},
     {{BinaryOpType::LESS_THAN, FLOAT}, {14, false, 4}},
     {{BinaryOpType::LESS_THAN, HALF}, {9, false, 4}},
-    {{BinaryOpType::LESS_THAN, INT}, {30, false, 2}},
-    {{BinaryOpType::LESS_THAN, UNSIGNED_INT}, {30, false, 2}},
-    {{BinaryOpType::LESS_THAN, BOOL}, {49, false, 4}},
+    {{BinaryOpType::LESS_THAN, INT}, {22, false, 4}},
+    {{BinaryOpType::LESS_THAN, UNSIGNED_INT}, {22, false, 4}},
+    {{BinaryOpType::LESS_THAN, BOOL}, {28, false, 4}},
     {{BinaryOpType::LESS_THAN_EQUAL, FLOAT}, {14, false, 4}},
     {{BinaryOpType::LESS_THAN_EQUAL, HALF}, {9, false, 4}},
-    {{BinaryOpType::LESS_THAN_EQUAL, INT}, {31, false, 2}},
-    {{BinaryOpType::LESS_THAN_EQUAL, UNSIGNED_INT}, {31, false, 2}},
-    {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {17, false, 4}},
+    {{BinaryOpType::LESS_THAN_EQUAL, INT}, {26, false, 4}},
+    {{BinaryOpType::LESS_THAN_EQUAL, UNSIGNED_INT}, {26, false, 4}},
+    {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {28, false, 4}},
     {{BinaryOpType::NOT_EQUAL, FLOAT}, {20, false, 4}},
     {{BinaryOpType::NOT_EQUAL, HALF}, {11, false, 4}},
-    {{BinaryOpType::NOT_EQUAL, INT}, {29, false, 2}},
-    {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, {29, false, 2}},
-    {{BinaryOpType::NOT_EQUAL, BOOL}, {49, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, INT}, {22, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, {22, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, BOOL}, {5, false, 4}},
 };
 
 inline const BinaryOpPerfTable binaryOpInPlacePerfInfo = {
@@ -381,8 +381,8 @@ inline const BinaryOpPerfTable binaryOpInPlacePerfInfo = {
     {{BinaryOpType::DIVIDE, HALF}, {21, false, 4}},
     {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
     {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {264, false, 1}},
-    {{BinaryOpType::LOGICAL_AND, BOOL}, {49, false, 4}},
-    {{BinaryOpType::LOGICAL_OR, BOOL}, {11, false, 4}},
+    {{BinaryOpType::LOGICAL_AND, BOOL}, {5, false, 4}},
+    {{BinaryOpType::LOGICAL_OR, BOOL}, {5, false, 4}},
     {{BinaryOpType::MAXIMUM, FLOAT}, {4, false, 2}},
     {{BinaryOpType::MAXIMUM, HALF}, {4, false, 4}},
     {{BinaryOpType::MAXIMUM, INT}, {7, false, 1}},
@@ -418,15 +418,12 @@ inline const BinaryOpPerfTable binaryOpInPlacePerfInfo = {
     {{BinaryOpType::SUBTRACT, INT}, {7, false, 1}},
     {{BinaryOpType::SUBTRACT, UNSIGNED_INT}, {7, false, 1}},
 
-    // E = A and B, F = A or B, G = F andc E, result = 1 andc G
-    {{BinaryOpType::EQUAL, BOOL}, {49, false, 4}},
-    // same as B < A
-    // E = A and B, result = A andc E
-    {{BinaryOpType::GREATER_THAN, BOOL}, {49, false, 4}},
-    {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {13, false, 4}},
-    {{BinaryOpType::LESS_THAN, BOOL}, {49, false, 4}},
-    {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {13, false, 4}},
-    {{BinaryOpType::NOT_EQUAL, BOOL}, {49, false, 4}},
+    {{BinaryOpType::EQUAL, BOOL}, {6, false, 4}},
+    {{BinaryOpType::GREATER_THAN, BOOL}, {31, false, 4}},
+    {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {28, false, 4}},
+    {{BinaryOpType::LESS_THAN, BOOL}, {28, false, 4}},
+    {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {28, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, BOOL}, {5, false, 4}},
 };
 
 inline const BinaryOpPerfTable broadcastOpPerfInfo = {
@@ -458,8 +455,8 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
     {{BinaryOpType::DIVIDE, HALF}, {8, false, 2}},
     {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
     {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {260, false, 1}},
-    {{BinaryOpType::LOGICAL_AND, BOOL}, {12, false, 4}},
-    {{BinaryOpType::LOGICAL_OR, BOOL}, {12, false, 4}},
+    {{BinaryOpType::LOGICAL_AND, BOOL}, {4, false, 4}},
+    {{BinaryOpType::LOGICAL_OR, BOOL}, {4, false, 4}},
     {{BinaryOpType::MAXIMUM, FLOAT}, {3, false, 2}},
     {{BinaryOpType::MAXIMUM, HALF}, {3, false, 4}},
     {{BinaryOpType::MAXIMUM, INT}, {6, false, 1}},
@@ -498,7 +495,7 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
     {{BinaryOpType::EQUAL, HALF}, {8, false, 4}},
     {{BinaryOpType::EQUAL, INT}, {16, false, 4}},
     {{BinaryOpType::EQUAL, UNSIGNED_INT}, {16, false, 4}},
-    {{BinaryOpType::EQUAL, BOOL}, {25, false, 4}},
+    {{BinaryOpType::EQUAL, BOOL}, {14, false, 4}},
 
     {{BinaryOpType::GREATER_THAN, FLOAT}, {12, false, 4}},
     {{BinaryOpType::GREATER_THAN, HALF}, {8, false, 4}},
@@ -524,7 +521,7 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
     {{BinaryOpType::NOT_EQUAL, HALF}, {10, false, 4}},
     {{BinaryOpType::NOT_EQUAL, INT}, {16, false, 4}},
     {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, {16, false, 4}},
-    {{BinaryOpType::NOT_EQUAL, BOOL}, {25, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, BOOL}, {4, false, 4}},
 };
 
 inline const BinaryOpPerfTable broadcastOpInPlacePerfInfo = {
@@ -556,8 +553,8 @@ inline const BinaryOpPerfTable broadcastOpInPlacePerfInfo = {
     {{BinaryOpType::DIVIDE, HALF}, {8, false, 2}},
     {{BinaryOpType::DIVIDE, INT}, {277, false, 1}},
     {{BinaryOpType::DIVIDE, UNSIGNED_INT}, {260, false, 1}},
-    {{BinaryOpType::LOGICAL_AND, BOOL}, {12, false, 4}},
-    {{BinaryOpType::LOGICAL_OR, BOOL}, {12, false, 4}},
+    {{BinaryOpType::LOGICAL_AND, BOOL}, {4, false, 4}},
+    {{BinaryOpType::LOGICAL_OR, BOOL}, {4, false, 4}},
     {{BinaryOpType::MAXIMUM, FLOAT}, {3, false, 2}},
     {{BinaryOpType::MAXIMUM, HALF}, {3, false, 4}},
     {{BinaryOpType::MAXIMUM, INT}, {6, false, 1}},
@@ -592,12 +589,12 @@ inline const BinaryOpPerfTable broadcastOpInPlacePerfInfo = {
     {{BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT}, {12, false, 2}},
     {{BinaryOpType::VARIANCE_TO_INV_STD_DEV, HALF}, {24, false, 4}},
 
-    {{BinaryOpType::EQUAL, BOOL}, {25, false, 4}},
+    {{BinaryOpType::EQUAL, BOOL}, {5, false, 4}},
     {{BinaryOpType::GREATER_THAN, BOOL}, {12, false, 4}},
     {{BinaryOpType::GREATER_THAN_EQUAL, BOOL}, {12, false, 4}},
     {{BinaryOpType::LESS_THAN, BOOL}, {16, false, 4}},
     {{BinaryOpType::LESS_THAN_EQUAL, BOOL}, {16, false, 4}},
-    {{BinaryOpType::NOT_EQUAL, BOOL}, {25, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, BOOL}, {4, false, 4}},
 };
 
 } // unnamed namespace
