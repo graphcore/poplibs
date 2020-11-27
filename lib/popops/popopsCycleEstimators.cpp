@@ -2,6 +2,7 @@
 #include "popopsCycleEstimators.hpp"
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/popopsPerformanceEstimation.hpp"
@@ -9,6 +10,7 @@
 #include "poputil/exceptions.hpp"
 #include <cassert>
 #include <cmath>
+#include <iostream>
 #include <map>
 #include <numeric>
 #include <vector>
@@ -1273,44 +1275,81 @@ MAKE_CYCLE_ESTIMATOR_NAME(Fill2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-// Cycles for a worker assembly Cast codelets (FLOAT->HALF or HALF->FLOAT)
-uint64_t castWorkerFloatCycles(const unsigned numElems, const Type &toType) {
-  auto extraCylesInPtrConversion = 1U;
-  auto extraCyclesOutPtrConversion = 1U + ((toType == HALF) ? 2 : 0);
-  auto columns = numElems;
-  uint64_t cycles = extraCylesInPtrConversion + extraCyclesOutPtrConversion;
-  if (columns < 4) {
-    cycles += 11 + (columns * 14) / 3;
-  } else {
-    cycles += 26 + 2 * (columns / 4) + ((columns & 3) * 14) / 3;
+// Corresponds with 'XXX_XXX_core' functions in assembly.
+static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
+                                 const Type &fromType, const Type &toType) {
+  std::uint64_t cycles = 0;
+
+  const auto dataPathWidth = target.getDataPathWidth() / 8;
+  const auto fromLoadWidth = dataPathWidth / target.getTypeSize(fromType);
+  const auto toStoreWidth = dataPathWidth / target.getTypeSize(toType);
+
+  // We take a guess that the vector width possible for the op will be a
+  // function of the available load/store bandwidth and number
+  // of read/write ports. e.g. f32v2tof16 is 2 reads of 64-bit and 1 write
+  // of 64-bits and f16v2tof32, a 64-bit write is the bottleneck.
+  constexpr std::size_t readPorts = 2, writePorts = 1;
+  const bool conversionIsAuxPipeline =
+      (fromType == FLOAT || fromType == HALF) &&
+      (toType == FLOAT || toType == HALF);
+
+  // If not aux pipeline (i.e. not floating point conversion) we give an
+  // innaccurate guess anyhow as we will be using C++ code to perform
+  // the conversion.
+  const auto opVectorWidth =
+      conversionIsAuxPipeline
+          ? std::min(fromLoadWidth * readPorts, toStoreWidth * writePorts)
+          : 1;
+
+  // We then get the number of cycles to calculate each of these vectors.
+  // NOTE: We don't use interleaved memory currently hence we don't utilise
+  // multiple read ports. We do assume we use separate memory elements for
+  // load/store to overlap loads/stores where possible.
+  const auto loadCyclesPerVector =
+      opVectorWidth / std::min(opVectorWidth, fromLoadWidth);
+  const auto storeCyclesPerVector =
+      opVectorWidth / std::min(opVectorWidth, toStoreWidth);
+  const auto cyclesPerVector =
+      std::max(loadCyclesPerVector, storeCyclesPerVector) +
+      !conversionIsAuxPipeline;
+
+  // Prologue cycles based on Half_Float_core assuming alignment and enough
+  // elements to process.
+  cycles += 19;
+  // Cycles for processing vectors
+  cycles += cyclesPerVector * (numElems / opVectorWidth);
+
+  // Rough estimation of cycles for processing remainders. This should be
+  // relatively insignificant so rough is fine.
+  const auto remainingElems = numElems % opVectorWidth;
+  const auto maxRemainderBit = ceilLog2(opVectorWidth);
+  for (unsigned i = 0; i < maxRemainderBit; ++i) {
+    const auto remainder = (1u << i);
+    // Check the remainder. Conservative in that some paths will
+    // exit early.
+    cycles += 1;
+    if (remainingElems & remainder) {
+      // 2 cycles, 1 to convert and 1 to store assuming input is
+      // already loaded in memory from vector path.
+      cycles += 2;
+    }
   }
+
   return cycles;
 }
 
-// TODO: T12954 popops::Cast* cycle estimators do not depend on template type
-// of the codelet. (a) This may change. (b) It will introduce an annoying
-// special case at estimator registration time as we can't automatically
-// lookup based on the template name. (c) INSTANTIATE_TEMPLATE_CYCLE_ESTIMATOR
-// doesn't handle funcs with more than one template parameter.
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
                                               const Target &target,
                                               const Type &fromType,
                                               const Type &toType) {
   CODELET_SCALAR_VAL(numElems, unsigned);
 
-  std::uint64_t cycles;
-
-  // Cast float to/from half written in assembly.
-  // The equations below are a reasonable approximation for both
-  // Estimates for other types not revised
-  if ((fromType == FLOAT && toType == HALF) ||
-      (fromType == HALF && toType == FLOAT)) {
-    cycles = castWorkerFloatCycles(numElems, toType);
-  } else {
-    // These are not valid for integer and boolean casts
-    const auto floatVectorWidth = target.getDataPathWidth() / 32;
-    cycles = (numElems + floatVectorWidth - 1) / floatVectorWidth + 5;
-  }
+  // Estimate written based on vertices with assembly implementations.
+  // Not realistic for others.
+  constexpr std::uint64_t getParamsCycles = 3;
+  // Get parameters, call core function and exitz
+  std::uint64_t cycles = getParamsCycles + 2 +
+                         castWorkerCycles(target, numElems, fromType, toType);
 
   return cycles;
 }
@@ -1320,39 +1359,57 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastSupervisor)(
     const Type &fromType, const Type &toType) {
   CODELET_SCALAR_VAL(partitionParams, unsigned);
   const unsigned workerElems = partitionParams >> 9;
+  const unsigned workerCount = (partitionParams >> 6) & 0x7;
+  const unsigned workerLast = (partitionParams >> 3) & 0x7;
+  const unsigned deltaLast = (partitionParams & 0x7);
 
-  // This supervisor vertex will start up to 6 workers:. We compute the cycles
-  // for the slowest ones (processing workerElems).
-  // + 20 is the additional cycles when started from the supervisor.
-  std::uint64_t maxCycles = 20 + castWorkerFloatCycles(workerElems, toType);
+  // Work out workers doing unique workloads from the partitionParams and
+  // find the maximum cycles for any of them.
+  unsigned max = workerElems;
+  unsigned maxM4 = workerElems - 4;
+  unsigned numMaxWorkers = workerCount;
+  unsigned numMaxM4Workers = target.getNumWorkerContexts() - workerCount;
 
-  // Add 7 for the supervisor code
-  return 7 + target.getNumWorkerContexts() * maxCycles;
+  // Worker entry from the supervisor, including exitz and call.
+  std::uint64_t maxCycles = 0;
+  if (workerLast < workerCount) {
+    numMaxWorkers--;
+    maxCycles = std::max(
+        maxCycles, castWorkerCycles(target, max - deltaLast, fromType, toType));
+  } else {
+    numMaxM4Workers--;
+    maxCycles = std::max(maxCycles, castWorkerCycles(target, maxM4 - deltaLast,
+                                                     fromType, toType));
+  }
+  if (numMaxWorkers) {
+    maxCycles =
+        std::max(maxCycles, castWorkerCycles(target, max, fromType, toType));
+  }
+  if (numMaxM4Workers) {
+    maxCycles =
+        std::max(maxCycles, castWorkerCycles(target, maxM4, fromType, toType));
+  }
+  const std::uint64_t fromSupervisorWorkerCycles = 23;
+  maxCycles += fromSupervisorWorkerCycles;
 
-  return 0;
+  // setzi, runall, sync, br
+  // Assumes runall takes 6 cycles workers are balanced such that
+  // sync takes 6 cycles and br takes 6 cycles.
+  return 19 + target.getNumWorkerContexts() * maxCycles;
 }
 
 std::uint64_t
 MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
                                   const Target &target, const Type &fromType,
                                   const Type &toType) {
-  const auto floatVectorWidth = target.getDataPathWidth() / 32;
   std::uint64_t cycles = 5;
   const auto dst = vertex.getFieldInfo("dst");
   CODELET_FIELD(src);
   assert(src.size() == dst.size());
   for (unsigned i = 0; i != dst.size(); ++i) {
     assert(src[i].size() == dst[i].size());
-    // Estimate based on 6 cycles of loop overhead per src / dst pointer pair:
-    //
-    // 1: load src
-    // 2: load dst
-    // 3: load length
-    // 4: load src[0]
-    // 5: { load src[1] ; convert src[0] }
-    // 6: repeat
-    // These are not valid for integer and boolean casts
-    cycles += 6 + (dst[i].size() + floatVectorWidth - 1) / floatVectorWidth;
+    // Outer-loop cycles including call plus core function per-vector
+    cycles += 11 + castWorkerCycles(target, dst[i].size(), fromType, toType);
   }
   return cycles;
 }
