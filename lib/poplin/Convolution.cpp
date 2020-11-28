@@ -1420,8 +1420,8 @@ Tensor createInput(Graph &graph, const ConvParams &params_,
                    const poplar::OptionFlags &options_, PlanningCache *cache) {
   const auto name = debugContext.getPathName();
   return trace(graph, {"poplin::createInput", name}, [&] {
-    poputil::PoplibsOpDebugInfo di(debugContext,
-                                   DI_ARGS(params_, options_, cache));
+    poputil::PoplibsOpDebugInfo di(
+        debugContext, DI_ARGS(params_, options_, cache), "createInput");
 
     const CanonicalConvParams params(params_);
     const ConvOptions options(options_);
@@ -1549,8 +1549,8 @@ Tensor createWeights(Graph &graph, const ConvParams &params_,
                      PlanningCache *cache) {
   const auto name = debugContext.getPathName();
   return trace(graph, {"poplin::createWeights", name}, [&] {
-    poputil::PoplibsOpDebugInfo di(debugContext,
-                                   DI_ARGS(params_, options_, cache));
+    poputil::PoplibsOpDebugInfo di(
+        debugContext, DI_ARGS(params_, options_, cache), "createWeights");
 
     const CanonicalConvParams params(params_);
     const ConvOptions options(options_);
@@ -1602,7 +1602,8 @@ poplar::Tensor createBiases(poplar::Graph &graph, const Tensor &acts_,
                             const poplar::DebugContext &debugContext) {
   const auto name = debugContext.getPathName();
   return trace(graph, {"poplin::createBiases", name}, [&] {
-    poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts_));
+    poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(acts_),
+                                   "createBiases");
 
     const auto acts = actsToInternalShape(acts_, 1, acts_.dim(1));
     const auto numOutChans = acts.dim(acts.rank() - 1);
@@ -2653,8 +2654,9 @@ Tensor convolution(Graph &graph, const poplar::Tensor &in,
   const auto debugPrefix = debugContext.getPathName();
   return trace(graph, {"poplin::convolution", debugPrefix}, [&] {
     poputil::PoplibsOpDebugInfo di(
-        debugContext, DI_ARGS(in, weights, params_, transposeAndFlipWeights,
-                              options_, cache));
+        debugContext,
+        DI_ARGS(in, weights, params_, transposeAndFlipWeights, options_, cache),
+        "convolution");
 
     const CanonicalConvParams params(params_);
     const ConvOptions options(options_);
@@ -2950,7 +2952,8 @@ Tensor calculateWeightDeltas(Graph &graph, const Tensor &zDeltas_,
   return trace(graph, {"poplin::calculateWeightDeltas", debugPrefix}, [&] {
     poputil::PoplibsOpDebugInfo di(
         debugContext,
-        DI_ARGS(zDeltas_, activations_, fwdParams_, fwdOptions_, cache));
+        DI_ARGS(zDeltas_, activations_, fwdParams_, fwdOptions_, cache),
+        "calculateWeightDeltas");
 
     const CanonicalConvParams wuParams = getWeightUpdateParams(fwdParams_);
     const auto wuOptions = getWeightUpdateOptions({fwdOptions_});
@@ -3402,7 +3405,8 @@ Tensor fullyConnectedWeightTranspose(Graph &graph, Tensor weights,
   return trace(graph, {"poplin::fullyConnectedWeightTranspose", debugPrefix},
                [&] {
                  poputil::PoplibsOpDebugInfo di(
-                     debugContext, DI_ARGS(weights, params_, options_, cache));
+                     debugContext, DI_ARGS(weights, params_, options_, cache),
+                     "fullyConnectedWeightTranspose");
 
                  const ConvOptions options(options_);
                  auto output = fullyConnectedWeightTranspose(
