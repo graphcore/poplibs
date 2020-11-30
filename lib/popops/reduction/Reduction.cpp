@@ -3,6 +3,7 @@
 
 #include "IntermediatePartials.hpp"
 #include "IntermediatePartialsUtil.hpp"
+#include "ReductionIntrospection.hpp"
 #include "ReductionPlan.hpp"
 #include "ReductionStages.hpp"
 
@@ -27,6 +28,8 @@
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
 #include <boost/variant.hpp>
+
+#include <tbb/parallel_for.h>
 
 #include <map>
 #include <numeric>
@@ -101,7 +104,7 @@ unsigned getStartTile(const std::vector<std::size_t> &inShape,
 // in 2 separate compute sets. If so, they will require a WriteUndef to be
 // added to the program before the compute sets in 'css' to prevent them from
 // becoming always live.
-void reduceFirstDim2D(Graph &graph, const Tensor &in,
+void reduceFirstDim2D(Graph &graph, const Tensor &in_,
                       boost::optional<Tensor> &out,
                       const std::vector<std::size_t> outputShape,
                       Type outputType, ReduceParams params,
@@ -111,26 +114,101 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
                       const DebugNameAndId &dnai) {
   logging::popops::debug("Reducing first dimension");
   // We only accept reductions over 2D tensors.
-  if (in.rank() != 2) {
+  if (in_.rank() != 2) {
     throw poputil::poplibs_error("expected rank 2 but got rank " +
-                                 std::to_string(in.rank()));
+                                 std::to_string(in_.rank()));
   }
+  const auto columns = in_.dim(1);
   if (out) {
     // Output should be the correct size. It will be flattened when used later
     // so the shape isn't important
-    if (in.dim(1) != out.get().flatten().dim(0)) {
+    if (columns != out.get().flatten().dim(0)) {
       throw poputil::poplibs_error("expected output size " +
-                                   std::to_string(in.dim(1)) + " but got " +
+                                   std::to_string(in_.dim(1)) + " but got " +
                                    std::to_string(out.get().flatten().dim(0)));
     }
   }
-  // Get the tile mapping once at the start of this function because it can be
-  // slow and we really don't want to call it more than once.
+  Tensor in = in_;
+  // Get the tile mapping at the start of this function because it can be
+  // slow and we really don't want to call it more often than we need to.
   auto mapping = graph.getTileMapping(in);
+  // Get the set of contiguous regions on each tile (splitting them if
+  // necessary at tile mapping boundaries). The region indices here are in
+  // the flattened input tensor.
+  const auto numTiles = graph.getTarget().getNumTiles();
+  RegionsByTile contiguousRegionsByTile(numTiles);
+  tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
+    contiguousRegionsByTile[tile] =
+        graph.getSortedContiguousRegions(in, mapping[tile]);
+  });
+  // Introspect to find the groups of columns and their ordering on all the
+  // tiles.
+  auto groupedPartials =
+      allTileGroupedPartials(contiguousRegionsByTile, columns);
+  // Analyse over all tiles to see if the layout of columns in memory is
+  // consistent.  There are 3 possibilities
+  // a) Sequential column ordering: 0,1,2... on all tiles
+  // b) Inconsistent ordering: 0,1,2 on some tiles, 2,1,0... on others
+  // c) Non-sequential ordering: 2,1,0 on all tiles.
+  // Below we can rearrange the input and outputs to cope with case b) and c),
+  // in case a) there is nothing to do so some of the work can be skipped
+  // to save time.
+  auto columnsOrder = findCommonColumnOrder(groupedPartials, columns);
+
+  bool withOutput = !(out == boost::none);
+  bool groupedPartialsValid = true;
+  // Remember the original tensor, as this can be a simpler expression to pass
+  // to writeUndef, which will improve compile time
+  boost::optional<Tensor> originalOutput = out;
+
+  if (columnsOrder) {
+    if (logging::popops::shouldLog(logging::Level::Debug)) {
+      logging::popops::debug("Non incremental column ordering detected,"
+                             " rearranging to optimise reduction");
+      const unsigned maxDebugColumns = 256;
+      if (columnsOrder.get().size() > maxDebugColumns) {
+        const std::vector<unsigned> debugColumns(columnsOrder.get().begin(),
+                                                 columnsOrder.get().begin() +
+                                                     maxDebugColumns);
+        logging::popops::debug("First {} columns (of {}), order:{}",
+                               maxDebugColumns, columnsOrder.get().size(),
+                               debugColumns);
+
+      } else {
+        logging::popops::debug("Column order:{}", columnsOrder.get());
+      }
+    }
+    // Build a set of slices that represent the non-sequential column ordering
+    // that was detected, grouping those that are consecutive to simplify the
+    // resulting representation
+    std::vector<Interval> slices;
+    const auto columns = columnsOrder.get();
+    slices.reserve(columns.size());
+    Interval currentSlice = {columns[0], columns[0] + 1};
+    for (unsigned i = 1; i < columns.size(); i++) {
+      if (columns[i] == currentSlice.end()) {
+        currentSlice = {currentSlice.begin(), columns[i] + 1};
+      } else {
+        slices.push_back(currentSlice);
+        currentSlice = {columns[i], columns[i] + 1};
+      }
+    }
+    slices.push_back(currentSlice);
+    // re-arrange the input and output to match the input columns memory layout
+    if (withOutput) {
+      out = concat(out.get().flatten().slices(slices)).reshape(outputShape);
+    }
+    in = concat(in.slices(slices, 1), 1);
+    // We may need to present a revised description of all of this to the later
+    // functions, flag that as the input was changed the information is invalid.
+    // Mapping is however always needed
+    mapping = graph.getTileMapping(in);
+    groupedPartialsValid = false;
+  }
 
   // Find the output value whose inputs are spread over the most tiles. In other
   // words find the column of A that is mapped to the most tiles.
-  auto maxTileSpread = getMaxTileSpread(mapping, in.dim(1));
+  auto maxTileSpread = getMaxTileSpread(mapping, columns);
 
   // Possible if there are no elements but we shouldn't get to this point
   // if that is true.
@@ -141,14 +219,53 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
   ComputeSetList csList(css);
 
   logging::popops::debug("Num elements to reduce {} -> {}", in.numElements(),
-                         in.dim(1));
+                         columns);
+
+  auto restoreOutputShape = [&](boost::optional<Tensor> &out) {
+    if (!withOutput && columnsOrder) {
+      std::vector<Interval> outputSlices(out.get().numElements());
+      for (unsigned j = 0; j < outputSlices.size(); j++) {
+        outputSlices[columnsOrder.get()[j]] = {j, j + 1};
+      }
+      // Combine individual slices if they are consecutive
+      std::vector<Interval> combinedSlices;
+      combinedSlices.reserve(outputSlices.size());
+      combinedSlices.push_back(outputSlices.front());
+      for (unsigned j = 1; j < outputSlices.size(); j++) {
+        if (outputSlices[j].begin() == combinedSlices.back().end()) {
+          combinedSlices.back() = {combinedSlices.back().begin(),
+                                   outputSlices[j].end()};
+        } else {
+          combinedSlices.push_back(outputSlices[j]);
+        }
+      }
+      out = concat(out.get().flatten().slices(combinedSlices))
+                .reshape(outputShape);
+      logging::popops::debug("Restoring column ordering");
+    }
+  };
+
+  auto updateGroupedPartials = [&](void) {
+    tbb::parallel_for(unsigned(0), numTiles, [&](unsigned tile) {
+      contiguousRegionsByTile[tile] =
+          graph.getSortedContiguousRegions(in, mapping[tile]);
+    });
+    groupedPartials = allTileGroupedPartials(contiguousRegionsByTile, columns);
+  };
 
   if (maxTileSpread == 1) {
     logging::popops::debug("Reduction is completely tile local");
+    if (groupedPartialsValid == false) {
+      updateGroupedPartials();
+      groupedPartialsValid = true;
+    }
     // Do the entire reduction on each tile with no exchange at all.
-    inputToOutputNoExchange(graph, in, mapping, out, outputShape,
+
+    inputToOutputNoExchange(graph, in, contiguousRegionsByTile, groupedPartials,
+                            out, originalOutput, outputShape,
                             reductionTypes.inVertex, outputType, params, csList,
                             reductionResultTensors, {dnai, "ReduceOnTile"});
+    restoreOutputShape(out);
     return;
   } else {
 
@@ -156,17 +273,20 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
     auto reductionStageInputType = in.elementType();
 
     // Check if we can just convert it without doing anything.
-    if (!mappingHasMultipleValuesFromOneColumnOnTheSameTile(mapping,
-                                                            in.dim(1))) {
+    if (!mappingHasMultipleValuesFromOneColumnOnTheSameTile(mapping, columns)) {
       ip = tensorToIntermediatePartials(in, mapping);
     } else {
       // Reduce as much as possible on each tile and return the intermediate
       // partials. We don't scale or update here.
       logging::popops::debug("Reduce locally with no exchange");
+      if (groupedPartialsValid == false) {
+        updateGroupedPartials();
+        groupedPartialsValid = true;
+      }
       ip = inputToIntermediateNoExchange(
-          graph, in, mapping, params.op, reductionTypes.inVertex,
-          reductionTypes.interTile, csList, reductionResultTensors,
-          {dnai, "ReduceOnTile"});
+          graph, in, contiguousRegionsByTile, groupedPartials, params.op,
+          reductionTypes.inVertex, reductionTypes.interTile, csList,
+          reductionResultTensors, {dnai, "ReduceOnTile"});
       reductionStageInputType = reductionTypes.inVertex;
       // If it was a SQUARE_ADD, then at this point we have now done the
       // SQUARE - change it to an ADD.
@@ -207,10 +327,12 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in,
       case INTERMEDIATE_TO_OUTPUT:
 
         logging::popops::debug("Creating final reduction stage");
-        intermediateToOutput(graph, ip, out, outputShape, outputType, params,
-                             reductionStageInputType, csList,
-                             reductionResultTensors, in,
+        intermediateToOutput(graph, ip, out, originalOutput, outputShape,
+                             outputType, params, reductionStageInputType,
+                             csList, reductionResultTensors, in,
                              {dnai, "ReduceFinalStage"});
+
+        restoreOutputShape(out);
         return;
       }
       reductionStageInputType = reductionTypes.inVertex;
