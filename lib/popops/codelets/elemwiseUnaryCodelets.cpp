@@ -107,11 +107,11 @@ using UnaryOpOutputType_t = typename UnaryOpOutputType<op, T>::type;
 
 DEFINE_UNARY_OP_FN(
     expr::UnaryOpType::ABSOLUTE,
-    if (std::is_integral<T>::value) {
+    if constexpr (std::is_integral<T>::value) { return std::abs(x); } else {
       // This path is avoided for half specialisation, but we
       // promote half to float to avoid promotion error.
-      return std::abs(PromoteHalfsToFloats(x));
-    } else { return std::fabs(PromoteHalfsToFloats(x)); },
+      return std::fabs(PromoteHalfsToFloats(x));
+    },
     return UnaryLibCall<expr::UnaryOpType::ABSOLUTE>{}(x);)
 DEFINE_UNARY_OP_FN(expr::UnaryOpType::BITWISE_NOT, return ~x;)
 DEFINE_UNARY_OP_FN_STD(expr::UnaryOpType::CEIL, ceil)
@@ -574,7 +574,7 @@ public:
   static void compute(unsigned size, unsigned worker, inT *in, outT *out) {
     // No vectorisation for int, unsigned int, but still split over workers
     for (unsigned j = worker; j < size; j += CTXT_WORKERS)
-      out[j] = UnaryOpFn<op, inT, architecture::generic>::fn(in[j]);
+      out[j] = UnaryOpFn<op, inT, A>::fn(in[j]);
   }
 };
 
