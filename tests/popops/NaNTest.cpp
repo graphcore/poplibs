@@ -1,5 +1,4 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE NaNTest
 
 #include "popops/NaN.hpp"
 #include "poplibs_test/Util.hpp"
@@ -8,8 +7,8 @@
 #include "poputil/TileMapping.hpp"
 #include "poputil/Util.hpp"
 #include <boost/multi_array.hpp>
+#include <boost/program_options.hpp>
 #include <boost/random.hpp>
-#include <boost/test/unit_test.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <random>
 
@@ -22,9 +21,12 @@ static constexpr std::size_t D0 = 6;
 static constexpr std::size_t D1 = 5;
 static constexpr std::size_t D2 = 4;
 static constexpr std::size_t D3 = 3;
+static constexpr std::size_t totalSize = D0 * D1 * D2 * D3;
 
-void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
-                unsigned numTiles, bool twoDimensionalVertices) {
+static bool hasNaNTest(DeviceType deviceType, const bool introduceNaN,
+                       const bool introduceInf, const Type &type,
+                       std::size_t testSize, unsigned numTiles,
+                       bool twoDimensionalVertices, bool checkNaNOnly) {
   std::mt19937 randomEngine;
   boost::random::uniform_real_distribution<double> dist(0., 10.);
 
@@ -36,19 +38,26 @@ void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
 
   // Fill last element
   const std::vector<std::size_t> shape = {D0, D1, D2, D3};
-  auto indices = poputil::unflattenIndex(shape, testSize - 1);
 
   if (introduceNaN) {
+    auto indices = poputil::unflattenIndex(shape, testSize - 1);
     input[indices[0]][indices[1]][indices[2]][indices[3]] = NAN;
+  }
+
+  if ((testSize > 1 || !introduceNaN) && introduceInf) {
+    auto off = 1 + (testSize > 1);
+    auto indices = poputil::unflattenIndex(shape, testSize - off);
+    input[indices[0]][indices[1]][indices[2]][indices[3]] =
+        std::numeric_limits<double>::infinity();
   }
 
   // fill NANs outside
   std::fill(input.data() + testSize, input.data() + input.num_elements(), NAN);
 
-  auto device = createTestDevice(TEST_TARGET, 1, numTiles);
+  auto device = createTestDevice(deviceType, 1, numTiles, true);
   const auto &target = device.getTarget();
-
   Graph graph(target);
+
   popops::addCodelets(graph);
 
   Tensor inputT;
@@ -74,7 +83,10 @@ void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
 
   Sequence prog;
   const auto out =
-      popops::hasNaN(graph, inputT.flatten().slice(0, testSize), prog);
+      checkNaNOnly
+          ? popops::hasNaN(graph, inputT.flatten().slice(0, testSize), prog)
+          : popops::hasNaNOrInf(graph, inputT.flatten().slice(0, testSize),
+                                prog);
   auto rawHostOutput = allocateHostMemoryForTensor(
       out, "out", graph, uploadProg, downloadProg, tmap);
 
@@ -89,46 +101,81 @@ void hasNaNTest(const bool introduceNaN, const Type &type, std::size_t testSize,
 
   boost::multi_array<bool, 1> result(boost::extents[1]);
   copy(target, BOOL, rawHostOutput.get(), result);
-
-  BOOST_TEST(result[0] == introduceNaN);
+  return checkNaNOnly ? result[0] == introduceNaN
+                      : result[0] == (introduceNaN || introduceInf);
 }
 
-#define ENUMERATE_FULL_TEST(dType, addNaN, twoD)                               \
-  BOOST_AUTO_TEST_SUITE(HasNaN##_suite)                                        \
-  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##twoD##_full) {          \
-    const auto sizeToTest = D0 * D1 * D2 * D3;                                 \
-    hasNaNTest(addNaN, dType, sizeToTest, 4, twoD);                            \
-  }                                                                            \
-  BOOST_AUTO_TEST_SUITE_END()
+int main(int argc, char **argv) {
+  namespace po = boost::program_options;
+  DeviceType deviceType;
 
-#define ENUMERATE_REM_TESTS(dType, addNaN, startOffset)                        \
-  BOOST_AUTO_TEST_SUITE(HasNaN##_suite)                                        \
-                                                                               \
-  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem1) {   \
-    hasNaNTest(addNaN, dType, startOffset + 1, 1, false);                      \
-  }                                                                            \
-                                                                               \
-  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem2) {   \
-    hasNaNTest(addNaN, dType, startOffset + 2, 1, false);                      \
-  }                                                                            \
-                                                                               \
-  BOOST_AUTO_TEST_CASE(HasNan##_##dType##_##addNaN##_##startOffset##_rem3) {   \
-    hasNaNTest(addNaN, dType, startOffset + 3, 1, false);                      \
-  }                                                                            \
-  BOOST_AUTO_TEST_SUITE_END()
+  std::size_t numElements;
+  bool fullSize, addInf, addNaN, twoD = false, checkNaNOnly;
+  Type dType;
+  unsigned numTiles = 1;
 
-// Enumerate tests
-ENUMERATE_FULL_TEST(FLOAT, true, true)
-ENUMERATE_FULL_TEST(FLOAT, true, false)
-ENUMERATE_FULL_TEST(FLOAT, false, true)
-ENUMERATE_FULL_TEST(FLOAT, false, false)
-ENUMERATE_FULL_TEST(HALF, true, true)
-ENUMERATE_FULL_TEST(HALF, true, false)
-ENUMERATE_FULL_TEST(HALF, false, true)
-ENUMERATE_FULL_TEST(HALF, false, false)
-ENUMERATE_REM_TESTS(FLOAT, true, 0)
-ENUMERATE_REM_TESTS(FLOAT, false, 0)
-ENUMERATE_REM_TESTS(HALF, true, 0)
-ENUMERATE_REM_TESTS(HALF, false, 0)
-ENUMERATE_REM_TESTS(HALF, true, 4)
-ENUMERATE_REM_TESTS(HALF, false, 4)
+  const std::string sizeString = "Number of elements in tensor (max is " +
+                                 std::to_string(totalSize) +
+                                 ") "
+                                 " ignored if fullSize is set to true";
+
+  po::options_description desc("Options");
+  // clang-format off
+  desc.add_options() ("help", "Print help")
+    ("device-type",
+     po::value<DeviceType>(&deviceType)->required(),
+     "Device Type")
+    ("full-size",
+     po::value<bool>(&fullSize)->required(),
+     "Test full size tensor(if set tests full tensor size else only part of it "
+     "as given by numElements)")
+    ("size",
+     po::value<std::size_t>(&numElements)->default_value(totalSize),
+     sizeString.data())
+    ("two-d",
+      po::value<bool>(&twoD)->default_value(twoD),
+      "Use 2D vertex (only allowed with fullSize)")
+    ("add-inf", 
+     po::value<bool>(&addInf)->required(),
+     "Add inf to the tensor")
+    ("add-nan", 
+     po::value<bool>(&addNaN)->required(),
+     "Add NaN to the tensor")
+    ("check-nan-only", 
+     po::value<bool>(&checkNaNOnly)->required(),
+     "Check for NaNs only even if there may be infs, else checks for both")
+    ("num-tiles", 
+     po::value<unsigned>(&numTiles)->default_value(numTiles),
+     "Number of tiles to use")
+    ("data-type",
+     po::value<Type>(&dType)->required(),
+     "data type used in the test (half/float)");
+
+  // clang-format on
+
+  po::variables_map vm;
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    if (vm.count("help")) {
+      std::cout << desc << "\n\n";
+      return 1;
+    }
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "error: " << e.what() << "\n";
+    return 1;
+  }
+  if (numElements > totalSize) {
+    std::cerr << "size exceed maximum allowed\n";
+    return 1;
+  }
+  if (!fullSize && twoD) {
+    std::cerr << "2D vertices are only restricted with full sized tensors\n";
+    return 1;
+  }
+
+  auto result = hasNaNTest(deviceType, addNaN, addInf, dType, numElements,
+                           numTiles, twoD, checkNaNOnly);
+
+  return !result;
+}

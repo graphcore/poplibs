@@ -200,7 +200,6 @@ add_map_fusion_test(Tanh)
 add_map_fusion_test(Fusion)
 add_map_fusion_test(MissingPlaceholder)
 
-add_unit_test(NaNTest NaNTest.cpp)
 add_unit_test(PaddingTest PaddingTest.cpp)
 add_unit_test(ReduceEdgeCases ReduceEdgeCases.cpp)
 
@@ -1186,6 +1185,46 @@ foreach(useFloat true false)
         --use-float-arithmetic=${useFloat}
         --tiles-per-ipu=1024
         VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
+  endforeach()
+endforeach()
+
+
+add_multi_target_test_executable(NaNAndInfTest NaNTest.cpp)
+
+
+# FULL tensor tests
+foreach(dType half float)
+  foreach(hasInf true false)
+    foreach(hasNaN true false)
+      foreach(checkNaNOnly true false)
+        foreach(use2D true false)
+          foreach(tiles 1 4)
+            add_multitarget_test(NAME HasNaNTest_full_${dType}_inf${hasInf}_nan${hasNaN}_2D${use2D}_checkNaN${checkNaNOnly}_${tiles}
+              COMMAND NaNAndInfTest
+              --add-inf ${hasInf}
+              --add-nan ${hasNaN}
+              --data-type ${dType}
+              --full-size true
+              --two-d ${use2D}
+              --check-nan-only ${checkNaNOnly}
+              --num-tiles ${tiles})
+          endforeach()
+        endforeach()
+
+        foreach (len 1 2 3 4 5 6 7)
+            add_multitarget_test(NAME HasNaNTest_rem_${dType}_inf${hasInf}_nan${hasNaN}_checkNaN${checkNaNOnly}_len${len}
+              COMMAND NaNAndInfTest
+              --add-inf ${hasInf}
+              --add-nan ${hasNaN}
+              --data-type ${dType}
+              --full-size false
+              --size ${len}
+              --two-d false
+              --check-nan-only ${checkNaNOnly}
+              --num-tiles 1)
+        endforeach()
+      endforeach()
     endforeach()
   endforeach()
 endforeach()

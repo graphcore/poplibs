@@ -7,10 +7,14 @@
 
 // -----------------------------------------------------------------------------
 
-#define HAS_NAN_HALF __runCodelet_popops__HasNaN___half
-#define HAS_NAN_FLOAT __runCodelet_popops__HasNaN___float
-#define HAS_NAN_HALF_SUP __runCodelet_popops__HasNaNSupervisor___half
-#define HAS_NAN_FLOAT_SUP __runCodelet_popops__HasNaNSupervisor___float
+#define HAS_NAN_HALF __runCodelet_popops__HasNaNOrInf___half_false
+#define HAS_NAN_FLOAT __runCodelet_popops__HasNaNOrInf___float_false
+#define HAS_NAN_HALF_SUP __runCodelet_popops__HasNaNOrInfSupervisor___half_false
+#define HAS_NAN_FLOAT_SUP __runCodelet_popops__HasNaNOrInfSupervisor___float_false
+#define HAS_NANORINF_HALF __runCodelet_popops__HasNaNOrInf___half_true
+#define HAS_NANORINF_FLOAT __runCodelet_popops__HasNaNOrInf___float_true
+#define HAS_NANORINF_HALF_SUP __runCodelet_popops__HasNaNOrInfSupervisor___half_true
+#define HAS_NANORINF_FLOAT_SUP __runCodelet_popops__HasNaNOrInfSupervisor___float_true
 
 // Constants: Vertex state
 // The first two are used for 2D and all are used for 1D
@@ -42,7 +46,7 @@
 
 
 // 1D worker size calculation
-.macro CALC_1D_SIZE_AND_SETUP_POINTERS  TYPE
+.macro CALC_1D_SIZE_AND_SETUP_POINTERS  TYPE, CHECK_INF
 get             $w_wkrId, $WSR
 {
   and             $w_wkrId, $w_wkrId, CSR_W_WSR__CTXTID_M1__MASK
@@ -70,9 +74,9 @@ shl             $w_numValues, $w_numValues, 2
 shl             $w_numValues, $w_numValues, 1
 .endif
 cmpeq           $w_tmp, $w_wkrId, $w_lastWorker
-brz             $w_tmp, LLoopStart1D_\TYPE\()
+brz             $w_tmp, LLoopStart1D_\TYPE\()_\CHECK_INF\()
 add             $w_numValues, $w_numValues, $w_addRem
-LLoopStart1D_\TYPE\():
+LLoopStart1D_\TYPE\()_\CHECK_INF\():
 setzi           $w_stride, NUM_WORKERS
 ld64step        $azeros, $mzero, $w_inPtr+=, $w_wkrId
 .endm
@@ -80,7 +84,7 @@ ld64step        $azeros, $mzero, $w_inPtr+=, $w_wkrId
 // -----------------------------------------------------------------------------
 
 // Instantiate a 1D worker
-.macro INSTANTIATE_1D_WORKER TYPE, NAME
+.macro INSTANTIATE_1D_WORKER TYPE, NAME, CHECK_INF
 
 DEF_STACK_USAGE 0 \NAME\()
 .section .text.\NAME\(), FUNCTION_IS_WORKER
@@ -89,13 +93,13 @@ DEF_STACK_USAGE 0 \NAME\()
 .align 8
 .worker
 \NAME\():
-CALC_1D_SIZE_AND_SETUP_POINTERS \TYPE
+CALC_1D_SIZE_AND_SETUP_POINTERS \TYPE \CHECK_INF
 .ifc \TYPE, half
-INNER_LOOP_HALF 1D
+INNER_LOOP_HALF 1D \CHECK_INF
 .else
-INNER_LOOP_FLOAT 1D
+INNER_LOOP_FLOAT 1D \CHECK_INF
 .endif
-PROPAGATE_NAN \TYPE
+PROPAGATE_NAN \TYPE \CHECK_INF
 // restore FPCTL
 uput           $FP_CTL, $fp_ctl_reg
 exitz          $w_retVal
@@ -124,7 +128,7 @@ br              $lr
 // -----------------------------------------------------------------------------
 
 // propagate NaNs and return non-zero in $w_retVal if detected
-.macro PROPAGATE_NAN TYPE
+.macro PROPAGATE_NAN TYPE, CHECK_INF
 // propagate NaNs
 f32v2gina       $a0:1, $azeros, 0
 // In the worst case we could have +Inf in the output and addition won't change
@@ -138,6 +142,14 @@ f32v2gina       $a2:3, $azeros, 0
 f32v2add        $a0:1, $a0:1, $a2:3
 .endif
 f32add          $a0, $a0, $a1
+
+.ifc \CHECK_INF, true
+// If NaN is present we should get a NaN. Otherwise we should get an Inf if 
+// at least one of the data was Inf. Convert it to a NaN by subtracting by
+// itself so that we just have to deal with NaN in the check below.
+f32sub          $a0, $a0, $a0
+.endif
+
 f32class        $a0, $a0
 atom            $w_retVal, $a0
 cmpeq           $w_retVal, $w_retVal, 2
@@ -146,7 +158,7 @@ cmpeq           $w_retVal, $w_retVal, 2
 // -----------------------------------------------------------------------------
 
 // pre-vector loop: load vertex state and set FP_CTL
-.macro LOAD_VERTEX_STATE_AND_SET_FPCTL TYPE_SUFFIX DIM_SUFFIX
+.macro LOAD_VERTEX_STATE_AND_SET_FPCTL TYPE_SUFFIX, DIM_SUFFIX, CHECK_INF
 // Load the vertex state.
 {
   ld32            $w_inVectors, $mvertex_base, $mzero, V_IN_ADDR/4
@@ -160,7 +172,7 @@ cmpeq           $w_retVal, $w_retVal, 2
   mov             $w_retVal, $mzero
   uput            $FP_CLR, $fp_clr_reg
 }
-brz             $w_numVectors, LExit\TYPE_SUFFIX\()_\DIM_SUFFIX\()
+brz             $w_numVectors, LExit\TYPE_SUFFIX\()_\DIM_SUFFIX\()_\CHECK_INF\()
 {
   add             $w_numVectors, $w_numVectors, -1
   // clear exceptions
@@ -172,10 +184,16 @@ setzi             $w_stride, 1
 // -----------------------------------------------------------------------------
 
 // code fragment that processes the inner loop for halves
-.macro INNER_LOOP_HALF DIM_SUFFIX
+// We don't do anything special for HALF for detecting Infs because
+// we can never get an overflow by adding halves on the IPU given limited
+// memory
+.macro INNER_LOOP_HALF DIM_SUFFIX, CHECK_INF
+.ifc \CHECK_INF, true
 shr             $w_numx8, $w_numValues, 3
 and             $w_numValues, $w_numValues, 0x7
 ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
+// Infs become NaNs and fp16 infs get converted to NaNs and are hence
+// propagated.
 rpt             $w_numx8, 1
   {
     ld64step        $a2:3, $mzero, $w_inPtr+=, $w_stride
@@ -187,41 +205,105 @@ rpt             $w_numx8, 1
   }
 
 shr             $w_numx4, $w_numValues, 2
-brz             $w_numx4, LLt4H_\DIM_SUFFIX\()
+brz             $w_numx4, LLt4H_\DIM_SUFFIX\()_\CHECK_INF\()
 {
   ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
   f16v4absacc     $a0:1
 }
 add             $w_numValues, $w_numValues, -4
-LLt4H_\DIM_SUFFIX\():
+LLt4H_\DIM_SUFFIX\()_\CHECK_INF\():
 {
   shr             $w_numx2, $w_numValues, 1
   mov             $a2:3, $azeros
 }
-brz             $w_numx2, LLastH_\DIM_SUFFIX\()
+brz             $w_numx2, LLastH_\DIM_SUFFIX\()_\CHECK_INF\()
 mov             $a2, $a0
 {
   add             $w_numValues, $w_numValues, -2
   mov             $a0, $a1
 }
-LLastH_\DIM_SUFFIX\():
+LLastH_\DIM_SUFFIX\()_\CHECK_INF\():
 {
-  brz             $w_numValues, LDecrCountH_\DIM_SUFFIX\()
+  brz             $w_numValues, LDecrCountH_\DIM_SUFFIX\()_\CHECK_INF\()
   // We can unconditionally add $a2:3 it is either zero, or is set correctly
   f16v4absacc     $a2:3
 }
 sort4x16lo      $a2, $a0, $a0
 f16v4absacc     $a2:3
-LDecrCountH_\DIM_SUFFIX\():
+
+.else
+
+// As we want to exclude Infs, we must convert first into f32.
+shr             $w_numx4, $w_numValues, 2
+and             $w_numValues, $w_numValues, 0x3
+ld64step        $a4:5, $mzero, $w_inPtr+=, $w_stride
+rpt             $w_numx4, 2
+  {
+    nop
+    f16v2tof32      $a0:1, $a4
+  }
+  {
+    nop
+    f16v2tof32      $a2:3, $a5
+  }
+  {
+    ld64step        $a4:5, $mzero, $w_inPtr+=, $w_stride
+    f32v4absacc     $a0:3
+  }  
+{
+  shr             $w_numx2, $w_numValues, 1 
+  mov             $a2:3, $azeros
+}
+{
+  brz             $w_numx2, LLastH_\DIM_SUFFIX\()_\CHECK_INF\()
+  f16v2tof32      $a0:1, $a4
+}
+f32v4absacc     $a0:3
+{
+  add             $w_numValues, $w_numValues, -2 
+  f16v2tof32      $a0:1, $a5
+}
+LLastH_\DIM_SUFFIX\()_\CHECK_INF\():
+{
+  brz             $w_numValues, LDecrCountH_\DIM_SUFFIX\()_\CHECK_INF\()
+  mov             $a1, $azero             
+}
+f32v4absacc     $a0:3
+.endif
+LDecrCountH_\DIM_SUFFIX\()_\CHECK_INF\():
 .endm
 
 // -----------------------------------------------------------------------------
 
 // code fragment that processes the inner loop for halves
-.macro INNER_LOOP_FLOAT DIM_SUFFIX
+.macro INNER_LOOP_FLOAT DIM_SUFFIX, CHECK_INF
 shr             $w_numx4, $w_numValues, 2
-and             $w_numValues, $w_numValues, 0x3
-ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
+{
+  and             $w_numValues, $w_numValues, 0x3
+  // very small value in the order of 1e-38
+  // this is strictly not required when Inf are not
+  // checked for. 
+  or              $a5, $azero, 0x00800000
+}
+{
+  ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
+  fnop
+}
+.ifc \CHECK_INF, true
+rpt             $w_numx4, 2
+  {
+    ld64step        $a2:3, $mzero, $w_inPtr+=, $w_stride
+    f32v2mul        $a0:1, $a5:B, $a0:1
+  }
+  {
+    nop
+    f32v2mul        $a2:3, $a5:B, $a2:3
+  }
+  {
+    ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
+    f32v4absacc     $a0:3
+  }  
+.else
 rpt             $w_numx4, 1
   {
     ld64step        $a2:3, $mzero, $w_inPtr+=, $w_stride
@@ -230,24 +312,31 @@ rpt             $w_numx4, 1
   {
     ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
     f32v4absacc     $a0:3
-  }      
+  }  
+.endif    
 {
   shr             $w_numx2, $w_numValues, 1 
   mov             $a2:3, $azeros
 }
-brz             $w_numx2, LLastF_\DIM_SUFFIX\()
+{
+  brz             $w_numx2, LLastF_\DIM_SUFFIX\()_\CHECK_INF\()
+  f32v2mul        $a0:1, $a5:B, $a0:1
+}
 {
   ld64step        $a0:1, $mzero, $w_inPtr+=, $w_stride
   f32v4absacc     $a0:3
 }
-add             $w_numValues, $w_numValues, -2 
-LLastF_\DIM_SUFFIX\():
 {
-  brz             $w_numValues, LDecrCountF_\DIM_SUFFIX\()
+  add             $w_numValues, $w_numValues, -2 
+  f32v2mul        $a0:1, $a5:B, $a0:1
+}
+LLastF_\DIM_SUFFIX\()_\CHECK_INF\():
+{
+  brz             $w_numValues, LDecrCountF_\DIM_SUFFIX\()_\CHECK_INF\()
   mov             $a1, $azero             
 }
 f32v4absacc     $a0:3
-LDecrCountF_\DIM_SUFFIX\():
+LDecrCountF_\DIM_SUFFIX\()_\CHECK_INF\():
 .endm
 
 // -----------------------------------------------------------------------------
@@ -255,29 +344,31 @@ LDecrCountF_\DIM_SUFFIX\():
 // If interleave memory constraints are imposed then we could use f16v8absacc.
 // The code is structured to move to using ld128 with minor changes even though
 // we could get the same performance using a single cycle innermost loop.
-.globl HAS_NAN_HALF
-.type HAS_NAN_HALF, @function
+.macro HAS_NAN_OR_INF_HALF NAME, CHECK_INF
+.globl \NAME\()
+.type \NAME\(), @function
 
-DEF_STACK_USAGE 0 HAS_NAN_HALF
-.section .text.HAS_NAN_HALF
+DEF_STACK_USAGE 0 \NAME\()
+.section .text.\NAME\()
 .align 8
 
-HAS_NAN_HALF:
+\NAME\():
 
-LOAD_VERTEX_STATE_AND_SET_FPCTL H 2D
+LOAD_VERTEX_STATE_AND_SET_FPCTL H 2D \CHECK_INF
 
-LVectorsLoopH:
+LVectorsLoopH_\CHECK_INF\():
   ld32step        $w_inPtr, $mzero, $w_inVectors+=, 1
   ld32step        $w_numValues, $mzero, $w_inVectors+=, 1
-  INNER_LOOP_HALF 2D
-  brnzdec         $w_numVectors, LVectorsLoopH
+  INNER_LOOP_HALF 2D \CHECK_INF
+  brnzdec         $w_numVectors, LVectorsLoopH_\CHECK_INF\()
 
-PROPAGATE_NAN half
+PROPAGATE_NAN half \CHECK_INF
 
-LExitH_2D:
+LExitH_2D_\CHECK_INF\():
 uput            $FP_CTL, $fp_ctl_reg
 exitz           $w_retVal 
-.size HAS_NAN_HALF, .-HAS_NAN_HALF
+.size \NAME\(), .-\NAME\()
+.endm
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
@@ -286,37 +377,49 @@ exitz           $w_retVal
 // The code is structured to use ld128 with minor changes even though same
 // performance could be acheived by using a single cycle innermost loop.
 
-.globl HAS_NAN_FLOAT
-.type HAS_NAN_FLOAT, @function
+.macro HAS_NAN_OR_INF_FLOAT NAME, CHECK_INF
 
-DEF_STACK_USAGE 0 HAS_NAN_FLOAT
-.section .text.HAS_NAN_FLOAT
+.globl \NAME\()
+.type \NAME\(), @function
+
+DEF_STACK_USAGE 0 \NAME\()
+.section .text.\NAME\()
 .align 8
 
-HAS_NAN_FLOAT:
+\NAME\():
 
 // Load vertex state and set up control
-LOAD_VERTEX_STATE_AND_SET_FPCTL F 2D
+LOAD_VERTEX_STATE_AND_SET_FPCTL F 2D \CHECK_INF
 
-LVectorsLoopF:
+LVectorsLoopF_\CHECK_INF\():
   ld32step        $w_inPtr, $mzero, $w_inVectors+=, 1
   ld32step        $w_numValues, $mzero, $w_inVectors+=, 1
-  INNER_LOOP_FLOAT 2D
-  brnzdec         $w_numVectors, LVectorsLoopF
+  INNER_LOOP_FLOAT 2D \CHECK_INF
+  brnzdec         $w_numVectors, LVectorsLoopF_\CHECK_INF\()
 
-PROPAGATE_NAN float
+PROPAGATE_NAN float \CHECK_INF
 
-LExitF_2D:
+LExitF_2D_\CHECK_INF\():
 uput            $FP_CTL, $fp_ctl_reg
 exitz           $w_retVal 
-.size HAS_NAN_FLOAT, .-HAS_NAN_FLOAT
+.size \NAME\(), .-\NAME\()
+.endm
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
+
+// Instantiate 2D workers
+HAS_NAN_OR_INF_HALF HAS_NAN_HALF false
+HAS_NAN_OR_INF_FLOAT HAS_NAN_FLOAT false
+HAS_NAN_OR_INF_HALF HAS_NANORINF_HALF true
+HAS_NAN_OR_INF_FLOAT HAS_NANORINF_FLOAT true
+
 
 // Instantiate 1D workers
-INSTANTIATE_1D_WORKER half HasNaN1DHalfWorker
-INSTANTIATE_1D_WORKER float HasNaN1DFloatWorker
+INSTANTIATE_1D_WORKER half HasNaN1DHalfWorker false
+INSTANTIATE_1D_WORKER float HasNaN1DFloatWorker false
+INSTANTIATE_1D_WORKER half HasNaNOrInf1DHalfWorker true
+INSTANTIATE_1D_WORKER float HasNaNOrInf1DFloatWorker true
 
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
@@ -324,5 +427,7 @@ INSTANTIATE_1D_WORKER float HasNaN1DFloatWorker
 // Instantiate 1D supervisors
 INSTANTIATE_1D_SUPERVISOR HAS_NAN_HALF_SUP HasNaN1DHalfWorker
 INSTANTIATE_1D_SUPERVISOR HAS_NAN_FLOAT_SUP HasNaN1DFloatWorker
+INSTANTIATE_1D_SUPERVISOR HAS_NANORINF_HALF_SUP HasNaNOrInf1DHalfWorker
+INSTANTIATE_1D_SUPERVISOR HAS_NANORINF_FLOAT_SUP HasNaNOrInf1DFloatWorker
 
 #endif

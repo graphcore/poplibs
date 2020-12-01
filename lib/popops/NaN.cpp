@@ -12,16 +12,13 @@ using namespace poputil;
 
 namespace logging = poplibs_support::logging;
 
-poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
-                      poplar::program::Sequence &prog,
-                      const poplar::DebugContext &debugContext) {
-
-  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src));
-
-  logging::popops::info("hasNaN src={}, name={}", src.shape(),
-                        debugContext.getPathName());
+static poplar::Tensor hasNaNOrInf(poplar::Graph &graph,
+                                  const poplar::Tensor &src,
+                                  poplar::program::Sequence &prog,
+                                  bool hasNaNOrInf,
+                                  poputil::PoplibsOpDebugInfo &di) {
   const auto &dType = src.elementType();
-  const auto cs = graph.addComputeSet({di, "hasNaN"});
+  const auto cs = graph.addComputeSet({di, "hasNaNOrInf"});
 
   auto srcFlat = src.flatten();
   const auto &target = graph.getTarget();
@@ -39,8 +36,10 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
     const auto tileContiguousRegions =
         graph.getSortedContiguousRegions(srcFlat, tileMapping[tile]);
 
+    const std::string vertexNamePrefix = "popops::HasNaNOrInf";
     if (tileContiguousRegions.size() == 1) {
-      const auto vertexName = templateVertex("popops::HasNaNSupervisor", dType);
+      const auto vertexName =
+          templateVertex(vertexNamePrefix + "Supervisor", dType, hasNaNOrInf);
       // Divide work
       const auto grainSize = 8 / target.getTypeSize(dType);
       const auto numWorkers = target.getNumWorkerContexts();
@@ -58,8 +57,8 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
       graph.setInitialValue(vertex["remWorkerExtras"], extras);
       graph.setTileMapping(vertex, tile);
     } else {
-      const auto vertexName = templateVertex("popops::HasNaN", dType);
-
+      const auto vertexName =
+          templateVertex(vertexNamePrefix, dType, hasNaNOrInf);
       const auto vertexRegions = splitRegionsBetweenWorkers(
           target, tileContiguousRegions, vectorWidth, 2 * vectorWidth);
       for (const auto &regions : vertexRegions) {
@@ -86,6 +85,24 @@ poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
   popops::logicalNotInPlace(graph, out, prog, {di, "hasNaN"});
   di.addOutput(out);
   return out;
+}
+
+poplar::Tensor hasNaN(poplar::Graph &graph, const poplar::Tensor &src,
+                      poplar::program::Sequence &prog,
+                      const poplar::DebugContext &debugContext) {
+  logging::popops::info("hasNaN src={}, name={}", src.shape(),
+                        debugContext.getPathName());
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src));
+  return hasNaNOrInf(graph, src, prog, false, di);
+}
+
+poplar::Tensor hasNaNOrInf(poplar::Graph &graph, const poplar::Tensor &src,
+                           poplar::program::Sequence &prog,
+                           const poplar::DebugContext &debugContext) {
+  logging::popops::info("hasNaNOrInf src={}, name={}", src.shape(),
+                        debugContext.getPathName());
+  poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(src));
+  return hasNaNOrInf(graph, src, prog, true, di);
 }
 
 } // namespace popops
