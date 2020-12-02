@@ -11,6 +11,7 @@
 #include <numeric>
 #include <poplar/Target.hpp>
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/Compiler.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poplin/ConvParams.hpp>
@@ -48,48 +49,45 @@ inline static std::uint64_t zeroPartialsRetentionSavings(bool floatPartials) {
   return floatPartials ? 9 : 10;
 }
 
-inline std::uint64_t getDenseDotProductCycles(bool floatActivations,
+inline std::uint64_t getDenseDotProductCycles(unsigned activationsVectorWidth,
+                                              bool floatActivations,
                                               bool floatPartials,
                                               unsigned size) {
-  const auto innerCycles = 1 + // rpt
-                           2 + // loop wind down
+
+  const unsigned actsPer64Bits = floatActivations ? 2 : 4;
+  const bool isHalfHalf = !floatActivations && !floatPartials;
+
+  const auto numOutChans = isHalfHalf ? 2 : 1;
+  const auto innerCycles = (1 + 2) * numOutChans + // rpt + loop wind down
+                           isHalfHalf + // format conversion for half/half
                            3 + // sum with previous partials (load, acc, store)
                            1;  // branch
 
-  // float activations and float partials
-  if (floatActivations) {
-    if ((size % 2) == 0) {
-      return innerCycles + size;
-    } else {
-      return innerCycles + (2 * size);
+  // float -> float
+  // half -> float
+  // half -> half
+  assert(!floatActivations || floatPartials);
+  for (unsigned i = poplibs_support::ceilLog2(activationsVectorWidth); i >= 0;
+       --i) {
+    const unsigned currWidth = (1u << i);
+    if ((size % currWidth) == 0) {
+      // Limitation currently due to instruction set is that if we have
+      // less than 64-bits per loop we cannot simultaneously load activations
+      // and weights. Assume for higher vector widths we can always
+      // simulataneously load 64-bit values.
+      const auto cyclesPerWidth = currWidth >= actsPer64Bits ? 1 : 2;
+      // Due to the same above limitation, we cannot simultaneously load
+      // weights with activations during pipeline warmup so add a cycle
+      // for this for each output channel.
+      const unsigned additionalCycles =
+          currWidth < actsPer64Bits ? numOutChans : 0;
+      return innerCycles + additionalCycles +
+             (size / currWidth) * cyclesPerWidth;
     }
   }
-
-  // half activations and float partials
-  if (floatPartials) {
-    if ((size % 4) == 0) {
-      return innerCycles + size / 4;
-    } else {
-      return innerCycles + size;
-    }
-  }
-
-  // half activations and half partials
-  if ((size % 4) == 0) {
-    const auto innerCyclesv4 =
-        2 * (1 + 2) + // rpt + loop wind down(macros)
-        1 +           // f2h conversion (packing) (1)
-        3 +           // sum with previous partials (load, acc, store)
-        1;            // branch
-    return innerCyclesv4 + size / 4;
-  } else {
-    const auto innerCyclesv2 =
-        2 +           // weights load
-        2 * (1 + 2) + // rpt + loop wind down
-        3 + // results combine, sum with previous partials (load, acc, store)
-        1;  // branch
-    return innerCyclesv2 + size;
-  }
+  // This should be unreachable.
+  assert(false);
+  POPLIB_UNREACHABLE();
 }
 
 template <class InputIterator>
@@ -105,8 +103,9 @@ bool allEqual(InputIterator begin, InputIterator end) {
 }
 
 inline std::uint64_t getConvPartialHorizontalMacCycleEstimate(
-    bool floatActivations, bool floatPartials, unsigned numInChans,
-    unsigned numOutChans, const std::vector<unsigned> &convSizes) {
+    bool floatActivations, bool floatPartials, unsigned activationsVectorWidth,
+    unsigned numInChans, unsigned numOutChans,
+    const std::vector<unsigned> &convSizes) {
   uint64_t cycles = 16;
   for (auto convSize : convSizes) {
     if (convSize == 0) {
@@ -116,9 +115,10 @@ inline std::uint64_t getConvPartialHorizontalMacCycleEstimate(
         numOutChans /= 2; // Processing two channels inside inner loop
       }
       cycles += 19;
-      cycles += convSize * (7 + numOutChans * getDenseDotProductCycles(
-                                                  floatActivations,
-                                                  floatPartials, numInChans));
+      cycles += convSize *
+                (7 + numOutChans * getDenseDotProductCycles(
+                                       activationsVectorWidth, floatActivations,
+                                       floatPartials, numInChans));
     }
   }
   return cycles;
@@ -146,7 +146,8 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<std::vector<unsigned>>> &workerPartitions,
     unsigned kernelSize, unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup, unsigned numWorkerContexts,
-    bool floatActivations, bool floatPartials) {
+    unsigned activationsVectorWidth, bool floatActivations,
+    bool floatPartials) {
   unsigned usedContexts = workerPartitions.size();
   uint64_t cycles = 0;
   uint64_t maxWorkerCycles = 0;
@@ -157,8 +158,9 @@ getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
     uint64_t thisWorkerCycles = 0;
     for (auto k = 0U; k != kernelSize; ++k) {
       thisWorkerCycles += getConvPartialHorizontalMacCycleEstimate(
-          floatActivations, floatPartials, numInChansPerGroup,
-          numOutChansPerGroup, workerPartitions[context][k]);
+          floatActivations, floatPartials, activationsVectorWidth,
+          numInChansPerGroup, numOutChansPerGroup,
+          workerPartitions[context][k]);
     }
     const unsigned workerNonLoopOverhead = 16;
     thisWorkerCycles += workerNonLoopOverhead;
@@ -188,11 +190,13 @@ inline std::uint64_t getConvPartialHorizontalMacSupervisorCycleEstimate(
     unsigned numConvGroups, unsigned numInGroups, unsigned numOutGroups,
     unsigned kernelSize, unsigned numInChansPerGroup,
     unsigned numOutChansPerGroup, unsigned numWorkerContexts,
-    bool floatActivations, bool floatPartials) {
+    unsigned activationsVectorWidth, bool floatActivations,
+    bool floatPartials) {
   auto innerLoopCycles =
       getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
           workerPartitions, kernelSize, numInChansPerGroup, numOutChansPerGroup,
-          numWorkerContexts, floatActivations, floatPartials);
+          numWorkerContexts, activationsVectorWidth, floatActivations,
+          floatPartials);
   auto cycles = getConvPartialHorizontalMacSupervisorOuterLoopCycleEstimate(
       innerLoopCycles, numConvGroups, numInGroups, numOutGroups,
       numWorkerContexts, floatActivations, floatPartials);
@@ -1249,8 +1253,9 @@ inline std::uint64_t estimateZeroSupervisorCycles(unsigned fieldSize,
 inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
     unsigned numOutRows, unsigned tileOutWidth, unsigned outputStrideX,
     unsigned tileKernelHeight, unsigned tileKernelWidth, unsigned numWorkers,
-    bool floatActivations, bool floatPartials, unsigned inChansPerGroup,
-    unsigned outChansPerGroup, unsigned dataPathWidth) {
+    unsigned activationsVectorWidth, bool floatActivations, bool floatPartials,
+    unsigned inChansPerGroup, unsigned outChansPerGroup,
+    unsigned dataPathWidth) {
   unsigned rowSplitFactor = numWorkers / gcd(numWorkers, numOutRows);
   unsigned numPartRows = numOutRows * rowSplitFactor;
   const auto maxPartRows = (numPartRows + numWorkers - 1) / numWorkers;
@@ -1277,7 +1282,7 @@ inline std::uint64_t estimateConvPartialHorizontalMacInnerLoopCycles(
   }
   return getConvPartialHorizontalMacSupervisorInnerLoopCycleEstimate(
       workerPartitions, kernelSize, inChansPerGroup, outChansPerGroup,
-      numWorkers, floatActivations, floatPartials);
+      numWorkers, activationsVectorWidth, floatActivations, floatPartials);
 }
 
 inline std::uint64_t estimateConvPartialVerticalMacInnerLoopCycles(

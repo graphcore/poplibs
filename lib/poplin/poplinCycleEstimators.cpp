@@ -178,6 +178,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
 
   const auto dataPathWidth = target.getDataPathWidth();
   const auto numWorkerContexts = target.getNumWorkerContexts();
+  const auto actsVectorWidth = target.getVectorWidth(fpType);
 
   std::vector<unsigned> tZeroWorkList;
   for (unsigned i = 0; i != numWorkerContexts; ++i) {
@@ -214,8 +215,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   return zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
                           workerPartitions, numConvGroups, numInGroups,
                           numOutGroups, kernelSize, inChansPerGroup,
-                          outChansPerGroup, numWorkerContexts, floatActivations,
-                          floatPartials);
+                          outChansPerGroup, numWorkerContexts, actsVectorWidth,
+                          floatActivations, floatPartials);
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
