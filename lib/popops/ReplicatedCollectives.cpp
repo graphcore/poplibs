@@ -76,10 +76,11 @@ static unsigned getScalarTile(const Graph::TileToTensorMapping mapping) {
 }
 
 static auto getNumILDs(Graph &graph) {
-  const auto &target = graph.getTarget();
-  const auto repNumIPUs = target.getNumIPUs();
-  const auto totNumIPUs = repNumIPUs * graph.getReplicationFactor();
-  return ceildiv(totNumIPUs, target.getIpuLinkDomainSize());
+  const auto &topGraph = graph.getTopLevelGraph();
+  const auto &topTarget = topGraph.getTarget();
+  const auto repNumIPUs = topTarget.getNumIPUs();
+  const auto totNumIPUs = repNumIPUs * topGraph.getReplicationFactor();
+  return ceildiv(totNumIPUs, topTarget.getIpuLinkDomainSize());
 }
 
 static auto replicasPerILD(Graph &graph) {
