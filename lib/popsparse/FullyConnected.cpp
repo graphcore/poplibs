@@ -2759,6 +2759,24 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
   return inputInternalToExternalShape(outputActivations, shape.groups);
 }
 
+static std::vector<std::size_t>
+getOutputShape(const FullyConnectedParams &params) {
+  return {params.getNumGroups(), params.getBatchSize(),
+          params.getOutputChannelsPerGroup()};
+}
+
+static Tensor denseGradAImpl(Graph &graph, const SparseTensor &weights,
+                             const Tensor &activations,
+                             const FullyConnectedParams &params, Sequence &prog,
+                             const poplar::DebugContext &debugContext) {
+  auto denseWeights =
+      weights.getNzValuesTensor().reshape(getWeightsShape(params));
+  auto acts = activations.reshape(getOutputShape(params));
+  auto weightsTransposed = poplin::transposeGroupedMatrix(denseWeights);
+  return poplin::matMulGrouped(graph, activations, weightsTransposed, prog,
+                               activations.elementType(), debugContext, {});
+}
+
 Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
                            const Tensor &activations,
                            const FullyConnectedParams &params, Sequence &prog,
@@ -2777,6 +2795,11 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
   Plan plan;
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
+
+  if (plan.useDense) {
+    return denseGradAImpl(graph, weights, activations, params, prog,
+                          {{di}, "denseBwds"});
+  }
 
   const auto hierarchy = poplibs::getTileHierarchy(target);
 

@@ -305,7 +305,7 @@ foreach(DATA_TYPE half float)
 endforeach()
 
 # Dense version tests
-foreach(PASS fwd)
+foreach(PASS fwd bwd)
   foreach(INPUT_SIZE 32 47 512)
     foreach(OUTPUT_SIZE 23 128)
       foreach(BLOCK_SIZE 1)
