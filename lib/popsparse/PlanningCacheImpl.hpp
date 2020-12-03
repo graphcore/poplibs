@@ -8,12 +8,19 @@
 // Stuff that needs storing in the cache
 #include "FullyConnectedOptions.hpp"
 #include "FullyConnectedPlan.hpp"
+#include <poplin/MatMul.hpp>
 #include <popsparse/FullyConnectedParams.hpp>
 
 namespace popsparse {
 namespace dynamic {
 
 class PlanningCacheImpl {
+  using DenseCacheType = poplin::matmul::PlanningCache;
+  // If no dense cache provided then create one managed by this struct
+  // If it does already exist denseCache will point to this and this
+  // unique pointer will be empty
+  std::unique_ptr<DenseCacheType> matMulCache;
+
 public:
   struct Key {
     FullyConnectedParams params;
@@ -31,6 +38,11 @@ public:
   };
 
   std::map<Key, std::tuple<fullyconnected::Plan, fullyconnected::Cost>> plans;
+  DenseCacheType *denseCache;
+
+  PlanningCacheImpl(DenseCacheType *denseCache) : denseCache(denseCache) {}
+  PlanningCacheImpl()
+      : matMulCache(new DenseCacheType()), denseCache(matMulCache.get()) {}
 };
 
 } // end namespace dynamic

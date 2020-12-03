@@ -2532,15 +2532,36 @@ getActivationsShape(const FullyConnectedParams &params) {
           params.getInputChannelsPerGroup()};
 }
 
-static SparseTensor
-createDenseWeights(Graph &graph, const Type &inputType,
-                   const FullyConnectedParams &params,
-                   const poplar::DebugContext &debugContext,
-                   PlanningCache *cache, const poplar::Tensor &metaInfoTensor,
-                   std::unique_ptr<TensorMetaDataBase> opMetaData) {
+static poplin::matmul::PlanningCache *getDenseCache(PlanningCache *cache) {
+  if (cache == nullptr) {
+    return nullptr;
+  }
+  return cache->impl->denseCache;
+}
+
+static OptionFlags getDenseOptionFlags(const Options &options,
+                                       std::string pass) {
+
+  OptionFlags result;
+  result.set("availableMemoryProportion",
+             std::to_string(options.availableMemoryProportion));
+  result.set("partialsType", options.partialsType.toString());
+  result.set("fullyConnectedPass", std::move(pass));
+  return result;
+}
+
+static SparseTensor createDenseWeights(
+    Graph &graph, const Type &inputType, const FullyConnectedParams &params,
+    const poplar::DebugContext &debugContext, PlanningCache *cache,
+    const poplar::Tensor &metaInfoTensor,
+    std::unique_ptr<TensorMetaDataBase> opMetaData, const Options &options) {
   auto denseTensor = poplin::createMatMulGroupedInputRHS(
       graph, inputType, inputType, getActivationsShape(params),
-      getWeightsShape(params), debugContext);
+      getWeightsShape(params), debugContext,
+      getDenseOptionFlags(options, options.doGradAPass || options.doGradWPass
+                                       ? "TRAINING_FWD"
+                                       : "INFERENCE_FWD"),
+      getDenseCache(cache));
 
   return SparseTensor(metaInfoTensor, denseTensor.flatten(),
                       std::move(opMetaData));
@@ -2613,8 +2634,8 @@ SparseTensor createFullyConnectedWeights(
 
   if (plan.useDense) {
     return createDenseWeights(graph, inputType, params, debugContext, cache,
-                              packed.getMetaInfoTensor(),
-                              std::move(opMetaData));
+                              packed.getMetaInfoTensor(), std::move(opMetaData),
+                              options);
   }
   return SparseTensor(packed.getMetaInfoTensor(), packed.getNzValuesTensor(),
                       std::move(opMetaData));
@@ -2693,11 +2714,16 @@ static Tensor denseFullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                                      const Tensor &activations,
                                      const FullyConnectedParams &params,
                                      Sequence &prog, PlanningCache *cache,
-                                     const poplar::DebugContext &debugContext) {
+                                     const poplar::DebugContext &debugContext,
+                                     const Options &options) {
   return poplin::matMulGrouped(
       graph, activations.reshape(getActivationsShape(params)),
       weights.getNzValuesTensor().reshape(getWeightsShape(params)), prog,
-      activations.elementType(), debugContext, {});
+      activations.elementType(), debugContext,
+      getDenseOptionFlags(options, options.doGradAPass || options.doGradWPass
+                                       ? "TRAINING_FWD"
+                                       : "INFERENCE_FWD"),
+      getDenseCache(cache));
 }
 
 Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
@@ -2721,7 +2747,7 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
 
   if (plan.useDense) {
     return denseFullyConnectedFwd(graph, weights, activations, params, prog,
-                                  cache, {{di}, "denseOperation"});
+                                  cache, {{di}, "denseOperation"}, options);
   }
 
   const auto hierarchy = poplibs::getTileHierarchy(target);
@@ -2768,13 +2794,16 @@ getOutputShape(const FullyConnectedParams &params) {
 static Tensor denseGradAImpl(Graph &graph, const SparseTensor &weights,
                              const Tensor &activations,
                              const FullyConnectedParams &params, Sequence &prog,
-                             const poplar::DebugContext &debugContext) {
+                             const poplar::DebugContext &debugContext,
+                             PlanningCache *cache, const Options &options) {
   auto denseWeights =
       weights.getNzValuesTensor().reshape(getWeightsShape(params));
   auto acts = activations.reshape(getOutputShape(params));
   auto weightsTransposed = poplin::transposeGroupedMatrix(denseWeights);
   return poplin::matMulGrouped(graph, activations, weightsTransposed, prog,
-                               activations.elementType(), debugContext, {});
+                               activations.elementType(), debugContext,
+                               getDenseOptionFlags(options, "TRAINING_BWD"),
+                               getDenseCache(cache));
 }
 
 Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
@@ -2798,7 +2827,7 @@ Tensor fullyConnectedGradA(Graph &graph, const SparseTensor &weights,
 
   if (plan.useDense) {
     return denseGradAImpl(graph, weights, activations, params, prog,
-                          {{di}, "denseBwds"});
+                          {{di}, "denseBwds"}, cache, options);
   }
 
   const auto hierarchy = poplibs::getTileHierarchy(target);

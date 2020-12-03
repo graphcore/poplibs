@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "PlanningCacheImpl.hpp"
+#include <poplin/MatMul.hpp>
 #include <popsparse/PlanningCache.hpp>
 #include <poputil/DebugInfo.hpp>
 
@@ -14,9 +15,10 @@ toProfileValue(const popsparse::dynamic::PlanningCache &t) {
 namespace popsparse {
 namespace dynamic {
 
-PlanningCache::PlanningCache() {
-  impl = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl());
-}
+PlanningCache::PlanningCache() : impl(new PlanningCacheImpl()) {}
+
+PlanningCache::PlanningCache(poplin::matmul::PlanningCache *matMulCache)
+    : impl(new PlanningCacheImpl(matMulCache)) {}
 
 PlanningCache::~PlanningCache() = default;
 
