@@ -44,6 +44,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
 using namespace popops;
+using boost::format;
 using std::to_string;
 
 // The name of the compute set where we run the vertex under test.
@@ -423,9 +424,8 @@ static bool compareCycles(const std::array<DeviceType, 2> devPair,
                           VertexDesc &vertex, const UnaryOpType op,
                           const Type &dataType,
                           const std::vector<unsigned> &sizes,
-                          const unsigned randomSeed) {
-  const float tolerance = 10.0; // percent
-
+                          const unsigned randomSeed,
+                          const unsigned compareThreshold) {
   std::stringstream devName[2]; // To get strings with the name of selected dev
   bool ok[2];
   uint64_t cycles[2];
@@ -446,11 +446,11 @@ static bool compareCycles(const std::array<DeviceType, 2> devPair,
                      "%-70s - %s:%8u;  %s:%8u;   diff = %u  %7.2f%%%s\n") %
                      vertex.vClassShort % devName[0].str() % cycles[0] %
                      devName[1].str() % cycles[1] % diff % diffPerc %
-                     ((abs(diffPerc) < tolerance) ? "" : " <<====");
+                     ((abs(diffPerc) < compareThreshold) ? "" : " <<== FAIL");
   } else {
     std::cout << boost::format("%-74s - Failed\n") % vertex.vClassShort;
   }
-  return ok[0] && ok[1] && abs(diffPerc) < tolerance;
+  return ok[0] && ok[1] && abs(diffPerc) < compareThreshold;
 }
 
 //*************************************************************************
@@ -469,6 +469,7 @@ int main(int argc, char **argv) {
   bool ignoreData = false;
   unsigned randomSeed = 1; // we use '0' to mean 'not random'
   boost::optional<DeviceType> cycleCompareDevice;
+  unsigned cycleCompareThreshold = 10; // percent
 
   // clang-format off
   const static std::string description =
@@ -529,8 +530,13 @@ int main(int argc, char **argv) {
     ("compare-cycles",
      po::value<boost::optional<DeviceType>>(&cycleCompareDevice)->
                                          implicit_value(DeviceType::IpuModel2),
-     "Compare cycles reported for the vertex between the device specified by "
-     "--device-type and another device specified by this option")
+     "For each specified vertex, compare the cycles reported by the device ("
+     "--device-type option) and another device specified by this option")
+    ("cycle-threshold",
+     po::value<unsigned>(&cycleCompareThreshold)->
+                                          default_value(cycleCompareThreshold),
+     "Percent threshold when running the --compare-cycle option. An (absolute) "
+     "cycle difference greater than this threshold will make the test fail.")
     ("report",
      po::value<bool>(&doReport)->implicit_value(true),
      "Provide a poplar report")
@@ -595,7 +601,7 @@ int main(int argc, char **argv) {
           if (isValidCombination(vertex, op, type)) {
             bool ok = cycleCompareDevice
                           ? compareCycles(devPair, vertex, op, type, sizes,
-                                          randomSeed)
+                                          randomSeed, cycleCompareThreshold)
                           : doVertexTest(deviceType, vertex, op, type, sizes,
                                          randomSeed, true, ignoreData, doReport,
                                          cycles);
@@ -608,12 +614,12 @@ int main(int argc, char **argv) {
     }
   }
   if (count == 0) {
-    std::cerr << "The specified vertex, operand(s) and data type(s) do not "
-                 "match any valid combination\n";
+    throw std::runtime_error("The specified vertex, operand(s) and data "
+                             "type(s) do not match any valid combination");
   } else if (count > 1) {
-    std::cout << boost::format(
-                     "UnaryCodeletsTest: %u tests run in total; %u Failed\n") %
-                     count % errCount;
+    std::cout << "UnaryCodeletsTest: " << count << " tests run in total; "
+              << ((errCount == 0) ? "All passed"
+                                  : to_string(errCount) + " failed");
   }
   return allOk ? 0 : 1; // returning 1 means an error.
 }

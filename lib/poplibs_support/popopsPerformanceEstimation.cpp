@@ -6,7 +6,7 @@ namespace popops {
 std::uint64_t basicOpSupervisorOverhead(const bool isScaledPtr64Type) {
 
   // common supervisor overhead
-  std::uint64_t cycles = 198;
+  std::uint64_t cycles = 11;
 
   // extra 2 cycles needed to unpack A and B pointers if they are scaled.
   if (isScaledPtr64Type) {

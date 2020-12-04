@@ -1441,7 +1441,7 @@ std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
     const poplar::Target &target, const Type &type,
     const popops::expr::BinaryOpType op, const unsigned numElems) {
   auto superviserOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = 13;
+  uint64_t workerCycles = 58;
   const auto &info = binaryOpInPlacePerfInfo.at({op, type});
 
   const auto numWorkers = target.getNumWorkerContexts();
@@ -1471,7 +1471,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = 20;
+  uint64_t workerCycles = 28;
   const auto in = vertex.getFieldInfo("in");
   const auto out = vertex.getFieldInfo("out");
   const auto &info = unaryOpPerfInfo.at({op, type});
@@ -1500,7 +1500,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = 20;
+  uint64_t workerCycles = 55;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
   const auto numWorkers = target.getNumWorkerContexts();
@@ -1536,7 +1536,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   uint64_t supervisorOverhead = basicOpSupervisorOverhead();
-  uint64_t workerCycles = 22;
+  uint64_t workerCycles = (type == FLOAT) ? 41 : 32;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
   CODELET_FIELD(out);

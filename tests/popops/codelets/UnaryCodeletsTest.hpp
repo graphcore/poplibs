@@ -263,10 +263,16 @@ bool equalValues(const bool isIpuModel, const UnaryOpType op,
 }
 
 /// Check if two values are 'equal enough'.
-/// For int/unsigned/boolean values, results must be bit exact
+/// For int/unsigned/boolean values, results must be bit exact ...
 template <typename T>
 bool equalValues(const bool isIpuModel, const UnaryOpType op,
                  const Type &dataType, T expected, T actual) {
+  // ... or almost bit exact. The square root shows a discrepancy of
+  // 1 sometimes.
+  if constexpr (std::is_integral<T>::value) {
+    if (op == UnaryOpType::SQRT)
+      return std::abs((int)(expected - actual)) <= 1;
+  }
   return expected == actual;
 }
 
@@ -291,33 +297,43 @@ void fillHostBuffer(UnaryOpType op, const Type &dataType, unsigned randomSeed,
 
     // For floating point, we limit the range
     HOST_DATA_TYPE absMax;
-    absMax = (dataType == HALF) ? 300.0 : 32000.0;
+    absMax = (dataType == HALF) ? 254.0 : 32000.0;
     min = -absMax;
     max = absMax;
 
-    if (op == UnaryOpType::TANH) {
-      min = -20.0;
-      max = 20.0;
+    if (op == UnaryOpType::TAN) {
+      min = -1.2;
+      max = 1.2;
+    } else if (op == UnaryOpType::TANH) {
+      min = (dataType == FLOAT) ? 0.02 : -20.0;
+      max = (dataType == FLOAT) ? 8 : 20.0;
     } else if (op == UnaryOpType::SIGMOID) {
-      min = (dataType == HALF) ? -3.0 : -20.0;
-      max = 20.0;
+      min = (dataType == HALF) ? -3.0 : 0.55;
+      max = (dataType == HALF) ? 3.0 : 17.0;
     } else if (op == UnaryOpType::LOGARITHM) {
-      min = 0.1;
+      min = 0.01;
+      max = 0.7;
     } else if (op == UnaryOpType::LOGARITHM_ONE_PLUS) {
       min = -0.9;
     } else if (op == UnaryOpType::EXPONENT ||
                op == UnaryOpType::EXPONENT_MINUS_ONE) {
+      // These limits also guarantee that the instructions have the highest
+      // latency
       min = (dataType == HALF) ? -10 : -80.0;
       max = 10.0;
+      nonZero = true;
     } else if (op == UnaryOpType::SQRT || op == UnaryOpType::RSQRT) {
-      min = 0;
+      min = 0.1;
     } else if (op == UnaryOpType::ASIN) {
       min = -1;
       max = 1;
     }
   } else {
-    // Non floating point case (INT, UNSIGNED). For BOOL these are ignored
-    min = std::numeric_limits<HOST_DATA_TYPE>::min();
+    // Non floating point case (INT, UNSIGNED, BOOL).
+    // Note that for BOOL we ignore max, min.
+    min = (op == UnaryOpType::SQRT)
+              ? 0
+              : std::numeric_limits<HOST_DATA_TYPE>::min();
     max = std::numeric_limits<HOST_DATA_TYPE>::max();
   }
 

@@ -793,6 +793,33 @@ add_multitarget_test(NAME  "Bitwise16BitBinaryOp"
         --operation BITWISE_AND BITWISE_OR BITWISE_XOR BITWISE_XNOR)
 
 
+# Test cycle counters for a subset of Unary and Binary operators/types. These
+# combinations are run by C++ vertices, and the compiler generates RPT loops
+# for them. This test verifies if this is the case by checking that the cycles
+# taken when run by Sim1 are the same as the cycle estimators. For details of 
+# thebtest, see the --compare-cycles option of UnaryCodeletsTest/
+# BinaryCodeletsTest
+add_multitarget_test(
+  NAME "UnaryOpSupervisorCycleTest"
+  COMMAND UnaryCodeletsTest
+          --vertexRE "UnaryOp1DSupervisor"
+          --operation exponent logarithm negate square inverse rsqrt sqrt
+          --data-type float half
+          --size 1800
+          --compare-cycles IpuModel1
+          --cycle-threshold 3
+          VARIANTS Sim1)
+add_multitarget_test(
+  NAME "BinaryOpSupervisorCycleTest"
+  COMMAND BinaryCodeletsTest
+          --vertexRE "BinaryOp1DSupervisor"
+          --operation maximum minimum
+          --data-type float half
+          --size 1800
+          --compare-cycles IpuModel1
+          --cycle-threshold 3
+          VARIANTS Sim1)
+
 #Cast<InType, OutType>
 add_multi_target_test_executable(CastTest CastTest.cpp)
 
