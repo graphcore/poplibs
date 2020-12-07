@@ -175,7 +175,7 @@ struct Plan {
   unsigned partialChansPerGroup;
 
   unsigned slicWindowWidth;
-  unsigned numConvUnitsRequired;
+  unsigned numConvUnitsOrChainsRequired;
   enum class Method {
     // Direction convolution using the HMAC instruction.
     HMAC,
@@ -213,7 +213,7 @@ struct Plan {
   Plan(std::vector<Partition> partitions_, std::vector<ConvTypes> types_,
        unsigned convGroupsPerGroup_, unsigned inChansPerGroup_,
        unsigned partialChansPerGroup_, unsigned slicWindowWidth_,
-       unsigned numConvUnitsRequired_, Plan::Method method_,
+       unsigned numConvUnitsOrChainsRequired_, Plan::Method method_,
        Plan::LinearizeTileOrder linearizeTileOrder_, unsigned startTile_,
        Plan::LinearizeTileDirection linearizeTileDirection_, bool isJointPlan,
        bool useLimitedVersion_)
@@ -222,9 +222,9 @@ struct Plan {
         inChansPerGroup(inChansPerGroup_),
         partialChansPerGroup(partialChansPerGroup_),
         slicWindowWidth(slicWindowWidth_),
-        numConvUnitsRequired(numConvUnitsRequired_), method(method_),
-        linearizeTileOrder(linearizeTileOrder_), startTile(startTile_),
-        linearizeTileDirection(linearizeTileDirection_),
+        numConvUnitsOrChainsRequired(numConvUnitsOrChainsRequired_),
+        method(method_), linearizeTileOrder(linearizeTileOrder_),
+        startTile(startTile_), linearizeTileDirection(linearizeTileDirection_),
         isJointPlan(isJointPlan), useLimitedVersion(useLimitedVersion_) {}
 
   unsigned numLevels() const {

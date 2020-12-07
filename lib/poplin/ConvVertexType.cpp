@@ -368,18 +368,18 @@ static void getConvVertexSLICCandidates(
     ampFloatPartials = true;
     numConvUnits = getNumConvUnits(floatActivations, ampFloatPartials, target);
   }
-  // List the number of conv units used in the candidate vertices which are
+  // List the number of conv chains used in the candidate vertices which are
   // available - either on this hardware or implemented at present
-  std::vector<unsigned> convUnitsCandidates;
+  std::vector<unsigned> convChainsCandidates;
   if (floatPartials) {
-    convUnitsCandidates.push_back(8);
+    convChainsCandidates.push_back(2);
   } else {
     if (numConvUnits == 16) {
-      convUnitsCandidates.push_back(16);
+      convChainsCandidates.push_back(4);
     }
     // This is always available with 8, or 16 conv units - let cycle estimates
     // reject it in favour of the 16 conv unit version if that's available
-    convUnitsCandidates.push_back(8);
+    convChainsCandidates.push_back(2);
   }
 
   const auto ampPartialType = ampFloatPartials ? poplar::FLOAT : poplar::HALF;
@@ -414,7 +414,7 @@ static void getConvVertexSLICCandidates(
   };
   std::array<Candidate, 3> groupings{Candidate{1u, 4u}, Candidate{2u, 2u},
                                      Candidate{4u, 1u}};
-  for (const auto convUnits : convUnitsCandidates) {
+  for (const auto convChains : convChainsCandidates) {
     for (const auto &grouping : groupings) {
       if (constrainedConvGroupsPerGroup &&
           *constrainedConvGroupsPerGroup !=
@@ -429,7 +429,7 @@ static void getConvVertexSLICCandidates(
 
       candidates.emplace_back(Plan::Method::SLIC, inputType, ampPartialType,
                               grouping.groups, grouping.channels,
-                              grouping.channels, slicWindowWidth, convUnits,
+                              grouping.channels, slicWindowWidth, convChains,
                               true);
     }
   }

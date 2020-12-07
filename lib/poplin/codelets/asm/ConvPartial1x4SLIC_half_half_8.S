@@ -9,8 +9,8 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_units) \
-        __runCodelet_poplin__ConvPartial1x4SLIC___half_ ## partials_type ##_## stride ## _true_ ## conv_units
+#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains) \
+        __runCodelet_poplin__ConvPartial1xNSLIC___half_ ## partials_type ##_## stride ## _true_4_ ## conv_chains
 
 #define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_ ## suffix
 
@@ -122,23 +122,23 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // Supervisor function, entry point macro definition
-.macro supervisor_fn PARTIALS_TYPE CONV_UNITS
+.macro supervisor_fn PARTIALS_TYPE CONV_CHAINS
 
 // Supervisor uses MAX_STACK_SIZE, workers  don't use any stack
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS)
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS)
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS)
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS), @function
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS)
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS), @function
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride2_\CONV_UNITS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride2_\CONV_CHAINS), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS):
   // The only differences in codelet execution come in the worker function body,
   // much much later on.  So put a pointer to the required function onto the stack
   // to pick up later.  This will mean that we will link just the functions(s)
@@ -146,22 +146,22 @@ CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS):
 //=============
 #define s_worker_fn_ptr m3
 //=============
-   setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride2_\CONV_UNITS)
-   bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_UNITS\()_common_entry)
+   setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride2_\CONV_CHAINS)
+   bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride1_\CONV_UNITS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride1_\CONV_CHAINS), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS):
 
-  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1_\CONV_UNITS)
-  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_UNITS\()_common_entry)
+  setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1_\CONV_CHAINS)
+  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_UNITS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS), "ax"
 .align 4
 .supervisor
-CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_UNITS\()_common_entry):
+CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry):
   // Calculation of $s_worklists_base_ptr is essentially the critical path as
   // it requires 4 instructions to load, mask and store it for a total of 19 cycles minimum
   // (6 cycles * 3 instructions for load, shl, shr + 1 cycle to issue the store)
@@ -326,7 +326,7 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_UNITS\()_common_entry):
 .endm
 ////////////////////////////////////////////////////////////////////////////////
 // Instantiate supervisor entry
-supervisor_fn half 8
+supervisor_fn half 2
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -595,7 +595,7 @@ ALIGNED_RPT_END
 
 ////////////////////////////////////////////////////////////////////////////////
 // >= 5 items, output stride = 1 with implicit zero
-.macro worker_process_group_field_row_implicit_zero_stride1_8 ID SLIC_FLAGS PAR_OUT_PTR
+.macro worker_process_group_field_row_implicit_zero_stride1_2 ID SLIC_FLAGS PAR_OUT_PTR
     tapack $w_inoutout_triptr, $w_in_ptr, $\PAR_OUT_PTR, $\PAR_OUT_PTR
 
     add $w_num_field_elems, $w_num_field_elems_const, -5
@@ -670,7 +670,7 @@ ALIGNED_RPT_END
 
 ////////////////////////////////////////////////////////////////////////////////
 // >= 6 items, output stride = 1 with no implicit zero
-.macro worker_process_group_field_row_stride1_8 ID SLIC_FLAGS PAR_OUT_PTR
+.macro worker_process_group_field_row_stride1_2 ID SLIC_FLAGS PAR_OUT_PTR
     tapack $w_inoutout_triptr, $w_in_ptr, $\PAR_OUT_PTR, $\PAR_OUT_PTR
 
     add $w_num_field_elems, $w_num_field_elems_const, -6
@@ -794,7 +794,7 @@ ALIGNED_RPT_END
 
 ////////////////////////////////////////////////////////////////////////////////
 // >= 3 items, output stride = 2 with implicit zero
-.macro worker_process_group_field_row_implicit_zero_stride2_8 ID SLIC_FLAGS PAR_OUT_PTR
+.macro worker_process_group_field_row_implicit_zero_stride2_2 ID SLIC_FLAGS PAR_OUT_PTR
     tapack $w_inoutout_triptr, $w_in_ptr, $\PAR_OUT_PTR, $\PAR_OUT_PTR
 
     add $w_num_field_elems, $w_num_field_elems_const, -3
@@ -876,7 +876,7 @@ ALIGNED_RPT_END
 
 ////////////////////////////////////////////////////////////////////////////////
 // >= 3 items, output stride = 2 with no implicit zero
-.macro worker_process_group_field_row_stride2_8 ID SLIC_FLAGS PAR_OUT_PTR
+.macro worker_process_group_field_row_stride2_2 ID SLIC_FLAGS PAR_OUT_PTR
     tapack $w_inoutout_triptr, $w_in_ptr, $\PAR_OUT_PTR, $\PAR_OUT_PTR
 
     add $w_num_field_elems, $w_num_field_elems_const, -3
@@ -946,9 +946,9 @@ ALIGNED_RPT_END
 ////////////////////////////////////////////////////////////////////////////////
 // Use the worker function and macros above to build the code for the stride = 1
 // case
-.section .text.CODELET_SYMBOL(half_worker_fn_stride1_8), "ax"
+.section .text.CODELET_SYMBOL(half_worker_fn_stride1_2), "ax"
   // Instantiate the worker entry point and loop body
-  worker_fn stride1_8  half
+  worker_fn stride1_2  half
   // Instantiate routines used in the loop body
   worker_process_group_field_row_implicit_zero_stride1_lt5_elems W0_C8 TSLIC_F16V4_1x4_W0
   worker_process_group_field_row_implicit_zero_stride1_lt5_elems W1_C8 TSLIC_F16V4_1x4_W1
@@ -959,9 +959,9 @@ ALIGNED_RPT_END
 ////////////////////////////////////////////////////////////////////////////////
 // Use the worker function and macros above to build the code for the stride = 2
 // case with half partials
- .section .text.CODELET_SYMBOL(half_worker_fn_stride2_8), "ax"
+ .section .text.CODELET_SYMBOL(half_worker_fn_stride2_2), "ax"
   // Instantiate the worker entry point and loop body
-  worker_fn stride2_8  half
+  worker_fn stride2_2  half
   // Instantiate routines used in the loop body for stride = 2
   worker_process_group_field_row_implicit_zero_stride2_lt3_elems W0_C8 TSLIC_F16V4_1x4_W0
   worker_process_group_field_row_implicit_zero_stride2_lt3_elems W1_C8 TSLIC_F16V4_1x4_W1

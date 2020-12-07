@@ -1,5 +1,5 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE ConvPartial1x4SLIC
+#define BOOST_TEST_MODULE ConvPartial1xNSLIC
 #include "ConvVertices.hpp"
 #include <poplibs_support/TestDevice.hpp>
 
@@ -60,7 +60,7 @@ int main(int argc, char **argv) try {
   unsigned inChanGroups = 1;
   unsigned outChanGroups = 1;
 
-  unsigned convUnitsRequired = 8;
+  unsigned convChainsRequired = 2;
 
   ShapeOption<std::size_t> inputFieldSizeOption;
   ShapeOption<std::size_t> kernelSizeOption;
@@ -130,9 +130,9 @@ int main(int argc, char **argv) try {
     ("output-truncation-upper",
      po::value<ShapeOption<unsigned>>(&outputTruncationUpper),
      "Output truncation upper")
-    ("conv-units",
-     po::value<unsigned>(&convUnitsRequired)->default_value(convUnitsRequired),
-     "Conv units to use.  If partials are float(=8), if half (=8 or 16")
+    ("conv-chains",
+     po::value<unsigned>(&convChainsRequired)->default_value(convChainsRequired),
+     "Conv chains to use.  If partials are float(=2), if half (=2 or 4")
   ;
   // clang-format on
   po::variables_map vm;
@@ -159,12 +159,12 @@ int main(int argc, char **argv) try {
 
   if (inChanGroups != 1) {
     throw poputil::poplibs_error(
-        "ConvPartial1x4SLIC vertex only handles 1 input channel group");
+        "ConvPartial1xNSLIC vertex only handles 1 input channel group");
   }
 
   if (outChanGroups != 1) {
     throw poputil::poplibs_error(
-        "ConvPartial1x4SLIC vertex only handles 1 output channel group");
+        "ConvPartial1xNSLIC vertex only handles 1 output channel group");
   }
 
   const unsigned convGroups = convGroupGroups * convGroupsPerGroup;
@@ -277,7 +277,7 @@ int main(int argc, char **argv) try {
            std::pair<std::vector<poplar::Tensor>, std::vector<poplar::Tensor>>>
       postProg;
   createConvPartialSlicVertex(graph, windowWidth, convGroupsPerGroup,
-                              chansPerGroup, convUnitsRequired, 0, params,
+                              chansPerGroup, convChainsRequired, 0, params,
                               transformPre, copyWritten, fwdCS, postProg,
                               inGrouped, weightsGrouped, outGrouped, "vertex");
   for (const auto &copy : transformPre) {

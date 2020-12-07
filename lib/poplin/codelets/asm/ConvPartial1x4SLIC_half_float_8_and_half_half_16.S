@@ -9,8 +9,8 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_units) \
-        __runCodelet_poplin__ConvPartial1x4SLIC___half_ ## partials_type ##_## stride ## _true_ ## conv_units
+#define CODELET_SYMBOL_ENTRY(partials_type, stride, conv_chains) \
+        __runCodelet_poplin__ConvPartial1xNSLIC___half_ ## partials_type ##_## stride ## _true_4_ ## conv_chains
 
 #define CODELET_SYMBOL(suffix) __runCodelet_poplin__ConvPartial1x4SLIC___half_ ## suffix
 
@@ -134,17 +134,17 @@ CODELET_SYMBOL(worker_load_weights_jump_table):
 
 ////////////////////////////////////////////////////////////////////////////////
 // Supervisor function, entry point macro definition
-.macro supervisor_fn PARTIALS_TYPE CONV_UNITS
+.macro supervisor_fn PARTIALS_TYPE CONV_CHAINS
 
 // Supervisor uses MAX_STACK_SIZE, workers  don't use any stack
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS)
-DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS)
+DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS)
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS)
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS), @function
 
-.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS)
-.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS), @function
+.global CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS)
+.type CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS), @function
 
 // Parameters we can deduce directly from the macro params
 .ifc "\PARTIALS_TYPE", "float"
@@ -163,7 +163,7 @@ DEF_STACK_USAGE  MAX_STACK_SIZE   CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_CHAINS):
   // The only differences in codelet execution come in the worker function body,
   // much much later on.  So put a pointer to the required function onto the stack
   // to pick up later.  This will mean that we will link just the functions(s)
@@ -176,24 +176,24 @@ CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),2,\CONV_UNITS):
 .ifc "\PARTIALS_TYPE", "half"
   setzi  $s_out_field_buffer_offset, STRIDE2_BUFFER_OFFSET
 .endif
-  bri CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry)
+  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry)
 
 .section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()_entry_stride1), "ax"
 .align 4
 .supervisor
 
-CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_UNITS):
+CODELET_SYMBOL_ENTRY(\PARTIALS_TYPE\(),1,\CONV_CHAINS):
 
   setzi  $s_worker_fn_ptr, CODELET_SYMBOL(\PARTIALS_TYPE\()_stride1)
 .ifc "\PARTIALS_TYPE", "half"
   setzi  $s_out_field_buffer_offset, STRIDE1_BUFFER_OFFSET
 .endif
-  bri CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry)
+  bri CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry)
 
-.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_UNITS), "ax"
+.section .text.CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS), "ax"
 .align 4
 .supervisor
-CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry):
+CODELET_SYMBOL(\PARTIALS_TYPE\()\CONV_CHAINS\()_common_entry):
   // Calculation of $s_worklists_base_ptr is essentially the critical path as
   // it requires 4 instructions to load, mask and store it for a total of 19 cycles minimum
   // (6 cycles * 3 instructions for load, shl, shr + 1 cycle to issue the store)
@@ -383,10 +383,10 @@ CODELET_SYMBOL(\PARTIALS_TYPE\()_common_entry):
 .endm
 ////////////////////////////////////////////////////////////////////////////////
 // Instantiate supervisor entry
-  supervisor_fn float 8
+  supervisor_fn float 2
 
 #if __IPU_ARCH_VERSION__ >=2
-  supervisor_fn half 16
+  supervisor_fn half 4
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -408,6 +408,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                                        bool use128BitConvUnitLoad,
                                        const DebugNameAndId &dnai) {
   const auto &target = graph.getTarget();
+  const auto numConvUnitsRequired = plan.numConvUnitsOrChainsRequired;
   const auto weightsPerConvUnit =
       target.getWeightsPerConvUnit(in.elementType() == FLOAT);
   const auto convUnitWeightHeight = weightsPerConvUnit / plan.inChansPerGroup;
@@ -587,7 +588,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
   int halfStrideAdj = -4;
   int floatStrideAdj = -6;
   // For dual AMP codelets need to offset output stride by extra 8 elements
-  if (plan.numConvUnitsRequired > 8) {
+  if (numConvUnitsRequired > 8) {
     halfStrideAdj += -8;
     floatStrideAdj += -8;
   }
@@ -671,7 +672,7 @@ static void createConvPartialAmpVertex(Graph &graph, const Plan &plan,
                             plan.types.back().partialType,
                             useLimitedVer ? "true" : "false",
                             use128BitConvUnitLoad ? "true" : "false",
-                            plan.numConvUnitsRequired));
+                            numConvUnitsRequired));
 
   // The parameters are modified to what the vertex uses
   graph.connect(v["in"], inWindow);
@@ -832,7 +833,7 @@ static void createConvPartialAmpVertices(
 //  weights: [G1][CO1][CI1]...[G2][CO2][CI2]
 void createConvPartialSlicVertex(
     Graph &graph, unsigned slicWindowWidth, unsigned convGroupsPerGroup,
-    unsigned chansPerGroup, unsigned convUnitsRequired, unsigned tile,
+    unsigned chansPerGroup, unsigned convChainsRequired, unsigned tile,
     ConvParams params, std::vector<Copy> &transformPre,
     std::map<Type, Tensor> &copyWritten, ComputeSet fwdCS,
     ConvProgramTree::PostProg &postConvProg, Tensor in, Tensor weights,
@@ -935,8 +936,8 @@ void createConvPartialSlicVertex(
 
   bool useShortTypes = true;
   const auto shortTypesVertexClass = templateVertex(
-      "poplin::ConvPartial1x4SLIC", inType, partialsType, outputStride,
-      /* useShortTypes */ true, convUnitsRequired);
+      "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
+      /* useShortTypes */ true, slicWindowWidth, convChainsRequired);
   std::vector<std::vector<unsigned short>> worklists(numWorkerContexts *
                                                      numSubKernels);
   const auto slicWindowHeight = 1u;
@@ -1067,9 +1068,9 @@ void createConvPartialSlicVertex(
       {dnai, "outFieldBuffer"});
   graph.setTileMapping(outFieldBuffer, tile);
 
-  const auto vertexClass =
-      templateVertex("poplin::ConvPartial1x4SLIC", inType, partialsType,
-                     outputStride, useShortTypes, convUnitsRequired);
+  const auto vertexClass = templateVertex(
+      "poplin::ConvPartial1xNSLIC", inType, partialsType, outputStride,
+      useShortTypes, slicWindowWidth, convChainsRequired);
   auto v = graph.addVertex(fwdCS, vertexClass);
   graph.setTileMapping(v, tile);
 
@@ -1704,9 +1705,9 @@ void calcPartialConvOutput(Graph &graph, const Plan &plan, unsigned tile,
     assert(plan.inChansPerGroup == plan.partialChansPerGroup);
     createConvPartialSlicVertex(
         graph, plan.slicWindowWidth, plan.convGroupsPerGroup,
-        plan.partialChansPerGroup, plan.numConvUnitsRequired, tile, params,
-        transformPre, copyWritten, convolveCS.convolveCS, convolveCS.postProg,
-        in, weights, out, {dnai});
+        plan.partialChansPerGroup, plan.numConvUnitsOrChainsRequired, tile,
+        params, transformPre, copyWritten, convolveCS.convolveCS,
+        convolveCS.postProg, in, weights, out, {dnai});
     break;
   case Plan::Method::OUTER_PRODUCT: {
     const auto &target = graph.getTarget();

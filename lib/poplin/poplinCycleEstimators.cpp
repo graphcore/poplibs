@@ -268,10 +268,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
 }
 
 // TODO: T12902 Add cost estimates for non-limited version?
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned outStride, bool, /* useShortTypes */
-    unsigned numConvUnits) {
+    unsigned windowWidth, unsigned numConvChains) {
   CODELET_SCALAR_VAL(mode, unsigned char);
   CODELET_SCALAR_VAL(numSubKernelsM1, unsigned);
   CODELET_SCALAR_VAL(numConvGroupGroupsM1, unsigned);
@@ -313,25 +313,23 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x4SLIC)(
   }
 #endif // !defined(NDEBUG)
 
-  const unsigned slicWindowWidth = 4u;
   const bool floatActivations = fpType == FLOAT;
   const bool floatPartials = accumType == FLOAT;
 
   const auto implicitZeroingInnerCycles =
       getConvPartialSlicSupervisorInnerLoopCycleEstimate(
-          workerPartitions, numWorkerContexts, numConvUnits, slicWindowWidth,
+          workerPartitions, numWorkerContexts, numConvChains, windowWidth,
           floatActivations, floatPartials, outStride,
           /* implicitZeroing */ true);
   const auto innerCycles = getConvPartialSlicSupervisorInnerLoopCycleEstimate(
-      workerPartitions, numWorkerContexts, numConvUnits, slicWindowWidth,
+      workerPartitions, numWorkerContexts, numConvChains, windowWidth,
       floatActivations, floatPartials, outStride, /* implicitZeroing */ false);
   const auto weightLoadCycles =
       getConvPartialSlicSupervisorWeightLoadCycleEstimate(
-          convGroupsPerGroup, chansPerGroup, numWorkerContexts,
-          slicWindowWidth);
+          convGroupsPerGroup, chansPerGroup, numWorkerContexts, windowWidth);
   const auto cycles = getConvPartialSlicSupervisorOuterLoopCycleEstimate(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
-      numConvGroupGroups, numSubKernels, numConvUnits, slicWindowWidth,
+      numConvGroupGroups, numSubKernels, numConvChains, windowWidth,
       floatActivations, floatPartials);
   return cycles;
 }
@@ -653,30 +651,32 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialnx1, HALF, HALF, false, true,
                             16),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 1, true,
-                            8),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 1, false,
-                            8),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 2, true,
-                            8),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, FLOAT, 2, false,
-                            8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 1, true, 4,
+                            2),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 1, false,
+                            4, 2),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 2, true, 4,
+                            2),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, FLOAT, 2, false,
+                            4, 2),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, true, 8),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, false,
-                            8),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, true, 8),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, false,
-                            8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, true, 4,
+                            2),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, false, 4,
+                            2),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, true, 4,
+                            2),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false, 4,
+                            2),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, true,
-                            16),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 1, false,
-                            16),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, true,
-                            16),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x4SLIC, HALF, HALF, 2, false,
-                            16),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, true, 4,
+                            4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 1, false, 4,
+                            4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, true, 4,
+                            4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1xNSLIC, HALF, HALF, 2, false, 4,
+                            4),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, true, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, true, false),

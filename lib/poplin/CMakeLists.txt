@@ -116,7 +116,7 @@ add_gp_library(
   NAME poplin
   CPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x1Out.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x4SLIC.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1xNSLIC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialHorizontalMac.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialVerticalMac.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialnx1.cpp

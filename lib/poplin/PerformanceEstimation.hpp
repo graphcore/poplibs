@@ -639,7 +639,7 @@ inline std::uint64_t getConvPartialSlicSupervisorWeightLoadCycleEstimate(
 inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
     std::uint64_t implicitZeroingInnerLoopCycles, std::uint64_t innerLoopCycles,
     std::uint64_t weightLoadCycles, unsigned numConvGroupGroups,
-    unsigned numSubKernels, unsigned numConvUnits, unsigned slicWindowWidth,
+    unsigned numSubKernels, unsigned numConvChains, unsigned slicWindowWidth,
     bool floatActivations, bool floatPartials) {
 
   // TODO: we currently only target a kernel width of 4.
@@ -648,8 +648,9 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
   assert(numConvGroupGroups >= 1);
   assert(numSubKernels >= 1);
 
-  // Similar, but different function for the 8 convUnits, half partials case
-  const bool half8Conv = (numConvUnits == 8 && floatPartials == false);
+  // Similar, but different function for the 2 chains of conv units,
+  // half partials case.
+  const bool half8Conv = (numConvChains == 2 && floatPartials == false);
 
   const std::uint64_t supervisorPreambleCycles = half8Conv ? 25 : 28;
   const std::uint64_t supervisorConvGroupGroupsBodyCycles = half8Conv ? 12 : 15;
@@ -687,16 +688,16 @@ inline std::uint64_t getConvPartialSlicSupervisorOuterLoopCycleEstimate(
 // sub-kernels.
 inline std::uint64_t getConvPartialSlicSupervisorInnerLoopCycleEstimate(
     const std::vector<std::vector<unsigned>> &workerPartitions,
-    unsigned numWorkerContexts, unsigned numConvUnits, unsigned slicWindowWidth,
-    bool floatActivations, bool floatPartials, unsigned outputStride,
-    bool implicitZeroing) {
+    unsigned numWorkerContexts, unsigned numConvChains,
+    unsigned slicWindowWidth, bool floatActivations, bool floatPartials,
+    unsigned outputStride, bool implicitZeroing) {
   // TODO: we currently only target kernel width of 4.
   assert(!floatActivations);
   assert(slicWindowWidth == 4);
 
-  const unsigned inputDataPasses = numConvUnits == 16 ? 1 : 2;
+  const unsigned inputDataPasses = numConvChains == 4 ? 1 : 2;
   // Similar, but different function for the 8 convUnits, half partials case
-  const bool half8Conv = (numConvUnits == 8 && floatPartials == false);
+  const bool half8Conv = (numConvChains == 2 && floatPartials == false);
   const unsigned loopDecisionThreshold = (half8Conv ? 6 : 5);
 
   std::uint64_t maxWorkerCycles = 0;
@@ -1005,6 +1006,15 @@ inline unsigned getNumConvUnits(bool floatActivations, bool floatPartial,
   }
 }
 
+inline unsigned getConvLoadPerCycle(bool floatActivations,
+                                    const poplar::Target &target) {
+  if (floatActivations) {
+    return target.getFp32ConvUnitInputLoadElemsPerCycle();
+  } else {
+    return target.getFp16ConvUnitInputLoadElemsPerCycle();
+  }
+}
+
 inline std::uint64_t getConvPartialnx1InnerLoopCycleEstimate(
     unsigned batchElements, const std::vector<unsigned> &outShape,
     const std::vector<unsigned> &kernelShape, unsigned filterHeight,
@@ -1101,7 +1111,7 @@ inline std::uint64_t getConvPartial1x1InnerLoopCycleEstimateWithoutZeroing(
 inline std::uint64_t getConvPartialSlicInnerLoopCycles(
     unsigned outStride, bool implicitZeroing, unsigned batchElements,
     const std::vector<unsigned> &outShape, unsigned numWorkerContexts,
-    unsigned numConvUnits, unsigned slicWindowWidth, bool floatActivations,
+    unsigned numConvChains, unsigned slicWindowWidth, bool floatActivations,
     bool floatPartials) {
   // SLIC doesn't support input dilation
   std::vector<unsigned> inputDilation(outShape.size(), 1);
@@ -1123,7 +1133,7 @@ inline std::uint64_t getConvPartialSlicInnerLoopCycles(
     }
   }
   return getConvPartialSlicSupervisorInnerLoopCycleEstimate(
-      worklist, numWorkerContexts, numConvUnits, slicWindowWidth,
+      worklist, numWorkerContexts, numConvChains, slicWindowWidth,
       floatActivations, floatPartials, outputStride.back(), implicitZeroing);
 }
 

@@ -190,8 +190,9 @@ bool operator<(const Plan &a, const Plan &b) {
       &Plan::transforms, &Plan::partitions, &Plan::types,
       &Plan::convGroupsPerGroup, &Plan::inChansPerGroup,
       &Plan::partialChansPerGroup, &Plan::slicWindowWidth,
-      &Plan::numConvUnitsRequired, &Plan::method, &Plan::linearizeTileOrder,
-      &Plan::startTile, &Plan::linearizeTileDirection, &Plan::isJointPlan);
+      &Plan::numConvUnitsOrChainsRequired, &Plan::method,
+      &Plan::linearizeTileOrder, &Plan::startTile,
+      &Plan::linearizeTileDirection, &Plan::isJointPlan);
 
   return helper.lt(a, b);
 }
@@ -467,7 +468,7 @@ choosePlan(const poplar::Target &target,
   Plan plan(std::move(partitions), std::move(types),
             convVertexType.convGroupsPerGroup, convVertexType.inChansPerGroup,
             convVertexType.partialChansPerGroup, convVertexType.slicWindowWidth,
-            convVertexType.numConvUnitsRequired, convVertexType.method,
+            convVertexType.numConvUnitsOrChainsRequired, convVertexType.method,
             Plan::LinearizeTileOrder::STANDARD, startTile.first,
             startTile.second, isJointPlan, convVertexType.useLimitedVersion);
   plan.transforms = transforms;
@@ -1645,10 +1646,11 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   // grouping of 16 if possible.
   plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
   if (plan.method == Plan::Method::AMP &&
-      !canUseConvolutionInstruction(
-          fwdParams->inputType == poplar::FLOAT,
-          fwdOptions.partialsType == poplar::FLOAT, plan.inChansPerGroup,
-          plan.numConvUnitsRequired, plan.partialChansPerGroup, target)) {
+      !canUseConvolutionInstruction(fwdParams->inputType == poplar::FLOAT,
+                                    fwdOptions.partialsType == poplar::FLOAT,
+                                    plan.inChansPerGroup,
+                                    plan.numConvUnitsOrChainsRequired,
+                                    plan.partialChansPerGroup, target)) {
     plan.inChansPerGroup =
         target.getWeightsPerConvUnit(fwdParams->inputType == poplar::FLOAT);
     plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
@@ -2060,7 +2062,8 @@ estimateConvCost(const poplar::Target &target, const ConvParams &params,
   ConvVertexType convVertexType(
       plan.method, params.inputType, plan.types.back().partialType,
       plan.convGroupsPerGroup, plan.inChansPerGroup, plan.partialChansPerGroup,
-      plan.slicWindowWidth, plan.numConvUnitsRequired, plan.useLimitedVersion);
+      plan.slicWindowWidth, plan.numConvUnitsOrChainsRequired,
+      plan.useLimitedVersion);
   const auto fieldGrainSize = plan.partitions.back().fieldAxisGrainSize;
   // Check grain size is the same at each level.
 #ifndef NDEBUG

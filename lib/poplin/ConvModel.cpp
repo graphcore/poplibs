@@ -236,7 +236,6 @@ static popsolver::Variable addPartialCalcCycleEstimate(
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto outChansPerGroup = convVertexType.partialChansPerGroup;
   const auto slicWindowWidth = convVertexType.slicWindowWidth;
-  const auto numConvUnitsRequired = convVertexType.numConvUnitsRequired;
 
   ConvSizeVariablesVector<popsolver::Variable> convSizeVarsVector(convSizeVars);
 
@@ -269,6 +268,8 @@ static popsolver::Variable addPartialCalcCycleEstimate(
       convUnitCoeffLoadBytesPerCycle /= 2;
     }
 
+    const auto numConvUnitsRequired =
+        convVertexType.numConvUnitsOrChainsRequired;
     assert(numConvUnitsRequired != 0);
     if (inChansPerGroup != weightsPerConvUnit) {
       auto numConvUnitsOnIpu =
@@ -353,11 +354,14 @@ static popsolver::Variable addPartialCalcCycleEstimate(
         debugName);
   }
   case Plan::Method::SLIC: {
+    const auto numConvChainsRequired =
+        convVertexType.numConvUnitsOrChainsRequired;
     return m.call<unsigned>(
         convSizeVarsVector,
         [&target, params, fieldGrainSize, convGroupsPerGroup, inChansPerGroup,
          outChansPerGroup, transformedInputDilation, transformedOutputStride,
-         numConvUnitsRequired, slicWindowWidth, floatActivations, floatPartials,
+         numConvChainsRequired, slicWindowWidth, floatActivations,
+         floatPartials,
          cache](const auto &values) -> boost::optional<popsolver::DataType> {
           const auto convSize =
               makeConvSize(values, fieldGrainSize, convGroupsPerGroup,
@@ -396,14 +400,14 @@ static popsolver::Variable addPartialCalcCycleEstimate(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ true, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
-                  numConvUnitsRequired, slicWindowWidth, floatActivations,
+                  numConvChainsRequired, slicWindowWidth, floatActivations,
                   floatPartials);
           const auto innerLoopCycles =
               cache->mGetConvPartialSlicInnerLoopCycles(
                   params.outputTransform.stride.back(),
                   /* implicitZeroing */ false, convSize.batchSize,
                   convSize.fieldSize, target.getNumWorkerContexts(),
-                  numConvUnitsRequired, slicWindowWidth, floatActivations,
+                  numConvChainsRequired, slicWindowWidth, floatActivations,
                   floatPartials);
           const auto weightLoadCycles =
               getConvPartialSlicSupervisorWeightLoadCycleEstimate(
@@ -413,7 +417,7 @@ static popsolver::Variable addPartialCalcCycleEstimate(
               cache->mGetConvPartialSlicSupervisorOuterLoopCycleEstimate(
                   implicitZeroInnerLoopCycles, innerLoopCycles,
                   weightLoadCycles, tileNumConvGroups, numWeightBlocks,
-                  numConvUnitsRequired, slicWindowWidth, floatActivations,
+                  numConvChainsRequired, slicWindowWidth, floatActivations,
                   floatPartials)};
         });
   }
@@ -850,7 +854,7 @@ addTileLevelTransformEstimates(
   const auto zero = m.addConstant(0u);
   const auto inChansPerGroup = convVertexType.inChansPerGroup;
   const auto slicWindowWidth = convVertexType.slicWindowWidth;
-  const auto numConvUnitsRequired = convVertexType.numConvUnitsRequired;
+  const auto numConvUnitsRequired = convVertexType.numConvUnitsOrChainsRequired;
 
   switch (convVertexType.method) {
   case Plan::Method::HMAC:
