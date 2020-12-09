@@ -749,7 +749,9 @@ std::string GenerateCodeletFromMapExpr::generateCodelet(
       });
 
   // Get the smallest vectorization width of all the types.
-  size_t vectorizationWidth = target.getVectorWidth(smallestVector);
+  const auto smallestVectorPer64Bits = 8u / target.getTypeSize(smallestVector);
+  const auto vectorizationWidth = std::min<std::size_t>(
+      target.getVectorWidth(smallestVector), smallestVectorPer64Bits);
   // Process the constant values. We need this step as we cannot just embed
   // the constants if we are working with vectors.
   std::string constantInitalizerStringScalar;
