@@ -198,7 +198,8 @@ re_execution_profile = re.compile(r"^\s+([a-zA-Z]+): (.+)" + NEW_LINE_CHAR +
                                "\s+Active Tiles:"
                               , re.MULTILINE)
 
-execution_fields_names = ['weightsTranspose', 'transformPreSerial', 'transformPre0', 'transformPost0', 'transformPostSerial']
+execution_fields_names = ['weightsTransposeSeq', 'transformPreSerialSeq', 'transformPre0',
+                          'transformPre1', 'transformPost1', 'transformPost0', 'transformPostSerialSeq']
 execution_step_cycles = ['DoExchange', 'OnTileExecute']
 
 # Planner to Profile diff
@@ -218,6 +219,58 @@ benchmarks_info = re.compile(r"^(\d+).+\"--name\"\s\"(\S+)\"\s\"--config\"\s\"([
 
 
 # -----------------------------------------------------------------------------
+# Find if <--convolution-options> is already present and amend it
+# -----------------------------------------------------------------------------
+def amend_conv_options(test_cmd):
+    #
+    convOptions = r'"insertTransformsCycleCountProgs":true'
+    try:
+        co_index = test_cmd.index('--convolution-options') + 1
+        test_cmd[co_index] = test_cmd[co_index][:-1] + ', ' + convOptions + '}'
+    except ValueError:
+        test_cmd.append('--convolution-options={' + convOptions + '}')
+    return test_cmd
+
+
+# -----------------------------------------------------------------------------
+# Find <--device-type> and amend with desired target
+# -----------------------------------------------------------------------------
+def amend_device_type(test_cmd, device_type):
+    try:
+        co_index = test_cmd.index('--device-type') + 1
+        test_cmd[co_index] = device_type
+    except ValueError:
+        test_cmd.append(f'--device-type={device_type}')
+    return test_cmd
+
+
+# -----------------------------------------------------------------------------
+# Find if <--use-create-input> is already present and amend and amend it to 0
+# -----------------------------------------------------------------------------
+def amend_create_input(test_cmd):
+    state = '0'
+    try: # Reset create input to False
+        index = test_cmd.index('--use-create-input') + 1
+        test_cmd[index] = state
+    except ValueError:
+        test_cmd.append(f'--use-create-input={state}')
+    return test_cmd
+
+
+# -----------------------------------------------------------------------------
+# Benchmarks collector
+# -----------------------------------------------------------------------------
+def update_test_cmd(test_cmd, device_type):
+
+    test_cmd = amend_conv_options(test_cmd)
+    test_cmd = amend_device_type(test_cmd, device_type)
+    test_cmd.append('--profile')
+    test_cmd.append('--preplan=0')
+    test_cmd = amend_create_input(test_cmd)
+
+    return test_cmd
+
+# -----------------------------------------------------------------------------
 # Benchmarks collector
 # -----------------------------------------------------------------------------
 def get_list_of_tests(cmd, device_type):
@@ -231,16 +284,13 @@ def get_list_of_tests(cmd, device_type):
             if match:
                 tests_group = match.group(5).split("/")[-1]
                 if tests_group in group_to_analyse:
-                    test_cmd = match.group(6).replace('"','').split(" ")[:-1]
+                    test_cmd = match.group(6).replace('"','').replace('=',' ').split(' ')
                     # Change batch size to 2 (make the data collection a bit faster)
                     test_cmd[test_cmd.index('--batch-size') + 1] = '2'
-                    # NOTE: Ideally need to search through the matches in case a test already has  conv options and append it
-                    test_cmd.append(r'--convolution-options={"insertTransformsCycleCountProgs":true}')
                     test_cmd.insert(0, match.group(5))
-                    test_cmd.append(f'--device-type={device_type}')
-                    test_cmd.append(r'--profile')
-                    test_cmd.append('--preplan=0')
+                    test_cmd = update_test_cmd(test_cmd, device_type)
                     tests_dict[match.group(2)] = test_cmd
+
     return tests_dict
 
 
@@ -267,14 +317,21 @@ def collect_standard_benchmarks(names, device_type):
 # -----------------------------------------------------------------------------
 # Get benchmarks from file
 # -----------------------------------------------------------------------------
-def parse_test_file(file_path):
+def parse_test_file(file_path, device_type):
     tests_dict = {}
     tests_match = re.compile(r'^name:(.+),\scommand:(.+)$')
-    with open(file_path, mode='r', encoding='utf-8') as f:
-        line = f.readline()
-        match = tests_match.match(line.decode('utf-8'))
-        if match:
-            tests_dict[match.group(1)] = match.group(2)
+    # with open(file_path, mode='r', encoding='utf-8') as f:
+    with open(file_path, mode='r') as f:
+        for line in f:
+            match = tests_match.match(line)
+            if match:
+                test_cmd = match.group(2).replace('=','\' \'').split('\' \'')
+                # This is a bit of hack to  get rid of leading apostrophy
+                test_cmd[0]  = test_cmd[0][1:]
+                test_cmd = update_test_cmd(test_cmd, device_type)
+                for phase in phases_dict:
+                    tests_dict[f'random{match.group(1)}_{phase}'] =\
+                        test_cmd + [f'--single-phase={phase}']
 
     return tests_dict
 
@@ -319,7 +376,7 @@ def add_permutations(standard_test):
         # Example of debug params
         # p_list = phases_dict
         # so_list = ['false']
-        # ed_list =  ['[]']
+        # ed_list =  ['[1,0]']
         # ocfd_list = ['[]']
         # ccgf_list = ['1']
 
@@ -333,9 +390,9 @@ def add_permutations(standard_test):
         parameters = itertools.product(p_list, so_list, ed_list, ocfd_list, ccgf_list)
 
         for phase, so, ed, ocfd, ccgf in parameters:
-            final_test_name = f'{name}_{so}_{edStr}_{ocfdStr}_[{ccgf}]_{phase}'
             edStr = str(ed).replace(', ', '_')
             ocfdStr = str(ocfd).replace(', ', '_')
+            final_test_name = f'{name}_{so}_{edStr}_{ocfdStr}_[{ccgf}]_{phase}'
 
             all_tests_dic[final_test_name] = standard_test[name] +\
                     [f'--single-phase={phase}'] +\
@@ -399,23 +456,11 @@ def run_tests(tests_dict, output_path, runtime_timeout):
 # Capture information from profile output
 # -----------------------------------------------------------------------------
 def capture_exec_cycles(log_output):
-#   //  - weightsTranspose (optional)
-#   //  - transformPreSerial
-#   //  - repeat(loopCount)
-#   //    - slice
-#   //    - transformPre[level=0]
-#   //    - transformPre[level=1]
-#   //    - convolve[level=1]
-#   //    - transformPost[level=1]
-#   //    - reduce[level=0]
-#   //    - transformPost[level=0]
-#   //    - update/addInPlace
-#   //    - loopPost
-#   //  - transformPostSerial
-#   //  - finalizeProg
-
-    exec_start_capture = re.compile(r'^([a-zA-Z]+)/([a-zA-Z]+\d)/timeBeforeCS_(\d+)$')
-    exec_end_capture = re.compile(r'^([a-zA-Z]+)/([a-zA-Z]+\d)/timeAfterCS_(\d+)$')
+    # Current format:
+    #    debugPrefix + "/timeBeforeCS_" + id
+    #    debugPrefix + "/timeAfterCS_" + id
+    exec_start_capture = re.compile(r'^(.+)/timeBeforeCS_(\d+)$')
+    exec_end_capture = re.compile(r'^(.+)/timeAfterCS_(\d+)$')
     ExecStepsInfo = collections.namedtuple('ExecStepsInfo', ['location', 'cs', 'cycles'])
 
     valid = False
@@ -426,20 +471,24 @@ def capture_exec_cycles(log_output):
     for step in log_output:
         exec_steps_named = ExecStepsInfo._make(x for x in step)
         start_match = exec_start_capture.match(exec_steps_named.cs)
-        if start_match and start_match.group(2) in execution_fields_names:
-            execution_step_name = start_match.group(2)
-            compute_set_id = start_match.group(3)
-            continue
+        if start_match:
+            cs_name = start_match.group(1).split('/')[-1]
+            if cs_name in execution_fields_names:
+                execution_step_name = cs_name
+                compute_set_id = start_match.group(2)
+                continue
         end_match = exec_end_capture.match(exec_steps_named.cs)
-        if end_match and end_match.group(2) in execution_fields_names:
-            if compute_set_id != end_match.group(3):
-                logging.debug('Expected timeAfterCS_%s. Got timeAfterCS_%s', compute_set_id, end_match.group(2))
-                raise 'Couldn\'t find timeAfterCS_'
-            compute_set_id = 0 # reset
-            execution_step_name = ''
-            # At least  one valid pair of cycle count found
-            valid = True
-            continue
+        if end_match:
+            cs_name = end_match.group(1).split('/')[-1]
+            if cs_name in execution_fields_names:
+                if compute_set_id != end_match.group(2):
+                    logging.error('Expected timeAfterCS_%s. Got timeAfterCS_%s', compute_set_id, end_match.group(2))
+                    raise 'Couldn\'t find timeAfterCS_'
+                compute_set_id = 0 # reset
+                execution_step_name = ''
+                # At least  one valid pair of cycle count found
+                valid = True
+                continue
 
         if compute_set_id != 0 and exec_steps_named.location in execution_step_cycles:
             index = execution_fields_names.index(execution_step_name)
@@ -463,15 +512,25 @@ def get_diffs(planner_cycles,  profile_cycles):
     return diff
 
 
+def get_execution_offset(field_name, step_name):
+    if field_name not in execution_fields_names:
+        logging.error('Requested filed (%s) doesn\'t exist in %s', field_name, str(execution_fields_names))
+        sys.exit(1)
+    if step_name not in execution_step_cycles:
+        logging.error('Requested step (%s) doesn\'t exist in %s', step_name, str(execution_step_cycles))
+        sys.exit(1)
+
+    transforms_offset = execution_fields_names.index(field_name) * len(execution_step_cycles)
+    return transforms_offset + execution_step_cycles.index(step_name)
+
+
 def calculate_diffs(planner_data, profile_data):
-
     # At the moment only do diffs  for transfroms but can be exteded to  any other fields
-    transforms_offset = execution_fields_names.index('transformPre0') * len(execution_step_cycles)
-    transforms_exchange = transforms_offset + execution_step_cycles.index('DoExchange')
-    transforms_on_tile = transforms_offset + execution_step_cycles.index('OnTileExecute')
+    te_index = get_execution_offset('transformPre0', 'DoExchange')
+    tot_index = get_execution_offset('transformPre0', 'OnTileExecute')
 
-    transforms_exchange_diff = get_diffs(planner_data.transformsExchangeCycles, profile_data[transforms_exchange])
-    transforms_on_tile_diff = get_diffs(planner_data.transformsCopyCycles, profile_data[transforms_on_tile])
+    transforms_exchange_diff = get_diffs(planner_data.transformsExchangeCycles, profile_data[te_index])
+    transforms_on_tile_diff = get_diffs(planner_data.transformsCopyCycles, profile_data[tot_index])
 
     return Planner2ProfileRatioFields._make(x for x in [transforms_exchange_diff, transforms_on_tile_diff])
 
@@ -543,7 +602,8 @@ def capture_logs_info(tests_dict, output_path, remove_log_files):
             if valid:
                 phase_dict[name].append(profile_data)
             else:
-                logging.debug('%s - No transfroms markers found in profile output. Make sure you use next option: --convolution-options={{\"insertTransformsCycleCountProgs\":true}}', name)
+                logging.debug('%s - No transfroms markers found in profile output. Make sure you use next option:\
+                               --convolution-options={{\"insertTransformsCycleCountProgs\":true}}', name)
                 continue
         else:
             logging.debug('%s - No profile info. Planner failed...', name)
@@ -635,11 +695,11 @@ def generate_ci_tests(workspace, test_binary, device_type):
         ci_test_dict[test_name] = [test_binary,
                         '--field', '{7,7}', '--kernel-size', '3', '--padding', '1', '--input-channels', '1',
                         '--output-channels', '1', '--conv-groups', '64', '--batch-size', '2', '--bias', '0',
-                        '--ignore-data', '--profile-format', 'experimental', f'--device-type={device_type}', '--profile',
-                        f'--single-phase={phase}', '--tiles-per-ipu=2',
+                        '--ignore-data', '--profile-format', 'experimental', f'--device-type={device_type}',
+                        '--profile', f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
                         '--preplan', '0',
-                        transform_constraints(phase, 'true', '[]', '[]', '1')]
+                        transform_constraints(phase, 'true', '[0]', '[1]', '1')]
 
         # Remove ci-test logs to guarantee tests run
         file_to_remove = os.path.join(workspace, test_name + LOG_FILE_EXT)
@@ -647,6 +707,48 @@ def generate_ci_tests(workspace, test_binary, device_type):
             os.remove(file_to_remove)
 
     return ci_test_dict
+
+
+# -----------------------------------------------------------------------------
+# Validate CI tests results
+# -----------------------------------------------------------------------------
+def validate_ci_test(all_results):
+    # Successful capture shall have next tuples:
+    #    - planner(0)
+    #    - transform0(1)
+    #    - partition0(2)
+    #    - conv params(3)
+    #    - profiles infos(4)
+    #    - diff ratio(5)
+    if len(all_results) != len(phases_dict):
+        logging.error(' No valid test result for all phases')
+        logging.error('Only following present: %s', all_results.keys())
+        sys.exit(1)
+    else:
+        for k in all_results:
+            if len(all_results[k]) != 6:
+                logging.error('Not all test data found for %s phase', k)
+                sys.exit(1)
+
+        # Check so specific transfroms cycles fields
+        execution_data_index = len(all_results['ci_test_fwd']) - 2
+        tp0_index = get_execution_offset('transformPre0', 'OnTileExecute')
+        tp1_index = get_execution_offset('transformPre1', 'OnTileExecute')
+
+        # fwd pass check
+        if all_results['ci_test_fwd'][execution_data_index][tp0_index] == 0:
+            logging.error('FWD pass. transformPre0::OnTileExecute shall be greater than 0')
+            sys.exit(1)
+
+        # bwd pass check
+        if all_results['ci_test_bwd'][execution_data_index][tp1_index] == 0:
+            logging.error('BWD pass. transformPre1::OnTileExecute shall be greater than 0')
+            sys.exit(1)
+
+        # wu pass check
+        if all_results['ci_test_wu'][execution_data_index][tp0_index] == 0:
+            logging.error('WU pass. transformPre0::OnTileExecute shall be greater than 0')
+            sys.exit(1)
 
 
 # -----------------------------------------------------------------------------
@@ -700,7 +802,7 @@ def main():
 
     elif os.path.exists(args.test_file):
         logging.info('Collecting benchmarks from a file')
-        tests_dict = parse_test_file(args.test_file)
+        tests_dict = parse_test_file(args.test_file, args.device_type)
 
     else:
         logging.info('Collecting existent benchmarks')
@@ -720,16 +822,7 @@ def main():
 
     # Dump results
     if args.ci_test is True:
-        # Successful capture shall have - planner, transform0, partition0, conv params, profiles infos and a diff ratio
-        if len(all_results) != len(phases_dict):
-            logging.error(' No valid test result for all phases')
-            logging.error('Only following present: %s', all_results.keys())
-            sys.exit(1)
-        else:
-            for k in all_results:
-                if len(all_results[k]) != 6:
-                    logging.error('Not all test data found for %s phase', k)
-                    sys.exit(1)
+        validate_ci_test(all_results)
     else:
         logging.info('Storing results into a file(s)')
         dump_results(all_results, report_file)
