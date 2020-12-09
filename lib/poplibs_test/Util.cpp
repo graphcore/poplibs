@@ -255,18 +255,26 @@ bool checkIsClose(const std::string &name, const FPType *actual,
   auto it = actual;
   auto end = it + N;
   bool isClose = true;
+  unsigned mismatch = 0;
+  unsigned mismatchPrinted = 20;
   for (; it != end; ++it, ++expected) {
     if (!checkIsClose(*it, *expected, relativeTolerance) &&
         std::fabs(*expected - *it) > absoluteTolerance) {
       isClose = false;
-      const auto n = it - actual;
-      std::cerr << "mismatch on element ";
-      std::cerr << prettyCoord(name, n, shape) << ':';
-      std::cerr << " expected=" << *expected;
-      std::cerr << " actual=" << *it;
-      std::cerr << " (abs=" << *it - *expected;
-      std::cerr << ", rel=" << ((*it / *expected) - 1.0) * 100.0 << "%)\n";
+      if (mismatch++ < mismatchPrinted) {
+        const auto n = it - actual;
+        std::cerr << "mismatch on element ";
+        std::cerr << prettyCoord(name, n, shape) << ':';
+        std::cerr << " expected=" << *expected;
+        std::cerr << " actual=" << *it;
+        std::cerr << " (abs=" << *it - *expected;
+        std::cerr << ", rel=" << ((*it / *expected) - 1.0) * 100.0 << "%)\n";
+      }
     }
+  }
+  if (mismatch >= mismatchPrinted) {
+    std::cerr << "Number or mismatches " << mismatch << " exceeded "
+              << mismatchPrinted << ", messages suppressed.\n";
   }
   return isClose;
 }
