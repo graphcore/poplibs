@@ -124,6 +124,13 @@ class PartitionerImpl {
   template <typename T>
   std::vector<T> createDenseBuckets(const CSRMatrix<T> &matrix_) const;
 
+  template <typename T>
+  std::vector<T>
+  createCOONzValues(const std::vector<std::size_t> &cooNzOffsets,
+                    const std::vector<std::size_t> &cooColumnIndices,
+                    const std::vector<std::size_t> &cooRowIndices,
+                    const std::vector<T> &nzValues) const;
+
 public:
   PartitionerImpl(const std::vector<std::size_t> &dimensions,
                   const std::vector<std::size_t> &grainSizes,

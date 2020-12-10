@@ -1649,16 +1649,15 @@ std::pair<std::vector<std::size_t>, std::vector<T>>
 PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
                                      const poplar::DebugNameAndId &dnai) const {
 
-  if (this->useDense) {
-    // TODO return non empty metaInfo when using dense plan
-    return std::make_pair(std::vector<std::size_t>(), pnBucketsImpl.nzValues);
-  }
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   // We use the same overflow info for all passes
   auto metaInfoBucket = overflowInfoForFwd(pnBuckets);
 
   std::vector<T> nzBucket;
+  if (this->useDense) {
+    nzBucket = pnBucketsImpl.nzValues;
+  }
   for (std::size_t b = 0; b != pnBuckets.size(); ++b) {
     std::string str = "";
     if (logging::popsparse::shouldLog(logging::Level::Debug)) {
@@ -1668,9 +1667,14 @@ PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
 
     metaInfoBucket.insert(metaInfoBucket.end(), bucketFwd.first.begin(),
                           bucketFwd.first.end());
-    nzBucket.insert(nzBucket.end(), bucketFwd.second.begin(),
-                    bucketFwd.second.end());
-
+    if (!this->useDense) {
+      // no need to compute Nzbuckets when using dense plan. can just copy
+      // them
+      // TODO could be a little more efficient by not creating the
+      // nzvalues buckets at all when using dense plan inside bucketsForForward
+      nzBucket.insert(nzBucket.end(), bucketFwd.second.begin(),
+                      bucketFwd.second.end());
+    }
     if (!sharedBuckets && gradAEnabled) {
       std::string str = "";
       if (!dnai.getPathName().empty() &&
@@ -1687,9 +1691,48 @@ PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
 }
 
 template <typename T>
+std::vector<T> PartitionerImpl::createCOONzValues(
+    const std::vector<std::size_t> &cooNzOffsets,
+    const std::vector<std::size_t> &cooColumnIndices,
+    const std::vector<std::size_t> &cooRowIndices,
+    const std::vector<T> &nzValues) const {
+
+  const auto blockSize = this->grainX * this->grainY;
+  std::vector<T> cooNzValues;
+  cooNzValues.reserve(cooNzOffsets.size() * blockSize);
+  if (!this->useDense) {
+    for (const auto &nzOffset : cooNzOffsets) {
+      if ((nzOffset + 1) * blockSize > nzValues.size()) {
+        throw poputil::poplibs_error("Invalid meta-info: Meta-info refers to "
+                                     "more non-zero elements than exist");
+      }
+      cooNzValues.insert(cooNzValues.end(),
+                         nzValues.begin() + nzOffset * blockSize,
+                         nzValues.begin() + (nzOffset + 1) * blockSize);
+    }
+  } else {
+    assert(cooColumnIndices.size() == cooRowIndices.size());
+    boost::const_multi_array_ref<T, 2> mat(
+        nzValues.data(), boost::extents[this->numY][this->numX]);
+    assert(nzValues.size() == mat.num_elements());
+    for (std::size_t i = 0; i < cooRowIndices.size(); ++i) {
+      for (std::size_t x = cooRowIndices[i];
+           x < cooRowIndices[i] + this->grainX; ++x) {
+        for (std::size_t y = cooColumnIndices[i];
+             y < cooColumnIndices[i] + this->grainY; ++y) {
+          cooNzValues.push_back(mat[y][x]);
+        }
+      }
+    }
+  }
+  return cooNzValues;
+}
+
+template <typename T>
 COOMatrix<T>
 PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
                                     const std::vector<T> &nzValues) const {
+
   using U = std::size_t;
   using MI_U = MetaInfo<U>;
   using BMI_U = BlockMetaInfo<U>;
@@ -1717,9 +1760,15 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
     throw poputil::poplibs_error("Metainfo flattened buckets size does not "
                                  "match partitioner in COO conversion");
   }
-  if (nzValues.size() != numBuckets * nzElemsBucketBlocks * blockSize) {
-    throw poputil::poplibs_error("NZ flattened buckets size does not match "
-                                 "partitioner in COO conversion");
+  if (this->useDense) {
+    if (nzValues.size() != this->numX * this->numY) {
+      throw poputil::poplibs_error("Nzvalues doens't equal size of matrix");
+    }
+  } else {
+    if (nzValues.size() != numBuckets * nzElemsBucketBlocks * blockSize) {
+      throw poputil::poplibs_error("NZ flattened buckets size does not match "
+                                   "partitioner in COO conversion");
+    }
   }
 
   std::vector<std::size_t> cooRowIndices;
@@ -1896,17 +1945,8 @@ PartitionerImpl::bucketsToCOOMatrix(const std::vector<std::size_t> &metaInfo,
     }
   }
 
-  std::vector<T> cooNzValues;
-  cooNzValues.reserve(cooNzOffsets.size() * blockSize);
-  for (const auto &nzOffset : cooNzOffsets) {
-    if ((nzOffset + 1) * blockSize > nzValues.size()) {
-      throw poputil::poplibs_error("Invalid meta-info: Meta-info refers to "
-                                   "more non-zero elements than exist");
-    }
-    cooNzValues.insert(cooNzValues.end(),
-                       nzValues.begin() + nzOffset * blockSize,
-                       nzValues.begin() + (nzOffset + 1) * blockSize);
-  }
+  auto cooNzValues = createCOONzValues(cooNzOffsets, cooColumnIndices,
+                                       cooRowIndices, nzValues);
 
   auto matrix =
       COOMatrix<T>(std::move(cooNzValues), std::move(cooColumnIndices),

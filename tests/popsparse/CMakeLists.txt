@@ -91,6 +91,7 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0" "block-group2")
       --check-result)
 endforeach()
 
+
 foreach(DATA_TYPE half float)
   # Tests specifically covering block-sparsity
   set(PARTIALS_TYPE_CANDIDATES float)
@@ -395,6 +396,24 @@ foreach(BLOCK_XY 1 4)
             endforeach()
           endforeach()
         endforeach()
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+
+foreach(BLOCK_SIZE 1 4 8)
+  foreach(BATCH 8 16)
+    foreach(Y_SIZE 24 64)
+      foreach(X_SIZE 40 80)
+        add_test(NAME SparsePartitionerTest_${BLOCK_SIZE}_${BATCH}_${Y_SIZE}_${X_SIZE}_densepartition
+                 COMMAND SparsePartitionerTest
+                   --matmul-shape={${X_SIZE},${Y_SIZE},${BATCH}}
+                   --split-shape={2,2,8}
+                   --block-shape={${BLOCK_SIZE},${BLOCK_SIZE}}
+                   --sparsity-level=0.1
+                   --use-dense=1
+                 )
       endforeach()
     endforeach()
   endforeach()

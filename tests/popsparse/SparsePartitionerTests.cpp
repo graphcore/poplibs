@@ -67,6 +67,17 @@ buildCSRMatrix(const std::vector<size_t> &dimensions, double sparsityFactor,
                                       blockDimensions);
 }
 
+template <class T>
+static void printVec(const std::vector<T> &vec, std::string name) {
+  std::string res = "{";
+  for (const auto val : vec) {
+    res += std::to_string(val);
+    res += ",";
+  }
+  res += "}";
+  logging::popsparse::debug("{}: {}", name, res);
+}
+
 static bool validatePartition(const std::vector<std::size_t> &dimensions,
                               const std::vector<std::size_t> &grainSizes,
                               const std::vector<std::size_t> &xSplits,
@@ -77,7 +88,7 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
                               std::size_t nzElementsBucketSize,
                               std::size_t bucketsPerZ, bool useBlockMetaInfo,
                               bool includeGradA, bool includeGradW,
-                              bool checkSparsityDataImpl) {
+                              bool checkSparsityDataImpl, bool useDense) {
 
   const auto blockSizeX = grainSizes.at(0);
   const auto blockSizeY = grainSizes.at(1);
@@ -101,24 +112,41 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
       dimensions, grainSizes, {grainSizes.at(0), grainSizes.at(1)}, xSplits,
       ySplits, zSplits, metaInfoBucketSize, metaInfoBucketSizeGradA,
       nzElementsBucketSize, 6, bucketsPerZ, useBlockMetaInfo, includeGradA,
-      includeGradW, sharedBuckets, dataType, accumType, options, false);
+      includeGradW, sharedBuckets, dataType, accumType, options, useDense);
 
   auto pnBucketsImpl = partitioner.createBuckets(csrMatrix);
-  auto pnBuckets = pnBucketsImpl.pnBuckets;
-  const auto &nzValues = pnBucketsImpl.nzValues;
-
-  partitioner.overflowInfoForFwd(pnBuckets);
 
   if (checkSparsityDataImpl) {
     auto impl = partitioner.bucketImplAllPasses(pnBucketsImpl);
     auto csrMatrixRecovered =
         partitioner.bucketsToCSRMatrix(impl.first, impl.second);
-    if (csrMatrix.nzValues != csrMatrixRecovered.nzValues ||
-        csrMatrix.columnIndices != csrMatrixRecovered.columnIndices ||
-        csrMatrix.rowIndices != csrMatrixRecovered.rowIndices) {
+    const bool nzIncorrect = csrMatrix.nzValues != csrMatrixRecovered.nzValues;
+    const bool colIncorrect =
+        csrMatrix.columnIndices != csrMatrixRecovered.columnIndices;
+    const bool rowIncorrect =
+        csrMatrix.rowIndices != csrMatrixRecovered.rowIndices;
+    if (nzIncorrect || colIncorrect || rowIncorrect) {
+      logging::popsparse::err("Failed nz {} col {} row {}", nzIncorrect,
+                              colIncorrect, rowIncorrect);
+      if (nzIncorrect) {
+        printVec(csrMatrix.nzValues, "original nz");
+        printVec(csrMatrixRecovered.nzValues, "New nz");
+      }
+      if (colIncorrect) {
+        printVec(csrMatrix.columnIndices, "original cols");
+        printVec(csrMatrixRecovered.columnIndices, "new cols");
+      }
+      if (rowIncorrect) {
+        printVec(csrMatrix.rowIndices, "original rows");
+        printVec(csrMatrixRecovered.rowIndices, "new rows");
+      }
       return false;
     }
   }
+  auto pnBuckets = pnBucketsImpl.pnBuckets;
+  const auto &nzValues = pnBucketsImpl.nzValues;
+
+  partitioner.overflowInfoForFwd(pnBuckets);
 
   // tile partitions must be less than the number of splits
   if (pnBuckets.size() !=
@@ -182,10 +210,12 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
   logging::popsparse::debug(" Actual row values: {} ", rowIndicesActual);
   logging::popsparse::debug(" expect row values: {} ", csrMatrix.rowIndices);
 
-  if (nzValuesActual.size() != csrMatrix.nzValues.size()) {
+  // If using dense partition nzValues will not equal the CSR nz values
+  if (!useDense && nzValuesActual.size() != csrMatrix.nzValues.size()) {
     return false;
   }
-  if (!std::equal(nzValuesActual.begin(), nzValuesActual.end(),
+  if (!useDense &&
+      !std::equal(nzValuesActual.begin(), nzValuesActual.end(),
                   csrMatrix.nzValues.begin(), csrMatrix.nzValues.end())) {
     return false;
   }
@@ -224,6 +254,7 @@ int main(int argc, char **argv) {
   bool includeGradW = true;
   bool includeGradA = true;
   double excess = 0.1;
+  bool useDense = false;
 
   po::options_description desc("Options");
   // clang-format off
@@ -258,6 +289,9 @@ int main(int argc, char **argv) {
     ("include-grada",
      po::value<bool>(&includeGradA)->default_value(includeGradA),
      "Include GradA")
+    ("use-dense",
+     po::value<bool>(&useDense)->default_value(useDense),
+     "use dense partitioner")
   ;
   // clang-format on
   po::variables_map vm;
@@ -347,8 +381,8 @@ int main(int argc, char **argv) {
   }
 
   const bool checkSparsityDataImpl = !disableSparsityDataImplCheck;
-  return !validatePartition(matShape.val, grainSizes, splits[0], splits[1],
-                            splits[2], sparsityLevel, metaInfoBucketSize,
-                            nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
-                            includeGradA, includeGradW, checkSparsityDataImpl);
+  return !validatePartition(
+      matShape.val, grainSizes, splits[0], splits[1], splits[2], sparsityLevel,
+      metaInfoBucketSize, nzBucketSize, numBucketsZ, useBlockMetaInfoFormat,
+      includeGradA, includeGradW, checkSparsityDataImpl, useDense);
 }
