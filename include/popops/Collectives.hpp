@@ -188,10 +188,10 @@ inline poplar::Tensor allReduce(poplar::Graph &graph,
                                 const poplar::Tensor &toReduce,
                                 popops::Operation op,
                                 poplar::program::Sequence &prog,
-                                const std::string &debugPrefix = "",
+                                const poplar::DebugContext &debugContext = {},
                                 const poplar::OptionFlags &options = {}) {
   return allReduce(graph, toReduce, operationToCollectiveOperator(op), prog,
-                   debugPrefix, options);
+                   debugContext, options);
 }
 
 /** Perform an all-reduce operation on the specified replicated tensor.

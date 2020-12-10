@@ -173,7 +173,7 @@ poplar::Tensor dynamicSlice(poplar::Graph &graph, poplar::Tensor input,
 
   if (sliceDims.size() > 0) {
     out = popops::dynamicSlice(graph, input, sliceIndices, sliceDims,
-                               newSliceSizes, prog);
+                               newSliceSizes, prog, {dnai});
   } else {
     poplar::Tensor copy = graph.clone(input, {dnai});
     prog.add(poplar::program::Copy(input, copy, false, {dnai}));

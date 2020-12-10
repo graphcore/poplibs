@@ -459,7 +459,7 @@ static void internalReplicatedSlice(Graph &graph, const Tensor &fragmentsByRing,
                                     Sequence &prog,
                                     const DebugNameAndId &dnai) {
   auto dslice = dynamicSlice(graph, fragmentsByRing, sliceIndex.expand({0}),
-                             {0}, {1}, prog);
+                             {0}, {1}, prog, {dnai});
   // this copy is probably avoidable
   prog.add(Copy(dslice, dst, false, {dnai}));
 }
