@@ -1,6 +1,8 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 
 #define BOOST_TEST_MODULE BlockSparseOpsTest
+#include "poputil/exceptions.hpp"
+#include <boost/random.hpp>
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
 #include <poplar/IPUModel.hpp>
@@ -59,23 +61,20 @@ void populateSparseBlocks(unsigned blockRow, unsigned blockCol,
                           bool needTranspose,
                           std::vector<float> &valuesRowMjSparse,
                           std::vector<float> &valuesBlockSparse,
-                          float multiplier = 1.0f) {
+                          std::pair<float, float> inputRange = {0, 1.0f}) {
+  if (inputRange.first >= inputRange.second) {
+    throw poplibs_error("Range for input random data is invalid");
+  }
   const unsigned blockArea = blockRow * blockCol;
-#if USE_RANDOM_VALUES
-#if 0
-  // Random testing. Avoid in production
-  unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
-  std::mt19937 randomEngine(seed);
-#endif
-  std::mt19937 randomEngine;
-#endif
   valuesRowMjSparse.resize(nz * blockArea);
   valuesBlockSparse.resize(valuesRowMjSparse.size());
 
 #if USE_RANDOM_VALUES
+  std::mt19937 randomEngine;
+  boost::random::uniform_real_distribution<> dist(inputRange.first,
+                                                  inputRange.second);
   for (unsigned i = 0; i < valuesRowMjSparse.size(); ++i) {
-    valuesRowMjSparse[i] = static_cast<float>(randomEngine()) /
-                           static_cast<float>(randomEngine.max()) * multiplier;
+    valuesRowMjSparse[i] = dist(randomEngine);
   }
 #endif
   for (unsigned br = 0, idxBlock = 0, idxBlockComplete = 0; br < blockRows;
@@ -212,7 +211,8 @@ BOOST_AUTO_TEST_CASE(slice_test) {
 void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
                  unsigned blockCols, const std::vector<unsigned char> &sparsity,
                  const Type &dataType, bool filterUpperTriangle,
-                 unsigned numGroups, bool inPlace, float multiplier = 1.0f) {
+                 unsigned numGroups, bool inPlace,
+                 std::pair<float, float> inputRange = {0, 1.0f}) {
   auto device = createTestDeviceFullSize(TEST_TARGET);
   const auto &target = device.getTarget();
   Graph graph(target);
@@ -231,7 +231,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   std::vector<float> valuesBlockSparse;
   populateSparseBlocks(blockRow, blockCol, blockRows, blockCols, nz,
                        nzBlocksByRow, false, valuesRowMjSparse,
-                       valuesBlockSparse, multiplier);
+                       valuesBlockSparse, inputRange);
 
   std::vector<std::vector<float>> valuesRowSparse(rows);
   for (unsigned br = 0, r = 0, idxElem = 0; br < blockRows; ++br) {
@@ -310,7 +310,8 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
   }
   mainSequence.add(downloadProg);
 
-  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"}};
+  const OptionFlags engineOptions{{"debug.allowOutOfMemory", "true"},
+                                  {"debug.nanOverflowException", "true"}};
 
   Engine engine(graph, mainSequence, engineOptions);
   poplibs_test::util::attachStreams(engine, streamMaps);
@@ -344,6 +345,7 @@ void softmaxTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,
           unsigned idxInBlock = rb * blockCol + cb;
           // We compare the result only when softmaxrow is non-empty
           float valueBsSoftmax = bsSoftmaxHost[idxBlock][idxInBlock];
+          BOOST_TEST(!std::isnan(valueBsSoftmax));
           float valueNnSoftmax;
           if (colDense < nnSoftmaxHosts[rowDense].shape()[1]) {
             valueNnSoftmax = nnSoftmaxHosts[rowDense][0][colDense];
@@ -405,7 +407,7 @@ BOOST_AUTO_TEST_CASE(softmax_testF32_largeValues) {
   sparsity[2 * blockCols + 1] = 1; // 2,1
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, FLOAT, false,
-              1, false, 1000.0f);
+              1, false, {-1000, 1000});
 }
 
 BOOST_AUTO_TEST_CASE(softmax_testF32inPlace) {
@@ -489,7 +491,7 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF32) {
               1, false);
 }
 
-BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16) {
+BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16_pos) {
   const unsigned blockRow = 2;
   const unsigned blockCol = 3;
   const unsigned blockRows = 4;
@@ -501,7 +503,22 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16) {
   sparsity[3 * blockCols + 2] = 1; // 3,2
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true, 1,
-              false);
+              false, {0, 1.0});
+}
+
+BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16_neg_pos) {
+  const unsigned blockRow = 2;
+  const unsigned blockCol = 3;
+  const unsigned blockRows = 4;
+  const unsigned blockCols = 3;
+  std::vector<unsigned char> sparsity(blockRows * blockCols, 0);
+  sparsity[0 * blockCols + 0] = 1; // 0,0
+  sparsity[1 * blockCols + 1] = 1; // 1,1
+  sparsity[2 * blockCols + 0] = 1; // 2,0
+  sparsity[3 * blockCols + 2] = 1; // 3,2
+
+  softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true, 1,
+              false, {-1.0, 1.0});
 }
 
 BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16_largeValues) {
@@ -516,7 +533,7 @@ BOOST_AUTO_TEST_CASE(softmaxSubBlockMask_testF16_largeValues) {
   sparsity[3 * blockCols + 2] = 1; // 3,2
 
   softmaxTest(blockRow, blockCol, blockRows, blockCols, sparsity, HALF, true, 1,
-              false, 30000.0f);
+              false, {0, 30000.0f});
 }
 
 void softmaxGradTest(unsigned blockRow, unsigned blockCol, unsigned blockRows,

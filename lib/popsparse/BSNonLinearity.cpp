@@ -11,6 +11,7 @@
 #include "popops/Reduce.hpp"
 #include "popops/Zero.hpp"
 #include "popsparse/experimental/BlockSparse.hpp"
+#include <poplar/CSRFunctions.hpp>
 #include <popops/Pad.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/exceptions.hpp>
@@ -340,8 +341,25 @@ Tensor bsSoftmaxInternal(Graph &graph, Tensor sparseTensor, bool inPlace,
   Tensor slicesAsRectFlat = concat(slicesAsRectFlatVec);
 
   // 3. Subtract maximum element from each row
+  Tensor fpState;
+  if (dataType == HALF) {
+    // For half data type, the subtraction has a high probability of overflow
+    // for inputs which are set to minimum and when stabilisation results in
+    // positive maximum for half data type.
+    FloatingPointBehaviour clearNaNOnOverflow(false, false, false, false, true);
+    FloatingPointBehaviour unchangedBehaviour(false, false, false, false,
+                                              false);
+    fpState = getAndModifyFloatingPointBehaviour(
+        graph, prog, clearNaNOnOverflow, unchangedBehaviour,
+        dnai.getPathName());
+  }
   popops::subInPlace(graph, slicesAsRectFilteredFlat, maxRowValuesBcastFlat,
                      prog, {dnai, layer});
+
+  if (dataType == HALF) {
+    // restore FP behaviour
+    setFloatingPointBehaviour(graph, prog, fpState, dnai.getPathName());
+  }
 
   // 4. exp
   // No filtering !
