@@ -303,6 +303,31 @@ foreach(DATA_TYPE half float)
   endforeach()
 endforeach()
 
+# Dense version tests
+foreach(PASS fwd)
+  foreach(INPUT_SIZE 32 47 512)
+    foreach(OUTPUT_SIZE 23 128)
+      foreach(BLOCK_SIZE 1)
+        add_multitarget_test(
+          NAME sparse_matmul_force_dense_${PASS}_${INPUT_SIZE}_${OUTPUT_SIZE}
+          COMMAND sparse_fc_layer
+            --data-type=float
+            --partials-type=float
+            --input-size=${INPUT_SIZE}
+            --output-size=${OUTPUT_SIZE}
+            --batch-size=4
+            --block-size=${BLOCK_SIZE}
+            --sparsity-factor=0.3
+            --tiles-per-ipu=24
+            --plan-constraints={\"useDense\":\"true\"}
+            --single-phase=${PASS} 
+        )
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+  
+
 # Test when all dimensions overflow
 add_multitarget_test(
   NAME sparse_fc_layer_all_half_1024in_1080out_4b_0.1sl_sb_true_exc_0.005

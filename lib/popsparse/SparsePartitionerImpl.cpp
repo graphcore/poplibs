@@ -10,6 +10,7 @@
 #include "popsparse/SparsePartitioner.hpp"
 #include "poputil/Util.hpp"
 #include <algorithm>
+#include <boost/multi_array.hpp>
 #include <limits>
 #include <unordered_map>
 
@@ -110,7 +111,9 @@ PartitionerImpl::PartitionerImpl(
     std::size_t nzElementsBucketElements_, std::size_t numWorkerContexts_,
     std::size_t bucketsPerZ_, bool useBlockMetaInfoFormat_, bool includeGradA_,
     bool includeGradW_, bool sharedBuckets_, const poplar::Type &dataType_,
-    const poplar::Type &accumType_, const PartitionerOptions &options) {
+    const poplar::Type &accumType_, const PartitionerOptions &options,
+    bool useDense)
+    : useDense(useDense) {
 
   auto verifySplit = [](std::size_t dimension, const std::vector<size_t> &split,
                         const std::string &str) {
@@ -1065,6 +1068,58 @@ PNBucketsImpl<T> PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_,
     throw poputil::poplibs_error(
         "Number of column indices must match number of non zero values");
   }
+  return this->createBucketsNoErrorCheck(matrix_, matrixNewBlockSize);
+}
+
+template <typename ValueType, typename IndexType>
+static void
+csrToDenseMatrixImpl(boost::multi_array_ref<ValueType, 2> &mat,
+                     const ValueType *nzValues, const IndexType *columnIndices,
+                     const IndexType *rowIndices,
+                     const std::size_t numNonZeroValues,
+                     const std::size_t blockRows, const std::size_t blockCols) {
+  const std::size_t numRows = mat.shape()[1];
+  const std::size_t numColumns = mat.shape()[0];
+  (void)numColumns;
+  const auto blockArea = blockRows * blockCols;
+  std::size_t i = 0;
+  for (std::size_t row = 0; row != numRows; row += blockRows) {
+    const auto bRow = row / blockRows;
+    std::size_t numColEntries =
+        (rowIndices[bRow + 1] - rowIndices[bRow]) / blockArea;
+    assert(numColEntries <= numColumns);
+    for (std::size_t col = 0; col != numColEntries; ++col) {
+      assert(columnIndices[i] < numColumns);
+      // nzValues kept in row major order
+      for (std::size_t r = 0; r != blockRows; ++r) {
+        for (std::size_t c = 0; c != blockCols; ++c) {
+          mat[columnIndices[i] + c][row + r] =
+              nzValues[i * blockArea + r * blockCols + c];
+        }
+      }
+      ++i;
+    }
+  }
+  assert(i * blockArea == numNonZeroValues);
+}
+
+template <typename T>
+std::vector<T>
+PartitionerImpl::createDenseBuckets(const CSRMatrix<T> &matrix_) const {
+  std::vector<T> result(this->numX * this->numY);
+  boost::multi_array_ref<T, 2> view(result.data(),
+                                    boost::extents[this->numY][this->numX]);
+  csrToDenseMatrixImpl(view, matrix_.nzValues.data(),
+                       matrix_.columnIndices.data(), matrix_.rowIndices.data(),
+                       matrix_.nzValues.size(), this->blockDimensions[0],
+                       this->blockDimensions[1]);
+
+  return result;
+}
+
+template <typename T>
+PNBucketsImpl<T> PartitionerImpl::createBucketsNoErrorCheck(
+    const CSRMatrix<T> &matrix_, const CSRMatrix<T> &matrixNewBlockSize) const {
 
   // TODO: Avoid this copy, or at least do it in the internal format.
   auto matrix = matrixNewBlockSize;
@@ -1082,7 +1137,8 @@ PNBucketsImpl<T> PartitionerImpl::createBuckets(const CSRMatrix<T> &matrix_,
       tilePartitions, zSplits, numZ, grainZ, useActualWorkerSplitCosts,
       numWorkerContexts, bucketsPerZ, useBlockMetaInfoFormat, gradWEnabled);
   balanceBuckets(pnBuckets);
-  return {pnBuckets, matrix.nzValues};
+  return {pnBuckets,
+          this->useDense ? this->createDenseBuckets(matrix_) : matrix.nzValues};
 }
 
 template <typename T>
@@ -1526,6 +1582,11 @@ template <typename T>
 std::pair<std::vector<std::vector<std::size_t>>, std::vector<std::vector<T>>>
 PartitionerImpl::bucketsForForward(const PNBucketsImpl<T> &pnBucketsImpl,
                                    const poplar::DebugNameAndId &dnai) const {
+
+  if (this->useDense) {
+    throw poputil::poplibs_error(
+        "Buckets for forward not implemented for dense plans");
+  }
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   const auto numBuckets = pnBuckets.size();
@@ -1544,6 +1605,11 @@ template <typename T>
 std::vector<std::vector<std::size_t>>
 PartitionerImpl::bucketsForGradA(const PNBucketsImpl<T> &pnBucketsImpl,
                                  const poplar::DebugNameAndId &dnai) const {
+
+  if (this->useDense) {
+    throw poputil::poplibs_error(
+        "Buckets for GradA not implemented for dense plans");
+  }
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   const auto numBuckets = pnBuckets.size();
@@ -1582,6 +1648,11 @@ template <typename T>
 std::pair<std::vector<std::size_t>, std::vector<T>>
 PartitionerImpl::bucketImplAllPasses(const PNBucketsImpl<T> &pnBucketsImpl,
                                      const poplar::DebugNameAndId &dnai) const {
+
+  if (this->useDense) {
+    // TODO return non empty metaInfo when using dense plan
+    return std::make_pair(std::vector<std::size_t>(), pnBucketsImpl.nzValues);
+  }
   const auto &pnBuckets = pnBucketsImpl.pnBuckets;
   const auto &nzValues = pnBucketsImpl.nzValues;
   // We use the same overflow info for all passes

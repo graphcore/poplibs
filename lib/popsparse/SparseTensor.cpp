@@ -6,9 +6,11 @@ namespace poputil {
 template <>
 poplar::ProfileValue toProfileValue(const popsparse::dynamic::SparseTensor &t) {
   poplar::ProfileValue::Map v;
+
   v.insert({"metaInfo", toProfileValue(t.getMetaInfoTensor())});
   v.insert({"nzValues", toProfileValue(t.getNzValuesTensor())});
   v.insert({"opMetaData", toProfileValue(t.getOpMetaData())});
+
   return v;
 }
 

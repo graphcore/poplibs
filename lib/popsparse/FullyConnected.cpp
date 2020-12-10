@@ -2520,6 +2520,32 @@ fullyConnectedDenseGradWSerialSplits(const Graph &graph, const Type &inputType,
       matMulOptions);
 }
 
+static std::vector<std::size_t>
+getWeightsShape(const FullyConnectedParams &params) {
+  return {params.getNumGroups(), params.getInputChannelsPerGroup(),
+          params.getOutputChannelsPerGroup()};
+}
+
+static std::vector<std::size_t>
+getActivationsShape(const FullyConnectedParams &params) {
+  return {params.getNumGroups(), params.getBatchSize(),
+          params.getInputChannelsPerGroup()};
+}
+
+static SparseTensor
+createDenseWeights(Graph &graph, const Type &inputType,
+                   const FullyConnectedParams &params,
+                   const poplar::DebugContext &debugContext,
+                   PlanningCache *cache, const poplar::Tensor &metaInfoTensor,
+                   std::unique_ptr<TensorMetaDataBase> opMetaData) {
+  auto denseTensor = poplin::createMatMulGroupedInputRHS(
+      graph, inputType, inputType, getActivationsShape(params),
+      getWeightsShape(params), debugContext);
+
+  return SparseTensor(metaInfoTensor, denseTensor.flatten(),
+                      std::move(opMetaData));
+}
+
 SparseTensor createFullyConnectedWeights(
     Graph &graph, const Type &inputType, const FullyConnectedParams &params,
     const poplar::DebugContext &debugContext, const OptionFlags &optionFlags,
@@ -2536,6 +2562,7 @@ SparseTensor createFullyConnectedWeights(
   Cost cost;
   std::tie(plan, cost) =
       getPlan(graph.getTarget(), inputType, params, optionFlags, cache);
+
   const auto &target = graph.getTarget();
   const auto hierarchy = poplibs::getTileHierarchy(target);
 
@@ -2583,6 +2610,12 @@ SparseTensor createFullyConnectedWeights(
   // Attach meta-data to the sparse tensor.
   std::unique_ptr<TensorMetaDataBase> opMetaData =
       std::make_unique<FullyConnectedTensorMetaData>(params, options);
+
+  if (plan.useDense) {
+    return createDenseWeights(graph, inputType, params, debugContext, cache,
+                              packed.getMetaInfoTensor(),
+                              std::move(opMetaData));
+  }
   return SparseTensor(packed.getMetaInfoTensor(), packed.getNzValuesTensor(),
                       std::move(opMetaData));
 }
@@ -2656,6 +2689,17 @@ static void validateSparseOperandMetaData(const SparseTensor &weights,
   }
 }
 
+static Tensor denseFullyConnectedFwd(Graph &graph, const SparseTensor &weights,
+                                     const Tensor &activations,
+                                     const FullyConnectedParams &params,
+                                     Sequence &prog, PlanningCache *cache,
+                                     const poplar::DebugContext &debugContext) {
+  return poplin::matMulGrouped(
+      graph, activations.reshape(getActivationsShape(params)),
+      weights.getNzValuesTensor().reshape(getWeightsShape(params)), prog,
+      activations.elementType(), debugContext, {});
+}
+
 Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
                          const Tensor &activations,
                          const FullyConnectedParams &params, Sequence &prog,
@@ -2674,6 +2718,11 @@ Tensor fullyConnectedFwd(Graph &graph, const SparseTensor &weights,
   Plan plan;
   Cost cost;
   std::tie(plan, cost) = getPlan(target, inputType, params, optionFlags, cache);
+
+  if (plan.useDense) {
+    return denseFullyConnectedFwd(graph, weights, activations, params, prog,
+                                  cache, {{di}, "denseOperation"});
+  }
 
   const auto hierarchy = poplibs::getTileHierarchy(target);
 

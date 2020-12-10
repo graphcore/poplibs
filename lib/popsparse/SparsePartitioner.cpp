@@ -44,7 +44,7 @@ Partitioner<T>::Partitioner(const FullyConnectedParams &params,
       plan.nzElemsPerBucket, target.getNumWorkerContexts(), 1,
       useBlockMetaInfoFormat, options.doGradAPass, options.doGradWPass,
       options.sharedBuckets, dataType, options.partialsType,
-      options.partitioner));
+      options.partitioner, plan.useDense));
 }
 
 template <typename T>

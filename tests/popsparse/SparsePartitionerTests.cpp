@@ -101,7 +101,7 @@ static bool validatePartition(const std::vector<std::size_t> &dimensions,
       dimensions, grainSizes, {grainSizes.at(0), grainSizes.at(1)}, xSplits,
       ySplits, zSplits, metaInfoBucketSize, metaInfoBucketSizeGradA,
       nzElementsBucketSize, 6, bucketsPerZ, useBlockMetaInfo, includeGradA,
-      includeGradW, sharedBuckets, dataType, accumType, options);
+      includeGradW, sharedBuckets, dataType, accumType, options, false);
 
   auto pnBucketsImpl = partitioner.createBuckets(csrMatrix);
   auto pnBuckets = pnBucketsImpl.pnBuckets;

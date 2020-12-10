@@ -35,7 +35,7 @@ template <typename T> struct PNBucketsImpl {
 // is defined by sets Ix, Iy, and Iz respectively.
 //
 // Consecutive entries in the set give the starting positions of the
-// partitions of a dimensions.
+// partitions of a dismensions.
 class PartitionerImpl {
   // number of X dimensions - rows in  sparse matrix R
   std::size_t numX;
@@ -110,10 +110,19 @@ class PartitionerImpl {
   poplar::Type dataType{poplar::HALF};
   poplar::Type accumType{poplar::FLOAT};
 
+  const bool useDense;
+
   // creates a partition for each PN for a CSR representation.
   std::vector<TilePartition> getTilePartitions(const CSRInternal &matrix) const;
 
   void balanceBuckets(std::vector<PNBucket> &pnBuckets) const;
+
+  template <typename T>
+  PNBucketsImpl<T>
+  createBucketsNoErrorCheck(const CSRMatrix<T> &matrix_,
+                            const CSRMatrix<T> &matrixNewBlockSize) const;
+  template <typename T>
+  std::vector<T> createDenseBuckets(const CSRMatrix<T> &matrix_) const;
 
 public:
   PartitionerImpl(const std::vector<std::size_t> &dimensions,
@@ -129,7 +138,7 @@ public:
                   bool useBlockMetaInfoFormat, bool includeGradA_,
                   bool includeGradW_, bool sharedBuckets_,
                   const poplar::Type &dataType_, const poplar::Type &accumType_,
-                  const PartitionerOptions &options);
+                  const PartitionerOptions &options, const bool useDense);
 
   // Create buckets for a CSC matrix
   template <typename T>

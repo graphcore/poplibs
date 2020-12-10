@@ -410,10 +410,12 @@ int main(int argc, char **argv) try {
   boost::multi_array<double, 2> hostInputGrad(
       boost::extents[batchSize][inputSize]);
 
-  auto pnBucketsImpl = partitioner.getImpl().createBuckets(csrMatrix);
+  if (!plan.useDense) {
+    std::cerr << "Logging Forward pass bucket statistics: ";
+    auto pnBucketsImpl = partitioner.getImpl().createBuckets(csrMatrix);
 
-  std::cerr << "Logging Forward pass bucket statistics: ";
-  logBucketStatistics(pnBucketsImpl.pnBuckets, csrMatrix);
+    logBucketStatistics(pnBucketsImpl.pnBuckets, csrMatrix);
+  }
 
   if (planOnly) {
     return 0;
@@ -460,6 +462,7 @@ int main(int argc, char **argv) try {
   auto rawMetaInfo =
       allocateHostMemoryForTensor(weights.getMetaInfoTensor(), "weights.meta",
                                   graph, uploadProg, downloadProg, tmap);
+
   auto rawNzInfo =
       allocateHostMemoryForTensor(weights.getNzValuesTensor(), "weights.nz",
                                   graph, uploadProg, downloadProg, tmap);
@@ -527,12 +530,17 @@ int main(int argc, char **argv) try {
   const auto &metaInfoFlat = buckets.metaInfo;
   const auto &nzValuesFlat = buckets.nzValues;
   // Overflow info is the same for all passes at time of writing.
-  std::cerr << "overflowInfo = {" << metaInfoFlat.at(0) << ","
-            << metaInfoFlat.at(1) << "," << metaInfoFlat.at(2) << "}\n";
+  if (!plan.useDense) {
+    std::cerr << "overflowInfo = {" << metaInfoFlat.at(0) << ","
+              << metaInfoFlat.at(1) << "," << metaInfoFlat.at(2) << "}\n";
+  }
 
   copy(target, hostInput, dataType, rawInput.get());
-  copy(target, metaInfoFlat, UNSIGNED_SHORT, rawMetaInfo.get());
+  if (rawMetaInfo) {
+    copy(target, metaInfoFlat, UNSIGNED_SHORT, rawMetaInfo.get());
+  }
   copy(target, nzValuesFlat, dataType, rawNzInfo.get());
+
   if (!ignoreData && (doBwdPass || doWuPass)) {
     copy(target, hostOutputGrad, outputGrad.elementType(), rawOutputGrad.get());
   }
@@ -566,6 +574,7 @@ int main(int argc, char **argv) try {
         csrMatrix.nzValues.data(), csrMatrix.columnIndices.data(),
         csrMatrix.rowIndices.data(), csrMatrix.nzValues.size(), outputSize,
         inputSize, blockRows, blockCols);
+
     poplibs_test::gemm::generalMatrixMultiply(hostInput, hostDenseWeights,
                                               modelOutputActs, false, true);
     matchesModel &= checkIsClose("outputActs", hostOutputActs, modelOutputActs,
