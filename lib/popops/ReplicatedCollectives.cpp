@@ -48,8 +48,6 @@ enum class CollectiveMethod {
   // advantage is the that it requires fewer steps and allows the use of
   // larger fragments.
   MEET_IN_MIDDLE_RING,
-  // BarleyTwist - 4 rings, mirrored and non-mirrored serpent in each direction
-  QUAD_DIRECTIONAL_RING,
 };
 
 struct CollectiveOptions {
@@ -104,22 +102,8 @@ invertPermutation(const std::vector<unsigned> &permutation) {
 // Serpent: 0, 1, 3, 2, 4, 5, 7, 6 or mirrored: 1, 0, 2, 3, 5, 4, 6, 7
 enum class RingPattern { Interleaved, Flat, Serpent };
 
-static std::ostream &operator<<(std::ostream &os, const RingPattern &pattern) {
-  switch (pattern) {
-  case RingPattern::Interleaved:
-    return os << "interleaved";
-  case RingPattern::Flat:
-    return os << "flat";
-  case RingPattern::Serpent:
-    return os << "serpent";
-  }
-  POPLIB_UNREACHABLE();
-}
-
 // Return the IPUs in clockwise direction around the ring starting at IPU 0.
-// Parameter mirrored only used for pattern == RingPattern::Serpent
-static std::vector<unsigned> createRing(const unsigned n, RingPattern pattern,
-                                        Mirrored mirrored) {
+static std::vector<unsigned> createRing(const unsigned n, RingPattern pattern) {
   std::vector<unsigned> ring(n);
   unsigned i = 0, id;
   switch (pattern) {
@@ -134,7 +118,7 @@ static std::vector<unsigned> createRing(const unsigned n, RingPattern pattern,
        *    id ^= 1;
        * }
        */
-      id = i ^ ((i >> 1) & 1) ^ ((mirrored == Mirrored::MIRRORED) ? 1 : 0);
+      id = i ^ ((i >> 1) & 1);
       i++;
       if (id >= n) {
         throw poputil::poplibs_error("Index/rank beyond number of replicas");
@@ -143,18 +127,16 @@ static std::vector<unsigned> createRing(const unsigned n, RingPattern pattern,
     });
     break;
   case RingPattern::Interleaved:
-    // All Even IPU ids in increasing order first
     std::generate(ring.begin(), ring.begin() + ((n + 1) / 2),
                   [&] { return 2 * i++; });
     if ((n & 1) != 0) { // ToDo: Is odd number replica valid as Interleaved ?
       i--;
     }
-    // All Odd IPU ids in decreasing order last
     std::generate(ring.begin() + ((n + 1) / 2), ring.end(),
                   [&] { return 2 * (--i) + 1; });
     break;
   case RingPattern::Flat:
-    std::iota(ring.begin(), ring.end(), 0);
+    std::generate(ring.begin(), ring.end(), [&] { return i++ % n; });
     break;
   default:
     POPLIB_UNREACHABLE();
@@ -170,23 +152,13 @@ class RingTopology {
   std::vector<unsigned> ringIndexToRank;
   std::vector<unsigned> rankToRingIndex;
   RingPattern pattern;
-  Mirrored mirrored{};
 
 public:
   RingTopology(unsigned n, unsigned ipusPerReplica,
-               poplar::IpuLinkTopology topology,
-               poplar::IpuLinkConfiguration configuration, Mirrored mirrored)
-      : mirrored(mirrored) {
-    logging::popops::debug(
-        "RingTopo: topo={}, config={}, size={}, ipusPerReplica={}, mirrored={}",
-        topology, configuration, n, ipusPerReplica, mirrored);
-    if (configuration == poplar::IpuLinkConfiguration::BarleyTwist) {
-      if (topology != poplar::IpuLinkTopology::Torus || ipusPerReplica != 1) {
-        throw poputil::poplibs_error(
-            "BarleyTwist limited to replica size 1 IPU on torus topology");
-      }
-      pattern = RingPattern::Serpent;
-    } else if (ipusPerReplica == 1) {
+               poplar::IpuLinkTopology topology) {
+    if (topology == poplar::IpuLinkTopology::Torus && ipusPerReplica == 1) {
+      // On SWNC RingPattern::Serpent only gives ~60% bandwidth of a
+      // peripheral ring. BTNC expected to perform better!
       pattern = RingPattern::Interleaved;
     } else if (topology == poplar::IpuLinkTopology::Torus) {
       pattern = RingPattern::Flat;
@@ -195,10 +167,10 @@ public:
     } else {
       throw poputil::poplibs_error("Unrecognized topology");
     }
-    logging::popops::debug("RingTopo: pattern={}", pattern);
-    ringIndexToRank = createRing(n, pattern, mirrored);
+    ringIndexToRank = createRing(n, pattern);
     rankToRingIndex = invertPermutation(ringIndexToRank);
   }
+
   /// Return the number of IPU that is the specified number of steps in the
   /// specified direction around the ring, starting at the specified base
   /// IPU.
@@ -207,10 +179,10 @@ public:
     auto ring = base / numRanks;
     auto index = rankToRingIndex[base % numRanks];
     switch (direction) {
-    case Direction::CLOCKWISE:
+    case CLOCKWISE:
       index = (index + steps) % numRanks;
       break;
-    case Direction::ANTICLOCKWISE:
+    case ANTICLOCKWISE:
       steps = steps % numRanks;
       index = (index + numRanks - steps) % numRanks;
       break;
@@ -243,17 +215,8 @@ public:
       const auto replica = popops::expr::_1;
       if (pattern == RingPattern::Serpent) {
         // Hack: Tailing + 0 required for correct type checking
-        return (replica ^ ((replica >> 1) & 1) ^
-                (mirrored == Mirrored::MIRRORED ? 1 : 0)) +
-               0;
+        return (replica ^ ((replica >> 1) & 1)) + 0;
       } else if (pattern == RingPattern::Interleaved) {
-        /* Functional:
-         * auto rank = replica / 2;
-         * if (replica % 2) {
-         *    rank = replicasPerRing - rank - 1;
-         * }
-         * return rank;
-         */
         const auto replicaMod2 = replica % 2;
         return ((replicasPerRing - 1) * replicaMod2) +
                ((replicaMod2 * -2 + 1) * (replica / 2));
@@ -286,9 +249,7 @@ static void parseCollectiveOptions(const poplar::OptionFlags &optionFlags,
             {"anticlockwise_ring", CollectiveMethod::ANTICLOCKWISE_RING},
             {"bidirectional_ring_pair",
              CollectiveMethod::BIDIRECTIONAL_RING_PAIR},
-            {"meet_in_middle_ring", CollectiveMethod::MEET_IN_MIDDLE_RING},
-            {"quad_directional_ring",
-             CollectiveMethod::QUAD_DIRECTIONAL_RING}})},
+            {"meet_in_middle_ring", CollectiveMethod::MEET_IN_MIDDLE_RING}})},
       {"useReplicatedImplementation",
        OptionHandler::createWithBool(options.useReplicatedImplementation)}};
   for (const auto &entry : optionFlags) {
@@ -393,32 +354,14 @@ static CollectiveMethod pickAllGatherMethod(Graph &graph,
   const auto ipusPerRank = getIpusPerReplica(graph);
   const auto numRanks = replicasPerILD(graph);
   const auto &target = graph.getTarget();
-  const auto configuration = target.getIpuLinkConfiguration();
-  const auto topology = target.getIpuLinkTopology();
-
-  if (configuration == poplar::IpuLinkConfiguration::BarleyTwist) {
-    if (topology != poplar::IpuLinkTopology::Torus || ipusPerRank != 1) {
-      throw poputil::poplibs_error(
-          "BarleyTwist limited to replica size 1 IPU on torus topology");
-    }
-    // ToDo: Provide better heuristics
-    // MEET_IN_MIDDLE_RING gives better performance for small and
-    // medium sized tensors - tested on a POD64 Mk1 Dec. 2020
-    if (numBytes < 196608) {
-      return CollectiveMethod::MEET_IN_MIDDLE_RING;
-    } else {
-      return CollectiveMethod::QUAD_DIRECTIONAL_RING;
-    }
-  } else if (topology == IpuLinkTopology::Torus && ipusPerRank > 1) {
-    // Note we don't utilize the loopback cable for
-    // 1 ipu per replica (T25224)
+  if (target.getIpuLinkTopology() == IpuLinkTopology::Torus &&
+      ipusPerRank > 1) { // Note we don't utilize the loopback cable for 1 ipu
+                         // per replica (T25224)
     // TODO: T26094 Investigate when to use BIDIRECTIONAL_RING_PAIR instead
     return CollectiveMethod::MEET_IN_MIDDLE_RING;
-  } else if (ipusPerRank > 1 || numRanks <= 2) {
-    // For (numRanks <= 2) is upstream and downstream ring neighbours identical,
-    // so dividing into two streams will only introduce a redundant restriction.
-    return CollectiveMethod::CLOCKWISE_RING;
   }
+  if (ipusPerRank > 1 || numRanks <= 2)
+    return CollectiveMethod::CLOCKWISE_RING;
   const auto bytesPerIpu = numBytes / ipusPerRank;
   // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
   // MEET_IN_MIDDLE_RING method determined experimentally.
@@ -444,31 +387,14 @@ static CollectiveMethod pickReduceScatterMethod(Graph &graph,
   const auto ipusPerRank = getIpusPerReplica(graph);
   const auto numRanks = replicasPerILD(graph);
   const auto &target = graph.getTarget();
-  const auto configuration = target.getIpuLinkConfiguration();
-  const auto topology = target.getIpuLinkTopology();
-
-  if (configuration == poplar::IpuLinkConfiguration::BarleyTwist) {
-    if (topology != poplar::IpuLinkTopology::Torus || ipusPerRank != 1) {
-      throw poputil::poplibs_error(
-          "BarleyTwist limited to replica size 1 IPU on torus topology");
-    }
-    // ToDo: Revisit with better heuristics
-    // MEET_IN_MIDDLE_RING gives better performance for small and
-    // medium sized tensors - tested on a POD64 Mk1 Dec. 2020.
-    if (numBytes < 196608 * numRanks) {
-      return CollectiveMethod::MEET_IN_MIDDLE_RING;
-    } else {
-      return CollectiveMethod::QUAD_DIRECTIONAL_RING;
-    }
-  } else if (topology == IpuLinkTopology::Torus && ipusPerRank > 1) {
+  if (target.getIpuLinkTopology() == IpuLinkTopology::Torus &&
+      ipusPerRank > 1) {
     // Note we don't utilize the loopback cable for 1 ipu per replica (T25224)
     // TODO: T26094 Investigate when to use BIDIRECTIONAL_RING_PAIR instead
     return CollectiveMethod::MEET_IN_MIDDLE_RING;
-  } else if (ipusPerRank > 1 || numRanks <= 2) {
-    // For (numRanks <= 2) is upstream and downstream ring neighbours identical,
-    // so dividing into two streams will only introduce a redundant restriction.
-    return CollectiveMethod::CLOCKWISE_RING;
   }
+  if (ipusPerRank > 1 || numRanks <= 2)
+    return CollectiveMethod::CLOCKWISE_RING;
   unsigned bytesPerIpu = numBytes / ipusPerRank;
   // Thresholds where the BIDIRECTIONAL_RING_PAIR method starts to beat the
   // MEET_IN_MIDDLE_RING method determined experimentally.
@@ -492,18 +418,12 @@ static CollectiveMethod pickReduceScatterMethod(Graph &graph, const Tensor &t) {
 // adding padding if necessary to achieve this.
 static Tensor replicatedSplitIntoFragments(const Tensor &t,
                                            unsigned numFragments, Graph &graph,
-                                           const DebugNameAndId &dnai,
-                                           unsigned ringCount) {
+                                           const DebugNameAndId &dnai) {
   logging::popops::debug("Split into fragments");
   std::vector<Tensor> perIpuFragments;
-  const unsigned minSize = numFragments * ringCount;
   for (auto &ipuTensor : getPerIpuTensors(t, graph, {dnai})) {
     unsigned padding =
         (numFragments - ipuTensor.dim(0) % numFragments) % numFragments;
-    if (ipuTensor.dim(0) && (ipuTensor.dim(0) + padding < minSize)) {
-      padding = minSize - ipuTensor.dim(0);
-    }
-
     auto padded = pad(graph, ipuTensor, {0}, {padding}, 0.0f,
                       padding::MappingMethod::EDGE);
     auto split = padded.reshape({numFragments, padded.dim(0) / numFragments});
@@ -840,8 +760,8 @@ copyFromSliceableTensorIfBeneficial(Graph &graph, const Tensor &fragments,
 // number can be used to initialise the clockwise and anticlockwise ring
 static CollectivesProgram unidirectionalRingReduceScatter(
     Graph &graph, const Tensor &toReduce, CollectiveOperator op,
-    Direction direction, Mirrored mirrored, const DebugNameAndId &dnai,
-    const unsigned numSteps, const int startOffset = 0) {
+    Direction direction, const DebugNameAndId &dnai, const unsigned numSteps,
+    const int startOffset = 0) {
   logging::popops::debug("Unidirectional ring reduce scatter");
   CollectivesProgram program(dnai);
   auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
@@ -850,13 +770,12 @@ static CollectivesProgram unidirectionalRingReduceScatter(
 
   const auto replicasPerRing = replicasPerILD(graph);
   const unsigned ipusPerReplica = getIpusPerReplica(graph);
-  const RingTopology ring(
-      replicasPerRing, ipusPerReplica, graph.getTarget().getIpuLinkTopology(),
-      graph.getTarget().getIpuLinkConfiguration(), mirrored);
+  const RingTopology ring(replicasPerRing, ipusPerReplica,
+                          graph.getTarget().getIpuLinkTopology());
   auto numFragments = replicasPerRing;
 
   auto fragmentsByReplica =
-      replicatedSplitIntoFragments(toReduce, numFragments, graph, {dnai}, 1);
+      replicatedSplitIntoFragments(toReduce, numFragments, graph, {dnai});
   auto fragmentsByRing = giveFragmentsRingOrder(fragmentsByReplica, ring);
   auto fragmentSize = fragmentsByRing.dim(1);
   auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize},
@@ -926,106 +845,22 @@ bidirectionalRingPairReduceScatter(Graph &graph, const Tensor &toReduce,
   }
 
   auto fragments =
-      replicatedSplitIntoFragments(toReduce, replicasPerRing, graph, {dnai}, 2);
+      replicatedSplitIntoFragments(toReduce, replicasPerRing, graph, {dnai});
   auto fragmentSize = fragments.dim(1);
   auto clockwiseFragments = fragments.slice(0, fragmentSize / 2, 1);
   auto anticlockwiseFragments =
       fragments.slice(fragmentSize / 2, fragmentSize, 1);
-
   auto clockwiseProg = unidirectionalRingReduceScatter(
       graph, clockwiseFragments.flatten(), op, Direction::CLOCKWISE,
-      Mirrored::NON_MIRRORED, {dnai, "clockwise"}, replicasPerRing);
+      {dnai, "clockwise"}, replicasPerRing);
   auto anticlockwiseProg = unidirectionalRingReduceScatter(
       graph, anticlockwiseFragments.flatten(), op, Direction::ANTICLOCKWISE,
-      Mirrored::NON_MIRRORED, {dnai, "anticlockwise"}, replicasPerRing);
-  prog.add(multiDirectionalSequence({clockwiseProg, anticlockwiseProg}, graph,
-                                    {dnai}));
+      {dnai, "anticlockwise"}, replicasPerRing);
+  prog.add(
+      bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph, {dnai}));
   auto srcBuffer =
       concat(clockwiseProg.srcBuffer.get(), anticlockwiseProg.srcBuffer.get());
   return srcBuffer;
-}
-
-// TODO: Copied from CTUtils
-//       Avoid duplication when ReplicatedCollectives moves to GCL
-template <typename T> T alignNext(T x, std::size_t alignment) {
-  return ceildiv(x, alignment) * alignment;
-}
-
-// TODO: Copied and extended to support dim from CTUtils.
-//       Avoid duplication when ReplicatedCollectives moves to GCL
-static std::vector<poplar::Tensor> splitTensor(const poplar::Tensor &tensor,
-                                               unsigned n, unsigned align = 1,
-                                               unsigned dim = 0) {
-  if (tensor.rank() < dim + 1) {
-    throw poputil::poplibs_error("splitTensor: Tensor must have rank >= " +
-                                 std::to_string(dim + 1));
-  }
-
-  if (n < 1) {
-    throw poputil::poplibs_error(
-        "splitTensor: Must split into at least 1 slice");
-  }
-
-  const auto len = tensor.dim(dim);
-  std::vector<poplar::Tensor> slices;
-  slices.reserve(n);
-
-  auto rlen = len;
-  for (unsigned long i = 0; i < n; ++i) {
-    // Last pieces might be shorter
-    const auto elementsPerSlice = alignNext(ceildiv(rlen, n - i), align);
-    const auto begin = len - rlen;
-    const auto end = std::min(len, begin + elementsPerSlice);
-    slices.push_back(tensor.slice(begin, end, dim));
-    rlen -= end - begin;
-  }
-
-  return slices;
-}
-
-static Tensor quadDirectionalRingReduceScatter(Graph &graph,
-                                               const Tensor &toReduce,
-                                               CollectiveOperator op,
-                                               Sequence &prog,
-                                               const DebugNameAndId &dnai) {
-  const auto replicasPerRing = replicasPerILD(graph);
-
-  // split to reduce in four and call the clockwise and anticlockwise on
-  // the mirrored and non mirrored RingTopology. The multidirectionalSequence
-  // function will then interleave the programs in the same repeat.
-
-  logging::popops::debug("quadDirectional ring reduce scatter");
-  if (replicasPerRing == 1) {
-    return toReduce;
-  }
-
-  auto fragments =
-      replicatedSplitIntoFragments(toReduce, replicasPerRing, graph, {dnai}, 4);
-
-  auto splittedFragments = splitTensor(fragments, 4, 1, 1);
-
-  std::vector<CollectivesProgram> progs;
-  unsigned i = 0;
-  for (auto dir : {Direction::CLOCKWISE, Direction::ANTICLOCKWISE}) {
-    for (auto mirror : {Mirrored::NON_MIRRORED, Mirrored::MIRRORED}) {
-      const DebugNameAndId debugName = {dnai,
-                                        "quad_" + std::to_string(progs.size())};
-      logging::popops::debug("adding ring {}", debugName);
-      progs.emplace_back(unidirectionalRingReduceScatter(
-          graph, splittedFragments.at(i).flatten(), op, dir, mirror, debugName,
-          replicasPerRing));
-      i++;
-    }
-  }
-
-  prog.add(multiDirectionalSequence(progs, graph, {dnai}));
-  return [&] {
-    std::vector<poplar::Tensor> v;
-    for (auto &prog : progs) {
-      v.emplace_back(prog.srcBuffer.get());
-    }
-    return concat(v);
-  }();
 }
 
 static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
@@ -1037,9 +872,8 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   const auto replicasPerRing = replicasPerILD(graph);
   if (replicasPerRing <= 2) {
     auto program = unidirectionalRingReduceScatter(
-        graph, toReduce, op, Direction::CLOCKWISE, Mirrored::NON_MIRRORED,
-        {dnai}, replicasPerRing);
-    prog.add(multiDirectionalSequence({program}, graph, {dnai}));
+        graph, toReduce, op, CLOCKWISE, {dnai}, replicasPerRing);
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return program.srcBuffer.get();
   }
   auto numFragments = replicasPerRing;
@@ -1048,11 +882,11 @@ static Tensor ringMeetInMiddleReduceScatter(Graph &graph,
   const int anticlockwiseOffset = (numFragments - numSteps) + 1;
 
   auto clockwiseProg = unidirectionalRingReduceScatter(
-      graph, toReduce, op, Direction::CLOCKWISE, Mirrored::NON_MIRRORED,
-      {dnai, "clockwise"}, numSteps, clockwiseOffset);
+      graph, toReduce, op, Direction::CLOCKWISE, {dnai, "clockwise"}, numSteps,
+      clockwiseOffset);
   auto anticlockwiseProg = unidirectionalRingReduceScatter(
-      graph, toReduce, op, Direction::ANTICLOCKWISE, Mirrored::NON_MIRRORED,
-      {dnai, "anticlockwise"}, numSteps - 1, anticlockwiseOffset);
+      graph, toReduce, op, Direction::ANTICLOCKWISE, {dnai, "anticlockwise"},
+      numSteps - 1, anticlockwiseOffset);
 
   unsigned topLevelControlTile =
       replicasPerRing == graph.getTopLevelGraph().getReplicationFactor()
@@ -1080,7 +914,7 @@ static Tensor localReduceScatter(Graph &graph, const Tensor &toReduce,
                                 : FragmentCopyMethod::DYNAMIC_SLICE;
   auto numFragments = replicasPerILD(graph);
   auto fragmentsByReplica =
-      replicatedSplitIntoFragments(toReduce, numFragments, graph, {dnai}, 1);
+      replicatedSplitIntoFragments(toReduce, numFragments, graph, {dnai});
   auto fragmentSize = fragmentsByReplica.dim(1);
   auto srcBuffer = graph.addVariable(toReduce.elementType(), {fragmentSize},
                                      {dnai, "ScatterSrc"});
@@ -1112,24 +946,22 @@ static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
     method = pickReduceScatterMethod(graph, toReduce);
   }
   switch (method) {
-  case CollectiveMethod::AUTO:
-    throw poputil::poplibs_error("Unexpected reduce method");
+  default:
+    assert(0 && "Unexpected reduce method");
   case CollectiveMethod::CLOCKWISE_RING: {
     logging::popops::debug(
         "Reduce scatter collective method is clockwise ring");
     auto program = unidirectionalRingReduceScatter(
-        graph, toReduce, op, Direction::CLOCKWISE, Mirrored::NON_MIRRORED,
-        {dnai}, replicasPerILD(graph));
-    prog.add(multiDirectionalSequence({program}, graph, {dnai}));
+        graph, toReduce, op, CLOCKWISE, {dnai}, replicasPerILD(graph));
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return program.srcBuffer.get();
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
     logging::popops::debug(
         "reduce scatter collective method is anti-clockwise ring");
     auto program = unidirectionalRingReduceScatter(
-        graph, toReduce, op, Direction::ANTICLOCKWISE, Mirrored::NON_MIRRORED,
-        {dnai}, replicasPerILD(graph));
-    prog.add(multiDirectionalSequence({program}, graph, {dnai}));
+        graph, toReduce, op, ANTICLOCKWISE, {dnai}, replicasPerILD(graph));
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return program.srcBuffer.get();
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
@@ -1143,13 +975,7 @@ static Tensor internalReduceScatter(Graph &graph, const Tensor &toReduce,
                            "method is Meet in the middle ring");
     return ringMeetInMiddleReduceScatter(graph, toReduce, op, prog, {dnai});
   }
-  case CollectiveMethod::QUAD_DIRECTIONAL_RING: {
-    logging::popops::debug("Reduce scatter collective "
-                           "method is QuadDirectional ring");
-    return quadDirectionalRingReduceScatter(graph, toReduce, op, prog, {dnai});
   }
-  }
-  POPLIB_UNREACHABLE();
 }
 
 // Return the tile the last element of a tensor is mapped to.
@@ -1237,15 +1063,15 @@ static CollectivesProgram unidirectionalRingAllGatherImpl(
   return program;
 }
 
-static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
-    Graph &graph, const Tensor &toGather, const std::optional<Tensor> &dst,
-    Direction direction, Mirrored mirrored, const DebugNameAndId &dnai) {
+static std::pair<CollectivesProgram, Tensor>
+unidirectionalRingAllGather(Graph &graph, const Tensor &toGather,
+                            const std::optional<Tensor> &dst,
+                            Direction direction, const DebugNameAndId &dnai) {
   logging::popops::debug("Unidirectional ring allGather");
   const auto replicasPerRing = replicasPerILD(graph);
   const unsigned ipusPerReplica = getIpusPerReplica(graph);
   RingTopology ring(replicasPerRing, ipusPerReplica,
-                    graph.getTarget().getIpuLinkTopology(),
-                    graph.getTarget().getIpuLinkConfiguration(), mirrored);
+                    graph.getTarget().getIpuLinkTopology());
   auto numFragments = replicasPerRing;
   auto fragmentCopyMethod = graph.getTopLevelGraph().getReplicationFactor() > 1
                                 ? FragmentCopyMethod::SWITCH
@@ -1256,8 +1082,8 @@ static std::pair<CollectivesProgram, Tensor> unidirectionalRingAllGather(
     result = *dst;
     auto paddedResult =
         padAllGatherResult(graph, toGather, numFragments, result, {dnai});
-    auto fragmentsByReplica = replicatedSplitIntoFragments(
-        paddedResult, numFragments, graph, {dnai}, 1);
+    auto fragmentsByReplica =
+        replicatedSplitIntoFragments(paddedResult, numFragments, graph, {dnai});
     fragmentsByRing = giveFragmentsRingOrder(fragmentsByReplica, ring);
     fragmentsByRing = copyFromSliceableTensorIfBeneficial(
         graph, fragmentsByRing, toGather, {dnai, "SliceableOutput"},
@@ -1293,8 +1119,8 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
   if (dst) {
     auto resultPadded =
         padAllGatherResult(graph, toGather, numFragments, *dst, {dnai});
-    auto fragments = replicatedSplitIntoFragments(resultPadded, numFragments,
-                                                  graph, {dnai}, 2);
+    auto fragments =
+        replicatedSplitIntoFragments(resultPadded, numFragments, graph, {dnai});
     clockwiseDst = fragments.slice(0, fragmentSize / 2, 1).flatten();
     anticlockwiseDst =
         fragments.slice(fragmentSize / 2, fragmentSize, 1).flatten();
@@ -1302,59 +1128,17 @@ static Tensor bidirectionalRingPairAllGather(Graph &graph,
   Tensor clockwiseResult, anticlockwiseResult;
   std::tie(clockwiseProg, clockwiseResult) = unidirectionalRingAllGather(
       graph, toGather.flatten().slice(0, fragmentSize / 2), clockwiseDst,
-      Direction::CLOCKWISE, Mirrored::NON_MIRRORED, {dnai, "clockwise"});
+      Direction::CLOCKWISE, {dnai, "clockwise"});
   std::tie(anticlockwiseProg, anticlockwiseResult) =
       unidirectionalRingAllGather(
           graph, toGather.flatten().slice(fragmentSize / 2, fragmentSize),
-          anticlockwiseDst, Direction::ANTICLOCKWISE, Mirrored::NON_MIRRORED,
-          {dnai, "anticlockwise"});
-  prog.add(multiDirectionalSequence({clockwiseProg, anticlockwiseProg}, graph,
-                                    {dnai}));
+          anticlockwiseDst, Direction::ANTICLOCKWISE, {dnai, "anticlockwise"});
+  prog.add(
+      bidirectionalSequence(clockwiseProg, anticlockwiseProg, graph, {dnai}));
   if (dst)
     return *dst;
   auto resultShape = toGather.expand({0}).broadcast(numFragments, 0).shape();
   return concat(clockwiseResult, anticlockwiseResult, 1).reshape(resultShape);
-}
-
-static Tensor quadDirectionalRingAllGather(Graph &graph, const Tensor &toGather,
-                                           const std::optional<Tensor> &dst,
-                                           Sequence &prog,
-                                           const DebugNameAndId &dnai) {
-  logging::popops::debug("QuadDirectional ring allGather");
-  const auto replicasPerRing = replicasPerILD(graph);
-
-  auto numFragments = replicasPerRing;
-  std::vector<CollectivesProgram> progs;
-  std::vector<std::optional<Tensor>> dsts;
-  if (dst) {
-    auto resultPadded =
-        padAllGatherResult(graph, toGather, numFragments, *dst, {dnai});
-    auto fragments = replicatedSplitIntoFragments(resultPadded, numFragments,
-                                                  graph, {dnai}, 4);
-    auto splittedFragments = splitTensor(fragments, 4, 1, 1);
-    for (auto &fragment : splittedFragments) {
-      dsts.emplace_back(fragment.flatten());
-    }
-  }
-  unsigned i = 0;
-  std::vector<Tensor> results;
-  auto gatherSplits = splitTensor(toGather.flatten(), 4, 1);
-  for (auto dir : {Direction::CLOCKWISE, Direction::ANTICLOCKWISE}) {
-    for (auto mirror : {Mirrored::NON_MIRRORED, Mirrored::MIRRORED}) {
-      const DebugNameAndId debugName = {dnai, "/quad_" +
-                                                  std::to_string(progs.size())};
-      auto [prog, result] = unidirectionalRingAllGather(
-          graph, gatherSplits.at(i), dsts.at(i), dir, mirror, debugName);
-      progs.emplace_back(prog);
-      results.emplace_back(result);
-      i++;
-    }
-  }
-  prog.add(multiDirectionalSequence(progs, graph, {dnai}));
-  if (dst)
-    return *dst;
-  auto resultShape = toGather.expand({0}).broadcast(numFragments, 0).shape();
-  return concat(results, 1).reshape(resultShape);
 }
 
 static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
@@ -1366,16 +1150,14 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   if (replicasPerRing <= 2) {
     CollectivesProgram program(dnai);
     Tensor result;
-    std::tie(program, result) =
-        unidirectionalRingAllGather(graph, toGather, dst, Direction::CLOCKWISE,
-                                    Mirrored::NON_MIRRORED, {dnai});
-    prog.add(multiDirectionalSequence({program}, graph, {dnai}));
+    std::tie(program, result) = unidirectionalRingAllGather(
+        graph, toGather, dst, Direction::CLOCKWISE, {dnai});
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return result;
   }
   const unsigned ipusPerReplica = getIpusPerReplica(graph);
-  RingTopology ring(
-      replicasPerRing, ipusPerReplica, graph.getTarget().getIpuLinkTopology(),
-      graph.getTarget().getIpuLinkConfiguration(), Mirrored::NON_MIRRORED);
+  RingTopology ring(replicasPerRing, ipusPerReplica,
+                    graph.getTarget().getIpuLinkTopology());
   const auto numFragments = replicasPerRing;
   auto numSteps = 1 + replicasPerRing / 2;
   const int clockwiseOffset = 0;
@@ -1394,8 +1176,7 @@ static Tensor ringMeetInMiddleAllGather(Graph &graph, const Tensor &toGather,
   if (dst) {
     result = *dst;
     result = padAllGatherResult(graph, toGather, numFragments, result, {dnai});
-    result =
-        replicatedSplitIntoFragments(result, numFragments, graph, {dnai}, 2);
+    result = replicatedSplitIntoFragments(result, numFragments, graph, {dnai});
     result = giveFragmentsRingOrder(result, ring);
     result = copyFromSliceableTensorIfBeneficial(
         graph, result, toGather, {dnai, "SliceableOutput"}, resultRearrange,
@@ -1438,16 +1219,15 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
     method = pickAllGatherMethod(graph, toGather);
   }
   switch (method) {
-  case CollectiveMethod::AUTO:
-    throw poputil::poplibs_error("Unexpected gather method");
+  default:
+    assert(0 && "Unexpected reduce method");
   case CollectiveMethod::CLOCKWISE_RING: {
     logging::popops::debug("All gather collective method is clockwise ring");
     Tensor result;
     CollectivesProgram program(dnai);
     std::tie(program, result) =
-        unidirectionalRingAllGather(graph, toGather, dst, Direction::CLOCKWISE,
-                                    Mirrored::NON_MIRRORED, {dnai});
-    prog.add(multiDirectionalSequence({program}, graph, {dnai}));
+        unidirectionalRingAllGather(graph, toGather, dst, CLOCKWISE, {dnai});
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return result;
   }
   case CollectiveMethod::ANTICLOCKWISE_RING: {
@@ -1456,9 +1236,8 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
     Tensor result;
     CollectivesProgram program(dnai);
     std::tie(program, result) = unidirectionalRingAllGather(
-        graph, toGather, dst, Direction::ANTICLOCKWISE, Mirrored::NON_MIRRORED,
-        {dnai});
-    prog.add(multiDirectionalSequence({program}, graph, {dnai}));
+        graph, toGather, dst, ANTICLOCKWISE, {dnai});
+    prog.add(unidirectionalSequence(program, graph, {dnai}));
     return result;
   }
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR: {
@@ -1471,13 +1250,7 @@ static Tensor allGather(Graph &graph, const Tensor &toGather,
         "All gather collective method is Meet in the middle ring");
     return ringMeetInMiddleAllGather(graph, toGather, dst, prog, {dnai});
   }
-  case CollectiveMethod::QUAD_DIRECTIONAL_RING: {
-    logging::popops::debug(
-        "All gather collective method is Quaddirectional ring");
-    return quadDirectionalRingAllGather(graph, toGather, dst, prog, {dnai});
   }
-  }
-  POPLIB_UNREACHABLE();
 }
 
 poplar::Tensor replicatedReduceScatter(Graph &graph, const Tensor &toReduce,
@@ -1670,17 +1443,15 @@ static unsigned getReduceScatterNumFragments(Graph &graph,
     method = pickReduceScatterMethod(graph, data);
   }
   switch (method) {
-  case CollectiveMethod::AUTO:
-    throw poputil::poplibs_error("No method picked");
+  default:
+    POPLIB_UNREACHABLE();
   case CollectiveMethod::CLOCKWISE_RING:
   case CollectiveMethod::ANTICLOCKWISE_RING:
   case CollectiveMethod::MEET_IN_MIDDLE_RING:
     return replicasPerILD(graph);
-  case CollectiveMethod::QUAD_DIRECTIONAL_RING:
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
     return replicasPerILD(graph) * 2;
   }
-  POPLIB_UNREACHABLE();
 }
 
 static unsigned getAllGatherNumFragments(Graph &graph,
@@ -1691,17 +1462,15 @@ static unsigned getAllGatherNumFragments(Graph &graph,
     method = pickAllGatherMethod(graph, numBytes);
   }
   switch (method) {
-  case CollectiveMethod::AUTO:
-    throw poputil::poplibs_error("No method picked");
+  default:
+    POPLIB_UNREACHABLE();
   case CollectiveMethod::CLOCKWISE_RING:
   case CollectiveMethod::ANTICLOCKWISE_RING:
   case CollectiveMethod::MEET_IN_MIDDLE_RING:
     return replicasPerILD(graph);
-  case CollectiveMethod::QUAD_DIRECTIONAL_RING:
   case CollectiveMethod::BIDIRECTIONAL_RING_PAIR:
     return replicasPerILD(graph) * 2;
   }
-  POPLIB_UNREACHABLE();
 }
 
 static unsigned getAllReduceNumFragments(Graph &graph,
