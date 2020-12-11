@@ -1166,7 +1166,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 128
                  --output-channels 256
                  --batch-size 4
-          PARALLEL_LEVEL 8)
+          PARALLEL_LEVEL 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v3L1
           PARAMS --field {56,56}
                  --kernel-size 3
