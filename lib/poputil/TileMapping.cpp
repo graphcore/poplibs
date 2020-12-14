@@ -63,8 +63,10 @@ unsigned getTileImbalance(const poplar::Graph::TileToTensorMapping &mapping,
   return maxElemsPerTile - balancedElemsPerTile;
 }
 
-unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t,
+unsigned getTileImbalance(const poplar::Graph &graph, const poplar::Tensor &t_,
                           unsigned minElementsPerTile, unsigned grainSize) {
+  auto t = t_.flatten();
+  graph.reorderToSimplify(&t, {}, false);
   return getTileImbalance(graph.getTileMapping(t), minElementsPerTile,
                           grainSize);
 }
