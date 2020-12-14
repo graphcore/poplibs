@@ -154,16 +154,31 @@ poplar::Tensor copyToIpu(poplar::Graph &graph, const poplar::Tensor &t,
 bool dimIsSplitOverTiles(const poplar::Graph &graph, const poplar::Tensor &t,
                          unsigned dimension) {
   const auto dimElems = t.dim(dimension);
-  const auto tShuf = t.dimRoll(dimension, t.rank() - 1);
-  const auto tMapping = graph.getTileMapping(tShuf);
 
-  for (unsigned tile = 0; tile < tMapping.size(); ++tile) {
-    for (const auto &i : tMapping[tile]) {
-      if ((i.begin() % dimElems) || (i.end() % dimElems)) {
-        return true;
-      }
+  if (dimElems == 0) {
+    return false;
+  }
+
+  // We split the tensor into one slice per element of the dimension to
+  // check and then see if each slice's tile mapping matches.
+  std::vector<poplar::Tensor> slices(dimElems);
+  std::vector<poplar::Tensor *> slicePtrs;
+  slicePtrs.reserve(dimElems - 1);
+  slices[0] = t.slice(0, 1, dimension).flatten();
+  for (std::size_t i = 1; i < dimElems; ++i) {
+    slices[i] = t.slice(i, i + 1, dimension).flatten();
+    slicePtrs.emplace_back(&slices[i]);
+  }
+
+  graph.reorderToSimplify(&slices[0], slicePtrs, false);
+
+  const auto referenceMapping = graph.getTileMapping(slices[0]);
+  for (std::size_t i = 1; i < dimElems; ++i) {
+    if (graph.getTileMapping(slices[i]) != referenceMapping) {
+      return true;
     }
   }
+
   return false;
 }
 
