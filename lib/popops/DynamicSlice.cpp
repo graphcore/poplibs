@@ -222,6 +222,31 @@ static void generateVertices(std::string vertexName, Graph &graph,
   assert(offset.rank() == 0 && offset.numElements() == 1);
   // Build vertices assuming all sliced dimensions have the same mapping as
   // the first one.
+
+  std::vector<Tensor> t2dSlices(t2d.dim(0)), s2dSlices(s2d.dim(0));
+  std::vector<Tensor *> slicePtrs;
+  slicePtrs.reserve(t2d.dim(0) - 1 + s2d.dim(0));
+  t2dSlices[0] = t2d.slice(0, 1).flatten();
+  for (std::size_t s = 1; s < t2d.dim(0); ++s) {
+    t2dSlices[s] = t2d.slice(s, s + 1).flatten();
+    slicePtrs.push_back(&t2dSlices[s]);
+  }
+  for (std::size_t s = 0; s < s2d.dim(0); ++s) {
+    s2dSlices[s] = s2d.slice(s, s + 1).flatten();
+    slicePtrs.push_back(&s2dSlices[s]);
+  }
+  graph.reorderToSimplify(&t2dSlices[0], slicePtrs, false);
+
+  const auto sliceShape = t2d.slice(0, 1).shape();
+  for (std::size_t s = 0; s < t2dSlices.size(); ++s) {
+    t2dSlices[s] = t2dSlices[s].reshape(sliceShape);
+  }
+  for (std::size_t s = 0; s < s2dSlices.size(); ++s) {
+    s2dSlices[s] = s2dSlices[s].reshape(sliceShape);
+  }
+  t2d = concat(t2dSlices);
+  s2d = concat(s2dSlices);
+
   auto mapping = graph.getTileMapping(t2d[0]);
 
   // instantiate vertices following the mapping of t's first slice
@@ -234,22 +259,16 @@ static void generateVertices(std::string vertexName, Graph &graph,
 
     assert(offset.numElements() == 1);
     if (tileContiguousRegions.size() == 1) {
-      unsigned regionSize = 0;
-      std::vector<Tensor> baseSlices, subSlices; // [slice]
-      auto &regions = tileContiguousRegions[0];
-      for (const auto &region : regions) {
-        regionSize += region.size();
-        baseSlices.emplace_back(t2d.slice(region, 1));
-        subSlices.emplace_back(s2d.slice(region, 1));
-      }
-
-      Tensor tileBase = concat(baseSlices, 1).flatten();
-      Tensor tileSub = concat(subSlices, 1).flatten();
+      const auto &regions = tileContiguousRegions[0];
+      const Tensor tileBase = concat(t2d.slices(regions, 1), 1);
+      const Tensor tileSub = concat(s2d.slices(regions, 1), 1);
 
       if (tileBase.isContiguous()) {
         auto v = graph.addVertex(
             cs, templateVertex(vertexName + "1d", t2d.elementType()),
-            {{"offset", offset}, {"baseT", tileBase}, {"subT", tileSub}});
+            {{"offset", offset},
+             {"baseT", tileBase.flatten()},
+             {"subT", tileSub.flatten()}});
 
         // the assembly relies on underflow of baseIdx with numBaseElements,
         // therefore the maximum value each can be is 2^31 - 1. we can't check
@@ -258,7 +277,7 @@ static void generateVertices(std::string vertexName, Graph &graph,
         assert(numBaseElements < (1u << 31u));
         graph.setInitialValue(v["numBaseElements"], numBaseElements);
         graph.setInitialValue(v["numSubElements"], numSubElements);
-        graph.setInitialValue(v["regionSize"], regionSize);
+        graph.setInitialValue(v["regionSize"], tileBase.dim(1));
         graph.setTileMapping(v, tile);
         continue;
       }
