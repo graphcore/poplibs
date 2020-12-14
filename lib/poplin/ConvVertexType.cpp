@@ -188,18 +188,28 @@ static void getConvVertexVMACCandidates(
     return;
   }
 
-  auto numConvUnits = getNumConvUnits(floatActivations, floatPartials, target);
+  // Special exception for CPU target, where vector width is identified
+  // differently for half types but our vertices assume half is 2 bytes
+  // and vector width is 64-bits.
+  if (!floatActivations && target.getTypeSize(inputType) != 2) {
+    return;
+  }
 
   // Every execution of the VMAC inner loop vertex processes a single input
   // channel.
   unsigned inChansPerGroup = 1;
   unsigned partialChansPerGroup = 1;
-  std::vector<unsigned> convGroupsPerGroupOptions = {4};
-  for (auto convGroupsPerGroup : convGroupsPerGroupOptions) {
+  auto vectorWidth = target.getVectorWidth(inputType);
+  const unsigned actsPer64Bits = floatActivations ? 2u : 4u;
+  std::vector<unsigned> convGroupsPerGroupCandidates = {vectorWidth};
+  while (vectorWidth > actsPer64Bits) {
+    vectorWidth >>= 1;
+    convGroupsPerGroupCandidates.push_back(vectorWidth);
+  }
+  for (auto convGroupsPerGroup : convGroupsPerGroupCandidates) {
     candidates.emplace_back(Plan::Method::VMAC, inputType, partialType,
                             convGroupsPerGroup, inChansPerGroup,
-                            partialChansPerGroup, numConvUnits, numConvUnits,
-                            false);
+                            partialChansPerGroup, 0, 0, false);
   }
 }
 

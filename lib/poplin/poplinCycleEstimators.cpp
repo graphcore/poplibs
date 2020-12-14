@@ -220,7 +220,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
-    const Type &accumType, bool useLimitedVer) {
+    const Type &accumType, bool useLimitedVer, unsigned convGroupsPerGroup) {
   (void)useLimitedVer;
   CODELET_VECTOR_2D_VALS(worklists, unsigned short);
   CODELET_SCALAR_VAL(numInGroups, unsigned);
@@ -233,7 +233,6 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
   const unsigned outChansPerGroup = 1;
   const auto numConvGroups = numConvGroupsM1 + 1;
   const auto numOutGroups = 1;
-  const unsigned convGroupsPerGroup = 4;
 
   assert(weights.size() == numInGroups * numConvGroups);
   assert(out.size() == numConvGroups);
@@ -526,7 +525,14 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialHorizontalMac, HALF, HALF,
                             false),
 
-      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true,
+                            4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, false,
+                            4),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, true,
+                            8),
+      CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartialVerticalMac, HALF, FLOAT, false,
+                            8),
 
       CYCLE_ESTIMATOR_ENTRY(poplin, ConvPartial1x1Out, HALF, HALF, true, false,
                             8),

@@ -1351,9 +1351,6 @@ static void createConvPartialVerticalMacVertex(
   const unsigned numOutChanGroups = out.dim(1);
   const unsigned numInChanGroups = in.dim(1);
 
-  // VMAC vertices only support having 4 group per grouping.
-  assert(plan.convGroupsPerGroup == 4);
-
   const auto outputFieldShape = params.getOutputFieldShape();
   const unsigned numOutFieldElems = product(outputFieldShape);
   if (numOutFieldElems == 0)
@@ -1540,7 +1537,8 @@ static void createConvPartialVerticalMacVertex(
   auto v = graph.addVertex(
       fwdCS, templateVertex("poplin::ConvPartialVerticalMac", in.elementType(),
                             plan.types.back().partialType,
-                            useLimitedVer ? "true" : "false"));
+                            useLimitedVer ? "true" : "false",
+                            plan.convGroupsPerGroup));
   graph.connect(v["in"], inWindow);
   graph.connect(v["out"], outWindow);
   graph.connect(v["weights"], weightsWindow);

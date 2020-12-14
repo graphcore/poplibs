@@ -9,7 +9,7 @@
 #include "poplibs_support/TileConstants.hpp"
 #include "poplar/StackSizeDefs.hpp"
 
-#define conv_vmac_sup_half_float __runCodelet_poplin__ConvPartialVerticalMac___half_float_true
+#define conv_vmac_sup_half_float __runCodelet_poplin__ConvPartialVerticalMac___half_float_true_4
 
 // =============================================================================
 

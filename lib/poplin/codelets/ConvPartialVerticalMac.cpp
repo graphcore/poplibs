@@ -17,20 +17,26 @@ static constexpr auto COMPACT_DELTAN = poplar::VectorListLayout::COMPACT_DELTAN;
 
 namespace poplin {
 
-template <typename FPType, typename AccumType, bool useLimitedVer>
+template <typename FPType, typename AccumType, bool useLimitedVer,
+          unsigned convGroupsPerGroup>
 constexpr bool hasAssembly() {
-  return std::is_same<AccumType, float>() && std::is_same<FPType, half>() &&
-         useLimitedVer;
+  constexpr bool floatActivations = std::is_same<FPType, float>();
+  constexpr bool floatPartials = std::is_same<AccumType, float>();
+  constexpr unsigned convGroupsImplemented = floatActivations ? 2 : 4;
+  // We haven't implemented anything but half->float in assembly
+  return !floatActivations && floatPartials && useLimitedVer &&
+         convGroupsPerGroup == convGroupsImplemented;
 }
 
 /* Perform a series of 1x1 convolutions in parallel using the MUL & ACC
  * instructions.
  */
-template <class FPType, class AccumType, bool useLimitedVer>
+template <class FPType, class AccumType, bool useLimitedVer,
+          unsigned convGroupsPerGroup>
 class [[poplar::constraint(
     "elem(**in) != elem(**weights)")]] ConvPartialVerticalMac
     : public SupervisorVertexIf<
-          hasAssembly<FPType, AccumType, useLimitedVer>() &&
+          hasAssembly<FPType, AccumType, useLimitedVer, convGroupsPerGroup>() &&
           ASM_CODELETS_ENABLED> {
 public:
   ConvPartialVerticalMac();
@@ -50,10 +56,10 @@ public:
   const SignedType inStride;
   const SignedType weightsStride;
 
-  IS_EXTERNAL_CODELET((hasAssembly<FPType, AccumType, useLimitedVer>()));
+  IS_EXTERNAL_CODELET(
+      (hasAssembly<FPType, AccumType, useLimitedVer, convGroupsPerGroup>()));
 
   bool compute() {
-    const unsigned convGroupsPerGroup = 4;
     const unsigned numWorkers = NUM_WORKERS;
     const auto usedContexts = worklists.size();
     const unsigned numConvGroups = numConvGroupsM1 + 1;
@@ -106,11 +112,11 @@ public:
     return true;
   }
 };
-template class ConvPartialVerticalMac<float, float, true>;
-template class ConvPartialVerticalMac<float, float, false>;
-template class ConvPartialVerticalMac<half, float, true>;
-template class ConvPartialVerticalMac<half, float, false>;
-template class ConvPartialVerticalMac<half, half, true>;
-template class ConvPartialVerticalMac<half, half, false>;
+
+template class ConvPartialVerticalMac<half, float, true, 4>;
+template class ConvPartialVerticalMac<half, float, false, 4>;
+
+template class ConvPartialVerticalMac<half, float, true, 8>;
+template class ConvPartialVerticalMac<half, float, false, 8>;
 
 } // end namespace poplin
