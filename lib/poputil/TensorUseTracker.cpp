@@ -52,7 +52,9 @@ TensorUseTracker::operator=(TensorUseTracker &&other) = default;
 TensorUseTracker::~TensorUseTracker() {}
 
 void TensorUseTracker::add(const poplar::Graph &graph, unsigned tile,
-                           const poplar::Tensor &t) {
+                           const poplar::Tensor &t_) {
+  auto t = t_.flatten();
+  graph.reorderToSimplify(&t, {}, false);
   const auto varRegions = t.getVarRegions();
   for (const auto &region : varRegions) {
     if (graph.isConstant(region.var))
