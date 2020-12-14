@@ -37,6 +37,7 @@ enum class CollectiveMethod {
   ANTICLOCKWISE_RING,
   BIDIRECTIONAL_RING_PAIR,
   MEET_IN_MIDDLE_RING,
+  QUAD_DIRECTIONAL_RING,
 };
 
 static const char *asString(CollectiveMethod method) {
@@ -51,8 +52,10 @@ static const char *asString(CollectiveMethod method) {
     return "bidirectional_ring_pair";
   case CollectiveMethod::MEET_IN_MIDDLE_RING:
     return "meet_in_middle_ring";
+  case CollectiveMethod::QUAD_DIRECTIONAL_RING:
+    return "quad_directional_ring";
   }
-  throw poputil::poplibs_error("Unknown collective method");
+  POPLIB_UNREACHABLE();
 }
 
 static std::ostream &operator<<(std::ostream &os,
@@ -74,6 +77,8 @@ static std::istream &operator>>(std::istream &is, CollectiveMethod &method) {
     method = CollectiveMethod::BIDIRECTIONAL_RING_PAIR;
   else if (token == "meet_in_middle_ring")
     method = CollectiveMethod::MEET_IN_MIDDLE_RING;
+  else if (token == "quad_directional_ring")
+    method = CollectiveMethod::QUAD_DIRECTIONAL_RING;
   else
     throw poputil::poplibs_error("Unknown method <" + token + ">");
   return is;

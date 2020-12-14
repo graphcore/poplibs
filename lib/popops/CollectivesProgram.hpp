@@ -9,8 +9,11 @@
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
 #include <poplibs_support/Visitor.hpp>
+#include <poplibs_support/logging.hpp>
 #include <popops/ElementWise.hpp>
 #include <poputil/exceptions.hpp>
+
+using namespace poplibs_support;
 
 // The collectives operation is created as a program that calls
 // ReduceScatter:
@@ -42,7 +45,8 @@
 
 namespace popops {
 
-enum Direction { CLOCKWISE, ANTICLOCKWISE };
+enum class Direction { CLOCKWISE, ANTICLOCKWISE };
+enum class Mirrored { NON_MIRRORED, MIRRORED };
 
 // This struct is used for the cross replica copy
 // and the copies in the switch. For the switch
@@ -172,65 +176,74 @@ opInPlace(poplar::Graph &graph, const boost::optional<ReduceProg> &reduceProg) {
   return prog;
 }
 
+// Create a program that does multiple collectives simultaneously
 poplar::program::Sequence
-unidirectionalSequence(CollectivesProgram &program, poplar::Graph &graph,
-                       const poplar::DebugNameAndId &dnai) {
+multiDirectionalSequence(std::vector<CollectivesProgram> cprogs,
+                         poplar::Graph &graph,
+                         const poplar::DebugNameAndId &dnai) {
+  logging::popops::debug("multiDirectionalSequence of size {}", cprogs.size());
+  assert(
+      std::adjacent_find(cprogs.cbegin(), cprogs.cend(), [](auto &l, auto &r) {
+        return l.repeatCounter != r.repeatCounter;
+      }) == cprogs.cend());
   using namespace poplar::program;
-  const auto sliceFunction =
-      graph.addFunction(std::move(program.sliceFragments));
-  Sequence loopBody(
-      {std::move(program.incrementIndex),
-       sequenceFromCrossReplicaCopies(program.exchangeProg, {dnai}),
-       std::move(program.allgatherCopy), Call(sliceFunction, {dnai}),
-       opInPlace(graph, program.reduceProg)},
-      {dnai});
-  return Sequence(
-      {WriteUndef(program.undefTensor, {dnai}), std::move(program.rearrangePre),
-       std::move(program.initIndex), std::move(program.firstGatherCopy),
-       Call(sliceFunction, {dnai}),
-       Repeat(program.repeatCounter, std::move(loopBody), {dnai}),
-       std::move(program.rearrangePost)},
-      {dnai});
-}
-// Create a program that does a clockwise and anticlockwise collective
-// simultaneously
-poplar::program::Sequence
-bidirectionalSequence(CollectivesProgram &clockwise,
-                      CollectivesProgram &anticlockwise, poplar::Graph &graph,
-                      const poplar::DebugNameAndId &dnai) {
-  assert(clockwise.repeatCounter == anticlockwise.repeatCounter);
-  using namespace poplar::program;
-  const auto sliceFunction =
-      graph.addFunction(Sequence(std::move(clockwise.sliceFragments),
-                                 std::move(anticlockwise.sliceFragments)));
-  boost::optional<ReduceProg> combinedReduceProg;
-  assert(static_cast<bool>(clockwise.reduceProg) ==
-         static_cast<bool>(anticlockwise.reduceProg));
-  if (clockwise.reduceProg && anticlockwise.reduceProg) {
-    combinedReduceProg =
-        clockwise.reduceProg.get() + anticlockwise.reduceProg.get();
+  Sequence sliceFragments;
+  for (const auto &cprog : cprogs) {
+    sliceFragments.add(cprog.sliceFragments);
   }
-  Sequence loopBody(
-      {std::move(clockwise.incrementIndex),
-       std::move(anticlockwise.incrementIndex),
-       sequenceFromCrossReplicaCopies(clockwise.exchangeProg, {dnai}),
-       sequenceFromCrossReplicaCopies(anticlockwise.exchangeProg, {dnai}),
-       std::move(clockwise.allgatherCopy),
-       std::move(anticlockwise.allgatherCopy), Call(sliceFunction, {dnai}),
-       opInPlace(graph, combinedReduceProg)},
-      {dnai});
+  const auto sliceFunction = graph.addFunction(Sequence(sliceFragments));
+  boost::optional<ReduceProg> combinedReduceProg;
+  assert(
+      std::adjacent_find(cprogs.cbegin(), cprogs.cend(), [](auto &l, auto &r) {
+        return static_cast<bool>(l.reduceProg) !=
+               static_cast<bool>(r.reduceProg);
+      }) == cprogs.cend());
+  if (std::all_of(cprogs.begin(), cprogs.end(),
+                  [](auto &p) { return p.reduceProg; })) {
+    combinedReduceProg =
+        std::accumulate(std::next(cprogs.cbegin()), cprogs.cend(),
+                        cprogs.front().reduceProg.get(), [](auto &l, auto &r) {
+                          return l + r.reduceProg.get();
+                        });
+  }
 
-  return Sequence(
-      {WriteUndef(concat(clockwise.undefTensor, anticlockwise.undefTensor),
-                  {dnai}),
-       std::move(clockwise.rearrangePre), std::move(anticlockwise.rearrangePre),
-       std::move(clockwise.initIndex), std::move(anticlockwise.initIndex),
-       std::move(clockwise.firstGatherCopy),
-       std::move(anticlockwise.firstGatherCopy), Call(sliceFunction, {dnai}),
-       Repeat(clockwise.repeatCounter, std::move(loopBody), {dnai}),
-       std::move(clockwise.rearrangePost),
-       std::move(anticlockwise.rearrangePost)},
-      {dnai});
+  Sequence loopBody;
+  for (auto &prog : cprogs) {
+    loopBody.add(prog.incrementIndex);
+  }
+  for (auto &prog : cprogs) {
+    loopBody.add(sequenceFromCrossReplicaCopies(prog.exchangeProg, {dnai}));
+  }
+  for (auto &prog : cprogs) {
+    loopBody.add(prog.allgatherCopy);
+  }
+  loopBody.add(Call(sliceFunction));
+  loopBody.add(opInPlace(graph, combinedReduceProg));
+
+  Sequence mainProgs{{dnai}};
+  auto undefTensors = [&] {
+    std::vector<poplar::Tensor> v;
+    for (auto &prog : cprogs) {
+      v.emplace_back(prog.undefTensor);
+    }
+    return concat(v);
+  }();
+  mainProgs.add(WriteUndef(undefTensors));
+  for (auto &prog : cprogs) {
+    mainProgs.add(prog.rearrangePre);
+  }
+  for (auto &prog : cprogs) {
+    mainProgs.add(prog.initIndex);
+  }
+  for (auto &prog : cprogs) {
+    mainProgs.add(prog.firstGatherCopy);
+  }
+  mainProgs.add(Call(sliceFunction));
+  mainProgs.add(Repeat(cprogs.front().repeatCounter, std::move(loopBody)));
+  for (auto &prog : cprogs) {
+    mainProgs.add(prog.rearrangePost);
+  }
+  return mainProgs;
 }
 
 // Create the sequence needed for the meet in the middle collective

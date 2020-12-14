@@ -81,7 +81,8 @@ struct Chunks {
  * **Collectives options**
  *
  * * `method` (auto, clockwise_ring, anticlockwise_ring,
- *   bidirectional_ring_pair, meet_in_middle_ring) [=auto]
+ *   bidirectional_ring_pair, meet_in_middle_ring, quad_directional_ring)
+ *   [=auto]
  *
  *   The method to be used.
  *
@@ -108,6 +109,9 @@ struct Chunks {
  *     the final step only uses the links in one direction (assuming an even
  *     number of IPUs). The advantage is the that it requires fewer steps and
  *     allows the use of larger fragments.
+ *
+ *   * **quad_directional_ring:** Divide fragments in four and send each quarter
+ *     around one of two rings using the mirrored and non mirrored ring pattern.
  */
 /**
  * \param graph The graph.
