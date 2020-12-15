@@ -313,12 +313,10 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   switch (op) {
   case BinaryOpType::ADD:
   case BinaryOpType::DIVIDE:
-  case BinaryOpType::EQUAL:
   case BinaryOpType::GREATER_THAN:
   case BinaryOpType::GREATER_THAN_EQUAL:
   case BinaryOpType::LESS_THAN:
   case BinaryOpType::LESS_THAN_EQUAL:
-  case BinaryOpType::NOT_EQUAL:
   case BinaryOpType::MAXIMUM:
   case BinaryOpType::MINIMUM:
   case BinaryOpType::REMAINDER:
@@ -326,6 +324,12 @@ bool haveScalarBroadcastVertexForOp(BinaryOpType op, bool inPlace,
   case BinaryOpType::SUBTRACT:
     return (dType == HALF || dType == FLOAT || dType == INT ||
             dType == UNSIGNED_INT || dType == BOOL);
+
+  case BinaryOpType::EQUAL:
+  case BinaryOpType::NOT_EQUAL:
+    return (dType == HALF || dType == FLOAT || dType == INT ||
+            dType == UNSIGNED_INT || dType == BOOL || dType == SHORT ||
+            dType == UNSIGNED_SHORT);
 
   case BinaryOpType::LOGICAL_AND:
   case BinaryOpType::LOGICAL_OR:

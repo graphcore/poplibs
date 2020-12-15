@@ -194,13 +194,15 @@ const static std::map<expr::BinaryOpType, const std::set<Type>>
         {BinaryOpType::SHIFT_RIGHT, {INT, UNSIGNED_INT}},
         {BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND, {INT}},
         {BinaryOpType::SUBTRACT, {FLOAT, HALF, INT, UNSIGNED_INT}},
-        {BinaryOpType::EQUAL, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
+        {BinaryOpType::EQUAL,
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT}},
         {BinaryOpType::GREATER_THAN, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
         {BinaryOpType::GREATER_THAN_EQUAL,
          {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
         {BinaryOpType::LESS_THAN, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
         {BinaryOpType::LESS_THAN_EQUAL, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
-        {BinaryOpType::NOT_EQUAL, {FLOAT, HALF, INT, UNSIGNED_INT, BOOL}},
+        {BinaryOpType::NOT_EQUAL,
+         {FLOAT, HALF, INT, UNSIGNED_INT, BOOL, SHORT, UNSIGNED_SHORT}},
 };
 
 // Return true if the combination of vertex, operation and data type is valid
@@ -736,6 +738,9 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
 
   DO_TEST(SHORT, SHORT, short, short)
   DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
+
+  DO_TEST(SHORT, BOOL, short, HostBool)
+  DO_TEST(UNSIGNED_SHORT, BOOL, unsigned short, HostBool)
 
   // Reaching here means the combination of 'dataType' and 'outputType' was
   // invalid.

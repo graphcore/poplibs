@@ -322,6 +322,8 @@ inline const BinaryOpPerfTable binaryOpPerfInfo = {
     {{BinaryOpType::EQUAL, HALF}, {9, false, 4}},
     {{BinaryOpType::EQUAL, INT}, {22, false, 4}},
     {{BinaryOpType::EQUAL, UNSIGNED_INT}, {22, false, 4}},
+    {{BinaryOpType::EQUAL, SHORT}, {22, false, 4}},
+    {{BinaryOpType::EQUAL, UNSIGNED_SHORT}, {22, false, 4}},
     {{BinaryOpType::EQUAL, BOOL}, {6, false, 4}},
     // same as B < A
     // E = A and B, result = A andc E
@@ -349,6 +351,8 @@ inline const BinaryOpPerfTable binaryOpPerfInfo = {
     {{BinaryOpType::NOT_EQUAL, HALF}, {11, false, 4}},
     {{BinaryOpType::NOT_EQUAL, INT}, {22, false, 4}},
     {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, {22, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, SHORT}, {22, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, UNSIGNED_SHORT}, {22, false, 4}},
     {{BinaryOpType::NOT_EQUAL, BOOL}, {5, false, 4}},
 };
 
@@ -495,6 +499,8 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
     {{BinaryOpType::EQUAL, HALF}, {8, false, 4}},
     {{BinaryOpType::EQUAL, INT}, {16, false, 4}},
     {{BinaryOpType::EQUAL, UNSIGNED_INT}, {16, false, 4}},
+    {{BinaryOpType::EQUAL, SHORT}, {16, false, 4}},
+    {{BinaryOpType::EQUAL, UNSIGNED_SHORT}, {16, false, 4}},
     {{BinaryOpType::EQUAL, BOOL}, {14, false, 4}},
 
     {{BinaryOpType::GREATER_THAN, FLOAT}, {12, false, 4}},
@@ -521,6 +527,8 @@ inline const BinaryOpPerfTable broadcastOpPerfInfo = {
     {{BinaryOpType::NOT_EQUAL, HALF}, {10, false, 4}},
     {{BinaryOpType::NOT_EQUAL, INT}, {16, false, 4}},
     {{BinaryOpType::NOT_EQUAL, UNSIGNED_INT}, {16, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, SHORT}, {16, false, 4}},
+    {{BinaryOpType::NOT_EQUAL, UNSIGNED_SHORT}, {16, false, 4}},
     {{BinaryOpType::NOT_EQUAL, BOOL}, {4, false, 4}},
 };
 

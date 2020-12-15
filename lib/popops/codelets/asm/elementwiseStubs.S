@@ -36,7 +36,7 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPE
 // The number of parameters (types)can be varied
 //************************************************
 
- .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4" TYPE5="void5"
+ .macro INSTANTIATE_OP NAME FULLNAME OPERATION TYPE1="void1" TYPE2="void2" TYPE3="void3" TYPE4="void4" TYPE5="void5" TYPE6="void6" TYPE7="void7" TYPE8="void8" TYPE9="void9"
 
  // Macro expansion for first type
   .ifnc "\TYPE1","void1"
@@ -63,6 +63,26 @@ __runCodelet_popops__\FULLNAME\()Supervisor___popops__expr__\OPTYPE\()Type__\OPE
   MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE5
   .endif
 
+// Macro expansion for 6th type (optional parameter)
+  .ifnc "\TYPE6","void6"
+  MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE6
+  .endif
+
+// Macro expansion for 7th type (optional parameter)
+  .ifnc "\TYPE7","void7"
+  MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE7
+  .endif
+
+// Macro expansion for 8th type (optional parameter)
+  .ifnc "\TYPE8","void8"
+  MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE8
+  .endif
+
+// Macro expansion for 9th type (optional parameter)
+  .ifnc "\TYPE9","void9"
+  MAKE_ONE_OP \NAME \FULLNAME \OPERATION \TYPE9
+  .endif
+
 .endm
 
 //************************************************
@@ -75,8 +95,8 @@ INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN, float, half, int, unsigned_in
 INSTANTIATE_OP BinaryOp BinaryOp1D GREATER___THAN___EQUAL, float, half, int, unsigned_int, bool
 INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN, float, half, int, unsigned_int, bool
 INSTANTIATE_OP BinaryOp BinaryOp1D LESS___THAN___EQUAL, float, half, int, unsigned_int, bool
-INSTANTIATE_OP BinaryOp BinaryOp1D EQUAL, float, half, int, unsigned_int, bool
-INSTANTIATE_OP BinaryOp BinaryOp1D NOT___EQUAL, float, half, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp BinaryOp1D EQUAL, float, half, int, unsigned_int, bool, short, unsigned_short
+INSTANTIATE_OP BinaryOp BinaryOp1D NOT___EQUAL, float, half, int, unsigned_int, bool, short, unsigned_short
 INSTANTIATE_OP BinaryOp BinaryOp1D, LOGICAL___AND, bool
 INSTANTIATE_OP BinaryOp BinaryOp1D, LOGICAL___OR, bool
 
@@ -192,8 +212,8 @@ INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___LEFT, int, unsigned_int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___RIGHT, int, unsigned_int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SHIFT___RIGHT___SIGN___EXTEND, int
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, SUBTRACT, half, float, int, unsigned_int
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, EQUAL, half, float, int, unsigned_int, bool
-INSTANTIATE_OP BinaryOp, BroadcastScalar1D, NOT___EQUAL, half, float, int, unsigned_int, bool
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, EQUAL, half, float, int, unsigned_int, bool, short, unsigned_short
+INSTANTIATE_OP BinaryOp, BroadcastScalar1D, NOT___EQUAL, half, float, int, unsigned_int, bool, short, unsigned_short
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN, half, float, int, unsigned_int, bool
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, GREATER___THAN___EQUAL, half, float, int, unsigned_int, bool
 INSTANTIATE_OP BinaryOp, BroadcastScalar1D, LESS___THAN, half, float, int, unsigned_int, bool

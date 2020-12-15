@@ -788,9 +788,9 @@ add_multitarget_test(NAME  "BroadcastScalar2D"
 add_multitarget_test(NAME  "BroadcastScalar2DInPlace"
         COMMAND BinaryCodeletsTest --vertexRE BroadcastScalar2DInPlace)
 
-add_multitarget_test(NAME  "Bitwise16BitBinaryOp"
-        COMMAND BinaryCodeletsTest --vertexRE BinaryOp --data-type short ushort
-        --operation BITWISE_AND BITWISE_OR BITWISE_XOR BITWISE_XNOR)
+# Test all Binary and BroadcastScalar with short and ushoprt types
+add_multitarget_test(NAME  "ShortBinaryBroadcastOp"
+        COMMAND BinaryCodeletsTest --data-type short ushort)
 
 
 # Test cycle counters for a subset of Unary and Binary operators/types. These

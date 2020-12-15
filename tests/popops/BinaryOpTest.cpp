@@ -532,6 +532,12 @@ int main(int argc, char **argv) {
   DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
   DO_TEST(UNSIGNED_INT, BOOL, unsigned, HostBool)
 
+  DO_TEST(SHORT, BOOL, short, HostBool)
+  DO_TEST(UNSIGNED_SHORT, BOOL, unsigned short, HostBool)
+
+  DO_TEST(SHORT, SHORT, short, short)
+  DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
+
   // Reaching here means the combination of 'dataType' and 'outputType' was
   // invalid.
   std::cerr << "Combination of data type and operator not supported\n";

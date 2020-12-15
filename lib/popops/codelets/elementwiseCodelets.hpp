@@ -89,10 +89,24 @@ namespace {
 #define INSTANTIATE_OP_5(v, op, t, ...)                                        \
   template class v<op, t>;                                                     \
   INSTANTIATE_OP_4(v, op, __VA_ARGS__)
+#define INSTANTIATE_OP_6(v, op, t, ...)                                        \
+  template class v<op, t>;                                                     \
+  INSTANTIATE_OP_5(v, op, __VA_ARGS__)
+#define INSTANTIATE_OP_7(v, op, t, ...)                                        \
+  template class v<op, t>;                                                     \
+  INSTANTIATE_OP_6(v, op, __VA_ARGS__)
+#define INSTANTIATE_OP_8(v, op, t, ...)                                        \
+  template class v<op, t>;                                                     \
+  INSTANTIATE_OP_7(v, op, __VA_ARGS__)
+#define INSTANTIATE_OP_9(v, op, t, ...)                                        \
+  template class v<op, t>;                                                     \
+  INSTANTIATE_OP_8(v, op, __VA_ARGS__)
 
-#define SELECT_VARGS(_1, _2, _3, _4, _5, NAME, ...) INSTANTIATE_OP##NAME
+#define SELECT_VARGS(_1, _2, _3, _4, _5, _6, _7, _8, _9, NAME, ...)            \
+  INSTANTIATE_OP##NAME
 #define INSTANTIATE_OP(v, op, ...)                                             \
-  SELECT_VARGS(__VA_ARGS__, _5, _4, _3, _2, _1)(v, op, __VA_ARGS__)
+  SELECT_VARGS(__VA_ARGS__, _9, _8, _7, _6, _5, _4, _3, _2, _1)                \
+  (v, op, __VA_ARGS__)
 
 // Helper function to explicitly and specifically cast half to float
 // to indicate this is intentional floating point promotion, while

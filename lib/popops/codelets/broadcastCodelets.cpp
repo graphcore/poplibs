@@ -739,7 +739,8 @@ namespace popops {
 // Relational (comparison) operators are separate because InPlace vertices
 // have them only for boolean
 #define INSTANTIATE_SCALAR_RELOP(name)                                         \
-  INSTANTIATE_OP(name, BinaryOpType::EQUAL, float, half, int, unsigned, bool)  \
+  INSTANTIATE_OP(name, BinaryOpType::EQUAL, float, half, int, unsigned, bool,  \
+                 short, unsigned short)                                        \
   INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN, float, half, int, unsigned, \
                  bool)                                                         \
   INSTANTIATE_OP(name, BinaryOpType::GREATER_THAN_EQUAL, float, half, int,     \
@@ -749,7 +750,7 @@ namespace popops {
   INSTANTIATE_OP(name, BinaryOpType::LESS_THAN_EQUAL, float, half, int,        \
                  unsigned, bool)                                               \
   INSTANTIATE_OP(name, BinaryOpType::NOT_EQUAL, float, half, int, unsigned,    \
-                 bool)
+                 bool, short, unsigned short)
 
 #define INSTANTIATE_SCALAR_RELOP_IN_PLACE(name)                                \
   INSTANTIATE_OP(name, BinaryOpType::EQUAL, bool)                              \

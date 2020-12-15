@@ -893,7 +893,7 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::EQUAL, float, half, bool, int,
-               unsigned)
+               unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::GREATER_THAN_EQUAL, float, half,
                int, unsigned, bool)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::GREATER_THAN, float, half, int,
@@ -911,7 +911,7 @@ INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MINIMUM, float, half, int,
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::MULTIPLY, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
-               unsigned, bool)
+               unsigned, bool, short, unsigned short)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp2D, expr::BinaryOpType::REMAINDER, float, half, int,
                unsigned)
@@ -936,7 +936,7 @@ INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::BITWISE_XNOR, int,
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::DIVIDE, float, half,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::EQUAL, float, half,
-               bool, int, unsigned)
+               bool, int, unsigned, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN_EQUAL,
                float, half, int, unsigned, bool)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::GREATER_THAN, float,
@@ -954,7 +954,7 @@ INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MINIMUM, float, half,
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::MULTIPLY, float, half,
                int, unsigned)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::NOT_EQUAL, float, half,
-               int, unsigned, bool)
+               int, unsigned, bool, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp1DSupervisor, expr::BinaryOpType::REMAINDER, float, half,
                int, unsigned)
@@ -981,7 +981,7 @@ INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::BITWISE_XNOR, int, unsigned,
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::DIVIDE, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::EQUAL, float, half, int,
-               unsigned, bool)
+               unsigned, bool, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN_EQUAL, float, half,
                int, unsigned, bool)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::GREATER_THAN, float, half, int,
@@ -999,7 +999,7 @@ INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MINIMUM, float, half, int,
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::MULTIPLY, float, half, int,
                unsigned)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::NOT_EQUAL, float, half, int,
-               unsigned, bool)
+               unsigned, bool, short, unsigned short)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::POWER, float, half)
 INSTANTIATE_OP(BinaryOp1D, expr::BinaryOpType::REMAINDER, float, half, int,
                unsigned)
