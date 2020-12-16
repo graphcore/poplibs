@@ -240,17 +240,20 @@ foreach(DATA_TYPE half float)
           --matmul-options={\"planConstraints\":\"{\\\"partition\\\":{\\\"x\\\":6,\\\"y\\\":4,\\\"z\\\":1}}\"}
           --single-phase=${PASS_TYPE})
 
-      add_multitarget_test(
-        NAME sparse_fc_layer_T27490_${PASS_TYPE}_${DATA_TYPE}_sb_${SHARED_BUCKETS}
-        COMMAND sparse_fc_layer
-          --data-type=${DATA_TYPE}
-          --input-size=784
-          --output-size=300
-          --batch-size=16
-          --sparsity-factor=0.1
-          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"metaInfoBucketOversizeProportion\":\"0.5\"}
-          --single-phase=${PASS_TYPE}
-          VARIANTS ${TimesOutOnSim})
+      if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+        # TODO: T31789 - Re-enable these tests in debug once speed issues are resolved
+        add_multitarget_test(
+          NAME sparse_fc_layer_T27490_${PASS_TYPE}_${DATA_TYPE}_sb_${SHARED_BUCKETS}
+          COMMAND sparse_fc_layer
+            --data-type=${DATA_TYPE}
+            --input-size=784
+            --output-size=300
+            --batch-size=16
+            --sparsity-factor=0.1
+            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"metaInfoBucketOversizeProportion\":\"0.5\"}
+            --single-phase=${PASS_TYPE}
+            VARIANTS ${TimesOutOnSim})
+      endif()
 
       if (${SHARED_BUCKETS} STREQUAL "true")
         add_multitarget_test(
