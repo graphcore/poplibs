@@ -61,6 +61,26 @@ BOOST_AUTO_TEST_CASE(PropagateOperands) {
   BOOST_CHECK_EQUAL(scheduler.getDomains()[c].max(), DataType{13});
 }
 
+BOOST_AUTO_TEST_CASE(PropagateOperands2) {
+  // This is essentially the case we have when we add this to the model:
+  // m.sub(m.addConstant(1u), m.addConstant(0u));
+  Variable zero(0), one(1), unknownOperand(2);
+  auto sum = std::unique_ptr<Sum>(new Sum(one, {zero, unknownOperand}));
+  Domains domains;
+  domains.push_back({DataType{0}, DataType{0}});         // zero
+  domains.push_back({DataType{1}, DataType{1}});         // one
+  domains.push_back({DataType::min(), DataType::max()}); // unknown operand
+  Scheduler scheduler(domains, {sum.get()});
+  bool success = sum->propagate(scheduler);
+  BOOST_CHECK(success);
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[zero].min(), DataType{0});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[zero].max(), DataType{0});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[one].min(), DataType{1});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[one].max(), DataType{1});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[unknownOperand].min(), DataType{1});
+  BOOST_CHECK_EQUAL(scheduler.getDomains()[unknownOperand].max(), DataType{1});
+}
+
 BOOST_AUTO_TEST_CASE(PropagateBoth) {
   Variable a(0), b(1), c(2);
   auto sum = std::unique_ptr<Sum>(new Sum(c, {a, b}));

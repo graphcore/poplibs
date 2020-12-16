@@ -163,13 +163,14 @@ bool Sum::propagate(Scheduler &scheduler) {
     auto minOtherVarsSum = minSum - *domain.min();
     if (minOtherVarsSum > *domains[result].max())
       return false;
-    auto newMax = *domains[result].max() - minOtherVarsSum;
+    const auto newMax = *domains[result].max() - minOtherVarsSum;
     if (newMax < *domain.min())
       return false;
-    if (newMax < *domain.max())
+    const auto oldMax = *domain.max();
+    if (newMax < oldMax)
       scheduler.setMax(v, popsolver::DataType{
                               newMax.convert_to<DataType::UnderlyingType>()});
-    auto maxOtherVarsSum = maxSum - *domain.max();
+    auto maxOtherVarsSum = maxSum - oldMax;
     if (maxOtherVarsSum < *domains[result].min()) {
       auto newMin = *domains[result].min() - maxOtherVarsSum;
       if (newMin > *domain.max())
