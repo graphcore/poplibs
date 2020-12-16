@@ -81,6 +81,8 @@ public:
   void addPlanToCache(Key key, std::pair<Plan, Cost> value) {
     planCache.emplace(std::move(key), std::move(value));
   }
+
+  std::size_t size() const { return planCache.size(); }
 };
 
 } // namespace poplin

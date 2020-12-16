@@ -517,9 +517,16 @@ class PlanningCacheImpl;
 
 class PlanningCache {
 public:
-  std::unique_ptr<PlanningCacheImpl> impl;
   PlanningCache();
   ~PlanningCache();
+
+  /** Returns the number of entries currently stored in the cache. */
+  std::size_t size() const;
+
+  PlanningCacheImpl &getImpl();
+
+private:
+  std::unique_ptr<PlanningCacheImpl> impl;
 };
 
 } // namespace matmul

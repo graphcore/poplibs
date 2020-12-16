@@ -44,9 +44,13 @@ BOOST_AUTO_TEST_CASE(getCachedPlans) {
   poplar::Graph graph(target);
 
   poplin::PlanningCache cache;
+  BOOST_CHECK(cache.size() == 0);
 
   poplin::getPlan(target, params, {}, &cache);
+  BOOST_CHECK(cache.size() == 1);
+
   poplin::getPlan(target, params, {}, &cache);
+  BOOST_CHECK(cache.size() == 1);
 }
 
 BOOST_AUTO_TEST_CASE(StartTileIsPassOblivious) {

@@ -555,6 +555,10 @@ class PlanningCache {
 public:
   PlanningCache();
   ~PlanningCache();
+
+  /** Returns the number of entries currently stored in the cache. */
+  std::size_t size() const;
+
   std::unique_ptr<PlanningCacheImpl> impl;
 };
 

@@ -38,9 +38,12 @@ namespace matmul {
 
 class PlanningCacheImpl : public poplin::PlanningCache {};
 
-PlanningCache::PlanningCache() : impl(new PlanningCacheImpl) {}
-
+PlanningCache::PlanningCache() : impl(std::make_unique<PlanningCacheImpl>()) {}
 PlanningCache::~PlanningCache() = default;
+
+std::size_t PlanningCache::size() const { return impl->size(); }
+
+PlanningCacheImpl &PlanningCache::getImpl() { return *impl; }
 
 } // namespace matmul
 
@@ -189,7 +192,7 @@ static poplar::OptionFlags getConvOptionFlags(const MatMulOptions &options) {
 static poplin::PlanningCache *getLinCache(matmul::PlanningCache *cache) {
   poplin::PlanningCache *linCache = nullptr;
   if (cache) {
-    linCache = cache->impl.get();
+    linCache = &cache->getImpl();
   }
   return linCache;
 }

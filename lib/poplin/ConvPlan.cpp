@@ -221,11 +221,10 @@ std::ostream &operator<<(std::ostream &os, const Plan &p) {
   return os;
 }
 
-PlanningCache::PlanningCache() {
-  impl = std::unique_ptr<PlanningCacheImpl>(new PlanningCacheImpl());
-}
-
+PlanningCache::PlanningCache() : impl(std::make_unique<PlanningCacheImpl>()) {}
 PlanningCache::~PlanningCache() = default;
+
+std::size_t PlanningCache::size() const { return impl->size(); }
 
 // Pick a tile to start laying out the convolution on. We pick a "random" tile
 // by hashing the forward shape in an attempt to evenly distribute across the
