@@ -124,11 +124,6 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      allow it.  This comes at the cost of further constraints on memory
  *      allocation
  *
- *    * `remapOutputTensor`       (true, false) [=true]
- *
- *       If true, the output of the convolution is remapped if the output
- *       is detected to have a poor layout.
- *
  *    * `enableConvDithering`       (true, false) [=false]
  *
  *       If true, then convolutions with different parameters will be laid out
@@ -142,6 +137,15 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *      Optimize the plan for the specified type of pass. Note the
  *      abbreviations:
  *      FWD (forward), BWD (backward), WU (weight-update), FC (fully-connected).
+ *
+ *   * `remapOutputTensor`       (true, false) [=true]
+ *
+ *      If true, the output of the convolution is remapped if the output
+ *      is detected to have a poor layout. The convolutions planner will try
+ *      to map the channels in groups of 16, 8 or 4. This typically results
+ *      in better performance for the operation(s) consuming the output
+ *      of the convolution.
+ *
  *
  *    * `planConstraints` JSON string
  *
