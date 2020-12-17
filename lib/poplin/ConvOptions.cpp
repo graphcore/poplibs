@@ -58,7 +58,8 @@ std::ostream &operator<<(std::ostream &os, const Pass p) {
 }
 
 std::ostream &operator<<(std::ostream &os, const ConvOptions &opts) {
-  os << "Option: availableMemoryProportion       ";
+  os << "\nOptions:\n";
+  os << "        availableMemoryProportion       ";
   os << opts.availableMemoryProportion << "\n";
   os << "        pass                            ";
   os << opts.pass << "\n";

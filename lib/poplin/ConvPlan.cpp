@@ -1613,6 +1613,7 @@ runPlanner(const ConvDescription &conv,
 
   logging::poplin::debug("{}", plan);
   logging::poplin::debug("for params: {}", params);
+  logging::poplin::debug("{}", options);
 
   if (!options.planConstraintsOutputFilename.empty()) {
     writePlanConstraintsFile(plan, getPlanConstraintsOutputFile(options));
