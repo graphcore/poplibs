@@ -565,7 +565,27 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
 
   return cycles;
 }
-
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCAlpha)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &outType, const Type symbolType) {
+  return 0;
+}
+std::uint64_t
+MAKE_CYCLE_ESTIMATOR_NAME(CTCBeta)(const VertexIntrospector &vertex,
+                                   const Target &target, const Type &inType,
+                                   const Type &outType, const Type symbolType) {
+  return 0;
+}
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCGradGivenAlpha)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &outType, const Type symbolType) {
+  return 0;
+}
+std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCGradGivenBeta)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &outType, const Type symbolType) {
+  return 0;
+}
 poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
@@ -651,6 +671,25 @@ poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
 
       CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popnn, SelectiveScaling, HALF),
+
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCAlpha, FLOAT, FLOAT, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCAlpha, HALF, HALF, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCAlpha, HALF, FLOAT, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCBeta, FLOAT, FLOAT, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCBeta, HALF, HALF, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCBeta, HALF, FLOAT, UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenAlpha, FLOAT, FLOAT,
+                            UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenAlpha, HALF, HALF,
+                            UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenAlpha, HALF, FLOAT,
+                            UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenBeta, FLOAT, FLOAT,
+                            UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenBeta, HALF, HALF,
+                            UNSIGNED_SHORT),
+      CYCLE_ESTIMATOR_ENTRY(popnn, CTCGradGivenBeta, HALF, FLOAT,
+                            UNSIGNED_SHORT),
 
       INSTANTIATE_NL_GRAD_CYCLE_ESTIMATOR(NonLinearityGradSupervisor),
       INSTANTIATE_NL_CYCLE_ESTIMATOR(NonLinearitySupervisor),

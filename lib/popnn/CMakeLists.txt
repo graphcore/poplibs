@@ -83,6 +83,7 @@ add_gp_library(
     ${codelet_asm_sources}
   CPP_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CalcAccuracy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CTCLoss.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossCrossEntropyTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/LossSumSquaredTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/MaxPooling.cpp

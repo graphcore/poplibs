@@ -68,3 +68,15 @@ foreach (FIELD 8 9 10 11 12)
     endforeach()
   endforeach()
 endforeach()
+
+# Placeholder tests for prototype vertices
+add_multi_target_test_executable(CTCLossCodeletTest CTCLossCodeletTest.cpp)
+
+foreach (VERTEX alpha beta gradGivenAlpha gradGivenBeta)
+  add_multitarget_test(NAME "CTCLossCodeletTest_${VERTEX}"
+    COMMAND CTCLossCodeletTest
+      --time=8
+      --indices=4
+      --test=${VERTEX}
+    LABELS codelet)
+endforeach()
