@@ -356,7 +356,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankIndex,
     copy(target, temp, outType, rawTemp.get());
   }
 
-  Sequence(prog);
+  Sequence prog;
   prog.add(Execute(cs));
   OptionFlags engineOptions;
   if (profile) {
