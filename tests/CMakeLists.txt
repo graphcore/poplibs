@@ -362,6 +362,8 @@ function(add_benchmark)
 
   if (NOT DEFINED BENCHMARK_PARALLEL_LEVEL)
     set(BENCHMARK_LABEL "benchmarks")
+  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 2)
+    set(BENCHMARK_LABEL "benchmarks_j2")
   elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 4)
     set(BENCHMARK_LABEL "benchmarks_j4")
   elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 8)
@@ -1133,7 +1135,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 4
                  --output-channels 64
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 2)
 # TODO: T17350 re-enable this after investigation
 #  add_conv_benchmark(NAME vgg16_tr_bs4_v1L1
 #          PARAMS --field {224,224}
@@ -1158,7 +1160,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 128
                  --output-channels 128
                  --batch-size 4
-          PARALLEL_LEVEL 4)
+          PARALLEL_LEVEL 2)
   add_conv_benchmark(NAME vgg16_tr_bs4_v3L0
           PARAMS --field {56,56}
                  --kernel-size 3
