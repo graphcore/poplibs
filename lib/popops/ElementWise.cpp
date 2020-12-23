@@ -881,7 +881,6 @@ bool binaryOpBroadcastInnerVector(
     const ComputeSet &cs, BinaryOpType op, bool inPlace, Sequence &prog) {
   const auto dType = in1.elementType();
   const auto &target = graph.getTarget();
-  const auto vectorWidth = target.getVectorWidth(dType);
 
   // The VectorInner implementation for the float vertices for ADD, SUB, MUL
   // is sometimes slightly faster, sometimes slower (depending on the size of
@@ -899,6 +898,16 @@ bool binaryOpBroadcastInnerVector(
   // restriction once we use cost based estimates to balance work through
   // creating supervisor and/or worker vertices.
   const auto numPatternElems = patterns.front().regionNumElements();
+  assert(dType == FLOAT || dType == HALF);
+  const auto elemsPer64Bits = dType == HALF ? 4 : 2;
+  // The implementation for half vertices is slow for the non-vectorised add,
+  // mul cases. Avoid using this case until a better implementation is written.
+  // The slow path is picked when the vector that is repeated has a length
+  // which is not a multiple of the vectorWidth
+  if (op != BinaryOpType::DIVIDE && dType == HALF &&
+      numPatternElems % elemsPer64Bits != 0) {
+    return false;
+  }
 
   auto innerVectorBroadcastablePredicate = [](const BroadcastPattern &p) {
     return p.innerFactor == 1 && p.outerFactor > 1;
@@ -922,6 +931,7 @@ bool binaryOpBroadcastInnerVector(
     // pattern when dividing work across workers.
     // In future we could lift this restriction but this is the most common
     // case and we address it for now.
+    //
     if (!innerVectorBroadcastablePredicate(*pIt) ||
         pIt->regionNumElements() != numPatternElems) {
       return false;
@@ -934,15 +944,6 @@ bool binaryOpBroadcastInnerVector(
       // size of the pattern.
       const auto size = std::min(
           cIntervalIt->size() + offset - cIntervalIt->begin(), numRemaining);
-      // The implementation for  half vertices is slow for the non-vectorised
-      // add, mul cases. Avoid using this case until a better implementation is
-      // written.
-      // The slow path is picked when the vector that is repeated has a length
-      // which is not a multiple of the vectorWidth
-      if (op != BinaryOpType::DIVIDE && dType == HALF &&
-          (pIt->regionNumElements() % vectorWidth)) {
-        return false;
-      }
       splitIntervalsIt->emplace_back(offset, offset + size);
       // reduce pattern by elements consumed
       numRemaining -= size;

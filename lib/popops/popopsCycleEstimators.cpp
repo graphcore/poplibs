@@ -643,7 +643,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(XMinusaXPlusbY2D)(
 }
 
 // Exact worker cycle count for VectorInnerAdd_core_float
-std::uint64_t vectorInnerAddCoreCycles_float(unsigned addendLen,
+std::uint64_t vectorInnerAddCoreCycles_float(unsigned vectorWidth,
+                                             unsigned addendLen,
                                              unsigned blockCount) {
   std::uint64_t cycles = 1; // brz .Lreturn
 
@@ -667,25 +668,47 @@ std::uint64_t vectorInnerAddCoreCycles_half_scalar(unsigned addendLen,
   cycles += addendLen * (2 + blockCount * 9 + 3);
   return cycles + 1; // return
 }
-std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_8(unsigned addendLen,
+std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_8(unsigned vectorWidth,
+                                                          unsigned addendLen,
                                                           unsigned blockCount) {
   std::uint64_t cycles = 2; // add, brneg
+
+  // Due to retreiving outputs from accumulators we have a pipeline length
+  // that means we process 2 vectors at a time.
+  unsigned grainSize = vectorWidth * 2;
+  unsigned addendLoops = addendLen / grainSize;
+  const unsigned remainder = addendLen % grainSize;
+  for (unsigned i = ceilLog2(8); i < ceilLog2(grainSize); ++i) {
+    if (remainder & (1u << i)) {
+      ++addendLoops;
+    }
+  }
+
   if (blockCount == 1) {
-    cycles += 3 + 7 * (addendLen / 8) + 1;
+    cycles += 3 + 7 * addendLoops + 1;
   } else {
-    cycles += 4;                                        // after brneg, pre-loop
-    cycles += (addendLen / 8) * (8 +                    // pre-rpt
-                                 2 * (blockCount - 1) + // rpt body
-                                 // post-rpt
-                                 7) +
+    cycles += 4;                                    // after brneg, pre-loop
+    cycles += addendLoops * (8 +                    // pre-rpt
+                             2 * (blockCount - 1) + // rpt body
+                             // post-rpt
+                             7) +
               1; // return
   }
   return cycles;
 }
-std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_4(unsigned addendLen,
+std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_4(unsigned vectorWidth,
+                                                          unsigned addendLen,
                                                           unsigned blockCount) {
   std::uint64_t cycles = 5; // pre-loop
-  cycles += (addendLen / 4) *
+
+  unsigned addendLoops = addendLen / vectorWidth;
+  const unsigned remainder = addendLen % vectorWidth;
+  for (unsigned i = ceilLog2(4); i < ceilLog2(vectorWidth); ++i) {
+    if (remainder & (1u << i)) {
+      ++addendLoops;
+    }
+  }
+  cycles += addendLoops *
             (7 +                        // pre-rpt
              2 * (blockCount / 2 - 1) + // rpt body
              // post-rpt. The code depends on whether or not blockCount was odd
@@ -694,7 +717,8 @@ std::uint64_t vectorInnerAddCoreCycles_half_multiple_of_4(unsigned addendLen,
 }
 
 // Exact worker cycle count for VectorInnerMul_core_half
-std::uint64_t vectorInnerAddCoreCycles_half(unsigned addendLen,
+std::uint64_t vectorInnerAddCoreCycles_half(unsigned vectorWidth,
+                                            unsigned addendLen,
                                             unsigned blockCount) {
   std::uint64_t cycles = 1; // brz
   if (blockCount == 0)
@@ -707,8 +731,8 @@ std::uint64_t vectorInnerAddCoreCycles_half(unsigned addendLen,
 
   cycles += 2; // and, brz
   if (addendLen % 8 == 0) {
-    return cycles +
-           vectorInnerAddCoreCycles_half_multiple_of_8(addendLen, blockCount);
+    return cycles + vectorInnerAddCoreCycles_half_multiple_of_8(
+                        vectorWidth, addendLen, blockCount);
   }
 
   cycles += 2; // cmpult, brnz
@@ -718,18 +742,17 @@ std::uint64_t vectorInnerAddCoreCycles_half(unsigned addendLen,
 
   cycles += 2; // and, brz
   if (addendLen % 4 == 0) {
-    return cycles +
-           vectorInnerAddCoreCycles_half_multiple_of_4(addendLen, blockCount);
+    return cycles + vectorInnerAddCoreCycles_half_multiple_of_4(
+                        vectorWidth, addendLen, blockCount);
   }
   return cycles + vectorInnerAddCoreCycles_half_scalar(addendLen, blockCount);
 }
 
 // Cycle count for the common part of all the VectorInner2D ADD and
 // SUBTRACT codelets (from the .Lworker2d label)
-std::uint64_t
-vectorInner2DAddCycles(uint32_t n, const std::vector<uint32_t> &BLen,
-                       const std::vector<uint32_t> &dataBlockCount,
-                       const Type &type) {
+std::uint64_t vectorInner2DAddCycles(
+    unsigned vectorWidth, uint32_t n, const std::vector<uint32_t> &BLen,
+    const std::vector<uint32_t> &dataBlockCount, const Type &type) {
 
   if (BLen.size() != n || dataBlockCount.size() != n) {
     throw poputil::poplibs_error("n (" + std::to_string(n) +
@@ -753,7 +776,7 @@ vectorInner2DAddCycles(uint32_t n, const std::vector<uint32_t> &BLen,
     auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
                                  : vectorInnerAddCoreCycles_float;
 
-    numCycles += coreFunc(BLen[i], dataBlockCount[i]);
+    numCycles += coreFunc(vectorWidth, BLen[i], dataBlockCount[i]);
   }
 
   return numCycles + 1; // exitnz
@@ -762,6 +785,7 @@ vectorInner2DAddCycles(uint32_t n, const std::vector<uint32_t> &BLen,
 // Cycle count for the common part of all the VectorInnerSupervisor ADD and
 // SUBTRACT codelets
 std::uint64_t vectorInnerSupervisorAddCycles(unsigned numWorkerContexts,
+                                             unsigned vectorWidth,
                                              uint32_t BLen,
                                              uint16_t dataBlockCountPacked,
                                              const Type &type) {
@@ -775,19 +799,35 @@ std::uint64_t vectorInnerSupervisorAddCycles(unsigned numWorkerContexts,
 
   auto maxBlocksPerWorker = quotient + (remainder != 0);
 
-  // Supervisor overhead: setzi and wait 6 cycles for register to be updated
-  // before runall
-  std::uint64_t numCycles = 1 + 6;
+  // Common supervisor overhead:
+  // * setzi for worker entry
+  // * runall
+  // * br $lr
+  std::uint64_t numCycles = 1 + 6 * 2;
 
   // Worker cycles in common part (from the .Lworker label).
-  numCycles += numWorkerContexts * (type == HALF ? 27 : 17);
+  std::uint64_t maxWorkerCycles = 0;
+  if (type == HALF) {
+    maxWorkerCycles = 19;
+    if (BLen & 1) {
+      maxWorkerCycles += 4;
+      if (quotient == 0) {
+        maxWorkerCycles += 1;
+      }
+      // 3 max as one worker will probably have to round down
+      // its number of blocks.
+      maxWorkerCycles += 3;
+    }
+  } else {
+    maxWorkerCycles = 17;
+  }
 
   auto coreFunc = type == HALF ? vectorInnerAddCoreCycles_half
                                : vectorInnerAddCoreCycles_float;
 
-  numCycles += numWorkerContexts * coreFunc(BLen, maxBlocksPerWorker);
+  maxWorkerCycles += coreFunc(vectorWidth, BLen, maxBlocksPerWorker);
 
-  return numCycles + 1; // return; should we count extra cycles for sync?
+  return numCycles + maxWorkerCycles * numWorkerContexts;
 }
 
 std::uint64_t vectorInnerDivCoreCycles_float(unsigned BLen,
@@ -924,7 +964,8 @@ std::uint64_t vectorInnerSupervisorDivCycles(unsigned numWorkerContexts,
   return numCycles;
 }
 // Exact worker cycle count for VectorInnerMul_core_float
-std::uint64_t vectorInnerMulCoreCycles_float(unsigned scaleLen,
+std::uint64_t vectorInnerMulCoreCycles_float(unsigned vectorWidth,
+                                             unsigned scaleLen,
                                              unsigned blockCount,
                                              bool inPlace) {
   std::uint64_t cycles = 1; // return
@@ -954,24 +995,44 @@ std::uint64_t vectorInnerMulCoreCycles_half_scalar(unsigned scaleLen,
   return cycles;
 }
 
-std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4(unsigned scaleLen,
+std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4(unsigned vectorWidth,
+                                                          unsigned scaleLen,
                                                           unsigned blockCount) {
-  std::uint64_t cycles = 3;                                // pre-loop
-  cycles += (scaleLen / 4) * (4 + 2 * blockCount + 3) + 1; // return
+  std::uint64_t cycles = 3; // pre-loop
+  unsigned scaleLoops = scaleLen / vectorWidth;
+  unsigned remainder = scaleLen % vectorWidth;
+  for (unsigned i = ceilLog2(4); i < ceilLog2(vectorWidth); ++i) {
+    if (remainder & (1u << i)) {
+      ++scaleLoops;
+    }
+  }
+
+  // 2 cycles per-block because we do not load and store simultaneously
+  // in this path.
+  cycles += scaleLoops * (4 + 2 * blockCount + 3) + 1; // return
   return cycles;
 }
 
-std::uint64_t
-vectorInnerMulCoreCycles_half_multiple_of_4_pipeline(unsigned scaleLen,
-                                                     unsigned blockCount) {
+std::uint64_t vectorInnerMulCoreCycles_half_multiple_of_4_pipeline(
+    unsigned vectorWidth, unsigned scaleLen, unsigned blockCount) {
   std::uint64_t cycles = 3; // pre-loop
-  cycles += (scaleLen / 4) * ((blockCount == 1) ? 7 : 6 + blockCount + 3) +
-            1; // return
+
+  unsigned scaleLoops = scaleLen / vectorWidth;
+  unsigned remainder = scaleLen % vectorWidth;
+  for (unsigned i = ceilLog2(4); i < ceilLog2(vectorWidth); ++i) {
+    if (remainder & (1u << i)) {
+      ++scaleLoops;
+    }
+  }
+  // 1 cycle per-block because we can load/store simultaneously.
+  cycles +=
+      scaleLoops * ((blockCount == 1) ? 7 : 6 + blockCount + 3) + 1; // return
   return cycles;
 }
 
 // Exact worker cycle count for VectorInnerMul_core_half
-std::uint64_t vectorInnerMulCoreCycles_half(unsigned scaleLen,
+std::uint64_t vectorInnerMulCoreCycles_half(unsigned vectorWidth,
+                                            unsigned scaleLen,
                                             unsigned blockCount, bool inPlace) {
 
   std::uint64_t cycles = 1; // initial check for 0
@@ -983,31 +1044,31 @@ std::uint64_t vectorInnerMulCoreCycles_half(unsigned scaleLen,
 
   cycles += 2; // check for in place
   if (inPlace) {
-    return cycles +
-           vectorInnerMulCoreCycles_half_multiple_of_4(scaleLen, blockCount);
+    return cycles + vectorInnerMulCoreCycles_half_multiple_of_4(
+                        vectorWidth, scaleLen, blockCount);
   }
 
   cycles += 2; // check for > 2044
   if (scaleLen > 2044) {
-    return cycles +
-           vectorInnerMulCoreCycles_half_multiple_of_4(scaleLen, blockCount);
+    return cycles + vectorInnerMulCoreCycles_half_multiple_of_4(
+                        vectorWidth, scaleLen, blockCount);
   }
 
   cycles += 2; // Check for > 1
   if (blockCount < 2) {
-    return cycles +
-           vectorInnerMulCoreCycles_half_multiple_of_4(scaleLen, blockCount);
+    return cycles + vectorInnerMulCoreCycles_half_multiple_of_4(
+                        vectorWidth, scaleLen, blockCount);
   }
 
-  return cycles + vectorInnerMulCoreCycles_half_scalar(scaleLen, blockCount);
+  return cycles + vectorInnerMulCoreCycles_half_multiple_of_4_pipeline(
+                      vectorWidth, scaleLen, blockCount);
 }
 
 // Cycle count for the common part of all the VectorInner2D MUL
 // codelets (from the .Lworker2d label)
-std::uint64_t
-vectorInner2DMulCycles(uint32_t n, const std::vector<uint32_t> &BLen,
-                       const std::vector<uint32_t> &dataBlockCount,
-                       const Type &type) {
+std::uint64_t vectorInner2DMulCycles(
+    unsigned vectorWidth, uint32_t n, const std::vector<uint32_t> &BLen,
+    const std::vector<uint32_t> &dataBlockCount, const Type &type) {
 
   if (BLen.size() != n || dataBlockCount.size() != n) {
     throw poputil::poplibs_error("n (" + std::to_string(n) +
@@ -1027,7 +1088,7 @@ vectorInner2DMulCycles(uint32_t n, const std::vector<uint32_t> &BLen,
     auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
                                  : vectorInnerMulCoreCycles_float;
 
-    numCycles += coreFunc(BLen[i], dataBlockCount[i], false);
+    numCycles += coreFunc(vectorWidth, BLen[i], dataBlockCount[i], false);
   }
 
   // Exit
@@ -1039,29 +1100,46 @@ vectorInner2DMulCycles(uint32_t n, const std::vector<uint32_t> &BLen,
 // Cycle count for the common part of all the VectorInnerSupervisor MUL
 // codelets.
 std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
+                                             unsigned vectorWidth,
                                              uint32_t BLen,
                                              uint16_t dataBlockCountPacked,
-                                             const Type &type) {
+                                             const Type &type, bool inPlace) {
   // These numbers may not be exact (e.g. the remainder of
   // dataBlockCountPacked is ignored).
 
-  // Supervisor overhead.
-  std::uint64_t numCycles = 1 + 6;
+  // Common supervi
+  // Common supervisor overhead:
+  // * setzi for worker entry
+  // * runall
+  // * br $lr
+  std::uint64_t numCycles = 1 + 6 * 2;
 
-  auto approxBlocksPerWorker = dataBlockCountPacked >> 3;
+  auto quotient = dataBlockCountPacked >> 3;
+  auto remainder = dataBlockCountPacked & 3;
+  const auto maxBlocksPerWorker = quotient + (remainder != 0);
 
   // Worker cycles (from the .Lworker label)
+  std::uint64_t maxWorkerCycles = 0;
+  if (type == HALF) {
+    maxWorkerCycles = 19;
+    if (BLen & 1) {
+      maxWorkerCycles += 4;
+      if (quotient == 0) {
+        maxWorkerCycles += 1;
+      }
+      maxWorkerCycles += 3;
+    }
+  } else {
+    maxWorkerCycles = 17;
+  }
   numCycles += numWorkerContexts * (type == HALF ? 24 : 17);
 
   auto coreFunc = type == HALF ? vectorInnerMulCoreCycles_half
                                : vectorInnerMulCoreCycles_float;
 
-  numCycles += numWorkerContexts * coreFunc(BLen, approxBlocksPerWorker, true);
+  maxWorkerCycles += coreFunc(vectorWidth, BLen, maxBlocksPerWorker, inPlace);
 
-  // Exit
-  numCycles += 1;
-
-  return numCycles;
+  return numCycles + maxWorkerCycles * numWorkerContexts;
 }
 
 std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
@@ -1072,26 +1150,37 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
 
   uint32_t BLen = B.size();
   unsigned numWorkerContexts = target.getNumWorkerContexts();
+  unsigned vectorWidth = target.getVectorWidth(type);
 
   // Additional branch in the supervisor, and preamble instructions in the
   // worker part.
   switch (op) {
-  case BinaryOpType::ADD:
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+  case BinaryOpType::ADD: {
+    const unsigned addedSuperOverhead = 6;
+    const unsigned addedWorkerOverhead = 3;
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
                                           dataBlockCountPacked, type) +
-           1 + 3;
-  case BinaryOpType::DIVIDE:
+           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+  }
+  case BinaryOpType::DIVIDE: {
     return vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            1 + 3;
-  case BinaryOpType::SUBTRACT:
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+  }
+  case BinaryOpType::SUBTRACT: {
+    const unsigned addedSuperOverhead = 6;
+    const unsigned addedWorkerOverhead = 3;
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
                                           dataBlockCountPacked, type) +
-           1 + 4;
-  case BinaryOpType::MULTIPLY:
-    return vectorInnerSupervisorMulCycles(numWorkerContexts, BLen,
-                                          dataBlockCountPacked, type) +
-           2;
+           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+  }
+  case BinaryOpType::MULTIPLY: {
+    const unsigned addedSuperOverhead = 0;
+    const unsigned addedWorkerOverhead = 2;
+    return vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
+                                          dataBlockCountPacked, type, false) +
+           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+  }
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
   }
@@ -1105,26 +1194,36 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
   CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
 
   uint32_t BLen = B.size();
-  unsigned numWorkerContexts = target.getNumWorkerContexts();
+  const unsigned numWorkerContexts = target.getNumWorkerContexts();
+  const unsigned vectorWidth = target.getVectorWidth(type);
 
   switch (op) {
-  case BinaryOpType::ADD:
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+  case BinaryOpType::ADD: {
+    const auto addedWorkerOverhead = 2;
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
                                           dataBlockCountPacked, type) +
-           2;
-  case BinaryOpType::DIVIDE:
+           addedWorkerOverhead * numWorkerContexts;
+  }
+  case BinaryOpType::DIVIDE: {
     return vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
                                           dataBlockCountPacked, type) +
            2;
-  case BinaryOpType::SUBTRACT:
+  }
+  case BinaryOpType::SUBTRACT: {
+    const auto addedSuperOverhead = 6;
+    const auto addedWorkerOverhead = 3;
     // Additional branches in the supervisor and worker part.
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, BLen,
+    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
                                           dataBlockCountPacked, type) +
-           1 + 4;
-  case BinaryOpType::MULTIPLY:
-    return vectorInnerSupervisorMulCycles(numWorkerContexts, BLen,
-                                          dataBlockCountPacked, type) +
-           3;
+           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+  }
+  case BinaryOpType::MULTIPLY: {
+    const unsigned addedSuperOverhead = 6;
+    const unsigned addedWorkerOverhead = 3;
+    return vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
+                                          dataBlockCountPacked, type, true) +
+           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+  }
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
   }
@@ -1138,17 +1237,22 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   CODELET_VECTOR_VALS(BLen, uint32_t);
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
+  const unsigned vectorWidth = target.getVectorWidth(type);
+
   switch (op) {
   case BinaryOpType::SUBTRACT:
-    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 4;
+    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+           4;
   case BinaryOpType::ADD:
     // an additional branch at the start.
-    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 3;
+    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+           3;
   case BinaryOpType::DIVIDE:
     // an additional branch at the start.
     return vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 3;
   case BinaryOpType::MULTIPLY:
-    return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 2;
+    return vectorInner2DMulCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+           2;
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
   }
@@ -1162,17 +1266,22 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   CODELET_VECTOR_VALS(BLen, uint32_t);
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
+  const unsigned vectorWidth = target.getVectorWidth(type);
+
   switch (op) {
   case BinaryOpType::SUBTRACT:
-    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 4;
+    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+           4;
   case BinaryOpType::ADD:
     // an additional branch at the start.
-    return vectorInner2DAddCycles(n, BLen, dataBlockCount, type) + 2;
+    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+           2;
   case BinaryOpType::DIVIDE:
     // an additional branch at the start.
     return vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 2;
   case BinaryOpType::MULTIPLY:
-    return vectorInner2DMulCycles(n, BLen, dataBlockCount, type) + 3;
+    return vectorInner2DMulCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+           3;
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
   }
