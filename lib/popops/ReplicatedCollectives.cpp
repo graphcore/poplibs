@@ -388,6 +388,49 @@ static unsigned getIpusPerReplica(Graph &graph) {
   return numIpus / numReplicas;
 }
 
+// Check for supported configurations / sanity check configuration input
+static bool
+checkIfSupportedConfiguration(const int ipusPerRank, const int numRanks,
+                              const IpuLinkConfiguration configuration,
+                              const IpuLinkTopology topology) {
+  if (numRanks == 1) {
+    return true;
+  }
+  bool supported = false;
+  switch (configuration) {
+  case poplar::IpuLinkConfiguration::BarleyTwist:
+    if (topology != poplar::IpuLinkTopology::Torus || ipusPerRank != 1) {
+      throw poputil::poplibs_error(
+          "BarleyTwist limited to replica size 1 IPU on torus topology");
+      return supported;
+    } else {
+      supported = true;
+    }
+    break;
+  case poplar::IpuLinkConfiguration::SlidingWindow:
+    supported =
+        (ipusPerRank == 1 || ipusPerRank == 2 ||
+         (ipusPerRank == 4 && topology == poplar::IpuLinkTopology::Torus));
+    break;
+  case poplar::IpuLinkConfiguration::Default:
+    supported = (ipusPerRank == 1 || ipusPerRank == 2 || ipusPerRank == 4 ||
+                 ipusPerRank >= 8);
+    break;
+  case poplar::IpuLinkConfiguration::None:
+    supported = false;
+    break;
+  }
+  if (!supported) {
+    // ToDo: Extend printout with:  + configuration +  "with replica size " +
+    // ipusPerRank + "IPUs on " + topology
+    throw poputil::poplibs_error(
+        fmt::format("Unsupported GCL link configuration {} "
+                    "ipusPerRank {} topology {} - exiting",
+                    configuration, ipusPerRank, topology));
+  }
+  return supported;
+}
+
 static CollectiveMethod pickAllGatherMethod(Graph &graph,
                                             std::size_t numBytes) {
   const auto ipusPerRank = getIpusPerReplica(graph);
@@ -396,11 +439,10 @@ static CollectiveMethod pickAllGatherMethod(Graph &graph,
   const auto configuration = target.getIpuLinkConfiguration();
   const auto topology = target.getIpuLinkTopology();
 
+  // Check for supported configurations / sanity check input
+  checkIfSupportedConfiguration(ipusPerRank, numRanks, configuration, topology);
+  // Select method
   if (configuration == poplar::IpuLinkConfiguration::BarleyTwist) {
-    if (topology != poplar::IpuLinkTopology::Torus || ipusPerRank != 1) {
-      throw poputil::poplibs_error(
-          "BarleyTwist limited to replica size 1 IPU on torus topology");
-    }
     // ToDo: Provide better heuristics
     // MEET_IN_MIDDLE_RING gives better performance for small and
     // medium sized tensors - tested on a POD64 Mk1 Dec. 2020
@@ -447,11 +489,10 @@ static CollectiveMethod pickReduceScatterMethod(Graph &graph,
   const auto configuration = target.getIpuLinkConfiguration();
   const auto topology = target.getIpuLinkTopology();
 
+  // Check for supported configurations / sanity check input
+  checkIfSupportedConfiguration(ipusPerRank, numRanks, configuration, topology);
+  // Select method
   if (configuration == poplar::IpuLinkConfiguration::BarleyTwist) {
-    if (topology != poplar::IpuLinkTopology::Torus || ipusPerRank != 1) {
-      throw poputil::poplibs_error(
-          "BarleyTwist limited to replica size 1 IPU on torus topology");
-    }
     // ToDo: Revisit with better heuristics
     // MEET_IN_MIDDLE_RING gives better performance for small and
     // medium sized tensors - tested on a POD64 Mk1 Dec. 2020.
