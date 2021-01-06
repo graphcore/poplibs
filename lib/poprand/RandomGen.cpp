@@ -295,8 +295,10 @@ Tensor logUniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                   const Tensor &reference, const Type &outType, double minVal,
                   double maxVal, Sequence &prog, double base,
                   const poplar::DebugContext &debugContext) {
-  const auto debugPrefix = debugContext.getPathName();
-  auto fnPrefix = debugPrefix + "/logUniform";
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(masterSeed, reference, seedModifier,
+                                         outType, minVal, maxVal, base));
+  const std::string fnPrefix = "logUniform";
 
   if (minVal < 1)
     throw poputil::poplibs_error("logUniform: minVal must be >= 1");
@@ -334,13 +336,13 @@ Tensor logUniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
 
   // Generate uniformly distributed values in the log space
   poplar::Tensor x = uniform(graph, masterSeed, seedModifier, reference, FLOAT,
-                             logMinVal, logMaxVal, prog, fnPrefix);
+                             logMinVal, logMaxVal, prog, {di, fnPrefix});
 
   // Exponentiate back into initial space
   if (!useNaturalLog) {
     // Note: avoid using Pow by rearranging y = b^x into y = e^(x * log(b))
     popops::mapInPlace(graph, pe::Mul(pe::_1, pe::Const(lnBase)), {x}, prog,
-                       fnPrefix);
+                       {di, fnPrefix});
   }
   // Note: exp(log(x)) is not necessarily an identity in fp arithmetic, which
   // means samples in x could go out of bounds at the borders. Additionally,
@@ -367,8 +369,10 @@ Tensor logUniform(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,
                      pe::Clamp(pe::Exp(pe::_1),
                                pe::Const(static_cast<float>(squeezed.first)),
                                pe::Const(static_cast<float>(squeezed.second))),
-                     {x}, prog, fnPrefix);
-  return popops::cast(graph, x, outType, prog, fnPrefix);
+                     {x}, prog, {di, fnPrefix});
+  auto out = popops::cast(graph, x, outType, prog, {di, fnPrefix});
+  di.addOutput(out);
+  return out;
 }
 
 Tensor bernoulli(Graph &graph, const Tensor *masterSeed, uint32_t seedModifier,

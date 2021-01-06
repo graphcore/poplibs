@@ -263,7 +263,7 @@ poplar::Tensor truncatedNormal(poplar::Graph &graph, const poplar::Tensor *seed,
 /** Sets the random number generator seed on all tiles.
  *
  *  \param graph            The graph to add this operation to.
- *  \param masterSseed      A 64-bit integer to seed the random number
+ *  \param masterSeed       A 64-bit integer to seed the random number
  *                          on every tile.
  *  \param seedModifier     Provides a further modification of the seed value.
  *  \param prog             The program to add this operation to.
