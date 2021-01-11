@@ -93,13 +93,13 @@ template <typename FPType>
 boost::multi_array<FPType, 2>
 alpha(const boost::multi_array<FPType, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      bool logValues = false);
+      unsigned validTimesteps, bool logValues = false);
 
 template <typename FPType>
 boost::multi_array<FPType, 2>
 beta(const boost::multi_array<FPType, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     bool logValues = false);
+     unsigned validTimesteps, bool logValues = false);
 
 template <typename FPType>
 boost::multi_array<FPType, 2>
@@ -107,7 +107,7 @@ expandedGrad(const boost::multi_array<FPType, 2> &sequence,
              const boost::multi_array<FPType, 2> &alpha,
              const boost::multi_array<FPType, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             bool logValues = false);
+             unsigned validTimesteps, bool logValues = false);
 
 template <typename FPType>
 boost::multi_array<FPType, 2>
@@ -115,7 +115,7 @@ grad(const boost::multi_array<FPType, 2> &sequence,
      const boost::multi_array<FPType, 2> &alpha,
      const boost::multi_array<FPType, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, bool logValues = false);
+     unsigned blankIndex, unsigned validTimesteps, bool logValues = false);
 
 } // namespace ctc_loss
 } // namespace poplibs_test

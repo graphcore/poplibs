@@ -828,3 +828,5 @@ add_unit_test(NormStatisticsTest
               NormStatisticsTest.cpp
               VARIANTS ${IPUMODEL_VARIANTS};${SIM_VARIANTS}
               LABELS T28462)
+
+add_multi_target_test_executable(CTCLossTest CTCLossTest.cpp)

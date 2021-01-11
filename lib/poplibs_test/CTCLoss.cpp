@@ -110,7 +110,7 @@ template <typename FPType>
 boost::multi_array<FPType, 2>
 alpha(const boost::multi_array<FPType, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      bool logValues) {
+      unsigned validTimesteps, bool logValues) {
   boost::multi_array<FPType, 2> alphas(
       boost::extents[sequence.size()][sequence[0].size()]);
 
@@ -122,7 +122,7 @@ alpha(const boost::multi_array<FPType, 2> &sequence,
   }
 
   // Iterate per column, starting with the second
-  for (unsigned t = 1; t < sequence[0].size(); t++) {
+  for (unsigned t = 1; t < validTimesteps; t++) {
     for (unsigned j = 0; j < sequence.size(); j++) {
       auto numParents = numberOfParents(paddedSequence, j, blankIndex, true);
       FPType sum = logValues ? log::min : 0;
@@ -156,11 +156,11 @@ template <typename FPType>
 boost::multi_array<FPType, 2>
 beta(const boost::multi_array<FPType, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     bool logValues) {
+     unsigned validTimesteps, bool logValues) {
   boost::multi_array<FPType, 2> betas(
       boost::extents[sequence.size()][sequence[0].size()]);
 
-  const auto lastT = sequence[0].size() - 1;
+  const auto lastT = validTimesteps - 1;
   const auto lastL = sequence.size() - 1;
   // Populate the last timestep betas (beta starting point)
   betas[lastL][lastT] = sequence[lastL][lastT];
@@ -170,8 +170,8 @@ beta(const boost::multi_array<FPType, 2> &sequence,
   }
 
   // Iterate per column, starting with the second to last
-  for (unsigned i = 1; i < sequence[0].size(); i++) {
-    auto t = sequence[0].size() - 1 - i;
+  for (unsigned i = 1; i < validTimesteps; i++) {
+    auto t = validTimesteps - 1 - i;
     for (unsigned j = 0; j < sequence.size(); j++) {
       auto numParents = numberOfParents(paddedSequence, j, blankIndex, false);
       FPType sum = logValues ? log::min : 0;
@@ -206,13 +206,13 @@ expandedGrad(const boost::multi_array<FPType, 2> &sequence,
              const boost::multi_array<FPType, 2> &alpha,
              const boost::multi_array<FPType, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             bool logValues) {
+             unsigned validTimesteps, bool logValues) {
 
   // Result is the same shape as sequence, alphas and betas
   boost::multi_array<FPType, 2> gradient(
       boost::extents[sequence.shape()[0]][sequence.shape()[1]]);
 
-  for (unsigned t = 0; t < sequence.shape()[1]; t++) {
+  for (unsigned t = 0; t < validTimesteps; t++) {
     for (unsigned i = 0; i < sequence.shape()[0]; i++) {
       if (logValues) {
         auto alphaBeta = log::mul(alpha[i][t], beta[i][t]);
@@ -234,7 +234,7 @@ grad(const boost::multi_array<FPType, 2> &sequence,
      const boost::multi_array<FPType, 2> &alpha,
      const boost::multi_array<FPType, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, bool logValues) {
+     unsigned blankIndex, unsigned validTimesteps, bool logValues) {
 
   // A result: 1 row per valid symbol, 1 column per timestep
   // Initialise to zero as some symbols may be unused.
@@ -243,7 +243,7 @@ grad(const boost::multi_array<FPType, 2> &sequence,
   std::fill(gradient.data(), gradient.data() + gradient.num_elements(),
             logValues ? log::min : 0);
 
-  for (unsigned t = 0; t < sequence.shape()[1]; t++) {
+  for (unsigned t = 0; t < validTimesteps; t++) {
     for (unsigned i = 0; i < sequence.shape()[0]; i++) {
       if (logValues) {
         auto alphaBeta = log::mul(alpha[i][t], beta[i][t]);
@@ -263,50 +263,50 @@ grad(const boost::multi_array<FPType, 2> &sequence,
 template boost::multi_array<float, 2>
 alpha(const boost::multi_array<float, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      bool logValues);
+      unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<double, 2>
 alpha(const boost::multi_array<double, 2> &sequence,
       const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-      bool logValues);
+      unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<float, 2>
 beta(const boost::multi_array<float, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     bool logValues);
+     unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<double, 2>
 beta(const boost::multi_array<double, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-     bool logValues);
+     unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<float, 2>
 expandedGrad(const boost::multi_array<float, 2> &sequence,
              const boost::multi_array<float, 2> &alpha,
              const boost::multi_array<float, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             bool logValues);
+             unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<double, 2>
 expandedGrad(const boost::multi_array<double, 2> &sequence,
              const boost::multi_array<double, 2> &alpha,
              const boost::multi_array<double, 2> &beta,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
-             bool logValues);
+             unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<float, 2>
 grad(const boost::multi_array<float, 2> &sequence,
      const boost::multi_array<float, 2> &alpha,
      const boost::multi_array<float, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, bool logValues);
+     unsigned blankIndex, unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<double, 2>
 grad(const boost::multi_array<double, 2> &sequence,
      const boost::multi_array<double, 2> &alpha,
      const boost::multi_array<double, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, bool logValues);
+     unsigned blankIndex, unsigned validTimesteps, bool logValues);
 
 } // namespace ctc_loss
 } // namespace poplibs_test

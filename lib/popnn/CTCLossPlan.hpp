@@ -4,6 +4,7 @@
 #define popnn_CTCLossPlan_hpp
 
 #include <poplar/Graph.hpp>
+#include <popnn/CTCLoss.hpp>
 
 namespace popnn {
 namespace ctc_loss {
@@ -187,6 +188,13 @@ struct SerialPartition {
   // 6. Compute beta 0..El/2 and therefore gradient and reduce into the
   //    gradient result
   std::size_t label;
+};
+
+// Internal Plan implementation
+class Plan::Impl {
+public:
+  ParallelPartition parallel;
+  SerialPartition serial;
 };
 
 } // namespace ctc_loss

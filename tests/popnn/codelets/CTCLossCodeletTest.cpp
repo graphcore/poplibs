@@ -195,44 +195,49 @@ InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
 
 template <typename FPType>
 boost::multi_array<FPType, 2>
-gradReference(const InputSequence<FPType> &test, unsigned blankIndex,
+gradReference(const InputSequence<FPType> &test, unsigned blankClass,
               TestType vertexToTest, bool verbose) {
 
-  auto paddedSequence = extendedLabels(test.idx, blankIndex);
+  auto paddedSequence = extendedLabels(test.idx, blankClass);
+  auto validTimesteps = test.input.shape()[1];
 
-  print("Log Softmax in", test.input, blankIndex, verbose);
+  print("Log Softmax in", test.input, blankClass, verbose);
   boost::multi_array<FPType, 2> logSequence(
       boost::extents[paddedSequence.size()][test.input.shape()[1]]);
   poplibs_test::embedding::multiSlice(test.input, paddedSequence, logSequence);
 
-  print("Reference sequence", logSequence, paddedSequence, blankIndex, verbose);
+  print("Reference sequence", logSequence, paddedSequence, blankClass, verbose);
 
-  auto alphaLog = alpha(logSequence, paddedSequence, blankIndex, true);
+  auto alphaLog =
+      alpha(logSequence, paddedSequence, blankClass, validTimesteps, true);
   if (vertexToTest == TestType::ALPHA) {
-    print("Reference alphas", alphaLog, paddedSequence, blankIndex, verbose);
+    print("Reference alphas", alphaLog, paddedSequence, blankClass, verbose);
     return alphaLog;
   }
 
-  auto betaLog = beta(logSequence, paddedSequence, blankIndex, true);
+  auto betaLog =
+      beta(logSequence, paddedSequence, blankClass, validTimesteps, true);
   if (vertexToTest == TestType::BETA) {
-    print("Reference betas", betaLog, paddedSequence, blankIndex, verbose);
+    print("Reference betas", betaLog, paddedSequence, blankClass, verbose);
     return betaLog;
   }
-  auto expandedGradient = expandedGrad(logSequence, alphaLog, betaLog,
-                                       paddedSequence, blankIndex, true);
+  auto expandedGradient =
+      expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
+                   validTimesteps, true);
   print("Expanded Reference gradient", expandedGradient, paddedSequence,
-        blankIndex, verbose);
+        blankClass, verbose);
 
-  auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
-                       test.alphabetSizeIncBlank, blankIndex, true);
-  print("Reference gradient", gradient, blankIndex, verbose);
+  auto gradient =
+      grad(logSequence, alphaLog, betaLog, paddedSequence,
+           test.alphabetSizeIncBlank, blankClass, validTimesteps, true);
+  print("Reference gradient", gradient, blankClass, verbose);
 
   std::cout << "\n";
   return gradient;
 }
 
 boost::multi_array<double, 2>
-gradIPU(const InputSequence<double> &input, unsigned blankIndex,
+gradIPU(const InputSequence<double> &input, unsigned blankClass,
         const boost::optional<boost::multi_array<double, 2>> &initialValues,
         TestType vertexToTest, Type inType, Type outType,
         const DeviceType &deviceType, bool profile) {
@@ -241,26 +246,26 @@ gradIPU(const InputSequence<double> &input, unsigned blankIndex,
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
-  const auto symbolsLen = input.idx.size();
-  const auto extendedSymbolsLen = 2 * symbolsLen + 1;
+  const auto labelsLen = input.idx.size();
+  const auto extendedLabelsLen = 2 * labelsLen + 1;
   const auto maxT = input.input.shape()[1];
-  const auto nSymbols = input.input.shape()[0];
+  const auto numClasses = input.input.shape()[0];
 
   const auto resultIsGrad = (vertexToTest == TestType::GRAD_GIVEN_ALPHA ||
                              vertexToTest == TestType::GRAD_GIVEN_BETA);
 
   auto probabilities =
-      graph.addVariable(inType, {maxT, nSymbols}, "probabilities");
-  auto symbols = graph.addVariable(UNSIGNED_SHORT, {symbolsLen}, "symbols");
+      graph.addVariable(inType, {maxT, numClasses}, "probabilities");
+  auto labels = graph.addVariable(UNSIGNED_SHORT, {labelsLen}, "labels");
   auto result = graph.addVariable(
-      outType, {maxT, resultIsGrad ? nSymbols : extendedSymbolsLen}, "result");
+      outType, {maxT, resultIsGrad ? numClasses : extendedLabelsLen}, "result");
   auto tempAlphaOrBeta = graph.addVariable(
-      outType, {resultIsGrad ? 2u : 1u, extendedSymbolsLen}, "tempAlphaOrBeta");
+      outType, {resultIsGrad ? 2u : 1u, extendedLabelsLen}, "tempAlphaOrBeta");
   graph.setTileMapping(tempAlphaOrBeta, 0);
 
   Tensor initialAlphaOrBeta;
   if (resultIsGrad) {
-    initialAlphaOrBeta = graph.addVariable(outType, {maxT, extendedSymbolsLen},
+    initialAlphaOrBeta = graph.addVariable(outType, {maxT, extendedLabelsLen},
                                            "initialAlphaOrBeta");
     graph.setTileMapping(initialAlphaOrBeta, 0);
   }
@@ -283,10 +288,14 @@ gradIPU(const InputSequence<double> &input, unsigned blankIndex,
   auto vertex = graph.addVertex(cs, vertexName);
 
   graph.setInitialValue(vertex["maxT"], maxT);
-  graph.setInitialValue(vertex["nSymbols"], nSymbols);
-  graph.setInitialValue(vertex["blankSymbol"], blankIndex);
-  graph.connect(vertex["symbols"], symbols);
+  graph.setInitialValue(vertex["numClasses"], numClasses);
+  graph.setInitialValue(vertex["blankClass"], blankClass);
+  graph.connect(vertex["labels"], labels);
   graph.connect(vertex["probabilities"], probabilities.flatten());
+
+  auto validLabels = graph.addConstant(UNSIGNED_SHORT, {}, labelsLen);
+  graph.setTileMapping(validLabels, 0);
+  graph.connect(vertex["validLabels"], validLabels);
 
   if (vertexToTest == TestType::ALPHA) {
     graph.connect(vertex["alphas"], result.flatten());
@@ -305,25 +314,25 @@ gradIPU(const InputSequence<double> &input, unsigned blankIndex,
   }
 
   graph.setTileMapping(probabilities, 0);
-  graph.setTileMapping(symbols, 0);
+  graph.setTileMapping(labels, 0);
   graph.setTileMapping(result, 0);
   graph.setTileMapping(vertex, 0);
 
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
-  std::unique_ptr<char[]> rawProbabilities, rawResult, rawSymbols,
+  std::unique_ptr<char[]> rawProbabilities, rawResult, rawLabels,
       rawInitialAlphaOrBeta, rawTemp;
 
   rawProbabilities = allocateHostMemoryForTensor(
       probabilities, "probabilities", graph, uploadProg, downloadProg, tmap);
-  rawSymbols = allocateHostMemoryForTensor(symbols, "symbols", graph,
-                                           uploadProg, downloadProg, tmap);
+  rawLabels = allocateHostMemoryForTensor(labels, "labels", graph, uploadProg,
+                                          downloadProg, tmap);
   rawResult = allocateHostMemoryForTensor(result, "result", graph, uploadProg,
                                           downloadProg, tmap);
 
   copy(target, transpose(input.input), inType, rawProbabilities.get());
-  copy(target, input.idx.data(), input.idx.size(), symbols.elementType(),
-       rawSymbols.get());
+  copy(target, input.idx.data(), input.idx.size(), labels.elementType(),
+       rawLabels.get());
 
   // Initialise alpha or beta if needed by the test, otherwise uninitialised
   if (initialValues) {
@@ -352,7 +361,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankIndex,
     copy(target, temp, outType, rawTemp.get());
   } else {
     // last symbol = 0 (probability=1)
-    temp[0][extendedSymbolsLen - 1] = 0;
+    temp[0][extendedLabelsLen - 1] = 0;
     copy(target, temp, outType, rawTemp.get());
   }
 
@@ -387,7 +396,7 @@ int main(int argc, char **argv) {
   bool profile = false;
   unsigned testTime = 15;
   unsigned testSymbols = 5;
-  unsigned alphabetIndices = 4;
+  unsigned numClasses = 4;
   TestType vertexToTest = TestType::ALPHA;
   Type inType = FLOAT;
   Type outType = FLOAT;
@@ -413,8 +422,8 @@ int main(int argc, char **argv) {
      "Test length (symbols)")
     ("time", po::value(&testTime)->default_value(testTime),
      "Test length (time)")
-    ("indices", po::value(&alphabetIndices)->default_value(alphabetIndices),
-     "Indices in the alphabet including blank")
+    ("num-classes", po::value(&numClasses)->default_value(numClasses),
+     "Classes in the alphabet including blank")
     ("verbose", po::value(&verbose)->default_value(verbose),
      "Provide debug printout");
   // clang-format on
@@ -438,10 +447,10 @@ int main(int argc, char **argv) {
   }
 
   auto test =
-      getRandomTestInput(testTime, testSymbols, alphabetIndices, blankIsZero);
-  const unsigned blankIndex = blankIsZero ? 0 : alphabetIndices - 1;
+      getRandomTestInput(testTime, testSymbols, numClasses, blankIsZero);
+  const unsigned blankClass = blankIsZero ? 0 : numClasses - 1;
   test.input = ctc_loss::log(test.input);
-  print("Test sequence:", test.idx, blankIndex, verbose);
+  print("Test sequence:", test.idx, blankClass, verbose);
 
   // When testing gradGivenAlpha or Beta vertices, produce a sensible input by
   // calling the model, otherwise this data is unused.
@@ -449,15 +458,15 @@ int main(int argc, char **argv) {
 
   if (vertexToTest == TestType::GRAD_GIVEN_ALPHA) {
     initialOutput =
-        gradReference<double>(test, blankIndex, TestType::ALPHA, false);
+        gradReference<double>(test, blankClass, TestType::ALPHA, false);
   } else if (vertexToTest == TestType::GRAD_GIVEN_BETA) {
     initialOutput =
-        gradReference<double>(test, blankIndex, TestType::BETA, false);
+        gradReference<double>(test, blankClass, TestType::BETA, false);
   }
 
   auto reference =
-      gradReference<double>(test, blankIndex, vertexToTest, verbose);
-  auto output = gradIPU(test, blankIndex, initialOutput, vertexToTest, inType,
+      gradReference<double>(test, blankClass, vertexToTest, verbose);
+  auto output = gradIPU(test, blankClass, initialOutput, vertexToTest, inType,
                         outType, deviceType, profile);
 
   double relativeTolerance = inType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
@@ -465,12 +474,12 @@ int main(int argc, char **argv) {
 
   // When finding alpha, beta some results aren't relevant. Mask them out
   if (vertexToTest == TestType::ALPHA || vertexToTest == TestType::BETA) {
-    print("IPU result:", output, extendedLabels(test.idx, blankIndex),
-          blankIndex, verbose);
+    print("IPU result:", output, extendedLabels(test.idx, blankClass),
+          blankClass, verbose);
     reference = maskResults(reference);
     output = maskResults(output);
   } else {
-    print("IPU result:", output, blankIndex, verbose);
+    print("IPU result:", output, blankClass, verbose);
   }
 
   bool success = checkIsClose("result", reference, output, relativeTolerance,

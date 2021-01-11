@@ -76,7 +76,7 @@ foreach (VERTEX alpha beta gradGivenAlpha gradGivenBeta)
   add_multitarget_test(NAME "CTCLossCodeletTest_${VERTEX}"
     COMMAND CTCLossCodeletTest
       --time=8
-      --indices=4
+      --num-classes=4
       --test=${VERTEX}
     LABELS codelet)
 endforeach()
