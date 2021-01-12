@@ -5,40 +5,8 @@
 #include <iostream>
 
 namespace poplibs_test {
-namespace ctc_loss {
+namespace ctc {
 
-void print(const std::vector<unsigned> &sequence, unsigned blank) {
-  for (const auto symbol : sequence) {
-    if (symbol == blank) {
-      std::cout << "- ";
-    } else {
-      std::cout << symbol << " ";
-    }
-  }
-  std::cout << std::endl;
-}
-
-std::vector<unsigned> extendedLabels(const std::vector<unsigned> &input,
-                                     unsigned blank, bool stripDuplicates) {
-  std::vector<unsigned> output;
-  output.push_back(blank);
-  unsigned prev = blank;
-  for (const auto c : input) {
-    if (c == prev && stripDuplicates) {
-      continue;
-    }
-    if (prev != blank && c != blank) {
-      output.push_back(blank);
-    }
-    output.push_back(c);
-    prev = c;
-  }
-  if (output.back() != blank) {
-    output.push_back(blank);
-  }
-
-  return output;
-}
 // When computing alpha we work through in time t0...tmax .
 // When computing beta we work through in time tmax..t0 .
 // Parents are those states in the trellis previous timestep.
@@ -308,5 +276,5 @@ grad(const boost::multi_array<double, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
      unsigned blankIndex, unsigned validTimesteps, bool logValues);
 
-} // namespace ctc_loss
+} // namespace ctc
 } // namespace poplibs_test

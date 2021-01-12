@@ -22,7 +22,7 @@ namespace po = boost::program_options;
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplibs_test::ctc_loss;
+using namespace poplibs_test::ctc;
 using namespace poplibs_test;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
@@ -92,7 +92,7 @@ maskResults(const boost::multi_array<double, 2> &in) {
   return out;
 }
 
-// Print a sequence, inserting `-` for the blank character
+// Print a sequence, inserting `-` for the blank symbol
 void print(const std::string &prefix, const std::vector<unsigned> &idx,
            unsigned blank, bool verbose = true) {
   if (!verbose) {
@@ -449,7 +449,7 @@ int main(int argc, char **argv) {
   auto test =
       getRandomTestInput(testTime, testSymbols, numClasses, blankIsZero);
   const unsigned blankClass = blankIsZero ? 0 : numClasses - 1;
-  test.input = ctc_loss::log(test.input);
+  test.input = ctc::log(test.input);
   print("Test sequence:", test.idx, blankClass, verbose);
 
   // When testing gradGivenAlpha or Beta vertices, produce a sensible input by

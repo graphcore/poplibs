@@ -3,6 +3,8 @@ include(GNUInstallDirs)
 add_library(poplibs_test SHARED
   Convolution.cpp
   CTCLoss.cpp
+  CTCInference.cpp
+  CTCUtil.cpp
   Embedding.cpp
   FullyConnected.cpp
   GeneralMatrixAdd.cpp
@@ -18,6 +20,8 @@ add_library(poplibs_test SHARED
   Util.cpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Convolution.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/CTCLoss.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/CTCInference.hpp
+  ${PROJECT_SOURCE_DIR}/include/poplibs_test/CTCUtil.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Embedding.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/FullyConnected.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixAdd.hpp

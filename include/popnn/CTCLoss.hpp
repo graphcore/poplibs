@@ -13,7 +13,7 @@
 #include <poputil/DebugInfo.hpp>
 
 namespace popnn {
-namespace ctc_loss {
+namespace ctc {
 
 /** An object representing a plan that describes how to map tensors and
  *  implement the CTC Loss function.
@@ -116,7 +116,7 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
          poplar::program::Sequence &prog, const unsigned blankClass,
          const Plan &plan, const poplar::DebugContext &debugContext = {});
 
-} // namespace ctc_loss
+} // namespace ctc
 } // namespace popnn
 
 #endif // popnn_CTCLoss_hpp

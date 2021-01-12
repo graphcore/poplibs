@@ -69,7 +69,7 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
 }
 
 void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
-                        const popnn::ctc_loss::Plan::Impl &plan) {
+                        const popnn::ctc::Plan::Impl &plan) {
   // Simple initial logic to map to incrementing tiles according to batch split
   // (which is assumed to equal batchSize)
   const auto batchDim = tensor.rank() == 3 ? 1 : 0;
@@ -80,7 +80,7 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
 
 } // namespace
 namespace popnn {
-namespace ctc_loss {
+namespace ctc {
 
 poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                                const std::size_t batchSize,
@@ -200,6 +200,6 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
   return gradient;
 }
 
-} // end namespace ctc_loss
+} // end namespace ctc
 
 } // end namespace popnn

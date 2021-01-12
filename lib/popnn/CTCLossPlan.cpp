@@ -4,7 +4,7 @@
 #include <popnn/CTCLoss.hpp>
 
 namespace popnn {
-namespace ctc_loss {
+namespace ctc {
 Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const poplar::Type &outType, const std::size_t batchSize,
           const std::size_t maxTime, const std::size_t maxLabels,
@@ -39,12 +39,11 @@ std::ostream &operator<<(std::ostream &o, const Plan &p) {
   o << *p.impl;
   return o;
 }
-} // namespace ctc_loss
+} // namespace ctc
 } // namespace popnn
 
 namespace poputil {
-template <>
-poplar::ProfileValue toProfileValue(const popnn::ctc_loss::Plan &p) {
+template <> poplar::ProfileValue toProfileValue(const popnn::ctc::Plan &p) {
   poplar::ProfileValue::Map v;
   v.insert({"serial.batch", toProfileValue(p.impl->serial.batch)});
   v.insert({"serial.time", toProfileValue(p.impl->serial.time)});

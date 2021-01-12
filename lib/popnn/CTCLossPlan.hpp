@@ -7,7 +7,7 @@
 #include <popnn/CTCLoss.hpp>
 
 namespace popnn {
-namespace ctc_loss {
+namespace ctc {
 
 // An input consists of:
 // prob[maxT, B, A] of type half or float
@@ -197,7 +197,7 @@ public:
   SerialPartition serial;
 };
 
-} // namespace ctc_loss
+} // namespace ctc
 } // namespace popnn
 
 #endif // #ifndef popnn_CTCLossPlan_hpp

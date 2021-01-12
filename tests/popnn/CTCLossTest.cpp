@@ -22,7 +22,7 @@ namespace po = boost::program_options;
 
 using namespace poplar;
 using namespace poplar::program;
-using namespace poplibs_test::ctc_loss;
+using namespace poplibs_test::ctc;
 using namespace poplibs_test;
 using namespace poplibs_test::util;
 using namespace poplibs_support;
@@ -61,7 +61,7 @@ maskResults(const boost::multi_array<double, 2> &in, size_t validTimesteps) {
   }
   return out;
 }
-// Print a sequence, inserting `-` for the blank character
+// Print a sequence, inserting `-` for the blank symbol
 void print(const std::string &prefix, const std::vector<unsigned> &symbols,
            unsigned blank, bool verbose = true) {
   if (!verbose) {
@@ -152,7 +152,7 @@ InputSequence<double> getRandomTestInput(size_t minT, size_t maxT,
       input[j][i] = randInput(gen);
     }
   }
-  input = transpose(ctc_loss::softMax(transpose(input)));
+  input = transpose(ctc::softMax(transpose(input)));
 
   return {input, inputLength, labels};
 }
@@ -197,13 +197,13 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   const auto batchSize = inputs.size();
 
   // Create the inputs to the gradient function
-  const auto plan = popnn::ctc_loss::plan(graph, inType, outType, batchSize,
-                                          maxT, maxLabels, numClasses);
+  const auto plan = popnn::ctc::plan(graph, inType, outType, batchSize, maxT,
+                                     maxLabels, numClasses);
 
-  auto data = popnn::ctc_loss::createDataInput(graph, inType, batchSize, maxT,
-                                               numClasses, plan, "DataInput");
-  auto labels = popnn::ctc_loss::createLabelsInput(
-      graph, UNSIGNED_SHORT, batchSize, maxLabels, plan, "LabelsInput");
+  auto data = popnn::ctc::createDataInput(graph, inType, batchSize, maxT,
+                                          numClasses, plan, "DataInput");
+  auto labels = popnn::ctc::createLabelsInput(graph, UNSIGNED_SHORT, batchSize,
+                                              maxLabels, plan, "LabelsInput");
 
   auto dataLengths = graph.addVariable(UNSIGNED_SHORT, {batchSize});
   auto labelLengths = graph.addVariable(UNSIGNED_SHORT, {batchSize});
@@ -244,9 +244,9 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   // Create gradient
   Sequence prog;
-  const auto result = popnn::ctc_loss::gradient(graph, outType, data, labels,
-                                                dataLengths, labelLengths, prog,
-                                                blankSymbol, plan, "Gradient");
+  const auto result =
+      popnn::ctc::gradient(graph, outType, data, labels, dataLengths,
+                           labelLengths, prog, blankSymbol, plan, "Gradient");
 
   // Create handles for reading the result
   std::vector<std::unique_ptr<char[]>> rawResult(batchSize);
@@ -389,7 +389,7 @@ int main(int argc, char **argv) {
     // values are unused by the reference implementation)
     // TODO - expect some of this to lie inside the library function, and
     // probabliy eliminate the need for padding
-    tests[i].input = ctc_loss::log(tests[i].input);
+    tests[i].input = ctc::log(tests[i].input);
     for (size_t idx = 0; idx < numClasses; idx++) {
       for (size_t in = tests.back().inputLength; in < maxTime; in++) {
         tests.back().input[in][idx] = (idx == blankClass) ? 0 : log::min;

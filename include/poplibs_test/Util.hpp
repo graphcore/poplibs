@@ -325,32 +325,38 @@ inline bool checkIsClose(const std::string &name,
                       absoluteTolerance);
 }
 
-template <class T> struct ShapeOption {
-  bool canBeBroadcast = false;
+template <class T> struct VectorOption {
   std::vector<T> val;
 
-  ShapeOption() = default;
-  ShapeOption(const T &x) : canBeBroadcast(true) { val.push_back(x); }
+  VectorOption() = default;
+  VectorOption(const T &x) { val.push_back(x); }
 
   operator const std::vector<T> &() const { return val; }
-
   const std::vector<T> *operator->() const { return &val; }
-
   const T &operator[](std::size_t i) const { return val[i]; }
-
   typename std::vector<T>::const_iterator begin() const { return val.begin(); }
-
   typename std::vector<T>::const_iterator end() const { return val.end(); }
+};
+
+template <class T> struct ShapeOption : public VectorOption<T> {
+  bool canBeBroadcast = false;
+
+  ShapeOption() = default;
+  ShapeOption(const T &x) : VectorOption<T>(x), canBeBroadcast(true) {}
 
   void broadcast(unsigned numDims) {
     if (!canBeBroadcast)
       return;
-    assert(val.size() == 1);
-    val.resize(numDims, val.back());
+    assert(this->val.size() == 1);
+    this->val.resize(numDims, this->val.back());
     canBeBroadcast = false;
   }
 };
 
+template <class T>
+std::ostream &operator<<(std::ostream &os, const VectorOption<T> &s);
+template <class T>
+std::istream &operator>>(std::istream &in, VectorOption<T> &s);
 template <class T>
 std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s);
 template <class T>
@@ -371,11 +377,7 @@ inline void skipSpaces(std::istream &in) {
 #endif
 
 template <class T>
-std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
-  if (s.canBeBroadcast) {
-    assert(s.val.size() == 1);
-    return os << s.val.front();
-  }
+std::ostream &operator<<(std::ostream &os, const VectorOption<T> &s) {
   os << '{';
   bool needComma = false;
   for (const auto &x : s.val) {
@@ -385,6 +387,15 @@ std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
     needComma = true;
   }
   return os << '}';
+}
+template <class T>
+std::ostream &operator<<(std::ostream &os, const ShapeOption<T> &s) {
+  if (s.canBeBroadcast) {
+    assert(s.val.size() == 1);
+    return os << s.val.front();
+  } else {
+    return os << static_cast<const VectorOption<T> &>(s);
+  }
 }
 
 #ifdef __clang__
@@ -396,11 +407,12 @@ namespace detail {
 template <class T> inline T readValue(std::istream &in) {
   std::string number;
   auto c = in.peek();
-  if (!std::isdigit(c) && c != '-')
-    throw std::runtime_error("Invalid shape; expected digit");
+  if (!std::isdigit(c) && c != '-' && c != '.')
+    throw std::runtime_error("Invalid value; expected digit or `.'");
   do {
     number += in.get();
-  } while (std::isdigit(in.peek()));
+    c = in.peek();
+  } while (std::isdigit(c) || c == '.');
   return boost::lexical_cast<T>(number);
 }
 
@@ -408,7 +420,7 @@ template <> inline std::string readValue<std::string>(std::istream &in) {
   std::string value;
   auto c = in.peek();
   if (!std::isalpha(c))
-    throw std::runtime_error("Invalid shape; expected character");
+    throw std::runtime_error("Invalid value; expected character");
   do {
     value += in.get();
   } while (std::isalpha(in.peek()));
@@ -418,7 +430,7 @@ template <> inline std::string readValue<std::string>(std::istream &in) {
 } // namespace detail
 
 template <class T>
-std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
+std::istream &operator>>(std::istream &in, VectorOption<T> &s) {
   auto c = in.peek();
   if (c == '{') {
     in.ignore();
@@ -434,14 +446,25 @@ std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
         if (c == '}') {
           break;
         } else if (c != ',') {
-          throw std::runtime_error("Invalid shape; expected `,' or `}'");
+          throw std::runtime_error("Invalid vector; expected `,' or `}'");
         }
         skipSpaces(in);
       }
     }
   } else {
-    if (!std::isdigit(c) && c != '-') {
-      throw std::runtime_error("Invalid shape; expected `{' or digit");
+    throw std::runtime_error("Invalid vector; expected `{'");
+  }
+  return in;
+}
+
+template <class T>
+std::istream &operator>>(std::istream &in, ShapeOption<T> &s) {
+  auto c = in.peek();
+  if (c == '{') {
+    return in >> static_cast<VectorOption<T> &>(s);
+  } else {
+    if (!std::isdigit(c) && c != '-' && c != '.') {
+      throw std::runtime_error("Invalid shape; expected `{', digit or `.'");
     }
     s.canBeBroadcast = true;
     s.val.push_back(detail::readValue<T>(in));

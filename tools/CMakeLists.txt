@@ -105,6 +105,10 @@ target_link_libraries(norm_layer
                       poplibs_support poplibs_test
                       Boost::program_options)
 
+add_tool(ctc_validate ctc_validate.cpp)
+target_link_libraries(ctc_validate
+                      poplibs_support poplibs_test
+                      Boost::program_options)
 
 if (TARGET popsparse)
   add_tool(sparse_fc_layer sparse_fc_layer.cpp)
