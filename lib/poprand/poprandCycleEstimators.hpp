@@ -6,7 +6,7 @@
 
 namespace poprand {
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable();
+poplibs::PerfEstimatorTable makePerfFunctionTable();
 }
 
 #endif

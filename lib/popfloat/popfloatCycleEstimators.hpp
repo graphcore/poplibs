@@ -7,7 +7,7 @@
 namespace popfloat {
 namespace experimental {
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable();
+poplibs::PerfEstimatorTable makePerfFunctionTable();
 
 } // end namespace experimental
 } // end namespace popfloat

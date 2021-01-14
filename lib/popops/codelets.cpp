@@ -47,7 +47,7 @@ void addReduceCodelets(poplar::Graph &graph) {
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(opName, p.first, p.second,
                                                    isUpdate, specialisation);
-          graph.registerCycleEstimator(
+          graph.registerPerfEstimator(
               vertexName,
               std::bind(getCycleEstimateForReduceVertex, _1, _2, p.first,
                         p.second, operation, isUpdate, specialisation));
@@ -63,7 +63,7 @@ void addReduceCodelets(poplar::Graph &graph) {
           std::string opName = getReductionVertexOpName(operation);
           auto vertexName = getReductionVertexName(
               opName, p.first, p.second, isUpdate, specialisation, true);
-          graph.registerCycleEstimator(
+          graph.registerPerfEstimator(
               vertexName,
               std::bind(getCycleEstimateForReduceVertex, _1, _2, p.first,
                         p.second, operation, isUpdate, specialisation));
@@ -84,7 +84,7 @@ void addReduceCodelets(poplar::Graph &graph) {
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("popops", "popops.gp", loc));
-  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
+  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
   addReduceCodelets(graph);
 }
 

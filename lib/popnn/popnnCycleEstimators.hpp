@@ -8,7 +8,7 @@
 
 namespace popnn {
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable();
+poplibs::PerfEstimatorTable makePerfFunctionTable();
 }
 
 #endif

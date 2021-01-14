@@ -6,58 +6,60 @@ using namespace poplar;
 
 namespace popsparse {
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulElementWise)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulElementWise)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulGradAElementWise)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulGradAElementWise)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulElementWiseTranspose)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    SparseDenseMatMulElementWiseTranspose)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &fpType,
+                                           const Type &accumType) {
+  return 0;
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulGradWElementWise)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulGradWElementWise)(
-    const VertexIntrospector &vertex, const Target &target, const Type &fpType,
-    const Type &accumType) {
-  return 0;
-}
-
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlock)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulBlock)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned BlockRows, unsigned BlockCols) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlockGradA)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulBlockGradA)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned BlockRows, unsigned BlockCols) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlockGradW)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulBlockGradW)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned BlockRows, unsigned BlockCols) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMatMulBlockAmpGradW)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMatMulBlockAmpGradW)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned BlockRows, unsigned BlockCols) {
   return 0;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
-                                               const Target &target,
-                                               const Type &fpType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &fpType) {
   const auto numWorkers = target.getNumWorkerContexts();
   CODELET_SCALAR_VAL(blockSizeXOrY, unsigned);
   CODELET_SCALAR_VAL(numXOrYBlocks, unsigned);
@@ -67,31 +69,32 @@ MAKE_CYCLE_ESTIMATOR_NAME(BlockTransposeGradW)(const VertexIntrospector &vertex,
                                       numXOrYBlocks, numZ, numWorkers);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiSliceElementWise)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMultiSliceElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiUpdateAddElementWise)(
-    const VertexIntrospector &vertex, const Target &target,
-    const Type &fpType) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    SparseDenseMultiUpdateAddElementWise)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &fpType) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiSliceBlock)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMultiSliceBlock)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const unsigned vectorWidthInBytes) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseDenseMultiUpdateAddBlock)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseDenseMultiUpdateAddBlock)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const bool vectorise) {
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseGatherElementWise)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SparseGatherElementWise)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
   const auto numWorkers = target.getNumWorkerContexts();
@@ -111,12 +114,12 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SparseGatherElementWise)(
                                        numWorkers, fpType == FLOAT);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BufferIndexUpdate)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BufferIndexUpdate)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   return 6 * target.getNumWorkerContexts();
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BitIsSet)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BitIsSet)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &storageType, const Type &indexType) {
   // ld bit storage pointer
@@ -130,7 +133,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BitIsSet)(
   return 8 * target.getNumWorkerContexts();
 }
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popsparse, SparseDenseMatMulElementWise, HALF,
                             FLOAT),

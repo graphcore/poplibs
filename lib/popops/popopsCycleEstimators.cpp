@@ -101,21 +101,21 @@ static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
   return cycles * numWorkers + basicOpSupervisorOverhead();
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo &perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
   return broadcastArithmeticSupervisorCycleEstimate(
       vertex, target, op, type, perfInfo, hasExternalCodelet(op, type) ? 1 : 4);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo &perfInfo = broadcastOpPerfInfo.at({op, type});
   return broadcastArithmeticSupervisorCycleEstimate(
       vertex, target, op, type, perfInfo, hasExternalCodelet(op, type) ? 1 : 4);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const Type &outType) {
   // For vectorisation purposes, treat this as if it always processes float,
@@ -152,15 +152,15 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
   return (15 + numOuterLoops * cycles) * numWorkers + supervisorCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, false);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
+std::uint64_t MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
@@ -168,17 +168,19 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
                                            allowMisaligned ? 25 : 7, false);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, true);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorOuterByRowSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type, bool allowMisaligned) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    BroadcastVectorOuterByRowSupervisor)(const VertexIntrospector &vertex,
+                                         const Target &target, BinaryOpType op,
+                                         const Type &type,
+                                         bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, true);
@@ -212,21 +214,21 @@ static std::uint64_t broadcastArithmeticCycleEstimate(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
   return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
                                           hasExternalCodelet(op, type) ? 1 : 4);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DData)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DData)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo perfInfo = broadcastOpPerfInfo.at({op, type});
   return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
                                           hasExternalCodelet(op, type) ? 1 : 4);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const Type &outType) {
   const OpPerformanceInfo perfInfo = broadcastOpPerfInfo.at({op, type});
@@ -236,16 +238,17 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2Types2DData)(
                                           outType == FLOAT ? 0 : 1);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2DInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
   return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
                                           4);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastScalar2D)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2D)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BinaryOpType op, const Type &type) {
   const OpPerformanceInfo perfInfo = broadcastOpPerfInfo.at({op, type});
   return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
                                           4);
@@ -468,7 +471,7 @@ std::uint64_t aXPlusbYMixedSupervisorCycleEstimate(
   return supervisorCycles + maxWorkerCycles * 6;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAddSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
     const Type &BType, const Type &ScaleType, const bool isConstant,
     const bool memConstrained) {
@@ -476,14 +479,14 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ScaledAddSupervisor)(
                                                  isConstant, memConstrained,
                                                  ScaledArithmeticOp::ADD);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ScaledSubtractSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledSubtractSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
     const Type &BType, const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, BType,
                                                  false, memConstrained,
                                                  ScaledArithmeticOp::SUBTRACT);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbYSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXPlusbYSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &DataType, const Type &ScaleType, const bool isConstant,
     const bool memConstrained) {
@@ -496,7 +499,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbYSupervisor)(
         ScaledArithmeticOp::AXPLUSBY);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXMinusbYSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXMinusbYSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
     const bool isConstant, const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, AType,
@@ -504,7 +507,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXMinusbYSupervisor)(
                                                  ScaledArithmeticOp::AXMINUSBY);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(XMinusaXPlusbYSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbYSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
     const bool isConstant, const bool memConstrained) {
   return scaledArithmeticSupervisorCycleEstimate(vertex, target, AType, AType,
@@ -599,21 +602,21 @@ std::uint64_t aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ScaledAdd2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAdd2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &AType,
     const Type &BType, const Type &ScaleType, const bool isConstant,
     const bool memConstrained) {
   return ScaledArithmetic2DCycleEstimate(vertex, target, AType, memConstrained,
                                          isConstant, ScaledArithmeticOp::ADD);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ScaledSubtract2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledSubtract2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool memConstrained) {
   return ScaledArithmetic2DCycleEstimate(vertex, target, type, false,
                                          memConstrained,
                                          ScaledArithmeticOp::SUBTRACT);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbY2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXPlusbY2D)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &DataType, const Type &ScaleType, const bool isConstant,
     const bool memConstrained) {
@@ -626,7 +629,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXPlusbY2D)(
                                            ScaledArithmeticOp::AXPLUSBY);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXMinusbY2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(aXMinusbY2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool isConstant, const bool memConstrained) {
   return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
@@ -634,7 +637,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(aXMinusbY2D)(
                                          ScaledArithmeticOp::AXMINUSBY);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(XMinusaXPlusbY2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbY2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool isConstant, const bool memConstrained) {
   return ScaledArithmetic2DCycleEstimate(vertex, target, type, memConstrained,
@@ -1142,7 +1145,7 @@ std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
   return numCycles + maxWorkerCycles * numWorkerContexts;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_FIELD(B);
@@ -1187,9 +1190,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    BroadcastVectorInnerInPlaceSupervisor)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           BinaryOpType op, const Type &type) {
   CODELET_FIELD(B);
   CODELET_SCALAR_VAL(dataBlockCountPacked, uint16_t);
 
@@ -1230,7 +1234,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInnerInPlaceSupervisor)(
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2D)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_SCALAR_VAL(n, uint32_t);
@@ -1259,7 +1263,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   CODELET_SCALAR_VAL(n, uint32_t);
@@ -1288,8 +1292,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   return 0;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(HadamardProd)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
+                                       const Target &target, const Type &type) {
   uint64_t cycles = 5;
   const auto A = vertex.getFieldInfo("A");
   CODELET_FIELD(B);
@@ -1360,15 +1365,15 @@ std::uint64_t _fillCycleEstimate(std::uint64_t size, const Target &target,
   return 16 + size / width + 6 + (size % width == 1) + 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Fill)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Fill)(const VertexIntrospector &vertex,
+                               const Target &target, const Type &type) {
   return _fillCycleEstimate(vertex.getFieldInfo("out").size(), target, type);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Fill2d)(const VertexIntrospector &vertex,
-                                  const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Fill2d)(const VertexIntrospector &vertex,
+                                 const Target &target, const Type &type) {
   // UNSIGNED_INT and INT use the same cycle estimator as FLOAT
   // see: T24721
   const auto out = vertex.getFieldInfo("out");
@@ -1447,10 +1452,10 @@ static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &fromType,
-                                              const Type &toType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
+                               const Target &target, const Type &fromType,
+                               const Type &toType) {
   CODELET_SCALAR_VAL(numElems, unsigned);
 
   // Estimate written based on vertices with assembly implementations.
@@ -1463,7 +1468,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fromType, const Type &toType) {
   CODELET_SCALAR_VAL(partitionParams, unsigned);
@@ -1507,10 +1512,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastSupervisor)(
   return 19 + target.getNumWorkerContexts() * maxCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
-                                  const Target &target, const Type &fromType,
-                                  const Type &toType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
+                                 const Target &target, const Type &fromType,
+                                 const Type &toType) {
   std::uint64_t cycles = 5;
   const auto dst = vertex.getFieldInfo("dst");
   CODELET_FIELD(src);
@@ -1523,7 +1528,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CheckAccuracyWhenCast)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CheckAccuracyWhenCast)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, const Type &outputType) {
   std::uint64_t cycles = 30;
@@ -1561,7 +1566,7 @@ std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
   return numWorkers * workerCycles + superviserOverhead;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2D)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t cycles = 20;
@@ -1576,7 +1581,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2D)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
@@ -1593,7 +1598,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
   return cycles + superviserOverhead;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2DInPlace)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t cycles = 20;
@@ -1605,7 +1610,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp2DInPlace)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     popops::expr::UnaryOpType op, const Type &type) {
   uint64_t superviserOverhead = basicOpSupervisorOverhead();
@@ -1620,10 +1625,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
   return cycles + superviserOverhead;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
-                                      const Target &target, BinaryOpType op,
-                                      const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
+                                     const Target &target, BinaryOpType op,
+                                     const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1");
   CODELET_FIELD(in2);
@@ -1641,7 +1646,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   uint64_t supervisorOverhead = basicOpSupervisorOverhead();
@@ -1659,9 +1664,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
   return numWorkers * workerCycles + supervisorOverhead;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BinaryOpType op, const Type &type) {
   uint64_t cycles = 20;
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
@@ -1675,7 +1681,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp2DInPlace)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const auto in1Out = vertex.getFieldInfo("in1Out");
@@ -1697,9 +1703,9 @@ static std::uint64_t selectCycles(const Target &target, const Type &type,
   return overhead + basicOpLoopCycles(numElems, vectorWidth, cyclesPerVector);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
-                                  const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
+                                 const Target &target, const Type &type) {
   uint64_t cycles = 5;
   CODELET_FIELD(in1);
   CODELET_FIELD(in2);
@@ -1717,7 +1723,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelect)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelect)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   uint64_t cycles = 9 + 1;
 
@@ -1793,7 +1799,7 @@ std::uint64_t getDynamicSlice1dEstimate(const poplar::Target &target,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelect)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelectorSelect)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(in1);
   CODELET_FIELD(in2);
@@ -1810,7 +1816,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelect)(
                                        rowSizes);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectInPlace)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   uint64_t cycles = 5;
   const auto in1 = vertex.getFieldInfo("in1Out");
@@ -1826,7 +1832,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectInPlace)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(in1Out);
   CODELET_FIELD(in2);
@@ -1841,10 +1847,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
                                        rowSizes);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
-                                       const Target &target, const Type &type,
-                                       const bool isAbsolute) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
+                                      const Target &target, const Type &type,
+                                      const bool isAbsolute) {
   CODELET_FIELD(data);
   CODELET_FIELD(histogram);
   CODELET_FIELD(limits);
@@ -1891,7 +1897,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(HistogramSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool isAbsolute, const bool splitByLimits) {
   CODELET_FIELD(data);
@@ -1935,9 +1941,9 @@ static std::uint64_t clampCycles(const Target &target, const Type &type,
   return overhead + basicOpLoopCycles(numElems, vectorWidth, cyclesPerVector);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
-                                               const Target &target,
-                                               const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
+                                const Target &target, const Type &type) {
   uint64_t cycles = 5;
   CODELET_FIELD(in1);
   CODELET_FIELD(in2);
@@ -1955,8 +1961,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ClampInPlace)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(ClampInPlace)(const VertexIntrospector &vertex,
+                                       const Target &target, const Type &type) {
   uint64_t cycles = 5;
   CODELET_FIELD(in1Out);
   CODELET_FIELD(in2);
@@ -1971,7 +1978,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ClampInPlace)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastClamp)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClamp)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   // NOTE: Draft version to make UTs pass. Will be update with more accurate
   //       estimates from ASM implementation
@@ -1990,7 +1997,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastClamp)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastClampInPlace)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClampInPlace)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   // NOTE: Draft version to make UTs pass. Will be update with more accurate
   //       estimates from ASM implementation
@@ -2006,7 +2013,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BroadcastClampInPlace)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
@@ -2029,7 +2036,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice2d)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   const auto baseT = vertex.getFieldInfo("baseT");
   const unsigned numBaseElements =
@@ -2052,7 +2059,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice2d)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   const auto regionSize =
       vertex.getFieldInfo("regionSize").getInitialValue<unsigned>(target);
@@ -2069,9 +2076,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(
   return getDynamicSlice1dEstimate(target, type, regionSize, numSubElements);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DynamicUpdateSlice1d)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicUpdateSlice1d)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
-  return MAKE_CYCLE_ESTIMATOR_NAME(DynamicSlice1d)(vertex, target, type);
+  return MAKE_PERF_ESTIMATOR_NAME(DynamicSlice1d)(vertex, target, type);
 }
 
 static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
@@ -2095,20 +2102,21 @@ static std::uint64_t multiSlicer(const VertexIntrospector &vertex,
   return callOverhead + coreCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(MultiSlice)(const VertexIntrospector &vertex,
-                                      const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(MultiSlice)(const VertexIntrospector &vertex,
+                                     const Target &target, const Type &type) {
   return multiSlicer(vertex, target, type, false);
 }
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdate)(const VertexIntrospector &vertex,
-                                       const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(MultiUpdate)(const VertexIntrospector &vertex,
+                                      const Target &target, const Type &type) {
   return multiSlicer(vertex, target, type, true);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const bool &subWordWritesRequired) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
+                                         const Target &target, const Type &type,
+                                         const bool &subWordWritesRequired) {
 
   // based off the assembly (optimistic for integral types which are still
   // handled by the compiler).
@@ -2148,19 +2156,19 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MultiUpdateAdd)(
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CircBufIncrIndex)(const VertexIntrospector &vertex,
-                                            const Target &target) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CircBufIncrIndex)(const VertexIntrospector &vertex,
+                                           const Target &target) {
   return 8;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CircOffset)(const VertexIntrospector &vertex,
-                                      const Target &target) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CircOffset)(const VertexIntrospector &vertex,
+                                     const Target &target) {
   return 10;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(EncodeOneHot)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &indexType, const Type &outputType) {
   CODELET_FIELD(indices);
@@ -2182,7 +2190,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHot)(
   }
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &indexType, const Type &outputType) {
   CODELET_FIELD(indices);
@@ -2193,9 +2201,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(EncodeOneHotCustomValues)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Iota)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &outputType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Iota)(const VertexIntrospector &vertex,
+                               const Target &target, const Type &outputType) {
   CODELET_FIELD(out);
   CODELET_FIELD(offsets);
   auto vectorWidth = target.getVectorWidth(outputType);
@@ -2212,17 +2220,17 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(Iota)(const VertexIntrospector &vertex,
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertex)(const VertexIntrospector &vertex,
-                                          const Target &target,
-                                          const Type &indexType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(HeapSortVertex)(const VertexIntrospector &vertex,
+                                         const Target &target,
+                                         const Type &indexType) {
   std::uint64_t n = vertex.getFieldInfo("out").size();
 
   // Assuming all the worst cases are hit in the HeapSort codelet
   return 8 * (19 * n * std::floor(std::log2(n)) + 6 * n + 2);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(HeapSortVertexKV)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HeapSortVertexKV)(
     const VertexIntrospector &vertex, const Target &target, const Type &keyType,
     const Type &ValueType) {
   std::uint64_t n = vertex.getFieldInfo("key").size();
@@ -2241,20 +2249,20 @@ std::uint64_t decrementOrGetParamsCycles(unsigned dataLen, bool isHalf) {
   // Storing half requires read-modify-write
   return (isHalf ? 12 : 8) * dataLen;
 }
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(UpdateIntervalDEC)(const VertexIntrospector &vertex,
-                                             const Target &target,
-                                             const Type &paramsType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(UpdateIntervalDEC)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &paramsType) {
   CODELET_SCALAR_VAL(rowCount, unsigned);
   std::uint64_t cycles = 5 + 1 + 1; // entry/exit
   // General load/process vertex state
   cycles += 20;
   return cycles + decrementOrGetParamsCycles(rowCount, paramsType == HALF);
 }
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(UpdateIntervalsDEC)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &paramsType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(UpdateIntervalsDEC)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             const Type &paramsType) {
   CODELET_FIELD(params);
   CODELET_VECTOR_VALS(rowCounts, unsigned);
   const auto rowCountsSum =
@@ -2265,10 +2273,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(UpdateIntervalsDEC)(const VertexIntrospector &vertex,
   return cycles + decrementOrGetParamsCycles(params.size() * rowCountsSum,
                                              paramsType == HALF);
 }
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(UpdateColumnsDEC)(const VertexIntrospector &vertex,
-                                            const Target &target,
-                                            const Type &paramsType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(UpdateColumnsDEC)(const VertexIntrospector &vertex,
+                                           const Target &target,
+                                           const Type &paramsType) {
   CODELET_FIELD(params);
   CODELET_VECTOR_VALS(regionWidths, unsigned);
   CODELET_VECTOR_VALS(regionHeights, unsigned);
@@ -2283,20 +2291,20 @@ MAKE_CYCLE_ESTIMATOR_NAME(UpdateColumnsDEC)(const VertexIntrospector &vertex,
                                                  regionHeightsSum,
                                              paramsType == HALF);
 }
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(SelectFromInterval)(const VertexIntrospector &vertex,
-                                              const Target &target,
-                                              const Type &paramsType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(SelectFromInterval)(const VertexIntrospector &vertex,
+                                             const Target &target,
+                                             const Type &paramsType) {
   CODELET_SCALAR_VAL(rowCount, unsigned);
   std::uint64_t cycles = 5 + 1 + 1; // entry/exit
   // General load/process vertex state
   cycles += 20;
   return cycles + decrementOrGetParamsCycles(rowCount, paramsType == HALF);
 }
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(SelectFromIntervals)(const VertexIntrospector &vertex,
-                                               const Target &target,
-                                               const Type &paramsType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(SelectFromIntervals)(const VertexIntrospector &vertex,
+                                              const Target &target,
+                                              const Type &paramsType) {
   CODELET_FIELD(params);
   CODELET_VECTOR_VALS(rowCounts, unsigned);
   const auto rowCountsSum =
@@ -2307,7 +2315,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(SelectFromIntervals)(const VertexIntrospector &vertex,
   return cycles + decrementOrGetParamsCycles(params.size() * rowCountsSum,
                                              paramsType == HALF);
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectFromRowsInColumns)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectFromRowsInColumns)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &paramsType) {
   CODELET_FIELD(params);
@@ -2376,7 +2384,7 @@ static std::uint64_t hasNaN1DCyles(const Target &target, const Type &inType,
          24;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(HasNaNOrInfSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInfSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     bool hasNaNOrInf) {
   CODELET_SCALAR_VAL(sizeIn8BytesPerWorker, unsigned);
@@ -2406,17 +2414,17 @@ static std::uint64_t hasNan2DCycles(const FieldData &in, const Target &target,
   return cycles * target.getNumWorkerContexts();
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(HasNaNOrInf)(const VertexIntrospector &vertex,
-                                       const Target &target, const Type &inType,
-                                       bool hasNaNOrInf) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInf)(const VertexIntrospector &vertex,
+                                      const Target &target, const Type &inType,
+                                      bool hasNaNOrInf) {
   CODELET_FIELD(in);
   return hasNan2DCycles(in, target, inType, hasNaNOrInf);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
-                                       const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
+                                      const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRows, unsigned);
@@ -2494,9 +2502,9 @@ static std::uint64_t TransposeWorkerCycles(const unsigned short numSrcRowsD4,
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
-                                     const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
+                                    const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
   CODELET_SCALAR_VAL(numSrcRowsD4, unsigned short);
@@ -2515,7 +2523,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(Transpose)(const VertexIntrospector &vertex,
                                srcLayout);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(src);
   CODELET_FIELD(dst);
@@ -2606,8 +2614,8 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TransposeSupervisor)(
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_SHORT),              \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, BOOL)
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
-  poplibs::CycleEstimatorTable table = {
+poplibs::PerfEstimatorTable makePerfFunctionTable() {
+  poplibs::PerfEstimatorTable table = {
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, FLOAT, FLOAT, FLOAT),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, HALF, HALF),
       SCALED_ADD_CYCLE_ESTIM_ENTRIES(ScaledAddSupervisor, HALF, FLOAT, HALF),

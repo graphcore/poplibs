@@ -17,7 +17,7 @@ const std::vector<std::string> winogradCodelets = {
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("poplin", "poplin.gp", loc));
-  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
+  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
 
   // The winograd codelets are not currently supported and do not have correct
   // cycle estimators.
@@ -26,7 +26,7 @@ void addCodelets(poplar::Graph &graph) {
     return std::uint64_t(0);
   };
   for (const auto &codelet : winogradCodelets) {
-    graph.registerCycleEstimator(codelet, zeroEstimator);
+    graph.registerPerfEstimator(codelet, zeroEstimator);
   }
 }
 

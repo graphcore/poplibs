@@ -9,7 +9,7 @@ namespace experimental {
 void addCodelets(poplar::Graph &graph) {
   static poplibs::CurrentLibLocator loc;
   graph.addCodelets(poplibs::getCodeletsPath("popfloat", "popfloat.gp", loc));
-  poplibs::registerCyclesFunctions(graph, makeCyclesFunctionTable());
+  poplibs::registerPerfFunctions(graph, makePerfFunctionTable());
 }
 
 } // end namespace experimental

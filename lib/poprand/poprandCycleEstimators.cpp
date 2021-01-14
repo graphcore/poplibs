@@ -5,7 +5,7 @@ using namespace poplar;
 
 namespace poprand {
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UniformSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UniformSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   uint64_t cycles = 4; // supervisor call
   if (type == INT) {
@@ -43,7 +43,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(UniformSupervisor)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BernoulliSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BernoulliSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(out);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -65,7 +65,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(BernoulliSupervisor)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NormalSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NormalSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(out);
   const auto dataPathWidth = target.getDataPathWidth();
@@ -86,7 +86,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NormalSupervisor)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(out);
   CODELET_SCALAR_VAL(iterations, unsigned);
@@ -110,7 +110,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DropoutSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DropoutSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   CODELET_FIELD(out);
 
@@ -127,13 +127,13 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(DropoutSupervisor)(
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(SetSeedSupervisor)(const VertexIntrospector &vertex,
-                                             const Target &target) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(SetSeedSupervisor)(const VertexIntrospector &vertex,
+                                            const Target &target) {
   return 14 + 27 * target.getNumWorkerContexts();
 }
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormalSupervisor, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poprand, TruncatedNormalSupervisor, HALF),

@@ -8,7 +8,7 @@ using namespace poplar;
 
 namespace poplin {
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialnx1)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad,
     unsigned numConvUnits) {
@@ -97,7 +97,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialnx1)(
                           floatWeights, floatPartials);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1x1Out)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad,
     unsigned numConvUnits) {
@@ -150,7 +150,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1x1Out)(
       accumType == FLOAT);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer) {
   // Non-limited versions of HMAC have same cycle counts as the limited ones.
@@ -218,7 +218,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
                           floatPartials);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialVerticalMac)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, unsigned convGroupsPerGroup) {
   (void)useLimitedVer;
@@ -267,7 +267,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartialVerticalMac)(
 }
 
 // TODO: T12902 Add cost estimates for non-limited version?
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, unsigned outStride, bool, /* useShortTypes */
     unsigned windowWidth, unsigned numConvChains) {
@@ -333,7 +333,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdDataTransform)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdDataTransform)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     unsigned patchSizeX, unsigned patchSizeY, unsigned kernelX,
     unsigned kernelY) {
@@ -348,10 +348,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdDataTransform)(
   return getWgdDataTransformCycles(nPatches * dIn[0].size(), isFloat);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
-                                       const Target &target,
-                                       const Type &fpType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
+                                      const Target &target,
+                                      const Type &fpType) {
   CODELET_FIELD(dTf);
   CODELET_FIELD(wTf);
   CODELET_FIELD(partials);
@@ -371,10 +371,10 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
                            convUnitCoeffLoadBytesPerCycle, isFloat);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
-                                     const Target &target, const Type &fpType,
-                                     unsigned patchSizeX, unsigned patchSizeY) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
+                                    const Target &target, const Type &fpType,
+                                    unsigned patchSizeX, unsigned patchSizeY) {
   CODELET_FIELD(inPartial);
   CODELET_FIELD(outPartial);
 
@@ -387,7 +387,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
   return getWgdReduceCycles(numElems * numOutChans, numInpChans, isFloat);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdInverseTransform)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdInverseTransform)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     unsigned patchSizeX, unsigned patchSizeY, unsigned kernelX,
     unsigned kernelY) {
@@ -404,10 +404,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(WgdInverseTransform)(
   return getWgdInvTransformCycles(nGroups * depthDim, isFloat);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
-                                           const Target &target,
-                                           const Type &fpType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &fpType) {
   CODELET_FIELD(dIn);
 
   const bool isFloat = fpType == FLOAT;
@@ -416,7 +416,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
   return getWgdCompleteCycles(vecLen * nGroups, isFloat);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(InverseStdDeviation)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &meanType, const Type &powerType, const Type &outType,
     bool stableAlgo) {
@@ -442,8 +442,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(InverseStdDeviation)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
+                                       const Target &target, const Type &type) {
   CODELET_FIELD(in);
   CODELET_FIELD(weights);
   CODELET_FIELD(out);
@@ -462,7 +463,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(OuterProduct)(
                                       dataPathWidth);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceAdd)(
     const VertexIntrospector &vertex, const Target &target, const Type &outType,
     const Type &partialsType, bool singleInput, bool constrainPartials) {
   CODELET_FIELD(out);
@@ -475,7 +476,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceAdd)(
                                 target.getNumWorkerContexts());
 }
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF),

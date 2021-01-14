@@ -4,6 +4,7 @@
 #define poplibs_support_cyclesTables_hpp
 
 #include <poplar/Graph.hpp>
+#include <poplar/PerfEstimateFunc.hpp>
 #include <poplar/Target.hpp>
 #include <poplar/VertexIntrospector.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -14,26 +15,26 @@
 #include <regex>
 #include <string>
 
-/// These macros reduce the amount of boiler plate code when writing cycles-
+/// These macros reduce the amount of boiler plate code when writing perf-
 /// estimators for codelets. E.g. for a templated codelet class
 /// named 'MyCodelet':
-///`std::uint64_t
-/// MAKE_CYCLE_ESTIMATOR_NAME(MyCodelet)(const VertexIntrospector &vertex,
-///                                      const Target &target,
-///                                      args...) {
-///  // compute your cycles estimate
+///`poplar::VertexPerfEstimate
+/// MAKE_PERF_ESTIMATOR_NAME(MyCodelet)(const VertexIntrospector &vertex,
+///                                     const Target &target,
+///                                     args...) {
+///  // compute your performance estimate
 ///  vertex.getFieldInfo("myField"); // access to field size info
 ///  target.getDataPathWidth(); // access to target info
 ///  return estimate;
 ///}`
 
-#define MAKE_CYCLE_ESTIMATOR_NAME(codelet) getCyclesEstimateFor##codelet
+#define MAKE_PERF_ESTIMATOR_NAME(codelet) getPerfEstimateFor##codelet
 #define CYCLE_ESTIMATOR_ENTRY_NOPARAMS(ns, codelet)                            \
-  poplibs::makeCycleEstimatorEntry(#ns "::" #codelet,                          \
-                                   MAKE_CYCLE_ESTIMATOR_NAME(codelet))
+  poplibs::makePerfEstimatorEntry(#ns "::" #codelet,                           \
+                                  MAKE_PERF_ESTIMATOR_NAME(codelet))
 #define CYCLE_ESTIMATOR_ENTRY(ns, codelet, ...)                                \
-  poplibs::makeCycleEstimatorEntry(                                            \
-      #ns "::" #codelet, MAKE_CYCLE_ESTIMATOR_NAME(codelet), __VA_ARGS__)
+  poplibs::makePerfEstimatorEntry(                                             \
+      #ns "::" #codelet, MAKE_PERF_ESTIMATOR_NAME(codelet), __VA_ARGS__)
 
 // These macros reduce boiler plate code when accessing
 // the codelet fields in cycle estimators:
@@ -48,12 +49,12 @@
 
 namespace poplibs {
 
-using CycleEstimatorTable =
-    std::vector<std::pair<std::string, poplar::CycleEstimateFunc>>;
+using PerfEstimatorTable =
+    std::vector<std::pair<std::string, poplar::PerfEstimateFunc>>;
 
 template <typename F, typename... Args>
-inline std::pair<std::string, poplar::CycleEstimateFunc>
-makeCycleEstimatorEntry(const std::string &codelet, F f, Args &&... args) {
+inline std::pair<std::string, poplar::PerfEstimateFunc>
+makePerfEstimatorEntry(const std::string &codelet, F f, Args &&... args) {
   using std::placeholders::_1;
   using std::placeholders::_2;
   return std::make_pair(
@@ -61,11 +62,10 @@ makeCycleEstimatorEntry(const std::string &codelet, F f, Args &&... args) {
       std::bind(f, _1, _2, std::forward<Args>(args)...));
 }
 
-inline void registerCyclesFunctions(poplar::Graph &graph,
-                                    const CycleEstimatorTable &table) {
+inline void registerPerfFunctions(poplar::Graph &graph,
+                                  const PerfEstimatorTable &table) {
   for (auto &kv : table) {
-    graph.registerCycleEstimator(kv.first,
-                                 poplar::CycleEstimateFunc(kv.second));
+    graph.registerPerfEstimator(kv.first, poplar::PerfEstimateFunc(kv.second));
   }
 }
 

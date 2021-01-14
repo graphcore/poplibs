@@ -11,13 +11,13 @@ using namespace poplar;
 namespace popfloat {
 namespace experimental {
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(PackedGfloatParams)(const VertexIntrospector &vertex,
-                                              const Target &target) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(PackedGfloatParams)(const VertexIntrospector &vertex,
+                                             const Target &target) {
   return (1);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastGf8ToHalfSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastGf8ToHalfSupervisor)(
     const VertexIntrospector &vertex, const Target &target, FormatType frmt) {
   // CODELET_VECTOR_VALS(param, CHAR);
   CODELET_FIELD(in);
@@ -44,7 +44,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastGf8ToHalfSupervisor)(
   return totalCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastGf16ToFloatSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastGf16ToFloatSupervisor)(
     const VertexIntrospector &vertex, const Target &target, FormatType frmt) {
   // CODELET_VECTOR_VALS(param, CHAR);
   CODELET_FIELD(in);
@@ -71,9 +71,9 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastGf16ToFloatSupervisor)(
   return totalCycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16Param)(const VertexIntrospector &vertex,
-                                               const Target &target) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CastToGfloat16Param)(const VertexIntrospector &vertex,
+                                              const Target &target) {
   CODELET_FIELD(gfStruct);
 
   std::uint64_t totalCycles = 0;
@@ -86,7 +86,7 @@ MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16Param)(const VertexIntrospector &vertex,
   return totalCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16Supervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat16Supervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, const Type &outputType, bool nanoo,
     RoundType rMode) {
@@ -146,28 +146,28 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16Supervisor)(
   return totalCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16SrSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat16SrSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, const Type &outputType, bool nanoo,
     SRDensityType srDensity) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16InPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat16InPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, bool nanoo, RoundType rMode) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat16SrInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat16SrInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, bool nanoo, SRDensityType srDensity) {
   return 1;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32Param)(const VertexIntrospector &vertex,
-                                               const Target &target) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CastToGfloat32Param)(const VertexIntrospector &vertex,
+                                              const Target &target) {
   CODELET_FIELD(gfStruct);
 
   int srBits = 0;
@@ -182,27 +182,27 @@ MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32Param)(const VertexIntrospector &vertex,
   return totalCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastGf8ToFloatSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastGf8ToFloatSupervisor)(
     const VertexIntrospector &vertex, const Target &target) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastFloatToGf8Supervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastFloatToGf8Supervisor)(
     const VertexIntrospector &vertex, const Target &target) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastHalfToGf8Supervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastHalfToGf8Supervisor)(
     const VertexIntrospector &vertex, const Target &target, FormatType frmt) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastFloatToGf16Supervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastFloatToGf16Supervisor)(
     const VertexIntrospector &vertex, const Target &target, FormatType frmt) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32Supervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat32Supervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, const Type &outputType, bool nanoo,
     RoundType rMode) {
@@ -235,27 +235,27 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32Supervisor)(
   return totalCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32SrSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat32SrSupervisor)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inputType, const Type &outputType, bool nanoo,
     SRDensityType srDensity) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32InPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat32InPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, bool nanoo,
     RoundType rMode) {
   return 1;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CastToGfloat32SrInPlaceSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastToGfloat32SrInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, bool nanoo,
     SRDensityType srDensity) {
   return 1;
 }
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
-  poplibs::CycleEstimatorTable table = {
+poplibs::PerfEstimatorTable makePerfFunctionTable() {
+  poplibs::PerfEstimatorTable table = {
       CYCLE_ESTIMATOR_ENTRY(popfloat::experimental, CastToGfloat16Supervisor,
                             FLOAT, HALF, true,
                             popfloat::experimental::RoundType::RZ),

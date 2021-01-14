@@ -31,7 +31,7 @@ using namespace poplar;
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU)
 namespace popnn {
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
@@ -89,7 +89,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearitySupervisor)(
   return cycles + (workerCycles * numWorkers);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
@@ -143,9 +143,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
   return cycles + (workerCycles * numWorkers);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(
-    const VertexIntrospector &vertex, const Target &target, const Type &type,
-    const NonLinearityType &nlType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
+                                         const Target &target, const Type &type,
+                                         const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
   const auto vectorWidth = target.getVectorWidth(type);
   CODELET_FIELD(data);
@@ -192,7 +193,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearity2D)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const NonLinearityType &nlType) {
   bool isFloat = type == FLOAT;
@@ -241,10 +242,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(NonLinearityGrad2D)(
   return cycles;
 }
 
-std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
-                                    const Target &target,
-                                    const PoolingType &pType,
-                                    const bool isBwdPass) {
+VertexPerfEstimate poolingCycleEstimator(const VertexIntrospector &vertex,
+                                         const Target &target,
+                                         const PoolingType &pType,
+                                         const bool isBwdPass) {
   CODELET_SCALAR_VAL(initInfo, unsigned short);
   CODELET_SCALAR_VAL(chansPerGroupDM1, unsigned short);
   CODELET_SCALAR_VAL(numChanGroupsM1, unsigned short);
@@ -278,39 +279,39 @@ std::uint64_t poolingCycleEstimator(const VertexIntrospector &vertex,
   return result;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
-                                      const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
+                                     const Target &target, const Type &type) {
   (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGradientScale)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MaxPoolingGradientScale)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
-                                      const Target &target, const Type &type) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
+                                     const Target &target, const Type &type) {
   (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::SUM, false);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(SelectiveScaling)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectiveScaling)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   // TODO: T5436 Improve this estimate.
   return 10;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(MaxPoolingGrad)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MaxPoolingGrad)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   (void)type;
   return poolingCycleEstimator(vertex, target, PoolingType::MAX, true);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(LossSumSquaredTransform)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
   const bool isFloat = fpType == FLOAT;
@@ -319,7 +320,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(LossSumSquaredTransform)(
   return getLossTransformCycles(isFloat, isSoftmax, size);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(LossCrossEntropyTransform)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(LossCrossEntropyTransform)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &fpType) {
   const bool isFloat = fpType == FLOAT;
@@ -328,7 +329,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(LossCrossEntropyTransform)(
   return getLossTransformCycles(isFloat, isSoftmax, size);
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxClassGather)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &labelType) {
   std::uint64_t supervisorCycles = 5 + // Vertex overhead
@@ -367,7 +368,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassGather)(
   return cycles * numWorkers + supervisorCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxNClassGather)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const bool sorted) {
   CODELET_FIELD(activations);
@@ -417,7 +418,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassGather)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool sorted) {
   CODELET_SCALAR_VAL(numK, unsigned short);
@@ -453,7 +454,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxNClassSparse)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxClassSparse)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inOutType, const Type &labelType) {
   std::uint64_t cycles = 5; // Vertex overhead
@@ -478,7 +479,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMaxClassSparse)(
   return cycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMinClassGather)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &labelType) {
   std::uint64_t supervisorCycles = 5 + // Vertex overhead
@@ -517,7 +518,7 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassGather)(
   return cycles * numWorkers + supervisorCycles;
 }
 
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassSparse)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMinClassSparse)(
     const VertexIntrospector &vertex, const Target &target,
     const Type &inOutType, const Type &labelType) {
   std::uint64_t cycles = 5; // Vertex overhead
@@ -542,10 +543,10 @@ std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(ReduceMinClassSparse)(
   return cycles;
 }
 
-std::uint64_t
-MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
-                                        const Target &target,
-                                        const Type &labelType) {
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
+                                       const Target &target,
+                                       const Type &labelType) {
   std::uint64_t cycles = 5; // Vertex overhead
   CODELET_FIELD(maxPerBatch);
   CODELET_FIELD(expected);
@@ -565,27 +566,29 @@ MAKE_CYCLE_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
 
   return cycles;
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCAlpha)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   return 0;
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCBeta)(
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(CTCBeta)(
+    const VertexIntrospector &vertex, const Target &target, const Type &inType,
+    const Type &outType, const Type symbolType, const bool isFirstLabel) {
+
+  return 0;
+}
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   return 0;
 }
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCGradGivenAlpha)(
-    const VertexIntrospector &vertex, const Target &target, const Type &inType,
-    const Type &outType, const Type symbolType, const bool isFirstLabel) {
-  return 0;
-}
-std::uint64_t MAKE_CYCLE_ESTIMATOR_NAME(CTCGradGivenBeta)(
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   return 0;
 }
-poplibs::CycleEstimatorTable makeCyclesFunctionTable() {
+poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popnn, LossSumSquaredTransform, HALF),

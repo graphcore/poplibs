@@ -6,7 +6,7 @@
 
 namespace popsparse {
 
-poplibs::CycleEstimatorTable makeCyclesFunctionTable();
+poplibs::PerfEstimatorTable makePerfFunctionTable();
 
 } // end namespace popsparse
 

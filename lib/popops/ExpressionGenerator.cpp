@@ -191,7 +191,7 @@ void executeCodelet(Graph &graph, const std::string &codeletName,
       estimate += inRegions[i].numElements() % vectorWidth * numFusedOps;
     }
 
-    graph.setCycleEstimate(v, estimate);
+    graph.setPerfEstimate(v, estimate);
 
     if (!inPlace) {
       graph.connect(v["out"],
