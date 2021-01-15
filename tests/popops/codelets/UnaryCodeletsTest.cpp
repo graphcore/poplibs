@@ -468,7 +468,7 @@ int main(int argc, char **argv) {
   bool doReport = false;
   bool ignoreData = false;
   unsigned randomSeed = 1; // we use '0' to mean 'not random'
-  boost::optional<DeviceType> cycleCompareDevice;
+  boost::optional<std::string> cycleCompareDevice;
   unsigned cycleCompareThreshold = 10; // percent
 
   // clang-format off
@@ -528,8 +528,8 @@ int main(int argc, char **argv) {
      "Size(s) for rows of first operand. Single value for a 1D vertex, "
      "multiple values for a 2D vertex")
     ("compare-cycles",
-     po::value<boost::optional<DeviceType>>(&cycleCompareDevice)->
-                                         implicit_value(DeviceType::IpuModel2),
+     po::value<boost::optional<std::string>>(&cycleCompareDevice)->
+                                         implicit_value(std::string("default")),
      "For each specified vertex, compare the cycles reported by the device ("
      "--device-type option) and another device specified by this option")
     ("cycle-threshold",
@@ -583,10 +583,26 @@ int main(int argc, char **argv) {
 
   std::regex vertexRegEx(vertexRE);
 
-  // If we are comparing cycles, create an array with the 2 devices
+  // If we are comparing cycles, create an array with the 2 devices. If the
+  // specific type of device to compare was unspecified ("default") we try to
+  // match Sim1 with IpuModel1 or Sim2 with IpuModel2, otherwise we just use
+  // the specified device.
   std::array<DeviceType, 2> devPair;
-  if (cycleCompareDevice)
-    devPair = {deviceType, *cycleCompareDevice};
+  if (cycleCompareDevice) {
+    std::optional<DeviceType> compDev;
+    if (*cycleCompareDevice == "default") {
+      if (deviceType == DeviceType::Sim1) {
+        compDev = DeviceType::IpuModel1;
+      } else if (deviceType == DeviceType::Sim2) {
+        compDev = DeviceType::IpuModel2;
+      }
+    }
+    if (!compDev) {
+      std::istringstream is(*cycleCompareDevice);
+      is >> *compDev;
+    }
+    devPair = {deviceType, *compDev};
+  }
 
   // Loop over all vertices, operations, data types
   bool allOk = true;
