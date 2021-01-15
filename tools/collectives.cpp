@@ -9,8 +9,8 @@
 #include <poplar/Program.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
-#include <popops/Collectives.hpp>
 #include <popops/ElementWise.hpp>
+#include <popops/TensorCollectives.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>

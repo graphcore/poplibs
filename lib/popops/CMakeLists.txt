@@ -7,8 +7,8 @@ add_library(popops SHARED
   AllTrue.cpp
   Cast.cpp
   CircBuf.cpp
-  Collectives.cpp
-  ReplicatedCollectives.cpp
+  TensorCollectives.cpp
+  CollectiveTypes.cpp
   codelets.cpp
   DynamicSlice.cpp
   DynamicSliceInternal.hpp
@@ -44,7 +44,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/AllTrue.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Cast.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/CircBuf.hpp
-  ${CMAKE_SOURCE_DIR}/include/popops/Collectives.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/TensorCollectives.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/DynamicSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWise.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/ElementWiseUtil.hpp

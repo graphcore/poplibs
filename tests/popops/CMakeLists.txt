@@ -125,10 +125,6 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
   --in-place 1)
 
 add_unit_test(CircBufTests CircBufTests.cpp)
-add_unit_test(collective-control-code
-              collective-control-code.cpp
-              VARIANTS Hw
-              LABELS multicard;CE_reproducers;Collectives)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim2;IpuModel2)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
@@ -620,16 +616,6 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
            VARIANTS "Hw;${IPUMODEL_VARIANTS}")
 endforeach()
 
-add_unit_test(ReplicatedAllToAll
-  ReplicatedAllToAll.cpp
-  VARIANTS Hw
-  LABELS multicard;Collectives)
-
-add_unit_test(ReplicatedReduceScatter
-  ReplicatedReduceScatter.cpp
-  VARIANTS Hw
-  LABELS multicard;Collectives)
-
 add_unit_test(ScaledAddEquivalenceTest ScaledAddEquivalenceTest.cpp)
 add_unit_test(ScatterTest ScatterTest.cpp)
 add_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
@@ -942,158 +928,6 @@ foreach(collective all_reduce)
       VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
-
-# Replicated collectives
-foreach(collective all_reduce)
-  foreach(method bidirectional_ring_pair
-                 meet_in_middle_ring
-                 quad_directional_ring
-                 clockwise_ring
-                 anticlockwise_ring)
-    foreach(elements 2 1024)
-      foreach(num_ipus 2 4 8 16)
-        foreach(in_place false true)
-          add_multitarget_test(
-            NAME replicated_collective_${method}_${collective}_${num_ipus}ipus_${elements}elements_${in_place}
-            COMMAND replicated_collectives
-                    --use-replicated-implementation
-                    --reduction-operator=ADD
-                    --collective=${collective}
-                    --ipus=${num_ipus}
-                    --tiles-per-ipu=64
-                    --elements=${elements}
-                    --method=${method}
-                    --shuffle-mapping=true
-                    --in-place=${in_place}
-            LABELS Collectives
-            VARIANTS ${IPUMODEL_VARIANTS})
-        endforeach()
-      endforeach()
-    endforeach()
-  endforeach()
-
-  foreach(ipus_per_rank 2 4 8)
-    foreach(in_place false true)
-      add_multitarget_test(
-        NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${in_place}
-        COMMAND replicated_collectives
-                --use-replicated-implementation
-                --reduction-operator=ADD
-                --collective=${collective}
-                --ipus-per-rank=${ipus_per_rank}
-                --ipus=8
-                --tiles-per-ipu=64
-                --elements=1291
-                --shuffle-mapping=true
-                --in-place=${in_place}
-        LABELS Collectives
-        VARIANTS ${IPUMODEL_VARIANTS})
-    endforeach()
-  endforeach()
-
-  foreach(ipus_per_rank 1 2 4)
-    foreach(method clockwise_ring
-                   anticlockwise_ring
-                   bidirectional_ring_pair
-                   meet_in_middle_ring)
-        add_multitarget_test(
-        NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${method}
-        COMMAND replicated_collectives
-                --use-replicated-implementation
-                --replicate-top-level-graph=true
-                --reduction-operator=ADD
-                --collective=${collective}
-                --method=${method}
-                --ipus-per-rank=${ipus_per_rank}
-                --ipus=8
-                --tiles-per-ipu=64
-                --elements=1399
-                --shuffle-mapping=true
-        LABELS Collectives multicard
-        VARIANTS Hw)
-    endforeach()
-  endforeach()
-endforeach()
-
-# replicated reduce_scatter
-# Separate modified block due to limited test support
-# (in_place = false, ipus_per_rank=1)
-foreach(collective reduce_scatter)
-  foreach(operator ADD LOCAL)
-    foreach(method bidirectional_ring_pair
-                   meet_in_middle_ring
-                   clockwise_ring
-                   anticlockwise_ring)
-      foreach(num_ipus 2 4 8 16)
-        add_multitarget_test(
-          NAME replicated_collective_${method}_${collective}_${num_ipus}ipus_${operator}
-          COMMAND replicated_collectives
-                  --use-replicated-implementation
-                  --reduction-operator=${operator}
-                  --collective=${collective}
-                  --ipus=${num_ipus}
-                  --tiles-per-ipu=64
-                  --elements=1024
-                  --method=${method}
-                  --shuffle-mapping=true
-                  --in-place=false
-          LABELS Collectives
-          VARIANTS ${IPUMODEL_VARIANTS})
-      endforeach()
-    endforeach()
-
-    foreach(ipus_per_rank 1)
-      foreach(method clockwise_ring
-                     anticlockwise_ring
-                     bidirectional_ring_pair
-                     meet_in_middle_ring)
-        add_multitarget_test(
-          NAME replicated_collective_${collective}_8_ipus_${ipus_per_rank}_ipus_per_rank_${method}_${operator}
-          COMMAND replicated_collectives
-                  --use-replicated-implementation
-                  --replicate-top-level-graph=true
-                  --reduction-operator=${operator}
-                  --collective=${collective}
-                  --method=${method}
-                  --ipus-per-rank=${ipus_per_rank}
-                  --ipus=8
-                  --tiles-per-ipu=64
-                  --elements=1399
-                  --shuffle-mapping=true
-          LABELS Collectives multicard
-          VARIANTS Hw)
-      endforeach()
-    endforeach()
-  endforeach()
-endforeach()
-
-add_multitarget_test(NAME replicated_collectives_few_elements
-                     COMMAND replicated_collectives
-                             --use-replicated-implementation
-                             --reduction-operator=ADD
-                             --collective=all_reduce
-                             --ipus-per-rank=1
-                             --ipus=2
-                             --tiles-per-ipu=4
-                             --elements=1
-                             --shuffle-mapping=false
-                      LABELS Collectives;CE_reproducers
-                      VARIANTS ${IPUMODEL_VARIANTS})
-
-add_multitarget_test(NAME replicated_collectives_force_mapping
-                      COMMAND replicated_collectives
-                              --use-replicated-implementation
-                              --reduction-operator=ADD
-                              --collective=all_reduce
-                              --ipus-per-rank=2
-                              --ipus=4
-                              --tiles-per-ipu=4
-                              --elements=1
-                              --shuffle-mapping=false
-                              --force-mapping=0
-                       LABELS Collectives
-                       VARIANTS ${IPUMODEL_VARIANTS})
-
 
 foreach(operator ADD MUL MIN MAX)
   add_multitarget_test(

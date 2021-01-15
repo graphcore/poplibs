@@ -94,23 +94,6 @@ add_multitarget_test(
   LABELS "python_tool"
   VARIANTS ${SIM_VARIANTS})
 
-add_multitarget_test(NAME determinism_replicated_collectives
-  COMMAND ${PYTHON_EXECUTABLE}
-          ${CMAKE_SOURCE_DIR}/tools/test_determinism.py
-          $<TARGET_FILE:replicated_collectives>
-          --use-replicated-implementation
-          --reduction-operator=ADD
-          --collective=all_reduce
-          --ipus-per-rank=2
-          --ipus=4
-          --tiles-per-ipu=4
-          --elements=1
-          --shuffle-mapping=false
-          --force-mapping=0
-          --compile-only
-  LABELS "python_tool;Collectives"
-  VARIANTS ${SIM_VARIANTS})
-
 add_multitarget_test(NAME determinism_pooling_layer
   COMMAND ${PYTHON_EXECUTABLE}
           ${CMAKE_SOURCE_DIR}/tools/test_determinism.py

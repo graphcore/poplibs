@@ -29,7 +29,6 @@
 #include <popops/AllTrue.hpp>
 #include <popops/Cast.hpp>
 #include <popops/CircBuf.hpp>
-#include <popops/Collectives.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Encoding.hpp>
@@ -43,6 +42,7 @@
 #include <popops/ScaledAdd.hpp>
 #include <popops/Scatter.hpp>
 #include <popops/Sort.hpp>
+#include <popops/TensorCollectives.hpp>
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
 #include <poprand/RandomGen.hpp>

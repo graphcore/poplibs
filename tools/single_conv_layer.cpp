@@ -14,9 +14,9 @@
 #include <poplin/Convolution.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/NonLinearity.hpp>
-#include <popops/Collectives.hpp>
 #include <popops/Reduce.hpp>
 #include <popops/ScaledAdd.hpp>
+#include <popops/TensorCollectives.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/GraphFunction.hpp>
 #include <poputil/TileMapping.hpp>
@@ -773,11 +773,12 @@ int main(int argc, char **argv) try {
     } else {
       auto weightDeltas = poplin::calculateWeightDeltas(
           graph, zDeltas, prevAct, params, revProg, "wu", wuOptions, &cache);
-      auto weightDeltasReduced =
-          popops::replicatedAllReduce(graph, parentGraph, weightDeltas,
-                                      popops::CollectiveOperator::ADD, revProg);
-      popops::scaledAddTo(graph, weights, weightDeltasReduced, -learningRate,
-                          revProg, "wu/UpdateWeights");
+      auto weightDeltasReduced = popops::allReduce(
+          parentGraph, parentGraph.getNonReplicatedTensor(weightDeltas),
+          popops::CollectiveOperator::ADD, revProg);
+      popops::scaledAddTo(
+          parentGraph, parentGraph.getNonReplicatedTensor(weights),
+          weightDeltasReduced, -learningRate, revProg, "wu/UpdateWeights");
     }
     if (bias) {
       if (replicationFactor == 1) {
@@ -792,11 +793,12 @@ int main(int argc, char **argv) try {
         popops::reduceWithOutput(graph, zDeltas, biasDeltas, reduceDims,
                                  popops::Operation::ADD, revProg,
                                  "wu/CalcBiasDeltas");
-        auto biasDeltasReduced = popops::replicatedAllReduce(
-            graph, parentGraph, biasDeltas, popops::CollectiveOperator::ADD,
-            revProg);
-        popops::scaledAddTo(graph, biases, biasDeltasReduced, -learningRate,
-                            revProg, "wu/UpdateBiases");
+        auto biasDeltasReduced = popops::allReduce(
+            parentGraph, parentGraph.getNonReplicatedTensor(biasDeltas),
+            popops::CollectiveOperator::ADD, revProg);
+        popops::scaledAddTo(
+            parentGraph, parentGraph.getNonReplicatedTensor(biases),
+            biasDeltasReduced, -learningRate, revProg, "wu/UpdateBiases");
       }
     }
   }
