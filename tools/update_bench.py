@@ -73,6 +73,10 @@ def main():
         help='Path to a file containing csv with expected results for '
              'benchmarks. Defaults tests/benchmark_results.csv',
     )
+    parser.add_argument(
+        "--tests-regex", "-R",
+        help="Run benchmarks matching regular expression."
+    )
     args = parser.parse_args()
 
     expected_dict = read_results_file(args.expected_csv)
@@ -81,6 +85,8 @@ def main():
     nproc = os.cpu_count()
     cmd = [args.test_script, 'poplibs', '-L', 'benchmarks',
            '--output-on-failure', f'-j{nproc}']
+    if args.tests_regex:
+        cmd += ['-R', args.tests_regex]
     num_updates = 0
     max_increase = [0, 0, 0]
     update_report = ""
