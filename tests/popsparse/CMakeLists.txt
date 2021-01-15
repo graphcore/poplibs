@@ -91,7 +91,6 @@ foreach(PART_METHOD "block" "block-naive" "strip" "stripv0" "block-group2")
       --check-result)
 endforeach()
 
-
 foreach(DATA_TYPE half float)
   # Tests specifically covering block-sparsity
   set(PARTIALS_TYPE_CANDIDATES float)
@@ -99,87 +98,77 @@ foreach(DATA_TYPE half float)
     list(APPEND PARTIALS_TYPE_CANDIDATES half)
   endif()
   foreach(PARTIALS_TYPE ${PARTIALS_TYPE_CANDIDATES})
-    foreach(PASS_TYPE fwd bwd wu all)
+    foreach(BLOCK_SIZE 4 8 16)
+      add_multitarget_test(
+        NAME sparse_fc_layer_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl_eb0
+        COMMAND sparse_fc_layer
+          --data-type=${DATA_TYPE}
+          --partials-type=${PARTIALS_TYPE}
+          --input-size=1024
+          --output-size=1024
+          --batch-size=4
+          --block-size=${BLOCK_SIZE}
+          --sparsity-factor=0.1
+          --tiles-per-ipu=24
+          --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+          --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":false}})
 
-      foreach(BLOCK_SIZE 4 8 16)
-        add_multitarget_test(
-          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl_eb0
-          COMMAND sparse_fc_layer
-            --data-type=${DATA_TYPE}
-            --partials-type=${PARTIALS_TYPE}
-            --input-size=1024
-            --output-size=1024
-            --batch-size=4
-            --block-size=${BLOCK_SIZE}
-            --sparsity-factor=0.1
-            --tiles-per-ipu=24
-            --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
-            --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":false}}
-            --single-phase=${PASS_TYPE})
+      add_multitarget_test(
+        NAME sparse_fc_layer_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl_eb1
+        COMMAND sparse_fc_layer
+          --data-type=${DATA_TYPE}
+          --partials-type=${PARTIALS_TYPE}
+          --input-size=1024
+          --output-size=1024
+          --batch-size=4
+          --block-size=${BLOCK_SIZE}
+          --sparsity-factor=0.1
+          --tiles-per-ipu=24
+          --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+          --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":true}})
 
-        if (${PASS_TYPE} STREQUAL "wu" OR ${PASS_TYPE} STREQUAL "all")
-          add_multitarget_test(
-            NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_4b_block${BLOCK_SIZE}_0.1sl_eb1
-            COMMAND sparse_fc_layer
-              --data-type=${DATA_TYPE}
-              --partials-type=${PARTIALS_TYPE}
-              --input-size=1024
-              --output-size=1024
-              --batch-size=4
-              --block-size=${BLOCK_SIZE}
-              --sparsity-factor=0.1
-              --tiles-per-ipu=24
-              --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
-              --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":true}}
-              --single-phase=${PASS_TYPE})
-        endif()
+      add_multitarget_test(
+        NAME sparse_fc_layer_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_8b_block${BLOCK_SIZE}_0.1sl
+        COMMAND sparse_fc_layer
+          --data-type=${DATA_TYPE}
+          --partials-type=${PARTIALS_TYPE}
+          --input-size=1024
+          --output-size=1024
+          --batch-size=8
+          --block-size=${BLOCK_SIZE}
+          --sparsity-factor=0.1
+          --tiles-per-ipu=24
+          --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
+        VARIANTS ${TimesOutOnSim})
 
-        add_multitarget_test(
-          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_1024in_1024out_8b_block${BLOCK_SIZE}_0.1sl
-          COMMAND sparse_fc_layer
-            --data-type=${DATA_TYPE}
-            --partials-type=${PARTIALS_TYPE}
-            --input-size=1024
-            --output-size=1024
-            --batch-size=8
-            --block-size=${BLOCK_SIZE}
-            --sparsity-factor=0.1
-            --tiles-per-ipu=24
-            --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
-            --single-phase=${PASS_TYPE}
-          VARIANTS ${TimesOutOnSim})
-
-        add_multitarget_test(
-          NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_${PARTIALS_TYPE}_256in_256out_64b_block${BLOCK_SIZE}_0.1sl
-          COMMAND sparse_fc_layer
-            --data-type=${DATA_TYPE}
-            --partials-type=${PARTIALS_TYPE}
-            --input-size=256
-            --output-size=256
-            --batch-size=64
-            --block-size=${BLOCK_SIZE}
-            --sparsity-factor=0.01
-            --tiles-per-ipu=24
-            --matmul-options={\"partitioner.forceBucketSpills\":\"true\"}
-            --single-phase=${PASS_TYPE})
-      endforeach()
+      add_multitarget_test(
+        NAME sparse_fc_layer_${DATA_TYPE}_${PARTIALS_TYPE}_256in_256out_64b_block${BLOCK_SIZE}_0.1sl
+        COMMAND sparse_fc_layer
+          --data-type=${DATA_TYPE}
+          --partials-type=${PARTIALS_TYPE}
+          --input-size=256
+          --output-size=256
+          --batch-size=64
+          --block-size=${BLOCK_SIZE}
+          --sparsity-factor=0.01
+          --tiles-per-ipu=24
+          --matmul-options={\"partitioner.forceBucketSpills\":\"true\"})
     endforeach()
   endforeach()
 
   # Tests specifically covering element-wise sparsity
   foreach(SHARED_BUCKETS true false)
-    foreach(PASS_TYPE fwd bwd wu all)
-
+    foreach(PASS_TYPE fwd bwd wu)
       if (${SHARED_BUCKETS} STREQUAL "true" AND (${PASS_TYPE} STREQUAL "fwd" OR ${PASS_TYPE} STREQUAL "wu"))
         continue()
       endif()
 
       add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_4b_0.1sl_eb0_sb_${SHARED_BUCKETS}
+        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_512in_512out_4b_0.1sl_eb0_sb_${SHARED_BUCKETS}
         COMMAND sparse_fc_layer
           --data-type=${DATA_TYPE}
-          --input-size=1024
-          --output-size=1024
+          --input-size=512
+          --output-size=512
           --batch-size=4
           --sparsity-factor=0.1
           --tiles-per-ipu=24
@@ -192,8 +181,8 @@ foreach(DATA_TYPE half float)
           NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_1024in_1024out_4b_0.1sl_eb1_sb_${SHARED_BUCKETS}
           COMMAND sparse_fc_layer
             --data-type=${DATA_TYPE}
-            --input-size=1024
-            --output-size=1024
+            --input-size=512
+            --output-size=512
             --batch-size=4
             --sparsity-factor=0.1
             --tiles-per-ipu=24
@@ -201,44 +190,6 @@ foreach(DATA_TYPE half float)
             --plan-constraints={\"exchange\":{\"gradWExchangeBuckets\":true}}
             --single-phase=${PASS_TYPE})
       endif()
-
-      add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_512in_512out_8b_0.1sl_sb_${SHARED_BUCKETS}
-        COMMAND sparse_fc_layer
-          --data-type=${DATA_TYPE}
-          --input-size=512
-          --output-size=512
-          --batch-size=8
-          --sparsity-factor=0.1
-          --tiles-per-ipu=24
-          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\",\"availableMemoryProportion\":\"0.6\"}
-          --single-phase=${PASS_TYPE}
-        VARIANTS ${TimesOutOnSim})
-
-      add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_256in_256out_64b_0.1sl_sb_${SHARED_BUCKETS}
-        COMMAND sparse_fc_layer
-          --data-type=${DATA_TYPE}
-          --input-size=256
-          --output-size=256
-          --batch-size=64
-          --sparsity-factor=0.01
-          --tiles-per-ipu=24
-          --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\",\"partitioner.forceBucketSpills\":\"true\"}
-          --single-phase=${PASS_TYPE})
-
-      # This test exists primarily to demonstrate and exercise plan constraints.
-      add_multitarget_test(
-        NAME sparse_fc_layer_${PASS_TYPE}_${DATA_TYPE}_float_plan_constraints_${SHARED_BUCKETS}
-        COMMAND sparse_fc_layer
-          --data-type=${DATA_TYPE}
-          --input-size=512
-          --output-size=512
-          --batch-size=64
-          --sparsity-factor=0.01
-          --tiles-per-ipu=24
-          --matmul-options={\"planConstraints\":\"{\\\"partition\\\":{\\\"x\\\":6,\\\"y\\\":4,\\\"z\\\":1}}\"}
-          --single-phase=${PASS_TYPE})
 
       if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         # TODO: T31789 - Re-enable these tests in debug once speed issues are resolved
@@ -273,61 +224,40 @@ foreach(DATA_TYPE half float)
           VARIANTS ${TimesOutOnSim})
       endif()
     endforeach()
-
-    # Just a couple of tests to hit combinations of transpose. These are sparse fully connected
-    # layers in implementation which should hit majority of test coverage required.
-    foreach(TRANSPOSE_LHS 0 1)
-      foreach(TRANSPOSE_RHS 0 1)
-        add_multitarget_test(
-          NAME sparse_matmul_${DATA_TYPE}_float_lhsT${TRANSPOSE_LHS}_rhsT${TRANSPOSE_RHS}_1024m_1024k_4n_0.1sl_sb_${SHARED_BUCKETS}
-          COMMAND sparse_matmul
-            --data-type=${DATA_TYPE}
-            --m=1024
-            --k=1024
-            --n=4
-            --tiles-per-ipu=24
-            --sparsity-factor=0.1
-            --transpose-lhs=${TRANSPOSE_LHS}
-            --transpose-rhs=${TRANSPOSE_RHS}
-            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"})
-        add_multitarget_test(
-          NAME sparse_matmul_${DATA_TYPE}_float_lhsT${TRANSPOSE_LHS}_rhsT${TRANSPOSE_RHS}_1024m_256k_16n_0.1sl_sb_${SHARED_BUCKETS}
-          COMMAND sparse_matmul
-            --data-type=${DATA_TYPE}
-            --m=1024
-            --k=256
-            --n=16
-            --tiles-per-ipu=24
-            --sparsity-factor=0.1
-            --transpose-lhs=${TRANSPOSE_LHS}
-            --transpose-rhs=${TRANSPOSE_RHS}
-            --matmul-options={\"sharedBuckets\":\"${SHARED_BUCKETS}\"})
-      endforeach()
-    endforeach()
   endforeach()
 endforeach()
 
+# This test exists primarily to demonstrate and exercise plan constraints.
+add_multitarget_test(
+  NAME sparse_fc_layer_fwd_half_float_plan_constraints
+  COMMAND sparse_fc_layer
+    --data-type=half
+    --input-size=512
+    --output-size=512
+    --batch-size=64
+    --sparsity-factor=0.01
+    --tiles-per-ipu=24
+    --matmul-options={\"planConstraints\":\"{\\\"partition\\\":{\\\"x\\\":6,\\\"y\\\":4,\\\"z\\\":1}}\"}
+    --single-phase=fwd)
+
 # Dense version tests
-foreach(PASS fwd bwd)
-  foreach(INPUT_SIZE 32 47 512)
-    foreach(OUTPUT_SIZE 23 128)
-      foreach(BLOCK_SIZE 1)
-        add_multitarget_test(
-          NAME sparse_matmul_force_dense_${PASS}_${INPUT_SIZE}_${OUTPUT_SIZE}
-          COMMAND sparse_fc_layer
-            --data-type=float
-            --partials-type=float
-            --input-size=${INPUT_SIZE}
-            --output-size=${OUTPUT_SIZE}
-            --batch-size=4
-            --block-size=${BLOCK_SIZE}
-            --sparsity-factor=0.3
-            --tiles-per-ipu=24
-            --plan-constraints={\"useDense\":\"true\"}
-            --single-phase=${PASS} 
-        )
-      endforeach()
-    endforeach()
+foreach(INPUT_SIZE 32 47 512)
+  foreach(OUTPUT_SIZE 23 128)
+    set(BLOCK_SIZE 1)
+    add_multitarget_test(
+      NAME sparse_matmul_force_dense_${PASS}_${INPUT_SIZE}_${OUTPUT_SIZE}
+      COMMAND sparse_fc_layer
+        --data-type=float
+        --partials-type=float
+        --input-size=${INPUT_SIZE}
+        --output-size=${OUTPUT_SIZE}
+        --batch-size=4
+        --block-size=${BLOCK_SIZE}
+        --sparsity-factor=0.3
+        --tiles-per-ipu=24
+        --plan-constraints={\"useDense\":\"true\"}
+        --single-phase=fwd
+    )
   endforeach()
 endforeach()
   
@@ -359,44 +289,31 @@ add_multitarget_test(
 
 add_test_executable(SparsePartitionerTest SparsePartitionerTests.cpp)
 foreach(BLOCK_XY 1 4)
-  foreach(XSPLIT 2 4 7)
-    foreach(YSPLIT 2 4 7)
+  foreach(XSPLIT 2 7)
+    foreach(YSPLIT 2 7)
       foreach(ZSPLIT 2 4)
         foreach(SPARSITY 0.1 .05)
-          foreach(EXCESS .1 .01 .001)
-            foreach(ROWS 100)
-              foreach(COLS 100)
-                foreach(BATCH 8 16)
-                  add_test(
-                    NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}_small
-                      COMMAND SparsePartitionerTest
-                        --matmul-shape={${ROWS},${COLS},${BATCH}}
-                        --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
-                        --block-shape={${BLOCK_XY},${BLOCK_XY}}
-                        --sparsity-level=${SPARSITY}
-                        --excess=${EXCESS}
-                    )
-                endforeach()
-              endforeach()
-            endforeach()
+          foreach(EXCESS .1 .001)
+            add_test(
+              NAME SparsePartitionerTest_rows100_cols100_B8_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}_small
+                COMMAND SparsePartitionerTest
+                  --matmul-shape={100,100,8}
+                  --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
+                  --block-shape={${BLOCK_XY},${BLOCK_XY}}
+                  --sparsity-level=${SPARSITY}
+                  --excess=${EXCESS})
+
             # Run larger tests without generating actual sparsity data impl as
             # we start to hit the limit for the data type currently used
-            foreach(ROWS 1000 2400)
-              foreach(COLS 1000 2400)
-                foreach(BATCH 16 64)
-                  add_test(
-                    NAME SparsePartitionerTest_rows${ROWS}_cols${COLS}_B${BATCH}_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}_large
-                      COMMAND SparsePartitionerTest
-                        --matmul-shape={${ROWS},${COLS},${BATCH}}
-                        --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
-                        --block-shape={${BLOCK_XY},${BLOCK_XY}}
-                        --sparsity-level=${SPARSITY}
-                        --excess=${EXCESS}
-                        --disable-sparsity-data-impl-checks
-                    )
-                endforeach()
-              endforeach()
-            endforeach()
+            add_test(
+              NAME SparsePartitionerTest_rows1000_cols1000_B16_block${BLOCK_XY}x${BLOCK_XY}_xs${XSPLIT}_ys${YSPLIT}_zs${ZSPLIT}_sp${SPARSITY}_ex${EXCESS}_large
+                COMMAND SparsePartitionerTest
+                  --matmul-shape={1000,1000,16}
+                  --split-shape={${XSPLIT},${YSPLIT},${ZSPLIT}}
+                  --block-shape={${BLOCK_XY},${BLOCK_XY}}
+                  --sparsity-level=${SPARSITY}
+                  --excess=${EXCESS}
+                  --disable-sparsity-data-impl-checks)
           endforeach()
         endforeach()
       endforeach()
@@ -404,20 +321,18 @@ foreach(BLOCK_XY 1 4)
   endforeach()
 endforeach()
 
-
 foreach(BLOCK_SIZE 1 4 8)
-  foreach(BATCH 8 16)
-    foreach(Y_SIZE 24 64)
-      foreach(X_SIZE 40 80)
-        add_test(NAME SparsePartitionerTest_${BLOCK_SIZE}_${BATCH}_${Y_SIZE}_${X_SIZE}_densepartition
-                 COMMAND SparsePartitionerTest
-                   --matmul-shape={${X_SIZE},${Y_SIZE},${BATCH}}
-                   --split-shape={2,2,8}
-                   --block-shape={${BLOCK_SIZE},${BLOCK_SIZE}}
-                   --sparsity-level=0.1
-                   --use-dense=1
-                 )
-      endforeach()
+  set(BATCH 8)
+  foreach(Y_SIZE 24 64)
+    foreach(X_SIZE 40 80)
+      add_test(NAME SparsePartitionerTest_${BLOCK_SIZE}_${BATCH}_${Y_SIZE}_${X_SIZE}_densepartition
+                COMMAND SparsePartitionerTest
+                  --matmul-shape={${X_SIZE},${Y_SIZE},${BATCH}}
+                  --split-shape={2,2,8}
+                  --block-shape={${BLOCK_SIZE},${BLOCK_SIZE}}
+                  --sparsity-level=0.1
+                  --use-dense=1
+                )
     endforeach()
   endforeach()
 endforeach()
@@ -425,33 +340,33 @@ endforeach()
 # Sparse embedding (elementwise sparsity)
 foreach(DATA_TYPE float half)
   foreach(ROWS 4 67 126)
-    foreach(COLUMNS 8 65 127)
-      foreach(BATCH_SIZE 4 128)
-        if(${COLUMNS} STREQUAL 8)
-          set(WEIGHTED_COLUMN_END 6)
-        endif()
-        if(${COLUMNS} STREQUAL 67)
-          set(WEIGHTED_COLUMN_END 32)
-        endif()
-        if(${COLUMNS} STREQUAL 127)
-          set(WEIGHTED_COLUMN_END 100)
-        endif()
-        foreach(INDICES 1 2 3 4 5 15 16 17 40)
-          add_multitarget_test(
-            NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_Ba${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}
-            COMMAND sparse_embedding_tied_matmul
-              --data-type=${DATA_TYPE}
-              --num-entries=${ROWS}
-              --embedding-size=${COLUMNS}
-              --batch-size=${BATCH_SIZE}
-              --tiles-per-ipu=16
-              --num-indices=${INDICES}
-              --block-size=1
-              --sparsity-factor=0.2
-              --matmul-options={\"metaInfoBucketOversizeProportion\":\"0.5\"}
-              --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
-              --weighted-area-weighting=1.0)
-        endforeach()
+    foreach(COLUMNS 8 65)
+      set(BATCH_SIZE 4)
+      if(${COLUMNS} STREQUAL 8)
+        set(WEIGHTED_COLUMN_END 6)
+      endif()
+      if(${COLUMNS} STREQUAL 67)
+        set(WEIGHTED_COLUMN_END 32)
+      endif()
+      if(${COLUMNS} STREQUAL 127)
+        set(WEIGHTED_COLUMN_END 100)
+      endif()
+
+      foreach(INDICES 1 2 4 5 16 17)
+        add_multitarget_test(
+          NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_Ba${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}
+          COMMAND sparse_embedding_tied_matmul
+            --data-type=${DATA_TYPE}
+            --num-entries=${ROWS}
+            --embedding-size=${COLUMNS}
+            --batch-size=${BATCH_SIZE}
+            --tiles-per-ipu=16
+            --num-indices=${INDICES}
+            --block-size=1
+            --sparsity-factor=0.2
+            --matmul-options={\"metaInfoBucketOversizeProportion\":\"0.5\"}
+            --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
+            --weighted-area-weighting=1.0)
       endforeach()
     endforeach()
   endforeach()
@@ -461,41 +376,41 @@ endforeach()
 # size
 foreach(DATA_TYPE float half)
   foreach(ROWS 24 120)
-    foreach(COLUMNS 8 24 56)
-      foreach(BATCH_SIZE 4 128)
-        foreach(BLOCK_ROWS 4 8)
-          if(${COLUMNS} STREQUAL 8)
-            set(WEIGHTED_COLUMN_END 4)
-          endif()
-          if(${COLUMNS} STREQUAL 24)
-            set(WEIGHTED_COLUMN_END 8)
-          endif()
-          if(${COLUMNS} STREQUAL 56)
-            set(WEIGHTED_COLUMN_END 16)
-          endif()
-          if(${BLOCK_ROWS} STREQUAL 4)
-            set(BLOCK_COLUMNS 2)
-          endif()
-          if(${BLOCK_ROWS} STREQUAL 8)
-            set(BLOCK_COLUMNS 4)
-          endif()
-          foreach(INDICES 1 2 17 40)
-            add_multitarget_test(
-              NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_Ba${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}_Br${BLOCK_ROWS}_Bc${BLOCK_COLUMNS}
-              COMMAND sparse_embedding_tied_matmul
-                --data-type=${DATA_TYPE}
-                --num-entries=${ROWS}
-                --embedding-size=${COLUMNS}
-                --batch-size=${BATCH_SIZE}
-                --tiles-per-ipu=32
-                --num-indices=${INDICES}
-                --block-size={${BLOCK_ROWS},${BLOCK_COLUMNS}}
-                --test-matmul=false
-                --sparsity-factor=0.1
-                --matmul-options={\"metaInfoBucketOversizeProportion\":\"0.6\"}
-                --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
-                --weighted-area-weighting=1.0)
-          endforeach()
+    foreach(COLUMNS 8 24)
+      set(BATCH_SIZE 4)
+      foreach(BLOCK_ROWS 4 8)
+        if(${COLUMNS} STREQUAL 8)
+          set(WEIGHTED_COLUMN_END 4)
+        endif()
+        if(${COLUMNS} STREQUAL 24)
+          set(WEIGHTED_COLUMN_END 8)
+        endif()
+        if(${COLUMNS} STREQUAL 56)
+          set(WEIGHTED_COLUMN_END 16)
+        endif()
+        if(${BLOCK_ROWS} STREQUAL 4)
+          set(BLOCK_COLUMNS 2)
+        endif()
+        if(${BLOCK_ROWS} STREQUAL 8)
+          set(BLOCK_COLUMNS 4)
+        endif()
+
+        foreach(INDICES 1 2 17)
+          add_multitarget_test(
+            NAME sparse_embedding_tied_matmul_${DATA_TYPE}_R${ROWS}_C${COLUMNS}_Ba${BATCH_SIZE}_I${INDICES}_W${WEIGHTED_COLUMN_END}_Br${BLOCK_ROWS}_Bc${BLOCK_COLUMNS}
+            COMMAND sparse_embedding_tied_matmul
+              --data-type=${DATA_TYPE}
+              --num-entries=${ROWS}
+              --embedding-size=${COLUMNS}
+              --batch-size=${BATCH_SIZE}
+              --tiles-per-ipu=32
+              --num-indices=${INDICES}
+              --block-size={${BLOCK_ROWS},${BLOCK_COLUMNS}}
+              --test-matmul=false
+              --sparsity-factor=0.1
+              --matmul-options={\"metaInfoBucketOversizeProportion\":\"0.6\"}
+              --weighted-area-end={2,${WEIGHTED_COLUMN_END}}
+              --weighted-area-weighting=1.0)
         endforeach()
       endforeach()
     endforeach()

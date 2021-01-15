@@ -99,7 +99,7 @@ int main(int argc, char **argv) try {
   Type partialsType;
   unsigned numIPUs = 1;
   boost::optional<unsigned> tilesPerIPU;
-  Pass pass = Pass::FWD;
+  Pass pass = Pass::ALL;
   std::string matmulOptionsString;
   std::string planConstraintsString;
   double sparsityFactor;
