@@ -19,10 +19,10 @@ function(add_multi_target_test_executable name)
   endif()
 endfunction()
 
-# Remove any requested variants not present in ${ENABLED_TEST_VARIANTS}
+# Remove any requested variants not present in ${ENABLED_(TEST|BENCHMARK)_VARIANTS}
 # If no variants were requested filtered ${DEFAULT_TEST_VARIANTS} are returned.
 # Raise a fatal error if any of the variants are not in ${ALL_POSSIBLE_TEST_VARIANTS}.
-function(sanitise_variants variant_name test_ipumodel_always labels)
+function(sanitise_variants variant_name test_ipumodel_always labels benchmark)
   set(variants ${${variant_name}})
   set(old_variants "${variants}")
   if (NOT old_variants)
@@ -61,8 +61,15 @@ function(sanitise_variants variant_name test_ipumodel_always labels)
   endif()
 
   set(new_variants "")
+
+  if (${benchmark})
+    set(enabled_variants "${ENABLED_BENCHMARK_VARIANTS}")
+  else()
+    set(enabled_variants "${ENABLED_TEST_VARIANTS}")
+  endif()
+
   # Only allow each variant if it is enabled:
-  # Tests labelled with VARIANT Hw1 or Hw2 are included if ENABLED_TEST_VARIANTS contains Hw
+  # Tests labelled with VARIANT Hw1 or Hw2 are included if ENABLED_(TEST|BENCHMARK)_VARIANTS contains Hw
   # They are attached to a specific fixture test that checks the hardware architecture
   foreach(variant ${old_variants})
     if (${variant} MATCHES "^Hw")
@@ -78,7 +85,7 @@ function(sanitise_variants variant_name test_ipumodel_always labels)
       set(add_variant "false")
     endif()
     if(${add_variant} STREQUAL "true")
-      if (${variant_to_match} IN_LIST ENABLED_TEST_VARIANTS)
+      if (${variant_to_match} IN_LIST enabled_variants)
         list(APPEND new_variants ${variant})
       endif()
     endif()
@@ -211,7 +218,7 @@ endfunction()
 # Currently supported configs are "cpp;default" which specify the codelet types
 function(add_unit_test name)
   cmake_parse_arguments(add_unit_test "" "FILES" "VARIANTS;SUITES;LABELS;TEST_IPUMODEL;" "FILES;${ARGN}")
-  sanitise_variants(add_unit_test_VARIANTS add_unit_test_TEST_IPUMODEL add_unit_test_LABELS)
+  sanitise_variants(add_unit_test_VARIANTS add_unit_test_TEST_IPUMODEL add_unit_test_LABELS FALSE)
   if (NOT add_unit_test_VARIANTS)
     # When all variants are disabled don't even generate the test exe as
     # we don't know whether it needs a target
@@ -301,10 +308,11 @@ endfunction()
 
 # add a test to run on the specified VARIANTS
 function(add_multitarget_test)
-  cmake_parse_arguments(add_multitarget_test "ALLOW_SKIP" "NAME"
+  cmake_parse_arguments(add_multitarget_test "ALLOW_SKIP;BENCHMARK" "NAME"
                         "VARIANTS;COMMAND;LABELS;TEST_IPUMODEL;"
                         "${ARGN}")
-  sanitise_variants(add_multitarget_test_VARIANTS add_multitarget_test_TEST_IPUMODEL add_multitarget_test_LABELS)
+  sanitise_variants(add_multitarget_test_VARIANTS add_multitarget_test_TEST_IPUMODEL
+                    add_multitarget_test_LABELS add_multitarget_test_BENCHMARK)
   set(name ${add_multitarget_test_NAME})
   if (NOT add_multitarget_test_NAME)
     message(FATAL_ERROR "add_multitarget_test requires a NAME to be specified")
@@ -378,7 +386,7 @@ function(add_benchmark)
   list(APPEND BENCHMARK_PARAMS --ignore-data --profile-format experimental)
 
   add_multitarget_test(
-    NAME "${BENCHMARK_NAME}_benchmark"
+    BENCHMARK NAME "${BENCHMARK_NAME}_benchmark"
     COMMAND ${PYTHON_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tools/bench.py
             --name ${BENCHMARK_NAME}
