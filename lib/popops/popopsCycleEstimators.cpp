@@ -3,6 +3,7 @@
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/forceInterleavedEstimates.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
 #include "poplibs_support/popopsPerformanceEstimation.hpp"
@@ -360,8 +361,14 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
   else {
     // half/float case handled above
     assert(dataType != HALF || dataBType != FLOAT);
-    const unsigned innerLoopCycles =
+    unsigned innerLoopCycles =
         memConstrained ? 2 : (dataType == dataBType ? 3 : 4);
+
+    if (getForceInterleavedEstimates() && (dataType == dataBType)) {
+      // Reduce inner loop cycles by one for (half,half), (float, float) when
+      // using interleaved memory.
+      innerLoopCycles -= 1;
+    }
 
     for (unsigned wid = 0; wid < numWorkers; ++wid) {
       std::uint64_t cycles = 15; // constant worker prologue cycles
@@ -540,7 +547,10 @@ std::uint64_t ScaledArithmetic2DCycleEstimate(
     assert(type == HALF || type == FLOAT);
   }
 
-  const unsigned innerLoopCycles = memConstrained ? 2 : 3;
+  unsigned innerLoopCycles = memConstrained ? 2 : 3;
+  if (getForceInterleavedEstimates()) {
+    innerLoopCycles -= 1;
+  }
   const auto grain = target.getVectorWidth(type);
   std::uint64_t cycles = 9; // prologue and epilogue overhead.
   if (!isConstant)
