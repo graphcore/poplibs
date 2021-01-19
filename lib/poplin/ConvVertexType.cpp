@@ -6,6 +6,7 @@
 #include "ConvOptions.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/logging.hpp"
 #include "poplin/ConvParams.hpp"
 #include "popsolver/Model.hpp"
 #include "poputil/exceptions.hpp"
@@ -155,8 +156,7 @@ static void getConvVertexHMACCandidates(
       // amount of work per group and we can't use fewer groups per tile.
       continue;
     }
-    if (isJointPlan) {
-      assert(options.pass == Pass::FC_TRAINING_FWD);
+    if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
       // The input channels in the forward pass become the output channels of
       // the weight update pass. Make sure it is a multiple of the supported
       // output channels per group.
@@ -215,9 +215,8 @@ static void getConvVertexVMACCandidates(
 
 static void getConvVertexAMPCandidates(
     const poplar::Target &target, const poplar::Type &inputType,
-    const poplar::Type &outputType, const poplar::Type &partialType,
-    const ConvParams &params, const ConvOptions &options, bool isJointPlan,
-    std::vector<ConvVertexType> &candidates) {
+    const poplar::Type &partialType, const ConvOptions &options,
+    bool isJointPlan, std::vector<ConvVertexType> &candidates) {
   const auto &planConstraints = options.planConstraints;
   const auto constrainedInChansPerGroup =
       planConstraints.get_optional<popsolver::DataType>("inChansPerGroup");
@@ -309,8 +308,7 @@ static void getConvVertexAMPCandidates(
             continue;
           }
 
-          if (isJointPlan) {
-            assert(options.pass == Pass::FC_TRAINING_FWD);
+          if (isJointPlan && options.pass == Pass::FC_TRAINING_FWD) {
             // The input channels in the forward pass become the output channels
             // of the weight update pass. Make sure it is a multiple of the
             // supported output channels per group.
@@ -329,6 +327,39 @@ static void getConvVertexAMPCandidates(
       }
     }
   }
+}
+
+static void getConvVertexAMPCandidates(
+    const poplar::Target &target, const poplar::Type &inputType,
+    const poplar::Type &outputType, const poplar::Type &partialType,
+    const ConvParams &params, const ConvOptions &options, bool isJointPlan,
+    std::vector<ConvVertexType> &candidates) {
+  bool floatActivations = inputType == poplar::FLOAT;
+  const auto weightsPerConvUnit =
+      target.getWeightsPerConvUnit(floatActivations);
+  const auto isAll = [](const auto k, const auto &c) {
+    return std::all_of(std::begin(c), std::end(c),
+                       [k](const auto x) { return x == k; });
+  };
+  // The vertex output type can be smaller than the partial type if no reduction
+  // is required afterwards.
+  if (target.getTypeSize(outputType) < target.getTypeSize(partialType) &&
+      params.inputChannelsPerConvGroup <= weightsPerConvUnit &&
+      isAll(1U, params.getKernelShape())) {
+    auto numCandidatesBefore = candidates.size();
+    getConvVertexAMPCandidates(target, inputType, outputType, options,
+                               isJointPlan, candidates);
+    candidates.erase(
+        std::remove_if(
+            candidates.begin() + numCandidatesBefore, candidates.end(),
+            [&](const ConvVertexType &type) {
+              return roundUp(params.inputChannelsPerConvGroup,
+                             type.inChansPerGroup) != weightsPerConvUnit;
+            }),
+        candidates.end());
+  }
+  getConvVertexAMPCandidates(target, inputType, partialType, options,
+                             isJointPlan, candidates);
 }
 
 static void getConvVertexSLICCandidates(
@@ -457,18 +488,17 @@ static void getConvVertexOuterProductCandidates(
       planConstraints.get_optional<popsolver::DataType>("partialChansPerGroup");
 
   const auto inChansPerGroup = 1u;
-  const auto partialChansPerGroup = target.getVectorWidth(inputType);
-  // Only one supported inChansPerGroup or partialChansPerGroup
-  // for this method.
+  // Only one supported inChansPerGroup for this method.
   if (constrainedInChansPerGroup &&
       *constrainedInChansPerGroup != popsolver::DataType{inChansPerGroup}) {
     return;
   }
-  if (constrainedPartialChansPerGroup &&
-      *constrainedPartialChansPerGroup !=
-          popsolver::DataType{partialChansPerGroup}) {
-    return;
-  }
+  // Default to the vector width but allow a different value if it is forced
+  // (used for joint plans).
+  const auto partialChansPerGroup =
+      constrainedPartialChansPerGroup
+          .get_value_or(popsolver::DataType(target.getVectorWidth(inputType)))
+          .getAs<unsigned>();
 
   const auto isAll = [](const auto k, const auto &c) {
     return std::all_of(std::begin(c), std::end(c),
@@ -491,10 +521,9 @@ static void getConvVertexOuterProductCandidates(
 }
 
 // Order the candidates from most promising to least.
-static void
-sortConvVertexTypeCandidates(const poplar::Target &target,
-                             const ConvParams &params,
-                             std::vector<ConvVertexType> &candidates) {
+static void sortConvVertexTypeCandidates(
+    const poplar::Target &target, const ConvParams &params,
+    const ConvOptions &options, std::vector<ConvVertexType> &candidates) {
   auto numCandidates = candidates.size();
   struct ConvVertexTypeInfo {
     // Percentage of elements that are padding.
@@ -542,7 +571,16 @@ sortConvVertexTypeCandidates(const poplar::Target &target,
             });
   std::vector<ConvVertexType> sortedCandidates;
   sortedCandidates.reserve(numCandidates);
+  logging::poplin::trace("Convolution vertex candidates for {} pass:",
+                         options.pass);
   for (auto &entry : candidatesInfo) {
+    auto &candidate = candidates[entry.index];
+    logging::poplin::trace(
+        " - {} {}x{}x{}: "
+        "partialTypeSize={}, effectiveMaxFLOPs={}, paddingRatio={}",
+        candidate.method, candidate.convGroupsPerGroup,
+        candidate.inChansPerGroup, candidate.partialChansPerGroup,
+        entry.partialTypeSize, entry.effectiveMaxFLOPs, entry.paddingRatio);
     sortedCandidates.push_back(std::move(candidates[entry.index]));
   }
   candidates = std::move(sortedCandidates);
@@ -635,7 +673,8 @@ getConvVertexTypeCandidates(const poplar::Target &target,
     }
     }
   }
-  sortConvVertexTypeCandidates(target, params, convVertexTypeCandidates);
+  sortConvVertexTypeCandidates(target, params, options,
+                               convVertexTypeCandidates);
   return convVertexTypeCandidates;
 }
 

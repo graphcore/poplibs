@@ -241,21 +241,6 @@ BOOST_AUTO_TEST_CASE(InvalidConstraints) {
 
   // A random assortment of constraints we'd expect to fail to produce a valid
   // plan.
-
-  // Can't use outer product method for this convolution
-  testFails(
-      R"delim(
-      {"method": "OUTER_PRODUCT",
-       "inChansPerGroup": 1,
-       "partialChansPerGroup": 1}
-    )delim");
-  // HMAC method only supports 1 partial chan per group
-  testFails(
-      R"delim(
-      {"method": "HMAC",
-       "inChansPerGroup": 1,
-       "partialChansPerGroup": 2}
-    )delim");
   // AMP method only supports certain partialChansPerGroup
   testFails(
       R"delim(

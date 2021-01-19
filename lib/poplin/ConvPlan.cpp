@@ -1636,28 +1636,22 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
     plan.partitions[i].outChanGrainSize = fwdPlan.partitions[i].inChanGrainSize;
     plan.partitions[i].inChanGrainSize = fwdPlan.partitions[i].outChanGrainSize;
   }
-  plan.partialChansPerGroup = fwdPlan.inChansPerGroup;
-  plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
 
-  plan.method = getFullyConnectedWUMethod(fwdParams.getParams(), fwdPlan.method,
-                                          fwdPlan.partialChansPerGroup,
-                                          fwdPlan.inChansPerGroup);
   // TODO: T12888 Make the forward pass aware that it would be good to use a
   // grouping of 16 if possible.
-  plan.inChansPerGroup = fwdPlan.partialChansPerGroup;
-  if (plan.method == Plan::Method::AMP &&
-      !canUseConvolutionInstruction(fwdParams->inputType == poplar::FLOAT,
-                                    fwdOptions.partialsType == poplar::FLOAT,
-                                    plan.inChansPerGroup,
-                                    plan.numConvUnitsOrChainsRequired,
-                                    plan.partialChansPerGroup, target)) {
-    plan.inChansPerGroup =
-        target.getWeightsPerConvUnit(fwdParams->inputType == poplar::FLOAT);
-    plan.partitions.back().inChanGrainSize = plan.inChansPerGroup;
-  }
-  plan.types = getConvTypesForDerivedJointPlan(
-      target, getWeightUpdateParams(*fwdParams),
-      getWeightUpdateOptions(fwdOptions), plan.inChansPerGroup, plan.method);
+  auto wuConvVertexType = getFullyConnectedWuConvVertexType(
+      target, fwdPlan.method, fwdPlan.partialChansPerGroup,
+      fwdPlan.inChansPerGroup, *fwdParams, fwdOptions);
+  plan.method = wuConvVertexType.method;
+  plan.partialChansPerGroup = wuConvVertexType.partialChansPerGroup;
+  plan.inChansPerGroup = wuConvVertexType.inChansPerGroup;
+  plan.partitions.back().inChanGrainSize = wuConvVertexType.inChansPerGroup;
+  plan.partitions.back().outChanGrainSize =
+      wuConvVertexType.partialChansPerGroup;
+
+  plan.types =
+      getConvTypes(target, wuConvVertexType.partialType, fwdParams->outputType,
+                   getWeightUpdateOptions(fwdOptions));
   return plan;
 }
 
@@ -1668,7 +1662,6 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
   assert(fwdPlan.isJointPlan);
   assert(fwdPlan.transforms[0].swapOperands);
   auto plan = fwdPlan;
-  plan.method = getFullyConnectedBwdMethod(fwdPlan.method);
   plan.linearizeTileOrder = Plan::LinearizeTileOrder::FC_BWD_AS_CONV;
   for (auto &partition : plan.partitions) {
     // Input channel serial split cannot be swapped with Field Splitting as
@@ -1677,9 +1670,13 @@ static Plan getFullyConnectedBwdPlan(const poplar::Target &target,
     std::swap(partition.fieldAxisGrainSize.back(), partition.inChanGrainSize);
   }
   plan.inChansPerGroup = plan.partitions.back().inChanGrainSize;
-  plan.types = getConvTypesForDerivedJointPlan(
-      target, getGradientParams(*fwdParams), getGradientOptions(fwdOptions),
-      plan.inChansPerGroup, plan.method);
+  auto bwdConvVertexType = getFullyConnectedBwdConvVertexType(
+      target, fwdPlan.method, plan.inChansPerGroup, plan.partialChansPerGroup,
+      *fwdParams, fwdOptions);
+  plan.method = bwdConvVertexType.method;
+  plan.types =
+      getConvTypes(target, bwdConvVertexType.partialType, fwdParams->outputType,
+                   getGradientOptions(fwdOptions));
   return plan;
 }
 
