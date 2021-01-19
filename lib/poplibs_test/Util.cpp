@@ -225,15 +225,23 @@ bool checkEqual(const std::string &name, const intType *actual,
   auto it = actual;
   auto end = it + N;
   bool equal = true;
+  unsigned mismatch = 0;
+  constexpr unsigned mismatchPrinted = 20;
   for (; it != end; ++it, ++expected) {
     if (*it != *expected) {
-      std::cerr << "mismatch on element ";
       equal = false;
-      const auto n = it - actual;
-      std::cerr << prettyCoord(name, n, shape) << ':';
-      std::cerr << " expected=" << *expected;
-      std::cerr << " actual=" << *it << '\n';
+      if (mismatch++ < mismatchPrinted) {
+        std::cerr << "mismatch on element ";
+        const auto n = it - actual;
+        std::cerr << prettyCoord(name, n, shape) << ':';
+        std::cerr << " expected=" << *expected;
+        std::cerr << " actual=" << *it << '\n';
+      }
     }
+  }
+  if (mismatch >= mismatchPrinted) {
+    std::cerr << "Number of mismatches " << mismatch << " exceeded "
+              << mismatchPrinted << ", messages suppressed.\n";
   }
   return equal;
 }
@@ -273,7 +281,7 @@ bool checkIsClose(const std::string &name, const FPType *actual,
     }
   }
   if (mismatch >= mismatchPrinted) {
-    std::cerr << "Number or mismatches " << mismatch << " exceeded "
+    std::cerr << "Number of mismatches " << mismatch << " exceeded "
               << mismatchPrinted << ", messages suppressed.\n";
   }
   return isClose;

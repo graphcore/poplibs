@@ -233,6 +233,12 @@ void copy(const poplar::Target &target, const poplar::Type &srcType, void *src,
   }
 }
 
+template <typename T>
+inline void copy(const poplar::Target &target, const poplar::Type &srcType,
+                 void *src, std::vector<T> &dst) {
+  copy(target, srcType, src, dst.data(), dst.size());
+}
+
 template <typename T, unsigned long N>
 inline void copy(const poplar::Target &target, const poplar::Type &srcType,
                  void *src, boost::multi_array_ref<T, N> dst) {

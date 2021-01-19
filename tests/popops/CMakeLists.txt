@@ -1065,3 +1065,91 @@ foreach(dType half float)
     endforeach()
   endforeach()
 endforeach()
+
+add_multitarget_test(NAME topk_f32_u32_n1000_k1000_sorted
+  COMMAND topk
+    --n 1000
+    --k 1000
+    --data-type float
+    --index-type uint
+    --sort-output=1
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f32_u32_n1000_k100_sorted
+  COMMAND topk
+    --n 1000
+    --k 100
+    --data-type float
+    --index-type uint
+    --sort-output=1
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f32_u32_n1000_k1
+  COMMAND topk
+    --n 1000
+    --k 100
+    --data-type float
+    --index-type uint
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f32_u32_n1000_k1000_unsorted
+  COMMAND topk
+    --n 1000
+    --k 1000
+    --data-type float
+    --index-type uint
+    --sort-output=0
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f32_u32_n1000_k100_unsorted
+  COMMAND topk
+    --n 1000
+    --k 100
+    --data-type float
+    --index-type uint
+    --sort-output=0
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f16_u32_n1000_k1000_sorted
+  COMMAND topk
+    --n 1000
+    --k 1000
+    --data-type half
+    --index-type uint
+    --sort-output=1
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f16_u32_n1000_k100_sorted
+  COMMAND topk
+    --n 1000
+    --k 100
+    --data-type half
+    --index-type uint
+    --sort-output=1
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f16_u32_n1000_k1
+  COMMAND topk
+    --n 1000
+    --k 100
+    --data-type half
+    --index-type uint
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f16_u32_n1000_k1000_unsorted
+  COMMAND topk
+    --n 1000
+    --k 1000
+    --data-type half
+    --index-type uint
+    --sort-output=0
+    --tiles-per-ipu=16)
+
+add_multitarget_test(NAME topk_f16_u32_n1000_k100_unsorted
+  COMMAND topk
+    --n 1000
+    --k 100
+    --data-type half
+    --index-type uint
+    --sort-output=0
+    --tiles-per-ipu=16)
