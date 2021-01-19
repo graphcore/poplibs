@@ -30,12 +30,16 @@ class PlanningCache;
 
 } // namespace matmul
 
-/** Multiply two matrices.
+/**
+
+ */
+
+/** @name Matrix multiply
  *
+ *  Multiply two matrices.
  *  Calculates `C = A * B` where \p A and \p B are matrices.
  *
- * **Matmul options**
- *
+ *  **Matrix multiply options**
  *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *
  *      See createWeights().
@@ -79,17 +83,6 @@ class PlanningCache;
  *
  *      See createWeights().
  *
- */
-/*[INTERNAL]
- *    * `planConstraints` JSON string
- *
- *      See createWeights().
- *
- *    * `useAggressiveRegrouping` (true, false) [=false]
- *
- *      See createWeights().
- */
-/**
  *  \param graph           The Poplar graph.
  *  \param A               The left argument to the multiplication. This
  *                         2D tensor must be already mapped to tiles.
@@ -110,7 +103,17 @@ class PlanningCache;
  *                         This tensor will be created, added to the graph and
  *                         mapped to tiles.
  */
+/*[INTERNAL OPTIONS]
+ *    * `planConstraints` JSON string
+ *
+ *      See createWeights().
+ *
+ *    * `useAggressiveRegrouping` (true, false) [=false]
+ *
+ *      See createWeights().
+ */
 /// @{
+/** Matrix multiply with explicitly defined output type. */
 poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
                       const poplar::Type &outputType,
@@ -118,12 +121,27 @@ poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
 
+/** Matrix multiply where output type is the same as input \p A. */
 poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
                       const poplar::DebugContext &debugContext = {},
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
+/// @}
 
+/** Report the convolution plan corresponding to the parameters and options
+ * provided.
+ *
+ *  \param out             Stream to write report to.
+ *  \param graph           The Poplar graph.
+ *  \param inputType       Element type of input tensors.
+ *  \param outputType      Element type of output tensor.
+ *  \param aShape          Shape of input tensor A.
+ *  \param bShape          Shape of input tensor B.
+ *  \param options         The structure describing options on how the
+ *                         multiplication should be implemented.
+ *  \param cache           Optional pointer to a planning cache to use.
+ */
 void matMulReportPlan(std::ostream &out, const poplar::Graph &graph,
                       const poplar::Type &inputType,
                       const poplar::Type &outputType,
@@ -131,7 +149,6 @@ void matMulReportPlan(std::ostream &out, const poplar::Graph &graph,
                       const std::vector<std::size_t> &bShape,
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
-/// @}
 
 /** Multiply two grouped matrices.
  *
@@ -161,7 +178,6 @@ void matMulReportPlan(std::ostream &out, const poplar::Graph &graph,
  *                         multiplication. This tensor will be created, added to
  *                         the graph and mapped to tiles.
  */
-/// @{
 poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::Tensor &B,
                              poplar::program::Sequence &prog,
@@ -170,6 +186,19 @@ poplar::Tensor matMulGrouped(poplar::Graph &graph, const poplar::Tensor &A,
                              const poplar::OptionFlags &options = {},
                              matmul::PlanningCache *cache = nullptr);
 
+/** Report the convolution plan corresponding to the \p params and \p options
+ * provided.
+ *
+ *  \param out             Stream to write report to.
+ *  \param graph           The Poplar graph.
+ *  \param inputType       Element type of input tensors.
+ *  \param outputType      Element type of output tensor.
+ *  \param aShape          Shape of input tensor A.
+ *  \param bShape          Shape of input tensor B.
+ *  \param options         The structure describing options on how the
+ *                         multiplication should be implemented.
+ *  \param cache           Optional pointer to a planning cache to use.
+ */
 void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
                              const poplar::Type &inputType,
                              const poplar::Type &outputType,
@@ -177,9 +206,10 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
                              const std::vector<std::size_t> &bShape,
                              const poplar::OptionFlags &options = {},
                              matmul::PlanningCache *cache = nullptr);
-/// @}
 
-/** Multiply two matrices and add to a third (with a scaling factor).
+/** @name Matrix multiply and accumulate
+ *
+ *  Multiply two matrices and add to a third (with a scaling factor).
  *
  *  Calculates `C += k * A * B` where \p A, \p B are matrices and \p k is a
  *  constant scalar.
@@ -203,6 +233,7 @@ void matMulGroupedReportPlan(std::ostream &out, const poplar::Graph &graph,
  *  \param cache           Optional pointer to a planning cache to use.
  */
 /// @{
+/** Matrix multiply and accumulate with a scalar scaling factor. */
 void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                const poplar::Tensor &A, const poplar::Tensor &B,
                poplar::program::Sequence &prog,
@@ -210,6 +241,7 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                const poplar::OptionFlags &options = {},
                matmul::PlanningCache *cache = nullptr);
 
+/** Matrix multiply and accumulate with a single-element scaling factor. */
 void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
                const poplar::Tensor &k, const poplar::Tensor &A,
                const poplar::Tensor &B, poplar::program::Sequence &prog,
@@ -218,7 +250,9 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
                matmul::PlanningCache *cache = nullptr);
 /// @}
 
-/** Multiply two grouped matrices and add to a third (with a scaling factor).
+/** @name Grouped matrix multiply and accumulate
+ *
+ *  Multiply two grouped matrices and add to a third (with a scaling factor).
  *
  *  Calculates `C[g] += k * A[g] * B[g]` where `A[g]`, `B[g]` are matrices and
  *  \p k is a constant scalar. g is element of the set g = {0, 1, ..., G-1}
@@ -245,6 +279,8 @@ void matMulAcc(poplar::Graph &graph, const poplar::Tensor &C,
  *  \param cache           Optional pointer to planning cache to use.
  */
 /// @{
+/** Grouped matrix multiply and accumulate with a scalar scaling factor.
+ */
 void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                       const poplar::Tensor &A, const poplar::Tensor &B,
                       poplar::program::Sequence &prog,
@@ -252,6 +288,8 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C, float k,
                       const poplar::OptionFlags &options = {},
                       matmul::PlanningCache *cache = nullptr);
 
+/** Grouped matrix multiply and accumulate with a single-element scaling factor.
+ */
 void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
                       const poplar::Tensor &k, const poplar::Tensor &A,
                       const poplar::Tensor &B, poplar::program::Sequence &prog,
@@ -260,9 +298,9 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
                       matmul::PlanningCache *cache = nullptr);
 /// @}
 
-/**
- * Create a tensor that is used as the left operand of matrix multiplication.
+/** Create a tensor that is used as the left operand of matrix multiplication.
  *
+ * The types of the input and and output tensors are specified separately.
  * This will create a 2D tensor in the graph. The ordering and tile mapping
  * of the tensor will be set to make a matrix multiplication with this
  * tensor as the left argument efficient.
@@ -281,7 +319,6 @@ void matMulGroupedAcc(poplar::Graph &graph, const poplar::Tensor &C,
  * \returns               A matrix of type \p type and shape \p aShape. The
  *                        tensor will have been mapped to tiles.
  */
-/// @{
 poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const poplar::Type &inputType,
                                     const poplar::Type &outputType,
@@ -291,9 +328,25 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const poplar::OptionFlags &options = {},
                                     matmul::PlanningCache *cache = nullptr);
 
-/**
- * Overloaded function for when inputType == outputType (represented by the
- * dataType parameter).
+/** Create a tensor that is used as the left operand of matrix multiplication.
+ *
+ * The type of both input and output tensors is specified by \p dataType.
+ * This will create a 2D tensor in the graph. The ordering and tile mapping
+ * of the tensor will be set to make a matrix multiplication with this
+ * tensor as the left argument efficient.
+ *
+ * \param graph           The Poplar graph.
+ * \param dataType        The data type of both the input and output tensors.
+ * \param aShape          The shape of the required matrix.
+ * \param bShape          The shape of the matrix that the required matrix will
+ *                        be multiplied by.
+ * \param debugContext    Debug information.
+ * \param options         The implementation options of the multiplication. See
+ *                        matMul().
+ * \param cache           Optional pointer to a planning cache to use.
+ *
+ * \returns               A matrix of type \p type and shape \p aShape. The
+ *                        tensor will have been mapped to tiles.
  */
 poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const poplar::Type &dataType,
@@ -302,7 +355,6 @@ poplar::Tensor createMatMulInputLHS(poplar::Graph &graph,
                                     const poplar::DebugContext &debugContext,
                                     const poplar::OptionFlags &options = {},
                                     matmul::PlanningCache *cache = nullptr);
-/// @}
 
 /**
  * Create a tensor that is used as the left operand of a grouped matrix
@@ -412,7 +464,9 @@ createMatMulGroupedInputRHS(poplar::Graph &graph, const poplar::Type &inputType,
                             const poplar::OptionFlags &options = {},
                             matmul::PlanningCache *cache = nullptr);
 
-/** Re-arrange memory for RHS operand to an upcoming matmul operation.
+/** @name Pre-arrange right-hand side input
+ *
+ *  Re-arrange memory for RHS operand to an upcoming matmul operation.
  *  This allows the rearrangement of the memory of a tensor that would
  *  otherwise be rearranged as part of the matmul operation for efficiency.
  *
@@ -441,6 +495,7 @@ createMatMulGroupedInputRHS(poplar::Graph &graph, const poplar::Type &inputType,
  *                        has the same shape as the given tensor.
  */
 /// @{
+/** Pre-arrange input with explicitly defined output type. */
 poplar::Tensor preArrangeMatMulInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
@@ -449,6 +504,7 @@ poplar::Tensor preArrangeMatMulInputRHS(
     const poplar::OptionFlags &options = {},
     matmul::PlanningCache *cache = nullptr);
 
+/** Pre-arrange input where the output type is the same as \p B. */
 poplar::Tensor preArrangeMatMulInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
@@ -456,6 +512,7 @@ poplar::Tensor preArrangeMatMulInputRHS(
     const poplar::OptionFlags &options = {},
     matmul::PlanningCache *cache = nullptr);
 
+/** Pre-arrange grouped input with explicitly defined output type. */
 poplar::Tensor preArrangeMatMulGroupedInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
