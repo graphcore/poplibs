@@ -3,7 +3,7 @@
 #include "CTCLossPlan.hpp"
 #include "poplibs_support/logging.hpp"
 #include <poplar/Graph.hpp>
-#include <poplibs_test/CTCLoss.hpp>
+#include <poplibs_test/LogArithmetic.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Expr.hpp>

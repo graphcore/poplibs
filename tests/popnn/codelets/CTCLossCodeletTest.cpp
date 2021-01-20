@@ -9,6 +9,7 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/LogArithmetic.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
@@ -190,7 +191,7 @@ InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
       input[i][j] = randInput(gen);
     }
   }
-  return {softMax(input), idx, alphabetSizeIncBlank};
+  return {log::softMax(input), idx, alphabetSizeIncBlank};
 }
 
 template <typename FPType>
@@ -471,7 +472,7 @@ int main(int argc, char **argv) {
   auto test =
       getRandomTestInput(testTime, testSymbols, numClasses, blankIsZero);
   const unsigned blankClass = blankIsZero ? 0 : numClasses - 1;
-  test.input = ctc::log(test.input);
+  test.input = log::log(test.input);
   print("Test sequence:", test.idx, blankClass, verbose);
 
   // When testing gradGivenAlpha or Beta vertices, produce a sensible input by

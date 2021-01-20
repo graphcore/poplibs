@@ -1,6 +1,7 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/LogArithmetic.hpp>
 
 #include <iostream>
 

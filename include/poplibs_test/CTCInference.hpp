@@ -4,6 +4,7 @@
 #define poplibs_test_ctc_inference_hpp
 
 #include "CTCUtil.hpp"
+#include "LogArithmetic.hpp"
 
 #include <boost/multi_array.hpp>
 

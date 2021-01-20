@@ -10,6 +10,7 @@
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/LogArithmetic.hpp>
 #include <poplibs_test/Util.hpp>
 
 #include <boost/multi_array.hpp>
@@ -165,7 +166,7 @@ void testTraining(const InputSequence<FPType> &test, bool useLogArithmetic,
     auto alphaLog = alpha(logSequence, paddedSequence, blankClass,
                           validTimesteps, useLogArithmetic);
     print("Alphas(log)", alphaLog, paddedSequence, blankClass, verbose);
-    print("Alphas", exp(alphaLog), paddedSequence, blankClass, verbose);
+    print("Alphas", log::exp(alphaLog), paddedSequence, blankClass, verbose);
     auto lastTimeIndex = alphaLog.shape()[1] - 1;
     auto prodSum = log::add(alphaLog[alphaLog.size() - 1][lastTimeIndex],
                             alphaLog[alphaLog.size() - 2][lastTimeIndex]);
@@ -180,7 +181,7 @@ void testTraining(const InputSequence<FPType> &test, bool useLogArithmetic,
     auto betaLog = beta(logSequence, paddedSequence, blankClass, validTimesteps,
                         useLogArithmetic);
     print("Betas(log)", betaLog, paddedSequence, blankClass, verbose);
-    print("Betas", exp(betaLog), paddedSequence, blankClass, verbose);
+    print("Betas", log::exp(betaLog), paddedSequence, blankClass, verbose);
     auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
                          test.input.shape()[0], blankClass, validTimesteps,
                          useLogArithmetic);
@@ -338,7 +339,8 @@ struct InputSequence<FPType> getRandomTestInput(size_t timesteps,
   }
   std::cout << "Input sequence: ";
   print(idx, blankClass);
-  return {softMax(input), extendedLabels(idx, blankClass, true), blankClass};
+  return {log::softMax(input), extendedLabels(idx, blankClass, true),
+          blankClass};
 }
 
 template <typename FPType>
@@ -434,7 +436,7 @@ int main(int argc, char **argv) {
                         : parseInput<double>(input.val, inputShape);
 
       if (useLogArithmetic) {
-        result.input = ctc::log(result.input);
+        result.input = log::log(result.input);
         if (verbose) {
           exportPrint("Log Softmax in", result.input);
         }
@@ -472,7 +474,7 @@ int main(int argc, char **argv) {
                         : parseInput<float>(input.val, inputShape);
 
       if (useLogArithmetic) {
-        result.input = ctc::log(result.input);
+        result.input = log::log(result.input);
         if (verbose) {
           exportPrint("Log Softmax in", result.input);
         }

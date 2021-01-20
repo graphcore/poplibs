@@ -8,6 +8,7 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poplibs_test/LogArithmetic.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popnn/codelets.hpp>
@@ -153,7 +154,7 @@ InputSequence<double> getRandomTestInput(size_t minT, size_t maxT,
       input[j][i] = randInput(gen);
     }
   }
-  input = transpose(ctc::softMax(transpose(input)));
+  input = transpose(log::softMax(transpose(input)));
 
   return {input, inputLength, labels};
 }
@@ -391,7 +392,7 @@ int main(int argc, char **argv) {
     // values are unused by the reference implementation)
     // TODO - expect some of this to lie inside the library function, and
     // probabliy eliminate the need for padding
-    tests[i].input = ctc::log(tests[i].input);
+    tests[i].input = log::log(tests[i].input);
     for (size_t idx = 0; idx < numClasses; idx++) {
       for (size_t in = tests.back().inputLength; in < maxTime; in++) {
         tests.back().input[in][idx] = (idx == blankClass) ? 0 : log::min;
