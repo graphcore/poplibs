@@ -10,7 +10,18 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const std::size_t maxTime, const std::size_t maxLabels,
           const std::size_t numClasses) {
   Plan::Impl plan;
-  plan.parallel.batch = batchSize;
+  plan.parallel.batch = 1;
+  plan.parallel.time = 8;
+  plan.parallel.label = 1;
+  while (plan.partitionTime(maxTime, plan.parallel.time - 1).size() == 0) {
+    plan.parallel.time--;
+  }
+  while (plan.partitionBatch(batchSize, plan.parallel.batch - 1).size() == 0) {
+    plan.parallel.batch--;
+  }
+  while (plan.partitionLabel(maxLabels, plan.parallel.label - 1).size() == 0) {
+    plan.parallel.label--;
+  }
   return std::make_unique<Plan::Impl>(std::move(plan));
 }
 

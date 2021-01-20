@@ -253,16 +253,23 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
 
   const auto resultIsGrad = (vertexToTest == TestType::GRAD_GIVEN_ALPHA ||
                              vertexToTest == TestType::GRAD_GIVEN_BETA);
+  const auto findingAlpha = (vertexToTest == TestType::ALPHA ||
+                             vertexToTest == TestType::GRAD_GIVEN_BETA);
 
   auto probabilities =
       graph.addVariable(inType, {maxT, numClasses}, "probabilities");
   auto labels = graph.addVariable(UNSIGNED_SHORT, {labelsLen}, "labels");
   auto result = graph.addVariable(
       outType, {maxT, resultIsGrad ? numClasses : extendedLabelsLen}, "result");
-  auto tempAlphaOrBeta = graph.addVariable(
-      outType, {resultIsGrad ? 2u : 1u, extendedLabelsLen}, "tempAlphaOrBeta");
-  graph.setTileMapping(tempAlphaOrBeta, 0);
-
+  auto prevTime = graph.addVariable(
+      outType, {resultIsGrad ? 2u : 1u, extendedLabelsLen}, "prevTime");
+  graph.setTileMapping(prevTime, 0);
+  auto prevLabel =
+      graph.addVariable(outType, {findingAlpha ? 1u : 2u, maxT}, "prevLabel");
+  graph.setTileMapping(prevLabel, 0);
+  auto prevSymbol =
+      graph.addConstant<unsigned short>(UNSIGNED_SHORT, {}, input.idx[0]);
+  graph.setTileMapping(prevSymbol, 0);
   Tensor initialAlphaOrBeta;
   if (resultIsGrad) {
     initialAlphaOrBeta = graph.addVariable(outType, {maxT, extendedLabelsLen},
@@ -273,24 +280,26 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   auto cs = graph.addComputeSet("cs");
   std::string vertexName;
   if (vertexToTest == TestType::ALPHA) {
-    vertexName =
-        templateVertex("popnn::CTCAlpha", inType, outType, UNSIGNED_SHORT);
+    vertexName = templateVertex("popnn::CTCAlpha", inType, outType,
+                                UNSIGNED_SHORT, true);
   } else if (vertexToTest == TestType::BETA) {
     vertexName =
-        templateVertex("popnn::CTCBeta", inType, outType, UNSIGNED_SHORT);
+        templateVertex("popnn::CTCBeta", inType, outType, UNSIGNED_SHORT, true);
   } else if (vertexToTest == TestType::GRAD_GIVEN_ALPHA) {
     vertexName = templateVertex("popnn::CTCGradGivenAlpha", inType, outType,
-                                UNSIGNED_SHORT);
+                                UNSIGNED_SHORT, true);
   } else if (vertexToTest == TestType::GRAD_GIVEN_BETA) {
     vertexName = templateVertex("popnn::CTCGradGivenBeta", inType, outType,
-                                UNSIGNED_SHORT);
+                                UNSIGNED_SHORT, true);
   }
   auto vertex = graph.addVertex(cs, vertexName);
 
   graph.setInitialValue(vertex["maxT"], maxT);
   graph.setInitialValue(vertex["numClasses"], numClasses);
   graph.setInitialValue(vertex["blankClass"], blankClass);
+  graph.setInitialValue(vertex["labelOffset"], 0);
   graph.connect(vertex["labels"], labels);
+  graph.connect(vertex["prevSymbol"], prevSymbol);
   graph.connect(vertex["probabilities"], probabilities.flatten());
 
   auto validLabels = graph.addConstant(UNSIGNED_SHORT, {}, labelsLen);
@@ -299,18 +308,22 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
 
   if (vertexToTest == TestType::ALPHA) {
     graph.connect(vertex["alphas"], result.flatten());
-    graph.connect(vertex["alphaTemp"], tempAlphaOrBeta.flatten());
+    graph.connect(vertex["alphaPrevTime"], prevTime.flatten());
+    graph.connect(vertex["alphaPrevLabel"], prevLabel.flatten());
   } else if (vertexToTest == TestType::BETA) {
     graph.connect(vertex["betas"], result.flatten());
-    graph.connect(vertex["betaTemp"], tempAlphaOrBeta.flatten());
+    graph.connect(vertex["betaPrevTime"], prevTime.flatten());
+    graph.connect(vertex["betaPrevLabel"], prevLabel.flatten());
   } else if (vertexToTest == TestType::GRAD_GIVEN_ALPHA) {
     graph.connect(vertex["grads"], result.flatten());
     graph.connect(vertex["alphas"], initialAlphaOrBeta.flatten());
-    graph.connect(vertex["betaTemp"], tempAlphaOrBeta.flatten());
+    graph.connect(vertex["betaPrevTime"], prevTime.flatten());
+    graph.connect(vertex["betaPrevLabel"], prevLabel.flatten());
   } else if (vertexToTest == TestType::GRAD_GIVEN_BETA) {
     graph.connect(vertex["grads"], result.flatten());
     graph.connect(vertex["betas"], initialAlphaOrBeta.flatten());
-    graph.connect(vertex["alphaTemp"], tempAlphaOrBeta.flatten());
+    graph.connect(vertex["alphaPrevTime"], prevTime.flatten());
+    graph.connect(vertex["alphaPrevLabel"], prevLabel.flatten());
   }
 
   graph.setTileMapping(probabilities, 0);
@@ -321,7 +334,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   Sequence uploadProg, downloadProg;
   std::vector<std::pair<std::string, char *>> tmap;
   std::unique_ptr<char[]> rawProbabilities, rawResult, rawLabels,
-      rawInitialAlphaOrBeta, rawTemp;
+      rawInitialAlphaOrBeta, rawPrevTime, rawPrevLabel;
 
   rawProbabilities = allocateHostMemoryForTensor(
       probabilities, "probabilities", graph, uploadProg, downloadProg, tmap);
@@ -349,21 +362,30 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   }
   // Initialise the first Timeslice input of the vertex - in practice this could
   // be "carried over" from a previous vertex alpha or beta calculation
-  rawTemp = allocateHostMemoryForTensor(tempAlphaOrBeta, "tempAlphaOrBeta",
-                                        graph, uploadProg, downloadProg, tmap);
-  boost::multi_array<double, 2> temp(
-      boost::extents[tempAlphaOrBeta.dim(0)][tempAlphaOrBeta.dim(1)]);
-  std::fill(temp.data(), temp.data() + temp.num_elements(), log::min);
-  if (vertexToTest == TestType::GRAD_GIVEN_BETA ||
-      vertexToTest == TestType::ALPHA) {
+  rawPrevTime = allocateHostMemoryForTensor(prevTime, "prevTime", graph,
+                                            uploadProg, downloadProg, tmap);
+  boost::multi_array<double, 2> prevTimeInit(
+      boost::extents[prevTime.dim(0)][prevTime.dim(1)]);
+  std::fill(prevTimeInit.data(),
+            prevTimeInit.data() + prevTimeInit.num_elements(), log::min);
+
+  if (findingAlpha) {
     // 1st symbol = 0 (probability=1)
-    temp[0][0] = 0;
-    copy(target, temp, outType, rawTemp.get());
+    prevTimeInit[0][0] = 0;
+    copy(target, prevTimeInit, outType, rawPrevTime.get());
   } else {
     // last symbol = 0 (probability=1)
-    temp[0][extendedLabelsLen - 1] = 0;
-    copy(target, temp, outType, rawTemp.get());
+    prevTimeInit[0][extendedLabelsLen - 1] = 0;
+    copy(target, prevTimeInit, outType, rawPrevTime.get());
   }
+
+  rawPrevLabel = allocateHostMemoryForTensor(prevLabel, "prevLabel", graph,
+                                             uploadProg, downloadProg, tmap);
+  boost::multi_array<double, 2> prevLabelInit(
+      boost::extents[prevLabel.dim(0)][prevLabel.dim(1)]);
+  std::fill(prevLabelInit.data(),
+            prevLabelInit.data() + prevLabelInit.num_elements(), log::min);
+  copy(target, prevLabelInit, outType, rawPrevLabel.get());
 
   Sequence prog;
   prog.add(Execute(cs));
@@ -482,7 +504,7 @@ int main(int argc, char **argv) {
     print("IPU result:", output, blankClass, verbose);
   }
 
-  bool success = checkIsClose("result", reference, output, relativeTolerance,
+  bool success = checkIsClose("result", output, reference, relativeTolerance,
                               absoluteTolerance);
   if (!success) {
     std::cerr << "Data mismatch\n";

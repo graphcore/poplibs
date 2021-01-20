@@ -33,20 +33,27 @@ inline FPType logAdd(const FPType a_, const FPType b_) {
 }; // namespace
 namespace popnn {
 
-template <typename InType, typename OutType, typename SymbolType>
+template <typename InType, typename OutType, typename SymbolType,
+          bool isLastLabel>
 class CTCAlpha : public Vertex {
 
 public:
   CTCAlpha();
   // Labels, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> labels;             // [maxLabels]
-  Input<Vector<InType, ONE_PTR>> probabilities; // [maxT,numClasses]
-  Output<Vector<OutType, ONE_PTR>> alphas;      // [maxT][extendedLabels]
-  Input<Vector<OutType, ONE_PTR>> alphaTemp;    // [extendedLabels]
+  // Although the last `-` is only processed if `isLastLabel`
+  Input<Vector<SymbolType>> labels; // [maxLabels]
+  Input<SymbolType> prevSymbol;
+  Input<Vector<InType, ONE_PTR>> probabilities;   // [maxT,numClasses]
+  Output<Vector<OutType, ONE_PTR>> alphas;        // [maxT][extendedLabels]
+  Input<Vector<OutType, ONE_PTR>> alphaPrevTime;  // [extendedLabels]
+  Input<Vector<OutType, ONE_PTR>> alphaPrevLabel; // [maxT]
   // labels is always of size [maxLabels] - only validLabels are to be
-  // processed
+  // processed in the whole data input.
   Input<unsigned short> validLabels;
+  // This vertex processes the slice of the labels starting at this offset
+  // and so may have nothing to do for this whole data input
+  const unsigned short labelOffset;
   const unsigned short maxT;
   const unsigned short numClasses;
   const unsigned short blankClass;
@@ -54,10 +61,22 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    const auto extendedLabels = labels.size() * 2 + 1;
+    // How much does this vertex need to process ?
+    // Eg: Maximum planned 10 labels, partitioned into 3: Partition sizes:4,4,2
+    // But this data entry has validLabels = 6.
+    // Partition 0, labelOffset=0 processes 4 items
+    // Partition 1, labelOffset=4 processes 2 items
+    // Partition 2, labelOffset=8 processes 0 items
+    if (validLabels <= labelOffset) {
+      return true;
+    }
+    const auto labelLength = validLabels - labelOffset > labels.size()
+                                 ? labels.size()
+                                 : validLabels - labelOffset;
+    const auto extendedLabels = labels.size() * 2 + isLastLabel;
     // First time round reference the "previous alpha" which could be carried
     // from another vertex, or if starting up [0,-inf,-inf,...]
-    auto alphaM1 = &alphaTemp[0];
+    auto alphaM1 = &alphaPrevTime[0];
     for (unsigned t = 0; t < maxT; t++) {
       // References to each row, previous row of the input and output
       auto probability = &probabilities[numClasses * t];
@@ -66,14 +85,18 @@ public:
       if (t != 0) {
         alphaM1 = &alphas[extendedLabels * (t - 1)];
       }
-      // 1st symbol has fewer possible parents as it's on the top row
-      // Process preceding blank and the symbol
+      // 1st symbol takes its parents from the alphaPrevLabel input.
       const auto blank = static_cast<OutType>(probability[blankClass]);
-      alpha[0] = logMul(alphaM1[0], blank);
-      alpha[1] = logMul(logAdd(alphaM1[0], alphaM1[1]),
-                        static_cast<OutType>(probability[labels[0]]));
-
-      for (unsigned symbol = 1; symbol < validLabels; symbol++) {
+      // 1st blank.  Can't skip the symbol before it so combine 2 probabilities
+      alpha[0] = logMul(logAdd(alphaM1[0], alphaPrevLabel[t]), blank);
+      // First symbol. Can skip the blank before it if the previous symbol is
+      // different
+      auto sum = logAdd(alphaM1[0], alphaM1[1]);
+      if (labels[0] != prevSymbol) {
+        sum = logAdd(sum, alphaPrevLabel[t]);
+      }
+      alpha[1] = logMul(sum, static_cast<OutType>(probability[labels[0]]));
+      for (unsigned symbol = 1; symbol < labelLength; symbol++) {
         // Each loop outputs the result for the symbol and a blank, yet consumes
         // only 1 index from the labels[] input
         auto idx = 2 * symbol;
@@ -90,34 +113,46 @@ public:
         alpha[idx] =
             logMul(sum, static_cast<OutType>(probability[labels[symbol]]));
       }
-      // The final blank entry, therefore preceded by a symbol which cannot be
-      // skipped. So always combine only 2 probabilities. Last blank in a
-      // sequence
-      const auto idx = 2 * validLabels;
-      alpha[idx] = logMul(logAdd(alphaM1[idx - 1], alphaM1[idx]), blank);
+      if constexpr (isLastLabel) {
+        // The final blank entry, therefore preceded by a symbol which cannot be
+        // skipped. So always combine only 2 probabilities. Last blank in a
+        // sequence
+        const auto idx = 2 * labelLength;
+        alpha[idx] = logMul(logAdd(alphaM1[idx - 1], alphaM1[idx]), blank);
+      }
     }
     return true;
   }
 };
 
-template class CTCAlpha<float, float, unsigned short>;
-template class CTCAlpha<half, half, unsigned short>;
-template class CTCAlpha<half, float, unsigned short>;
+template class CTCAlpha<float, float, unsigned short, true>;
+template class CTCAlpha<half, half, unsigned short, true>;
+template class CTCAlpha<half, float, unsigned short, true>;
 
-template <typename InType, typename OutType, typename SymbolType>
+template class CTCAlpha<float, float, unsigned short, false>;
+template class CTCAlpha<half, half, unsigned short, false>;
+template class CTCAlpha<half, float, unsigned short, false>;
+
+template <typename InType, typename OutType, typename SymbolType,
+          bool isFirstLabel>
 class CTCBeta : public Vertex {
 
 public:
   CTCBeta();
   // Labels, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> labels;             // [maxLabels]
-  Input<Vector<InType, ONE_PTR>> probabilities; // [maxT,numClasses]
-  Output<Vector<OutType, ONE_PTR>> betas;       // [maxT,extendedLabels]
-  Input<Vector<OutType, ONE_PTR>> betaTemp;     // [extendedLabels]
+  Input<Vector<SymbolType>> labels; // [maxLabels]
+  Input<SymbolType> prevSymbol;
+  Input<Vector<InType, ONE_PTR>> probabilities;  // [maxT,numClasses]
+  Output<Vector<OutType, ONE_PTR>> betas;        // [maxT,extendedLabels]
+  Input<Vector<OutType, ONE_PTR>> betaPrevTime;  // [extendedLabels]
+  Input<Vector<OutType, ONE_PTR>> betaPrevLabel; // [2 * maxT]
   // labels is always of size [maxLabels] - only validLabels are to be
-  // processed
+  // processed in the whole data input.
   Input<unsigned short> validLabels;
+  // This vertex processes the slice of the labels starting at this offset
+  // and so may have nothing to do for this whole data input
+  const unsigned short labelOffset;
   const unsigned short maxT;
   const unsigned short numClasses;
   const unsigned short blankClass;
@@ -125,13 +160,20 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    const auto extendedLabels = labels.size() * 2 + 1;
+    // How much does this vertex need to process ?
+    if (validLabels <= labelOffset) {
+      return true;
+    }
+    const auto labelLength = validLabels - labelOffset > labels.size()
+                                 ? labels.size()
+                                 : validLabels - labelOffset;
+    const auto extendedLabels = labels.size() * 2 + isFirstLabel;
     // First time round reference the "previous beta" which could be carried
     // from another vertex, or if starting up [-inf,-inf,....0]
     // Reference this with an offset so that the last valid symbol aligns with
     // the zero when starting up.
-    const auto betaOffset = 2 * (labels.size() - validLabels);
-    auto betaP1 = &betaTemp[betaOffset];
+    const auto betaOffset = 2 * (labels.size() - labelLength);
+    auto betaP1 = &betaPrevTime[betaOffset];
     for (unsigned t = maxT; t != 0; t--) {
       // References to each row, previous row of the input and output
       auto probability = &probabilities[numClasses * (t - 1)];
@@ -142,16 +184,9 @@ public:
       if (t != maxT) {
         betaP1 = &betas[betaOffset + extendedLabels * t];
       }
-      // last symbol has fewer possible parents as it's on the bottom row
-      // Process preceding blank and the symbol
       const auto blank = static_cast<OutType>(probability[blankClass]);
-      const auto symbolIdx = 2 * validLabels;
-      beta[symbolIdx] = logMul(betaP1[symbolIdx], blank);
-      beta[symbolIdx - 1] =
-          logMul(logAdd(betaP1[symbolIdx], betaP1[symbolIdx - 1]),
-                 static_cast<OutType>(probability[labels[validLabels - 1]]));
 
-      for (unsigned symbol = 0; symbol < validLabels - 1; symbol++) {
+      for (unsigned symbol = 0; symbol < labelLength - 1; symbol++) {
         // Each loop outputs the result for the symbol and a blank, yet consumes
         // only 1 index from the labels[] input
         auto idx = 2 * symbol;
@@ -168,36 +203,66 @@ public:
         beta[idx] =
             logMul(sum, static_cast<OutType>(probability[labels[symbol]]));
       }
-      // The remaining blank entry, therefore preceded by a symbol which cannot
-      // be skipped. So always combine only 2 probabilities. Not the last but
-      // in a sequence: - a - a - b - c -
-      //                            ^ This one
-      const auto idx = 2 * validLabels - 2;
+      // Suppose we have a sequence: - a - a - b - c - .
+      // The remaining part is the result for - c - . Call these X Y Z below
+      // Process `X` (always needed).  As X is a blank then it is preceded
+      // by a symbol which cannot be skipped and we need only 2 probabilities
+      auto idx = 2 * labelLength - 2;
       beta[idx] = logMul(logAdd(betaP1[idx + 1], betaP1[idx]), blank);
+      idx++;
+      const auto lastSymbol = labels[labelLength - 1];
+      const auto prob = static_cast<OutType>(probability[lastSymbol]);
+      if constexpr (isFirstLabel) {
+        // As this is a vertex to process the last Symbol, write `Y` and `Z`
+        // But as it is the last symbol's vertex there is no previous label's
+        // beta to use.
+        beta[idx] = logMul(logAdd(betaP1[idx], betaP1[idx + 1]), prob); //`Y`
+        idx++;
+        beta[idx] = logMul(betaP1[idx], blank); //`Z`
+      } else {
+        // As this isn't a vertex to process the last Symbol, there is no `Z`
+        // So just write `Y`, which uses the probabilty of the previous blank,
+        // and conditionally that of the previous symbol.
+        auto sum = logAdd(betaP1[idx], betaPrevLabel[t - 1]);
+        if (lastSymbol != prevSymbol) {
+          sum = logAdd(sum, betaPrevLabel[maxT + t - 1]);
+        }
+        beta[idx] = logMul(sum, prob);
+      }
     }
     return true;
   }
 };
 
-template class CTCBeta<float, float, unsigned short>;
-template class CTCBeta<half, half, unsigned short>;
-template class CTCBeta<half, float, unsigned short>;
+template class CTCBeta<float, float, unsigned short, true>;
+template class CTCBeta<half, half, unsigned short, true>;
+template class CTCBeta<half, float, unsigned short, true>;
 
-template <typename InType, typename OutType, typename SymbolType>
+template class CTCBeta<float, float, unsigned short, false>;
+template class CTCBeta<half, half, unsigned short, false>;
+template class CTCBeta<half, float, unsigned short, false>;
+
+template <typename InType, typename OutType, typename SymbolType,
+          bool isFirstLabel>
 class CTCGradGivenAlpha : public Vertex {
 
 public:
   CTCGradGivenAlpha();
   // Labels, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> labels;             // [maxLabels]
-  Input<Vector<InType, ONE_PTR>> probabilities; // [maxT,numClasses]
-  Input<Vector<OutType, ONE_PTR>> alphas;       // [maxT,extendedLabels]
-  InOut<Vector<OutType, ONE_PTR>> betaTemp;     // [2,extendedLabels]
-  InOut<Vector<OutType, ONE_PTR>> grads;        // [maxT,numClasses]
+  Input<Vector<SymbolType>> labels; // [maxLabels]
+  Input<SymbolType> prevSymbol;
+  Input<Vector<InType, ONE_PTR>> probabilities;  // [maxT,numClasses]
+  Input<Vector<OutType, ONE_PTR>> alphas;        // [maxT,extendedLabels]
+  InOut<Vector<OutType, ONE_PTR>> betaPrevTime;  // [2,extendedLabels]
+  InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [2*maxT]
+  InOut<Vector<OutType, ONE_PTR>> grads;         // [maxT,numClasses]
   // labels is always of size [maxLabels] - only validLabels are to be
-  // processed
+  // processed in the whole data input.
   Input<unsigned short> validLabels;
+  // This vertex processes the slice of the labels starting at this offset
+  // and so may have nothing to do for this whole data input
+  const unsigned short labelOffset;
   const unsigned short maxT;
   const unsigned short numClasses;
   const unsigned short blankClass;
@@ -205,12 +270,19 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    const auto extendedLabels = labels.size() * 2 + 1;
-    // First time round reference the "previous beta" in betaTemp[0] which
+    // How much does this vertex need to process ?
+    if (validLabels <= labelOffset) {
+      return true;
+    }
+    const auto labelLength = validLabels - labelOffset > labels.size()
+                                 ? labels.size()
+                                 : validLabels - labelOffset;
+    const auto extendedLabels = labels.size() * 2 + isFirstLabel;
+    // First time round reference the "previous beta" in betaPrevTime[0] which
     // could be carried from another vertex, or if starting up [-inf,-inf,... 0]
     // Reference this with an offset so that the last valid symbol aligns with
     // the zero when starting up.
-    const auto betaTempOffset = 2 * (labels.size() - validLabels);
+    const auto betaTempOffset = 2 * (labels.size() - labelLength);
 
     unsigned oldIdx = 0;
     for (unsigned t = maxT; t != 0; t--) {
@@ -219,23 +291,11 @@ public:
       auto probabilityP1 = &probabilities[numClasses * t];
       auto alpha = &alphas[extendedLabels * (t - 1)];
       auto grad = &grads[numClasses * (t - 1)];
-      auto beta = &betaTemp[betaTempOffset + (oldIdx ^ extendedLabels)];
-      auto betaP1 = &betaTemp[betaTempOffset + oldIdx];
-      // last symbol has fewer possible parents as it's at the end
-      // Process preceding blank and the symbol
-      const auto blank = static_cast<OutType>(probability[blankClass]);
-      const auto symbolIdx = 2 * validLabels;
-      grad[blankClass] =
-          logAdd(logMul(betaP1[symbolIdx], alpha[symbolIdx]), grad[blankClass]);
-      beta[symbolIdx] = logMul(betaP1[symbolIdx], blank);
-      auto sum = logAdd(betaP1[symbolIdx], betaP1[symbolIdx - 1]);
-      const auto lastSymbol = labels[validLabels - 1];
-      grad[lastSymbol] =
-          logAdd(logMul(sum, alpha[symbolIdx - 1]), grad[lastSymbol]);
-      beta[symbolIdx - 1] =
-          logMul(sum, static_cast<OutType>(probability[lastSymbol]));
+      auto beta = &betaPrevTime[betaTempOffset + (oldIdx ^ extendedLabels)];
+      auto betaP1 = &betaPrevTime[betaTempOffset + oldIdx];
 
-      for (unsigned symbol = 0; symbol < validLabels - 1; symbol++) {
+      const auto blank = static_cast<OutType>(probability[blankClass]);
+      for (unsigned symbol = 0; symbol < labelLength - 1; symbol++) {
         // Each loop outputs the result for the symbol and a blank, yet consumes
         // only 1 index from the labels[] input
         auto idx = 2 * symbol;
@@ -256,15 +316,47 @@ public:
         beta[idx] =
             logMul(sum, static_cast<OutType>(probability[labels[symbol]]));
       }
-      // The remaining blank entry, therefore preceded by a symbol which cannot
-      // be skipped. So always combine only 2 probabilities. Not the last but
-      // in a sequence: - a - a - b - c -
-      //                            ^ This one
-      const auto idx = 2 * validLabels - 2;
-      sum = logAdd(betaP1[idx + 1], betaP1[idx]);
+      // Suppose we have a sequence: - a - a - b - c - .
+      // The remaining part is the result for - c - . Call these X Y Z below
+      // Process `X` (always needed).  As X is a blank then it is preceded
+      // by a symbol which cannot be skipped and we need only 2 probabilities
+      auto idx = 2 * labelLength - 2;
+      auto sum = logAdd(betaP1[idx + 1], betaP1[idx]);
       beta[idx] = logMul(sum, blank);
       grad[blankClass] = logAdd(logMul(sum, alpha[idx]), grad[blankClass]);
+      idx++;
+      const auto lastSymbol = labels[labelLength - 1];
+      const auto prob = static_cast<OutType>(probability[lastSymbol]);
 
+      if constexpr (isFirstLabel) {
+        // As this is a vertex to process the last Symbol, write `Y` and `Z`
+        // But as it is the last symbol's vertex there is no previous label's
+        // beta to use.
+
+        // Writing `Y`
+        auto sum = logAdd(betaP1[idx], betaP1[idx + 1]);
+        grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
+        beta[idx] = logMul(sum, prob);
+        idx++;
+        // Writing `Z`
+        grad[blankClass] =
+            logAdd(logMul(betaP1[idx], alpha[idx]), grad[blankClass]);
+        beta[idx] = logMul(betaP1[idx], blank);
+      } else {
+        // As this isn't a vertex to process the last Symbol, there is no `Z`
+        // So just write `Y`, which uses the probabilty of the previous blank,
+        // and conditionally that of the previous symbol.
+        auto sum = logAdd(betaP1[idx], betaPrevLabel[t - 1]);
+        if (lastSymbol != prevSymbol) {
+          sum = logAdd(sum, betaPrevLabel[maxT + t - 1]);
+        }
+        beta[idx] = logMul(sum, prob);
+        grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
+      }
+      // For use when data is split by label, output this timestep, last label
+      // result for use by the next vertex
+      betaPrevLabel[t - 1] = beta[0];
+      betaPrevLabel[maxT + t - 1] = beta[1];
       // Swap new <-> old in the alphaTemp buffer
       oldIdx = oldIdx ^ extendedLabels;
     }
@@ -272,25 +364,35 @@ public:
   }
 };
 
-template class CTCGradGivenAlpha<float, float, unsigned short>;
-template class CTCGradGivenAlpha<half, half, unsigned short>;
-template class CTCGradGivenAlpha<half, float, unsigned short>;
+template class CTCGradGivenAlpha<float, float, unsigned short, true>;
+template class CTCGradGivenAlpha<half, half, unsigned short, true>;
+template class CTCGradGivenAlpha<half, float, unsigned short, true>;
 
-template <typename InType, typename OutType, typename SymbolType>
+template class CTCGradGivenAlpha<float, float, unsigned short, false>;
+template class CTCGradGivenAlpha<half, half, unsigned short, false>;
+template class CTCGradGivenAlpha<half, float, unsigned short, false>;
+
+template <typename InType, typename OutType, typename SymbolType,
+          bool isLastLabel>
 class CTCGradGivenBeta : public Vertex {
 
 public:
   CTCGradGivenBeta();
   // Labels, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> labels;             // [maxLabels]
-  Input<Vector<InType, ONE_PTR>> probabilities; // [maxT,numClasses]
-  Input<Vector<OutType, ONE_PTR>> betas;        // [maxT,extendedLabels]
-  InOut<Vector<OutType, ONE_PTR>> alphaTemp;    // [2,extendedLabels]
-  InOut<Vector<OutType, ONE_PTR>> grads;        // [maxT,numClasses]
+  Input<Vector<SymbolType>> labels; // [maxLabels]
+  Input<SymbolType> prevSymbol;
+  Input<Vector<InType, ONE_PTR>> probabilities;   // [maxT,numClasses]
+  Input<Vector<OutType, ONE_PTR>> betas;          // [maxT,extendedLabels]
+  InOut<Vector<OutType, ONE_PTR>> alphaPrevTime;  // [2,extendedLabels]
+  InOut<Vector<OutType, ONE_PTR>> alphaPrevLabel; // [maxT]
+  InOut<Vector<OutType, ONE_PTR>> grads;          // [maxT,numClasses]
   // labels is always of size [maxLabels] - only validLabels are to be
-  // processed
+  // processed in the whole data input.
   Input<unsigned short> validLabels;
+  // This vertex processes the slice of the labels starting at this offset
+  // and so may have nothing to do for this whole data input
+  const unsigned short labelOffset;
   const unsigned short maxT;
   const unsigned short numClasses;
   const unsigned short blankClass;
@@ -298,33 +400,46 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    const auto extendedLabels = labels.size() * 2 + 1;
-    // First time round reference the "previous alpha" in alphaTemp[0] which
+    // How much does this vertex need to process ?
+    if (validLabels <= labelOffset) {
+      return true;
+    }
+    const auto labelLength = validLabels - labelOffset > labels.size()
+                                 ? labels.size()
+                                 : validLabels - labelOffset;
+    const auto extendedLabels = labels.size() * 2 + isLastLabel;
+    // First time round reference the "previous alpha" in alphaPrevTime[0] which
     // could be carried from another vertex, or if starting up [0,-inf,-inf,...]
     unsigned oldIdx = 0;
 
     // Beta (calculated by a previous vertex) is stored so that any results
     // related to non-existent labels lie at the start of the tensor.  This
     // happens when this batch validLabels < maximum planned for
-    const auto betaOffset = 2 * (labels.size() - validLabels);
+    const auto betaOffset = 2 * (labels.size() - labelLength);
     for (unsigned t = 0; t < maxT; t++) {
       // References to each row, previous row of the input and output
       auto probability = &probabilities[numClasses * t];
       auto probabilityM1 = &probabilities[numClasses * (t - 1)];
       auto beta = &betas[betaOffset + extendedLabels * t];
       auto grad = &grads[numClasses * t];
-      auto alpha = &alphaTemp[oldIdx ^ extendedLabels];
-      auto alphaM1 = &alphaTemp[oldIdx];
-      // 1st symbol has fewer possible parents as it's on the top row
-      // Process preceding blank and the symbol
+      auto alpha = &alphaPrevTime[oldIdx ^ extendedLabels];
+      auto alphaM1 = &alphaPrevTime[oldIdx];
+      // 1st symbol takes its parents from the alphaPrevLabel input.
       const auto blank = static_cast<OutType>(probability[blankClass]);
-      grad[blankClass] = logAdd(logMul(alphaM1[0], beta[0]), grad[blankClass]);
-      alpha[0] = logMul(alphaM1[0], blank);
-      auto sum = logAdd(alphaM1[0], alphaM1[1]);
-      grad[labels[0]] = logAdd(logMul(sum, beta[1]), grad[labels[0]]);
+      // 1st blank.  Can't skip the symbol before it so combine 2 probabilities
+      auto sum = logAdd(alphaM1[0], alphaPrevLabel[t]);
+      alpha[0] = logMul(sum, blank);
+      grad[blankClass] = logAdd(logMul(sum, beta[0]), grad[blankClass]);
+      // First symbol. Can skip the blank before it if the previous symbol is
+      // different
+      sum = logAdd(alphaM1[0], alphaM1[1]);
+      if (labels[0] != prevSymbol) {
+        sum = logAdd(sum, alphaPrevLabel[t]);
+      }
       alpha[1] = logMul(sum, static_cast<OutType>(probability[labels[0]]));
+      grad[labels[0]] = logAdd(logMul(sum, beta[1]), grad[labels[0]]);
 
-      for (unsigned symbol = 1; symbol < validLabels; symbol++) {
+      for (unsigned symbol = 1; symbol < labelLength; symbol++) {
         // Each loop outputs the result for the symbol and a blank, yet consumes
         // only 1 index from the labels[] input
         auto idx = 2 * symbol;
@@ -348,20 +463,28 @@ public:
       // The final blank entry, therefore preceded by a symbol which cannot be
       // skipped. So always combine only 2 probabilities. Last blank in a
       // sequence
-      const auto idx = 2 * validLabels;
-      sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
-      alpha[idx] = logMul(sum, blank);
-      grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
-
-      // Swap new <-> old in the alphaTemp buffer
+      if constexpr (isLastLabel) {
+        const auto idx = 2 * labelLength;
+        sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
+        alpha[idx] = logMul(sum, blank);
+        grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
+      }
+      // For use when data is split by label, output this timestep, last label
+      // result for use by the next vertex
+      alphaPrevLabel[t] = alpha[2 * labelLength - 1];
+      // Swap new <-> old in the alphaPrevTime buffer
       oldIdx = oldIdx ^ extendedLabels;
     }
     return true;
   }
 };
 
-template class CTCGradGivenBeta<float, float, unsigned short>;
-template class CTCGradGivenBeta<half, half, unsigned short>;
-template class CTCGradGivenBeta<half, float, unsigned short>;
+template class CTCGradGivenBeta<float, float, unsigned short, true>;
+template class CTCGradGivenBeta<half, half, unsigned short, true>;
+template class CTCGradGivenBeta<half, float, unsigned short, true>;
+
+template class CTCGradGivenBeta<float, float, unsigned short, false>;
+template class CTCGradGivenBeta<half, half, unsigned short, false>;
+template class CTCGradGivenBeta<half, float, unsigned short, false>;
 
 } // namespace popnn

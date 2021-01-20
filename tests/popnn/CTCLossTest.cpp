@@ -11,6 +11,7 @@
 #include <poplibs_test/Util.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popnn/codelets.hpp>
+#include <popops/codelets.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -192,6 +193,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
+  popops::addCodelets(graph);
 
   const auto maxT = inputs[0].input.shape()[0];
   const auto batchSize = inputs.size();
@@ -418,8 +420,8 @@ int main(int argc, char **argv) {
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {
       bool batchSuccess =
-          checkIsClose("Batch:" + std::to_string(i) + " result", references[i],
-                       outputs[i], relativeTolerance, absoluteTolerance);
+          checkIsClose("Batch:" + std::to_string(i) + " result", outputs[i],
+                       references[i], relativeTolerance, absoluteTolerance);
       if (!batchSuccess) {
         success = false;
       }

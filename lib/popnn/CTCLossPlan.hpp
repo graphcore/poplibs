@@ -195,6 +195,49 @@ class Plan::Impl {
 public:
   ParallelPartition parallel;
   SerialPartition serial;
+
+  poplar::Interval partitionBatch(const std::size_t batchSize,
+                                  const std::size_t partition) const {
+    const auto splitSize = (batchSize + parallel.batch - 1) / parallel.batch;
+    const auto begin = std::min(splitSize * partition, batchSize);
+    const auto end = std::min(splitSize * (partition + 1), batchSize);
+    return {begin, end};
+  }
+  poplar::Interval partitionTime(const std::size_t timeSize,
+                                 const std::size_t partition) const {
+    const auto splitSize = (timeSize + parallel.time - 1) / parallel.time;
+    const auto begin = std::min(splitSize * partition, timeSize);
+    const auto end = std::min(splitSize * (partition + 1), timeSize);
+    return {begin, end};
+  }
+
+  poplar::Interval partitionLabel(const std::size_t labelSize,
+                                  const std::size_t partition) const {
+    const auto splitSize = (labelSize + parallel.label - 1) / parallel.label;
+    const auto begin = std::min(splitSize * partition, labelSize);
+    const auto end = std::min(splitSize * (partition + 1), labelSize);
+    return {begin, end};
+  }
+
+  // Note passed labelSize NOT extendedLabelSize - result made to match
+  // partitionLabel result when partitioning the label
+  poplar::Interval partitionExtendedLabel(const std::size_t labelSize,
+                                          const std::size_t partition) const {
+    const auto labelPartition = partitionLabel(labelSize, partition);
+    const auto begin = 2 * labelPartition.begin();
+    const auto end =
+        2 * labelPartition.end() + (partition == parallel.label - 1);
+    return {begin, end};
+  }
+
+  unsigned getTile(unsigned batch, unsigned time, unsigned label) const {
+    return batch * (parallel.time * parallel.label) + time * parallel.label +
+           label;
+  }
+
+  unsigned numTiles(void) const {
+    return parallel.batch * parallel.time * parallel.label;
+  }
 };
 
 } // namespace ctc
