@@ -9,12 +9,9 @@
 #define popops_TriangularSolve_hpp
 #include <poplar/Graph.hpp>
 #include <poplar/Program.hpp>
+#include <poplin/MatMul.hpp>
 
 namespace poplin {
-
-namespace matmul {
-class PlanningCache;
-}
 
 /**
  * Create a tensor that is used as the left operand of triangular solve.
@@ -125,6 +122,26 @@ poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
                                const poplar::DebugContext &debugContext = {},
                                poplar::OptionFlags options = {},
                                matmul::PlanningCache *cache = nullptr);
+
+/**
+ * Plan matrix multiplication for given triangular solver
+ *
+ * \param inputType       The data type of the lhs tensor.
+ * \param outputType      The data type of the rhs tensor.
+ * \param aShape          The shape of the left operand.
+ * \param bShape          The shape of the right operand.
+ * \param leftSide        Solve AX = B if true, XA = B overwise.
+ * \param blockSize       Block size for blocked solver.
+ * \param options         The implementation options of the triangular solver.
+ *  \returns              Mat mul preplan parameters.
+ */
+
+std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
+getTriangularSolveMatMulPrePlanParameters(
+    const poplar::Type &inputType, const poplar::Type &outputType,
+    const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide, bool lower,
+    std::size_t blockSize, poplar::OptionFlags opts);
 
 } // namespace poplin
 

@@ -633,4 +633,48 @@ poplar::Tensor triangularSolve(
   return output;
 }
 
+std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
+getTriangularSolveMatMulPrePlanParameters(
+    const poplar::Type &inputType, const poplar::Type &outputType,
+    const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide, bool lower,
+    std::size_t blockSize, poplar::OptionFlags opts) {
+  std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>> matmuls;
+
+  const auto [an, bn] = validateInputs(aShape, bShape, leftSide);
+  bool blocked = an > blockSize || bn > blockSize;
+
+  const auto aGrouped = groupedShape(aShape);
+
+  const auto g = aGrouped[0];
+
+  // Find padded size of A.
+  std::size_t paddedSize = blockSize;
+  while (paddedSize < an || paddedSize < bn) {
+    paddedSize <<= 1;
+  }
+
+  // Preplan half-size matmuls until size is greater than blockSize.
+  while (paddedSize > blockSize) {
+    paddedSize >>= 1;
+    MatMulParams params{inputType,
+                        inputType, // A*X
+                        {g, paddedSize, paddedSize},
+                        {g, paddedSize, paddedSize}};
+    matmuls.emplace_back(params, opts);
+  }
+
+  // Substitution dot products
+  std::size_t dots = blocked ? blockSize : an;
+  for (std::size_t k = 1; k < dots; ++k) {
+    MatMulParams params{inputType,
+                        inputType, // A*X
+                        {g, 1, k},
+                        {g, k, blocked ? blockSize : bn}};
+    matmuls.emplace_back(params, opts);
+  }
+
+  return matmuls;
+}
+
 } // namespace poplin
