@@ -19,8 +19,10 @@ public:
 
   bool compute() {
     for (unsigned i = 0; i != out.size(); ++i) {
-      for (unsigned j = 0; j != out[i].size(); ++j) {
-        out[i][j] = offsets[i] + static_cast<OutType>(j);
+      auto base = offsets[i];
+      auto n = out[i].size();
+      for (unsigned j = 0; j != n; ++j) {
+        out[i][j] = base + static_cast<OutType>(j);
       }
     }
     return true;
