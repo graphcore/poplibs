@@ -379,7 +379,7 @@ function(add_benchmark)
             --config default
             --expected_csv ${CMAKE_SOURCE_DIR}/tests/benchmark_results.csv
             ${BENCHMARK_BINARY} ${BENCHMARK_PARAMS}
-    LABELS ${BENCHMARK_LABEL}
+    LABELS benchmarks
     VARIANTS "${IPUMODEL_VARIANTS}")
 endfunction()
 
