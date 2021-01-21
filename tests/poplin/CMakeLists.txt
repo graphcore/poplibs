@@ -3706,3 +3706,56 @@ add_multitarget_test(
                  --conv ${DEPTHWISE_CONV}
                  --conv ${DEPTHWISE_CONV}
          VARIANTS ${TimesOutOnSim})
+
+add_multitarget_test(
+         NAME triangular_solve_4_31_10_4_float_left_lower_unit_validation
+         COMMAND matrix_solver
+                 --batches 4
+                 --a-rank 31
+                 --b-rank 10
+                 --block-size 4
+                 --data-type float
+                 --left-side true
+                 --lower true
+                 --unit-diagonal true
+         VARIANTS "${IPUMODEL_VARIANTS}")
+
+#FAILING
+add_multitarget_test(
+         NAME triangular_solve_4_31_10_4_float_left_upper_non_unit_validation
+         COMMAND matrix_solver
+                 --batches 4
+                 --a-rank 31
+                 --b-rank 10
+                 --block-size 4
+                 --data-type float
+                 --left-side true
+                 --lower false
+                 --unit-diagonal false
+         VARIANTS "${IPUMODEL_VARIANTS}")
+
+add_multitarget_test(
+         NAME triangular_solve_4_31_10_4_half_right_lower_unit_validation
+         COMMAND matrix_solver
+                 --batches 4
+                 --a-rank 31
+                 --b-rank 10
+                 --block-size 4
+                 --data-type half
+                 --left-side false
+                 --lower true
+                 --unit-diagonal true
+         VARIANTS "${IPUMODEL_VARIANTS}")
+
+add_multitarget_test(
+         NAME triangular_solve_4_31_10_4_half_right_upper_non_unit_validation
+         COMMAND matrix_solver
+                 --batches 4
+                 --a-rank 31
+                 --b-rank 10
+                 --block-size 4
+                 --data-type half
+                 --left-side false
+                 --lower false
+                 --unit-diagonal false
+         VARIANTS "${IPUMODEL_VARIANTS}")

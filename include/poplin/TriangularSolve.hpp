@@ -17,6 +17,66 @@ class PlanningCache;
 }
 
 /**
+ * Create a tensor that is used as the left operand of triangular solve.
+ *
+ * This will create a 2D/3D tensor in the graph. The ordering and tile mapping
+ * of the tensor will be set to make a triangular solver with this
+ * tensor as the left argument efficient.
+ *
+ * \param graph           The Poplar graph.
+ * \param inputType       The input data type.
+ * \param outputType      The data type of the returned tensor.
+ * \param aShape          The shape of the left operand.
+ * \param bShape          The shape of the right operand.
+ * \param leftSide        Solve AX = B if true, XA = B overwise.
+ * \param blockSize       Block size for blocked solver.
+ * \param debugContext    Debug information.
+ * \param options         The implementation options of the triangular solver.
+ * \param cache           Optional pointer to a planning cache to use.
+ *
+ * \returns               A matrix of type \p type and shape \p aShape. The
+ *                        tensor will have been mapped to tiles.
+ */
+
+poplar::Tensor createTriangularSolveInputLHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options = {},
+    matmul::PlanningCache *cache = nullptr);
+
+/**
+ * Create a tensor that is used as the right operand of triangular solve.
+ *
+ * This will create a 2D/3D tensor in the graph. The ordering and tile mapping
+ * of the tensor will be set to make a triangular solver with this
+ * tensor as the left argument efficient.
+ *
+ * \param graph           The Poplar graph.
+ * \param inputType       The input data type.
+ * \param outputType      The data type of the returned tensor.
+ * \param aShape          The shape of the left operand.
+ * \param bShape          The shape of the right operand.
+ * \param leftSide        Solve AX = B if true, XA = B overwise.
+ * \param blockSize       Block size for blocked solver.
+ * \param debugContext    Debug information.
+ * \param options         The implementation options of the triangular solver.
+ * \param cache           Optional pointer to a planning cache to use.
+ *
+ * \returns               A matrix of type \p type and shape \p aShape. The
+ *                        tensor will have been mapped to tiles.
+ */
+
+poplar::Tensor createTriangularSolveInputRHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options = {},
+    matmul::PlanningCache *cache = nullptr);
+
+/**
  * Masks the unused components of the input tensor with zeroes, optionally
  * allowing for a unit diagonal.
  *
@@ -53,8 +113,7 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
  *                        to perform the arrangement will be appended to.
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
- *                        multiplication should be implemented.
- *                        See matMul() for details.
+ *                        triangular solver should be implemented.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              Tensor with shape of \p b with linear system solution.
  */

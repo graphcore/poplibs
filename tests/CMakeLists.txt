@@ -472,6 +472,20 @@ function(add_gru_benchmark)
       PARAMS ${GRU_BENCHMARK_PARAMS})
 endfunction()
 
+function(add_matrix_solver_benchmark)
+  cmake_parse_arguments(MATRIX_SOLVER_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
+
+  list(APPEND MATRIX_SOLVER_BENCHMARK_PARAMS)
+  add_benchmark(
+      NAME ${MATRIX_SOLVER_BENCHMARK_NAME}_left
+      BINARY $<TARGET_FILE:matrix_solver>
+      PARAMS ${MATRIX_SOLVER_BENCHMARK_PARAMS} --left-side=true)
+  add_benchmark(
+      NAME ${MATRIX_SOLVER_BENCHMARK_NAME}_right
+      BINARY $<TARGET_FILE:matrix_solver>
+      PARAMS ${MATRIX_SOLVER_BENCHMARK_PARAMS} --left-side=false)
+endfunction()
+
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
@@ -1653,6 +1667,58 @@ add_gru_benchmark(NAME gru_8_25_1024_1024_float_shuffled_cell_order_train
          --data-type float
 	 --cell-order {update,cell,reset}
 	 --phase all)
+
+add_matrix_solver_benchmark(NAME triangular_solve_1_256_256_64_float
+  PARAMS --a-rank 256
+         --b-rank 256
+         --block-size 64
+         --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_1_256_1_64_float
+  PARAMS --a-rank 256
+         --b-rank 1
+         --block-size 64
+         --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_8_256_256_64_float
+  PARAMS --batches 8
+         --a-rank 256
+         --b-rank 256
+         --block-size 64
+         --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_1_64_64_64_float
+  PARAMS --a-rank 64
+         --b-rank 64
+         --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_8_64_64_64_float
+  PARAMS --batches 8
+         --a-rank 64
+         --b-rank 64
+         --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_1_64_1_64_float
+  PARAMS --a-rank 64
+        --b-rank 1
+        --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_8_64_1_64_float
+  PARAMS --batches 8
+        --a-rank 64
+        --b-rank 1
+        --data-type float)
+
+add_matrix_solver_benchmark(NAME triangular_solve_1_64_1_64_half
+  PARAMS --a-rank 64
+        --b-rank 1
+        --data-type half)
+
+add_matrix_solver_benchmark(NAME triangular_solve_8_64_1_64_half
+  PARAMS --batches 8
+        --a-rank 64
+        --b-rank 1
+        --data-type half)
 
 else()
   message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")

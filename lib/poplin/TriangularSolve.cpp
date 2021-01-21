@@ -1,5 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 #include "poplin/TriangularSolve.hpp"
+#include "poplibs_support/Algorithm.hpp"
 #include "poplin/MatMul.hpp"
 #include "popops/ElementWise.hpp"
 #include "popops/Expr.hpp"
@@ -293,21 +294,175 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
   }
 }
 
-void validateInput(poplar::Graph &graph, const poplar::Tensor &a) {
-  auto ndims = a.rank();
-  if (ndims < 2) {
+void validateInput(const std::vector<std::size_t> &shape) {
+  const auto rank = shape.size();
+  if (rank < 2) {
     throw poputil::poplibs_error("tensor A must have rank of 2 or higher.");
   }
 
-  auto n = a.dim(ndims - 1);
-  auto m = a.dim(ndims - 2);
+  const auto n = shape[rank - 1];
+  const auto m = shape[rank - 2];
   if (n != m) {
     throw poputil::poplibs_error(
         "2 minor dimension of tensor A must have the same size.");
   }
 }
 
+std::tuple<std::size_t, std::size_t>
+validateInputs(const std::vector<std::size_t> &aShape,
+               const std::vector<std::size_t> &bShape, bool leftSide) {
+  validateInput(aShape);
+
+  const auto aRank = aShape.size();
+  const auto an = aShape[aRank - 1];
+
+  const auto bRank = bShape.size();
+  if (bRank < 2) {
+    throw poputil::poplibs_error(
+        "rank of tensor B must be greater or equal to 2.");
+  }
+
+  if (aRank != bRank) {
+    throw poputil::poplibs_error("ranks of tensors A and B must match");
+  }
+
+  auto bn = bShape[bRank - 1];
+  if (leftSide) {
+    const auto bm = bShape[bRank - 2];
+    if (bm != an)
+      throw poputil::poplibs_error(
+          "mismatched shape for triangular solver. For A [..., N, N], B must "
+          "have shape of [..., N, K]");
+  } else {
+    if (bn != an)
+      throw poputil::poplibs_error(
+          "mismatched shape for triangular solver. For A [..., N, N], B must "
+          "have shape of [..., K, N]");
+    bn = bShape[bRank - 2];
+  }
+
+  // everything except two minor dims must match
+  auto batchShape = aShape;
+  batchShape.resize(batchShape.size() - 2);
+  {
+    auto batchShapeB = bShape;
+    batchShapeB.resize(batchShapeB.size() - 2);
+    if (batchShape != batchShapeB) {
+      throw poputil::poplibs_error(
+          "major (batch) dimensions A and B must match");
+    }
+  }
+
+  return std::make_tuple(an, bn);
+}
+
+std::vector<std::size_t> groupedShape(const std::vector<std::size_t> &shape) {
+  const auto rank = shape.size();
+  if (rank < 2)
+    throw poputil::poplibs_error(
+        "groupedShape: rank of tensor must be greater or equal to 2.");
+
+  std::size_t batches = 1;
+  if (rank >= 3) {
+    for (std::size_t i = 0; i < rank - 2; ++i) {
+      batches *= shape[i];
+    }
+  }
+  return {batches, shape[rank - 2], shape[rank - 1]};
+}
+
+poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
+                           const std::vector<std::size_t> &shape, bool leftSide,
+                           std::size_t blockSize,
+                           const poplar::DebugContext &debugContext) {
+  const auto g = shape[0];
+  const auto n = shape[leftSide ? 1 : 2];
+  const auto m = shape[leftSide ? 2 : 1];
+
+  const auto nb = poplibs_support::ceildiv(n, blockSize);
+  const auto mb = poplibs_support::ceildiv(m, blockSize);
+
+  // Allocating "blockwise layout", instead of
+  //   B1 B1 B2 B2
+  //   B1 B1 B2 B2
+  //   B3 B3 B4 B4
+  //   B3 B3 B4 B4
+  // Layout block elements as:
+  //   B1 B1 B1 B1
+  //   B2 B2 B2 B2
+  //   B3 B3 B3 B3
+  //   B4 B4 B4 B4
+  // It will keep block elements closer to each other,
+  // so they can share the same tile
+
+  const std::vector<std::size_t> blockShape = {g, nb, mb, blockSize, blockSize};
+  auto tensor = graph.addVariable(type, blockShape, debugContext);
+
+  poputil::mapTensorLinearly(graph, tensor);
+
+  tensor = tensor.dimShuffle({0, 1, 3, 2, 4});
+  tensor = tensor.reshape({g, nb * blockSize, mb * blockSize});
+  tensor = tensor.slice({0, 0, 0}, {g, n, m});
+
+  if (!leftSide)
+    tensor = tensor.dimShuffle({0, 2, 1});
+
+  return tensor;
+}
+
+poplar::Tensor createTriangularSolveOutput(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &xShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+  auto xGrouped = groupedShape(xShape);
+
+  auto tensor = createInput(graph, inputType, xGrouped, false, blockSize,
+                            {debugContext, "X"});
+
+  return tensor.reshape(xShape);
+}
+
 } // anonymous namespace
+
+poplar::Tensor createTriangularSolveInputLHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+  validateInputs(aShape, bShape, leftSide);
+  auto aGrouped = groupedShape(aShape);
+
+  auto tensor = createInput(graph, inputType, aGrouped, leftSide, blockSize,
+                            {debugContext, "A"});
+
+  return tensor.reshape(aShape);
+}
+
+poplar::Tensor createTriangularSolveInputRHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
+  validateInputs(aShape, bShape, leftSide);
+  auto bGrouped = groupedShape(bShape);
+
+  if (leftSide) {
+    std::swap(bGrouped[1], bGrouped[2]);
+  }
+
+  auto tensor = graph.addVariable(outputType, bGrouped, debugContext);
+  poputil::mapTensorLinearly(graph, tensor);
+
+  if (leftSide) {
+    tensor = tensor.dimShuffle({0, 2, 1});
+  }
+
+  return tensor.reshape(bShape);
+}
 
 poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
                               bool lower, bool unitDiagonal,
@@ -315,7 +470,7 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
                               const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(a, lower, unitDiagonal));
 
-  validateInput(graph, a);
+  validateInput(a.shape());
 
   SolveParams params(0, lower, unitDiagonal, 0, {}, nullptr);
 
@@ -338,53 +493,19 @@ poplar::Tensor triangularSolve(
       debugContext,
       DI_ARGS(a, b, leftSide, lower, unitDiagonal, blockSize, options, cache));
 
-  validateInput(graph, a);
   if (blockSize == 0) {
     throw poputil::poplibs_error("blockSize must be greater than zero");
   }
 
-  auto aRank = a.rank();
-  auto an = a.dim(aRank - 1);
-
-  auto bRank = b.rank();
-  if (bRank < 2) {
-    throw poputil::poplibs_error(
-        "rank of tensor B must be greater or equal to 2.");
-  }
-
-  if (aRank != bRank) {
-    throw poputil::poplibs_error("ranks of tensors A and B must match");
-  }
-
-  auto bn = b.dim(bRank - 1);
-  if (leftSide) {
-    auto bm = b.dim(bRank - 2);
-    if (bm != an)
-      throw poputil::poplibs_error(
-          "mismatched shape for triangular solver. For A [..., N, N], B must "
-          "have shape of [..., N, K]");
-  } else {
-    if (bn != an)
-      throw poputil::poplibs_error(
-          "mismatched shape for triangular solver. For A [..., N, N], B must "
-          "have shape of [..., K, N]");
-    bn = b.dim(bRank - 2);
-  }
+  const auto [an, bn] = validateInputs(a.shape(), b.shape(), leftSide);
+  const auto aRank = a.rank();
 
   // everything except two minor dims must match
   auto batchShape = a.shape();
   batchShape.resize(batchShape.size() - 2);
-  {
-    auto batchShapeB = b.shape();
-    batchShapeB.resize(batchShapeB.size() - 2);
-    if (batchShape != batchShapeB) {
-      throw poputil::poplibs_error(
-          "major (batch) dimensions A and B must match");
-    }
-  }
 
   // if we have any batch dimensions, flatten them into single one
-  // if we have tensors of rank 2, expand with singlular batch dimension
+  // if we have tensors of rank 2, expand with singular batch dimension
 
   auto batchA = aRank >= 3 ? a.flatten(0, batchShape.size()) : a.expand({0});
   auto batchB = aRank >= 3 ? b.flatten(0, batchShape.size()) : b.expand({0});
@@ -467,7 +588,10 @@ poplar::Tensor triangularSolve(
     batchB = popops::pad(graph, batchB, {0, 0, 0}, {0, toPad, toPadB});
   }
 
-  auto x = graph.addVariable(a.elementType(), batchB.shape(), {di});
+  poplar::Tensor x = createTriangularSolveOutput(
+      graph, a.elementType(), b.elementType(), batchA.shape(), batchB.shape(),
+      leftSide, blockSize, debugContext, options, cache);
+
   poputil::mapTensorLinearly(graph, x);
   popops::zero(graph, x, prog, {di});
   params.x = x;

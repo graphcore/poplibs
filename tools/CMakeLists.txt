@@ -110,6 +110,11 @@ target_link_libraries(topk
                       poplibs_support poplibs_test
                       Boost::program_options)
 
+add_tool(matrix_solver matrix_solver.cpp)
+target_link_libraries(matrix_solver
+                      poplibs_support poplibs_test
+                      Boost::program_options)
+
 if (TARGET popsparse)
   add_tool(sparse_fc_layer sparse_fc_layer.cpp)
   target_link_libraries(sparse_fc_layer
