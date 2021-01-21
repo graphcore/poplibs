@@ -2,7 +2,6 @@
 #include "poplin/TriangularSolve.hpp"
 #include "poplin/MatMul.hpp"
 #include "popops/ElementWise.hpp"
-#include "popops/Encoding.hpp"
 #include "popops/Expr.hpp"
 #include "popops/Pad.hpp"
 #include "popops/Zero.hpp"
@@ -56,35 +55,52 @@ poplar::Tensor triangle(poplar::Graph &graph, const poplar::Tensor &a,
     throw poputil::poplibs_error("triangle: tensor must have rank of 3");
   }
   auto n = a.dim(2);
-  auto m = a.dim(1);
-  if (n != m) {
+  if (n != a.dim(1)) {
     throw poputil::poplibs_error(
         "triangularMask: tensor must have shape of [..., N, N].");
   }
 
-  auto iotaOut = graph.addVariable(poplar::UNSIGNED_INT, {n},
-                                   {dnai, "iotaOut" + std::to_string(n)});
-  poputil::mapTensorLinearly(graph, iotaOut);
-  popops::iota(graph, iotaOut, 0u, prog,
-               {dnai, std::string("triangleIota") + std::to_string(n)});
-
   auto totalBatches = a.dim(0);
-  auto indices0 =
-      iotaOut.reshape({1, 1, n}).broadcast(n, 1).broadcast(totalBatches, 0);
-  auto indices1 =
-      iotaOut.reshape({1, n, 1}).broadcast(n, 2).broadcast(totalBatches, 0);
+  auto out = graph.clone(a.elementType(), a, {dnai, "cloneTriangularInput"});
+  auto zero =
+      graph.addConstant(a.elementType(), {1}, 0).broadcast(totalBatches, 0);
+  graph.setTileMapping(zero, 0);
+  auto one =
+      graph.addConstant(a.elementType(), {1}, 1).broadcast(totalBatches, 0);
+  graph.setTileMapping(one, 0);
 
-  pe::Any triangularMask =
-      pe::Select(pe::_1, pe::Const(0.0f),
-                 params.lower ? pe::Any(pe::Lte(pe::_2, pe::_3))
-                              : pe::Any(pe::Gte(pe::_2, pe::_3)));
-  if (params.unitDiagonal) {
-    triangularMask =
-        pe::Select(pe::Const(1.0f), triangularMask, pe::Equal(pe::_2, pe::_3));
+  for (std::size_t i = 0; i < n; ++i) {
+    std::vector<std::size_t> begin, end;
+    if (params.lower) {
+      begin = {0, i, i + 1};
+      end = {totalBatches, i + 1, n};
+    } else {
+      begin = {0, i, 0};
+      end = {totalBatches, i + 1, i};
+    }
+    poplar::Tensor dstZero = out.slice(begin, end);
+    poplar::Tensor srcZero =
+        zero.reshape({totalBatches, 1, 1}).broadcast(end[2] - begin[2], 2);
+    prog.add(poplar::program::Copy(srcZero, dstZero));
+
+    if (params.unitDiagonal) {
+      prog.add(poplar::program::Copy(
+          one, out.slice({0, i, i}, {totalBatches, i + 1, i + 1})
+                   .reshape({totalBatches})));
+    }
+
+    if (params.lower) {
+      begin = {0, i, 0};
+      end = {totalBatches, i + 1, params.unitDiagonal ? i : i + 1};
+    } else {
+      begin = {0, i, params.unitDiagonal ? i + 1 : i};
+      end = {totalBatches, i + 1, n};
+    }
+
+    prog.add(poplar::program::Copy(a.slice(begin, end), out.slice(begin, end)));
   }
 
-  return popops::map(graph, triangularMask, {a, indices0, indices1}, prog,
-                     {dnai, "mapTriangularMask"});
+  return out;
 }
 
 poplar::Tensor diag(const poplar::Tensor &a) {
@@ -403,10 +419,13 @@ poplar::Tensor triangularSolve(
   // do not scale A to have unit diagonal in case of unitDiagonal explicitly
   // passed
   if (!unitDiagonal) {
-    auto diagVector = diag(batchA);
+    auto diagVectorSrc = diag(batchA);
+    auto diagVector = graph.clone(diagVectorSrc, {di, "diagClone"});
+    prog.add(poplar::program::Copy(diagVectorSrc, diagVector));
     auto diagMatrix = diagVector.expand({2});
     poputil::broadcastToMatch(diagMatrix, batchA.shape());
-    batchA = popops::div(graph, batchA, diagMatrix, prog, {di, "scaleA"});
+    // batchA returned from triangular() is a clone.
+    popops::divInPlace(graph, batchA, diagMatrix, prog, {di, "scaleA"});
     auto diagVectorB =
         diagVector.reshape({totalBatches, an, 1}).broadcast(bn, 2);
     poputil::broadcastToMatch(diagVectorB, batchB.shape());
