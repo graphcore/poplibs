@@ -366,21 +366,7 @@ function(add_multitarget_test)
 endfunction()
 
 function(add_benchmark)
-  cmake_parse_arguments(BENCHMARK "" "NAME;BINARY;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
-
-  if (NOT DEFINED BENCHMARK_PARALLEL_LEVEL)
-    set(BENCHMARK_LABEL "benchmarks")
-  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 2)
-    set(BENCHMARK_LABEL "benchmarks_j2")
-  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 4)
-    set(BENCHMARK_LABEL "benchmarks_j4")
-  elseif(BENCHMARK_PARALLEL_LEVEL EQUAL 8)
-    set(BENCHMARK_LABEL "benchmarks_j8")
-  else()
-    message(FATAL_ERROR "Cannot set a parallel level that is not 4 or 8 as "
-                        "buildbot is currently only configured to split the "
-                        "tasks at that granularity.")
-  endif()
+  cmake_parse_arguments(BENCHMARK "" "NAME;BINARY" "PARAMS" "${ARGN}")
 
   # common args used by all the benchmarks
   list(APPEND BENCHMARK_PARAMS --ignore-data --profile-format experimental)
@@ -398,99 +384,90 @@ function(add_benchmark)
 endfunction()
 
 function(add_conv_benchmark)
-  cmake_parse_arguments(CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+  cmake_parse_arguments(CONV_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
 
   # common arguments for all conv benchmarks
   list(APPEND CONV_BENCHMARK_PARAMS --bias 0)
   add_benchmark(
       NAME ${CONV_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${CONV_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:single_conv_layer>
       PARAMS ${CONV_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_oct_conv_benchmark)
-  cmake_parse_arguments(OCT_CONV_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+  cmake_parse_arguments(OCT_CONV_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
 
   # common arguments for all oct conv benchmarks
   list(APPEND OCT_CONV_BENCHMARK_PARAMS --pool-optimize-for-speed=true)
   add_benchmark(
       NAME ${OCT_CONV_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${OCT_CONV_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:oct_conv_layer>
       PARAMS ${OCT_CONV_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_fc_benchmark)
-  cmake_parse_arguments(FC_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+  cmake_parse_arguments(FC_BENCHMARK "" "NAME" "PARAMS" "${ARGN}")
 
   # common arguments for all fc benchmarks
   list(APPEND FC_BENCHMARK_PARAMS --bias 0)
   add_benchmark(
       NAME ${FC_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${FC_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:fully_connected_layer>
       PARAMS ${FC_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_embedding_benchmark)
-  cmake_parse_arguments(EMBED_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+  cmake_parse_arguments(EMBED_BENCHMARK "" "NAME" "PARAMS" "${ARGN}")
 
   add_benchmark(
       NAME ${EMBED_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${EMBED_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:embedding_layer>
       PARAMS ${EMBED_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_gemm_benchmark)
-  cmake_parse_arguments(GEMM_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}")
+  cmake_parse_arguments(GEMM_BENCHMARK "" "NAME" "PARAMS" "${ARGN}")
 
   add_benchmark(
       NAME ${GEMM_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${GEMM_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:general_matrix_multiply>
       PARAMS ${GEMM_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_reduction_benchmark)
-  cmake_parse_arguments(REDUCTION_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+  cmake_parse_arguments(REDUCTION_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
 
   add_benchmark(
       NAME ${REDUCTION_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${REDUCTION_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:reduce_op>
       PARAMS ${REDUCTION_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_pooling_benchmark)
-  cmake_parse_arguments(POOLING_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+  cmake_parse_arguments(POOLING_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
 
   add_benchmark(
       NAME ${POOLING_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${POOLING_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:pooling_layer>
       PARAMS ${POOLING_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_lstm_benchmark)
-  cmake_parse_arguments(LSTM_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+  cmake_parse_arguments(LSTM_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
 
   list(APPEND LSTM_BENCHMARK)
   add_benchmark(
       NAME ${LSTM_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${LSTM_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:lstm_layer>
       PARAMS ${LSTM_BENCHMARK_PARAMS})
 endfunction()
 
 function(add_gru_benchmark)
-  cmake_parse_arguments(GRU_BENCHMARK "" "NAME;PARALLEL_LEVEL" "PARAMS" "${ARGN}" )
+  cmake_parse_arguments(GRU_BENCHMARK "" "NAME" "PARAMS" "${ARGN}" )
 
   list(APPEND GRU_BENCHMARK_PARAMS)
   add_benchmark(
       NAME ${GRU_BENCHMARK_NAME}
-      PARALLEL_LEVEL ${GRU_BENCHMARK_PARALLEL_LEVEL}
       BINARY $<TARGET_FILE:gru_layer>
       PARAMS ${GRU_BENCHMARK_PARAMS})
 endfunction()
@@ -521,15 +498,6 @@ add_subdirectory(sanity)
 
 # Benchmarks
 if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
-
-  # Some of the following benchmarks use quite a lot of host memory, too much
-  # in fact for a buildslave (which currently have 32GB RAM and 16 cores) to
-  # parallelise across the number of cores for all of these benchmarks. In this
-  # case an optional PARALLEL_LEVEL argument is added that can specify that this
-  # test must only be run with a -j flag of either 2, 4 or 8. If this option
-  # does not exist then the buildbot will run the benchmark at a parallel
-  # level of `nproc`.
-
   # These numbers must match those of bench.py
   set(GEMM_BENCHMARK_MS 200 600 1000)
   set(GEMM_BENCHMARK_KS 64 256 512)
@@ -539,15 +507,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
   foreach(m ${GEMM_BENCHMARK_MS})
     foreach(k ${GEMM_BENCHMARK_KS})
       foreach(n ${GEMM_BENCHMARK_NS})
-        set(NAME "gemm_${m}x${k}x${n}")
-
-        unset(GEMM_EXTRA_ARGS)
-        if(NAME STREQUAL "gemm_1000x256x30000" OR
-           NAME STREQUAL "gemm_1000x512x30000")
-          set(GEMM_EXTRA_ARGS PARALLEL_LEVEL 8)
-        endif()
-
-        add_gemm_benchmark(NAME ${NAME} PARAMS --m ${m} --k ${k} --n ${n} ${GEMM_EXTRA_ARGS})
+        add_gemm_benchmark(NAME "gemm_${m}x${k}x${n}" PARAMS --m ${m} --k ${k} --n ${n})
       endforeach()
     endforeach()
   endforeach()
@@ -561,8 +521,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --padding 3
                  --input-channels 4
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME resnet50_tr_bs4_bm64L0_projection
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -699,8 +658,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --output-channels 64
                  --batch-size 4
                  --alpha-in 0
-                 --alpha-out 0.25
-          PARALLEL_LEVEL 8)
+                 --alpha-out 0.25)
   add_oct_conv_benchmark(NAME oct_resnet50_tr_bs4_bm64L0_projection_a25
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -853,37 +811,32 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --stride 2
                  --input-channels 4
                  --output-channels 32
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_layer3
           PARAMS --field {149,149}
                  --kernel-size 3
                  --input-channels 32
                  --output-channels 32
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_layer5
           PARAMS --field {147,147}
                  --kernel-size 3
                  --padding 1
                  --input-channels 32
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 4)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_layer8
           PARAMS --field {147,147}
                  --kernel-size 1
                  --input-channels 64
                  --output-channels 80
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_layer10
           PARAMS --field {73,73}
                  --kernel-size 3
                  --input-channels 80
                  --output-channels 192
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME inception_tr_bs4_i1_a1x1
           PARAMS --field {35,35}
                  --kernel-size 1
@@ -1142,8 +1095,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --padding 1
                  --input-channels 4
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 2)
+                 --batch-size 4)
 # TODO: T17350 re-enable this after investigation
 #  add_conv_benchmark(NAME vgg16_tr_bs4_v1L1
 #          PARAMS --field {224,224}
@@ -1151,64 +1103,56 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
 #                 --padding 1
 #                 --input-channels 64
 #                 --output-channels 64
-#                 --batch-size 4
-#          PARALLEL_LEVEL 2)
+#                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v2L0
           PARAMS --field {112,112}
                  --kernel-size 3
                  --padding 1
                  --input-channels 64
                  --output-channels 128
-                 --batch-size 4
-          PARALLEL_LEVEL 4)
+                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v2L1
           PARAMS --field {112,112}
                  --kernel-size 3
                  --padding 1
                  --input-channels 128
                  --output-channels 128
-                 --batch-size 4
-          PARALLEL_LEVEL 2)
+                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v3L0
           PARAMS --field {56,56}
                  --kernel-size 3
                  --padding 1
                  --input-channels 128
                  --output-channels 256
-                 --batch-size 4
-          PARALLEL_LEVEL 4)
+                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v3L1
           PARAMS --field {56,56}
                  --kernel-size 3
                  --padding 1
                  --input-channels 256
                  --output-channels 256
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v4L0
           PARAMS --field {28,28}
                  --kernel-size 3
                  --padding 1
                  --input-channels 256
                  --output-channels 512
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v4L1
           PARAMS --field {28,28}
                  --kernel-size 3
                  --padding 1
                  --input-channels 512
                  --output-channels 512
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME vgg16_tr_bs4_v5L0
           PARAMS --field {14,14}
                  --kernel-size 3
                  --padding 1
                  --input-channels 512
                  --output-channels 512
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
 
   # alexnet conv layer benchmarks (batch size 4). each name is the enigma name
   # the first time that layer is seen.
@@ -1219,8 +1163,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --stride 4
                  --input-channels 4
                  --output-channels 64
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME alexnet_tr_bs4_layer4
           PARAMS --field {27,27}
                  --kernel-size 5
@@ -1264,8 +1207,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1
                  --output-channels 1
                  --conv-groups 32
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_conv_pw_1_1
           PARAMS --field {112,112}
                  --kernel-size 1
@@ -1280,8 +1222,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1
                  --output-channels 1
                  --conv-groups 64
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_conv_pw_2_1
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -1295,8 +1236,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --input-channels 1
                  --output-channels 1
                  --conv-groups 128
-                 --batch-size 4
-          PARALLEL_LEVEL 8)
+                 --batch-size 4)
   add_conv_benchmark(NAME mobilenet_conv_pw_3_1
           PARAMS --field {56,56}
                  --kernel-size 1
@@ -1396,8 +1336,7 @@ if (PYTHONINTERP_FOUND AND PYTHON_VERSION_MAJOR EQUAL 3)
                  --kernel-size {5,200}
                  --input-channels 1
                  --output-channels 100
-                 --batch-size 1440
-          PARALLEL_LEVEL 8)
+                 --batch-size 1440)
 
   # fc and embedding layer benchmarks (batch size 16). each name is derived from
   # the layer naming
