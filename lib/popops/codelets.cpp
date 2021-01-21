@@ -24,6 +24,13 @@ void addReduceCodelets(poplar::Graph &graph) {
       {poplar::INT, poplar::INT},
   };
 
+  type_pairs fpTypes = {
+      {poplar::FLOAT, poplar::FLOAT},
+      {poplar::HALF, poplar::HALF},
+      {poplar::FLOAT, poplar::HALF},
+      {poplar::HALF, poplar::FLOAT},
+  };
+
   type_pairs boolTypes = {
       {poplar::BOOL, poplar::BOOL},
   };
@@ -74,6 +81,7 @@ void addReduceCodelets(poplar::Graph &graph) {
 
   registerReduceCycleEstimators(fullTypes, popops::Operation::ADD);
   registerReduceCycleEstimators(fullTypes, popops::Operation::SQUARE_ADD);
+  registerReduceCycleEstimators(fpTypes, popops::Operation::LOG_ADD);
   registerReduceCycleEstimators(fullTypes, popops::Operation::MUL);
   registerReduceCycleEstimators(equalTypes, popops::Operation::MAX);
   registerReduceCycleEstimators(equalTypes, popops::Operation::MIN);

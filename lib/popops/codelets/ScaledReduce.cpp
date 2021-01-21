@@ -74,6 +74,8 @@ private:
            (std::is_same<OutType, float>::value ||
             std::is_same<OutType, half>::value);
   }
+  constexpr static bool opIsLogAdd =
+      std::is_same<ReduceOp, ReduceLogAdd>::value;
 
 public:
   ScaledReduce();
@@ -107,10 +109,17 @@ public:
         ReduceOp::update(acc, static_cast<AccType>(*pPtr));
         pPtr += partialsWidth;
       }
+      // Apply scale.  For log-probability arithmetic this is an add.
       const auto scaledOut =
-          static_cast<OutType>(static_cast<AccType>(k[0]) * acc);
-      if (isUpdate) {
-        out[o] += scaledOut;
+          opIsLogAdd ? static_cast<OutType>(acc + static_cast<AccType>(k[0]))
+                     : static_cast<OutType>(acc * static_cast<AccType>(k[0]));
+
+      if constexpr (isUpdate) {
+        if constexpr (opIsLogAdd) {
+          ReduceOp::update(out[o], scaledOut);
+        } else {
+          out[o] += scaledOut;
+        }
       } else {
         out[o] = scaledOut;
       }
@@ -119,6 +128,7 @@ public:
   }
 };
 
+// Operation: ReduceAdd
 template class ScaledReduce<popops::ReduceAdd, float, float, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceAdd, float, float, true,
@@ -189,6 +199,7 @@ template class ScaledReduce<popops::ReduceAdd, int, int, false,
 template class ScaledReduce<popops::ReduceAdd, int, int, false,
                             ReductionSpecialisation::STRIDED_REDUCE>;
 
+// Operation: ReduceSquareAdd
 template class ScaledReduce<popops::ReduceSquareAdd, float, float, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceSquareAdd, float, float, true,
@@ -259,6 +270,64 @@ template class ScaledReduce<popops::ReduceSquareAdd, int, int, false,
 template class ScaledReduce<popops::ReduceSquareAdd, int, int, false,
                             ReductionSpecialisation::STRIDED_REDUCE>;
 
+// Operation: ReduceLogAdd
+template class ScaledReduce<popops::ReduceLogAdd, float, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, float, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, float, float, true,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, float, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, float, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, float, half, true,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, half, float, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, half, float, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, half, float, true,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, half, half, true,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, half, half, true,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, half, half, true,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, float, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, float, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, float, float, false,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, float, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, float, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, float, half, false,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, half, float, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, half, float, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, half, float, false,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+template class ScaledReduce<popops::ReduceLogAdd, half, half, false,
+                            ReductionSpecialisation::DEFAULT>;
+template class ScaledReduce<popops::ReduceLogAdd, half, half, false,
+                            ReductionSpecialisation::SCALAR_OUTPUT_REGIONS>;
+template class ScaledReduce<popops::ReduceLogAdd, half, half, false,
+                            ReductionSpecialisation::STRIDED_REDUCE>;
+
+// Operation : ReduceMul
 template class ScaledReduce<popops::ReduceMul, float, float, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceMul, float, float, true,
@@ -329,6 +398,7 @@ template class ScaledReduce<popops::ReduceMul, int, int, false,
 template class ScaledReduce<popops::ReduceMul, int, int, false,
                             ReductionSpecialisation::STRIDED_REDUCE>;
 
+// Operation: ReduceMax
 template class ScaledReduce<popops::ReduceMax, float, float, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceMax, float, float, true,
@@ -371,6 +441,7 @@ template class ScaledReduce<popops::ReduceMax, int, int, false,
 template class ScaledReduce<popops::ReduceMax, int, int, false,
                             ReductionSpecialisation::STRIDED_REDUCE>;
 
+// Operation: ReduceMin
 template class ScaledReduce<popops::ReduceMin, float, float, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceMin, float, float, true,
@@ -413,6 +484,7 @@ template class ScaledReduce<popops::ReduceMin, int, int, false,
 template class ScaledReduce<popops::ReduceMin, int, int, false,
                             ReductionSpecialisation::STRIDED_REDUCE>;
 
+// Operation: ReduceAnd
 template class ScaledReduce<popops::ReduceAnd, bool, bool, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceAnd, bool, bool, true,
@@ -427,6 +499,7 @@ template class ScaledReduce<popops::ReduceAnd, bool, bool, false,
 template class ScaledReduce<popops::ReduceAnd, bool, bool, false,
                             ReductionSpecialisation::STRIDED_REDUCE>;
 
+// Operation: ReduceOr
 template class ScaledReduce<popops::ReduceOr, bool, bool, true,
                             ReductionSpecialisation::DEFAULT>;
 template class ScaledReduce<popops::ReduceOr, bool, bool, true,

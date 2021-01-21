@@ -343,6 +343,7 @@ void reduceFirstDim2D(Graph &graph, const Tensor &in_,
 bool opBenefitsFromHigherIntermediatePrecision(const popops::Operation &op) {
   switch (op) {
   case popops::Operation::ADD:
+  case popops::Operation::LOG_ADD:
   case popops::Operation::SQUARE_ADD:
   case popops::Operation::MUL:
     return true;
@@ -417,8 +418,9 @@ void reduceWithOutputProgOrCss(
   }
 
   if (params.useScale && !(params.op == popops::Operation::ADD ||
-                           params.op == popops::Operation::SQUARE_ADD)) {
-    throw poputil::poplibs_error("Scale can only be used with ADD or "
+                           params.op == popops::Operation::SQUARE_ADD ||
+                           params.op == popops::Operation::LOG_ADD)) {
+    throw poputil::poplibs_error("Scale can only be used with ADD, LOG_ADD or "
                                  "SQUARE_ADD");
   }
   if (params.useScale) {
@@ -427,8 +429,9 @@ void reduceWithOutputProgOrCss(
     }
   }
   if (params.update && !(params.op == popops::Operation::ADD ||
-                         params.op == popops::Operation::SQUARE_ADD)) {
-    throw poputil::poplibs_error("Update can only be used with ADD or "
+                         params.op == popops::Operation::SQUARE_ADD ||
+                         params.op == popops::Operation::LOG_ADD)) {
+    throw poputil::poplibs_error("Update can only be used with ADD, LOG_ADD or "
                                  "SQUARE_ADD");
   }
 
@@ -483,6 +486,11 @@ void reduceWithOutputProgOrCss(
   // reducing a 10x10x0 tensor in the third dimension to 10x10. It's a bit
   // weird but it makes sense. This is how Tensorflow works.
   if (in.numElements() == 0) {
+    if (params.op == Operation::LOG_ADD) {
+      throw poputil::poplibs_error(
+          "Reduction operation LOG_ADD doesn't"
+          " support reductions with zero input elements");
+    }
 
     logging::popops::debug("zero input elements to reduction");
 
@@ -539,6 +547,12 @@ void reduceWithOutputProgOrCss(
       reductionRequired = true;
       break;
     }
+  }
+
+  if (params.op == Operation::LOG_ADD && !reductionRequired) {
+    throw poputil::poplibs_error(
+        "Reduction operation LOG_ADD doesn't"
+        " support reductions where there is no reduction required");
   }
 
   if (!reductionRequired && isProg) {

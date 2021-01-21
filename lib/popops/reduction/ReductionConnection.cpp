@@ -2040,12 +2040,14 @@ ReductionSpecialisation getReductionVertexSpecialisation(
       params.op == Operation::ADD || params.op == Operation::SQUARE_ADD;
   bool opIsMaxOrMin =
       params.op == Operation::MAX || params.op == Operation::MIN;
+  // For LOG_ADD there is no assembler - don't let this restrict its use
+  bool opIsLogAdd = params.op == Operation::LOG_ADD;
 
   if (allRegionsContinuous(graph, regions, params, reductionUsesInput) &&
-      (opIsAddOrSquareAdd || opIsMaxOrMin)) {
+      (opIsAddOrSquareAdd || opIsMaxOrMin || opIsLogAdd)) {
     return ReductionSpecialisation::ALL_REGIONS_CONTINUOUS;
   } else if (isScalarOutputReduction(graph, params, regions) &&
-             opIsAddOrSquareAdd) {
+             (opIsAddOrSquareAdd || opIsLogAdd)) {
     return ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT;
   } else if (isStridedReduction(graph, params, regions)) {
     // both input and output must be full width accumulators
@@ -2059,7 +2061,7 @@ ReductionSpecialisation getReductionVertexSpecialisation(
         (outElemType == poplar::FLOAT || outElemType == poplar::HALF) &&
         opIsMaxOrMin;
     const auto &target = graph.getTarget();
-    if ((addOpHasAssembly || maxMinOpHasAssembly) &&
+    if ((addOpHasAssembly || maxMinOpHasAssembly || opIsLogAdd) &&
         outElems * target.getTypeSize(outElemType) % 4 == 0 &&
         outElems * target.getTypeSize(partialsElemType) % 8 == 0) {
       // output must be whole words

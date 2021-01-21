@@ -70,6 +70,8 @@ CollectiveOperator operationToCollectiveOperator(const Operation &col) {
     return CollectiveOperator::LOGICAL_OR;
   case Operation::SQUARE_ADD:
     return CollectiveOperator::SQUARE_ADD;
+  case Operation::LOG_ADD:
+    throw poputil::poplibs_error("LOG_ADD has no collective operator.");
   }
   throw poputil::poplibs_error("Unrecognised operation.");
 }

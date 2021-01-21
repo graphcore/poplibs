@@ -9,6 +9,7 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
@@ -307,10 +308,12 @@ int main(int argc, char **argv) {
     ("type", po::value(&dataType),
       "Data type of input and output values (half, float, int, bool, etc.).")
     ("operation", po::value(&op),
-      "The operation to perform (ADD, SQUARE_ADD, MUL, MIN, MAX,"
-                                 " LOGICAL_AND or LOGICAL_OR)")
+      "The operation to perform (ADD, SQUARE_ADD, LOG_ADD, MUL, MIN, MAX,"
+                                 " LOGICAL_AND or LOGICAL_OR)"
+                                 " (Log add adds log scaled probabilities)")
     ("scale", po::value(&scale),
-      "Scale the final value by this amount.")
+      "Scale the final value by this amount."
+      "When using LOG_ADD, scale = 0.0 equates to no scaling applied.")
     ("update", po::value(&update),
       "If true, do `out += reduce(in)`, otherwise do `out = reduce(in)`")
     ("withoutput", po::value(&withOutput),
@@ -486,6 +489,11 @@ int main(int argc, char **argv) {
       return 1;
     }
     break;
+  case popops::Operation::LOG_ADD:
+    if (dataType != HALF && dataType != FLOAT) {
+      std::cerr << "Type must be FLOAT or HALF for LOG_ADD.\n";
+      return 1;
+    }
   }
 
   // TODO: T12990 Some types of testing are not supported yet.
@@ -520,7 +528,8 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD) {
+  if (op != popops::Operation::ADD && op != popops::Operation::SQUARE_ADD &&
+      op != popops::Operation::LOG_ADD) {
     if (scale != 1.0f) {
       std::cerr << "Scale must be 1.0 for non-add operations.\n";
       scale = 1.0f;
@@ -570,9 +579,11 @@ int main(int argc, char **argv) {
 
   auto rate = graph.addConstant(FLOAT, {}, scale);
   graph.setTileMapping(rate, 0);
-  const auto useScale =
+  const auto useScaleLogAdd = op == popops::Operation::LOG_ADD && scale != 0.0f;
+  const auto useScaleAddSquareAdd =
       (op == popops::Operation::ADD || op == popops::Operation::SQUARE_ADD) &&
       scale != 1.0f;
+  const auto useScale = useScaleAddSquareAdd || useScaleLogAdd;
   ReduceParams reductionParams;
   if (useScale) {
     reductionParams = {op, update, rate};
@@ -655,12 +666,21 @@ int main(int argc, char **argv) {
 
   // Apply scale.
   std::for_each(outputRef.data(), outputRef.data() + outputRef.numElements(),
-                [scale](double &x) { x *= scale; });
+                [scale, op](double &x) {
+                  x = op == Operation::LOG_ADD
+                          ? poplibs_support::log::mul<double>(x, scale)
+                          : x * scale;
+                });
 
   // If it's an update, add the output values.
   if (update) {
     for (std::size_t i = 0; i < outputRef.numElements(); ++i)
-      outputRef.data()[i] += outputValues[i];
+      if (op == Operation::LOG_ADD) {
+        outputRef.data()[i] = poplibs_support::log::add<double>(
+            outputRef.data()[i], outputValues[i]);
+      } else {
+        outputRef.data()[i] += outputValues[i];
+      }
   }
 
   std::cerr << "Running engine...\n";

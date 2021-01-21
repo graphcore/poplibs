@@ -8,6 +8,10 @@ namespace popops {
 template <typename ReduceOp, typename PartialsType, typename OutType,
           bool isUpdate>
 class ScaledContinuousReduce : public Vertex {
+private:
+  constexpr static bool opIsLogAdd =
+      std::is_same<ReduceOp, ReduceLogAdd>::value;
+
 public:
   ScaledContinuousReduce();
   using AccType = AccType<PartialsType, ReduceOp>;
@@ -30,10 +34,16 @@ public:
         const auto index = (o * numPartials) + p;
         ReduceOp::update(acc, partials[index]);
       }
+      // Apply scale.  For log-probability arithmetic this is an add.
       const auto scaledAcc =
-          static_cast<OutType>(acc * static_cast<AccType>(k[0]));
-      if (isUpdate) {
-        out[o] += scaledAcc;
+          opIsLogAdd ? static_cast<OutType>(acc + static_cast<AccType>(k[0]))
+                     : static_cast<OutType>(acc * static_cast<AccType>(k[0]));
+      if constexpr (isUpdate) {
+        if constexpr (opIsLogAdd) {
+          ReduceOp::update(out[o], scaledAcc);
+        } else {
+          out[o] += scaledAcc;
+        }
       } else {
         out[o] = scaledAcc;
       }
@@ -41,7 +51,7 @@ public:
     return true;
   }
 };
-
+// Operation: ReduceAdd
 template class ScaledContinuousReduce<popops::ReduceAdd, float, float, true>;
 template class ScaledContinuousReduce<popops::ReduceAdd, half, float, true>;
 template class ScaledContinuousReduce<popops::ReduceAdd, float, half, true>;
@@ -54,6 +64,7 @@ template class ScaledContinuousReduce<popops::ReduceAdd, float, half, false>;
 template class ScaledContinuousReduce<popops::ReduceAdd, half, half, false>;
 template class ScaledContinuousReduce<popops::ReduceAdd, int, int, false>;
 
+// Operation: ReduceSquareAdd
 template class ScaledContinuousReduce<popops::ReduceSquareAdd, float, float,
                                       true>;
 template class ScaledContinuousReduce<popops::ReduceSquareAdd, half, float,
@@ -74,6 +85,19 @@ template class ScaledContinuousReduce<popops::ReduceSquareAdd, half, half,
                                       false>;
 template class ScaledContinuousReduce<popops::ReduceSquareAdd, int, int, false>;
 
+// Operation: ReduceLogAdd
+template class ScaledContinuousReduce<popops::ReduceLogAdd, float, float, true>;
+template class ScaledContinuousReduce<popops::ReduceLogAdd, half, float, true>;
+template class ScaledContinuousReduce<popops::ReduceLogAdd, float, half, true>;
+template class ScaledContinuousReduce<popops::ReduceLogAdd, half, half, true>;
+
+template class ScaledContinuousReduce<popops::ReduceLogAdd, float, float,
+                                      false>;
+template class ScaledContinuousReduce<popops::ReduceLogAdd, half, float, false>;
+template class ScaledContinuousReduce<popops::ReduceLogAdd, float, half, false>;
+template class ScaledContinuousReduce<popops::ReduceLogAdd, half, half, false>;
+
+// Operation: ReduceMul
 template class ScaledContinuousReduce<popops::ReduceMul, float, float, true>;
 template class ScaledContinuousReduce<popops::ReduceMul, half, float, true>;
 template class ScaledContinuousReduce<popops::ReduceMul, float, half, true>;
@@ -86,6 +110,7 @@ template class ScaledContinuousReduce<popops::ReduceMul, float, half, false>;
 template class ScaledContinuousReduce<popops::ReduceMul, half, half, false>;
 template class ScaledContinuousReduce<popops::ReduceMul, int, int, false>;
 
+// Operation: ReduceMax
 template class ScaledContinuousReduce<popops::ReduceMax, float, float, true>;
 template class ScaledContinuousReduce<popops::ReduceMax, half, half, true>;
 template class ScaledContinuousReduce<popops::ReduceMax, int, int, true>;
@@ -94,6 +119,7 @@ template class ScaledContinuousReduce<popops::ReduceMax, float, float, false>;
 template class ScaledContinuousReduce<popops::ReduceMax, half, half, false>;
 template class ScaledContinuousReduce<popops::ReduceMax, int, int, false>;
 
+// Operation: ReduceMin
 template class ScaledContinuousReduce<popops::ReduceMin, float, float, true>;
 template class ScaledContinuousReduce<popops::ReduceMin, half, half, true>;
 template class ScaledContinuousReduce<popops::ReduceMin, int, int, true>;
@@ -102,9 +128,11 @@ template class ScaledContinuousReduce<popops::ReduceMin, float, float, false>;
 template class ScaledContinuousReduce<popops::ReduceMin, half, half, false>;
 template class ScaledContinuousReduce<popops::ReduceMin, int, int, false>;
 
+// Operation: ReduceAnd
 template class ScaledContinuousReduce<popops::ReduceAnd, bool, bool, true>;
 template class ScaledContinuousReduce<popops::ReduceAnd, bool, bool, false>;
 
+// Operation: ReduceOr
 template class ScaledContinuousReduce<popops::ReduceOr, bool, bool, true>;
 template class ScaledContinuousReduce<popops::ReduceOr, bool, bool, false>;
 

@@ -5,10 +5,10 @@
 #include <poplar/Engine.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/IPUModel.hpp>
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
-#include <poplibs_test/LogArithmetic.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popnn/codelets.hpp>

@@ -44,7 +44,7 @@ std::uint64_t getCyclesEstimateForReduce(
     unsigned vectorWidth, const unsigned accVectorWidth,
     unsigned outTypeVectorWidth, const unsigned partialsPer64Bits,
     const poplar::Type &partialsType, const poplar::Type &outType,
-    popops::Operation operation, bool isUpdate,
+    popops::Operation operation, const unsigned cyclesPerOp, bool isUpdate,
     popops::ReductionSpecialisation specialisation) {
 
   // Total number of reductions.
@@ -87,7 +87,7 @@ std::uint64_t getCyclesEstimateForReduce(
     const auto numOuterLoops = ceildiv(numOutputs, elemsPerLoop);
 
     cycles += numOuterLoops * 6;
-    cycles += partialsSizes[0] / elemsPerLoop; // inner loop
+    cycles += cyclesPerOp * partialsSizes[0] / elemsPerLoop; // inner loop
     return cycles;
   }
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
@@ -103,7 +103,7 @@ std::uint64_t getCyclesEstimateForReduce(
     if (partialsSizes[0] < 6) {
       cycles += 6;
     } else {
-      cycles += partialsSizes[0] / elemsPerCycle;
+      cycles += cyclesPerOp * partialsSizes[0] / elemsPerCycle;
       // 1 cycle per element for the remainder
       cycles += partialsSizes[0] % elemsPerCycle;
     }
@@ -239,8 +239,9 @@ std::uint64_t getCyclesEstimateForReduce(
         auto numVectorWidths =
             (partialsSizes[pi] + vectorWidth - 1) / vectorWidth;
 
-        cycles += (2 * 1 + 1 + 3 + scaleAndUpdateCycles + conversionCyles) *
-                  numVectorWidths;
+        cycles +=
+            (2 * 1 + cyclesPerOp + 3 + scaleAndUpdateCycles + conversionCyles) *
+            numVectorWidths;
         ++pi;
       }
     }
@@ -251,7 +252,7 @@ std::uint64_t getCyclesEstimateForReduce(
 std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
     const unsigned numPartials, const unsigned numOutputs,
     const unsigned dataPathWidth, const unsigned accVectorWidth,
-    bool isUpdate) {
+    const unsigned cyclesPerOp, bool isUpdate) {
   assert(accVectorWidth % dataPathWidth == 0 ||
          dataPathWidth % accVectorWidth == 0);
 
@@ -260,7 +261,8 @@ std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
   // and the data path width.
   const auto elemsPerInnerLoop = std::min(accVectorWidth, dataPathWidth);
   // Estimate based on the code structure
-  std::uint64_t cycles = numOutputs * (numPartials / elemsPerInnerLoop);
+  std::uint64_t cycles =
+      cyclesPerOp * numOutputs * (numPartials / elemsPerInnerLoop);
   cycles += (numPartials & 1 ? 2 : 0);
   cycles += 12 * numOutputs;
   cycles += 10;
@@ -281,8 +283,15 @@ std::uint64_t getCycleEstimateForReduceVertex(
   const auto accVectorWidth = partialsType == poplar::HALF    ? 8
                               : partialsType == poplar::FLOAT ? 4
                                                               : 1;
+  // The LOG_ADD operation is implemented as a scalar, with multiple cyles per
+  // operation.  Although the vertices are also in C this gives some sort of
+  // approximation to the cycles taken
+  const auto opIsLogAdd = operation == Operation::LOG_ADD;
+
+  const auto opVectorWidth = opIsLogAdd ? 1 : accVectorWidth;
   const auto partialsPer64Bits = partialsTypeSize / 8;
   const auto dataPathWidth = target.getDataPathWidth() / (partialsTypeSize * 8);
+  const auto cyclesPerOp = opIsLogAdd ? 50u : 1u;
 
   std::vector<unsigned> numPartialEdges;
   std::vector<size_t> partialsPerEdge;
@@ -307,7 +316,8 @@ std::uint64_t getCycleEstimateForReduceVertex(
     CODELET_SCALAR_VAL(numPartials, unsigned);
     CODELET_SCALAR_VAL(numOutputsM1, unsigned);
     return getCycleEstimateReduceAllRegionsContinuous(
-        numPartials, numOutputsM1, dataPathWidth, accVectorWidth, isUpdate);
+        numPartials, numOutputsM1, dataPathWidth, opVectorWidth, cyclesPerOp,
+        isUpdate);
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);
@@ -317,9 +327,9 @@ std::uint64_t getCycleEstimateForReduceVertex(
 
   return getCyclesEstimateForReduce(
       partialsPerEdge, fieldSizes(out), numPartialEdges, stride, dataPathWidth,
-      target.getVectorWidth(partialsType), accVectorWidth,
+      target.getVectorWidth(partialsType), opVectorWidth,
       target.getVectorWidth(outType), partialsPer64Bits, partialsType, outType,
-      operation, isUpdate, specialisation);
+      operation, cyclesPerOp, isUpdate, specialisation);
 }
 
 } // namespace popops

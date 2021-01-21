@@ -12,6 +12,8 @@
 #include <string>
 #include <tuple>
 
+using namespace poplibs_support;
+
 namespace poplibs_test {
 namespace ctc {
 

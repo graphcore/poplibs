@@ -54,8 +54,11 @@ struct ReduceParams {
 };
 
 /// Apply a reduction operation to a tensor.
-/// \p scale and \p update are only valid with the \c ADD or \c SQUARE_ADD
-/// operations.
+/// \p scale and \p update are only valid with the \c ADD , \c SQUARE_ADD
+/// or \c LOG_ADD operations.
+/// \c LOG_ADD performs all arithmetic consistent with the input and output
+/// being log probabilities.  In other words, the `update` is another log add
+/// operation and the `scale` is a log multiply operation.
 ///
 /// Internally, this creates a new variable for the output then calls
 /// reduceWithOutput(). The type of the output will be \p outType.
@@ -79,6 +82,7 @@ struct ReduceParams {
 ///
 ///   - `ADD`, `SQUARE_ADD`, `MUL`: float->float, half->half,
 ///     int->int, float->half, half->float
+///   - `LOG_ADD` : float->float, half->half, float->half, half->float
 ///   - `MAX`, `MIN`: float->float, half->half, int->int
 ///   - `LOGICAL_AND`, `LOGICAL_OR`: bool->bool
 ///

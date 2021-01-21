@@ -27,7 +27,6 @@ add_library(poplibs_test SHARED
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixAdd.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/GeneralMatrixMultiply.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Gru.hpp
-  ${PROJECT_SOURCE_DIR}/include/poplibs_test/LogArithmetic.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Lstm.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/Multirate.hpp
   ${PROJECT_SOURCE_DIR}/include/poplibs_test/NonLinearity.hpp

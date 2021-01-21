@@ -1,14 +1,17 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 
-#ifndef poplibs_test_log_arithmetic_hpp
-#define poplibs_test_log_arithmetic_hpp
+#ifndef poplibs_support_log_arithmetic_hpp
+#define poplibs_support_log_arithmetic_hpp
 
+// Conditionally avoid including functions that use multi_array
+#ifndef __POPC__
 #include <boost/multi_array.hpp>
+#endif
 
-namespace poplibs_test {
+namespace poplibs_support {
 namespace log {
 
-inline constexpr double min = -10000;
+inline constexpr auto min = -10000;
 
 // Given log values, perform an equivalent `linear add` operation
 template <typename FPType> FPType add(const FPType a_, const FPType b_) {
@@ -33,6 +36,7 @@ template <typename FPType> FPType div(const FPType a, const FPType b) {
   return a - b;
 }
 
+#ifndef __POPC__
 // Simply to save having to carefully enter values, use a softmax to
 // convert them into probabilities
 template <typename FPType>
@@ -72,8 +76,8 @@ boost::multi_array<FPType, 2> exp(const boost::multi_array<FPType, 2> &in) {
   }
   return out;
 }
-
+#endif // ifndef __POPC__
 } // namespace log
-} // namespace poplibs_test
+} // namespace poplibs_support
 
-#endif // poplibs_test_log_arithmetic_hpp
+#endif // poplibs_support_log_arithmetic_hpp

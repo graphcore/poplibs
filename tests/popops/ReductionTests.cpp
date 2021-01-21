@@ -7,6 +7,7 @@
 #include <iostream>
 #include <limits>
 #include <poplar/Engine.hpp>
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_test/Util.hpp>
 #include <popops/Reduce.hpp>
@@ -24,6 +25,7 @@ using namespace poplar::program;
 using namespace poputil;
 using namespace popops;
 using namespace poplibs_support;
+using namespace poplibs_test;
 using namespace poplibs_test::util;
 
 const OptionFlags options;
@@ -35,6 +37,9 @@ static double initValue(popops::Operation operation) {
   case popops::Operation::ADD:
   case popops::Operation::SQUARE_ADD:
     val = 0.0;
+    break;
+  case popops::Operation::LOG_ADD:
+    val = log::min;
     break;
   case popops::Operation::MUL:
     val = 1.0;
@@ -64,6 +69,9 @@ static double doComputation(double x, double y, popops::Operation comp) {
     break;
   case popops::Operation::SQUARE_ADD:
     res += x * x;
+    break;
+  case popops::Operation::LOG_ADD:
+    res = log::add<double>(res, x);
     break;
   case popops::Operation::MUL:
     res *= x;
@@ -371,8 +379,9 @@ int main(int argc, char **argv) {
      "Scale")
     ("operation",
      po::value<Operation>(&operation)->default_value(Operation::ADD),
-     "The operation to perform (ADD, SQUARE_ADD, MUL, MIN, MAX,"
-                                 " LOGICAL_AND or LOGICAL_OR)")
+     "The operation to perform (ADD, SQUARE_ADD, LOG_ADD, MUL, MIN, MAX,"
+                                 " LOGICAL_AND or LOGICAL_OR)."
+                                 " Log add used for log scaled probabilities")
     ("test",
      po::value<std::string>(&test)->required(),
      "Test: Add | Ops");

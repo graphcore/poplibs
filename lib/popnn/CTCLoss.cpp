@@ -3,7 +3,7 @@
 #include "CTCLossPlan.hpp"
 #include "poplibs_support/logging.hpp"
 #include <poplar/Graph.hpp>
-#include <poplibs_test/LogArithmetic.hpp>
+#include <poplibs_support/LogArithmetic.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Expr.hpp>
@@ -15,7 +15,6 @@
 using namespace poplar;
 using namespace poplar::program;
 using namespace poplibs_support;
-using namespace poplibs_test;
 using namespace popops;
 using namespace popops::expr;
 using namespace poputil;

@@ -22,6 +22,7 @@ enum class Operation {
   LOGICAL_AND, ///< Only supports boolean operands.
   LOGICAL_OR,  ///< Only supports boolean operands.
   SQUARE_ADD,  ///< Squares each element before applying ADD reduction.
+  LOG_ADD,     ///< Reduce using acc = a+log(1+exp(b-a))
 };
 
 /// Parse token from input stream \is to \op. Valid input values are the

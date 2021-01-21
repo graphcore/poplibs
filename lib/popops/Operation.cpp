@@ -35,6 +35,8 @@ std::istream &operator>>(std::istream &in, Operation &op) {
     op = Operation::LOGICAL_OR;
   } else if (opStr == "SQUARE_ADD") {
     op = Operation::SQUARE_ADD;
+  } else if (opStr == "LOG_ADD") {
+    op = Operation::LOG_ADD;
   } else {
     throw poputil::poplibs_error("Unrecognised operation " + opStr);
   }
@@ -64,6 +66,9 @@ std::ostream &operator<<(std::ostream &os, const Operation &op) {
     break;
   case Operation::SQUARE_ADD:
     os << "SQUARE_ADD";
+    break;
+  case Operation::LOG_ADD:
+    os << "LOG_ADD";
     break;
   default:
     throw poputil::poplibs_error("Unrecognised operation.");

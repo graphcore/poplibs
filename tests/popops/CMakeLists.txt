@@ -457,6 +457,25 @@ add_multitarget_test(NAME Reduce_Skip_ADD_float
 # Reduction tests
 foreach(type half float)
   foreach(update true false)
+    foreach(scale 0.0 1.2)
+      foreach(result_width 1 16)
+        add_multitarget_test(
+          NAME reduce_op_reduceLogAdd_${result_width}_${type}_${update}_${scale}
+          COMMAND $<TARGET_FILE:reduce_op>
+            "--shape=32,4,${result_width}"
+            "--dims=0,1"
+            --type=${type}
+            --scale ${scale}
+            --update ${update}
+            --operation LOG_ADD
+            --tiles-per-ipu=1)
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()
+
+foreach(type half float)
+  foreach(update true false)
     foreach(scale 1.0 1.2)
       foreach(op ADD SQUARE_ADD)
         add_multitarget_test(

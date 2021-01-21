@@ -7,10 +7,10 @@
 #include <iomanip>
 #include <random>
 
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_test/CTCInference.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
-#include <poplibs_test/LogArithmetic.hpp>
 #include <poplibs_test/Util.hpp>
 
 #include <boost/multi_array.hpp>
@@ -22,6 +22,7 @@
 namespace po = boost::program_options;
 namespace br = boost::random;
 
+using namespace poplibs_support;
 using namespace poplibs_test::ctc;
 using namespace poplibs_test;
 using namespace poplibs_test::util;

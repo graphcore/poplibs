@@ -37,6 +37,8 @@ std::string inline getReductionVertexOpName(popops::Operation op) {
     return "ReduceAdd";
   case popops::Operation::SQUARE_ADD:
     return "ReduceSquareAdd";
+  case popops::Operation::LOG_ADD:
+    return "ReduceLogAdd";
   case popops::Operation::MUL:
     return "ReduceMul";
   case popops::Operation::MIN:

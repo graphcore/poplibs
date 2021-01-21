@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_support/MultiArray.hpp>
 #include <popops/Reduce.hpp>
 
@@ -60,6 +61,9 @@ reduce(const poplibs_support::MultiArray<T> &input,
                   case popops::Operation::LOGICAL_OR:
                     element = 0;
                     break;
+                  case popops::Operation::LOG_ADD:
+                    element = poplibs_support::log::min;
+                    break;
                   case popops::Operation::MUL:
                   case popops::Operation::LOGICAL_AND:
                     element = 1;
@@ -98,6 +102,10 @@ reduce(const poplibs_support::MultiArray<T> &input,
           break;
         case popops::Operation::SQUARE_ADD:
           output[outIndices] += input[indices] * input[indices];
+          break;
+        case popops::Operation::LOG_ADD:
+          output[outIndices] = poplibs_support::log::add<double>(
+              output[outIndices], input[indices]);
           break;
         case popops::Operation::MUL:
           output[outIndices] *= input[indices];

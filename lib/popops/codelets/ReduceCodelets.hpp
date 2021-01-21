@@ -1,5 +1,6 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <poplar/HalfFloat.hpp>
 #include <poplar/Vertex.hpp>
@@ -7,6 +8,8 @@
 #include "../reduction/ReductionVertexDefs.hpp"
 #include "poplar/AvailableVTypes.h"
 #include "poplibs_support/ExternalCodelet.hpp"
+#include "poplibs_support/LogArithmetic.hpp"
+
 #include "util.hpp"
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
@@ -50,6 +53,18 @@ struct ReduceSquareAdd {
   static void update(OutType &acc, PartialsType val) {
     auto valOutType = static_cast<OutType>(val);
     acc += valOutType * valOutType;
+  }
+};
+
+struct ReduceLogAdd {
+  template <typename T> static T init() { return poplibs_support::log::min; }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val_) {
+    OutType val = static_cast<float>(val_);
+    OutType a = val < acc ? acc : val;
+    OutType b = val < acc ? val : acc;
+    acc = a + static_cast<OutType>(
+                  std::log(1 + std::exp(static_cast<float>(b - a))));
   }
 };
 
