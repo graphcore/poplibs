@@ -3,7 +3,8 @@
 #ifndef popnn_CTCLossPlan_hpp
 #define popnn_CTCLossPlan_hpp
 
-#include <poplar/Graph.hpp>
+#include <poplar/Interval.hpp>
+#include <poplibs_support/Algorithm.hpp>
 #include <popnn/CTCLoss.hpp>
 
 namespace popnn {
@@ -45,11 +46,11 @@ namespace ctc {
 // temporary memory will be present throughout.  A `SerialPartition` attempts
 // to reduce that temporary memory.
 
-struct ParallelPartition {
+template <typename T, typename B> struct ParallelPartition {
   // The number of splits across the batch dimension.  Each is completely
   // independent so there is no exchange / temporary memory duplication cost
   // to splitting in this way.  Each can be processed in parallel
-  std::size_t batch;
+  T batch;
 
   // When splitting work by time and label, dependencies operate in a grid
   // (1a means in timestep 1 this tile can compute alpha
@@ -90,7 +91,7 @@ struct ParallelPartition {
   // As the number of tiles increases (and is even) the pattern will follow that
   // of 4 tiles, but with more idle tiles.  Likewise odd and 3 tiles - where
   // one has to process alpha then beta while all others sit idle.
-  std::size_t time;
+  T time;
 
   // The number of tiles the labels (equivalent to El) dimension is split over.
   // Each tile produces the results for a number of the labels results
@@ -126,14 +127,14 @@ struct ParallelPartition {
   // the input sequence).  We can choose to calculate gradient in a [T,B,El]
   // array or combine on tile into a [T,B,A] array (doing part of the reduction
   // while generating gradient).  Choice using the sliceIntoOutput flag
-  std::size_t label;
-  bool sliceIntoOutput = true;
+  T label;
+  B sliceIntoOutput;
 
   // We can choose to split the storage of the prob[] alphabet dimension over
   // tiles, however as each input requires a dynamicSlice based on the content
   // of labels[] this will add that dynamic slice processing step (see
   // sliceFromInput)
-  std::size_t alphabet;
+  T alphabet;
 
   // We can choose to:
   // a) Read each prob[] element, using labels[] to lookup
@@ -149,7 +150,7 @@ struct ParallelPartition {
   // 1 for "-", which is static and we know we will always need it.
   // And 6 more slices for a,b,c,a,a,d (There are 3 a's as the presence of a in
   // the labels sequence is dynamic and we could have seen a,b,c,d,e,f)
-  bool sliceFromInput;
+  B sliceFromInput;
 };
 
 // Processing requires temporary data:
@@ -160,10 +161,10 @@ struct ParallelPartition {
 //
 // So serialisation may be necessary to reduce temporary memory.
 
-struct SerialPartition {
+template <typename T> struct SerialPartition {
   // To reduce temporary memory we can calculate a subset of the batch items
   // at once.  These are independent so there are no complications
-  std::size_t batch;
+  T batch;
 
   // Serialising in T will involve some recomputation. Suppose we serialise
   // splitting T in 2:
@@ -174,7 +175,7 @@ struct SerialPartition {
   // 5. Recompute alpha 0..T/2
   // 6. Compute beta 0..T/2 and reduce to gradient result.
   // When splitting more, alpha[T/splits] checkpoints will also be useful
-  std::size_t time;
+  T time;
 
   // Serialising in El will involve some recomputation. Suppose we serialise
   // splitting El in 2:
@@ -187,36 +188,39 @@ struct SerialPartition {
   // 5. Recompute alpha 0..El/2
   // 6. Compute beta 0..El/2 and therefore gradient and reduce into the
   //    gradient result
-  std::size_t label;
+  T label;
 };
 
 // Internal Plan implementation
 class Plan::Impl {
+  poplar::Interval partition(unsigned fullSize, unsigned partitions,
+                             unsigned index) const {
+    const auto partitionSize = poplibs_support::ceildiv(fullSize, partitions);
+    const auto begin = std::min(partitionSize * index, fullSize);
+    const auto end = std::min(partitionSize * (index + 1), fullSize);
+    return {begin, end};
+  }
+
 public:
-  ParallelPartition parallel;
-  SerialPartition serial;
+  SerialPartition<unsigned> serial;
+  ParallelPartition<unsigned, bool> parallel;
 
-  poplar::Interval partitionBatch(const std::size_t batchSize,
-                                  const std::size_t partition) const {
-    const auto splitSize = (batchSize + parallel.batch - 1) / parallel.batch;
-    const auto begin = std::min(splitSize * partition, batchSize);
-    const auto end = std::min(splitSize * (partition + 1), batchSize);
-    return {begin, end};
-  }
-  poplar::Interval partitionTime(const std::size_t timeSize,
-                                 const std::size_t partition) const {
-    const auto splitSize = (timeSize + parallel.time - 1) / parallel.time;
-    const auto begin = std::min(splitSize * partition, timeSize);
-    const auto end = std::min(splitSize * (partition + 1), timeSize);
-    return {begin, end};
+  // Given a batch size and partition index, return range of batch elements
+  // represented in this partition
+  poplar::Interval partitionBatch(unsigned batchSize, unsigned index) const {
+    return partition(batchSize, parallel.batch, index);
   }
 
-  poplar::Interval partitionLabel(const std::size_t labelSize,
-                                  const std::size_t partition) const {
-    const auto splitSize = (labelSize + parallel.label - 1) / parallel.label;
-    const auto begin = std::min(splitSize * partition, labelSize);
-    const auto end = std::min(splitSize * (partition + 1), labelSize);
-    return {begin, end};
+  // Given a time size and partition index, return range of time elements
+  // represented in this partition
+  poplar::Interval partitionTime(unsigned timeSize, unsigned index) const {
+    return partition(timeSize, parallel.time, index);
+  }
+
+  // Given a label size and partition index, return range of label elements
+  // represented in this partition
+  poplar::Interval partitionLabel(unsigned labelSize, unsigned index) const {
+    return partition(labelSize, parallel.label, index);
   }
 
   // Note passed labelSize NOT extendedLabelSize - result made to match
@@ -231,12 +235,27 @@ public:
   }
 
   unsigned getTile(unsigned batch, unsigned time, unsigned label) const {
-    return batch * (parallel.time * parallel.label) + time * parallel.label +
-           label;
+    return batch * (parallel.time * parallel.label) // Batch
+           + time * parallel.label                  // Time
+           + label;                                 // Label
   }
 
-  unsigned numTiles(void) const {
+  unsigned numTiles() const {
     return parallel.batch * parallel.time * parallel.label;
+  }
+};
+
+struct CycleEstimate {
+  uint64_t alphaBetaComputeCycles;
+  uint64_t alphaBetaExchangeCost;
+  uint64_t gradComputeCycles;
+  uint64_t gradExchangeCost;
+  unsigned steps;
+  unsigned serialVertexExecutions;
+
+  uint64_t total() const {
+    return alphaBetaComputeCycles + alphaBetaExchangeCost + gradComputeCycles +
+           gradExchangeCost;
   }
 };
 

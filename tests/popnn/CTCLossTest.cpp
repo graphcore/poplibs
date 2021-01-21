@@ -335,6 +335,7 @@ int main(int argc, char **argv) {
      "Classes in the alphabet including blank")
     ("ignore-data", po::value(&ignoreData)->default_value(ignoreData),
      "Ignore data, to check execution time")
+    ("plan-only", "Only plan the requested passes, don't build or run a graph")
     ("verbose", po::value(&verbose)->default_value(verbose),
      "Provide debug printout");
   // clang-format on
@@ -351,6 +352,8 @@ int main(int argc, char **argv) {
     std::cerr << "error parsing command line: " << e.what() << "\n";
     return 1;
   }
+  const bool planOnly = vm.count("plan-only");
+
   // Needed to set default arguments.
   po::notify(vm);
   // Pick up on some parameters that are easy to get wrong
@@ -368,6 +371,19 @@ int main(int argc, char **argv) {
   if (maxLabels < minLabels) {
     throw poputil::poplibs_error(
         "The max test labels must be >= min test labels");
+  }
+
+  if (planOnly) {
+    auto device = createTestDevice(deviceType, 1, tiles);
+    const auto &target = device.getTarget();
+    Graph graph(target);
+
+    const auto plan = popnn::ctc::plan(graph, inType, outType, batchSize,
+                                       maxTime, maxLabels, numClasses);
+
+    std::cout << plan << std::endl;
+    std::cout << "No test run - plan only" << std::endl;
+    return 0;
   }
 
   // For test call the reference function for each batch input
@@ -405,7 +421,6 @@ int main(int argc, char **argv) {
     references.back() = maskResults(references.back(), tests[i].inputLength);
     print("Reference gradient", references.back(), blankClass, verbose);
   }
-
   auto outputs = gradIPU(tests, maxLabels, blankClass, numClasses, inType,
                          outType, deviceType, tiles, ignoreData, profile);
 

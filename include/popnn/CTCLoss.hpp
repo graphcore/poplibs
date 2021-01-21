@@ -50,9 +50,8 @@ private:
  *                    is to be implemented
  */
 Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
-          const poplar::Type &outType, const std::size_t batchSize,
-          const std::size_t maxTime, const std::size_t maxLabels,
-          const std::size_t numClasses);
+          const poplar::Type &outType, unsigned batchSize, unsigned maxTime,
+          unsigned maxLabels, unsigned numClasses);
 
 /** Create and map a data input [maxTime, batchSize, numClasses] tensor which
  *  the gradient function will use.  Mapping is according to the plan provided.
