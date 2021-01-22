@@ -3569,6 +3569,21 @@ add_multitarget_test(
                  --data-type=half
                  VARIANTS ${TimesOutOnSim})
 
+# test that hit a bug where we would generate an incorrect vertex due to trying
+# to use a joint plan when the input and output types didn't match.
+add_multitarget_test(
+         NAME fully_connected_T33085
+         COMMAND fully_connected_layer
+                 --batch-size=16
+                 --input-size=384
+                 --output-size=384
+                 --num-groups=2
+                 --input-type=half
+                 --output-type=float
+                 --matmul-options={\"partialsType\":\"half\"}
+                 --single-phase=fwd
+                 VARIANTS ${TimesOutOnSim})
+
 # Test the --use-create-input option
 foreach(USE_CREATE_INPUT "0" "1")
     add_multitarget_test(

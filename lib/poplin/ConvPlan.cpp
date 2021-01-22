@@ -942,8 +942,9 @@ static void logPlanBreakdown(logging::Level l, const Plan &plan,
 }
 
 static std::pair<Plan, Cost>
-createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
-           const PlanningObjective &objective, const poplar::Target &target,
+createPlan(const ConvParams &params, const ConvOptions &options,
+           bool isJointPlan, const PlanningObjective &objective,
+           const poplar::Target &target,
            unsigned startTileIdxForVirtualHierarchy,
            const boost::optional<Plan> &referencePlan,
            const boost::optional<Cost> &referenceCost,
@@ -951,18 +952,16 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   logging::poplin::debug("Creating plan with objective {}", objective);
   validateLayerParams(params, options, target);
 
+  Cost bestCost = highestCost;
+  Plan bestPlan;
+  if (isJointPlan && params.inputType != params.outputType) {
+    // we can't support joint plans when the input type and output type
+    // don't match.
+    return std::make_pair(std::move(bestPlan), std::move(bestCost));
+  }
+
   // A coarse metric to measure the efficiency of the constraint solver
   popsolver::ConstraintEvaluationSummary totalConstraintsEvaluated{};
-
-  // T8972: It is currently assumed that the parameters for all the training
-  // passes can be derived from one pass, but this is no longer the case since a
-  // different outputType can be specified for each pass. To avoid a costly
-  // exchange of weights, we plan with the assumption that
-  // outputType == inputType for FC_TRAINING.
-  const auto originalOutputType = params.outputType;
-  if (isJointPlan) {
-    params.outputType = params.inputType;
-  }
 
   // perLevelExchangeBytesPerCycle is indexed by hierarchy (not including the
   // tile level), lower indices to higher hierarchies.
@@ -973,8 +972,6 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
 
   validatePlanConstraints(params, options.planConstraints, numLevels);
 
-  Cost bestCost = highestCost;
-  Plan bestPlan;
   std::vector<ConvTransform> transforms(numLevels);
   const auto ipuLevel = transforms.size() - 2;
   unsigned addedFieldDims = 0;
@@ -1081,24 +1078,6 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
   }
 
   const auto planIsValid = bestCost != highestCost;
-
-  if (isJointPlan && planIsValid) {
-    // If we created a plan with the assumption that inputType == outputType,
-    // we now restore resultType to ensure bestPlan is valid.
-    const auto numLevelsOfHierarchy = hierarchy.size() + 1;
-    for (unsigned level = 0; level != numLevelsOfHierarchy; ++level) {
-      const auto outputTypeSize = target.getTypeSize(originalOutputType);
-      auto &types = bestPlan.types[level];
-
-      if (target.getTypeSize(types.resultType) < outputTypeSize || 0 == level) {
-        types.resultType = originalOutputType;
-      }
-      if (target.getTypeSize(types.partialType) < outputTypeSize) {
-        types.partialType = originalOutputType;
-      }
-    }
-  }
-
   if (planIsValid) {
     logging::poplin::debug(
         "Evaluated a total of {} constraints to find the best plan",
@@ -1108,6 +1087,7 @@ createPlan(ConvParams params, const ConvOptions &options, bool isJointPlan,
         "Evaluated a total of {} constraints and could not find a valid plan",
         totalConstraintsEvaluated);
   }
+
   return {bestPlan, bestCost};
 }
 static CanonicalConvParams

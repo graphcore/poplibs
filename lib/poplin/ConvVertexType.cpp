@@ -678,4 +678,17 @@ getConvVertexTypeCandidates(const poplar::Target &target,
   return convVertexTypeCandidates;
 }
 
+std::ostream &operator<<(std::ostream &os, const ConvVertexType &cvt) {
+  os << "ConvVertexType{"
+     << "method=" << cvt.method << ", inputType=" << cvt.inputType
+     << ", partialType=" << cvt.partialType
+     << ", convGroupsPerGroup=" << cvt.convGroupsPerGroup
+     << ", inChansPerGroup=" << cvt.inChansPerGroup
+     << ", partialChansPerGroup=" << cvt.partialChansPerGroup
+     << ", slicWindowWidth=" << cvt.slicWindowWidth
+     << ", numConvUnitsOrChainsRequired=" << cvt.numConvUnitsOrChainsRequired
+     << ", useLimitedVersion=" << cvt.useLimitedVersion << "}";
+  return os;
+}
+
 } // End namespace poplin

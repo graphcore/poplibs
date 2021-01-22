@@ -3,6 +3,7 @@
 #define _ConvVertexType_hpp_
 
 #include "ConvPlan.hpp"
+#include <iosfwd>
 #include <poplar/Type.hpp>
 
 namespace poplar {
@@ -51,6 +52,8 @@ struct ConvVertexType {
         numConvUnitsOrChainsRequired(numConvUnitsOrChainsRequired),
         useLimitedVersion(useLimitedVersion) {}
 };
+
+std::ostream &operator<<(std::ostream &os, const ConvVertexType &cvt);
 
 bool canUseConvolutionInstruction(bool floatActivations, bool floatPartials,
                                   unsigned inChansPerGroup,
