@@ -215,7 +215,6 @@ constructModel(popsolver::Model &m, const CtcParams &params,
   vars.parallel.label = m.addVariable("parallelLabel");
   m.lessOrEqual(m.one(), vars.parallel.label);
   m.lessOrEqual(vars.parallel.label, m.addConstant(params.maxLabels));
-  m.equal(m.one(), vars.parallel.label); // Unsupported
 
   vars.parallel.sliceIntoOutput =
       m.addVariable(false, true, "parallelSliceIntoOutput");
