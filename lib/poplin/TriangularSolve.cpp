@@ -5,7 +5,6 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Expr.hpp"
 #include "popops/Pad.hpp"
-#include "popops/Zero.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/GraphFunction.hpp"
@@ -233,10 +232,18 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
   } else {
     // direct solver: back/forward substitution
     if (!params.solver) {
+      // Create nicely layed out tensors for function input, so clone won't
+      // expand padding.
+      poplar::Tensor inputA =
+          graph.addVariable(a.elementType(), a.shape(), "inputA");
+      poputil::mapTensorLinearly(graph, inputA);
+      poplar::Tensor inputB =
+          graph.addVariable(b.elementType(), b.shape(), "inputB");
+      poputil::mapTensorLinearly(graph, inputB);
       params.solver.reset(new poputil::graphfn::VoidFunction(
           graph,
-          {poputil::graphfn::input(a), poputil::graphfn::input(b),
-           poputil::graphfn::inout(b)},
+          {poputil::graphfn::input(inputA), poputil::graphfn::input(inputB),
+           poputil::graphfn::inout(inputB)}, // X has the same shape as B
           [&graph, an, bn, totalBatches, &params,
            &dnai](std::vector<poplar::Tensor> &args,
                   poplar::program::Sequence &prog) {
@@ -378,6 +385,9 @@ poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
   const auto g = shape[0];
   const auto n = shape[leftSide ? 1 : 2];
   const auto m = shape[leftSide ? 2 : 1];
+  if (n <= blockSize && m <= blockSize) {
+    blockSize = 1; // No blocks
+  }
 
   const auto nb = poplibs_support::ceildiv(n, blockSize);
   const auto mb = poplibs_support::ceildiv(m, blockSize);
@@ -553,6 +563,11 @@ poplar::Tensor triangularSolve(
     batchB = popops::div(graph, batchB, diagVectorB, prog, {di, "scaleB"});
   }
 
+  auto zero = graph.addConstant(a.elementType(), {1}, 0)
+                  .broadcast(totalBatches, 0)
+                  .reshape({totalBatches, 1, 1});
+  graph.setTileMapping(zero, 0);
+
   if (needPadding) {
     // create two writeable padding regions and fill them with 1 on main
     // diagonal between [N and paddedSize]
@@ -567,12 +582,15 @@ poplar::Tensor triangularSolve(
     auto paddingRight = graph.addVariable(
         a.elementType(), {totalBatches, an, (std::size_t)toPad}, {di});
     poputil::mapTensorLinearly(graph, paddingRight);
-    popops::zero(graph, paddingRight, prog, {di, "rightZeroPad"});
+    prog.add(poplar::program::Copy(zero.broadcast(an, 1).broadcast(toPad, 2),
+                                   paddingRight, false, {di, "rightZeroPad"}));
 
     auto paddingBottom = graph.addVariable(
         a.elementType(), {totalBatches, (std::size_t)toPad, paddedSize}, {di});
     poputil::mapTensorLinearly(graph, paddingBottom);
-    popops::zero(graph, paddingBottom, prog, {di, "bottomZeroPad"});
+    prog.add(
+        poplar::program::Copy(zero.broadcast(toPad, 1).broadcast(paddedSize, 2),
+                              paddingBottom, false, {di, "bottomZeroPad"}));
 
     batchA = poplar::concat(batchA, paddingRight, 2);
     batchA = poplar::concat(batchA, paddingBottom, 1);
@@ -592,8 +610,9 @@ poplar::Tensor triangularSolve(
       graph, a.elementType(), b.elementType(), batchA.shape(), batchB.shape(),
       leftSide, blockSize, debugContext, options, cache);
 
-  poputil::mapTensorLinearly(graph, x);
-  popops::zero(graph, x, prog, {di});
+  prog.add(poplar::program::Copy(
+      zero.broadcast(x.shape()[1], 1).broadcast(x.shape()[2], 2), x, false,
+      {di, "zeroX"}));
   params.x = x;
 
   solve(graph, batchA, batchB, 0, 0, params, prog, {di, "solve"});
