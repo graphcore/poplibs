@@ -31,8 +31,6 @@ ConvParams
 calculateFlattenedParams(const ConvParams &params,
                          const std::vector<unsigned> &outChanFlattenDims,
                          std::vector<unsigned> &flattenDims);
-ConvParams calculateGroupedParams(ConvParams groupedParams,
-                                  unsigned combineConvGroups);
 
 bool isFullyConnected(Pass pass);
 
