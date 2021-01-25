@@ -4,6 +4,7 @@
 #include "ReductionConnection.hpp"
 #include <poplibs_support/Algorithm.hpp>
 #include <poplibs_support/cyclesTables.hpp>
+#include <poplibs_support/forceInterleavedEstimates.hpp>
 #include <poplibs_support/gcd.hpp>
 #include <poputil/VertexTemplates.hpp>
 
@@ -58,7 +59,7 @@ std::uint64_t getCyclesEstimateForReduce(
   const auto opVectorWidth = usesAccumulators ? accVectorWidth : vectorWidth;
   assert(opVectorWidth % dataPathWidth == 0 ||
          dataPathWidth % opVectorWidth == 0);
-
+  const auto interleaveFactor = getForceInterleavedEstimates() ? 2 : 1;
   // Total execution cycles.
   std::uint64_t cycles = 5 + 1 + 1; // entry/exit
 
@@ -68,10 +69,11 @@ std::uint64_t getCyclesEstimateForReduce(
     auto numOutputs = std::accumulate(outSizes.cbegin(), outSizes.cend(), 0u);
     cycles += 17; // non-loop overhead
 
-    // We do not take advantage of interleaved memory so the elements
-    // processed per loop is limited by the data path width and the
-    // op width, so with 64-bit data path width and 128-bit accumulator
-    // based ops we only manage 64-bits per-cycle.
+    // The elements processed per loop is limited by the data path width, the
+    // interleave factor, and the op width, so with 64-bit data path width and
+    // 128-bit accumulator based ops we only manage 64-bits per-cycle. With the
+    // same scenario with interleave factor 2,  we can manage 64 * 2 bits
+    // per-cycle.
     //
     // Additionally when performing modelling experiments, elemsPerLoop may
     // be greater than that for 64-bits but our graph construction allows
@@ -80,7 +82,7 @@ std::uint64_t getCyclesEstimateForReduce(
     // elements processed per cycle or else we won't be aligned on the
     // second (or more) iteration(s) hence we take a gcd.
     const auto elemsPerLoop =
-        gcd(std::min(opVectorWidth, dataPathWidth), *stride);
+        gcd(std::min(opVectorWidth, dataPathWidth * interleaveFactor), *stride);
 
     // Estimate the number of outer loops. If elemsPerLoop is equivalent to
     // 64-bits of input data per cycle this is exact.
@@ -92,11 +94,11 @@ std::uint64_t getCyclesEstimateForReduce(
   }
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     assert(accVectorWidth % vectorWidth == 0);
-    // We don't take advantage of interleaved memory so take the minimum
-    // of the data path width and the op width to get the elements we
-    // can do per cycle.
-    // This is for the ASM vertices. The C vertices are worse
-    const auto elemsPerCycle = std::min(accVectorWidth, vectorWidth);
+    // Take the minimum of the data path width * interleaved factor and
+    // the op width to get the elements we can do per cycle. This is for the ASM
+    // vertices. The C vertices are worse
+    const auto elemsPerCycle =
+        std::min(opVectorWidth, dataPathWidth * interleaveFactor);
     cycles += 8;
     // other init / checking
     cycles += 11;
@@ -139,10 +141,11 @@ std::uint64_t getCyclesEstimateForReduce(
       // an inline load between accumulator/non-accumulator version.
       const auto loadOverhead = usesAccumulators ? 2 : 0; // call, br $lr
       // In the best case we get 2 cycles to check alignment and then
-      // load the data path width determines how quickly we can load each
-      // vector. Lastly we have 2 cycles to check for loop exit and branch
-      // back to the start of the loop.
-      const auto loadWidth = std::min(opVectorWidth, dataPathWidth);
+      // load. The data path width and the interleave factor determines how
+      // quickly we can load each vector. Lastly we have 2 cycles to check for
+      // loop exit and branch back to the start of the loop.
+      const auto loadWidth =
+          std::min(opVectorWidth, dataPathWidth * interleaveFactor);
       const auto cyclesPerVectorLoad =
           loadOverhead + 2 + opVectorWidth / loadWidth;
 
@@ -196,7 +199,9 @@ std::uint64_t getCyclesEstimateForReduce(
             // Make the assumption that each load is a check for alignment
             // (2 cycles) and however many loads of data path width it takes
             // to load the remainder, all inline.
-            const auto numLoads = remainder / std::min(remainder, vectorWidth);
+            const auto numLoads =
+                remainder /
+                std::min(remainder, dataPathWidth * interleaveFactor);
             cycles += numAccumulations * (2 + numLoads + 3);
           }
         }
@@ -256,10 +261,11 @@ std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
   assert(accVectorWidth % dataPathWidth == 0 ||
          dataPathWidth % accVectorWidth == 0);
 
-  // We don't take advantage of interleaved memory, hence the achieved
   // elements per cycle is the minimum of the accumulator vector width
-  // and the data path width.
-  const auto elemsPerInnerLoop = std::min(accVectorWidth, dataPathWidth);
+  // and the data path width times the interleave factor.
+  const auto interleaveFactor = getForceInterleavedEstimates() ? 2 : 1;
+  const auto elemsPerInnerLoop =
+      std::min(accVectorWidth, dataPathWidth * interleaveFactor);
   // Estimate based on the code structure
   std::uint64_t cycles =
       cyclesPerOp * numOutputs * (numPartials / elemsPerInnerLoop);
