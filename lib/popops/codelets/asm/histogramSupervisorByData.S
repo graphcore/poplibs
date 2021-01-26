@@ -97,16 +97,16 @@
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS)
-.section .text.MANGLE_STR(half_\IS_ABS)
-.global MANGLE_STR(half_\IS_ABS)
-.type MANGLE_STR(half_\IS_ABS), @function
+DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS\()_false)
+.section .text.MANGLE_STR(half_\IS_ABS\()_false)
+.global MANGLE_STR(half_\IS_ABS\()_false)
+.type MANGLE_STR(half_\IS_ABS\()_false), @function
 .align 4
 .supervisor
 
-MANGLE_STR(half_\IS_ABS):
+MANGLE_STR(half_\IS_ABS\()_false):
 
-  setzi       $m1, MANGLE_STR(worker_half_\IS_ABS)
+  setzi       $m1, MANGLE_STR(worker_half_\IS_ABS\()_false)
   runall      $m1, $m0, 0
   sync        TEXCH_SYNCZONE_LOCAL
   br          $lr
@@ -114,7 +114,7 @@ MANGLE_STR(half_\IS_ABS):
 .worker
 .align 8
 
- MANGLE_STR(worker_half_\IS_ABS):
+ MANGLE_STR(worker_half_\IS_ABS\()_false):
    {call  $mlink, MANGLE_STR(state_divide_work_half)
     setzi $one0, HALF_ONE}
 
@@ -140,7 +140,7 @@ limit_loop\@:
 
   ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
 
-  RPT_ALIGNED_TO MANGLE_STR(worker_half_\IS_ABS) $mloops
+  RPT_ALIGNED_TO MANGLE_STR(worker_half_\IS_ABS\()_false) $mloops
 1:
   CONDITIONAL_ABSv4HALF_BUNDLE \IS_ABS
   {nop
@@ -322,30 +322,30 @@ extract_w0\@:
 
   bri MANGLE_STR(post_process)
 
-.size MANGLE_STR(half_\IS_ABS), . -MANGLE_STR(half_\IS_ABS)
+.size MANGLE_STR(half_\IS_ABS\()_false), . -MANGLE_STR(half_\IS_ABS\()_false)
 .endm
 //******************************************************************************
 // Supervisor entry, worker code in one macro for FLOAT
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS)
-.section .text.MANGLE_STR(float_\IS_ABS)
-.global MANGLE_STR(float_\IS_ABS)
-.type MANGLE_STR(float_\IS_ABS), @function
+DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS\()_false)
+.section .text.MANGLE_STR(float_\IS_ABS\()_false)
+.global MANGLE_STR(float_\IS_ABS\()_false)
+.type MANGLE_STR(float_\IS_ABS\()_false), @function
 .align 4
 .supervisor
 
-MANGLE_STR(float_\IS_ABS):
+MANGLE_STR(float_\IS_ABS\()_false):
 
-  setzi       $m1, MANGLE_STR(worker_float_\IS_ABS)
+  setzi       $m1, MANGLE_STR(worker_float_\IS_ABS\()_false)
   runall      $m1, $m0, 0
   sync        TEXCH_SYNCZONE_LOCAL
   br          $lr
 
 .worker
 .align 8
-MANGLE_STR(worker_float_\IS_ABS):
+MANGLE_STR(worker_float_\IS_ABS\()_false):
    {call  $mlink, MANGLE_STR(state_divide_work_float)
     or $one0, $azero, FLOAT_ONE}
 
@@ -368,7 +368,7 @@ limit_loop\@:
   {brneg $mloops, extract\@
    mov $acc01, $azeros}
   ld64step $a0:1, $mzero, $dataPtr+=,NUM_WORKERS
-  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS) $mloops
+  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_false) $mloops
 1:
   CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
   {nop
@@ -506,7 +506,7 @@ extract_w0\@:
 
   bri MANGLE_STR(post_process)
 
-.size MANGLE_STR(float_\IS_ABS), . -MANGLE_STR(float_\IS_ABS)
+.size MANGLE_STR(float_\IS_ABS\()_false), . -MANGLE_STR(float_\IS_ABS\()_false)
 .endm
 
 //******************************************************************************
@@ -648,10 +648,10 @@ MANGLE_STR(post_process):
 DIVIDE_WORK float
 DIVIDE_WORK half
 
-INSTANTIATE_HISTOGRAM true_false
-INSTANTIATE_HISTOGRAM false_false
-INSTANTIATE_HISTOGRAM_FLOAT true_false
-INSTANTIATE_HISTOGRAM_FLOAT false_false
+INSTANTIATE_HISTOGRAM true
+INSTANTIATE_HISTOGRAM false
+INSTANTIATE_HISTOGRAM_FLOAT true
+INSTANTIATE_HISTOGRAM_FLOAT false
 
 
 #endif

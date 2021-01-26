@@ -78,16 +78,16 @@
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS)
-.section .text.MANGLE_STR(half_\IS_ABS)
-.global MANGLE_STR(half_\IS_ABS)
-.type MANGLE_STR(half_\IS_ABS), @function
+DEF_STACK_USAGE 0 MANGLE_STR(half_\IS_ABS\()_true)
+.section .text.MANGLE_STR(half_\IS_ABS\()_true)
+.global MANGLE_STR(half_\IS_ABS\()_true)
+.type MANGLE_STR(half_\IS_ABS\()_true), @function
 .align 4
 .supervisor
 
-MANGLE_STR(half_\IS_ABS):
+MANGLE_STR(half_\IS_ABS\()_true):
 
-  setzi       $m1, MANGLE_STR(worker_half_\IS_ABS)
+  setzi       $m1, MANGLE_STR(worker_half_\IS_ABS\()_true)
   runall      $m1, $m0, 0
   sync        TEXCH_SYNCZONE_LOCAL
   br          $lr
@@ -95,7 +95,7 @@ MANGLE_STR(half_\IS_ABS):
 .worker
 .align 8
   nop //rpt alignment
- MANGLE_STR(worker_half_\IS_ABS):
+ MANGLE_STR(worker_half_\IS_ABS\()_true):
    {call  $mlink, MANGLE_STR(state_divide_work6)
     setzi $one0, HALF_ONE}
 
@@ -207,30 +207,30 @@ extract\@:
   brz $workerIdM1, MANGLE_STR(worker_postprocess)
   exitz $mzero
 
-.size MANGLE_STR(half_\IS_ABS), . -MANGLE_STR(half_\IS_ABS)
+.size MANGLE_STR(half_\IS_ABS\()_true), . -MANGLE_STR(half_\IS_ABS\()_true)
 .endm
 //******************************************************************************
 // Supervisor entry, worker code in one macro for FLOAT
 //******************************************************************************
 
 .macro INSTANTIATE_HISTOGRAM_FLOAT IS_ABS
-DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS)
-.section .text.MANGLE_STR(float_\IS_ABS)
-.global MANGLE_STR(float_\IS_ABS)
-.type MANGLE_STR(float_\IS_ABS), @function
+DEF_STACK_USAGE 0 MANGLE_STR(float_\IS_ABS\()_true)
+.section .text.MANGLE_STR(float_\IS_ABS\()_true)
+.global MANGLE_STR(float_\IS_ABS\()_true)
+.type MANGLE_STR(float_\IS_ABS\()_true), @function
 .align 4
 .supervisor
 
-MANGLE_STR(float_\IS_ABS):
+MANGLE_STR(float_\IS_ABS\()_true):
 
-  setzi       $m1, MANGLE_STR(worker_float_\IS_ABS)
+  setzi       $m1, MANGLE_STR(worker_float_\IS_ABS\()_true)
   runall      $m1, $m0, 0
   sync        TEXCH_SYNCZONE_LOCAL
   br          $lr
 
 .worker
 .align 8
-MANGLE_STR(worker_float_\IS_ABS):
+MANGLE_STR(worker_float_\IS_ABS\()_true):
    {call  $mlink, MANGLE_STR(state_divide_work6)
     or $one0, $azero, FLOAT_ONE}
 
@@ -265,9 +265,9 @@ limit_loop\@:
 #if (CSR_W_REPEAT_COUNT__VALUE__MASK < 0xFFFF)
   min $mscratch, $dataCountDiv, CSR_W_REPEAT_COUNT__VALUE__MASK
   sub $dataCountDiv, $dataCountDiv, $mscratch
-  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS) $mscratch
+  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_true) $mscratch
 #else
-  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS) $dataCountDiv
+  RPT_ALIGNED_TO MANGLE_STR(worker_float_\IS_ABS\()_true) $dataCountDiv
 #endif
 1:
   CONDITIONAL_ABSv2FLOAT_BUNDLE \IS_ABS
@@ -303,7 +303,7 @@ extract\@:
   brz $workerIdM1, MANGLE_STR(worker_postprocess)
   exitz $mzero
 
-.size MANGLE_STR(float_\IS_ABS), . -MANGLE_STR(float_\IS_ABS)
+.size MANGLE_STR(float_\IS_ABS\()_true), . -MANGLE_STR(float_\IS_ABS\()_true)
 .endm
 //******************************************************************************
 // Vertex state load function to call on entry
@@ -416,10 +416,10 @@ MANGLE_STR(worker_postprocess):
 //******************************************************************************
 // Use the macros above to create vertex code
 //******************************************************************************
-INSTANTIATE_HISTOGRAM true_true
-INSTANTIATE_HISTOGRAM false_true
-INSTANTIATE_HISTOGRAM_FLOAT true_true
-INSTANTIATE_HISTOGRAM_FLOAT false_true
+INSTANTIATE_HISTOGRAM true
+INSTANTIATE_HISTOGRAM false
+INSTANTIATE_HISTOGRAM_FLOAT true
+INSTANTIATE_HISTOGRAM_FLOAT false
 
 
 #endif
