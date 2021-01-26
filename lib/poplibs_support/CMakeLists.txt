@@ -5,6 +5,7 @@ add_library(poplibs_support STATIC
   Algorithms.cpp
   codelets.cpp
   ContiguousRegionsByTile.cpp
+  forceInterleavedEstimates.cpp
   IclUtil.cpp
   logging.cpp
   PlanConstraints.cpp
@@ -16,6 +17,7 @@ add_library(poplibs_support STATIC
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/ContiguousRegionsByTile.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/cyclesTables.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplibs_support/forceInterleavedEstimates.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/gcd.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/IclUtil.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/LogArithmetic.hpp
