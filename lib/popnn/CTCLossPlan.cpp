@@ -227,9 +227,6 @@ constructModel(popsolver::Model &m, const CtcParams &params,
       m.addVariable(false, true, "parallelSliceFromInput");
   m.equal(vars.parallel.sliceFromInput, m.addConstant(false)); // Unsupported
 
-  m.equal(m.product({vars.parallel.batch, vars.serial.batch}),
-          m.addConstant(params.batchSize));
-
   auto totalParallelSplit =
       m.product({vars.parallel.batch, vars.parallel.time, vars.parallel.label,
                  vars.parallel.alphabet},
