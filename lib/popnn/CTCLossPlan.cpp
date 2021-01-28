@@ -5,6 +5,7 @@
 #include "PerformanceEstimation.hpp"
 
 #include <poplibs_support/Memoize.hpp>
+#include <poplibs_support/PlanConstraints.hpp>
 #include <poplibs_support/logging.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popsolver/Model.hpp>
@@ -39,12 +40,60 @@ std::ostream &operator<<(std::ostream &o, const CtcParams &p) {
 }
 
 struct CtcOpts {
-  boost::optional<double> availableMemoryProportion;
+  poplibs_support::PlanConstraints planConstraints;
+  double availableMemoryProportion = 0.6; // Per tile
+};
+
+void validatePlanConstraints(const std::string &path,
+                             const boost::property_tree::ptree &t,
+                             const std::vector<std::string> &validConstraints) {
+  for (const auto &child : t) {
+    auto valid = std::find(validConstraints.begin(), validConstraints.end(),
+                           child.first) != validConstraints.end();
+    if (valid) {
+      poplibs_support::validatePlanConstraintsUnsigned(child.first,
+                                                       child.second);
+    } else {
+      throw poputil::poplibs_error("Unrecognised constraint " + path + "." +
+                                   child.first);
+    }
+  }
+}
+
+struct ValidateCtcPlanConstraintsOption {
+  void operator()(const boost::property_tree::ptree &t) const {
+    if (t.empty() && !t.data().empty()) {
+      throw poplar::invalid_option("Plan constraints must be an object");
+    }
+
+    for (const auto &child : t) {
+      if (child.first == "parallel") {
+        const std::vector<std::string> validParallelConstraints{
+            "batch",           "time",     "label",
+            "sliceIntoOutput", "alphabet", "sliceFromInput"};
+        validatePlanConstraints(child.first, child.second,
+                                validParallelConstraints);
+      } else if (child.first == "serial") {
+        const std::vector<std::string> validSerialConstraints{"batch", "time",
+                                                              "label"};
+        validatePlanConstraints(child.first, child.second,
+                                validSerialConstraints);
+      } else {
+        throw poputil::poplibs_error("Unrecognised constraint " + child.first);
+      }
+    }
+  }
 };
 
 static CtcOpts parseOptions(const poplar::OptionFlags &options) {
   CtcOpts opts;
+  using poplibs_support::makePlanConstraintsOptionHandler;
+  const auto makeCtcPlanConstraintsOptionHandler =
+      &makePlanConstraintsOptionHandler<ValidateCtcPlanConstraintsOption>;
+
   const poplibs::OptionSpec spec{
+      {"planConstraints",
+       makeCtcPlanConstraintsOptionHandler(opts.planConstraints)},
       {"availableMemoryProportion", poplibs::OptionHandler::createWithDouble(
                                         opts.availableMemoryProportion)},
   };
@@ -56,10 +105,7 @@ static CtcOpts parseOptions(const poplar::OptionFlags &options) {
 
 std::ostream &operator<<(std::ostream &o, const CtcOpts &opt) {
   o << "CTCLoss options:\n";
-  o << "  availableMemoryProportion    "
-    << (opt.availableMemoryProportion
-            ? std::to_string(*opt.availableMemoryProportion)
-            : "None")
+  o << "  availableMemoryProportion    " << opt.availableMemoryProportion
     << "\n";
   return o;
 }
@@ -234,28 +280,32 @@ std::ostream &operator<<(std::ostream &o, const MemoryEstimate &e) {
   return o;
 }
 
-MemoryEstimate estimateTempMemory(const CtcParams &params,
-                                  const Plan::Impl &partition,
-                                  const poplar::Target &target,
-                                  EstimateCache &cache) {
+MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
+                                         const Plan::Impl &partition,
+                                         const poplar::Target &target,
+                                         EstimateCache &cache) {
+  const auto partialsType = params.outType;
+  const auto labelType = poplar::UNSIGNED_SHORT;
   const uint64_t inTypeBytes = target.getTypeSize(params.inType);
-  const uint64_t outTypeBytes = target.getTypeSize(params.outType);
+  const uint64_t partialsTypeBytes = target.getTypeSize(partialsType);
+  const uint64_t labelTypeBytes = target.getTypeSize(labelType);
 
   // For estimating max memory cost, we only consider the part where we are
   // calculating gradGivenBeta or gradGivenAlpha, as they use more temporary
   // memory than the part before where we are calculating just alpha or beta.
 
-  // We are also making an assumption that we are spreading out batch partitions
-  // across tiles. Meaning partition in any dimension -> different tile
   const uint64_t batchPerPartition =
       poplibs_support::ceildiv(params.batchSize, partition.parallel.batch);
   const uint64_t timePerPartition =
       poplibs_support::ceildiv(params.maxTime, partition.parallel.time);
   const uint64_t maxLabelLengthPerPartition =
       poplibs_support::ceildiv(params.maxLabelLength, partition.parallel.label);
-  const auto maxExtendedLabelLength = params.maxLabelLength * 2 + 1;
-  const uint64_t maxExtendedLabelLengthPerPartition = poplibs_support::ceildiv(
-      maxExtendedLabelLength, partition.parallel.label);
+  uint64_t maxExtendedLabelLengthPerPartition = maxLabelLengthPerPartition * 2;
+  if (maxLabelLengthPerPartition * partition.parallel.label ==
+      params.maxLabelLength) {
+    // Divided out labels equally, so last partition has an extra blank
+    maxExtendedLabelLengthPerPartition += 1;
+  }
   const uint64_t alphabetPerPartition =
       poplibs_support::ceildiv(params.numClasses, partition.parallel.alphabet);
   assert(partition.parallel.alphabet == 1); // Not yet accounted for
@@ -274,14 +324,13 @@ MemoryEstimate estimateTempMemory(const CtcParams &params,
 
   // Each partition has batch per partition number of labels stored
   const uint64_t labelsPerTileBytes =
-      batchPerPartition * maxLabelLengthPerPartition * inTypeBytes;
+      batchPerPartition * maxLabelLengthPerPartition * labelTypeBytes;
 
   const uint64_t gradientPerTileBytes = [&]() {
     if (partition.parallel.sliceIntoOutput) {
-      // We reduce from ExtendedLabel to Alphabet per partition, max temp memory
-      // is when we have on tile gradient tensor for each extended label class
+      // We need a working copy of gradient per tile
       return (batchPerPartition * timePerPartition * alphabetPerPartition) *
-             outTypeBytes * maxExtendedLabelLengthPerPartition;
+             partialsTypeBytes;
     } else {
       throw poputil::poplibs_error(
           "Plan::parallel::sliceIntoOutput = false is currently unsupported");
@@ -291,12 +340,22 @@ MemoryEstimate estimateTempMemory(const CtcParams &params,
   const uint64_t alphaBetaTempPerTileBytes =
       (batchPerPartition * timePerPartition *
        maxExtendedLabelLengthPerPartition) *
-      inTypeBytes;
+      partialsTypeBytes;
 
+  // For time splits:
+  // - 1 El length slice to propagate alpha or beta in the time dimension when
+  // calling alpha or beta vertices (currently assumed always live during the
+  // operation but may not be the case)
+  // - 2 El length slices to propagate alpha or beta the time dimension when
+  // calling gradGivenAlpha or gradGivenBeta vertices
+  // For extended label splits:
+  // - 1 maxT length slice to propagate alpha downwards
+  // - 2 maxT length slices to propagate beta upwards
   const uint64_t tempDependanciesPerTileBytes =
-      (maxExtendedLabelLengthPerPartition + // For time splits
-       2 * timePerPartition)                // For extended label splits
-      * inTypeBytes;
+      batchPerPartition *
+      ((1 + 2) * maxExtendedLabelLengthPerPartition + // For time splits
+       (1 + 2) * timePerPartition) // For extended label splits
+      * partialsTypeBytes;
 
   return {dataPerTileBytes, labelsPerTileBytes, gradientPerTileBytes,
           alphaBetaTempPerTileBytes, tempDependanciesPerTileBytes};
@@ -343,17 +402,18 @@ constructModel(popsolver::Model &m, const CtcParams &params,
   auto totalTiles = m.addConstant(target.getNumTiles(), "totalTiles");
   m.lessOrEqual(totalParallelSplit, totalTiles);
 
-  const std::vector<popsolver::Variable> allVars{vars.serial.batch,
-                                                 vars.serial.time,
-                                                 vars.serial.label,
-                                                 vars.parallel.batch,
-                                                 vars.parallel.time,
-                                                 vars.parallel.label,
-                                                 vars.parallel.sliceIntoOutput,
-                                                 vars.parallel.alphabet,
-                                                 vars.parallel.sliceFromInput};
+  const std::vector<popsolver::Variable> planArray{
+      vars.serial.batch,
+      vars.serial.time,
+      vars.serial.label,
+      vars.parallel.batch,
+      vars.parallel.time,
+      vars.parallel.label,
+      vars.parallel.sliceIntoOutput,
+      vars.parallel.alphabet,
+      vars.parallel.sliceFromInput};
 
-  const auto planFromValues =
+  const auto toPlanStruct =
       [](const std::vector<unsigned> &values) -> Plan::Impl {
     return {{values[0], values[1], values[2]},
             {values[3], values[4], values[5], static_cast<bool>(values[6]),
@@ -361,31 +421,56 @@ constructModel(popsolver::Model &m, const CtcParams &params,
   };
 
   auto cycles = m.call<unsigned>(
-      allVars,
+      planArray,
       [&params, &target, &cache,
-       &planFromValues](const std::vector<unsigned> &values)
+       &toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
-        const Plan::Impl plan = planFromValues(values);
+        const Plan::Impl plan = toPlanStruct(values);
         return popsolver::DataType{
             estimateCycles(params, plan, target, cache).total()};
       });
 
-  auto maxTileMemory = m.call<unsigned>(
-      allVars,
+  auto maxTileTempMemory = m.call<unsigned>(
+      planArray,
       [&params, &target, &cache,
-       &planFromValues](const std::vector<unsigned> &values)
+       &toPlanStruct](const std::vector<unsigned> &values)
           -> boost::optional<popsolver::DataType> {
-        const Plan::Impl plan = planFromValues(values);
+        const Plan::Impl plan = toPlanStruct(values);
         return popsolver::DataType{
-            estimateTempMemory(params, plan, target, cache).total()};
+            estimateMaxTileTempMemory(params, plan, target, cache).total()};
       });
 
-  if (opts.availableMemoryProportion) {
-    m.lessOrEqual(maxTileMemory, m.addConstant(*opts.availableMemoryProportion *
-                                               target.getBytesPerTile()));
-  }
+  m.lessOrEqual(
+      maxTileTempMemory,
+      m.addConstant(opts.availableMemoryProportion * target.getBytesPerTile()));
 
-  return {cycles, maxTileMemory, totalTiles};
+  return {cycles, maxTileTempMemory, totalTiles};
+}
+
+static void
+applyPlanConstraints(popsolver::Model &m,
+                     const poplibs_support::PlanConstraints &planConstraints,
+                     const PartitionVariables &vars) {
+  const auto constrainUnsignedVar = [&](const char *name,
+                                        popsolver::Variable var) {
+    if (auto constraint = planConstraints.get_optional<unsigned>(name)) {
+      poplibs_support::logging::popnn::debug("Constraining {} = {}", name,
+                                             constraint);
+      m.equal(var, popsolver::DataType{*constraint});
+    }
+  };
+
+  constrainUnsignedVar("parallel.batch", vars.parallel.batch);
+  constrainUnsignedVar("parallel.time", vars.parallel.time);
+  constrainUnsignedVar("parallel.label", vars.parallel.label);
+  constrainUnsignedVar("parallel.sliceIntoOutput",
+                       vars.parallel.sliceIntoOutput);
+  constrainUnsignedVar("parallel.alphabet", vars.parallel.alphabet);
+  constrainUnsignedVar("parallel.sliceFromInput", vars.parallel.sliceFromInput);
+
+  constrainUnsignedVar("serial.batch", vars.serial.batch);
+  constrainUnsignedVar("serial.time", vars.serial.time);
+  constrainUnsignedVar("serial.label", vars.serial.label);
 }
 
 static Plan::Impl planFromSolution(const popsolver::Solution &solution,
@@ -422,6 +507,8 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
                                          params, opts);
   auto [cycles, maxTempMem, tiles] =
       constructModel(m, params, opts, vars, graph.getTarget(), cache);
+  applyPlanConstraints(m, opts.planConstraints, vars);
+
   auto s = m.minimize({cycles, maxTempMem, tiles});
   if (!s.validSolution()) {
     throw poputil::poplibs_error("No ctc loss plan found");
@@ -432,7 +519,7 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   poplibs_support::logging::popnn::trace(
       "Plan cost\n{}\n{}",
       estimateCycles(params, plan, graph.getTarget(), cache),
-      estimateTempMemory(params, plan, graph.getTarget(), cache));
+      estimateMaxTileTempMemory(params, plan, graph.getTarget(), cache));
   return std::make_unique<Plan::Impl>(std::move(plan));
 }
 

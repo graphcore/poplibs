@@ -41,26 +41,27 @@ private:
  *
  * **CTC Loss options**
  *
- *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive)
+ *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *
  *      The maximum proportion of available memory on each tile that this
  *      layer should consume temporarily during the course of the operation.
  *
- * \param graph       The graph the operation will be added to
- * \param inType      The data type of the probability data input
- * \param outType     The data type of the gradient output
- * \param batchSize   The size of the batch to be processed at once
- * \param maxTime     The maximum time of any data input to be planned for
- * \param maxLabels   The maximum length of any label to be planned for
- * \param numClasses  The number of symbols/classes in the "alphabet", including
- *                    the blankClass
- * \param options     Any implementation/debug options for the operation
- * \return plan       The plan produced, which will specify how the operation
- *                    is to be implemented
+ * \param graph            The graph the operation will be added to
+ * \param inType           The data type of the probability data input
+ * \param outType          The data type of the gradient output
+ * \param batchSize        The size of the batch to be processed at once
+ * \param maxTime          The maximum time of any data input to be planned for
+ * \param maxLabelLength   The maximum length of any label to be planned for
+ * \param numClasses       The number of symbols/classes in the "alphabet",
+ *                         including the blankClass
+ * \param options          Any implementation/debug options for the operation
+ *
+ * \return plan            The plan produced, which will specify how the
+ *                         operation is to be implemented
  */
 Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const poplar::Type &outType, unsigned batchSize, unsigned maxTime,
-          unsigned maxLabels, unsigned numClasses,
+          unsigned maxLabelLength, unsigned numClasses,
           const poplar::OptionFlags &options = {});
 
 /** Create and map a data input [maxTime, batchSize, numClasses] tensor which
@@ -83,21 +84,22 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                                const std::size_t numClasses, const Plan &plan,
                                const poplar::DebugContext &debugContext = {});
 
-/** Create and map a labels input [batchSize, maxLabels] tensor which the
+/** Create and map a labels input [batchSize, maxLabelLength] tensor which the
  *  gradient function will use. Mapping is according to the plan provided.
  *
- * \param graph        The graph the labels tensor will be added to
- * \param type         The data type of the tensor to be added to the graph
- * \param batchSize    The size of the batch to be processed at once
- * \param maxLabels    The labels dimension of the tensor to be created
- * \param plan         The plan which will specify how the tensor is to be
- *                     mapped
- * \param debugContext Optional debug information
- * \return             The labels input [batchSize, maxLabels] tensor
+ * \param graph          The graph the labels tensor will be added to
+ * \param type           The data type of the tensor to be added to the graph
+ * \param batchSize      The size of the batch to be processed at once
+ * \param maxLabelLength The maximum length of any label
+ * \param plan           The plan which will specify how the tensor is to be
+ *                       mapped
+ * \param debugContext   Optional debug information
+ * \return               The labels input [batchSize, maxLabelLength] tensor
  */
 poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
                                  const std::size_t batchSize,
-                                 const std::size_t maxLabels, const Plan &plan,
+                                 const std::size_t maxLabelLength,
+                                 const Plan &plan,
                                  const poplar::DebugContext &debugContext = {});
 
 /** Calculate the CTC loss gradient, creating and mapping the result tensor
@@ -106,7 +108,7 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
  * \param graph        The graph the operation will be added to
  * \param outType      The data type of the gradient output
  * \param data         The data input [maxTime, batchSize, numClasses] tensor
- * \param labels       The labels input [batchSize, maxLabels] tensor
+ * \param labels       The labels input [batchSize, maxLabelLength] tensor
  * \param dataLengths  A tensor of shape [batchSize] containing the number of
  *                     valid timesteps in each data[] batch entry
  * \param labelLengths A tensor of shape [batchSize] containing the number of

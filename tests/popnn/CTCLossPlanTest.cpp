@@ -5,25 +5,59 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <popnn/CTCLoss.hpp>
 
-BOOST_AUTO_TEST_CASE(SimplePlanWithMemoryBound) {
-  poplar::Type inType = poplar::FLOAT;
-  poplar::Type outType = poplar::FLOAT;
-  unsigned batchSize = 10;
-  unsigned maxTime = 40;
-  unsigned maxLabels = 10;
-  unsigned numClasses = 4;
+// Common simple plan parameters
+const poplar::Type inType = poplar::FLOAT;
+const poplar::Type outType = poplar::FLOAT;
+constexpr unsigned batchSize = 10;
+constexpr unsigned maxTime = 40;
+constexpr unsigned maxLabelLength = 10;
+constexpr unsigned numClasses = 4;
 
+BOOST_AUTO_TEST_CASE(SimplePlan) {
   auto device = createTestDeviceFullSize(TEST_TARGET, 1);
   auto &target = device.getTarget();
   poplar::Graph graph(target);
 
   // Finds reasonably sized plan
-  popnn::ctc::plan(graph, inType, outType, batchSize, maxTime, maxLabels,
+  popnn::ctc::plan(graph, inType, outType, batchSize, maxTime, maxLabelLength,
                    numClasses, {{"availableMemoryProportion", "0.9"}});
+}
+
+BOOST_AUTO_TEST_CASE(SimplePlanWithMemoryBound) {
+  auto device = createTestDeviceFullSize(TEST_TARGET, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
 
   // Can't find plan when no available memory
   BOOST_CHECK_THROW(popnn::ctc::plan(graph, inType, outType, batchSize, maxTime,
-                                     maxLabels, numClasses,
+                                     maxLabelLength, numClasses,
                                      {{"availableMemoryProportion", "0.0"}}),
                     poputil::poplibs_error);
+}
+
+BOOST_AUTO_TEST_CASE(SimplePlanWithConstrainedVar) {
+  auto device = createTestDeviceFullSize(TEST_TARGET, 1);
+  auto &target = device.getTarget();
+  poplar::Graph graph(target);
+
+  // Finds plan with a resonable constraint
+  popnn::ctc::plan(
+      graph, inType, outType, batchSize, maxTime, maxLabelLength, numClasses,
+      {{"planConstraints", R"delim({"parallel": {"time": 1}})delim"}});
+
+  // Can't find plan with un-satisfiable constraint
+  BOOST_CHECK_THROW(
+      popnn::ctc::plan(
+          graph, inType, outType, batchSize, maxTime, maxLabelLength,
+          numClasses,
+          {{"planConstraints", R"delim({"parallel": {"batch": 0}})delim"}}),
+      poputil::poplibs_error);
+
+  // Throws on invalid name
+  BOOST_CHECK_THROW(
+      popnn::ctc::plan(
+          graph, inType, outType, batchSize, maxTime, maxLabelLength,
+          numClasses,
+          {{"planConstraints", R"delim({"parallel": {"xyz": 0}})delim"}}),
+      poputil::poplibs_error);
 }
