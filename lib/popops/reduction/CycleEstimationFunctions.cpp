@@ -2,7 +2,9 @@
 #include "CycleEstimationFunctions.hpp"
 
 #include "ReductionConnection.hpp"
+#include "poputil/exceptions.hpp"
 #include <poplibs_support/Algorithm.hpp>
+#include <poplibs_support/FlopEstimation.hpp>
 #include <poplibs_support/cyclesTables.hpp>
 #include <poplibs_support/forceInterleavedEstimates.hpp>
 #include <poplibs_support/gcd.hpp>
@@ -35,9 +37,30 @@ std::vector<std::size_t> fieldSizes(const poplar::FieldData &field) {
   return sizes;
 }
 
+unsigned flopsForReduceOp(popops::Operation operation) {
+  switch (operation) {
+  case popops::Operation::ADD:
+    return flopsForAdd();
+  case popops::Operation::MAX:
+  case popops::Operation::MIN:
+    return 1;
+  case popops::Operation::MUL:
+    return flopsForMultiply();
+  case popops::Operation::LOG_ADD:
+    return 6;
+  case popops::Operation::LOGICAL_AND:
+  case popops::Operation::LOGICAL_OR:
+    return 0;
+  case popops::Operation::SQUARE_ADD:
+    return flopsForMultiply() + flopsForAdd();
+  default:
+    throw poputil::poplibs_error("Unsupported operation type");
+  }
+}
+
 } // anonymous namespace
 
-std::uint64_t getCyclesEstimateForReduce(
+poplar::VertexPerfEstimate getCyclesEstimateForReduce(
     const std::vector<std::size_t> &partialsSizes,
     const std::vector<std::size_t> &outSizes,
     const std::vector<unsigned> &numPartials,
@@ -90,7 +113,10 @@ std::uint64_t getCyclesEstimateForReduce(
 
     cycles += numOuterLoops * 6;
     cycles += cyclesPerOp * partialsSizes[0] / elemsPerLoop; // inner loop
-    return cycles;
+    std::uint64_t flops = static_cast<std::uint64_t>(numOutputs) *
+                          (partialsSizes[0] + isUpdate - 1) *
+                          flopsForReduceOp(operation);
+    return {cycles, convertToTypeFlops(flops, outType)};
   }
   if (specialisation == ReductionSpecialisation::SCALAR_OUTPUT_SINGLE_INPUT) {
     assert(accVectorWidth % vectorWidth == 0);
@@ -111,10 +137,15 @@ std::uint64_t getCyclesEstimateForReduce(
     }
     if (outType != poplar::FLOAT)
       cycles += 5;
-    return cycles;
+    // Additional operation for update
+    std::uint64_t flops =
+        (static_cast<std::uint64_t>(partialsSizes[0]) + isUpdate - 1) *
+        flopsForReduceOp(operation);
+    return {cycles, convertToTypeFlops(flops, outType)};
   }
 
   // Trying to generalise vectorised vertex estimates...
+  std::uint64_t flops = 0;
   if (vectorisedOp(operation, specialisation)) {
     cycles += 3 + 23; // load state etc.
 
@@ -177,6 +208,8 @@ std::uint64_t getCyclesEstimateForReduce(
                  getStoreCycles(opVectorWidth) + 1);
       // Cycles per outer loop over vectors for numPartials[r]
       cycles += vectorOuterLoops * numPartials[r] * (fetchPtrCycles + 3);
+      flops += (numPartials[r] + isUpdate - 1) * outSizes[r] *
+               flopsForReduceOp(operation);
 
       for (unsigned i = 0; i < remainingChecks; ++i) {
         const auto remainder = (1u << i);
@@ -243,7 +276,8 @@ std::uint64_t getCyclesEstimateForReduce(
       for (unsigned i = 0; i < numPartials[r]; ++i) {
         auto numVectorWidths =
             (partialsSizes[pi] + vectorWidth - 1) / vectorWidth;
-
+        flops +=
+            (partialsSizes[pi] + isUpdate - 1) * flopsForReduceOp(operation);
         cycles +=
             (2 * 1 + cyclesPerOp + 3 + scaleAndUpdateCycles + conversionCyles) *
             numVectorWidths;
@@ -251,13 +285,14 @@ std::uint64_t getCyclesEstimateForReduce(
       }
     }
   }
-  return cycles;
+  return {cycles, convertToTypeFlops(flops, outType)};
 }
 
-std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
+poplar::VertexPerfEstimate getCycleEstimateReduceAllRegionsContinuous(
     const unsigned numPartials, const unsigned numOutputs,
     const unsigned dataPathWidth, const unsigned accVectorWidth,
-    const unsigned cyclesPerOp, bool isUpdate) {
+    const unsigned cyclesPerOp, bool isUpdate, const poplar::Type &type,
+    popops::Operation operation) {
   assert(accVectorWidth % dataPathWidth == 0 ||
          dataPathWidth % accVectorWidth == 0);
 
@@ -275,11 +310,15 @@ std::uint64_t getCycleEstimateReduceAllRegionsContinuous(
   if (isUpdate) {
     cycles = cycles + 1;
   }
-  return cycles + 7; // Call / return overhead
+  std::uint64_t flops = static_cast<std::uint64_t>(numOutputs) *
+                        (numPartials + isUpdate - 1) *
+                        flopsForReduceOp(operation);
+  return {cycles + 7, // Call / return overhead
+          convertToTypeFlops(flops, type)};
 }
 
 // TODO: this does not take into account vertices that include scaling.
-std::uint64_t getCycleEstimateForReduceVertex(
+poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     const poplar::VertexIntrospector &vertex, const poplar::Target &target,
     const poplar::Type &partialsType, const poplar::Type &outType,
     const popops::Operation operation, bool isUpdate,
@@ -323,7 +362,7 @@ std::uint64_t getCycleEstimateForReduceVertex(
     CODELET_SCALAR_VAL(numOutputsM1, unsigned);
     return getCycleEstimateReduceAllRegionsContinuous(
         numPartials, numOutputsM1, dataPathWidth, opVectorWidth, cyclesPerOp,
-        isUpdate);
+        isUpdate, outType, operation);
   } else {
     // partials is a 2D edge
     CODELET_VECTOR_VALS(numPartials, unsigned);

@@ -3,6 +3,7 @@
 #include "ExprOpUtil.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/Algorithm.hpp"
+#include "poplibs_support/FlopEstimation.hpp"
 #include "poplibs_support/forceInterleavedEstimates.hpp"
 #include "poplibs_support/gcd.hpp"
 #include "poplibs_support/logging.hpp"
@@ -72,8 +73,43 @@ std::uint64_t binaryOpInnerLoopCycles(const Target &target,
   return numLoops * cyclesPerLoop;
 }
 
+static unsigned flopsPerBinaryOpElement(BinaryOpType op) {
+  if (op == BinaryOpType::BITWISE_AND || op == BinaryOpType::BITWISE_OR ||
+      op == BinaryOpType::BITWISE_XOR || op == BinaryOpType::BITWISE_XNOR ||
+      op == BinaryOpType::SHIFT_LEFT || op == BinaryOpType::SHIFT_RIGHT ||
+      op == BinaryOpType::SHIFT_RIGHT_SIGN_EXTEND) {
+    return 0;
+  }
+  // treat flops per divide as single flop even though it is attributed with
+  // more flops in some contexts.
+  // And remainder as 3 flops.
+  if (op == BinaryOpType::REMAINDER) {
+    return 3;
+  }
+  if (op == BinaryOpType::VARIANCE_TO_INV_STD_DEV ||
+      op == BinaryOpType::INV_STD_DEV_TO_VARIANCE) {
+    return 2;
+  }
+  if (op == BinaryOpType::ADD) {
+    return flopsForAdd();
+  }
+  if (op == BinaryOpType::MULTIPLY) {
+    return flopsForMultiply();
+  }
+  return 1;
+}
+
+static unsigned flopsPerUnaryOpElement(UnaryOpType op) {
+  if (op == UnaryOpType::BITWISE_NOT ||
+      op == UnaryOpType::COUNT_LEADING_ZEROS ||
+      op == UnaryOpType::LOGICAL_NOT || op == UnaryOpType::POPCOUNT) {
+    return 0;
+  }
+  return 1;
+}
+
 // Computes the cycles used by one of the scalar broadcast supervisor codelets
-static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
+static VertexPerfEstimate broadcastArithmeticSupervisorCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const OpPerformanceInfo &perfInfo,
     std::uint64_t overheadPerLoop) {
@@ -98,14 +134,17 @@ static std::uint64_t broadcastArithmeticSupervisorCycleEstimate(
 
   unsigned numLoops = iceil(numElems, elemsPerLoop);
   cycles += numLoops * cyclesPerLoop;
-
-  return cycles * numWorkers + basicOpSupervisorOverhead();
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(data.size()) * flopsPerBinaryOpElement(op);
+  std::uint64_t totalCycles = cycles * numWorkers + basicOpSupervisorOverhead();
+  return {totalCycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo &perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
+
   return broadcastArithmeticSupervisorCycleEstimate(
       vertex, target, op, type, perfInfo, hasExternalCodelet(op, type) ? 1 : 4);
 }
@@ -126,7 +165,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2Types1DSupervisor)(
       vertex, target, op, FLOAT, perfInfo, outType == FLOAT ? 0 : 1);
 }
 
-static std::uint64_t BroadcastVectorOuterCycleEstimate(
+static VertexPerfEstimate BroadcastVectorOuterCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, std::uint64_t overheadPerInnerLoop,
     std::uint64_t overheadPerOuterLoop, bool byRow) {
@@ -134,7 +173,7 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
   CODELET_SCALAR_VAL(rows, uint16_t);
 
   CODELET_FIELD(data);
-  assert(type == HALF || type == FLOAT);
+  assert(isFPType(type));
   auto numWorkers = target.getNumWorkerContexts();
   auto perfInfo = broadcastOpPerfInfo.at({op, type});
 
@@ -150,7 +189,11 @@ static std::uint64_t BroadcastVectorOuterCycleEstimate(
     cycles += cyclesPerLoop * numElems;
   }
   auto numOuterLoops = byRow ? (rows + numWorkers - 1) / numWorkers : rows;
-  return (15 + numOuterLoops * cycles) * numWorkers + supervisorCycles;
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(rows) * columns * flopsPerBinaryOpElement(op);
+  std::uint64_t totalCycles =
+      (15 + numOuterLoops * cycles) * numWorkers + supervisorCycles;
+  return {totalCycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate
@@ -161,9 +204,11 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, false);
 }
-std::uint64_t MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnSupervisor)(
-    const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
-    const Type &type, bool allowMisaligned) {
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
+    BroadcastVectorOuterByColumnSupervisor)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            BinaryOpType op, const Type &type,
+                                            bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
   return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
                                            allowMisaligned ? 25 : 7, false);
@@ -187,7 +232,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
                                            allowMisaligned ? 25 : 7, true);
 }
 
-static std::uint64_t broadcastArithmeticCycleEstimate(
+static VertexPerfEstimate broadcastArithmeticCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, const OpPerformanceInfo perfInfo,
     std::uint64_t overheadPerLoop) {
@@ -205,14 +250,16 @@ static std::uint64_t broadcastArithmeticCycleEstimate(
     elemsPerLoop = perfInfo.loopUnrollFactor;
   }
 
+  std::uint64_t totalElems = 0;
   for (unsigned i = 0; i < data.size(); i++) {
     auto numElems = data[i].size();
-
+    totalElems += numElems;
     unsigned numCycles = iceil(numElems, elemsPerLoop);
     cycles += numCycles * cyclesPerLoop;
     cycles += 28;
   }
-  return cycles;
+  std::uint64_t flops = totalElems * flopsPerBinaryOpElement(op);
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
@@ -257,7 +304,7 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2D)(const VertexIntrospector &vertex,
 
 enum class ScaledArithmeticOp { ADD, SUBTRACT, AXPLUSBY, AXMINUSBY };
 
-std::uint64_t scaledArithmeticSupervisorCycleEstimate(
+VertexPerfEstimate scaledArithmeticSupervisorCycleEstimate(
     const VertexIntrospector &vertex, const Target &target,
     const Type &dataType, const Type &dataBType, const bool isConstant,
     const bool memConstrained, const ScaledArithmeticOp operation) {
@@ -284,7 +331,7 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
     }
     return supervisorCycles;
   } else {
-    assert(dataType == HALF || dataType == FLOAT);
+    assert(isFPType(dataType));
   }
 
   // calculate count, rem and final
@@ -401,7 +448,11 @@ std::uint64_t scaledArithmeticSupervisorCycleEstimate(
 
   auto maxWorkerCycles =
       *std::max_element(std::begin(workerCycles), std::end(workerCycles));
-  return supervisorCycles + maxWorkerCycles * 6;
+  std::uint64_t flops =
+      A.size() * (flopsPerBinaryOpElement(BinaryOpType::ADD) +
+                  flopsPerBinaryOpElement(BinaryOpType::MULTIPLY));
+  std::uint64_t cycles = supervisorCycles + maxWorkerCycles * numWorkers;
+  return {cycles, convertToTypeFlops(flops, dataType)};
 }
 
 // Cycles used to do one vector in the Mixed (data=half/scale=float) aXPlusbY
@@ -433,7 +484,7 @@ std::uint64_t aXPlusbYMixedCoreCycleEstimate(unsigned count) {
 }
 
 // aX Plus BY vertices where the data is half and the scale coeffs are float
-std::uint64_t aXPlusbYMixedSupervisorCycleEstimate(
+VertexPerfEstimate aXPlusbYMixedSupervisorCycleEstimate(
     const VertexIntrospector &vertex, const Target &target,
     const bool isConstant, const bool memConstrained) {
   CODELET_FIELD(A);
@@ -475,7 +526,11 @@ std::uint64_t aXPlusbYMixedSupervisorCycleEstimate(
 
   auto maxWorkerCycles =
       *std::max_element(std::begin(workerCycles), std::end(workerCycles));
-  return supervisorCycles + maxWorkerCycles * 6;
+  std::uint64_t flops = static_cast<std::uint64_t>(A.size()) *
+                        (2 * flopsPerBinaryOpElement(BinaryOpType::MULTIPLY) +
+                         flopsPerBinaryOpElement(BinaryOpType::ADD));
+  const auto cycles = supervisorCycles + maxWorkerCycles * numWorkers;
+  return {cycles, flops};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAddSupervisor)(
@@ -522,7 +577,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(XMinusaXPlusbYSupervisor)(
                                                  ScaledArithmeticOp::AXPLUSBY);
 }
 
-std::uint64_t ScaledArithmetic2DCycleEstimate(
+VertexPerfEstimate ScaledArithmetic2DCycleEstimate(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
     const bool isConstant, const bool memConstrained,
     const ScaledArithmeticOp operation) {
@@ -562,6 +617,7 @@ std::uint64_t ScaledArithmetic2DCycleEstimate(
   if (operation == ScaledArithmeticOp::AXPLUSBY && isConstant)
     cycles += 4;
 
+  std::uint64_t totalElems = 0;
   for (unsigned i = 0; i < A.size(); ++i) {
     // outer loop constant overhead
     cycles += 15;
@@ -580,16 +636,19 @@ std::uint64_t ScaledArithmetic2DCycleEstimate(
                 + (rem >= 2 ? 6 : 0)      // process 2 more at end.
                 + (rem % 2 == 1 ? 7 : 0); // process last element.
     }
+    totalElems += A[i].size();
   }
-
-  return cycles;
+  std::uint64_t flops =
+      totalElems * (flopsPerBinaryOpElement(BinaryOpType::MULTIPLY) +
+                    flopsPerBinaryOpElement(BinaryOpType::ADD));
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 // aX Plus BY vertices where the data is half and the scale coeffs are float
-std::uint64_t aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
-                                           const Target &target,
-                                           const bool isConstant,
-                                           const bool memConstrained) {
+VertexPerfEstimate
+aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
+                             const Target &target, const bool isConstant,
+                             const bool memConstrained) {
   CODELET_FIELD(A);
   CODELET_FIELD(B);
   std::uint64_t cycles = 0;
@@ -609,7 +668,10 @@ std::uint64_t aXPlusbYMixed2DCycleEstimate(const VertexIntrospector &vertex,
   for (unsigned i = 0; i < A.size(); i++) {
     cycles += rowLoopCycles * aXPlusbYMixedCoreCycleEstimate(A[i].size());
   }
-  return cycles;
+  std::uint64_t flops = static_cast<std::uint64_t>(A.size()) *
+                        (2 * flopsPerBinaryOpElement(BinaryOpType::MULTIPLY) +
+                         flopsPerBinaryOpElement(BinaryOpType::ADD));
+  return {cycles, flops};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ScaledAdd2D)(
@@ -1155,6 +1217,22 @@ std::uint64_t vectorInnerSupervisorMulCycles(unsigned numWorkerContexts,
   return numCycles + maxWorkerCycles * numWorkerContexts;
 }
 
+static std::uint64_t flopsForBinaryOp2D(const std::vector<unsigned> &bLen,
+                                        const Type &type, BinaryOpType op) {
+  const auto totalElems = std::accumulate(bLen.begin(), bLen.end(), 0);
+  return convertToTypeFlops(static_cast<std::uint64_t>(totalElems) *
+                                flopsPerBinaryOpElement(op),
+                            type);
+}
+
+static std::uint64_t flopsForUnaryOp2D(const std::vector<unsigned> &aLen,
+                                       const Type &type, UnaryOpType op) {
+  const auto totalElems = std::accumulate(aLen.begin(), aLen.end(), 0);
+  return convertToTypeFlops(static_cast<std::uint64_t>(totalElems) *
+                                flopsPerUnaryOpElement(op),
+                            type);
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
@@ -1164,35 +1242,39 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInnerSupervisor)(
   uint32_t BLen = B.size();
   unsigned numWorkerContexts = target.getNumWorkerContexts();
   unsigned vectorWidth = target.getVectorWidth(type);
-
+  auto flops = flopsForBinaryOp2D({BLen}, type, op);
   // Additional branch in the supervisor, and preamble instructions in the
   // worker part.
   switch (op) {
   case BinaryOpType::ADD: {
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                          dataBlockCountPacked, type) +
-           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
+                                           dataBlockCountPacked, type) +
+                addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
+            flops};
   }
   case BinaryOpType::DIVIDE: {
-    return vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
-                                          dataBlockCountPacked, type) +
-           1 + 3;
+    return {vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
+                                           dataBlockCountPacked, type) +
+                1 + 3,
+            flops};
   }
   case BinaryOpType::SUBTRACT: {
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                          dataBlockCountPacked, type) +
-           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
+                                           dataBlockCountPacked, type) +
+                addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
+            flops};
   }
   case BinaryOpType::MULTIPLY: {
     const unsigned addedSuperOverhead = 0;
     const unsigned addedWorkerOverhead = 2;
-    return vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
-                                          dataBlockCountPacked, type, false) +
-           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+    return {vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
+                                           dataBlockCountPacked, type, false) +
+                addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
+            flops};
   }
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
@@ -1210,33 +1292,38 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
   uint32_t BLen = B.size();
   const unsigned numWorkerContexts = target.getNumWorkerContexts();
   const unsigned vectorWidth = target.getVectorWidth(type);
+  auto flops = flopsForBinaryOp2D({BLen}, type, op);
 
   switch (op) {
   case BinaryOpType::ADD: {
     const auto addedWorkerOverhead = 2;
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                          dataBlockCountPacked, type) +
-           addedWorkerOverhead * numWorkerContexts;
+    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
+                                           dataBlockCountPacked, type) +
+                addedWorkerOverhead * numWorkerContexts,
+            flops};
   }
   case BinaryOpType::DIVIDE: {
-    return vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
-                                          dataBlockCountPacked, type) +
-           2;
+    return {vectorInnerSupervisorDivCycles(numWorkerContexts, BLen,
+                                           dataBlockCountPacked, type) +
+                2,
+            flops};
   }
   case BinaryOpType::SUBTRACT: {
     const auto addedSuperOverhead = 6;
     const auto addedWorkerOverhead = 3;
     // Additional branches in the supervisor and worker part.
-    return vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
-                                          dataBlockCountPacked, type) +
-           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+    return {vectorInnerSupervisorAddCycles(numWorkerContexts, vectorWidth, BLen,
+                                           dataBlockCountPacked, type) +
+                addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
+            flops};
   }
   case BinaryOpType::MULTIPLY: {
     const unsigned addedSuperOverhead = 6;
     const unsigned addedWorkerOverhead = 3;
-    return vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
-                                          dataBlockCountPacked, type, true) +
-           addedSuperOverhead + addedWorkerOverhead * numWorkerContexts;
+    return {vectorInnerSupervisorMulCycles(numWorkerContexts, vectorWidth, BLen,
+                                           dataBlockCountPacked, type, true) +
+                addedSuperOverhead + addedWorkerOverhead * numWorkerContexts,
+            flops};
   }
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
@@ -1252,21 +1339,25 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2D)(
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   const unsigned vectorWidth = target.getVectorWidth(type);
+  auto flops = flopsForBinaryOp2D(BLen, type, op);
 
   switch (op) {
   case BinaryOpType::SUBTRACT:
-    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
-           4;
+    return {vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+                4,
+            flops};
   case BinaryOpType::ADD:
     // an additional branch at the start.
-    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
-           3;
+    return {vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+                3,
+            flops};
   case BinaryOpType::DIVIDE:
     // an additional branch at the start.
-    return vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 3;
+    return {vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 3, flops};
   case BinaryOpType::MULTIPLY:
-    return vectorInner2DMulCycles(vectorWidth, n, BLen, dataBlockCount, type) +
-           2;
+    return {vectorInner2DMulCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+                2,
+            flops};
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
   }
@@ -1281,21 +1372,25 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorInner2DInPlace)(
   CODELET_VECTOR_VALS(dataBlockCount, uint32_t);
 
   const unsigned vectorWidth = target.getVectorWidth(type);
+  auto flops = flopsForBinaryOp2D(BLen, type, op);
 
   switch (op) {
   case BinaryOpType::SUBTRACT:
-    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
-           4;
+    return {vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+                4,
+            flops};
   case BinaryOpType::ADD:
     // an additional branch at the start.
-    return vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
-           2;
+    return {vectorInner2DAddCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+                2,
+            flops};
   case BinaryOpType::DIVIDE:
     // an additional branch at the start.
-    return vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 2;
+    return {vectorInner2DDivCycles(n, BLen, dataBlockCount, type) + 2, flops};
   case BinaryOpType::MULTIPLY:
-    return vectorInner2DMulCycles(vectorWidth, n, BLen, dataBlockCount, type) +
-           3;
+    return {vectorInner2DMulCycles(vectorWidth, n, BLen, dataBlockCount, type) +
+                3,
+            flops};
   default:
     throw poputil::poplibs_error("BinaryOpType not implemented");
   }
@@ -1309,6 +1404,7 @@ MAKE_PERF_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
   const auto A = vertex.getFieldInfo("A");
   CODELET_FIELD(B);
   assert(A.size() == B.size());
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < A.size(); ++i) {
     assert(A[i].size() == B[i].size());
     unsigned numElem = A[i].size();
@@ -1316,8 +1412,10 @@ MAKE_PERF_ESTIMATOR_NAME(HadamardProd)(const VertexIntrospector &vertex,
     unsigned vectorWidth = target.getDataPathWidth() / (isFloat ? 32 : 16);
     unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
     cycles += 5 + (1 + numVectors * 2);
+    totalElems += numElem;
   }
-  return cycles;
+  auto flops = flopsForBinaryOp2D({totalElems}, type, BinaryOpType::MULTIPLY);
+  return {cycles, flops};
 }
 
 std::uint64_t _fillCycleEstimate(std::uint64_t size, const Target &target,
@@ -1399,6 +1497,14 @@ MAKE_PERF_ESTIMATOR_NAME(Fill2d)(const VertexIntrospector &vertex,
   return cycles;
 }
 
+static std::uint64_t castFlops(const Type &fromType, const Type &toType,
+                               unsigned numElems) {
+
+  return isFPType(fromType) || isFPType(toType)
+             ? static_cast<std::uint64_t>(numElems) * 1
+             : 0;
+}
+
 // Corresponds with 'XXX_XXX_core' functions in assembly.
 static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
                                  const Type &fromType, const Type &toType) {
@@ -1458,7 +1564,6 @@ static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
       cycles += 2;
     }
   }
-
   return cycles;
 }
 
@@ -1475,7 +1580,7 @@ MAKE_PERF_ESTIMATOR_NAME(Cast)(const VertexIntrospector &vertex,
   std::uint64_t cycles = getParamsCycles + 2 +
                          castWorkerCycles(target, numElems, fromType, toType);
 
-  return cycles;
+  return {cycles, castFlops(fromType, toType, numElems)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastSupervisor)(
@@ -1486,6 +1591,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastSupervisor)(
   const unsigned workerCount = (partitionParams >> 6) & 0x7;
   const unsigned workerLast = (partitionParams >> 3) & 0x7;
   const unsigned deltaLast = (partitionParams & 0x7);
+  const unsigned totalElems = workerElems * workerCount + deltaLast;
 
   // Work out workers doing unique workloads from the partitionParams and
   // find the maximum cycles for any of them.
@@ -1519,7 +1625,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CastSupervisor)(
   // setzi, runall, sync, br
   // Assumes runall takes 6 cycles workers are balanced such that
   // sync takes 6 cycles and br takes 6 cycles.
-  return 19 + target.getNumWorkerContexts() * maxCycles;
+  return {19 + target.getNumWorkerContexts() * maxCycles,
+          castFlops(fromType, toType, totalElems)};
 }
 
 VertexPerfEstimate
@@ -1530,12 +1637,14 @@ MAKE_PERF_ESTIMATOR_NAME(Cast2d)(const VertexIntrospector &vertex,
   const auto dst = vertex.getFieldInfo("dst");
   CODELET_FIELD(src);
   assert(src.size() == dst.size());
+  unsigned totalElems = 0;
   for (unsigned i = 0; i != dst.size(); ++i) {
     assert(src[i].size() == dst[i].size());
     // Outer-loop cycles including call plus core function per-vector
     cycles += 11 + castWorkerCycles(target, dst[i].size(), fromType, toType);
+    totalElems += src[i].size();
   }
-  return cycles;
+  return {cycles, castFlops(fromType, toType, totalElems)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CheckAccuracyWhenCast)(
@@ -1572,7 +1681,6 @@ std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
   auto numElemsPerWorker = iceil(numElems, numWorkers);
   workerCycles +=
       binaryOpInnerLoopCycles(target, op, type, info, numElemsPerWorker);
-
   return numWorkers * workerCycles + superviserOverhead;
 }
 
@@ -1584,11 +1692,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2D)(
   const auto out = vertex.getFieldInfo("out");
   assert(in.size() == out.size());
   const auto &info = unaryOpPerfInfo.at({op, type});
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in.size(); ++i) {
     assert(in[i].size() == out[i].size());
     cycles += unaryOpInnerLoopCycles(target, type, info, in[i].size());
+    totalElems += in[i].size();
   }
-  return cycles;
+  return {cycles, flopsForUnaryOp2D({totalElems}, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
@@ -1605,7 +1715,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DSupervisor)(
   workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
   // Unary op is a supervisor vertex
   uint64_t cycles = workerCycles * numWorkers + 9;
-  return cycles + superviserOverhead;
+  return {cycles + superviserOverhead,
+          flopsForUnaryOp2D({static_cast<unsigned>(in.size())}, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2DInPlace)(
@@ -1614,10 +1725,12 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp2DInPlace)(
   uint64_t cycles = 20;
   const auto inOut = vertex.getFieldInfo("inOut");
   const auto &info = unaryOpInPlacePerfInfo.at({op, type});
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < inOut.size(); ++i) {
     cycles += unaryOpInnerLoopCycles(target, type, info, inOut[i].size());
+    totalElems += inOut[i].size();
   }
-  return cycles;
+  return {cycles, flopsForUnaryOp2D({totalElems}, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
@@ -1632,7 +1745,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UnaryOp1DInPlaceSupervisor)(
   workerCycles += unaryOpInnerLoopCycles(target, type, info, numElems);
   // UnaryOpInPlace is a supervisor vertex
   uint64_t cycles = workerCycles * numWorkers + 9;
-  return cycles + superviserOverhead;
+  return {cycles + superviserOverhead,
+          flopsForUnaryOp2D({static_cast<unsigned>(inOut.size())}, type, op)};
 }
 
 VertexPerfEstimate
@@ -1648,12 +1762,14 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2D)(const VertexIntrospector &vertex,
 
   const auto &info = binaryOpPerfInfo.at({op, type});
 
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in1.size(); ++i) {
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
     cycles += binaryOpInnerLoopCycles(target, op, type, info, in1[i].size());
+    totalElems += in1[i].size();
   }
-  return cycles;
+  return {cycles, flopsForBinaryOp2D({totalElems}, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
@@ -1671,7 +1787,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DSupervisor)(
   const auto numWorkers = target.getNumWorkerContexts();
   unsigned numElems = iceil(in1.size(), numWorkers);
   workerCycles += binaryOpInnerLoopCycles(target, op, type, info, numElems);
-  return numWorkers * workerCycles + supervisorOverhead;
+  return {numWorkers * workerCycles + supervisorOverhead,
+          flopsForBinaryOp2D({static_cast<unsigned>(in1.size())}, type, op)};
 }
 
 VertexPerfEstimate
@@ -1683,12 +1800,13 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
   CODELET_FIELD(in2);
   assert(in1Out.size() == in2.size());
   const auto &info = binaryOpInPlacePerfInfo.at({op, type});
-
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     assert(in1Out[i].size() == in2[i].size());
     cycles += binaryOpInnerLoopCycles(target, op, type, info, in1Out[i].size());
+    totalElems += in1Out[i].size();
   }
-  return cycles;
+  return {cycles, flopsForBinaryOp2D({totalElems}, type, op)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
@@ -1697,8 +1815,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BinaryOp1DInPlaceSupervisor)(
   const auto in1Out = vertex.getFieldInfo("in1Out");
   CODELET_FIELD(in2);
   assert(in1Out.size() == in2.size());
-  return getBinaryOp1DInPlaceSupervisorEstimate(target, type, op,
-                                                in1Out.size());
+  return {
+      getBinaryOp1DInPlaceSupervisorEstimate(target, type, op, in1Out.size()),
+      flopsForBinaryOp2D({static_cast<unsigned>(in1Out.size())}, type, op)};
 }
 
 static std::uint64_t selectCycles(const Target &target, const Type &type,
@@ -1730,7 +1849,8 @@ MAKE_PERF_ESTIMATOR_NAME(Select)(const VertexIntrospector &vertex,
     assert(in3[i].size() == in1[i].size());
     cycles += selectCycles(target, type, in1[i].size());
   }
-  return cycles;
+  // Assume zero flops
+  return {cycles, 0};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelect)(
@@ -1770,7 +1890,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelect)(
                                    type.toString());
     }
   }
-  return cycles;
+  // Assume zero flops
+  return {cycles, 0};
 }
 
 // Estimation of cycles for the BroadcastSelectorSelect. This codelet calls
@@ -1839,7 +1960,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectInPlace)(
     assert(in3[i].size() == in1[i].size());
     cycles += selectCycles(target, type, in1.size());
   }
-  return cycles;
+  // Assume zero flops
+  return {cycles, 0};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
@@ -1853,8 +1975,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastSelectorSelectInPlace)(
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     rowSizes.push_back(in1Out[i].size());
   }
-  return BroadcastSelectorSelectCycles(type, target.getTypeSize(type),
-                                       rowSizes);
+  // Assume zero flops
+  return {
+      BroadcastSelectorSelectCycles(type, target.getTypeSize(type), rowSizes),
+      0};
+}
+
+static std::uint64_t histogramFlops(unsigned numElems, bool isAbsolute) {
+  return static_cast<std::uint64_t>(numElems) * (1 + isAbsolute);
 }
 
 VertexPerfEstimate
@@ -1874,11 +2002,13 @@ MAKE_PERF_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
       target.getDataPathWidth() / (type == FLOAT ? 32 : 16);
 
   uint64_t cycles = 7 + unpackCostHistogram + unpackCostLimits;
+  unsigned totalElems = 0;
   if (type == HALF) {
     cycles += 5;                  // Pre-loop overhead
     uint64_t dataLoopCycles = 16; // Data-loop overhead
     for (unsigned i = 0; i < data.size(); i++) {
       unsigned elements = data[i].size();
+      totalElems += data[i].size();
       if (elements & 1) {
         dataLoopCycles += 3 + isAbsolute;
       }
@@ -1894,6 +2024,7 @@ MAKE_PERF_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
     uint64_t dataLoopCycles = 10; // Data-loop overhead
     for (unsigned i = 0; i < data.size(); i++) {
       unsigned elements = data[i].size();
+      totalElems += elements;
       if (elements & 1) {
         dataLoopCycles += 2 + isAbsolute;
       }
@@ -1904,7 +2035,8 @@ MAKE_PERF_ESTIMATOR_NAME(Histogram2D)(const VertexIntrospector &vertex,
   // post process
   cycles += 3 + (3 * (data.size() - 1));
   cycles += 10 + (histogramCount - 1) * 2;
-  return cycles;
+  return {cycles,
+          convertToTypeFlops(histogramFlops(totalElems, isAbsolute), type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
@@ -1922,15 +2054,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HistogramSupervisor)(
   const auto vectorWidth =
       target.getDataPathWidth() / (type == FLOAT ? 32 : 16);
   auto numWorkers = target.getNumWorkerContexts();
+  auto flops = histogramFlops(data.size(), isAbsolute);
 
   if (splitByLimits) {
-    return histogramSupervisorByLimitEstimate(
-        data.size(), histogramCount, isAbsolute, type == HALF, numWorkers,
-        vectorWidth, unpackCostHistogram, unpackCostLimits);
+    return {histogramSupervisorByLimitEstimate(
+                data.size(), histogramCount, isAbsolute, type == HALF,
+                numWorkers, vectorWidth, unpackCostHistogram, unpackCostLimits),
+            convertToTypeFlops(flops, type)};
   } else {
-    return histogramSupervisorByDataEstimate(
-        data.size(), histogramCount, isAbsolute, type == HALF, numWorkers,
-        vectorWidth, unpackCostHistogram, unpackCostLimits);
+    return {histogramSupervisorByDataEstimate(
+                data.size(), histogramCount, isAbsolute, type == HALF,
+                numWorkers, vectorWidth, unpackCostHistogram, unpackCostLimits),
+            convertToTypeFlops(flops, type)};
   }
 }
 static std::uint64_t clampCycles(const Target &target, const Type &type,
@@ -1962,13 +2097,16 @@ MAKE_PERF_ESTIMATOR_NAME(Clamp)(const VertexIntrospector &vertex,
   assert(in1.size() == out.size());
   assert(in2.size() == in1.size());
   assert(in3.size() == in1.size());
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in1.size(); ++i) {
     assert(in1[i].size() == out[i].size());
     assert(in2[i].size() == in1[i].size());
     assert(in3[i].size() == in1[i].size());
+    totalElems += in1[i].size();
     cycles += clampCycles(target, type, in1[i].size());
   }
-  return cycles;
+  return {cycles,
+          convertToTypeFlops(static_cast<std::uint64_t>(totalElems) * 2, type)};
 }
 
 VertexPerfEstimate
@@ -1980,12 +2118,15 @@ MAKE_PERF_ESTIMATOR_NAME(ClampInPlace)(const VertexIntrospector &vertex,
   CODELET_FIELD(in3);
   assert(in2.size() == in1Out.size());
   assert(in3.size() == in1Out.size());
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     assert(in2[i].size() == in1Out[i].size());
     assert(in3[i].size() == in1Out[i].size());
+    totalElems += in1Out[i].size();
     cycles += clampCycles(target, type, in1Out[i].size());
   }
-  return cycles;
+  return {cycles,
+          convertToTypeFlops(static_cast<std::uint64_t>(totalElems) * 2, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClamp)(
@@ -2000,11 +2141,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClamp)(
   assert(in1.size() == out.size());
   assert(in2.size() == 1);
   assert(in3.size() == 1);
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in1.size(); ++i) {
     assert(in1[i].size() == out[i].size());
     cycles += clampCycles(target, type, in1[i].size());
+    totalElems += in1[i].size();
   }
-  return cycles;
+  return {cycles,
+          convertToTypeFlops(static_cast<std::uint64_t>(totalElems) * 2, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClampInPlace)(
@@ -2017,10 +2161,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastClampInPlace)(
   CODELET_FIELD(in3);
   assert(in2.size() == 1);
   assert(in3.size() == 1);
+  unsigned totalElems = 0;
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     cycles += clampCycles(target, type, in1Out[i].size());
+    totalElems += in1Out[i].size();
   }
-  return cycles;
+  return {cycles,
+          convertToTypeFlops(static_cast<std::uint64_t>(totalElems) * 2, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DynamicSlice2d)(
@@ -2163,7 +2310,9 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
   }
 
   cycles += outerLoopCycles * offsets.size();
-  return cycles;
+  return {cycles, static_cast<std::uint64_t>(regionSize) *
+                      (flopsPerBinaryOpElement(BinaryOpType::ADD) +
+                       flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
 }
 
 VertexPerfEstimate
@@ -2381,17 +2530,18 @@ unsigned nanCheckCycles(const Type &type, bool checkBothNaNAndInf) {
   return checkBothNaNAndInf + (type == FLOAT ? 7 : 11);
 }
 
-static std::uint64_t hasNaN1DCyles(const Target &target, const Type &inType,
-                                   unsigned sizeIn8BytesPerWorker,
-                                   unsigned char remWorkerId,
-                                   unsigned char remWorkerExtras,
-                                   bool hasBothInfOrNaN) {
+static VertexPerfEstimate
+hasNaN1DCyles(const Target &target, const Type &inType,
+              unsigned sizeIn8BytesPerWorker, unsigned char remWorkerId,
+              unsigned char remWorkerExtras, bool hasBothInfOrNaN) {
   unsigned inSize = sizeIn8BytesPerWorker + (remWorkerId > 0);
   inSize = inSize * (8 / target.getTypeSize(inType)) + remWorkerExtras;
-  return (15 + hasNanInnerLoopCycles(inType, inSize, hasBothInfOrNaN) +
-          nanCheckCycles(inType, hasBothInfOrNaN)) *
-             target.getNumWorkerContexts() +
-         24;
+  std::uint64_t flops = inSize;
+  return {(15 + hasNanInnerLoopCycles(inType, inSize, hasBothInfOrNaN) +
+           nanCheckCycles(inType, hasBothInfOrNaN)) *
+                  target.getNumWorkerContexts() +
+              24,
+          flops};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInfSupervisor)(
@@ -2404,8 +2554,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(HasNaNOrInfSupervisor)(
                        remWorkerExtras, hasNaNOrInf);
 }
 
-static std::uint64_t hasNan2DCycles(const FieldData &in, const Target &target,
-                                    const Type &inType, bool hasBothInfOrNaN) {
+static VertexPerfEstimate hasNan2DCycles(const FieldData &in,
+                                         const Target &target,
+                                         const Type &inType,
+                                         bool hasBothInfOrNaN) {
   // initial overhead + exitz
   std::uint64_t cycles = 6;
   if (in.size() == 0) {
@@ -2414,14 +2566,15 @@ static std::uint64_t hasNan2DCycles(const FieldData &in, const Target &target,
 
   // post-zero check overhead.
   cycles += 1;
-
+  uint64_t flops = 0;
   for (unsigned i = 0; i < in.size(); ++i) {
     cycles += hasNanInnerLoopCycles(inType, in[i].size(), hasBothInfOrNaN);
+    flops += in[i].size();
   }
 
   // Nan checking
   cycles += nanCheckCycles(inType, hasBothInfOrNaN);
-  return cycles * target.getNumWorkerContexts();
+  return {cycles * target.getNumWorkerContexts(), flops};
 }
 
 VertexPerfEstimate

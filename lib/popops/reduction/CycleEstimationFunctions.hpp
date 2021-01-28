@@ -39,7 +39,7 @@ enum class ReductionSpecialisation;
 ///
 /// /returns  The estimated number of thread cycles used by the vertex.
 ///
-std::uint64_t getCyclesEstimateForReduce(
+poplar::VertexPerfEstimate getCyclesEstimateForReduce(
     const std::vector<std::size_t> &partialsSizes,
     const std::vector<std::size_t> &outSizes,
     const std::vector<unsigned> &numPartials, unsigned vectorWidth,
@@ -50,7 +50,7 @@ std::uint64_t getCyclesEstimateForReduce(
 /// Get the cycle estimate for a reduction. This obtains field sizes from the
 /// vertex and calls through to getCyclesEstimateForReduce(). See that
 /// function for details.
-std::uint64_t getCycleEstimateForReduceVertex(
+poplar::VertexPerfEstimate getCycleEstimateForReduceVertex(
     const poplar::VertexIntrospector &vertex, const poplar::Target &target,
     const poplar::Type &partialsType, const poplar::Type &outType,
     popops::Operation operation, bool isUpdate,
