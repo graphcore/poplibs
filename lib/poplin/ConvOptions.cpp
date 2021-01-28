@@ -163,6 +163,7 @@ static std::unordered_set<std::string> validTransformConstraintBool = {
 static std::unordered_set<std::string> validTransformConstraintUnsignedArray = {
     "expandDims",
     "outChanFlattenDims",
+    "combineConvGroupsFactor",
 };
 
 static void validatePlanConstraintsIndex(const std::string &path,

@@ -443,7 +443,7 @@ BOOST_AUTO_TEST_CASE(InvalidLevel) {
     {
        "3": {
          "transform":{
-            "swapOperands": false
+           "combineConvGroups": true
          }
        }
     }

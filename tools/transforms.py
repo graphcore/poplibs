@@ -73,17 +73,19 @@ PlannerInfoFields = collections.namedtuple(
 #              expandDims              {1}
 #              outChanFlattenDims      {}
 #              flattenDims             {0,2}
+#              combineConvGroupsFactor 1
 re_transform_info = re.compile(r'^transform\s\#0' + NEW_LINE_CHAR +
                              '\s+Transform:\sextraFieldDims\s+(\d+)' + NEW_LINE_CHAR +
                              '\s+dilatePostConv\s+(.+)' + NEW_LINE_CHAR +
                              '\s+swapOperands\s+([a-z]+)' + NEW_LINE_CHAR +
                              '\s+expandDims\s+(.+)' + NEW_LINE_CHAR +
                              '\s+outChanFlattenDims\s+(.+)' + NEW_LINE_CHAR +
-                             '\s+flattenDims\s+(.+)$',
+                             '\s+flattenDims\s+(.+)' + NEW_LINE_CHAR +
+                             '\s+combineConvGroupsFactor\s+(\d+)$',
                             re.MULTILINE)
 
 transform_info_fields_names = ['extraFieldDims', 'dilatePostConv', 'swapOperands',
-    'expandDims', 'outChanFlattenDims', 'flattenDims']
+    'expandDims', 'outChanFlattenDims', 'flattenDims', 'combineConvGroupsFactor']
 TransformInfoFields = collections.namedtuple(
     'TransformInfoFields', transform_info_fields_names
 )
@@ -337,16 +339,18 @@ def parse_test_file(file_path, device_type):
 # -----------------------------------------------------------------------------
 # Benchmarks permutation
 # -----------------------------------------------------------------------------
-def transform_constraints(phase, so, ed, ocfd):
+def transform_constraints(phase, so, ed, ocfd, ccgf):
     swap_operands = f'"swapOperands":{so}'
     expand_dims = f'"expandDims":{ed}'
     out_chan_flatten_dims = f'"outChanFlattenDims":{ocfd}'
+    combine_conv_groups_factor = f'"combineConvGroupsFactor":[{ccgf}]'
     phase_constraints_prefix = r'{"0": {"transform": {'
     phase_constraints_suffix = r'}}}'
     phase_constraints =  phase_constraints_prefix +\
                         swap_operands + ',' +\
                         expand_dims + ',' +\
-                        out_chan_flatten_dims +\
+                        out_chan_flatten_dims + ',' +\
+                        combine_conv_groups_factor +\
                         phase_constraints_suffix
     return f'--{phase.lower()}-plan-constraints=' + phase_constraints
 
@@ -360,6 +364,7 @@ def powerset(dims):
 
 def add_permutations(standard_test):
     swap_operands = ['true', 'false']
+    combine_conv_groups_factor = ['1', '2', '4', '8']
 
     all_tests_dic = {}
     for name, cmd in standard_test.items():
@@ -373,23 +378,25 @@ def add_permutations(standard_test):
         # so_list = ['false']
         # ed_list =  ['[1,0]']
         # ocfd_list = ['[]']
+        # ccgf_list = ['1']
 
         # Release params
         p_list = phases_dict
         so_list = swap_operands
         ed_list =  powerset(range(num_dimensions))
         ocfd_list = powerset(range(num_dimensions))
+        ccgf_list = combine_conv_groups_factor
 
-        parameters = itertools.product(p_list, so_list, ed_list, ocfd_list)
+        parameters = itertools.product(p_list, so_list, ed_list, ocfd_list, ccgf_list)
 
-        for phase, so, ed, ocfd in parameters:
+        for phase, so, ed, ocfd, ccgf in parameters:
             edStr = str(ed).replace(', ', '_')
             ocfdStr = str(ocfd).replace(', ', '_')
-            final_test_name = f'{name}_{so}_{edStr}_{ocfdStr}_{phase}'
+            final_test_name = f'{name}_{so}_{edStr}_{ocfdStr}_[{ccgf}]_{phase}'
 
             all_tests_dic[final_test_name] = standard_test[name] +\
                     [f'--single-phase={phase}'] +\
-                    [transform_constraints(phase, so, ed, ocfd)]
+                    [transform_constraints(phase, so, ed, ocfd, ccgf)]
 
     return all_tests_dic
 
@@ -692,7 +699,7 @@ def generate_ci_tests(workspace, test_binary, device_type):
                         '--profile', f'--single-phase={phase}', '--tiles-per-ipu=2',
                         '--convolution-options={"insertTransformsCycleCountProgs":true}',
                         '--preplan', '0',
-                        transform_constraints(phase, 'true', '[0]', '[1]')]
+                        transform_constraints(phase, 'true', '[0]', '[1]', '1')]
 
         # Remove ci-test logs to guarantee tests run
         file_to_remove = os.path.join(workspace, test_name + LOG_FILE_EXT)
