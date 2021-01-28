@@ -115,10 +115,11 @@ template <typename FPType> struct InputSequence {
   std::vector<unsigned> labels;
 };
 
-InputSequence<double> getRandomTestInput(size_t minT, size_t maxT,
-                                         size_t minLabels, size_t maxLabels,
-                                         unsigned numClasses, unsigned batchNo,
-                                         bool blankIsZero) {
+InputSequence<double>
+getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
+                   boost::optional<unsigned> testLabelLength,
+                   size_t minLabelLength, size_t maxLabelLength,
+                   unsigned numClasses, unsigned batchNo, bool blankIsZero) {
 
   std::mt19937 gen;
   // Seed with the batch number - resulting in repeatable pseudo random sizes
@@ -132,15 +133,19 @@ InputSequence<double> getRandomTestInput(size_t minT, size_t maxT,
   std::uniform_int_distribution<> randLabels(0, numClasses - 2);
   std::uniform_int_distribution<> randInput(0, 10);
 
-  unsigned inputLength = randT(gen);
+  unsigned inputLength =
+      testTime.is_initialized() ? testTime.get() : randT(gen);
 
   // Constrain the sequence of labels to conform to the randomly chosen
   // input length - enforcing time >= 1 + 2 * labels
   size_t maxS =
-      std::min(maxLabels, static_cast<size_t>((inputLength + 1) / 2 - 1));
-  size_t minS = std::min(minLabels, maxS);
+      std::min(maxLabelLength, static_cast<size_t>((inputLength + 1) / 2 - 1));
+  size_t minS = std::min(minLabelLength, maxS);
   std::uniform_int_distribution<> randLabelLength(minS, maxS);
-  unsigned labelLength = randLabelLength(gen);
+  unsigned labelLength = testLabelLength.is_initialized()
+                             ? testLabelLength.get()
+                             : randLabelLength(gen);
+
   std::vector<unsigned> labels(labelLength);
 
   // Random label sequence of the right length
@@ -178,7 +183,6 @@ boost::multi_array<FPType, 2> gradReference(const InputSequence<FPType> &test,
   auto expandedGradient =
       expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
                    test.inputLength, true);
-
   auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
                        numClasses, blankClass, test.inputLength, true);
   return transpose(gradient);
@@ -294,10 +298,12 @@ int main(int argc, char **argv) {
   bool verbose = false;
   bool profile = false;
   bool ignoreData = false;
+  boost::optional<unsigned> testTime = boost::none;
   unsigned minTime = 15;
   unsigned maxTime = 15;
-  unsigned minLabels = 5;
-  unsigned maxLabels = 5;
+  boost::optional<unsigned> testLabelLength = boost::none;
+  unsigned minLabelLength = 5;
+  unsigned maxLabelLength = 5;
   unsigned numClasses = 4;
   unsigned batchSize = 1;
   boost::optional<unsigned> tiles = boost::none;
@@ -321,10 +327,16 @@ int main(int argc, char **argv) {
      "Output data type")
     ("batch", po::value(&batchSize)->default_value(batchSize),
      "Batch size")
-    ("min-labels", po::value(&minLabels)->default_value(minLabels),
+    ("label-length", po::value<boost::optional<unsigned>>(&testLabelLength),
+     "Test length (labels)")
+    ("min-label-length",
+      po::value(&minLabelLength)->default_value(minLabelLength),
      "Min test length (labels)")
-    ("max-labels", po::value(&maxLabels)->default_value(maxLabels),
+    ("max-label-length",
+      po::value(&maxLabelLength)->default_value(maxLabelLength),
      "Max test length (labels)")
+    ("time", po::value<boost::optional<unsigned>>(&testTime),
+     "Test length (time)")
     ("min-time", po::value(&minTime)->default_value(minTime),
      "Min test length (time)")
     ("max-time", po::value(&maxTime)->default_value(maxTime),
@@ -357,20 +369,38 @@ int main(int argc, char **argv) {
   // Needed to set default arguments.
   po::notify(vm);
   // Pick up on some parameters that are easy to get wrong
-  if (maxTime < 1 + 2 * maxLabels) {
+  if (maxTime < 1 + 2 * maxLabelLength) {
     throw poputil::poplibs_error(
-        "The max test time must be >= 1 + 2 * max test labels");
+        "The max test time must be >= 1 + 2 * max test label length");
   }
-  if (minTime < 1 + 2 * minLabels) {
+  if (minTime < 1 + 2 * minLabelLength) {
     throw poputil::poplibs_error(
-        "The min test time must be >= 1 + 2 * min test labels");
+        "The min test time must be >= 1 + 2 * min test label length ");
   }
   if (maxTime < minTime) {
     throw poputil::poplibs_error("The max test time must be >= min test time");
   }
-  if (maxLabels < minLabels) {
+  if (maxLabelLength < minLabelLength) {
     throw poputil::poplibs_error(
-        "The max test labels must be >= min test labels");
+        "The max test label length must be >= min test label length");
+  }
+  if (testTime && testTime.get() > maxTime) {
+    throw poputil::poplibs_error(
+        "The non random test time must be <= max test time");
+  }
+  if (testLabelLength && testLabelLength.get() > maxLabelLength) {
+    throw poputil::poplibs_error(
+        "The non random test label length must be <= max test label length");
+  }
+  if ((!testTime && testLabelLength) || (testLabelLength && !testTime)) {
+    throw poputil::poplibs_error(
+        "Use non random test time and non random label length together");
+  }
+  if (testTime && testLabelLength &&
+      testTime.get() < 1 + 2 * testLabelLength.get()) {
+    throw poputil::poplibs_error(
+        "The non random test time must be >= 1 + 2 * non random test label"
+        " length");
   }
 
   if (planOnly) {
@@ -379,7 +409,7 @@ int main(int argc, char **argv) {
     Graph graph(target);
 
     const auto plan = popnn::ctc::plan(graph, inType, outType, batchSize,
-                                       maxTime, maxLabels, numClasses);
+                                       maxTime, maxLabelLength, numClasses);
 
     std::cout << plan << std::endl;
     std::cout << "No test run - plan only" << std::endl;
@@ -391,37 +421,27 @@ int main(int argc, char **argv) {
   std::vector<boost::multi_array<double, 2>> references;
   const unsigned blankClass = blankIsZero ? 0 : numClasses - 1;
   for (unsigned i = 0; i < batchSize; i++) {
-    tests.push_back(getRandomTestInput(minTime, maxTime, minLabels, maxLabels,
-                                       numClasses, i, blankIsZero));
+    tests.push_back(getRandomTestInput(
+        testTime, minTime, maxTime, testLabelLength, minLabelLength,
+        maxLabelLength, numClasses, i, blankIsZero));
 
     if (verbose) {
       std::cout << "\nBatch:" << i << " Time:" << tests[i].inputLength
-                << " Labels:" << tests[i].labels.size();
+                << " Label length:" << tests[i].labels.size();
     }
     print(" Test sequence[" + std::to_string(tests[i].labels.size()) + "] ",
           tests[i].labels, blankClass, verbose);
     print("Input:", tests[i].input, blankClass, verbose);
 
-    // Condition the input - Log of the values contained and initialise the
-    // unused timesteps to have blank = log::min, zero otherwise. This allows
-    // the IPU implementation to correctly find the gradient. (These pad
-    // values are unused by the reference implementation)
-    // TODO - expect some of this to lie inside the library function, and
-    // probabliy eliminate the need for padding
+    // Provide the library function with log probabilities (log of softmax)
     tests[i].input = log::log(tests[i].input);
-    for (size_t idx = 0; idx < numClasses; idx++) {
-      for (size_t in = tests.back().inputLength; in < maxTime; in++) {
-        tests.back().input[in][idx] = (idx == blankClass) ? 0 : log::min;
-      }
-    }
-
     print("Log Softmax in", tests[i].input, blankClass, verbose);
     references.push_back(
         gradReference<double>(tests[i], blankClass, numClasses, verbose));
     references.back() = maskResults(references.back(), tests[i].inputLength);
     print("Reference gradient", references.back(), blankClass, verbose);
   }
-  auto outputs = gradIPU(tests, maxLabels, blankClass, numClasses, inType,
+  auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
                          outType, deviceType, tiles, ignoreData, profile);
 
   for (unsigned i = 0; i < batchSize; i++) {

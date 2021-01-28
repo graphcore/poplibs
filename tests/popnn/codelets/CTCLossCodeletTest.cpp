@@ -247,8 +247,8 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
-  const auto labelsLen = input.idx.size();
-  const auto extendedLabelsLen = 2 * labelsLen + 1;
+  const auto labelLen = input.idx.size();
+  const auto extendedLabelLen = 2 * labelLen + 1;
   const auto maxT = input.input.shape()[1];
   const auto numClasses = input.input.shape()[0];
 
@@ -259,11 +259,11 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
 
   auto probabilities =
       graph.addVariable(inType, {maxT, numClasses}, "probabilities");
-  auto labels = graph.addVariable(UNSIGNED_SHORT, {labelsLen}, "labels");
+  auto labels = graph.addVariable(UNSIGNED_SHORT, {labelLen}, "label");
   auto result = graph.addVariable(
-      outType, {maxT, resultIsGrad ? numClasses : extendedLabelsLen}, "result");
+      outType, {maxT, resultIsGrad ? numClasses : extendedLabelLen}, "result");
   auto prevTime = graph.addVariable(
-      outType, {resultIsGrad ? 2u : 1u, extendedLabelsLen}, "prevTime");
+      outType, {resultIsGrad ? 2u : 1u, extendedLabelLen}, "prevTime");
   graph.setTileMapping(prevTime, 0);
   auto prevLabel =
       graph.addVariable(outType, {findingAlpha ? 1u : 2u, maxT}, "prevLabel");
@@ -273,7 +273,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   graph.setTileMapping(prevSymbol, 0);
   Tensor initialAlphaOrBeta;
   if (resultIsGrad) {
-    initialAlphaOrBeta = graph.addVariable(outType, {maxT, extendedLabelsLen},
+    initialAlphaOrBeta = graph.addVariable(outType, {maxT, extendedLabelLen},
                                            "initialAlphaOrBeta");
     graph.setTileMapping(initialAlphaOrBeta, 0);
   }
@@ -299,13 +299,21 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   graph.setInitialValue(vertex["numClasses"], numClasses);
   graph.setInitialValue(vertex["blankClass"], blankClass);
   graph.setInitialValue(vertex["labelOffset"], 0);
-  graph.connect(vertex["labels"], labels);
+  graph.setInitialValue(vertex["timeOffset"], 0);
+  graph.connect(vertex["label"], labels);
   graph.connect(vertex["prevSymbol"], prevSymbol);
   graph.connect(vertex["probabilities"], probabilities.flatten());
 
-  auto validLabels = graph.addConstant(UNSIGNED_SHORT, {}, labelsLen);
-  graph.setTileMapping(validLabels, 0);
-  graph.connect(vertex["validLabels"], validLabels);
+  // TODO - Vertex features to support < maxT and < labelsLen sized
+  // inputs, and accepting data from the previous label inputs
+  // are only tested in the context of the whole IPU implementation.
+  // Suggest that when optimising the vertices this test is improved.
+  auto validLabel = graph.addConstant(UNSIGNED_SHORT, {}, labelLen);
+  auto validTime = graph.addConstant(UNSIGNED_SHORT, {}, maxT);
+  graph.setTileMapping(validLabel, 0);
+  graph.setTileMapping(validTime, 0);
+  graph.connect(vertex["validLabel"], validLabel);
+  graph.connect(vertex["validTime"], validTime);
 
   if (vertexToTest == TestType::ALPHA) {
     graph.connect(vertex["alphas"], result.flatten());
@@ -376,7 +384,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
     copy(target, prevTimeInit, outType, rawPrevTime.get());
   } else {
     // last symbol = 0 (probability=1)
-    prevTimeInit[0][extendedLabelsLen - 1] = 0;
+    prevTimeInit[0][extendedLabelLen - 1] = 0;
     copy(target, prevTimeInit, outType, rawPrevTime.get());
   }
 

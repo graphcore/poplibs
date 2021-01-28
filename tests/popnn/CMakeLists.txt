@@ -830,3 +830,39 @@ add_unit_test(NormStatisticsTest
               LABELS T28462)
 
 add_multi_target_test_executable(CTCLossTest CTCLossTest.cpp)
+
+# Verify cases where the individual entry is <= the maximum timesteps or
+# maximum label length defined.
+# TODO: With control of the plan this should check edge cases in the overall
+# vertex operation and exchange.  Assume 4 splits in time, 4 in label
+foreach(time 25 28 32)
+  foreach(labels 2 3 6 8 12)
+    add_multitarget_test(
+      NAME CTCLossTest1_Time_${time}_Labels_${labels}
+      COMMAND CTCLossTest
+              --batch=1
+              --max-time=32
+              --min-time=3
+              --max-label-length=12
+              --min-label-length=1
+              --time=${time}
+              --label-length=${labels}
+      VARIANTS ${IPUMODEL_VARIANTS})
+  endforeach()
+endforeach()
+
+foreach(time 12 15 16)
+  foreach(labels 3 5)
+    add_multitarget_test(
+      NAME CTCLossTest2_Time_${time}_Labels_${labels}
+      COMMAND CTCLossTest
+              --batch=1
+              --max-time=32
+              --min-time=3
+              --max-label-length=12
+              --min-label-length=1
+              --time=${time}
+              --label-length=${labels}
+      VARIANTS ${IPUMODEL_VARIANTS})
+  endforeach()
+endforeach()
