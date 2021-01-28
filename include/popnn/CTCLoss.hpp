@@ -9,6 +9,7 @@
 #define popnn_CTCLoss_hpp
 
 #include <poplar/Graph.hpp>
+#include <poplar/OptionFlags.hpp>
 #include <poplar/Program.hpp>
 #include <poputil/DebugInfo.hpp>
 
@@ -38,6 +39,13 @@ private:
 
 /** Create a plan for implementing the CTC Loss (gradient) function
  *
+ * **CTC Loss options**
+ *
+ *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive)
+ *
+ *      The maximum proportion of available memory on each tile that this
+ *      layer should consume temporarily during the course of the operation.
+ *
  * \param graph       The graph the operation will be added to
  * \param inType      The data type of the probability data input
  * \param outType     The data type of the gradient output
@@ -46,12 +54,14 @@ private:
  * \param maxLabels   The maximum length of any label to be planned for
  * \param numClasses  The number of symbols/classes in the "alphabet", including
  *                    the blankClass
+ * \param options     Any implementation/debug options for the operation
  * \return plan       The plan produced, which will specify how the operation
  *                    is to be implemented
  */
 Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
           const poplar::Type &outType, unsigned batchSize, unsigned maxTime,
-          unsigned maxLabels, unsigned numClasses);
+          unsigned maxLabels, unsigned numClasses,
+          const poplar::OptionFlags &options = {});
 
 /** Create and map a data input [maxTime, batchSize, numClasses] tensor which
  *  the gradient function will use.  Mapping is according to the plan provided.

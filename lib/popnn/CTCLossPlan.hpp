@@ -259,6 +259,26 @@ struct CycleEstimate {
   }
 };
 
+// Per tile memory estimate in bytes
+struct MemoryEstimate {
+  uint64_t data;
+  uint64_t labels;
+
+  // Gradient for each class in partition (not yet reduced). It is the same
+  // shape as the gradient tensor, but multiplied by the size of the El
+  // partition for the given tile. e.g. [sizeOfElOnTile, maxT, B, A]
+  uint64_t gradient;
+
+  // Temporary storage of alpha and beta required to calculate gradient
+  uint64_t alphaBetaTemp;
+  // Used to pass previous state across the partition boundary
+  uint64_t tempDependancies;
+
+  uint64_t total() const {
+    return data + labels + gradient + alphaBetaTemp + tempDependancies;
+  }
+};
+
 } // namespace ctc
 } // namespace popnn
 
