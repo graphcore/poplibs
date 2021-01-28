@@ -166,23 +166,6 @@ void deviceTriangularSolveIota(poplar::Type type,
                                          block_size);
 }
 
-void VerifyDotProducts(
-    std::vector<std::pair<MatMulParams, poplar::OptionFlags>> &matmuls,
-    std::size_t start, std::size_t g, std::size_t an, std::size_t bn) {
-  for (std::size_t i = 1; i < an; ++i) {
-    auto &params = matmuls[start++].first;
-    BOOST_TEST(params.aShape.size() == 3);
-    BOOST_TEST(params.aShape[0] == g);
-    BOOST_TEST(params.aShape[1] == 1);
-    BOOST_TEST(params.aShape[2] == i);
-
-    BOOST_TEST(params.bShape.size() == 3);
-    BOOST_TEST(params.bShape[0] == g);
-    BOOST_TEST(params.bShape[1] == i);
-    BOOST_TEST(params.bShape[2] == bn);
-  }
-}
-
 } // namespace
 
 BOOST_DATA_TEST_CASE(TriangularSolveCase,
@@ -201,63 +184,4 @@ BOOST_DATA_TEST_CASE(TriangularSolveCase,
   deviceTriangularSolveIota<float>(half_type ? HALF : FLOAT, {1, 2, n, n},
                                    bShape, left_side, lower, unit_diagonal,
                                    block_size);
-}
-
-BOOST_AUTO_TEST_CASE(TriangularSolvePreplanning30x30BlockSize4) {
-  const std::vector<std::size_t> aShape = {8, 30, 30};
-  const std::vector<std::size_t> bShape = {8, 30, 3};
-  const std::size_t blockSize = 4;
-  auto matmuls = getTriangularSolveMatMulPrePlanParameters(
-      FLOAT, FLOAT, aShape, bShape, true, true, blockSize, {});
-  // Main dimensions of the solver will be padded to be at least pow(2, n) *
-  // blockSize. In this case padded tensor size will be 32x32 and n = 3 Divide
-  // and conquer algorithm above will use matmul of sizes 16x16, 8x8 and 4x4.
-  // Additional matmuls are dot-product in forward/back substitution (an - 1)
-  BOOST_TEST(matmuls.size() == 3 + blockSize - 1);
-  const auto &matmul1 = matmuls[0].first;
-  const auto &matmul2 = matmuls[1].first;
-  const auto &matmul3 = matmuls[2].first;
-
-  BOOST_TEST(matmul1.aShape.size() == 3);
-  BOOST_TEST(matmul1.aShape[0] == 8);
-  BOOST_TEST(matmul1.aShape[1] == 16);
-  BOOST_TEST(matmul1.aShape[2] == 16);
-
-  BOOST_TEST(matmul1.bShape.size() == 3);
-  BOOST_TEST(matmul1.bShape[0] == 8);
-  BOOST_TEST(matmul1.bShape[1] == 16);
-  BOOST_TEST(matmul1.bShape[2] == 16);
-
-  BOOST_TEST(matmul2.aShape.size() == 3);
-  BOOST_TEST(matmul2.aShape[0] == 8);
-  BOOST_TEST(matmul2.aShape[1] == 8);
-  BOOST_TEST(matmul2.aShape[2] == 8);
-
-  BOOST_TEST(matmul2.bShape.size() == 3);
-  BOOST_TEST(matmul2.bShape[0] == 8);
-  BOOST_TEST(matmul2.bShape[1] == 8);
-  BOOST_TEST(matmul2.bShape[2] == 8);
-
-  BOOST_TEST(matmul3.aShape.size() == 3);
-  BOOST_TEST(matmul3.aShape[0] == 8);
-  BOOST_TEST(matmul3.aShape[1] == 4);
-  BOOST_TEST(matmul3.aShape[2] == 4);
-
-  BOOST_TEST(matmul3.bShape.size() == 3);
-  BOOST_TEST(matmul3.bShape[0] == 8);
-  BOOST_TEST(matmul3.bShape[1] == 4);
-  BOOST_TEST(matmul3.bShape[2] == 4);
-
-  VerifyDotProducts(matmuls, 3, 8, blockSize, 4);
-}
-
-BOOST_AUTO_TEST_CASE(TriangularSolvePreplanning4x4BlockSize4) {
-  const std::vector<std::size_t> aShape = {1, 4, 4};
-  const std::vector<std::size_t> bShape = {1, 4, 2};
-  const std::size_t blockSize = 4;
-  auto matmuls = getTriangularSolveMatMulPrePlanParameters(
-      FLOAT, FLOAT, aShape, bShape, true, true, blockSize, {});
-  // No block solver, only dot products
-  BOOST_TEST(matmuls.size() == 3);
-  VerifyDotProducts(matmuls, 0, 1, 4, 2);
 }

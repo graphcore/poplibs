@@ -136,8 +136,8 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
   }
 
   if (an > params.blockSize) {
-    auto an2 = an >> 1;
-    auto bn2 = bn >> 1;
+    auto an2 = (an + 1) >> 1;
+    auto bn2 = (bn + 1) >> 1;
     auto bMiddlePos = bLeftPos + bn2;
 
     auto a11 = a.slice({0, 0, 0}, {totalBatches, an2, an2});
@@ -171,7 +171,7 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       {
         auto x11 =
             params.x.slice({0, bTopPos, bLeftPos},
-                           {totalBatches, bTopPos + an2, bLeftPos + an2});
+                           {totalBatches, bTopPos + an2, bLeftPos + bn2});
         auto a21x11 =
             matMulGrouped(graph, a21, x11, prog, a.elementType(),
                           {dnai, "A21*X11"}, params.options, params.cache);
@@ -181,8 +181,8 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
             {dnai, "X21"});
 
       if (bMiddlePos < params.k) {
-        auto x12 = params.x.slice({0, bTopPos, bLeftPos + an2},
-                                  {totalBatches, bTopPos + an2, bLeftPos + an});
+        auto x12 = params.x.slice({0, bTopPos, bLeftPos + bn2},
+                                  {totalBatches, bTopPos + an2, bLeftPos + bn});
         auto a21x12 =
             matMulGrouped(graph, a21, x12, prog, a.elementType(),
                           {dnai, "A21*X12"}, params.options, params.cache);
@@ -210,7 +210,7 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
 
       {
         auto x21 = params.x.slice({0, bTopPos + an2, bLeftPos},
-                                  {totalBatches, bTopPos + an, bLeftPos + an2});
+                                  {totalBatches, bTopPos + an, bLeftPos + bn2});
         auto a12x21 =
             matMulGrouped(graph, a12, x21, prog, a.elementType(),
                           {dnai, "A12*X21"}, params.options, params.cache);
@@ -219,8 +219,8 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       solve(graph, a11, b11, bLeftPos, bTopPos, params, prog, {dnai, "X11"});
 
       if (bMiddlePos < params.k) {
-        auto x22 = params.x.slice({0, bTopPos + an2, bLeftPos + an2},
-                                  {totalBatches, bTopPos + an, bLeftPos + an});
+        auto x22 = params.x.slice({0, bTopPos + an2, bLeftPos + bn2},
+                                  {totalBatches, bTopPos + an, bLeftPos + bn});
         auto a12x22 =
             matMulGrouped(graph, a12, x22, prog, a.elementType(),
                           {dnai, "A12*X22"}, params.options, params.cache);
@@ -231,14 +231,15 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
     }
   } else {
     // direct solver: back/forward substitution
+    auto solverSize = params.k > params.blockSize ? params.blockSize : params.k;
     if (!params.solver) {
       // Create nicely layed out tensors for function input, so clone won't
       // expand padding.
       poplar::Tensor inputA =
           graph.addVariable(a.elementType(), a.shape(), "inputA");
       poputil::mapTensorLinearly(graph, inputA);
-      poplar::Tensor inputB =
-          graph.addVariable(b.elementType(), b.shape(), "inputB");
+      poplar::Tensor inputB = graph.addVariable(
+          b.elementType(), {b.dim(0), b.dim(1), solverSize}, "inputB");
       poputil::mapTensorLinearly(graph, inputB);
       params.solver.reset(new poputil::graphfn::VoidFunction(
           graph,
@@ -296,7 +297,16 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
 
     auto dst = params.x.slice({0, bTopPos, bLeftPos},
                               {totalBatches, bTopPos + an, bLeftPos + bn});
+
+    std::ptrdiff_t toPad = solverSize - bn;
     std::vector<poplar::Tensor> args{a, b, dst};
+    if (toPad != 0) {
+      args[1] = popops::pad(graph, args[1], {0, 0, 0}, {0, 0, toPad});
+      poplar::Tensor solverPadding = graph.addVariable(
+          dst.elementType(), {totalBatches, solverSize, std::size_t(toPad)});
+      poputil::mapTensorLinearly(graph, solverPadding);
+      args[2] = poplar::concat(args[2], solverPadding, 2);
+    }
     (*params.solver)(args, prog);
   }
 }
@@ -534,8 +544,6 @@ poplar::Tensor triangularSolve(
 
   // how many columns/rows required for A along two minor dimensions
   long toPad = paddedSize - an;
-  // how many columns/rows required for B along dimension not bound to A
-  long toPadB = paddedSize - bn;
 
   batchA = triangle(graph, batchA, params, prog, {di, "triangularMask"});
   // Ax = B is effectively xAT = BT
@@ -603,23 +611,20 @@ poplar::Tensor triangularSolve(
         tOne.reshape({1, 1, 1}).broadcast(toPad, 1).broadcast(totalBatches, 0),
         paddedDiagA, false, {di}));
 
-    batchB = popops::pad(graph, batchB, {0, 0, 0}, {0, toPad, toPadB});
+    batchB = popops::pad(graph, batchB, {0, 0, 0}, {0, toPad, 0});
   }
 
   poplar::Tensor x = createTriangularSolveOutput(
       graph, a.elementType(), b.elementType(), batchA.shape(), batchB.shape(),
       leftSide, blockSize, debugContext, options, cache);
 
-  prog.add(poplar::program::Copy(
-      zero.broadcast(x.shape()[1], 1).broadcast(x.shape()[2], 2), x, false,
-      {di, "zeroX"}));
   params.x = x;
 
   solve(graph, batchA, batchB, 0, 0, params, prog, {di, "solve"});
 
   if (needPadding) {
     // remove padding
-    x = popops::pad(graph, x, {0, 0, 0}, {0, -toPad, -toPadB});
+    x = popops::pad(graph, x, {0, 0, 0}, {0, -toPad, 0});
   }
 
   if (!leftSide) {
@@ -654,6 +659,7 @@ getTriangularSolveMatMulPrePlanParameters(
     paddedSize <<= 1;
   }
 
+  std::set<poplin::MatMulParams> paramSet;
   // Preplan half-size matmuls until size is greater than blockSize.
   while (paddedSize > blockSize) {
     paddedSize >>= 1;
@@ -661,7 +667,14 @@ getTriangularSolveMatMulPrePlanParameters(
                         inputType, // A*X
                         {g, paddedSize, paddedSize},
                         {g, paddedSize, paddedSize}};
-    matmuls.emplace_back(params, opts);
+    paramSet.insert(params);
+    if (paddedSize <= blockSize && bn % blockSize) { // leaf unaligned block
+      MatMulParams params{inputType,
+                          inputType, // A*X
+                          {g, paddedSize, paddedSize},
+                          {g, paddedSize, bn % blockSize}};
+      paramSet.insert(params);
+    }
   }
 
   // Substitution dot products
@@ -670,7 +683,11 @@ getTriangularSolveMatMulPrePlanParameters(
     MatMulParams params{inputType,
                         inputType, // A*X
                         {g, 1, k},
-                        {g, k, blocked ? blockSize : bn}};
+                        {g, k, bn > blockSize ? blockSize : bn}};
+    paramSet.insert(params);
+  }
+
+  for (auto &params : paramSet) {
     matmuls.emplace_back(params, opts);
   }
 
