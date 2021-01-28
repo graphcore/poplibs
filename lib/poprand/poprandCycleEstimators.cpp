@@ -1,15 +1,17 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poprandCycleEstimators.hpp"
+#include "poplibs_support/FlopEstimation.hpp"
 
 using namespace poplar;
+using namespace poplibs_support;
 
 namespace poprand {
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UniformSupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   uint64_t cycles = 4; // supervisor call
+  CODELET_FIELD(out);
   if (type == INT) {
-    CODELET_FIELD(out);
     CODELET_SCALAR_VAL(scale, float);
 
     if (scale == 0) {
@@ -25,7 +27,6 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UniformSupervisor)(
       cycles += (out.size() % 2) * 2;
     }
   } else {
-    CODELET_FIELD(out);
     const auto dataPathWidth = target.getDataPathWidth();
 
     bool isFloat = type == FLOAT;
@@ -40,7 +41,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(UniformSupervisor)(
       cycles += ((out.size() % vectorWidth) != 0) * 12;
     }
   }
-  return cycles;
+  // Flops for creating a random number is arbitrarily assumed to be 1
+  std::uint64_t flops = static_cast<std::uint64_t>(out.size()) *
+                        (1 + flopsForMultiply() + flopsForAdd());
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BernoulliSupervisor)(
@@ -61,8 +65,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BernoulliSupervisor)(
     cycles += 23 * target.getNumWorkerContexts();
     cycles += ((out.size() % vectorWidth) != 0);
   }
-
-  return cycles;
+  return {cycles, convertToTypeFlops(out.size(), type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NormalSupervisor)(
@@ -82,8 +85,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NormalSupervisor)(
     cycles += 24 * target.getNumWorkerContexts();
     cycles += ((out.size() % vectorWidth) != 0) * 12;
   }
-
-  return cycles;
+  // Flops for creating a random number is arbitrarily assumed to be 1
+  std::uint64_t flops = static_cast<std::uint64_t>(out.size()) *
+                        (1 + flopsForMultiply() + flopsForAdd());
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
@@ -107,7 +112,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TruncatedNormalSupervisor)(
         (12 * iterations + 5) * (out.size() + vectorWidth - 1) / vectorWidth;
     cycles += (out.size() % vectorWidth != 0) * (12 * iterations + 10);
   }
-  return cycles;
+  // Flops for creating a random number is arbitrarily assumed to be 1
+  std::uint64_t flops = static_cast<std::uint64_t>(out.size()) *
+                        (1 + flopsForMultiply() + flopsForAdd());
+  return {cycles, flops};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DropoutSupervisor)(
@@ -123,8 +131,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(DropoutSupervisor)(
   cycles += 24 * target.getNumWorkerContexts();
   cycles += 2 * (out.size() + vectorWidth - 1) / vectorWidth;
   cycles += (out.size() % vectorWidth != 0) * (isFloat ? 1 : 9);
-
-  return cycles;
+  // Flops for creating a random number is arbitrarily assumed to be 1
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(out.size()) * (1 + flopsForMultiply());
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate
