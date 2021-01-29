@@ -17,6 +17,7 @@
 #include <poputil/exceptions.hpp>
 
 #include <boost/multi_array.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/program_options.hpp>
 #include <boost/test/tools/floating_point_comparison.hpp>
 
@@ -191,8 +192,8 @@ boost::multi_array<FPType, 2> gradReference(const InputSequence<FPType> &test,
 std::vector<boost::multi_array<double, 2>>
 gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
         unsigned blankSymbol, std::size_t numClasses, Type inType, Type outType,
-        const DeviceType &deviceType, boost::optional<unsigned> tiles,
-        bool ignoreData, bool profile) {
+        OptionFlags opts, const DeviceType &deviceType,
+        boost::optional<unsigned> tiles, bool ignoreData, bool profile) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
   const auto &target = device.getTarget();
@@ -205,7 +206,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   // Create the inputs to the gradient function
   const auto plan = popnn::ctc::plan(graph, inType, outType, batchSize, maxT,
-                                     maxLabels, numClasses);
+                                     maxLabels, numClasses, opts);
 
   auto data = popnn::ctc::createDataInput(graph, inType, batchSize, maxT,
                                           numClasses, plan, "DataInput");
@@ -297,6 +298,7 @@ int main(int argc, char **argv) {
   bool blankIsZero = false;
   bool verbose = false;
   bool profile = false;
+  boost::optional<std::string> planConstraints;
   bool ignoreData = false;
   boost::optional<unsigned> testTime = boost::none;
   unsigned minTime = 15;
@@ -321,6 +323,8 @@ int main(int argc, char **argv) {
       "Number of tiles per IPU")
     ("profile", po::value(&profile)->default_value(profile),
      "Show profile report")
+    ("plan-constraints", po::value(&planConstraints),
+     "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
     ("in-type", po::value(&inType)->default_value(inType),
      "Input data type")
     ("out-type", po::value(&outType)->default_value(outType),
@@ -403,13 +407,19 @@ int main(int argc, char **argv) {
         " length");
   }
 
+  poplar::OptionFlags opts;
+  if (planConstraints) {
+    opts.set("planConstraints", *planConstraints);
+  }
+
   if (planOnly) {
     auto device = createTestDevice(deviceType, 1, tiles);
     const auto &target = device.getTarget();
     Graph graph(target);
 
-    const auto plan = popnn::ctc::plan(graph, inType, outType, batchSize,
-                                       maxTime, maxLabelLength, numClasses);
+    const auto plan =
+        popnn::ctc::plan(graph, inType, outType, batchSize, maxTime,
+                         maxLabelLength, numClasses, opts);
 
     std::cout << plan << std::endl;
     std::cout << "No test run - plan only" << std::endl;
@@ -442,7 +452,7 @@ int main(int argc, char **argv) {
     print("Reference gradient", references.back(), blankClass, verbose);
   }
   auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
-                         outType, deviceType, tiles, ignoreData, profile);
+                         outType, opts, deviceType, tiles, ignoreData, profile);
 
   for (unsigned i = 0; i < batchSize; i++) {
     outputs[i] = maskResults(outputs[i], tests[i].inputLength);

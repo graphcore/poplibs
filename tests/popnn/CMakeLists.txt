@@ -834,8 +834,6 @@ add_unit_test(CTCLossPlanTest CTCLossPlanTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 
 # Verify cases where the individual entry is <= the maximum timesteps or
 # maximum label length defined.
-# TODO: With control of the plan this should check edge cases in the overall
-# vertex operation and exchange.  Assume 4 splits in time, 4 in label
 foreach(time 25 28 32)
   foreach(labels 2 3 6 8 12)
     add_multitarget_test(
@@ -848,6 +846,7 @@ foreach(time 25 28 32)
               --min-label-length=1
               --time=${time}
               --label-length=${labels}
+              --plan-constraints={\"parallel\":{\"time\":4,\"label\":4}}
       VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
@@ -864,6 +863,7 @@ foreach(time 12 15 16)
               --min-label-length=1
               --time=${time}
               --label-length=${labels}
+              --plan-constraints={\"parallel\":{\"time\":4,\"label\":4}}
       VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
