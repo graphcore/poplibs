@@ -11,6 +11,7 @@
 #include "../lib/popops/ExprOpUtil.hpp"
 #include <boost/format.hpp>
 #include <poplibs_test/Util.hpp>
+#include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
@@ -27,6 +28,22 @@
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+
+// Some non linearities can be executed also via popnn calls as well, in
+// addition to the popops 'map' call.
+// This returns the equivalent popnn enum or nullopt if it doesn't exist.
+std::optional<popnn::NonLinearityType> popnnNLType(UnaryOpType op) {
+  switch (op) {
+  case UnaryOpType::TANH:
+    return popnn::NonLinearityType::TANH;
+  case UnaryOpType::SIGMOID:
+    return popnn::NonLinearityType::SIGMOID;
+  case UnaryOpType::RELU:
+    return popnn::NonLinearityType::RELU;
+  default:
+    return std::nullopt;
+  }
+}
 
 const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
@@ -171,7 +188,8 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
                           const UnaryOpType operation, const bool inPlace,
                           const bool doReport, const bool doPrintTensors,
                           const unsigned randomSeed, const bool ignoreData,
-                          const bool enableOptimisations) {
+                          const bool enableOptimisations,
+                          const bool popnnNonLinearity) {
 
   auto nElems = std::accumulate(desc.shape.begin(), desc.shape.end(),
                                 std::size_t(1), std::multiplies<std::size_t>());
@@ -233,11 +251,22 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   // Make a program sequence to run the operation
   Sequence prog;
   Tensor out;
-  if (inPlace) {
-    mapInPlace(graph, unaryOp, {in}, prog, "", opOpts);
-    out = in;
+
+  std::optional<popnn::NonLinearityType> nlType = popnnNLType(operation);
+  if (popnnNonLinearity && nlType) {
+    if (inPlace) {
+      nonLinearityInPlace(graph, *nlType, in, prog);
+      out = in;
+    } else {
+      out = nonLinearity(graph, *nlType, in, prog);
+    }
   } else {
-    out = map(graph, unaryOp, {in}, prog, "", opOpts);
+    if (inPlace) {
+      mapInPlace(graph, unaryOp, {in}, prog, "", opOpts);
+      out = in;
+    } else {
+      out = map(graph, unaryOp, {in}, prog, "", opOpts);
+    }
   }
 
   // Create host 'transfer' buffers with the right size for the device type
@@ -319,6 +348,7 @@ int main(int argc, char **argv) {
   bool ignoreData = false;
   unsigned randomSeed = 1; // we use '0' to mean 'not random'
   bool enableOptimisations = true;
+  bool popnnNonLinearity = false;
   ShapeOption<size_t> shape;
   OperandDescriptor opDesc;
 
@@ -379,6 +409,9 @@ int main(int argc, char **argv) {
     ("enable-optimisations",
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcast operation optimisations")
+    ("popnn-non-linearity",
+     po::value<bool>(&popnnNonLinearity)->implicit_value(true),
+     "Run the non linearity through popnn library calls, if available")
     ;
   // clang-format on
   parseOptions(argc, argv, poDesc);
@@ -410,7 +443,7 @@ int main(int argc, char **argv) {
     return doUnaryOpTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                       \
                deviceType, dataType, outputType, opDesc, tiles, mapLinearly,   \
                opType, inPlace, doReport, doPrintTensors, randomSeed,          \
-               ignoreData, enableOptimisations)                                \
+               ignoreData, enableOptimisations, popnnNonLinearity)             \
                ? 0                                                             \
                : 1;                                                            \
   } // nonzero value = error
