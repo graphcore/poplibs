@@ -5,6 +5,7 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Expr.hpp"
 #include "popops/Pad.hpp"
+#include "popops/Reduce.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/GraphFunction.hpp"
@@ -284,10 +285,20 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
                       ? x.slice({0, 0, 0}, {totalBatches, idx, bn})
                       : x.slice({0, an - idx, 0}, {totalBatches, an, bn});
 
-              auto dot = poplin::matMulGrouped(
-                  graph, row, xValue, prog, a.elementType(),
-                  {dnai, "substituteX" + std::to_string(idx)}, params.options,
-                  params.cache);
+              poplar::Tensor dot;
+              if (params.k == 1) {
+                auto prod =
+                    popops::mul(graph, row, xValue.dimShuffle({0, 2, 1}), prog,
+                                {dnai, "dot/mul"});
+                dot = popops::reduce(graph, prod, {2}, {popops::Operation::ADD},
+                                     prog, {dnai, "dot/reduce"});
+                dot = dot.expand({1});
+              } else {
+                dot = poplin::matMulGrouped(
+                    graph, row, xValue, prog, a.elementType(),
+                    {dnai, "substituteX" + std::to_string(idx)}, params.options,
+                    params.cache);
+              }
 
               dot = popops::sub(graph, bValue, dot, prog,
                                 {dnai, "substituteB" + std::to_string(idx)});
@@ -696,14 +707,16 @@ getTriangularSolveMatMulPrePlanParameters(
     aSize = aMiddle;
   }
 
-  // Substitution dot products
-  std::size_t dots = blocked ? blockSize : an;
-  for (std::size_t k = 1; k < dots; ++k) {
-    MatMulParams params{inputType,
-                        inputType, // A*X
-                        {g, 1, k},
-                        {g, k, solverSize}};
-    paramSet.insert(params);
+  if (bn > 1) {
+    // Substitution dot products
+    std::size_t dots = blocked ? blockSize : an;
+    for (std::size_t k = 1; k < dots; ++k) {
+      MatMulParams params{inputType,
+                          inputType, // A*X
+                          {g, 1, k},
+                          {g, k, solverSize}};
+      paramSet.insert(params);
+    }
   }
 
   for (auto &params : paramSet) {
