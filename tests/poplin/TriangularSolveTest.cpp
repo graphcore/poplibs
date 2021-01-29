@@ -169,19 +169,21 @@ void deviceTriangularSolveIota(poplar::Type type,
 } // namespace
 
 BOOST_DATA_TEST_CASE(TriangularSolveCase,
-                     bud::xrange(2) * bud::xrange(2) * bud::xrange(2) *
-                         bud::xrange(2) * bud::xrange(1, 8, 6) * bud::xrange(2),
-                     half_type, left_side, lower, unit_diagonal, k,
-                     block_solver) {
+                     bud::make({poplar::HALF, poplar::FLOAT}) * // type
+                         bud::make({false, true}) *             // left_side
+                         bud::make({false, true}) *             // lower
+                         bud::make({false, true}) *             // unit_diagonal
+                         bud::make({false, true}) *             // block_solver
+                         bud::make({1, 2, 3,
+                                    8}), // singleton dim, less than block,
+                                         // larger than block, large than n
+                     type, left_side, lower, unit_diagonal, block_solver, k) {
+
   static constexpr std::size_t n = 5;
-  std::size_t block_size = std::max<std::size_t>(n, k);
-  if (block_solver) {
-    block_size = (block_size + 1) / 2;
-  }
+  std::size_t block_size = block_solver ? 3 : n;
   using Shape = std::vector<std::size_t>;
   auto bShape = left_side ? Shape{1, 2, n, std::size_t(k)}
                           : Shape{1, 2, std::size_t(k), n};
-  deviceTriangularSolveIota<float>(half_type ? HALF : FLOAT, {1, 2, n, n},
-                                   bShape, left_side, lower, unit_diagonal,
-                                   block_size);
+  deviceTriangularSolveIota<float>(type, {1, 2, n, n}, bShape, left_side, lower,
+                                   unit_diagonal, block_size);
 }

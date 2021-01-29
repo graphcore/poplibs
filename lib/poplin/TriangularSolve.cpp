@@ -26,12 +26,13 @@ struct SolveParams {
   matmul::PlanningCache *cache;
   poplar::Tensor x;
   mutable std::unique_ptr<poputil::graphfn::VoidFunction> solver;
+  std::size_t solverSize;
 
   SolveParams(std::size_t k, bool lower, bool unitDiagonal,
               std::size_t blockSize, poplar::OptionFlags options,
               matmul::PlanningCache *cache)
       : k(k), lower(lower), unitDiagonal(unitDiagonal), blockSize(blockSize),
-        options(options), cache(cache) {}
+        options(options), cache(cache), solverSize(0) {}
 };
 
 template <typename S, typename T>
@@ -130,6 +131,10 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
 
   auto an = a.dim(2);
   auto bn = b.dim(2);
+  if (bn == 0) {
+    return;
+  }
+
   auto totalBatches = a.dim(0);
   if (totalBatches != b.dim(0)) {
     throw poputil::poplibs_error("solve: batch dimensions must match");
@@ -231,7 +236,10 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
     }
   } else {
     // direct solver: back/forward substitution
-    auto solverSize = params.k > params.blockSize ? params.blockSize : params.k;
+    if (bn > params.solverSize) {
+      throw poputil::poplibs_error("minor RHS dimension passed to direct "
+                                   "solver is larger than solverSize");
+    }
     if (!params.solver) {
       // Create nicely layed out tensors for function input, so clone won't
       // expand padding.
@@ -239,16 +247,17 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
           graph.addVariable(a.elementType(), a.shape(), "inputA");
       poputil::mapTensorLinearly(graph, inputA);
       poplar::Tensor inputB = graph.addVariable(
-          b.elementType(), {b.dim(0), b.dim(1), solverSize}, "inputB");
+          b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputB");
       poputil::mapTensorLinearly(graph, inputB);
       params.solver.reset(new poputil::graphfn::VoidFunction(
           graph,
           {poputil::graphfn::input(inputA), poputil::graphfn::input(inputB),
            poputil::graphfn::inout(inputB)}, // X has the same shape as B
-          [&graph, an, bn, totalBatches, &params,
-           &dnai](std::vector<poplar::Tensor> &args,
-                  poplar::program::Sequence &prog) {
+          [&graph, &params, &dnai](std::vector<poplar::Tensor> &args,
+                                   poplar::program::Sequence &prog) {
             auto a = args.at(0), b = args.at(1), x = args.at(2);
+            auto totalBatches = a.dim(0);
+            auto an = a.dim(2), bn = b.dim(2);
             auto b0 =
                 (params.lower ? b.slice({0, 0, 0}, {totalBatches, 1, bn})
                               : b.slice({0, an - 1, 0}, {totalBatches, an, bn}))
@@ -298,12 +307,12 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
     auto dst = params.x.slice({0, bTopPos, bLeftPos},
                               {totalBatches, bTopPos + an, bLeftPos + bn});
 
-    std::ptrdiff_t toPad = solverSize - bn;
+    std::ptrdiff_t toPad = params.solverSize - bn;
     std::vector<poplar::Tensor> args{a, b, dst};
     if (toPad != 0) {
       args[1] = popops::pad(graph, args[1], {0, 0, 0}, {0, 0, toPad});
       poplar::Tensor solverPadding = graph.addVariable(
-          dst.elementType(), {totalBatches, solverSize, std::size_t(toPad)});
+          dst.elementType(), {dst.dim(0), dst.dim(1), std::size_t(toPad)});
       poputil::mapTensorLinearly(graph, solverPadding);
       args[2] = poplar::concat(args[2], solverPadding, 2);
     }
@@ -536,10 +545,12 @@ poplar::Tensor triangularSolve(
   SolveParams params(bn, lower, unitDiagonal, blockSize, options,
                      cache ? cache : &localCache);
 
-  bool needPadding = an > blockSize || bn > blockSize;
+  bool needPadding = an > blockSize;
+  params.solverSize = bn;
   std::size_t paddedSize = blockSize;
-  while (paddedSize < an || paddedSize < bn) {
+  while (paddedSize < an) {
     paddedSize <<= 1;
+    params.solverSize = (params.solverSize + 1) >> 1;
   }
 
   // how many columns/rows required for A along two minor dimensions
@@ -647,34 +658,42 @@ getTriangularSolveMatMulPrePlanParameters(
   std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>> matmuls;
 
   const auto [an, bn] = validateInputs(aShape, bShape, leftSide);
-  bool blocked = an > blockSize || bn > blockSize;
+  bool blocked = an > blockSize;
 
   const auto aGrouped = groupedShape(aShape);
 
   const auto g = aGrouped[0];
 
-  // Find padded size of A.
+  // Find padded size of A and final solver size of B
   std::size_t paddedSize = blockSize;
-  while (paddedSize < an || paddedSize < bn) {
+  std::size_t solverSize = bn;
+  while (paddedSize < an) {
     paddedSize <<= 1;
+    solverSize = (solverSize + 1) >> 1;
   }
 
   std::set<poplin::MatMulParams> paramSet;
-  // Preplan half-size matmuls until size is greater than blockSize.
-  while (paddedSize > blockSize) {
-    paddedSize >>= 1;
+  // Preplan half-size matmuls while size is greater than blockSize.
+
+  std::size_t aSize = paddedSize, bSize = bn;
+  while (aSize > blockSize) {
+    auto aMiddle = (aSize + 1) >> 1; // should always be divisible
+    auto bMiddle = (bSize + 1) >> 1;
+    auto bSizeRight = bSize - bMiddle;
     MatMulParams params{inputType,
                         inputType, // A*X
-                        {g, paddedSize, paddedSize},
-                        {g, paddedSize, paddedSize}};
+                        {g, aMiddle, aMiddle},
+                        {g, aMiddle, bMiddle}};
     paramSet.insert(params);
-    if (paddedSize <= blockSize && bn % blockSize) { // leaf unaligned block
+
+    if (bSizeRight) {
       MatMulParams params{inputType,
                           inputType, // A*X
-                          {g, paddedSize, paddedSize},
-                          {g, paddedSize, bn % blockSize}};
+                          {g, aMiddle, aMiddle},
+                          {g, aMiddle, bSizeRight}};
       paramSet.insert(params);
     }
+    aSize = aMiddle;
   }
 
   // Substitution dot products
@@ -683,7 +702,7 @@ getTriangularSolveMatMulPrePlanParameters(
     MatMulParams params{inputType,
                         inputType, // A*X
                         {g, 1, k},
-                        {g, k, bn > blockSize ? blockSize : bn}};
+                        {g, k, solverSize}};
     paramSet.insert(params);
   }
 
