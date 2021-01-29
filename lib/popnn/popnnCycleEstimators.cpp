@@ -3,6 +3,7 @@
 
 #include "PerformanceEstimation.hpp"
 #include "PoolingDefUtil.hpp"
+#include "poplibs_support/FlopEstimation.hpp"
 #include "popnn/NonLinearity.hpp"
 #include "popnn/NonLinearityDefUtil.hpp"
 #include "popnn/PoolingDef.hpp"
@@ -14,6 +15,7 @@
 #include <cmath>
 
 using namespace poplar;
+using namespace poplibs_support;
 
 // Macro to create entries in cycle estimator table
 #define INSTANTIATE_NL_CYCLE_ESTIMATOR(v)                                      \
@@ -30,6 +32,26 @@ using namespace poplar;
       CYCLE_ESTIMATOR_ENTRY(popnn, v, FLOAT, popnn::NonLinearityType::GELU),   \
       CYCLE_ESTIMATOR_ENTRY(popnn, v, HALF, popnn::NonLinearityType::GELU)
 namespace popnn {
+
+static std::uint64_t nonlinearityFlops(const NonLinearityType &nlType) {
+  // assume single flop for all non-linearities other than GELU
+  return nlType == NonLinearityType::GELU ? 8 : 1;
+}
+
+static std::uint64_t nonlinearityGradFlops(const NonLinearityType &nlType) {
+  switch (nlType) {
+  case NonLinearityType::GELU:
+    return 15;
+  case NonLinearityType::RELU:
+    return 1;
+  case NonLinearityType::SIGMOID:
+    return 2;
+  case NonLinearityType::TANH:
+    return 2;
+  default:
+    throw poputil::poplibs_error("Unhandled non-linearity type");
+  }
+}
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
     const VertexIntrospector &vertex, const Target &target, const Type &type,
@@ -86,7 +108,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearitySupervisor)(
         ((remainder & 1) ? 1 : 0) * (3 + opCycles); // Handle 16-bit remainder
   }
 
-  return cycles + (workerCycles * numWorkers);
+  std::uint64_t flops = n * nonlinearityFlops(nlType);
+
+  return {cycles + (workerCycles * numWorkers),
+          convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
@@ -140,7 +165,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGradSupervisor)(
                     ((remainder & 1) ? 1 : 0) * 7;
   }
 
-  return cycles + (workerCycles * numWorkers);
+  return {cycles + (workerCycles * numWorkers),
+          convertToTypeFlops(n * nonlinearityGradFlops(nlType), type)};
 }
 
 VertexPerfEstimate
@@ -164,6 +190,8 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
             2;  // Set mask for inner loop, sub for brnzdec
 
   // Following 64-bit aligned path
+  unsigned totalElements = 0;
+  const std::uint64_t flopsPerElement = nonlinearityFlops(nlType);
   for (std::size_t i = 0; i < n0; ++i) {
     const auto n1 = data[i].size();
     const auto numVectors = n1 / vectorWidth;
@@ -188,9 +216,12 @@ MAKE_PERF_ESTIMATOR_NAME(NonLinearity2D)(const VertexIntrospector &vertex,
     }
 
     cycles += 1; // brnzdec
+
+    // assume one flop per element regardless of non-linearity type
+    totalElements += n1;
   }
 
-  return cycles;
+  return {cycles, convertToTypeFlops(totalElements * flopsPerElement, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
@@ -213,6 +244,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
             3 + // Calculate DeltaN pointer
             2;  // Set mask for inner loop, sub for brnzdec
 
+  unsigned totalElements = 0;
   for (std::size_t i = 0; i < n0; ++i) {
     const auto n1 = inGrad[i].size();
     assert(outGrad[i].size() == n1);
@@ -235,17 +267,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(NonLinearityGrad2D)(
                 2 + // Check for 16-bit remainder
                 ((remainder & 1) ? 1 : 0) * 7;
     }
-
+    totalElements += n1;
     cycles += 1; // brnzdec
   }
 
-  return cycles;
+  return {cycles, convertToTypeFlops(
+                      totalElements * nonlinearityGradFlops(nlType), type)};
 }
 
-VertexPerfEstimate poolingCycleEstimator(const VertexIntrospector &vertex,
-                                         const Target &target,
-                                         const PoolingType &pType,
-                                         const bool isBwdPass) {
+VertexPerfEstimate
+poolingCycleEstimator(const VertexIntrospector &vertex, const Target &target,
+                      const Type &dataType, const PoolingType &pType,
+                      bool isBwdPass, bool isGradientScale = false) {
   CODELET_SCALAR_VAL(initInfo, unsigned short);
   CODELET_SCALAR_VAL(chansPerGroupDM1, unsigned short);
   CODELET_SCALAR_VAL(numChanGroupsM1, unsigned short);
@@ -272,31 +305,55 @@ VertexPerfEstimate poolingCycleEstimator(const VertexIntrospector &vertex,
   unpackCosts.startPosLayout = poplibs::getUnpackCost(startPosLayout);
   unpackCosts.workListLayout = poplibs::getUnpackCost(workListLayout);
 
-  auto result = getPoolingCycles(
+  auto cycles = getPoolingCycles(
       initInfo, chansPerGroupDM1 + 1, numChanGroupsM1, startPos, workList,
       unpackCosts, pType == PoolingType::MAX, isBwdPass, numWorkers);
 
-  return result;
+  // compute flops
+  unsigned totalWorkItems = 0;
+  for (unsigned wId = 0; wId < numWorkers; ++wId) {
+    const unsigned numRows =
+        wId == 0 ? startPos[0] : startPos[wId] - startPos[wId - 1];
+    for (unsigned row = 0; row < numRows; ++row) {
+      const unsigned sPos = wId == 0 ? 0 : startPos[wId - 1];
+      for (unsigned w = 0; w != workList[sPos + row].size(); w += 3) {
+        totalWorkItems += workList[sPos + row][w + 2];
+      }
+    }
+  }
+  std::uint64_t numChanGroups = numChanGroupsM1 + 1;
+  const auto scaleFactor = dataType == poplar::HALF ? 4 : 2;
+  const auto chansPerGroup = (chansPerGroupDM1 + 1) * scaleFactor;
+  std::uint64_t flops = 0;
+
+  if (dataType == FLOAT || dataType == HALF) {
+    flops += numChanGroups * totalWorkItems * chansPerGroup;
+
+    if (pType == PoolingType::AVG || pType == PoolingType::SUM ||
+        isGradientScale) {
+      // additional flops for division/scale
+      flops += numChanGroups * chansPerGroup * initInfo;
+    }
+  }
+  return {cycles, convertToTypeFlops(flops, dataType)};
 }
 
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(MaxPooling)(const VertexIntrospector &vertex,
                                      const Target &target, const Type &type) {
-  (void)type;
-  return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
+  return poolingCycleEstimator(vertex, target, type, PoolingType::MAX, false);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MaxPoolingGradientScale)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
-  (void)type;
-  return poolingCycleEstimator(vertex, target, PoolingType::MAX, false);
+  return poolingCycleEstimator(vertex, target, type, PoolingType::MAX, false,
+                               true);
 }
 
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(SumPooling)(const VertexIntrospector &vertex,
                                      const Target &target, const Type &type) {
-  (void)type;
-  return poolingCycleEstimator(vertex, target, PoolingType::SUM, false);
+  return poolingCycleEstimator(vertex, target, type, PoolingType::SUM, false);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectiveScaling)(
@@ -308,7 +365,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SelectiveScaling)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(MaxPoolingGrad)(
     const VertexIntrospector &vertex, const Target &target, const Type &type) {
   (void)type;
-  return poolingCycleEstimator(vertex, target, PoolingType::MAX, true);
+  return poolingCycleEstimator(vertex, target, type, PoolingType::MAX, true);
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(LossSumSquaredTransform)(
@@ -317,7 +374,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(LossSumSquaredTransform)(
   const bool isFloat = fpType == FLOAT;
   const auto size = vertex.getFieldInfo("probs").size();
   const auto isSoftmax = false;
-  return getLossTransformCycles(isFloat, isSoftmax, size);
+  std::uint64_t flops = static_cast<std::uint64_t>(size) * 3;
+  auto cycles = getLossTransformCycles(isFloat, isSoftmax, size);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(LossCrossEntropyTransform)(
@@ -326,7 +385,9 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(LossCrossEntropyTransform)(
   const bool isFloat = fpType == FLOAT;
   const auto size = vertex.getFieldInfo("probs").size();
   const auto isSoftmax = true;
-  return getLossTransformCycles(isFloat, isSoftmax, size);
+  std::uint64_t flops = static_cast<std::uint64_t>(size) * 6 + 2;
+  auto cycles = getLossTransformCycles(isFloat, isSoftmax, size);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxClassGather)(
@@ -365,7 +426,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxClassGather)(
     cycles = 22 +                                // Net overhead
              nOutputs * ((workerSize * 6) + 25); // Inner, outer loop overhead
   }
-  return cycles * numWorkers + supervisorCycles;
+  return {cycles * numWorkers + supervisorCycles,
+          convertToTypeFlops(size, inType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMaxNClassGather)(
@@ -515,7 +577,8 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMinClassGather)(
     cycles = 22 +                                // Net overhead
              nOutputs * ((workerSize * 6) + 25); // Inner, outer loop overhead
   }
-  return cycles * numWorkers + supervisorCycles;
+  return {cycles * numWorkers + supervisorCycles,
+          convertToTypeFlops(size, inType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMinClassSparse)(
@@ -540,7 +603,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceMinClassSparse)(
     cycles += 18 +         // Total overhead
               numActs * 6; // Loop cycles
   }
-  return cycles;
+  return {cycles, convertToTypeFlops(numActs, inOutType)};
 }
 
 VertexPerfEstimate
@@ -564,6 +627,7 @@ MAKE_PERF_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
 
   cycles += 1; // Store final numCorrect
 
+  // calc accuracy does no FP operations
   return cycles;
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCAlpha)(
