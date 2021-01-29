@@ -147,7 +147,7 @@ std::vector<Candidate<FPType>> generateCandidates(
 
   std::vector<Candidate<FPType>> candidates;
   const auto numClassesIncBlank = input.size();
-  const FPType zero = useLog ? log::min : 0;
+  const FPType zero = useLog ? log::probabilityZero : 0;
 
   unsigned beamIdx = 0;
   for (const auto &beam : beamProbabilities) {
@@ -278,8 +278,8 @@ pruneCandidates(const std::vector<Candidate<FPType>> &candidates, size_t max,
   std::vector<Candidate<FPType>> out = candidates;
   out.resize(max);
   for (unsigned i = candidates.size(); i < out.size(); i++) {
-    out[i].p = useLog ? log::min : 0;
-    out[i].pb = useLog ? log::min : 0;
+    out[i].p = useLog ? log::probabilityZero : 0;
+    out[i].pb = useLog ? log::probabilityZero : 0;
   }
   return out;
 }
@@ -308,8 +308,8 @@ std::tuple<FPType, std::vector<unsigned>>
 infer(const boost::multi_array<FPType, 2> &input, unsigned blankSymbol,
       unsigned beamwidth, bool useLog, bool verbose) {
 
-  const FPType maxProb = useLog ? 0 : 1;
-  const FPType minProb = useLog ? log::min : 0;
+  const FPType maxProb = useLog ? log::probabilityOne : 1;
+  const FPType minProb = useLog ? log::probabilityZero : 0;
   std::vector<BeamProbability<FPType>> beamProbabilities{};
   beamProbabilities.push_back({maxProb, minProb}); // Only one origin to begin
   for (size_t i = 1; i < beamwidth; i++) {

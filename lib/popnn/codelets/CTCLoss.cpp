@@ -11,6 +11,7 @@
 #include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
+using namespace poplibs_support;
 
 static constexpr auto ONE_PTR = poplar::VectorLayout::ONE_PTR;
 
@@ -205,14 +206,14 @@ public:
     if (doLastTimeStep) {
       // If the last timestep we can insert an initial 0 (probability=1)
       if (doLastBlank) {
-        // This partition is responsible for the last blank so insert the 0
+        // This partition is responsible for the last blank so insert prob=1
         // in the previous timeslice input to initiate the calculation
-        betaPrevTime[2 * labelLength] = 0;
+        betaPrevTime[2 * labelLength] = log::probabilityOne;
       } else if (isLastLabel) {
         // This partition is responsible for the isLastLabel but not the last
         // blank so insert the 0 in the previous timeslice input to initiate
         // the calculation
-        betaPrevLabel[timeSteps - 1] = 0;
+        betaPrevLabel[timeSteps - 1] = log::probabilityOne;
       }
     }
     // First time round reference the "previous beta" which could be carried
@@ -236,10 +237,10 @@ public:
         // Just the `Z` on this tile, nothing else
         beta[0] = logMul(betaP1[0], blank); //`Z`
         // For use when data is split by label, output this timestep, last label
-        // result for use by the next vertex. Include log::min to avoid special
+        // result for use by the next vertex. Include prob=0 to avoid special
         // cases when this is used later
         betaPrevLabel[t - 1] = beta[0];
-        betaPrevLabel[maxT + t - 1] = poplibs_support::log::min;
+        betaPrevLabel[maxT + t - 1] = log::probabilityZero;
         continue;
       }
       // Each loop outputs the result for the symbol and a blank, and consumes 1
@@ -333,20 +334,10 @@ public:
 
   bool compute() {
     // How much does this vertex need to process ?
-    if (validLabel < labelOffset) {
+    if (validLabel < labelOffset || validTime <= timeOffset) {
       return true;
     }
     const auto extendedLabel = label.size() * 2 + isFirstLabel;
-    if (validTime <= timeOffset) {
-      // There is nothing to do, but propogate beta for the next vertex call
-      // (Write the temp beta timeslices)
-      // TODO - by initialising all to zero and inserting the 0 in the correct
-      // place this can be avoided in the vertex.
-      for (unsigned i = 0; i < 2 * extendedLabel; i++) {
-        betaPrevTime[i] = poplibs_support::log::min;
-      }
-      return true;
-    }
     const auto labelLength = clamp(validLabel, labelOffset, label.size());
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
     bool doLastBlank = labelLength != label.size() || isFirstLabel;
@@ -355,14 +346,17 @@ public:
     if (doLastTimeStep) {
       // If the last timestep we can insert an initial 0 (probability=1)
       if (doLastBlank) {
-        // This partition is responsible for the last blank so insert the 0
-        // in the previous timeslice input to initiate the calculation
-        betaPrevTime[2 * labelLength] = 0;
+        // This partition is responsible for the last blank so insert prob=1
+        // in the previous timeslice input to initiate the calculation.
+        // Inserting in both timeslices as we may need to start processing from
+        // the other one
+        betaPrevTime[2 * labelLength] = log::probabilityOne;
+        betaPrevTime[2 * labelLength + extendedLabel] = log::probabilityOne;
       } else if (isLastLabel) {
         // This partition is responsible for the isLastLabel but not the last
         // blank so insert the 0 in the previous timeslice input to initiate
         // the calculation
-        betaPrevLabel[timeSteps - 1] = 0;
+        betaPrevLabel[timeSteps - 1] = log::probabilityOne;
       }
     }
     // If maxT is odd and timeSteps also odd, the ping pong effect in beta[0:1]
@@ -373,12 +367,6 @@ public:
     if ((timeSteps & 1) ^ (maxT & 1)) {
       // Offset a flat[2][extendedLabel] array to reference beta[1][0]
       oldIdx = extendedLabel;
-      // To ensure valid data in beta[1] in this case, we copy from beta[0]
-      // TODO - by initialising all to zero and inserting the 0 in the correct
-      // place this can be avoided in the vertex.
-      for (unsigned i = 0; i < extendedLabel; i++) {
-        betaPrevTime[extendedLabel + i] = betaPrevTime[i];
-      }
     }
     for (unsigned t = timeSteps; t != 0; t--) {
       // References to each row, next row of the input and output
@@ -398,10 +386,10 @@ public:
         beta[0] = logMul(betaP1[0], blank);
 
         // For use when data is split by label, output this timestep, last label
-        // result for use by the next vertex. Include log::min to avoid special
+        // result for use by the next vertex. Include prob=0 to avoid special
         // cases when this is used later
         betaPrevLabel[t - 1] = beta[0];
-        betaPrevLabel[maxT + t - 1] = poplibs_support::log::min;
+        betaPrevLabel[maxT + t - 1] = log::probabilityZero;
         // Swap new <-> old in the alphaTemp buffer
         oldIdx = oldIdx ^ extendedLabel;
         continue;

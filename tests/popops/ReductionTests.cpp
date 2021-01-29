@@ -39,7 +39,7 @@ static double initValue(popops::Operation operation) {
     val = 0.0;
     break;
   case popops::Operation::LOG_ADD:
-    val = log::min;
+    val = log::probabilityZero;
     break;
   case popops::Operation::MUL:
     val = 1.0;

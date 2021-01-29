@@ -57,7 +57,9 @@ struct ReduceSquareAdd {
 };
 
 struct ReduceLogAdd {
-  template <typename T> static T init() { return poplibs_support::log::min; }
+  template <typename T> static T init() {
+    return poplibs_support::log::probabilityZero;
+  }
   template <typename OutType, typename PartialsType>
   static void update(OutType &acc, PartialsType val_) {
     OutType val = static_cast<float>(val_);

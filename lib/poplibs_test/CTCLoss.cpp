@@ -89,14 +89,14 @@ alpha(const boost::multi_array<FPType, 2> &sequence,
   alphas[0][0] = sequence[0][0];
   alphas[1][0] = sequence[1][0];
   for (unsigned j = 2; j < sequence.size(); j++) {
-    alphas[j][0] = logValues ? log::min : 0;
+    alphas[j][0] = logValues ? log::probabilityZero : 0;
   }
 
   // Iterate per column, starting with the second
   for (unsigned t = 1; t < validTimesteps; t++) {
     for (unsigned j = 0; j < sequence.size(); j++) {
       auto numParents = numberOfParents(paddedSequence, j, blankIndex, true);
-      FPType sum = logValues ? log::min : 0;
+      FPType sum = logValues ? log::probabilityZero : 0;
       for (unsigned k = 0; k < numParents; k++) {
         const unsigned parent = j - k;
         if (logValues) {
@@ -137,7 +137,7 @@ beta(const boost::multi_array<FPType, 2> &sequence,
   betas[lastL][lastT] = sequence[lastL][lastT];
   betas[lastL - 1][lastT] = sequence[lastL - 1][lastT];
   for (unsigned j = 0; j < lastL - 1; j++) {
-    betas[j][lastT] = logValues ? log::min : 0;
+    betas[j][lastT] = logValues ? log::probabilityZero : 0;
   }
 
   // Iterate per column, starting with the second to last
@@ -145,7 +145,7 @@ beta(const boost::multi_array<FPType, 2> &sequence,
     auto t = validTimesteps - 1 - i;
     for (unsigned j = 0; j < sequence.size(); j++) {
       auto numParents = numberOfParents(paddedSequence, j, blankIndex, false);
-      FPType sum = logValues ? log::min : 0;
+      FPType sum = logValues ? log::probabilityZero : 0;
       for (unsigned k = 0; k < numParents; k++) {
         const auto parent = j + k;
         if (logValues) {
@@ -212,7 +212,7 @@ grad(const boost::multi_array<FPType, 2> &sequence,
   boost::multi_array<FPType, 2> gradient(
       boost::extents[symbolsIncBlank][sequence.shape()[1]]);
   std::fill(gradient.data(), gradient.data() + gradient.num_elements(),
-            logValues ? log::min : 0);
+            logValues ? log::probabilityZero : 0);
 
   for (unsigned t = 0; t < validTimesteps; t++) {
     for (unsigned i = 0; i < sequence.shape()[0]; i++) {

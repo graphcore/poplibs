@@ -62,7 +62,7 @@ reduce(const poplibs_support::MultiArray<T> &input,
                     element = 0;
                     break;
                   case popops::Operation::LOG_ADD:
-                    element = poplibs_support::log::min;
+                    element = poplibs_support::log::probabilityZero;
                     break;
                   case popops::Operation::MUL:
                   case popops::Operation::LOGICAL_AND:

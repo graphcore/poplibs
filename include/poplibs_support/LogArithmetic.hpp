@@ -11,7 +11,8 @@
 namespace poplibs_support {
 namespace log {
 
-inline constexpr auto min = -10000;
+inline constexpr auto probabilityOne = 0;
+inline constexpr auto probabilityZero = -10000;
 
 // Given log values, perform an equivalent `linear add` operation
 template <typename FPType> FPType add(const FPType a_, const FPType b_) {

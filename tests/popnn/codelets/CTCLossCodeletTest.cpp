@@ -366,7 +366,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
     boost::multi_array<double, 2> zeroResult(
         boost::extents[result.dim(0)][result.dim(1)]);
     std::fill(zeroResult.data(), zeroResult.data() + zeroResult.num_elements(),
-              log::min);
+              log::probabilityZero);
     copy(target, zeroResult, outType, rawResult.get());
   }
   // Initialise the first Timeslice input of the vertex - in practice this could
@@ -376,15 +376,16 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   boost::multi_array<double, 2> prevTimeInit(
       boost::extents[prevTime.dim(0)][prevTime.dim(1)]);
   std::fill(prevTimeInit.data(),
-            prevTimeInit.data() + prevTimeInit.num_elements(), log::min);
+            prevTimeInit.data() + prevTimeInit.num_elements(),
+            log::probabilityZero);
 
   if (findingAlpha) {
-    // 1st symbol = 0 (probability=1)
-    prevTimeInit[0][0] = 0;
+    // 1st symbol probability=1
+    prevTimeInit[0][0] = log::probabilityOne;
     copy(target, prevTimeInit, outType, rawPrevTime.get());
   } else {
-    // last symbol = 0 (probability=1)
-    prevTimeInit[0][extendedLabelLen - 1] = 0;
+    // last symbol probability=1
+    prevTimeInit[0][extendedLabelLen - 1] = log::probabilityOne;
     copy(target, prevTimeInit, outType, rawPrevTime.get());
   }
 
@@ -393,7 +394,8 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   boost::multi_array<double, 2> prevLabelInit(
       boost::extents[prevLabel.dim(0)][prevLabel.dim(1)]);
   std::fill(prevLabelInit.data(),
-            prevLabelInit.data() + prevLabelInit.num_elements(), log::min);
+            prevLabelInit.data() + prevLabelInit.num_elements(),
+            log::probabilityZero);
   copy(target, prevLabelInit, outType, rawPrevLabel.get());
 
   Sequence prog;
