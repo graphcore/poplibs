@@ -67,7 +67,7 @@ add_unit_test(ScaledAddSupervisor_integral
 add_unit_test(TransposeTest
               TransposeTest.cpp
               SUITES TransposeFast_16bit TransposeFast_Float TransposeFast_Integral
-                     Transpose2d T19548
+                     Transpose2d T19548 T33035
               LABELS codelet)
 add_unit_test(FillAndZeroTest
               FillAndZeroTest.cpp

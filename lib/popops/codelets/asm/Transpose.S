@@ -83,6 +83,12 @@
 // of an array with an odd number of total values).
 // Written as a parameterised macro to avoid repetition in creating float,half
 // variants.
+// Input registers:
+// $IN_ROWS
+// $IN_COLUMNS
+// $MATRIX_LOOP_COUNT
+// $IN_START_PTR
+// $OUT_PTR
 
 .macro TRANSPOSE_SLOWER ldinstr st2instr st2operand wordinc half
 //Force alignment to 64 bit boundary here so the loop body is aligned.
@@ -593,7 +599,7 @@ TransposeAT2FromSupervisor:
 #else
   ld32      $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 4
   ld32      $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 4
-#endif   
+#endif
   ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
   ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
@@ -679,7 +685,7 @@ TRANSPOSE_SHORT:
 #else
   ld32      $IN_START_PTR, $mzero, $mvertex_base, VOFF_IN_PTR_1D / 4
   ld32      $OUT_PTR, $mzero, $mvertex_base, VOFF_OUT_PTR_1D / 4
-#endif  
+#endif
   ldz16     $OUT_GROUPS, $mzero, $mvertex_base, VOFF_SRC_ROWS_1D / 2
   ldz16     $IN_GROUPS, $mzero, $mvertex_base, VOFF_SRC_COLUMNS_1D / 2
   ldz16     $NUM_MATRICES, $mzero, $mvertex_base, VOFF_NUM_MATRICES_1D / 2
@@ -796,6 +802,9 @@ TRANSPOSE_2D_SHORT:
     // Here groups are COLUMNS/4 or ROWS/4: the number of 64 bit fetches/writes
     shr       $OUT_GROUPS, $IN_ROWS, 2
     shr       $IN_GROUPS, $IN_COLUMNS, 2
+    // OUT_GROUPS must fit into a signed 10bit field to use the fast vertex.
+    cmpult   $mSCRATCH2, $OUT_GROUPS, 0x400
+    brnz     $mSCRATCH2, TransposeAT2SlowPath
     // matrix(outermost) loop count
     add       $NUM_MATRICES, $mSCRATCH4, -1
 

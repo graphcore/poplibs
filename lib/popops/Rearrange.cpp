@@ -61,6 +61,7 @@ static std::vector<Type> getValidTransposeDataTypes() {
 bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
                          unsigned numRows, unsigned numColumns,
                          unsigned numTranspositions) {
+
   bool is2ByteType = (type == HALF || type == UNSIGNED_SHORT || type == SHORT);
   if (!is2ByteType ||
       numTranspositions > std::numeric_limits<unsigned short>::max() ||
@@ -80,7 +81,8 @@ bool canUseFastTranspose(const poplar::Target &target, const poplar::Type &type,
   } else {
     if (((numColumns >= 8) && (numColumns / 4 - 2 > target.getRptCountMax())) ||
         (numColumns / 4u * 3u - 1u >
-         (1u << (target.getNumStrideBits() - 1u)))) {
+         (1u << (target.getNumStrideBits() - 1u))) ||
+        (numRows / 4u >= (1u << (target.getNumStrideBits() - 1)))) {
       return false;
     }
   }

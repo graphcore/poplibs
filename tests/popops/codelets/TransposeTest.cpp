@@ -42,6 +42,8 @@ std::vector<TestParams> T19548TestList = {
     {512, 4, 1, true},
 };
 
+std::vector<TestParams> T33035TestList = {{2052, 16, 1, false}};
+
 //*************************************************
 // Main Test function for Transpose 2d
 //
@@ -311,6 +313,16 @@ BOOST_AUTO_TEST_CASE(TransposeTest_unsigned_int_false_T19548) {
 }
 BOOST_AUTO_TEST_CASE(TransposeTest_int_false_T19548) {
   TransposeTest(INT, false, T19548TestList);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(T33035)
+BOOST_AUTO_TEST_CASE(TransposeTest_half_false_T33035) {
+  TransposeTest(HALF, false, T33035TestList);
+}
+BOOST_AUTO_TEST_CASE(TransposeTest_half_true_T33035) {
+  TransposeTest(HALF, true, T33035TestList);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

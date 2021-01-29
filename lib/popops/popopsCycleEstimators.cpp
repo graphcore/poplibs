@@ -2623,16 +2623,16 @@ MAKE_PERF_ESTIMATOR_NAME(Transpose2d)(const VertexIntrospector &vertex,
         (numSrcColumns / 4 < hardwareRptCountConstraint) &&
         (1 + 3 * (numSrcColumns / 4) < 512)) { // Largest stride used
       // Half, fast path estimates, with >=8 input columns
-      cycles = 37 + matrices * (12 + (numSrcRows / 4) *
+      cycles = 39 + matrices * (12 + (numSrcRows / 4) *
                                          (15 + 4 * (numSrcColumns / 4 - 2)));
     } else if (((numSrcRows & 3) == 0) && (numSrcColumns == 4) &&
                (numSrcRows / 4 < hardwareRptCountConstraint) &&
                (1 + 3 * (numSrcRows / 4) < 512)) { // Largest stride used
       // Half, fast path estimates, 4x4 or Nx4 cases
       if (numSrcRows == 4)
-        cycles = 32 + 15 * matrices;
+        cycles = 34 + 15 * matrices;
       else
-        cycles = 28 + matrices * (17 + (20 + 4 * (numSrcRows / 4 - 2)));
+        cycles = 30 + matrices * (17 + (20 + 4 * (numSrcRows / 4 - 2)));
     } else {
       // Half, slow path estimates based on numSrcRows being even
       cycles = 15 + matrices * (8 + numSrcColumns * (5 + (numSrcRows * 5) / 2));
