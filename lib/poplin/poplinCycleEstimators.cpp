@@ -1,10 +1,12 @@
 // Copyright (c) 2017 Graphcore Ltd. All rights reserved.
 #include "poplinCycleEstimators.hpp"
 #include "PerformanceEstimation.hpp"
+#include "poplibs_support/FlopEstimation.hpp"
 
 #include <cassert>
 
 using namespace poplar;
+using namespace poplibs_support;
 
 namespace poplin {
 
@@ -60,6 +62,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialnx1)(
     return convNx1Overhead() + zeroCycles;
   }
   workerPartitions.reserve(usedContexts);
+  unsigned totalFieldPos = 0;
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();
     workerPartitions.back().reserve(kernelSize);
@@ -75,6 +78,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialnx1)(
         } else {
           numFieldPos = static_cast<int>(wl[wi + 1]) + 3;
         }
+        totalFieldPos += numFieldPos;
         workerPartitions.back().back().push_back(numFieldPos);
       }
     }
@@ -88,13 +92,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialnx1)(
   if (!use128BitConvUnitLoad) {
     convUnitCoeffLoadBytesPerCycle /= 2;
   }
-  return zeroCycles + getConvPartialnx1SupervisorCycleEstimate(
-                          workerPartitions, numConvGroups, numOutGroups,
-                          numInGroups, kernelInnerElements, kernelOuterSize,
-                          ampKernelHeight, inChansPerGroup, outChansPerGroup,
-                          weightBytesPerConvUnit, numConvUnits,
-                          convUnitCoeffLoadBytesPerCycle, numWorkerContexts,
-                          floatWeights, floatPartials);
+  std::uint64_t flops = static_cast<uint64_t>(numConvGroups) * numOutGroups *
+                        numInGroups * inChansPerGroup * outChansPerGroup *
+                        totalFieldPos * ampKernelHeight * flopsForMAC();
+
+  std::uint64_t cycles =
+      zeroCycles + getConvPartialnx1SupervisorCycleEstimate(
+                       workerPartitions, numConvGroups, numOutGroups,
+                       numInGroups, kernelInnerElements, kernelOuterSize,
+                       ampKernelHeight, inChansPerGroup, outChansPerGroup,
+                       weightBytesPerConvUnit, numConvUnits,
+                       convUnitCoeffLoadBytesPerCycle, numWorkerContexts,
+                       floatWeights, floatPartials);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1x1Out)(
@@ -121,6 +131,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1x1Out)(
   // find max work to bt done per worker
   std::vector<std::vector<unsigned>> workerPartitions;
   assert(worklists.size() / 3 <= target.getNumWorkerContexts());
+  unsigned totalFieldPos = 0;
   for (unsigned context = 0; context != target.getNumWorkerContexts();
        ++context) {
     workerPartitions.emplace_back();
@@ -132,6 +143,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1x1Out)(
     } else {
       numFieldElems = static_cast<int>(worklists[3 * context + 1]) + 3;
     }
+    totalFieldPos += numFieldElems;
     workerPartitions.back().push_back(numFieldElems);
   }
   bool floatWeights = fpType == FLOAT;
@@ -143,11 +155,18 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1x1Out)(
   if (!use128BitConvUnitLoad) {
     convUnitCoeffLoadBytesPerCycle /= 2;
   }
-  return getConvPartial1x1SupervisorCycleEstimate(
+
+  std::uint64_t flops = static_cast<std::uint64_t>(numConvGroups) *
+                        numInGroups * numOutGroups * outChansPerGroup *
+                        target.getWeightsPerConvUnit(fpType == FLOAT) *
+                        totalFieldPos * flopsForMAC();
+
+  std::uint64_t cycles = getConvPartial1x1SupervisorCycleEstimate(
       workerPartitions, numConvGroups, numInGroups, numOutGroups,
       outChansPerGroup, weightBytesPerConvUnit, numConvUnits,
       convUnitCoeffLoadBytesPerCycle, numWorkerContexts, floatWeights,
       accumType == FLOAT);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
@@ -198,6 +217,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
   assert(kernelSize > 0);
   const auto usedContexts = worklists.size() / kernelSize;
   workerPartitions.reserve(usedContexts);
+  unsigned totalFieldPos = 0;
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();
     workerPartitions.back().reserve(kernelSize);
@@ -208,14 +228,21 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialHorizontalMac)(
       for (auto wi = 0U; wi < wl.size(); wi += 3) {
         auto numFieldPos = (wl[wi + 1] + outStride - 1) / outStride;
         workerPartitions.back().back().push_back(numFieldPos);
+        totalFieldPos += numFieldPos;
       }
     }
   }
-  return zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
-                          workerPartitions, numConvGroups, numInGroups,
-                          numOutGroups, kernelSize, inChansPerGroup,
-                          outChansPerGroup, numWorkerContexts, floatActivations,
-                          floatPartials);
+  std::uint64_t flops = static_cast<std::uint64_t>(numConvGroups) *
+                        numInGroups * numOutGroups * inChansPerGroup *
+                        outChansPerGroup * totalFieldPos * flopsForMAC();
+
+  std::uint64_t cycles =
+      zeroCycles + getConvPartialHorizontalMacSupervisorCycleEstimate(
+                       workerPartitions, numConvGroups, numInGroups,
+                       numOutGroups, kernelSize, inChansPerGroup,
+                       outChansPerGroup, numWorkerContexts, floatActivations,
+                       floatPartials);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialVerticalMac)(
@@ -251,6 +278,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialVerticalMac)(
 
   const auto usedContexts = worklists.size();
   workerPartitions.reserve(usedContexts);
+  unsigned totalFieldPos = 0;
   for (unsigned context = 0; context < usedContexts; ++context) {
     workerPartitions.emplace_back();
     const auto &wl = worklists[context];
@@ -258,12 +286,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialVerticalMac)(
     for (auto wi = 0U; wi < wl.size(); wi += 4) {
       auto numFieldPos = wl[wi + 3];
       workerPartitions.back().push_back(numFieldPos);
+      totalFieldPos += numFieldPos + 1;
     }
   }
-  return getConvPartialVerticalMacSupervisorCycleEstimate(
+  std::uint64_t flops = static_cast<std::uint64_t>(numConvGroups) *
+                            numInGroups * convGroupsPerGroup * totalFieldPos *
+                            flopsForMAC() +
+                        // reduction across workers
+                        zerosInfo * (numWorkerContexts - 1) * flopsForAdd();
+  std::uint64_t cycles = getConvPartialVerticalMacSupervisorCycleEstimate(
       workerPartitions, numConvGroups, numInGroups, numOutGroups,
       worklistSizeMax, zerosInfo, inChansPerGroup, outChansPerGroup,
       convGroupsPerGroup, numWorkerContexts, floatActivations, floatPartials);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 // TODO: T12902 Add cost estimates for non-limited version?
@@ -292,11 +327,14 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
   const auto convGroupsPerGroup = 4u / chansPerGroup;
 
   std::vector<std::vector<unsigned>> workerPartitions(numWorkerContexts);
+  unsigned totalFieldElems = 0;
   for (unsigned context = 0; context < numWorkerContexts; ++context) {
     const auto &wl = worklists[context];
     workerPartitions[context].reserve(wl.size() / 3);
     for (unsigned wi = 0; wi < wl.size(); wi += 3) {
-      workerPartitions[context].push_back(wl[wi + 2]);
+      const auto fieldElems = wl[wi + 2];
+      workerPartitions[context].push_back(fieldElems);
+      totalFieldElems += fieldElems;
     }
   }
 #if !defined(NDEBUG)
@@ -330,7 +368,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartial1xNSLIC)(
       implicitZeroingInnerCycles, innerCycles, weightLoadCycles,
       numConvGroupGroups, numSubKernels, numConvChains, windowWidth,
       floatActivations, floatPartials);
-  return cycles;
+
+  // total field elements are for a single sub-kernel element
+  std::uint64_t flops = static_cast<std::uint64_t>(numConvGroupGroups) *
+                        numSubKernels * windowWidth * convGroupsPerGroup *
+                        chansPerGroup * chansPerGroup * totalFieldElems *
+                        flopsForMAC();
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdDataTransform)(
@@ -344,8 +388,12 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdDataTransform)(
   const unsigned numInpCols = patchSizeY;
 
   const unsigned nPatches = dIn.size() / (numInpCols * numInpRows);
-
-  return getWgdDataTransformCycles(nPatches * dIn[0].size(), isFloat);
+  std::uint64_t flops = (static_cast<std::uint64_t>(nPatches) * dIn[0].size() *
+                         4 * (patchSizeX + patchSizeY)) *
+                        flopsForAdd();
+  std::uint64_t cycles =
+      getWgdDataTransformCycles(nPatches * dIn[0].size(), isFloat);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate
@@ -365,10 +413,14 @@ MAKE_PERF_ESTIMATOR_NAME(WgdPartials)(const VertexIntrospector &vertex,
   const unsigned inpChanDepth = dTf[0].size();
   const unsigned comPencils = partials.size();
   const unsigned numInpGroups = wTf.size();
+  std::uint64_t flops = static_cast<std::uint64_t>(numInpGroups) * comPencils *
+                        outChanDepth * inpChanDepth * flopsForMAC();
 
-  return getWgdAccumCycles(numInpGroups, comPencils, inpChanDepth, outChanDepth,
-                           numWorkers, numConvUnits, weightsPerConvUnit,
-                           convUnitCoeffLoadBytesPerCycle, isFloat);
+  std::uint64_t cycles =
+      getWgdAccumCycles(numInpGroups, comPencils, inpChanDepth, outChanDepth,
+                        numWorkers, numConvUnits, weightsPerConvUnit,
+                        convUnitCoeffLoadBytesPerCycle, isFloat);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate
@@ -383,8 +435,11 @@ MAKE_PERF_ESTIMATOR_NAME(WgdReduce)(const VertexIntrospector &vertex,
   const unsigned numElems = outPartial.size();
   const unsigned numOutChans = outPartial[0].size();
   const unsigned numInpChans = inPartial.size() / numElems;
-
-  return getWgdReduceCycles(numElems * numOutChans, numInpChans, isFloat);
+  std::uint64_t flops = numElems * numOutChans * numInpChans;
+  std::uint64_t cycles =
+      getWgdReduceCycles(numElems * numOutChans, numInpChans, isFloat) *
+      flopsForAdd();
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdInverseTransform)(
@@ -400,8 +455,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(WgdInverseTransform)(
 
   const unsigned nGroups = dTf.size() / (numInCols * numInRows);
   const unsigned depthDim = dOut[0].size();
-
-  return getWgdInvTransformCycles(nGroups * depthDim, isFloat);
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(nGroups) * depthDim * 24 * flopsForAdd();
+  std::uint64_t cycles = getWgdInvTransformCycles(nGroups * depthDim, isFloat);
+  return {cycles, convertToTypeFlops(flops, fpType)};
 }
 
 VertexPerfEstimate
@@ -413,7 +470,8 @@ MAKE_PERF_ESTIMATOR_NAME(WgdConvComplete)(const VertexIntrospector &vertex,
   const bool isFloat = fpType == FLOAT;
   const unsigned nGroups = dIn.size();
   const unsigned vecLen = dIn[0].size();
-  return getWgdCompleteCycles(vecLen * nGroups, isFloat);
+  std::uint64_t cycles = getWgdCompleteCycles(vecLen * nGroups, isFloat);
+  return {cycles, 0UL};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(InverseStdDeviation)(
@@ -427,6 +485,7 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(InverseStdDeviation)(
   assert(mean.size() == power.size());
   assert(mean.size() == iStdDev.size());
   uint64_t cycles = 6;
+  std::uint64_t flops = 0;
   for (unsigned i = 0; i < mean.size(); ++i) {
     assert(mean[i].size() == power[i].size());
     assert(mean[i].size() == iStdDev[i].size());
@@ -438,8 +497,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(InverseStdDeviation)(
     unsigned cyclesPerVector = 3 + 1 * vectorWidth;
     unsigned numVectors = (numElem + vectorWidth - 1) / vectorWidth;
     cycles += 4 + cyclesPerVector * numVectors;
+    // addition by eps, scale by scaleFactor, division and inverse sqrt
+    flops += 4 * mean[i].size();
   }
-  return cycles;
+  return {cycles, convertToTypeFlops(flops, outType)};
 }
 
 VertexPerfEstimate
@@ -458,9 +519,11 @@ MAKE_PERF_ESTIMATOR_NAME(OuterProduct)(const VertexIntrospector &vertex,
   const auto numChanGroups = out.size();
   assert(numChans % numChanGroups == 0);
 #endif
-
-  return getOuterProductCycleEstimate(isFloat, width, numChans, chansPerGroup,
-                                      dataPathWidth);
+  std::uint64_t flops = static_cast<std::uint64_t>(out.size()) * chansPerGroup *
+                        width * flopsForMultiply();
+  auto cycles = getOuterProductCycleEstimate(isFloat, width, numChans,
+                                             chansPerGroup, dataPathWidth);
+  return {cycles, convertToTypeFlops(flops, type)};
 }
 
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceAdd)(
@@ -468,12 +531,17 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceAdd)(
     const Type &partialsType, bool singleInput, bool constrainPartials) {
   CODELET_FIELD(out);
   CODELET_SCALAR_VAL(numPartials, unsigned short);
+  CODELET_SCALAR_VAL(numElems, unsigned short);
   const auto dataPathWidth = target.getDataPathWidth();
 
-  return getReduceCycleEstimate(out.size(), numPartials, dataPathWidth,
-                                outType == FLOAT, partialsType == FLOAT,
-                                singleInput, constrainPartials,
-                                target.getNumWorkerContexts());
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(numElems) * (numPartials - 1) * flopsForAdd();
+
+  auto cycles = getReduceCycleEstimate(out.size(), numPartials, dataPathWidth,
+                                       outType == FLOAT, partialsType == FLOAT,
+                                       singleInput, constrainPartials,
+                                       target.getNumWorkerContexts());
+  return {cycles, convertToTypeFlops(flops, partialsType)};
 }
 
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
