@@ -164,10 +164,7 @@ INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, POPCOUNT, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIGNUM, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIN, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, TAN, float, half
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, TANH, float, half
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, RELU, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, ROUND, float, half
-INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SIGMOID, float, half
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQRT, float, half, int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, SQUARE, float, half, int, unsigned_int
 INSTANTIATE_OP UnaryOp UnaryOp1DInPlace, RSQRT, float, half

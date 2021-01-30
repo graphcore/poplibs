@@ -196,25 +196,6 @@ bool isScaled(NonLinearityType nl) {
   return (nl == NonLinearityType::SOFTMAX_SCALED);
 }
 
-// Three of the non linearities are implemented as popops vertices; This checks
-// if 'nl' is one of them and, in case, it returns the corresponding popops enum
-std::optional<expr::UnaryOpType> isPopops(NonLinearityType nl) {
-  std::optional<expr::UnaryOpType> unaryOp;
-  switch (nl) {
-  case NonLinearityType::TANH:
-    unaryOp = expr::UnaryOpType::TANH;
-    break;
-  case NonLinearityType::SIGMOID:
-    unaryOp = expr::UnaryOpType::SIGMOID;
-    break;
-  case NonLinearityType::RELU:
-    unaryOp = expr::UnaryOpType::RELU;
-    break;
-  default:;
-  }
-  return unaryOp;
-}
-
 Tensor nonLinearityInputGradient(Graph &graph,
                                  NonLinearityType nonLinearityType, Tensor out,
                                  Tensor outGradient, ComputeSet &cs,
@@ -325,14 +306,10 @@ Tensor nonLinearityInputGradient(Graph &graph,
   return t;
 }
 
-// This is called for all the different types of non linearities, in-place or
-// not.
-// If the 'out' parameter is not empty (not nullopt), the vertex used will be
-// one of the not-in-place popops ones, and '*out' needs to be set as the 'out'
-// field of the vertex.
-void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
-                  poplar::Tensor t, std::optional<poplar::Tensor> out,
-                  ComputeSet &cs, const poplar::DebugContext &debugContext) {
+void nonLinearityInPlace(poplar::Graph &graph,
+                         NonLinearityType nonLinearityType, poplar::Tensor t,
+                         ComputeSet &cs,
+                         const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext,
                                  DI_ARGS(t, nonLinearityType, cs));
 
@@ -341,8 +318,8 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
                                  "implemented");
   }
 
-  logging::popnn::info("nonLinearity type={}, t={}, name={}", nonLinearityType,
-                       t.shape(), debugContext.getPathName());
+  logging::popnn::info("nonLinearityInPlace type={}, t={}, name={}",
+                       nonLinearityType, t.shape(), debugContext.getPathName());
 
   if (!t.isParallelWriteable())
     throw poputil::poplibs_error("Trying to update tensor that cannot be "
@@ -357,12 +334,6 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
   const auto numTiles = target.getNumTiles();
   const auto tFlat = t.flatten();
   const auto vectorWidth = target.getVectorWidth(dType);
-  // When:
-  //   out == true (i.e. not empty, specifies a Tensor) the vertex needs to be
-  //               both not-in-place and a Popops one.
-  //   out == false (nullopt) the vertex could be a popnn vertex or a popops one
-  //                (an in-place one).
-  bool isNotInPlacePopopsVertex = bool(out);
 
   auto codeletName2D =
       templateVertex("popnn::NonLinearity2D", dType, nonLinearityType);
@@ -370,46 +341,37 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
       templateVertex("popnn::NonLinearitySupervisor", dType, nonLinearityType);
   auto dataName = "data";
 
-  Tensor outFlat;
-  std::optional<expr::UnaryOpType> unaryOp = isPopops(nonLinearityType);
-  if (unaryOp) {
-    // Popops vertices: could be in-place or not-in-place, both the vertex name
-    // and the data field name depends on this.
-    std::string name2D, nameSuperv;
-    if (isNotInPlacePopopsVertex) {
-      dataName = "in";
-      name2D = "popops::UnaryOp2D";
-      nameSuperv = "popops::UnaryOp1DSupervisor";
-      outFlat = out->flatten();
-    } else {
-      dataName = "inOut";
-      name2D = "popops::UnaryOp2DInPlace";
-      nameSuperv = "popops::UnaryOp1DInPlaceSupervisor";
-    }
-    codeletName2D = templateVertex(name2D, *unaryOp, dType);
-    codeletNameSupervisor = templateVertex(nameSuperv, *unaryOp, dType);
+  // Three of the non linearities are popops vertices; if using them we convert
+  // nonLinearityType to popops type and get the right name for the data field.
+  std::optional<expr::UnaryOpType> unaryOp;
+  switch (nonLinearityType) {
+  case NonLinearityType::TANH:
+    unaryOp = expr::UnaryOpType::TANH;
+    break;
+  case NonLinearityType::SIGMOID:
+    unaryOp = expr::UnaryOpType::SIGMOID;
+    break;
+  case NonLinearityType::RELU:
+    unaryOp = expr::UnaryOpType::RELU;
+    break;
+  default:;
+  }
+  if (unaryOp.has_value()) {
+    dataName = "inOut";
+    codeletName2D =
+        templateVertex("popops::UnaryOp2DInPlace", unaryOp.value(), dType);
+    codeletNameSupervisor = templateVertex("popops::UnaryOp1DInPlaceSupervisor",
+                                           unaryOp.value(), dType);
   }
 
   // Maximum elements vertices can handle per-region is based on input vector
   // type and the max count the `rpt` instruction can handle.
-  const auto rptLimitMaxElementsSupervisor =
-      target.getRptCountMax() * numWorkers * vectorWidth;
-  const auto rptLimitMaxElements2D = target.getRptCountMax() * vectorWidth;
-  std::size_t maxSupervisorElements, max2DElements;
-  if (isNotInPlacePopopsVertex) {
-    // These vertices don't have limited size fields; the limits are only due
-    // to the RPT instruction count.
-    maxSupervisorElements = rptLimitMaxElementsSupervisor;
-    max2DElements = rptLimitMaxElements2D;
-  } else {
-    maxSupervisorElements = std::min<std::size_t>(
-        graph.getMaxVertexFieldValue(codeletNameSupervisor, "n"),
-        rptLimitMaxElementsSupervisor);
-    max2DElements =
-        std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, dataName, 1),
-                              rptLimitMaxElements2D);
-  }
-
+  const auto maxSupervisorElements = std::min<std::size_t>(
+      graph.getMaxVertexFieldValue(codeletNameSupervisor, "n"),
+      target.getRptCountMax() * numWorkers * vectorWidth);
+  const auto max2DElements =
+      std::min<std::size_t>(graph.getMaxFieldDim(codeletName2D, dataName, 1),
+                            target.getRptCountMax() * vectorWidth);
   for (unsigned tile = 0; tile != numTiles; ++tile) {
     const auto thisTileMap = mapping[tile];
     const auto tileContiguousRegions =
@@ -423,14 +385,7 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
       if (numElements <= maxSupervisorElements) {
         auto v =
             graph.addVertex(cs, codeletNameSupervisor, {{dataName, tThisTile}});
-        if (isNotInPlacePopopsVertex) {
-          // The popops not-in-place vertices don't have the 'n' field (as the
-          // vector has 'SPAN' layout, but have the 'out' field.
-          graph.connect(v["out"],
-                        concat(outFlat.slices(tileContiguousRegions)));
-        } else {
-          graph.setInitialValue(v["n"], numElements);
-        }
+        graph.setInitialValue(v["n"], numElements);
         graph.setTileMapping(v, tile);
         continue;
       }
@@ -450,18 +405,9 @@ void nonLinearity(poplar::Graph &graph, NonLinearityType nonLinearityType,
     for (const auto &regions : vertexRegions) {
       auto v = graph.addVertex(cs, codeletName2D,
                                {{dataName, tFlat.slices(regions)}});
-      if (isNotInPlacePopopsVertex) {
-        graph.connect(v["out"], outFlat.slices(regions));
-      }
       graph.setTileMapping(v, tile);
     }
   }
-}
-
-void nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
-                         poplar::Tensor t, ComputeSet &cs,
-                         const poplar::DebugContext &debugContext) {
-  nonLinearity(graph, nonLinearityType, t, std::nullopt, cs, debugContext);
 }
 
 void nonLinearityInPlace(Graph &graph, NonLinearityType nonLinearityType,
@@ -490,17 +436,11 @@ Tensor nonLinearity(Graph &graph, NonLinearityType nonLinearityType, Tensor t,
                        isScaled(nonLinearityType), prog, {di, fnPrefix});
   }
   ComputeSet cs = graph.addComputeSet({di, fnPrefix});
-
   auto out = createOutputForElementWiseOp(graph, {t}, t.elementType(),
                                           {di, fnPrefix + "/out"});
-  if (isPopops(nonLinearityType)) {
-    nonLinearity(graph, nonLinearityType, t, out, cs, {di, fnPrefix});
-  } else {
-    nonLinearity(graph, nonLinearityType, out, std::nullopt, cs,
-                 {di, fnPrefix});
-    prog.add(Copy(t, out, false, {di}));
-  }
+  nonLinearityInPlace(graph, nonLinearityType, out, cs, {di, fnPrefix});
 
+  prog.add(Copy(t, out, false, {di}));
   prog.add(Execute(cs, {di}));
   di.addOutput(out);
   return out;

@@ -173,14 +173,14 @@ inline const UnaryOpPerfTable unaryOpPerfInfo = {
     {{UnaryOpType::SQUARE, UNSIGNED_INT}, {1, true}},
     {{UnaryOpType::TAN, FLOAT}, {3900, true}},
     {{UnaryOpType::TAN, HALF}, {3900, true}},
-    {{UnaryOpType::TANH, FLOAT}, {10, false, 2}},
-    {{UnaryOpType::TANH, HALF}, {2, false, 4}},
-    {{UnaryOpType::SIGMOID, FLOAT}, {10, false, 2}},
-    {{UnaryOpType::SIGMOID, HALF}, {4, false, 4}},
+    {{UnaryOpType::TANH, FLOAT}, {12, false, 2}},
+    {{UnaryOpType::TANH, HALF}, {4, false, 4}},
+    {{UnaryOpType::SIGMOID, FLOAT}, {12, false, 2}},
+    {{UnaryOpType::SIGMOID, HALF}, {6, false, 4}},
     {{UnaryOpType::RSQRT, FLOAT}, {10, false, 2}},
     {{UnaryOpType::RSQRT, HALF}, {23, false, 4}},
-    {{UnaryOpType::RELU, FLOAT}, {2, false, 2}},
-    {{UnaryOpType::RELU, HALF}, {2, false, 4}},
+    {{UnaryOpType::RELU, FLOAT}, {3, false, 2}},
+    {{UnaryOpType::RELU, HALF}, {3, false, 4}},
 };
 
 inline const UnaryOpPerfTable unaryOpInPlacePerfInfo = {
