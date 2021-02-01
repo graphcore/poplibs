@@ -867,3 +867,19 @@ foreach(time 12 15 16)
       VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
+
+# Exersise batch > 1 and other type combinations to those above (which are
+# float in, float out)
+foreach(out_type half float)
+    add_multitarget_test(
+      NAME CTCLossTest2BatchAnd_TypeTime_${out_type}
+      COMMAND CTCLossTest
+              --batch=4
+              --max-time=32
+              --min-time=3
+              --max-label-length=12
+              --min-label-length=1
+              --in-type=half
+              --out-type=${out_type}
+      VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()

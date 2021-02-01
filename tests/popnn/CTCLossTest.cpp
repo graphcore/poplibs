@@ -373,13 +373,13 @@ int main(int argc, char **argv) {
   // Needed to set default arguments.
   po::notify(vm);
   // Pick up on some parameters that are easy to get wrong
-  if (maxTime < 1 + 2 * maxLabelLength) {
+  if (maxTime < maxLabelLength) {
     throw poputil::poplibs_error(
-        "The max test time must be >= 1 + 2 * max test label length");
+        "The max test time must be >= max test label length");
   }
-  if (minTime < 1 + 2 * minLabelLength) {
+  if (minTime < minLabelLength) {
     throw poputil::poplibs_error(
-        "The min test time must be >= 1 + 2 * min test label length ");
+        "The min test time must be >= min test label length ");
   }
   if (maxTime < minTime) {
     throw poputil::poplibs_error("The max test time must be >= min test time");
@@ -400,10 +400,9 @@ int main(int argc, char **argv) {
     throw poputil::poplibs_error(
         "Use non random test time and non random label length together");
   }
-  if (testTime && testLabelLength &&
-      testTime.get() < 1 + 2 * testLabelLength.get()) {
+  if (testTime && testLabelLength && testTime.get() < testLabelLength.get()) {
     throw poputil::poplibs_error(
-        "The non random test time must be >= 1 + 2 * non random test label"
+        "The non random test time must be >= non random test label"
         " length");
   }
 
