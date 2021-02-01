@@ -3,6 +3,8 @@
  *
  * Functions to fill tensors with values.
  *
+ * Supported fillValue types are FLOAT, HALF, INT and UNSIGNED_INT.
+ *
  */
 
 #ifndef popops_Fill_hpp
