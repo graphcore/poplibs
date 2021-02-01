@@ -817,7 +817,7 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
   // required place based on the time,label size of each individual input.
   initialise(graph, tempTimeAlphaBeta1, prog, {di, layer});
   auto initialiserOne = graph.addConstant<float>(
-      outType, {1, 1, 1}, {static_cast<float>(log::probabilityOne)}, {di});
+      outType, {1, 1, 1}, static_cast<float>(log::probabilityOne), {di});
   graph.setTileMapping(initialiserOne, 0);
   auto tempTimeAlphaBeta1Slice =
       tempTimeAlphaBeta1.slice({0, 0, 0}, {1, batchSize, 1});
