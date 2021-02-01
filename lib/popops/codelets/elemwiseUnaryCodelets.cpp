@@ -488,7 +488,11 @@ template <UnaryOpType op, typename T> constexpr static bool isExternal() {
   const bool isExternalBITWISE =
       op == UnaryOpType::BITWISE_NOT &&
       (std::is_same<T, short>::value || std::is_same<T, unsigned short>::value);
-  return isExternalSIGNUM || isExternalBITWISE;
+  const bool isExternalNonLinearity =
+      (op == UnaryOpType::TANH || op == UnaryOpType::SIGMOID ||
+       op == UnaryOpType::RELU) &&
+      (std::is_same<T, half>::value || std::is_same<T, float>::value);
+  return isExternalSIGNUM || isExternalBITWISE || isExternalNonLinearity;
 }
 
 template <expr::UnaryOpType op, typename T> class UnaryOp2D : public Vertex {
@@ -531,9 +535,9 @@ public:
   }
 };
 
-// The 3 non-linearity operators TANH, SIGMOID, RELU have their vertex state
-// fields defined differently from the rest of the operators, so require
-// separate templates
+// The *in-place* vertices for the 3 non-linearity operators TANH, SIGMOID, RELU
+// have their vertex state fields defined differently from the rest of the
+// operators, so require separate templates.
 #define DEFINE_UNARY_OP_NL_2D(op, LAYOUT)                                      \
   template <typename T> class UnaryOp2DInPlace<op, T> : public Vertex {        \
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
@@ -793,10 +797,10 @@ public:
   }
 };
 
-// The 3 non-linearity operators TANH, SIGMOID, RELU have their vertex state
-// fields defined differently from the rest of the operators, so require
-// separate templates
-#define DEF_UNARY_OP_NL_SV(op, PTR_TYPE)                                       \
+// The *in-place* vertices for the 3 non-linearity operators TANH, SIGMOID, RELU
+// have their vertex state fields defined differently from the rest of the
+// operators, so require separate templates.
+#define DEFINE_UNARY_OP_NL_SV(op, PTR_TYPE)                                    \
   template <typename T>                                                        \
   class UnaryOp1DInPlaceSupervisor<op, T> : public SupervisorVertex {          \
     typedef typename UnaryOpOutputType<op, T>::type outputType;                \
@@ -817,13 +821,13 @@ public:
   };
 
 #ifdef VECTOR_AVAIL_SCALED_PTR32
-DEF_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, SCALED_PTR32)
-DEF_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, SCALED_PTR32)
-DEF_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, SCALED_PTR32)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, SCALED_PTR32)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, SCALED_PTR32)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, SCALED_PTR32)
 #else
-DEF_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, ONE_PTR)
-DEF_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, ONE_PTR)
-DEF_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::TANH, ONE_PTR)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::SIGMOID, ONE_PTR)
+DEFINE_UNARY_OP_NL_SV(expr::UnaryOpType::RELU, ONE_PTR)
 #endif
 
 //******************************************************************************
@@ -964,12 +968,9 @@ INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::POPCOUNT, int, unsigned)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGNUM, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIN, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TAN, float, half)
-INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::TANH, float, half)
-INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RELU, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::ROUND, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQRT, float, half, int)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SQUARE, float, half, int, unsigned)
-INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::SIGMOID, float, half)
 INSTANTIATE_OP(UnaryOp1D, expr::UnaryOpType::RSQRT, float, half)
 
 INSTANTIATE_OP(UnaryOp2DInPlace, expr::UnaryOpType::ABSOLUTE, float, half, int)
