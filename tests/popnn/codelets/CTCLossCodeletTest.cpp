@@ -171,7 +171,7 @@ template <typename FPType> struct InputSequence {
 
 InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
                                          unsigned alphabetSizeIncBlank,
-                                         bool blankIsZero) {
+                                         unsigned blankClass) {
   std::mt19937 gen;
   const unsigned seed = 1;
   gen.seed(seed);
@@ -179,7 +179,8 @@ InputSequence<double> getRandomTestInput(size_t timesteps, size_t testSymbols,
   std::uniform_int_distribution<> rand(0, alphabetSizeIncBlank - 2);
   std::vector<unsigned> idx;
   for (size_t i = 0; i < testSymbols; i++) {
-    unsigned symbol = static_cast<unsigned>(blankIsZero) + rand(gen);
+    const unsigned random = rand(gen);
+    unsigned symbol = static_cast<unsigned>(blankClass >= random) + random;
     idx.push_back(symbol);
   }
 
@@ -424,9 +425,9 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
 int main(int argc, char **argv) {
   // Default input parameters.
   DeviceType deviceType = DeviceType::IpuModel2;
-  bool blankIsZero = false;
   bool verbose = false;
   bool profile = false;
+  unsigned blankClass = 0;
   unsigned testTime = 15;
   unsigned testSymbols = 5;
   unsigned numClasses = 4;
@@ -449,8 +450,8 @@ int main(int argc, char **argv) {
      "Show profile report")
     ("test", po::value(&vertexToTest)->default_value(vertexToTest),
      "Test: alpha, beta, gradGivenAlpha, gradGivenBeta")
-    ("zero-blank", po::value(&blankIsZero)->default_value(blankIsZero),
-     "Index of the blank symbol = zero.  If false it is indices-1")
+    ("blank-class", po::value(&blankClass)->default_value(blankClass),
+     "Index of the blank symbol. Range 0 to (num-classes-1)")
     ("test-symbols", po::value(&testSymbols)->default_value(testSymbols),
      "Test length (symbols)")
     ("time", po::value(&testTime)->default_value(testTime),
@@ -478,10 +479,12 @@ int main(int argc, char **argv) {
   if (testTime < testSymbols) {
     throw poputil::poplibs_error("The test time must be >= sequence symbols");
   }
+  if (blankClass >= numClasses) {
+    throw poputil::poplibs_error("The blank class must be in the range 0 to "
+                                 "(number of classes - 1)");
+  }
 
-  auto test =
-      getRandomTestInput(testTime, testSymbols, numClasses, blankIsZero);
-  const unsigned blankClass = blankIsZero ? 0 : numClasses - 1;
+  auto test = getRandomTestInput(testTime, testSymbols, numClasses, blankClass);
   test.input = log::log(test.input);
   print("Test sequence:", test.idx, blankClass, verbose);
 

@@ -120,7 +120,7 @@ InputSequence<double>
 getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
                    boost::optional<unsigned> testLabelLength,
                    size_t minLabelLength, size_t maxLabelLength,
-                   unsigned numClasses, unsigned batchNo, bool blankIsZero) {
+                   unsigned numClasses, unsigned batchNo, unsigned blankClass) {
 
   std::mt19937 gen;
   // Seed with the batch number - resulting in repeatable pseudo random sizes
@@ -151,7 +151,8 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
 
   // Random label sequence of the right length
   for (size_t i = 0; i < labelLength; i++) {
-    labels[i] = static_cast<unsigned>(blankIsZero) + randLabels(gen);
+    const unsigned random = randLabels(gen);
+    labels[i] = static_cast<unsigned>(random >= blankClass) + random;
   }
 
   // Input sequence of max length
@@ -295,7 +296,6 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 int main(int argc, char **argv) {
   // Default input parameters.
   DeviceType deviceType = DeviceType::IpuModel2;
-  bool blankIsZero = false;
   bool verbose = false;
   bool profile = false;
   boost::optional<std::string> planConstraints;
@@ -304,6 +304,7 @@ int main(int argc, char **argv) {
   unsigned minTime = 15;
   unsigned maxTime = 15;
   boost::optional<unsigned> testLabelLength = boost::none;
+  unsigned blankClass = 0;
   unsigned minLabelLength = 5;
   unsigned maxLabelLength = 5;
   unsigned numClasses = 4;
@@ -345,8 +346,8 @@ int main(int argc, char **argv) {
      "Min test length (time)")
     ("max-time", po::value(&maxTime)->default_value(maxTime),
      "Max test length (time)")
-    ("zero-blank", po::value(&blankIsZero)->default_value(blankIsZero),
-     "Class of the blank symbol = zero.  If false it is numClasses-1")
+    ("blank-class", po::value(&blankClass)->default_value(blankClass),
+     "Index of the blank symbol. Range 0 to (num-classes-1)")
     ("num-classes", po::value(&numClasses)->default_value(numClasses),
      "Classes in the alphabet including blank")
     ("ignore-data", po::value(&ignoreData)->default_value(ignoreData),
@@ -373,6 +374,10 @@ int main(int argc, char **argv) {
   // Needed to set default arguments.
   po::notify(vm);
   // Pick up on some parameters that are easy to get wrong
+  if (blankClass >= numClasses) {
+    throw poputil::poplibs_error("The blank class must be in the range 0 to "
+                                 "(number of classes - 1)");
+  }
   if (maxTime < maxLabelLength) {
     throw poputil::poplibs_error(
         "The max test time must be >= max test label length");
@@ -428,11 +433,10 @@ int main(int argc, char **argv) {
   // For test call the reference function for each batch input
   std::vector<InputSequence<double>> tests;
   std::vector<boost::multi_array<double, 2>> references;
-  const unsigned blankClass = blankIsZero ? 0 : numClasses - 1;
   for (unsigned i = 0; i < batchSize; i++) {
     tests.push_back(getRandomTestInput(
         testTime, minTime, maxTime, testLabelLength, minLabelLength,
-        maxLabelLength, numClasses, i, blankIsZero));
+        maxLabelLength, numClasses, i, blankClass));
 
     if (verbose) {
       std::cout << "\nBatch:" << i << " Time:" << tests[i].inputLength

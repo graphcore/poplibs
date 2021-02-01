@@ -883,3 +883,17 @@ foreach(out_type half float)
               --out-type=${out_type}
       VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
+
+foreach(blank_class 0 4 10)
+  add_multitarget_test(
+    NAME CTCLossTest_Blank_${blank_class}
+    COMMAND CTCLossTest
+            --num-classes=11
+            --batch=1
+            --max-time=32
+            --min-time=32
+            --max-label-length=12
+            --min-label-length=12
+            --blank-class=${blank_class}
+    VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
