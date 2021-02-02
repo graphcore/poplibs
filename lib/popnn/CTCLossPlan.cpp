@@ -217,9 +217,11 @@ CycleEstimate estimateCycles(const CtcParams &params,
       poplibs_support::ceildiv(params.batchSize, partition.parallel.batch);
 
   // Currently we use 1 worker per batch, noting this is only valid while using
-  // worker and not supervisor vertices.
+  // worker and not supervisor vertices.  A "serial vertex execution" accounts
+  // for all workers even if only 1 is active, all the rest are burning cycles.
+  const auto numWorkers = target.getNumWorkerContexts();
   auto serialVertexExecutionsPerStep =
-      poplibs_support::ceildiv(maxBatchPerTile, 6U);
+      poplibs_support::ceildiv(maxBatchPerTile, numWorkers);
 
   const auto alphaOrBetaSteps = serialVertexExecutionsPerStep * (steps / 2);
   const auto gradGivenAlphaOrBetaSteps =
@@ -231,20 +233,22 @@ CycleEstimate estimateCycles(const CtcParams &params,
   auto maxTimeElementsPerTile =
       poplibs_support::ceildiv(params.maxTime, partition.parallel.time);
   // Computing alpha/beta
-  uint64_t alphaBetaComputeCycles =
+  uint64_t alphaBetaComputeCyclesPerStep =
       std::max(
           cache.mAlphaCycles(maxTimeElementsPerTile, maxLabelElementsPerTile),
           cache.mBetaCycles(maxTimeElementsPerTile, maxLabelElementsPerTile)) *
-      alphaOrBetaSteps;
-
+      numWorkers;
+  uint64_t alphaBetaComputeCycles =
+      alphaBetaComputeCyclesPerStep * alphaOrBetaSteps;
   // Computing gradient from alpha/beta
-  uint64_t gradComputeCycles =
+  uint64_t gradComputeCyclesPerStep =
       std::max(cache.mGradGivenAlphaCycles(maxTimeElementsPerTile,
                                            maxLabelElementsPerTile),
                cache.mGradGivenBetaCycles(maxTimeElementsPerTile,
                                           maxLabelElementsPerTile)) *
-      gradGivenAlphaOrBetaSteps;
-
+      numWorkers;
+  uint64_t gradComputeCycles =
+      gradComputeCyclesPerStep * gradGivenAlphaOrBetaSteps;
   // Exchange cost is the same per step per alpha/beta/grad
   const auto elementsPerTilePerStep =
       2 * maxTimeElementsPerTile // If we are splitting by label, we need to
