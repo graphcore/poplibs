@@ -143,14 +143,13 @@ std::ostream &operator<<(std::ostream &o, const Plan::Impl &p) {
 }
 std::ostream &operator<<(std::ostream &o, const CycleEstimate &e) {
   o << "Estimated cycles:\n";
-  o << "  Alpha/Beta:\n";
+  o << "  Alpha/Beta (total of " << e.steps / 2 << " steps):\n";
   o << "    compute                    " << e.alphaBetaComputeCycles << "\n";
   o << "    exchange                   " << e.alphaBetaExchangeCost << "\n";
-  o << "  Grad given Alpha/Beta:\n";
+  o << "  Grad given Alpha/Beta (total of " << e.steps / 2 << " steps):\n";
   o << "    compute                    " << e.gradComputeCycles << "\n";
   o << "    exchange                   " << e.gradExchangeCost << "\n";
   o << "  Total:\n";
-  o << "    steps                      " << e.steps << "\n";
   if (e.serialVertexExecutions > 1) {
     o << "    serial vertex executions\n"
          "      per step                 "
@@ -520,7 +519,7 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
   Plan::Impl plan = planFromSolution(s, vars);
 
   poplibs_support::logging::popnn::debug("Found plan\n{}", plan);
-  poplibs_support::logging::popnn::trace(
+  poplibs_support::logging::popnn::debug(
       "Plan cost\n{}\n{}",
       estimateCycles(params, plan, graph.getTarget(), cache),
       estimateMaxTileTempMemory(params, plan, graph.getTarget(), cache));
