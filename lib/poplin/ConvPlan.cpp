@@ -950,8 +950,6 @@ createPlan(const ConvParams &params, const ConvOptions &options,
            const boost::optional<Cost> &referenceCost,
            PlanningCacheImpl::CycleEstimationImpl *cache) {
   logging::poplin::debug("Creating plan with objective {}", objective);
-  validateLayerParams(params, options, target);
-
   Cost bestCost = highestCost;
   Plan bestPlan;
   if (isJointPlan && params.inputType != params.outputType) {
@@ -1525,7 +1523,6 @@ runPlanner(const ConvDescription &conv,
   // `availableMemoryProportion` is 0 then we just optimise for memory.
 
   const CanonicalConvParams &ccParams = conv.params;
-  const ConvOptions &options = conv.options;
   const poplar::Target &target = conv.target;
   const boost::optional<Plan> &referencePlan = conv.referencePlan;
   const boost::optional<Cost> &referenceCost = conv.referenceCost;
@@ -1533,6 +1530,10 @@ runPlanner(const ConvDescription &conv,
   const boost::optional<popsolver::DataType> &cycleLimit = conv.cycleLimit;
   unsigned startTileIndicesForVirtualHierarchy =
       conv.startTileIdxForVirtualHierarchy;
+
+  // Note validateLayerParams may change the options.
+  ConvOptions options = conv.options;
+  validateLayerParams(ccParams.getParams(), target, options);
 
   const auto availableTileMem =
       target.getBytesPerTile() * options.availableMemoryProportion;
@@ -1707,6 +1708,8 @@ Plan getPlan(const poplar::Target &target, const CanonicalConvParams &params,
         getFullyConnectedPassParams(params, options, Pass::FC_TRAINING_FWD);
     auto fwdOptions =
         getFullyConnectedPassOptions(options, Pass::FC_TRAINING_FWD);
+    // Call validateLayerParams() to update the options if necessary.
+    validateLayerParams(fwdParams.getParams(), target, fwdOptions);
     const auto fwdPlan = getPlan(target, fwdParams, fwdOptions, cache, pv);
     if (fwdPlan.isJointPlan) {
       if (options.pass == Pass::FC_TRAINING_WU) {

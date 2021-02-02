@@ -1089,6 +1089,18 @@ add_multitarget_test(NAME conv1x1_float_input_odd
          --padding=0
          --stride=1)
 
+# If the partial type is smaller than the output type we just ignore it.
+add_multitarget_test(NAME conv1x1_half_partials_float_output
+        COMMAND single_conv_layer
+        --input-channels=32
+        --output-channels=32
+        --field={7,7}
+        --tiles-per-ipu=4
+        --stride=1
+        --kernel-size=1
+        --data-type=float
+        --convolution-options={\"partialsType\":\"half\"})
+
 add_multitarget_test(NAME conv3x3_zero_batch
         COMMAND single_conv_layer
         --conv-groups=2
@@ -3582,6 +3594,19 @@ add_multitarget_test(
                  --output-type=float
                  --matmul-options={\"partialsType\":\"half\"}
                  --single-phase=fwd
+                 VARIANTS ${TimesOutOnSim})
+
+# test that fit a bug where no vertex candidates were found for the backward
+# pass of a joint plan due to the partial type being smaller than the output
+# type
+add_multitarget_test(
+         NAME fully_connected_half_partials_float_output
+         COMMAND fully_connected_layer
+                 --input-size=2048
+                 --output-size=1000
+                 --batch-size=4
+                 --data-type=float
+                 --matmul-options={\"partialsType\":\"half\"}
                  VARIANTS ${TimesOutOnSim})
 
 # Test the --use-create-input option

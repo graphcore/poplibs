@@ -100,7 +100,9 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *    * `partialsType` (half, float) [=float]
  *
- *      Data type used for intermediate calculations.
+ *      Data type used for intermediate calculations. If the type specified
+ *      is smaller than the output type then the option is ignored and the
+ *      output type is used instead.
  *
  *    * `pass` (NONE, INFERENCE_FWD, TRAINING_FWD, TRAINING_BWD, TRAINING_WU,
  *      FC_INFERENCE_FWD, FC_TRAINING_FWD, FC_TRAINING_BWD, FC_TRAINING_WU)
@@ -180,11 +182,15 @@ double getWuPerfectCycleCount(const poplar::Graph &graph,
  *
  *    * `partialsType.interIPU` (half, float) [=`partialsType`]
  *
- *      Data type of inter-IPU partials.
+ *      Data type of inter-IPU partials. If the type specified
+ *      is smaller than the output type then the option is ignored and the
+ *      output type is used instead.
  *
  *    * `partialsType.interTile` (half, float) [=`partialsType`]
  *
- *      Data type of inter-tile partials.
+ *      Data type of inter-tile partials. If the type specified
+ *      is smaller than the output type then the option is ignored and the
+ *      output type is used instead.
  *
  *    * `tilesPerIPU` Integer [=target.getTilesPerIPU()]
  *
