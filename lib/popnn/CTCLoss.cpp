@@ -135,6 +135,32 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
   }
 }
 
+void mapAlphaBetaAccordingToPlan(Graph &graph, const Tensor &tensor,
+                                 const popnn::ctc::Plan::Impl &plan) {
+  // Map the alpha beta tensor to tiles according to the plan. The extended
+  // label dimension needs to be partitioned to match the label partitions.
+  // We need every el partition to be 2x the size of the corresponding label
+  // partition (except the last one which has an extra blank symbol)
+  const auto timeSize = tensor.dim(0);
+  const auto batchSize = tensor.dim(1);
+  const auto labelSize = (tensor.dim(2) - 1) / 2;
+
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned time = 0; time < plan.parallel.time; time++) {
+      for (unsigned label = 0; label < plan.parallel.label; label++) {
+
+        auto tile = plan.getTile(batch, time, label);
+        auto b = plan.partitionBatch(batchSize, batch);
+        auto t = plan.partitionTime(timeSize, time);
+        auto l = plan.partitionExtendedLabel(labelSize, label);
+        graph.setTileMapping(tensor.slice({t.begin(), b.begin(), l.begin()},
+                                          {t.end(), b.end(), l.end()}),
+                             tile);
+      }
+    }
+  }
+}
+
 void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
                         const popnn::ctc::Plan::Impl &plan) {
   // Map any rank 3 tensors used in this process to the correct tiles according
@@ -777,7 +803,7 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
   auto alphaBeta =
       graph.addVariable(outType, {maxT, batchSize, extendedLabelsLength},
                         {di, layer + "/alphaBeta"});
-  mapAccordingToPlan(graph, alphaBeta, plan);
+  mapAlphaBetaAccordingToPlan(graph, alphaBeta, plan);
 
   logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
                         "Time partitions"
@@ -786,12 +812,12 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
   auto tempTimeAlphaBeta1 = graph.addVariable(
       outType, {plan.parallel.time, batchSize, extendedLabelsLength},
       {di, layer + "/tempTimeAlphaBeta1"});
-  mapAccordingToPlan(graph, tempTimeAlphaBeta1, plan);
+  mapAlphaBetaAccordingToPlan(graph, tempTimeAlphaBeta1, plan);
 
   auto tempTimeAlphaBeta2 = graph.addVariable(
       outType, {2 * plan.parallel.time, batchSize, extendedLabelsLength},
       {di, layer + "/tempTimeAlphaBeta2"});
-  mapAccordingToPlan(graph, tempTimeAlphaBeta2, plan);
+  mapAlphaBetaAccordingToPlan(graph, tempTimeAlphaBeta2, plan);
 
   // The temporary data for each label is copied and shifted by 1 timestep
   // Make it 1 element larger to account for this.
