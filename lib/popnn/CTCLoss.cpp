@@ -330,19 +330,24 @@ struct CompletionFlags {
       // Nothing left to do
       return boost::none;
     }
-    bool prevTimeBeta = time == timeSplits - 1 || beta(label, time + 1);
-    bool prevLabelBeta = label == labelSplits - 1 || beta(label + 1, time);
-    if (!beta(label, time) && prevTimeBeta && prevLabelBeta) {
-      // We need to find beta, can find beta, we can find grad if we have alpha
-      return alpha(label, time) ? VertexType::GRAD_GIVEN_ALPHA
-                                : VertexType::BETA;
-    }
+    // Calculate alpha as a first priority.  This only matters when there is a
+    // single time and label partition.  This is because the initialiser
+    // is in the temporary time input to the alpha vertex, not the gradGivenBeta
+    // vertex (which would be called to find alpha if the priorities were
+    // reversed).
     bool prevTimeAlpha = time == 0 || alpha(label, time - 1);
     bool prevLabelAlpha = label == 0 || alpha(label - 1, time);
     if (!alpha(label, time) && prevTimeAlpha && prevLabelAlpha) {
       // We need to find alpha, can find alpha, we can find grad if we have beta
       return beta(label, time) ? VertexType::GRAD_GIVEN_BETA
                                : VertexType::ALPHA;
+    }
+    bool prevTimeBeta = time == timeSplits - 1 || beta(label, time + 1);
+    bool prevLabelBeta = label == labelSplits - 1 || beta(label + 1, time);
+    if (!beta(label, time) && prevTimeBeta && prevLabelBeta) {
+      // We need to find beta, can find beta, we can find grad if we have alpha
+      return alpha(label, time) ? VertexType::GRAD_GIVEN_ALPHA
+                                : VertexType::BETA;
     }
     return boost::none;
   }

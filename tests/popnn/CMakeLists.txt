@@ -897,3 +897,17 @@ foreach(blank_class 0 4 10)
             --blank-class=${blank_class}
     VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
+
+# A specific edge case of no partitioning
+add_multitarget_test(
+  NAME CTCLossTestOnePartition
+  COMMAND CTCLossTest
+          --batch=1
+          --max-time=32
+          --min-time=3
+          --max-label-length=12
+          --min-label-length=1
+          --time=20
+          --label-length=10
+          --plan-constraints={\"parallel\":{\"time\":1,\"label\":1}}
+  VARIANTS ${IPUMODEL_VARIANTS})
