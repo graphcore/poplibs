@@ -266,8 +266,9 @@ bool checkIsClose(const std::string &name, const FPType *actual,
   unsigned mismatch = 0;
   unsigned mismatchPrinted = 20;
   for (; it != end; ++it, ++expected) {
-    if (!checkIsClose(*it, *expected, relativeTolerance) &&
-        std::fabs(*expected - *it) > absoluteTolerance) {
+    if ((std::isnan(*it) || std::isnan(*expected)) ||
+        (!checkIsClose(*it, *expected, relativeTolerance) &&
+         std::fabs(*expected - *it) > absoluteTolerance)) {
       isClose = false;
       if (mismatch++ < mismatchPrinted) {
         const auto n = it - actual;

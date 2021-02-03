@@ -420,7 +420,7 @@ int main(int argc, char **argv) {
 
   std::function<double(void)> inputGenFn;
   if (inputGenerationMode == "iota") {
-    if (dataType == FLOAT || dataType == HALF) {
+    if ((dataType == FLOAT || dataType == HALF) && operation != "INVERSE") {
       // Range of small +/- values, including 0 to test SIGNUM in
       // particular but suitable for other vertices as well
       inputGenFn = [i = 0]() mutable { return (5 - (i++) % 10); };
