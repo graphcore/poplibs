@@ -11,6 +11,7 @@ add_library(popnn SHARED
   LogSoftmax.cpp
   Loss.cpp
   Lstm.cpp
+  Rnn.cpp
   Gru.cpp
   Norms.cpp
   NormsInternal.cpp

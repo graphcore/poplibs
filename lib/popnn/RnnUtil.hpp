@@ -74,43 +74,6 @@ inline poplar::Tensor tryGroupedPartialTranspose(
       .reshape({outerSize, innerSize});
 }
 
-/// Create a tensor with dimensions [sequenceLength, numGrains, grainSize]
-/// that satisfies the following properties:
-/// - Grains are never split across tiles.
-/// - The tile mapping and layout is identical for each sub-tensor in the
-///   sequence.
-/// - The elements on a tile form a single contigous region where the
-///   sequenceLength the outer dimension.
-/// These properties make the tensor well suited for use with dynamic
-/// slice / dynamic update
-inline poplar::Tensor
-createDynamicSliceTensor(poplar::Graph &graph, poplar::Type dataType,
-                         unsigned sequenceLength, unsigned numGrains,
-                         unsigned grainSize,
-                         const poplar::DebugNameAndId &dnai) {
-  const auto &target = graph.getTarget();
-  const auto numTiles = target.getNumTiles();
-  const auto grainsPerTile = (numGrains + numTiles - 1) / numTiles;
-  const auto numUsedTiles = (numGrains + grainsPerTile - 1) / grainsPerTile;
-  const auto grainsOnLastTile = numGrains - (numUsedTiles - 1) * grainsPerTile;
-  auto tExcludingLast = graph.addVariable(
-      dataType, {numUsedTiles - 1, sequenceLength, grainsPerTile, grainSize},
-      {dnai});
-  auto tLast = graph.addVariable(
-      dataType, {sequenceLength, grainsOnLastTile, grainSize}, {dnai});
-  for (unsigned tile = 0; tile != numTiles; ++tile) {
-    unsigned usedTileIndex = tile * numUsedTiles / numTiles;
-    if (usedTileIndex != (tile + 1) * numUsedTiles / numTiles) {
-      if (usedTileIndex + 1 == numUsedTiles) {
-        graph.setTileMapping(tLast, tile);
-      } else {
-        graph.setTileMapping(tExcludingLast[usedTileIndex], tile);
-      }
-    }
-  }
-  return concat(tExcludingLast.dimRoll(0, 1).flatten(1, 3), tLast, 1);
-}
-
 } // namespace Rnn
 } // namespace popnn
 

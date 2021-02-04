@@ -6,6 +6,7 @@
 #include <poplar/Tensor.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/LstmDef.hpp>
+#include <popnn/Rnn.hpp>
 
 namespace popnn {
 namespace lstm {
@@ -20,17 +21,11 @@ const std::vector<BasicLstmCellUnit> getDefaultBasicLstmCellOrder();
 /** Structure representing the parameters of the LSTM.
  */
 struct LstmParams {
-  /// The datatype of the LSTM.
-  poplar::Type dataType;
-  /// The batch size.
-  std::size_t batchSize;
+  rnn::RnnParams rnn;
+
   /// The number of time steps in the sequence of the LSTM.
+  /// Deprecated: Use rnn.timeSteps
   std::size_t timeSteps;
-  /// The number of neurons before and after each layer of the LSTM.
-  /// If the LSTM consists of N layers, then this should be a vector
-  /// of size N+1. The first element is the input size and each subsequent
-  /// element is the output size of the LSTM layer.
-  std::vector<std::size_t> layerSizes;
   /// If true the Lstm function returns the entire sequence of outputs,
   /// otherwise it returns just the final output.
   bool outputFullSequence = true;
