@@ -210,9 +210,10 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectScalarFromRows.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elementwiseCodelets.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseBinaryOps.hpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramCommon.S    
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/histogramCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/util.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/ExternalCodelet.hpp
+    ${CMAKE_SOURCE_DIR}/include/poplibs_support/LogArithmetic.hpp
     ${CMAKE_SOURCE_DIR}/include/poplibs_support/TileConstants.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/EncodingConstants.hpp
     ${CMAKE_SOURCE_DIR}/include/popops/ExprOp.hpp

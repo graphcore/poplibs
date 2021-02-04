@@ -2,6 +2,7 @@
 
 #include "CTCLossPlan.hpp"
 #include "poplibs_support/logging.hpp"
+#include <poplar/CSRFunctions.hpp>
 #include <poplar/Graph.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <popnn/CTCLoss.hpp>
@@ -761,6 +762,13 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
                                          labelLengths, blankClass, plan_));
   const std::string layer = "CTCGradient";
 
+  logging::popnn::debug("Disabled NANOO for CTC Loss operation");
+  poplar::FloatingPointBehaviour clear{false, false, false, false,
+                                       true}; // Mask out nanoo
+  poplar::FloatingPointBehaviour set{false, false, false, false, false};
+  auto fpCSRToRestore =
+      poplar::getAndModifyFloatingPointBehaviour(graph, prog, clear, set, {di});
+
   logging::popnn::debug("Creating CTCLoss using {}", plan_);
   const auto maxT = data.dim(0);
   const auto batchSize = data.dim(1);
@@ -982,6 +990,7 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
   auto gradReduce =
       popops::reduce(graph, gradient, {0}, reduceParams, prog, {di});
 
+  poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, {di});
   return gradReduce;
 }
 
