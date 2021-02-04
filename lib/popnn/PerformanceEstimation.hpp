@@ -5,6 +5,7 @@
 #include "popnn/NonLinearity.hpp"
 #include "poputil/Util.hpp"
 #include "poputil/exceptions.hpp"
+#include <poplibs_support/FlopEstimation.hpp>
 
 #include <algorithm>
 #include <boost/optional.hpp>
@@ -300,6 +301,29 @@ This is by:
   3.  alpha = sum * prob
 
 */
+inline uint64_t alphaFlops(unsigned t, unsigned l, const poplar::Type &type) {
+  auto flopsPerInputElement = 3 * poplibs_support::flopsForLogAdd() +
+                              2 * poplibs_support::flopsForLogMultiply();
+  return poplibs_support::convertToTypeFlops(flopsPerInputElement * t * l,
+                                             type);
+}
+
+inline uint64_t betaFlops(unsigned t, unsigned l, const poplar::Type &type) {
+  return alphaFlops(t, l, type);
+}
+
+inline uint64_t gradGivenAlphaFlops(unsigned t, unsigned l,
+                                    const poplar::Type &type) {
+  auto gradFlopsPerInputElement = 2 * (poplibs_support::flopsForLogMultiply() +
+                                       poplibs_support::flopsForLogAdd());
+  auto flops = betaFlops(t, l, type) + (t * l * gradFlopsPerInputElement);
+  return poplibs_support::convertToTypeFlops(flops, type);
+}
+
+inline uint64_t gradGivenBetaFlops(unsigned t, unsigned l,
+                                   const poplar::Type &type) {
+  return gradGivenAlphaFlops(t, l, type);
+}
 
 // Estimated cycles for a given region of size {t, l}
 inline uint64_t alphaCycles(unsigned t, unsigned l) {

@@ -635,28 +635,32 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCAlpha)(
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return alphaCycles(maxT, label.size());
+  return {alphaCycles(maxT, label.size()),
+          alphaFlops(maxT, label.size(), outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return betaCycles(maxT, label.size());
+  return {betaCycles(maxT, label.size()),
+          betaFlops(maxT, label.size(), outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return gradGivenAlphaCycles(maxT, label.size());
+  return {gradGivenAlphaCycles(maxT, label.size()),
+          gradGivenAlphaFlops(maxT, label.size(), outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return gradGivenBetaCycles(maxT, label.size());
+  return {gradGivenBetaCycles(maxT, label.size()),
+          gradGivenBetaFlops(maxT, label.size(), outType)};
 }
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {

@@ -34,6 +34,17 @@ static inline unsigned flopsForMAC() {
   return flopsForAdd() + flopsForMultiply();
 }
 
+// Flops for LogAdd operation
+// Based on result = a + log(1-e^(b-a))
+// Which is 5 operations, plus a comparison to pick the smaller of the 2 input
+// operands so that a<=b
+static inline unsigned flopsForLogAdd() { return 6u; }
+
+// Flops for LogMultiply operation
+// Multiplication of 2 log-probabilities implemented with:
+// result = a + b
+static inline unsigned flopsForLogMultiply() { return 1u; }
+
 } // namespace poplibs_support
 
 #endif // _popops_Flop_Estimation_h_

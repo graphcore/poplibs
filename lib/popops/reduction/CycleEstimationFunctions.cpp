@@ -47,7 +47,7 @@ unsigned flopsForReduceOp(popops::Operation operation) {
   case popops::Operation::MUL:
     return flopsForMultiply();
   case popops::Operation::LOG_ADD:
-    return 6;
+    return flopsForLogAdd();
   case popops::Operation::LOGICAL_AND:
   case popops::Operation::LOGICAL_OR:
     return 0;
