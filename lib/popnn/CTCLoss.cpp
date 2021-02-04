@@ -220,8 +220,8 @@ void mapTempLabelAccordingToPlan(Graph &graph, const Tensor &tensor,
   // which the vertices write the temporary data.
   const auto labelSize = tensor.dim(0);
   const auto batchSize = tensor.dim(1);
-  const auto tempTimeSlices = tensor.dim(2);
-  const auto timeSize = tensor.dim(3);
+  const auto timeSize = tensor.dim(2);
+  const auto tempTimeSlices = tensor.dim(3);
 
   for (unsigned label = 0; label < plan.parallel.label; label++) {
     for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
@@ -248,8 +248,8 @@ void mapTempLabelAccordingToPlan(Graph &graph, const Tensor &tensor,
         }
         t = {t.begin() + startOffset, t.end() + endOffset};
         graph.setTileMapping(
-            tensor.slice({l.begin(), b.begin(), 0, t.begin()},
-                         {l.end(), b.end(), tempTimeSlices, t.end()}),
+            tensor.slice({l.begin(), b.begin(), t.begin(), 0},
+                         {l.end(), b.end(), t.end(), tempTimeSlices}),
             tile);
       }
     }
@@ -653,8 +653,8 @@ Tensor tempLabelInputToVertex(Sequence &prog, VertexInitialiser initialiser,
                                 tileVertex == VertexType::GRAD_GIVEN_BETA);
 
   // The piece of the temporary input tensor to attach to this vertex
-  // tempAlpha Tensor shape : {1, 1, 1, maxT}
-  // tempBeta Tensor shape: {1, 1, 2, maxT}
+  // tempAlpha Tensor shape : {1, 1, maxT, 1}
+  // tempBeta Tensor shape: {1, 1, maxT, 2}
   // dim 0: single slice in the label dimension
   // dim 1: single slice in the batch dimension
   // dim 2: 1 row for alpha, 2 rows for beta as we need to propagate more
@@ -666,9 +666,9 @@ Tensor tempLabelInputToVertex(Sequence &prog, VertexInitialiser initialiser,
   const std::size_t timeInOffset = vertexCalculatesAlpha ? 1 : 0;
   const std::size_t timeOutOffset = vertexCalculatesAlpha ? 0 : 1;
 
-  Slice<4> begin = {label, batch, 0, time.begin() + timeInOffset};
-  Slice<4> end = {label + 1, batch + 1, vertexCalculatesAlpha ? 1ul : 2ul,
-                  time.end() + timeInOffset};
+  Slice<4> begin = {label, batch, time.begin() + timeInOffset, 0};
+  Slice<4> end = {label + 1, batch + 1, time.end() + timeInOffset,
+                  vertexCalculatesAlpha ? 1ul : 2ul};
 
   const auto result = vertexCalculatesAlpha
                           ? tempAlpha.slice(begin, end).flatten()
@@ -680,14 +680,14 @@ Tensor tempLabelInputToVertex(Sequence &prog, VertexInitialiser initialiser,
     // Initialise from the previous tile's temporary output
     if (vertexCalculatesAlpha) {
       // Take the previous label result, shifted by one timestep toward t=maxT
-      Slice<4> begin = {label - 1, batch, 0, time.begin() + timeOutOffset};
-      Slice<4> end = {label, batch + 1, 1, time.end() + timeOutOffset};
+      Slice<4> begin = {label - 1, batch, time.begin() + timeOutOffset, 0};
+      Slice<4> end = {label, batch + 1, time.end() + timeOutOffset, 1};
       prog.add(
           Copy(tempAlpha.slice(begin, end).flatten(), result, false, {di}));
     } else {
       // Take the previous label result, shifted by one timestep toward t=0
-      Slice<4> begin = {label + 1, batch, 0, time.begin() + timeOutOffset};
-      Slice<4> end = {label + 2, batch + 1, 2, time.end() + timeOutOffset};
+      Slice<4> begin = {label + 1, batch, time.begin() + timeOutOffset, 0};
+      Slice<4> end = {label + 2, batch + 1, time.end() + timeOutOffset, 2};
       prog.add(Copy(tempBeta.slice(begin, end).flatten(), result, false, {di}));
     }
   }
@@ -841,12 +841,12 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
                         plan.parallel.label, tempLabelTimeSteps, batchSize);
 
   auto tempLabelAlpha = graph.addVariable(
-      outType, {plan.parallel.label, batchSize, 1, tempLabelTimeSteps},
+      outType, {plan.parallel.label, batchSize, tempLabelTimeSteps, 1},
       {di, layer + "/tempLabelAlpha"});
   mapTempAlphaLabelAccordingToPlan(graph, tempLabelAlpha, plan);
 
   auto tempLabelBeta = graph.addVariable(
-      outType, {plan.parallel.label, batchSize, 2, tempLabelTimeSteps},
+      outType, {plan.parallel.label, batchSize, tempLabelTimeSteps, 2},
       {di, layer + "/tempLabelBeta"});
   mapTempBetaLabelAccordingToPlan(graph, tempLabelBeta, plan);
 

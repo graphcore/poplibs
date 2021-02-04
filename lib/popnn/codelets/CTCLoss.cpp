@@ -167,7 +167,7 @@ public:
   Input<Vector<InType, ONE_PTR>> probabilities;  // [maxT,numClasses]
   Output<Vector<OutType, ONE_PTR>> betas;        // [maxT,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> betaPrevTime;  // [extendedLabel]
-  InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [2 * maxT]
+  InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [maxT,2]
   // This vertex processes a labelSlice with size[label.size()] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
@@ -213,7 +213,7 @@ public:
         // This partition is responsible for the isLastLabel but not the last
         // blank so insert the 0 in the previous timeslice input to initiate
         // the calculation
-        betaPrevLabel[timeSteps - 1] = log::probabilityOne;
+        betaPrevLabel[2 * (timeSteps - 1)] = log::probabilityOne;
       }
     }
     // First time round reference the "previous beta" which could be carried
@@ -239,8 +239,8 @@ public:
         // For use when data is split by label, output this timestep, last label
         // result for use by the next vertex. Include prob=0 to avoid special
         // cases when this is used later
-        betaPrevLabel[t - 1] = beta[0];
-        betaPrevLabel[maxT + t - 1] = log::probabilityZero;
+        betaPrevLabel[2 * (t - 1)] = beta[0];
+        betaPrevLabel[1 + 2 * (t - 1)] = log::probabilityZero;
         continue;
       }
       // Each loop outputs the result for the symbol and a blank, and consumes 1
@@ -277,17 +277,17 @@ public:
         // We are not writing the last blank (`Z`) So just write `Y`, which
         // uses the probabilty of the previous blank, and conditionally that of
         // the previous symbol.
-        auto sum = logAdd(betaP1[idx], betaPrevLabel[t - 1]);
+        auto sum = logAdd(betaP1[idx], betaPrevLabel[2 * (t - 1)]);
         beta[idx] = logMul(sum, prob);
         if (lastSymbol != prevSymbol) {
-          sum = logAdd(sum, betaPrevLabel[maxT + t - 1]);
+          sum = logAdd(sum, betaPrevLabel[1 + 2 * (t - 1)]);
         }
         beta[idx] = logMul(sum, prob);
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
-      betaPrevLabel[t - 1] = beta[0];
-      betaPrevLabel[maxT + t - 1] = beta[1];
+      betaPrevLabel[2 * (t - 1)] = beta[0];
+      betaPrevLabel[1 + 2 * (t - 1)] = beta[1];
     }
     return true;
   }
@@ -314,7 +314,7 @@ public:
   Input<Vector<InType, ONE_PTR>> probabilities;  // [maxT,numClasses]
   Input<Vector<OutType, ONE_PTR>> alphas;        // [maxT,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> betaPrevTime;  // [2,extendedLabel]
-  InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [2,maxT]
+  InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [maxT,2]
   InOut<Vector<OutType, ONE_PTR>> grads;         // [maxT,numClasses]
   // This vertex processes a labelSlice with size[label.size()] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
@@ -356,7 +356,7 @@ public:
         // This partition is responsible for the isLastLabel but not the last
         // blank so insert the 0 in the previous timeslice input to initiate
         // the calculation
-        betaPrevLabel[timeSteps - 1] = log::probabilityOne;
+        betaPrevLabel[2 * (timeSteps - 1)] = log::probabilityOne;
       }
     }
     // If maxT is odd and timeSteps also odd, the ping pong effect in beta[0:1]
@@ -388,8 +388,8 @@ public:
         // For use when data is split by label, output this timestep, last label
         // result for use by the next vertex. Include prob=0 to avoid special
         // cases when this is used later
-        betaPrevLabel[t - 1] = beta[0];
-        betaPrevLabel[maxT + t - 1] = log::probabilityZero;
+        betaPrevLabel[2 * (t - 1)] = beta[0];
+        betaPrevLabel[1 + 2 * (t - 1)] = log::probabilityZero;
         // Swap new <-> old in the alphaTemp buffer
         oldIdx = oldIdx ^ extendedLabel;
         continue;
@@ -441,17 +441,17 @@ public:
         // We are not writing the last blank (`Z`) So just write `Y`, which
         // uses the probabilty of the previous blank, and conditionally that of
         // the previous symbol.
-        auto sum = logAdd(betaP1[idx], betaPrevLabel[t - 1]);
+        auto sum = logAdd(betaP1[idx], betaPrevLabel[2 * (t - 1)]);
         if (lastSymbol != prevSymbol) {
-          sum = logAdd(sum, betaPrevLabel[maxT + t - 1]);
+          sum = logAdd(sum, betaPrevLabel[1 + 2 * (t - 1)]);
         }
         beta[idx] = logMul(sum, prob);
         grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
-      betaPrevLabel[t - 1] = beta[0];
-      betaPrevLabel[maxT + t - 1] = beta[1];
+      betaPrevLabel[2 * (t - 1)] = beta[0];
+      betaPrevLabel[1 + 2 * (t - 1)] = beta[1];
       // Swap new <-> old in the alphaTemp buffer
       oldIdx = oldIdx ^ extendedLabel;
     }
