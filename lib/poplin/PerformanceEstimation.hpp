@@ -30,8 +30,10 @@ inline static std::uint64_t convNx1Overhead() { return 103; }
 // The first entry is the total savings and the second is
 // because of retention of state related to input channel processing.
 inline static std::pair<std::uint64_t, std::uint64_t>
-conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials) {
-  if (floatActivations == false && floatPartials == true) {
+conv1x1WorkerRetentionSavings(bool floatActivations, bool floatPartials,
+                              unsigned numConvUnits) {
+  if (!floatActivations &&
+      (floatPartials || (!floatPartials && numConvUnits == 16))) {
     return std::make_pair(10, 2);
   } else {
     return std::make_pair(0, 0);
@@ -324,14 +326,22 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
     coreCycles /= 2;
   }
 
-  auto retentionSavings =
-      conv1x1WorkerRetentionSavings(floatActivations, floatPartials);
+  auto retentionSavings = conv1x1WorkerRetentionSavings(
+      floatActivations, floatPartials, numConvUnits);
   unsigned usedContexts = workerPartitions.size();
   uint64_t maxWorkerCycles = 0;
   uint64_t minWorkerCycles = usedContexts < numWorkerContexts
                                  ? 0
                                  : std::numeric_limits<uint64_t>::max();
-  unsigned zeroCyclesPerGroup = floatPartials ? 4 : 2;
+  // This should be altered once we support different number of conv units.
+  // This only takes care of 8 and 16 conv units
+  auto zeroCyclesPerGroup = floatActivations && numConvUnits == 16 ? 8
+                            : floatPartials                        ? 4
+                                                                   : 2;
+  // The code paths for half activations, half partials and 16 conv units is
+  // = half activations, float partials and 8 conv units.
+  bool commonHalfAndFloatPartialsCodePath =
+      (!floatActivations && numConvUnits == 16) || floatPartials;
   for (const auto &worker : workerPartitions) {
     // 1x1 vertex doesn't support more than one worklist item per worker.
     assert(worker.size() <= 1);
@@ -344,7 +354,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         if (floatActivations) {
           thisWorkerCycles += 24;
         } else {
-          if (floatPartials) {
+          if (commonHalfAndFloatPartialsCodePath) {
             thisWorkerCycles += 20 + (outputZeroing ? 2 : 4);
           } else {
             thisWorkerCycles += 24;
@@ -355,7 +365,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         if (floatActivations)
           thisWorkerCycles += 47 + (2 + zeroCyclesPerGroup) * outputZeroing;
         else {
-          if (floatPartials) {
+          if (commonHalfAndFloatPartialsCodePath) {
             thisWorkerCycles += 31 + (outputZeroing ? 2 : 4);
           } else {
             thisWorkerCycles += 39 + (2 + zeroCyclesPerGroup) * outputZeroing;
@@ -366,7 +376,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
         if (floatActivations)
           thisWorkerCycles += 46 + (2 + zeroCyclesPerGroup * 2) * outputZeroing;
         else {
-          if (floatPartials) {
+          if (commonHalfAndFloatPartialsCodePath) {
             thisWorkerCycles += 40 + (outputZeroing ? 2 : 4);
           } else {
             thisWorkerCycles +=
@@ -380,7 +390,7 @@ inline std::uint64_t getConvPartial1x1SupervisorInnerLoopCycleEstimate(
               46 + (2 + zeroCyclesPerGroup * numElems) * outputZeroing +
               (numElems - 3) * coreCycles;
         else {
-          if (floatPartials) {
+          if (commonHalfAndFloatPartialsCodePath) {
             thisWorkerCycles +=
                 (outputZeroing ? 38 : 40) + (numElems - 3) * coreCycles;
           } else {
@@ -432,8 +442,8 @@ inline std::uint64_t getConvPartial1x1SupervisorOuterLoopCycleEstimate(
   const auto outputPassesPerGroup =
       (outChansPerGroup + numConvUnits - 1) / numConvUnits;
 
-  const auto retentionSavings =
-      conv1x1WorkerRetentionSavings(floatActivations, floatPartials);
+  const auto retentionSavings = conv1x1WorkerRetentionSavings(
+      floatActivations, floatPartials, numConvUnits);
 
   // Filter height is not applicable to 1x1 vertex so set it to 1
   const auto numLoads = getConvPartialAmpSupervisorWeightLoadCycleEstimate(
