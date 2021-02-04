@@ -486,6 +486,32 @@ function(add_matrix_solver_benchmark)
       PARAMS ${MATRIX_SOLVER_BENCHMARK_PARAMS} --left-side=false)
 endfunction()
 
+function(add_cholesky_benchmark)
+  cmake_parse_arguments(CHOLESKY_ARGS "" "" "BATCHSIZE;RANK;BLOCKSIZE;LOWER;TYPE" "${ARGN}" )
+
+  list(APPEND CHOLESKY_ARGS_BATCHSIZE)
+  list(APPEND CHOLESKY_ARGS_RANK)
+  list(APPEND CHOLESKY_ARGS_BLOCKSIZE)
+  list(APPEND CHOLESKY_ARGS_LOWER)
+  list(APPEND CHOLESKY_ARGS_TYPE)
+
+  foreach(b ${CHOLESKY_ARGS_BATCHSIZE})
+    foreach(r ${CHOLESKY_ARGS_RANK})
+      foreach(bl ${CHOLESKY_ARGS_BLOCKSIZE})
+        foreach(l ${CHOLESKY_ARGS_LOWER})
+          foreach(t ${CHOLESKY_ARGS_TYPE})
+            add_benchmark(
+              NAME cholesky_batch_${b}_dim_${r}_block_${bl}_lower_${l}_type_${t}
+              BINARY $<TARGET_FILE:matrix_solver>
+              PARAMS --cholesky --batches ${b} --a-rank ${r} --block-size ${bl} --lower ${l} --data-type ${t})
+          endforeach(t)
+        endforeach(l)
+      endforeach(bl)
+    endforeach(r)
+  endforeach(b)
+
+endfunction()
+
 # Make an alias for IpuModel that can be used to denote tests that specifically
 # should not be run on Sim variants because the test times out if run on the
 # simulator:
@@ -1735,6 +1761,13 @@ add_matrix_solver_benchmark(NAME triangular_solve_8_64_1_64_half
         --a-rank 64
         --b-rank 1
         --data-type half)
+
+add_cholesky_benchmark(
+  BATCHSIZE 1 2
+  BLOCKSIZE 16
+  RANK 16 32 64
+  LOWER true false
+  TYPE float half)
 
 else()
   message(WARNING "Python 3 could not be found so several tests and benchmarks will not be run.")

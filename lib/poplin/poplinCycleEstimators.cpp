@@ -10,6 +10,42 @@ using namespace poplibs_support;
 
 namespace poplin {
 
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(TriangularInverse)(const VertexIntrospector &vertex,
+                                            const Target &target,
+                                            const Type &floatType, bool lower) {
+  CODELET_SCALAR_VAL(dim, unsigned);
+
+  std::uint64_t n_i_loop = dim;
+  std::uint64_t n_j_loop = dim * (dim - 1) / 2;
+  std::uint64_t n_k_loop = (dim + 1) * dim * (dim - 1) / 6;
+
+  std::uint64_t flops = n_i_loop * flopsForDiv() +
+                        n_j_loop * flopsForMultiply() +
+                        n_k_loop * flopsForMAC();
+  std::uint64_t cycles = 28 + n_i_loop * 63 + n_j_loop * 17 + n_k_loop * 6;
+
+  return {cycles, convertToTypeFlops(flops, floatType)};
+}
+
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(Cholesky)(const VertexIntrospector &vertex,
+                                   const Target &target, const Type &floatType,
+                                   bool lower) {
+  CODELET_SCALAR_VAL(dim, unsigned);
+
+  std::uint64_t n_i_loop = dim;
+  std::uint64_t n_k_loop = (dim + 1) * dim / 2;
+  std::uint64_t n_j_loop = (dim + 1) * dim * (dim - 1) / 6;
+
+  std::uint64_t flops = n_i_loop * flopsForSqrt() +
+                        n_k_loop * (flopsForAdd() + flopsForDiv()) +
+                        n_j_loop * flopsForMAC();
+  std::uint64_t cycles = 1 + n_i_loop * 11 + n_k_loop * 18 + n_j_loop * 5;
+
+  return {cycles, convertToTypeFlops(flops, floatType)};
+}
+
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ConvPartialnx1)(
     const VertexIntrospector &vertex, const Target &target, const Type &fpType,
     const Type &accumType, bool useLimitedVer, bool use128BitConvUnitLoad,
@@ -569,6 +605,16 @@ MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
 
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularInverse, HALF, true),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, Cholesky, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, Cholesky, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, Cholesky, HALF, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, Cholesky, HALF, true),
+
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, HALF),
 

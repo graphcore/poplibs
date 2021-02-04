@@ -29,6 +29,12 @@ static inline unsigned flopsForAdd() { return 1u; }
 // Flops for multiply operation
 static inline unsigned flopsForMultiply() { return 1u; }
 
+// Flops for div operation
+static inline unsigned flopsForDiv() { return 1u; }
+
+// Flops for sqrt operation
+static inline unsigned flopsForSqrt() { return 1u; }
+
 // Flops for a multiply-and-accumulate operation
 static inline unsigned flopsForMAC() {
   return flopsForAdd() + flopsForMultiply();

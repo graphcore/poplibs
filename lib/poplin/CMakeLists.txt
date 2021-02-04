@@ -4,6 +4,7 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(poplin SHARED
   CanonicalConvParams.hpp
+  Cholesky.cpp
   codelets.cpp
   ConvModel.cpp
   ConvModel.hpp
@@ -45,6 +46,7 @@ add_library(poplin SHARED
   TriangularSolve.cpp
   Winograd.cpp
   Winograd.hpp
+  ${CMAKE_SOURCE_DIR}/include/poplin/Cholesky.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/codelets.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/Convolution.hpp
   ${CMAKE_SOURCE_DIR}/include/poplin/ConvUtil.hpp
@@ -115,6 +117,7 @@ endif()
 add_gp_library(
   NAME poplin
   CPP_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Cholesky.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1x1Out.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartial1xNSLIC.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ConvPartialHorizontalMac.cpp

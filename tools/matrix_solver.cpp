@@ -1,4 +1,5 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+#include "poplin/Cholesky.hpp"
 #include "poplin/MatMul.hpp"
 #include "poplin/TriangularSolve.hpp"
 #include <boost/assign/list_of.hpp>
@@ -8,16 +9,87 @@
 #include <boost/random.hpp>
 #include <boost/version.hpp>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <poplibs_support/TestDevice.hpp>
 #include <poplibs_support/VectorUtils.hpp>
 #include <poplibs_test/GeneralMatrixMultiply.hpp>
 #include <poplibs_test/Util.hpp>
+#include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popops/codelets.hpp>
+#include <poputil/TileMapping.hpp>
 #include <sstream>
 
 using namespace poplibs_support;
+
+void printArray(std::string name, boost::multi_array<double, 3> a) {
+  std::cout << name << ": " << std::endl;
+  std::size_t ng = a.shape()[0];
+  std::size_t nr = a.shape()[1];
+  std::size_t nc = a.shape()[2];
+
+  for (std::size_t g = 0; g < ng; g++) {
+    std::cout << g << std::endl;
+    for (std::size_t r = 0; r < nr; r++) {
+      std::cout << " ";
+      for (std::size_t c = 0; c < nc; c++) {
+        std::cout << std::setw(10) << a[g][r][c];
+      }
+      std::cout << std::endl;
+    }
+    std::cout << std::endl;
+  }
+}
+
+boost::multi_array<double, 3> createPositiveDefiniteMatrix(std::size_t batches,
+                                                           std::size_t rank) {
+  boost::multi_array<double, 3> l(boost::extents[batches][rank][rank]);
+  boost::multi_array<double, 3> pd(boost::extents[batches][rank][rank]);
+
+  std::mt19937 randomEngine;
+  boost::random::uniform_real_distribution<> dist(0.01, 1.0);
+
+  for (std::size_t b = 0; b < batches; b++) {
+    for (std::size_t r = 0; r < rank; r++) {
+      for (std::size_t c = 0; c < rank; c++) {
+        double v = dist(randomEngine);
+        l[b][r][c] = v;
+      }
+    }
+  }
+
+  poplibs_test::gemm::generalGroupedMatrixMultiply(l, l, pd, false, true);
+
+  for (std::size_t b = 0; b < batches; b++) {
+    for (std::size_t r = 0; r < rank; r++) {
+      pd[b][r][r] += rank;
+    }
+  }
+
+  return pd;
+}
+
+const boost::multi_array<double, 3>
+maskTriangularMatrix(const boost::multi_array<double, 3> &m,
+                     bool lower = true) {
+  std::size_t batches = m.shape()[0];
+  std::size_t rank = m.shape()[1];
+  boost::multi_array<double, 3> tm(boost::extents[batches][rank][rank]);
+
+  for (std::size_t b = 0; b < batches; b++) {
+    for (std::size_t r = 0; r < rank; r++) {
+      for (std::size_t c = 0; c < rank; c++) {
+        if ((lower && c <= r) || (!lower && c >= r))
+          tm[b][r][c] = m[b][r][c];
+        else
+          tm[b][r][c] = 0;
+      }
+    }
+  }
+
+  return tm;
+}
 
 int main(int argc, char **argv) try {
   namespace po = boost::program_options;
@@ -29,7 +101,7 @@ int main(int argc, char **argv) try {
 
   unsigned numBatches = 1;
   unsigned aRank;
-  unsigned bRank;
+  unsigned bRank = -1;
   bool leftSide = true;
   poplar::Type dataType;
   boost::optional<unsigned> blockSizeParam;
@@ -54,6 +126,7 @@ int main(int argc, char **argv) try {
      po::value<decltype(profileFormat)>(&profileFormat)
       ->default_value(boost::none),
      "Profile formats: v1 | experimental | unstable")
+    ("cholesky", "Run cholesky solver")
     ("ignore-data", "Don't upload and download the results from the device. "
      "Note that this means the result is not validated against the model.")
     ("tiles-per-ipu", po::value(&tilesPerIPU), "Number of tiles per IPU")
@@ -64,7 +137,7 @@ int main(int argc, char **argv) try {
      po::value(&aRank)->required(),
      "Rank of the A matrix.")
     ("b-rank",
-     po::value(&bRank)->required(),
+     po::value(&bRank),
      "Rank of the B matrix.")
     ("batches",
      po::value(&numBatches)->default_value(numBatches),
@@ -109,6 +182,8 @@ int main(int argc, char **argv) try {
     }
   }
 
+  const bool runCholesky = vm.count("cholesky");
+
   const bool ignoreData = vm.count("ignore-data");
 
   const unsigned numIPUs = 1;
@@ -128,34 +203,86 @@ int main(int argc, char **argv) try {
 
   poplar::DebugContext debugContext;
 
+  if (runCholesky) {
+    bRank = 0;
+    unitDiagonal = false;
+
+    if (!leftSide)
+      throw poplar::poplar_error(
+          "left-side must be true when using the cholesky solver.");
+  } else if (bRank < 0) {
+    throw poplar::poplar_error(
+        "--b-rank is mandatory option for triangular solver");
+  }
+
   std::vector<std::size_t> inputAShape{numBatches, aRank, aRank};
   std::vector<std::size_t> inputBShape{numBatches, leftSide ? aRank : bRank,
                                        leftSide ? bRank : aRank};
 
   auto blockSize = blockSizeParam ? *blockSizeParam : aRank;
-  auto inputA = poplin::createTriangularSolveInputLHS(
-      graph, dataType, dataType, inputAShape, inputBShape, leftSide, blockSize,
-      debugContext, {}, &cache);
 
-  auto inputB = poplin::createTriangularSolveInputRHS(
-      graph, dataType, dataType, inputAShape, inputBShape, leftSide, blockSize,
-      debugContext, {}, &cache);
+  std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
+      matmulOptPairs;
+  if (runCholesky) {
+    matmulOptPairs = poplin::getCholeskyMatMulPrePlanParameters(
+        dataType, inputAShape, lower, blockSize, {});
+  } else {
+    matmulOptPairs = poplin::getTriangularSolveMatMulPrePlanParameters(
+        dataType, dataType, inputAShape, inputBShape, leftSide, lower,
+        blockSize, {});
+  }
 
-  auto out = poplin::triangularSolve(graph, inputA, inputB, leftSide, lower,
-                                     unitDiagonal, blockSize, prog,
-                                     debugContext, {}, &cache);
+  std::set<poplin::MatMulPlanParams> params;
+  for (auto &pair : matmulOptPairs)
+    params.emplace(&target, pair.first, &pair.second);
+  preplanMatMuls(params, cache);
+
+  poplar::Tensor inputA;
+  if (runCholesky) {
+    inputA = poplin::createCholeskyInput(graph, dataType, inputAShape, lower,
+                                         blockSize, debugContext, {}, &cache);
+  } else {
+    inputA = poplin::createTriangularSolveInputLHS(
+        graph, dataType, dataType, inputAShape, inputBShape, leftSide,
+        blockSize, debugContext, {}, &cache);
+  }
+
+  poplar::Tensor inputB;
+  if (!runCholesky) {
+    inputB = poplin::createTriangularSolveInputRHS(
+        graph, dataType, dataType, inputAShape, inputBShape, leftSide,
+        blockSize, debugContext, {}, &cache);
+  }
+
+  poplar::Tensor out;
+  if (runCholesky) {
+    poplin::choleskyInPlace(graph, inputA, lower, blockSize, prog, debugContext,
+                            {}, &cache);
+    out = inputA;
+  } else {
+    out = poplin::triangularSolve(graph, inputA, inputB, leftSide, lower,
+                                  unitDiagonal, blockSize, prog, debugContext,
+                                  {}, &cache);
+  }
 
   std::vector<std::pair<std::string, char *>> tmap;
-  std::unique_ptr<char[]> rawHostInputA, rawHostInputB, rawHostOutput;
+  std::unique_ptr<char[]> rawHostInputA, rawHostInputB, rawHostOutput,
+      rawHostOutputT;
   if (!ignoreData) {
     rawHostInputA = poplibs_test::util::allocateHostMemoryForTensor(
         inputA, "A", graph, uploadProg, boost::none, tmap);
 
-    rawHostInputB = poplibs_test::util::allocateHostMemoryForTensor(
-        inputB, "B", graph, uploadProg, boost::none, tmap);
+    if (!runCholesky) {
+      rawHostInputB = poplibs_test::util::allocateHostMemoryForTensor(
+          inputB, "B", graph, uploadProg, boost::none, tmap);
+    }
 
     rawHostOutput = poplibs_test::util::allocateHostMemoryForTensor(
         out, "X", graph, boost::none, downloadProg, tmap);
+
+    rawHostOutputT = poplibs_test::util::allocateHostMemoryForTensor(
+        poplin::transposeGroupedMatrix(out), "XT", graph, boost::none,
+        downloadProg, tmap);
   }
 
   poplar::Engine engine(graph, {uploadProg, prog, downloadProg}, engineOptions);
@@ -164,39 +291,52 @@ int main(int argc, char **argv) try {
     return 0;
 
   boost::multi_array<double, 3> hostInputA;
+  boost::multi_array<double, 3> hostInputAFilled;
   boost::multi_array<double, 3> hostInputB;
   if (!ignoreData) {
-    poplibs_test::util::attachStreams(engine, tmap);
-
     std::mt19937 randomEngine;
     boost::random::uniform_real_distribution<> dist(0.01, 1.0);
     boost::random::uniform_real_distribution<> diagonalDist(0.95, 1.05);
 
-    hostInputA.resize(boost::extents[numBatches][aRank][aRank]);
-    for (std::size_t g = 0; g < numBatches; ++g) {
-      auto matrix = hostInputA[g];
-      for (std::size_t i = 0; i < aRank; ++i) {
-        auto rows = matrix[i];
-        for (std::size_t j = 0; j < aRank; ++j) {
-          double value;
-          if (i == j) {
-            value = unitDiagonal ? 1.0 : diagonalDist(randomEngine);
-          } else if ((i <= j && !lower) || (j <= i && lower)) {
-            value = dist(randomEngine);
-          } else {
-            value = 0.0;
+    poplibs_test::util::attachStreams(engine, tmap);
+
+    if (runCholesky) {
+      hostInputAFilled.resize(boost::extents[numBatches][aRank][aRank]);
+      hostInputA.resize(boost::extents[numBatches][aRank][aRank]);
+
+      hostInputAFilled = createPositiveDefiniteMatrix(numBatches, aRank);
+      hostInputA = maskTriangularMatrix(hostInputAFilled, lower);
+    } else {
+
+      hostInputA.resize(boost::extents[numBatches][aRank][aRank]);
+      for (std::size_t g = 0; g < numBatches; ++g) {
+        auto matrix = hostInputA[g];
+        for (std::size_t i = 0; i < aRank; ++i) {
+          auto rows = matrix[i];
+          for (std::size_t j = 0; j < aRank; ++j) {
+            double value;
+            if (i == j) {
+              value = unitDiagonal ? 1.0 : diagonalDist(randomEngine);
+            } else if ((i <= j && !lower) || (j <= i && lower)) {
+              value = dist(randomEngine);
+            } else {
+              value = 0.0;
+            }
+            rows[j] = value;
           }
-          rows[j] = value;
         }
       }
     }
     poplibs_test::util::copy(target, hostInputA, dataType, rawHostInputA.get());
 
-    hostInputB.resize(
-        boost::extents[numBatches][inputBShape[1]][inputBShape[2]]);
-    poplibs_test::util::writeRandomValues(target, dataType, hostInputB, -1.0,
-                                          1.0, randomEngine);
-    poplibs_test::util::copy(target, hostInputB, dataType, rawHostInputB.get());
+    if (!runCholesky) {
+      hostInputB.resize(
+          boost::extents[numBatches][inputBShape[1]][inputBShape[2]]);
+      poplibs_test::util::writeRandomValues(target, dataType, hostInputB, -1.0,
+                                            1.0, randomEngine);
+      poplibs_test::util::copy(target, hostInputB, dataType,
+                               rawHostInputB.get());
+    }
   }
 
   device.bind([&](const poplar::Device &d) {
@@ -217,24 +357,53 @@ int main(int argc, char **argv) try {
 
   bool matchesModel = true;
   if (!ignoreData) {
+    uint64_t dim1, dim2;
+    if (runCholesky) {
+      dim1 = inputAShape[1];
+      dim2 = inputAShape[2];
+    } else {
+      dim1 = inputBShape[1];
+      dim2 = inputBShape[2];
+    }
+
     boost::multi_array<double, 3> hostOutput(
-        boost::extents[numBatches][inputBShape[1]][inputBShape[2]]);
+        boost::extents[numBatches][dim1][dim2]);
     poplibs_test::util::copy(target, dataType, rawHostOutput.get(), hostOutput);
 
-    boost::multi_array<double, 3> modelOutput(
-        boost::extents[numBatches][inputBShape[1]][inputBShape[2]]);
+    boost::multi_array<double, 3> hostOutputT(
+        boost::extents[numBatches][dim1][dim2]);
+    poplibs_test::util::copy(target, dataType, rawHostOutputT.get(),
+                             hostOutputT);
 
-    if (leftSide) {
-      poplibs_test::gemm::generalGroupedMatrixMultiply(hostInputA, hostOutput,
-                                                       modelOutput);
+    boost::multi_array<double, 3> modelOutput(
+        boost::extents[numBatches][dim1][dim2]);
+
+    boost::multi_array<double, 3> *testOutput;
+
+    if (runCholesky) {
+      testOutput = &hostInputAFilled;
+
+      if (lower)
+        poplibs_test::gemm::generalGroupedMatrixMultiply(
+            hostOutput, hostOutputT, modelOutput);
+      else
+        poplibs_test::gemm::generalGroupedMatrixMultiply(
+            hostOutputT, hostOutput, modelOutput);
     } else {
-      poplibs_test::gemm::generalGroupedMatrixMultiply(hostOutput, hostInputA,
-                                                       modelOutput);
+      testOutput = &hostInputB;
+
+      if (leftSide) {
+        poplibs_test::gemm::generalGroupedMatrixMultiply(hostInputA, hostOutput,
+                                                         modelOutput);
+      } else {
+        poplibs_test::gemm::generalGroupedMatrixMultiply(hostOutput, hostInputA,
+                                                         modelOutput);
+      }
     }
 
     const auto tolerance = dataType == poplar::HALF ? 0.3 : 0.001;
     matchesModel = poplibs_test::util::checkIsClose(
-        "AX vs B: ", modelOutput, hostInputB, tolerance, tolerance);
+        "AX vs B: ", *testOutput, modelOutput, tolerance, tolerance);
   }
 
   if (jsonProfileOut) {

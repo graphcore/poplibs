@@ -1,5 +1,6 @@
 add_subdirectory(codelets)
 
+add_unit_test(CholeskyTest CholeskyTest.cpp)
 add_unit_test(ConvOptionsTest ConvOptionsTest.cpp)
 add_unit_test(ConvPlanTest ConvPlanTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(ConvTest ConvTest.cpp)
