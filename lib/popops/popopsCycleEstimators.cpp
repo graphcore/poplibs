@@ -58,14 +58,19 @@ bool isComparisonOp(BinaryOpType op) {
 std::uint64_t binaryOpInnerLoopCycles(const Target &target,
                                       const BinaryOpType op, const Type &type,
                                       const OpPerformanceInfo &perfInfo,
-                                      const unsigned numElems) {
+                                      const unsigned numElems,
+                                      const bool inPlace = false) {
   unsigned elemsPerLoop;
   unsigned cyclesPerLoop = perfInfo.cyclesPerLoop;
   if (perfInfo.naturalVectorWidth) {
     elemsPerLoop = target.getVectorWidth(type);
     // This is an overhead for each cycle of the inner loop that processes
-    // 1 element (or 1 vector). It accounts for load/store and loop decision
-    cyclesPerLoop += hasExternalCodelet(op, type) ? 2 : 5;
+    // 1 element (or 1 vector). It accounts for load/store and loop decision.
+    // If we force the use of interleaved memory, if inplace, we can always
+    // utilise the fast path to reduce the overhead for each cycle by 1
+    cyclesPerLoop += hasExternalCodelet(op, type)
+                         ? (getForceInterleavedEstimates() && inPlace ? 1 : 2)
+                         : 5;
   } else {
     elemsPerLoop = perfInfo.loopUnrollFactor;
   }
@@ -144,9 +149,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo &perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
-
+  // In the inplace case, if forcing use of interleaved memory, the fast
+  // path can always be utilized to reduce the overhead by 1 cycle, making the
+  // inner loop one cycle for ADD, SUB and MULTIPLY.
   return broadcastArithmeticSupervisorCycleEstimate(
-      vertex, target, op, type, perfInfo, hasExternalCodelet(op, type) ? 1 : 4);
+      vertex, target, op, type, perfInfo,
+      hasExternalCodelet(op, type) ? (getForceInterleavedEstimates() ? 0 : 1)
+                                   : 4);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar1DSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
@@ -266,8 +275,13 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DDataInPlace)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type) {
   const OpPerformanceInfo perfInfo = broadcastOpInPlacePerfInfo.at({op, type});
-  return broadcastArithmeticCycleEstimate(vertex, target, op, type, perfInfo,
-                                          hasExternalCodelet(op, type) ? 1 : 4);
+  // In the inplace case, if forcing use of interleaved memory, the fast
+  // path can always be utilized to reduce the overhead by 1 cycle, making the
+  // inner loop one cycle for ADD, SUB and MULTIPLY.
+  return broadcastArithmeticCycleEstimate(
+      vertex, target, op, type, perfInfo,
+      hasExternalCodelet(op, type) ? (getForceInterleavedEstimates() ? 0 : 1)
+                                   : 4);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(BroadcastScalar2DData)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
@@ -1734,7 +1748,7 @@ std::uint64_t getBinaryOp1DInPlaceSupervisorEstimate(
   const auto numWorkers = target.getNumWorkerContexts();
   auto numElemsPerWorker = iceil(numElems, numWorkers);
   workerCycles +=
-      binaryOpInnerLoopCycles(target, op, type, info, numElemsPerWorker);
+      binaryOpInnerLoopCycles(target, op, type, info, numElemsPerWorker, true);
   return numWorkers * workerCycles + superviserOverhead;
 }
 
@@ -1857,7 +1871,8 @@ MAKE_PERF_ESTIMATOR_NAME(BinaryOp2DInPlace)(const VertexIntrospector &vertex,
   unsigned totalElems = 0;
   for (unsigned i = 0; i < in1Out.size(); ++i) {
     assert(in1Out[i].size() == in2[i].size());
-    cycles += binaryOpInnerLoopCycles(target, op, type, info, in1Out[i].size());
+    cycles +=
+        binaryOpInnerLoopCycles(target, op, type, info, in1Out[i].size(), true);
     totalElems += in1Out[i].size();
   }
   return {cycles, flopsForBinaryOp2D({totalElems}, type, op)};
