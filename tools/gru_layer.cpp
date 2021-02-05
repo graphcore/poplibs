@@ -110,7 +110,6 @@ int main(int argc, char **argv) {
 
   unsigned sequenceSize, inputSize, outputSize;
   unsigned batchSize = 1;
-  unsigned numShards = 1;
 
   Type dataType;
   Type partialsType;
@@ -153,8 +152,6 @@ int main(int argc, char **argv) {
      "Profile formats: v1 | experimental | unstable")
     ("sequence-size", po::value<unsigned>(&sequenceSize)->required(),
      "Sequence size in the RNN")
-    ("shards", po::value<unsigned>(&numShards)->required(),
-     "The number of shards")
     ("input-size", po::value<unsigned>(&inputSize)->required(),
      "Number of inputs in each element in the sequence")
     ("output-size", po::value<unsigned>(&outputSize)->required(),
@@ -273,7 +270,6 @@ int main(int argc, char **argv) {
 
   poplar::OptionFlags options = {
       {"inferenceOnly", fwdOnly ? "true" : "false"},
-      {"numShards", std::to_string(numShards)},
   };
   if (!vm["available-memory-proportion"].empty()) {
     options.set("availableMemoryProportion",
@@ -293,14 +289,13 @@ int main(int argc, char **argv) {
 
   Tensor realTimeSteps;
   if (withRealTimeSteps) {
-    realTimeSteps =
-        graph.addVariable(INT, {params.rnn.batchSize}, "realTimeSteps");
+    realTimeSteps = graph.addVariable(INT, {params.batchSize}, "realTimeSteps");
     graph.setTileMapping(realTimeSteps, 0);
   }
 
   Tensor attScores;
   if (withAttention) {
-    attScores = gru::createAttention(graph, params, "attScores", options);
+    attScores = gru::createAttention(graph, params, "attScores");
   }
 
   Sequence uploadProg, downloadProg;

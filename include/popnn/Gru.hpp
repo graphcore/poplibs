@@ -6,7 +6,6 @@
 #include <poplar/Tensor.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/GruDef.hpp>
-#include <popnn/Rnn.hpp>
 
 namespace popnn {
 namespace gru {
@@ -21,16 +20,19 @@ const std::vector<BasicGruCellUnit> getDefaultBasicGruCellOrder();
 /** Structure representing the parameters of the GRU.
  */
 struct GruParams {
-  rnn::RnnParams rnn;
-
-  /// The number of time steps in the sequence of the GRU
-  /// Deprecated: Use rnn.timeSteps
+  // The datatype of the GRU
+  poplar::Type dataType;
+  // The batch size
+  std::size_t batchSize;
+  // The number of time steps in the sequence of the GRU
   std::size_t timeSteps;
-  /// If true the GRU function returns the entire sequence of outputs,
-  /// otherwise it returns just the final output.
+  // The number of neurons for the input and output layer
+  std::vector<std::size_t> layerSizes;
+  // If true the GRU function returns the entire sequence of outputs,
+  // otherwise it returns just the final output.
   bool outputFullSequence = true;
-  /// If this parameter is set to false then the GRU will skip the
-  /// calculation of the gradients of the inputs.
+  // If this parameter is set to false then the GRU will skip the
+  // calculation of the gradients of the inputs.
   bool calcInputGradients = true;
   /// The weight and bias tensors are concatenated tensors in terms of which
   /// gates they service. This option allows the user to specify the order of
@@ -38,13 +40,14 @@ struct GruParams {
   /// The default order is:
   /// [Reset gate, Update gate, Candidate].
   std::vector<BasicGruCellUnit> cellOrder = getDefaultBasicGruCellOrder();
-  /// Controls whether the reset gate is applied before or after the candidate
-  /// weights and biases.
+  // Controls whether the reset gate is applied before or after the candidate
+  // weights and biases.
   bool resetAfter = false;
 
   GruParams() = default;
   GruParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
             std::vector<std::size_t> layerSizes);
+  GruParams(const GruParams &other);
 };
 
 uint64_t getBasicGruCellFwdFlops(const GruParams &params);
@@ -130,8 +133,7 @@ createWeights(poplar::Graph &graph, const GruParams &params,
 /** Create attention tensor for augru.
  */
 poplar::Tensor createAttention(poplar::Graph &graph, const GruParams &params,
-                               const poplar::DebugContext &debugContext,
-                               const poplar::OptionFlags &options = {});
+                               const poplar::DebugContext &debugContext);
 
 /** Calculate the result of applying a GRU across a sequence
  *

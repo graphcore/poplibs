@@ -1544,16 +1544,14 @@ add_lstm_benchmark(NAME lstm_16_25_1024_1024_half
          --sequence-size 25
          --input-size=1024
          --output-size=1024
-         --data-type half
-         --shard=1)
+         --data-type half)
 
 add_lstm_benchmark(NAME lstm_8_25_1024_1024_float
   PARAMS --batch-size 8
          --sequence-size 25
          --input-size=1024
          --output-size=1024
-         --data-type float
-         --shard=1)
+         --data-type float)
 
 add_lstm_benchmark(NAME lstm_16_25_1024_1024_half_shuffled_cell_order
   PARAMS --batch-size 16
@@ -1561,8 +1559,7 @@ add_lstm_benchmark(NAME lstm_16_25_1024_1024_half_shuffled_cell_order
          --input-size=1024
          --output-size=1024
          --data-type half
-         --cell-order {input,output,forget,cell}
-         --shard=1)
+	 --cell-order {input,output,forget,cell})
 
 add_lstm_benchmark(NAME lstm_8_25_1024_1024_float_shuffled_cell_order
   PARAMS --batch-size 8
@@ -1570,8 +1567,7 @@ add_lstm_benchmark(NAME lstm_8_25_1024_1024_float_shuffled_cell_order
          --input-size=1024
          --output-size=1024
          --data-type float
-         --cell-order {input,output,forget,cell}
-         --shard=1)
+	 --cell-order {input,output,forget,cell})
 
 add_lstm_benchmark(NAME lstm_16_25_1024_1024_half_train
   PARAMS --batch-size 16
@@ -1579,8 +1575,7 @@ add_lstm_benchmark(NAME lstm_16_25_1024_1024_half_train
          --input-size=1024
          --output-size=1024
          --data-type half
-         --phase all
-         --shard=1)
+	 --phase all)
 
 add_lstm_benchmark(NAME lstm_8_25_1024_1024_float_train
   PARAMS --batch-size 8
@@ -1588,8 +1583,7 @@ add_lstm_benchmark(NAME lstm_8_25_1024_1024_float_train
          --input-size=1024
          --output-size=1024
          --data-type float
-         --phase all
-         --shard=1)
+	 --phase all)
 
 add_lstm_benchmark(NAME lstm_16_25_1024_1024_half_shuffled_cell_order_train
   PARAMS --batch-size 16
@@ -1597,9 +1591,8 @@ add_lstm_benchmark(NAME lstm_16_25_1024_1024_half_shuffled_cell_order_train
          --input-size=1024
          --output-size=1024
          --data-type half
-         --cell-order {input,output,forget,cell}
-         --phase all
-         --shard=1)
+	 --cell-order {input,output,forget,cell}
+	 --phase all)
 
 add_lstm_benchmark(NAME lstm_8_25_1024_1024_float_shuffled_cell_order_train
   PARAMS --batch-size 8
@@ -1607,9 +1600,8 @@ add_lstm_benchmark(NAME lstm_8_25_1024_1024_float_shuffled_cell_order_train
          --input-size=1024
          --output-size=1024
          --data-type float
-         --cell-order {input,output,forget,cell}
-         --phase all
-         --shard=1)
+	 --cell-order {input,output,forget,cell}
+	 --phase all)
 
 # GRU synthetic benchmarks, not taken from any specific model
 add_gru_benchmark(NAME gru_16_25_1024_1024_half
@@ -1617,16 +1609,14 @@ add_gru_benchmark(NAME gru_16_25_1024_1024_half
          --sequence-size 25
          --input-size=1024
          --output-size=1024
-         --data-type half
-         --shard=1)
+         --data-type half)
 
 add_gru_benchmark(NAME gru_8_25_1024_1024_float
   PARAMS --batch-size 8
          --sequence-size 25
          --input-size=1024
          --output-size=1024
-         --data-type float
-         --shard=1)
+         --data-type float)
 
 add_gru_benchmark(NAME gru_16_25_1024_1024_half_shuffled_cell_order
   PARAMS --batch-size 16
@@ -1634,8 +1624,7 @@ add_gru_benchmark(NAME gru_16_25_1024_1024_half_shuffled_cell_order
          --input-size=1024
          --output-size=1024
          --data-type half
-         --cell-order {update,cell,reset}
-         --shard=1)
+	 --cell-order {update,cell,reset})
 
 add_gru_benchmark(NAME gru_8_25_1024_1024_float_shuffled_cell_order
   PARAMS --batch-size 8
@@ -1643,8 +1632,7 @@ add_gru_benchmark(NAME gru_8_25_1024_1024_float_shuffled_cell_order
          --input-size=1024
          --output-size=1024
          --data-type float
-         --cell-order {update,cell,reset}
-         --shard=1)
+	 --cell-order {update,cell,reset})
 
 add_gru_benchmark(NAME gru_16_25_1024_1024_half_train
   PARAMS --batch-size 16
@@ -1652,8 +1640,7 @@ add_gru_benchmark(NAME gru_16_25_1024_1024_half_train
          --input-size=1024
          --output-size=1024
          --data-type half
-         --phase all
-         --shard=1)
+	 --phase all)
 
 add_gru_benchmark(NAME gru_8_25_1024_1024_float_train
   PARAMS --batch-size 8
@@ -1661,8 +1648,7 @@ add_gru_benchmark(NAME gru_8_25_1024_1024_float_train
          --input-size=1024
          --output-size=1024
          --data-type float
-         --phase all
-         --shard=1)
+	 --phase all)
 
 add_gru_benchmark(NAME gru_16_25_1024_1024_half_shuffled_cell_order_train
   PARAMS --batch-size 16
@@ -1670,9 +1656,8 @@ add_gru_benchmark(NAME gru_16_25_1024_1024_half_shuffled_cell_order_train
          --input-size=1024
          --output-size=1024
          --data-type half
-         --cell-order {update,cell,reset}
-         --phase all
-         --shard=1)
+	 --cell-order {update,cell,reset}
+	 --phase all)
 
 add_gru_benchmark(NAME gru_8_25_1024_1024_float_shuffled_cell_order_train
   PARAMS --batch-size 8
@@ -1680,9 +1665,8 @@ add_gru_benchmark(NAME gru_8_25_1024_1024_float_shuffled_cell_order_train
          --input-size=1024
          --output-size=1024
          --data-type float
-         --cell-order {update,cell,reset}
-         --phase all
-         --shard=1)
+	 --cell-order {update,cell,reset}
+	 --phase all)
 
 add_matrix_solver_benchmark(NAME triangular_solve_1_256_256_64_float
   PARAMS --a-rank 256
