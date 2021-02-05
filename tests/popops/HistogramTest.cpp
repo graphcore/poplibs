@@ -56,7 +56,8 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
             const std::vector<double> &data, const std::vector<float> &limits,
             const std::vector<HistType> &initialHistogram,
             bool useFloatArithmetic, bool withOutput, bool update,
-            const poplar::Type &dataType, bool isAbsolute) {
+            const poplar::Type &dataType, bool isAbsolute,
+            bool twoDInputTensor) {
   auto &target = device.getTarget();
   Graph graph(target);
   popops::addCodelets(graph);
@@ -69,9 +70,14 @@ bool doTest(TestDevice &device, DeviceType deviceType, bool profile,
   copy(target, data.data(), data.size(), dataType, rawData.data());
   copy(target, limits.data(), limits.size(), dataType, rawLimits.data());
 
-  auto ipuData = graph.addVariable(dataType, {data.size()});
+  const auto dataSize = data.size();
+
+  auto ipuData = twoDInputTensor
+                     ? graph.addVariable(dataType, {2, dataSize / 2})
+                     : graph.addVariable(dataType, {dataSize});
   auto ipuLimits = graph.addVariable(dataType, {limits.size()});
-  mapTensorLinearly(graph, ipuData);
+  // Map transpose to get non contiguous regions on a tile
+  mapTensorLinearly(graph, twoDInputTensor ? ipuData.transpose() : ipuData);
   graph.setTileMapping(ipuLimits, 0);
 
   auto prog = Sequence();
@@ -158,7 +164,8 @@ int main(int argc, char **argv) {
   bool useFloatArithmetic = false;
   bool withOutput = false;
   bool update = false;
-  unsigned dataSize;
+  bool twoD = false;
+  unsigned innermostDimSize;
   unsigned limitSize;
   unsigned tiles = 4;
   double dataMin = -65504;
@@ -179,8 +186,11 @@ int main(int argc, char **argv) {
     ("profile", "Output profiling report")
     ("type", po::value(&dataType)->default_value(dataType),
       "Data type of data and limits")
-    ("data-size", po::value(&dataSize)->required(),
-      "Number of data elements")
+    ("two-d", po::value(&twoD)->default_value(twoD), 
+     "Use 2D input tensor (data size must be even in such case")
+    ("inner-dim-size", po::value(&innermostDimSize)->required(),
+      "Number of data elements in the innermost dimension (number of elements "
+      "are twice this if 2d is enabled")
     ("data-min", po::value(&dataMin)->default_value(dataMin),
       "Minimum data value")
     ("data-range", po::value(&dataRange)->default_value(dataRange),
@@ -224,6 +234,8 @@ int main(int argc, char **argv) {
     withOutput = true;
   }
 
+  const auto dataSize = innermostDimSize * (1 + twoD);
+
   // Random data within the range specified
   std::mt19937 randomEngine;
   std::vector<double> data(dataSize);
@@ -250,7 +262,7 @@ int main(int argc, char **argv) {
     }
     success = doTest<float>(device, deviceType, profile, data, limits,
                             initialHistogram, useFloatArithmetic, withOutput,
-                            update, dataType, isAbsolute);
+                            update, dataType, isAbsolute, twoD);
   } else {
     std::vector<unsigned> initialHistogram(limitSize + 1);
     for (unsigned i = 0; i < limitSize + 1; i++) {
@@ -258,7 +270,7 @@ int main(int argc, char **argv) {
     }
     success = doTest<unsigned>(device, deviceType, profile, data, limits,
                                initialHistogram, useFloatArithmetic, withOutput,
-                               update, dataType, isAbsolute);
+                               update, dataType, isAbsolute, twoD);
   }
   if (!success) {
     std::cerr << "Failure\n";

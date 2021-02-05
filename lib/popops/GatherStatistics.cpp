@@ -41,7 +41,7 @@ VertexType chooseVertexType(const std::vector<std::vector<Interval>> &intervals,
                             unsigned maxSupervisorElemsByData, bool isAbsolute,
                             bool isHalf, unsigned numWorkers,
                             unsigned numLimits, unsigned vectorWidth) {
-  if (intervals.size() != 1) {
+  if (intervals.size() != 1 || intervals[0].size() > 1) {
     return VertexType::WORKER_2D;
   }
   const auto elements = std::accumulate(
@@ -80,6 +80,7 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
   const auto inType = input.elementType();
   const auto vectorWidth = target.getVectorWidth(inType);
   const auto numWorkers = target.getNumWorkerContexts();
+  const auto flattenedInput = input.flatten();
 
   const auto cs = graph.addComputeSet({dnai, "Histogram"});
 
@@ -100,10 +101,10 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
 
   // Gather a vector of results from each vertex created
   std::vector<Tensor> results;
-  const auto mapping = graph.getTileMapping(input);
+  const auto mapping = graph.getTileMapping(flattenedInput);
   for (unsigned tile = 0; tile < numTiles; tile++) {
     const auto tileContiguousRegions =
-        graph.getSortedContiguousRegions(input, mapping[tile]);
+        graph.getSortedContiguousRegions(flattenedInput, mapping[tile]);
 
     if (tileContiguousRegions.size() == 0) {
       // No data on this tile
@@ -131,7 +132,8 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
       graph.setInitialValue(v["histogramCount"], results.back().numElements());
       graph.connect(v["limits"], levels);
       graph.connect(v["histogram"], histogram);
-      graph.connect(v["data"], input.slice(tileContiguousRegions[0][0]));
+      graph.connect(v["data"],
+                    flattenedInput.slice(tileContiguousRegions[0][0]));
     } else {
       // > 1 region or not suitable size so use 2D worker vertices
       auto vertexRegions = splitRegionsBetweenWorkers(
@@ -148,7 +150,7 @@ poplar::Tensor histogramImpl(poplar::Graph &graph, const poplar::Tensor &input,
                               results.back().numElements());
         graph.connect(v["limits"], levels);
         graph.connect(v["histogram"], results.back());
-        graph.connect(v["data"], input.slices(regions));
+        graph.connect(v["data"], flattenedInput.slices(regions));
       }
     }
   }

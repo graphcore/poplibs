@@ -1006,9 +1006,20 @@ add_multi_target_test_executable(HistogramTest HistogramTest.cpp)
 add_multitarget_test(NAME HistogramTest_largeOnTile
   COMMAND HistogramTest
   --type float
-  --data-size=50000
+  --inner-dim-size=50000
   --limits-size=8
   --tiles-per-ipu=1)
+
+foreach(DATA_TYPE half float)
+  add_multitarget_test(NAME Histogram_by_data_2dinput_${DATA_TYPE}
+                       COMMAND HistogramTest
+                       --inner-dim-size=6400
+                       --limits-size=4
+                       --type=${DATA_TYPE}
+                       --two-d=true
+                       --absolute=false
+                       --tiles-per-ipu=4)
+endforeach()
 
 foreach(useFloat true false)
   foreach(update true false)
@@ -1016,7 +1027,7 @@ foreach(useFloat true false)
       add_multitarget_test(NAME HistogramTest_${withOutput}_${update}_${useFloat}
         COMMAND HistogramTest
         --type float
-        --data-size=200
+        --inner-dim-size=200
         --limits-size=8
         --with-output=${withOutput}
         --update=${update}
@@ -1034,7 +1045,7 @@ foreach(useFloat true false)
       add_multitarget_test(NAME HistogramTest_large_${withOutput}_${update}_${useFloat}
         COMMAND HistogramTest
         --type half
-        --data-size=20000000
+        --inner-dim-size=20000000
         --limits-size=7
         --with-output=${withOutput}
         --update=${update}
