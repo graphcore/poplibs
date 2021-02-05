@@ -213,7 +213,7 @@ void performOp(BinaryOpType op, unsigned short a, unsigned short b,
 // the operators that return a boolean. This works for floating point, integer
 // and boolean data types.
 template <typename T>
-void performOp(BinaryOpType op, T a, T b, HostBool &result) {
+void performOp(BinaryOpType op, T a, T b, unsigned char &result) {
   ONE_OP(EQUAL, a == b);
   ONE_OP(GREATER_THAN_EQUAL, a >= b);
   ONE_OP(GREATER_THAN, a > b);
@@ -268,11 +268,11 @@ bool equalValues(const bool isIpuModel, const BinaryOpType op,
     }
 
     bool isEqual = false;
+    double delta = expected - actual;
     if (expected == 0) {
-      isEqual = (expected == actual);
+      isEqual = std::abs(delta) < 10e-6;
     } else {
-      double delta = std::abs(expected - actual);
-      delta = delta / expected;
+      delta = std::abs(delta / expected);
       isEqual = (delta <= tolerance);
     }
     return isEqual;
@@ -307,7 +307,7 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
   HOST_DATA_TYPE min1 = 0, max1 = 0;
   HOST_DATA_TYPE min2 = 0, max2 = 0;
 
-  if (std::is_floating_point<HOST_DATA_TYPE>::value) {
+  if constexpr (std::is_floating_point<HOST_DATA_TYPE>::value) {
 
     // For floating point, we limit the range
     HOST_DATA_TYPE absMax;
@@ -375,7 +375,7 @@ void fillHostBuffers(BinaryOpType op, const Type &dataType, unsigned randomSeed,
   }
 
   fillBuffer(dataType, rndEng, buf1, 100, min1, max1, nonZero);
-  fillBuffer(dataType, rndEng, buf2, 500, min2, max2, nonZero);
+  fillBuffer(dataType, rndEng, buf2, 255, min2, max2, nonZero);
 
   // If comparing for equality/inequality, we make sure we have a few values
   // that are equal to test the 'equal' path

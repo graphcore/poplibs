@@ -27,7 +27,6 @@
 #include <boost/format.hpp>
 #include <boost/optional.hpp>
 #include <boost/optional/optional_io.hpp>
-#include <poplibs_test/Util.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
@@ -295,8 +294,8 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   auto copyBuffer = [&](Type type, std::vector<HOST_DATA_TYPE> &buf,
                         std::unique_ptr<char[]> &rawBuf) {
     copy(target, buf.data(), buf.size(), type, rawBuf.get());
-    // For HALF, we copy and convert back into the (float) host buffers so that
-    // the host buffers contain the exact HALF values (which are exactly
+    // For HALF, we copy and convert back into the (float) host buffers so
+    // that the host buffers contain the exact HALF values (which are exactly
     // representable in float). This helps with the validation for the
     // comparison operators
     if (type == HALF)
@@ -379,7 +378,7 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
   }
 
   // Call the appropriate instantiation of the templated function
-#define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
+#define SELECT_ONE(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)         \
   if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
     return doTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                              \
                deviceType, vertex, op, dataType, outputType, sizes,            \
@@ -388,31 +387,8 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
                : false;                                                        \
   }
 
-  // Note that for both HALF and FLOAT the host buffers are 'float'
-  DO_TEST(BOOL, BOOL, HostBool, HostBool)
-
-  DO_TEST(HALF, HALF, float, float)
-  DO_TEST(HALF, BOOL, float, HostBool)
-
-  DO_TEST(FLOAT, FLOAT, float, float)
-  DO_TEST(FLOAT, BOOL, float, HostBool)
-
-  DO_TEST(HALF, FLOAT, float, float)
-  DO_TEST(FLOAT, HALF, float, float)
-
-  DO_TEST(INT, INT, int, int)
-  DO_TEST(INT, BOOL, int, HostBool)
-
-  DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
-  DO_TEST(UNSIGNED_INT, BOOL, unsigned, HostBool)
-
-  DO_TEST(SHORT, SHORT, short, short)
-  DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
-
-  // Reaching here means the combination of 'dataType' and 'outputType' was
-  // invalid.
-  throw std::runtime_error("Combination of data type/operator not supported");
-  return false;
+  SELECT_BY_TYPES()
+  throw invalid_types(dataType, outputType);
 }
 
 /// Compare cycles obtained by running the vertex with the two specified

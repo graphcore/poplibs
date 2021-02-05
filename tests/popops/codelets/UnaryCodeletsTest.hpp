@@ -3,11 +3,22 @@
 #ifndef popops_UnaryCodeletsTest_hpp
 #define popops_UnaryCodeletsTest_hpp
 
-// Definitions/declarations used in elementwise unary operation test code.
+// Definitions/declarations used in test code for element-wise unary or cast
+// operation.
 
 #include "CodeletsTestsCommon.hpp"
+#include <poplibs_test/Util.hpp>
+
+#include <regex>
+#include <sstream>
+#include <tuple>
+#include <variant>
 
 using popops::expr::UnaryOpType;
+
+// An 'Operation' is either a UnaryOpType op, or a cast to a data type
+using Operation = std::variant<UnaryOpType, Type>;
+bool isCast(const Operation &op) { return std::holds_alternative<Type>(op); }
 
 // A map that, given a UnaryOpType, returns a string with its name
 const std::map<UnaryOpType, const std::string> unaryOpToString = {
@@ -79,15 +90,15 @@ UnaryOpType stringToUnaryOp(const std::string &s) {
                              "> is not a valid poplar::expr::UnaryOpType");
 }
 
-// Fills a vector with all operations
+// Fills a vector with all UnaryOpType operations
 void setAllOps(std::vector<UnaryOpType> &ops) {
   for (auto &e : unaryOpToString) {
     ops.push_back(e.first);
   }
 }
 
-// Returns a string with all operations, comma separated. Used for the help
-// message
+// Returns a string with allUnaryOpType operations, comma separated. Used for
+// the help message
 const std::string allOpsStr() {
   std::vector<std::string> ops;
   for (auto &e : unaryOpToString) {
@@ -125,7 +136,30 @@ bool isIntOp(UnaryOpType op) {
   }
 }
 
-// Definitions for an overloaded 'performOp' function to execute the operation
+// Given a string that describes a UnaryOpType or a cast, returns a tuple
+// of [Operation, outputType]
+std::tuple<Operation, Type> stringToOperation(const std::string &str,
+                                              Type dataType) {
+  Type outputType;
+  Operation operation;
+  try {
+    std::istringstream is(str);
+    std::regex castRE("cast<([^)]+)>");
+    std::smatch m;
+    if (std::regex_search(str, m, castRE)) {
+      is.str(m[1]);
+    }
+    is >> outputType;
+    operation = outputType;
+  } catch (poputil::poplibs_error &e) {
+    UnaryOpType opType = stringToUnaryOp(str);
+    operation = opType;
+    outputType = isBoolOp(opType) ? BOOL : dataType;
+  }
+  return {operation, outputType};
+}
+
+// Definitions for an overloaded 'performOp' function to execute a UnaryOpType
 // on the host (for verification). Note that the result value is a function
 // parameter (passed by reference) and not the return value of the function, to
 // allow for full overload resolution (return type is not used for overload
@@ -210,77 +244,127 @@ void performOp(UnaryOpType op, unsigned short a, unsigned short &result) {
 // Do the operation specified by 'op' on 'a' and 'b' where the 'op' is one of
 // the operators that return a boolean. This works for floating point, integer
 // and boolean data types.
-template <typename T> void performOp(UnaryOpType op, T a, HostBool &result) {
-  ONE_OP(IS_FINITE, std::isfinite(a))
-  ONE_OP(IS_INF, std::isinf(a))
+template <typename T>
+void performOp(UnaryOpType op, T a, unsigned char &result) {
+  if constexpr (std::is_floating_point<T>::value) {
+    ONE_OP(IS_FINITE, std::isfinite(a))
+    ONE_OP(IS_INF, std::isinf(a))
+  }
   ONE_OP(IS_NAN, a != a)
   ONE_OP(LOGICAL_NOT, !a);
   throw std::logic_error(std::to_string(unsigned(op)) +
                          " is not a boolean operator");
 }
 
+template <typename T> void performOp(UnaryOpType op, T a, char &result) {
+  // Currently there are no operations that produce a 'char' result.
+  throw std::logic_error(
+      "performOp(UnaryOpType,T, char) should never be called");
+}
+template <typename T> void performOp(UnaryOpType op, T a, signed char &result) {
+  // Currently there are no operations that produce a 'signed char' result.
+  throw std::logic_error(
+      "performOp(UnaryOpType,T, signed char) should never be called");
+}
 #undef COMMON_OPS
 #undef ONE_OP
 
-/// Check if two values are 'equal enough', for verification. This is the
-/// overloaded for floating point type
-bool equalValues(const bool isIpuModel, const UnaryOpType op,
-                 const Type &dataType, float expected, float actual) {
-  // For floating types there are some operators where we expect the result
-  // from the device to be bit exact with the one from the host
-  if ((dataType == FLOAT || dataType == HALF) &&
-      (op == UnaryOpType::ABSOLUTE || op == UnaryOpType::CEIL ||
-       op == UnaryOpType::FLOOR || op == UnaryOpType::RELU)) {
-    return expected == actual;
+// Execute a cast from devSrcType to devDstType on the host for verification.
+// For (float,half) => integer-types the rounding mode should have been set
+// appropriately before calling this function.
+template <typename HostSrcType, typename HostDstType>
+void performCast(const bool isIpuModel, const HostSrcType a,
+                 HostDstType &result, const Type devSrcType,
+                 const Type devDstType) {
+  if (devDstType == BOOL) {
+    result = (a != 0);
   } else {
+    if constexpr (std::is_floating_point<HostSrcType>::value &&
+                  std::is_integral<HostDstType>::value) {
+      // On the device, the vertices that convert to a char type use directly
+      // f32to(u)i32 instruction (Round-To-Nearest, Ties-To-Even), while the
+      // vertices that convert to another integer type use 'f32int; f32toi32'
+      if (!isIpuModel && (devDstType == UNSIGNED_CHAR ||
+                          devDstType == SIGNED_CHAR || devDstType == CHAR)) {
+        // Note that 'nearbyint()' does Ties-To-Even, unlike 'round()'
+        result = static_cast<HostDstType>(std::nearbyint(a));
+      } else {
+        result = static_cast<HostDstType>(a);
+      }
+    } else {
+      result = static_cast<HostDstType>(a);
+    }
+  }
+}
 
-    double tolerance = 0.000001;
+/// Check if two values are 'equal enough', for verification. This is the
+/// overloaded version for floating point type
+bool equalValues(const bool isIpuModel, const Operation op,
+                 const Type &dataType, float expected, float actual) {
+  double tolerance = 0.000001;
 
-    // Horrible contortions to verify result for halves. We should really
-    // have a half bit-exact computation library for the host.
-    if (dataType == HALF) {
+  if (isCast(op)) {
+    Type outType = std::get<Type>(op);
+    if (dataType == FLOAT && outType == HALF) {
       tolerance = 0.003;
-      float clipTreshHalf =
-          (isIpuModel) ? std::numeric_limits<float>::infinity() : 65504.0f;
-      float clipValueHalf = 65488.0f;
-      if (actual >= clipTreshHalf) {
-        return expected >= clipValueHalf;
-      } else if (actual <= -clipTreshHalf) {
-        return expected <= -clipValueHalf;
+    } else {
+      return (actual == expected);
+    }
+  } else {
+    UnaryOpType unaryOp = std::get<UnaryOpType>(op);
+    // For floating types there are some operators where we expect the result
+    // from the device to be bit exact with the one from the host
+    if ((dataType == FLOAT || dataType == HALF) &&
+        (unaryOp == UnaryOpType::ABSOLUTE || unaryOp == UnaryOpType::CEIL ||
+         unaryOp == UnaryOpType::FLOOR || unaryOp == UnaryOpType::RELU)) {
+      return expected == actual;
+    } else {
+
+      // Horrible contortions to verify result for halves. We should really
+      // have a half bit-exact computation library for the host.
+      if (dataType == HALF) {
+        tolerance = 0.003;
+        float clipTreshHalf =
+            (isIpuModel) ? std::numeric_limits<float>::infinity() : 65504.0f;
+        float clipValueHalf = 65488.0f;
+        if (actual >= clipTreshHalf) {
+          return expected >= clipValueHalf;
+        } else if (actual <= -clipTreshHalf) {
+          return expected <= -clipValueHalf;
+        }
       }
     }
-
-    bool isEqual = false;
-    double delta = std::abs(expected - actual);
-    if (expected == 0) {
-      isEqual = delta < 10e-6;
-    } else {
-      delta = delta / expected;
-      isEqual = (delta <= tolerance);
-    }
-    return isEqual;
   }
+  bool isEqual = false;
+  double delta = expected - actual;
+  if (expected == 0) {
+    isEqual = std::abs(delta) < 10e-6;
+  } else {
+    delta = std::abs(delta / expected);
+    isEqual = (delta <= tolerance);
+  }
+  return isEqual;
 }
 
 /// Check if two values are 'equal enough'.
 /// For int/unsigned/boolean values, results must be bit exact ...
 template <typename T>
-bool equalValues(const bool isIpuModel, const UnaryOpType op,
+bool equalValues(const bool isIpuModel, const Operation op,
                  const Type &dataType, T expected, T actual) {
   // ... or almost bit exact. The square root shows a discrepancy of
   // 1 sometimes.
   if constexpr (std::is_integral<T>::value) {
-    if (op == UnaryOpType::SQRT)
+    if (!isCast(op) && std::get<UnaryOpType>(op) == UnaryOpType::SQRT)
       return std::abs((int)(expected - actual)) <= 1;
   }
   return expected == actual;
 }
 
 /// Fills the host buffer with values appropriate to the data type and the
-/// operation being performed.
-template <typename HOST_DATA_TYPE>
-void fillHostBuffer(UnaryOpType op, const Type &dataType, unsigned randomSeed,
-                    std::vector<HOST_DATA_TYPE> &buf) {
+/// operation/cast being performed.
+template <typename HostDataType>
+void fillHostBuffer(Operation op, const Type &dataType, unsigned randomSeed,
+                    std::vector<HostDataType> &buf) {
   bool nonZero = false;
 
   // Using a specific random generator means that we get the same random values
@@ -291,68 +375,140 @@ void fillHostBuffer(UnaryOpType op, const Type &dataType, unsigned randomSeed,
 
   // For integer types we generate values in the closed interval [min, max]
   // For floating point types we generate values in the open interval [min, max)
-  HOST_DATA_TYPE min = 0, max = 0;
+  HostDataType min = 0, max = 0;
 
-  if (std::is_floating_point<HOST_DATA_TYPE>::value) {
+  if (isCast(op)) {
+    bool isSrcUnsigned =
+        (dataType == UNSIGNED_CHAR || dataType == UNSIGNED_SHORT ||
+         dataType == UNSIGNED_INT);
+    Type dstType = std::get<Type>(op);
+    bool isDstUnsigned = (dstType == UNSIGNED_CHAR ||
+                          dstType == UNSIGNED_SHORT || dstType == UNSIGNED_INT);
 
-    // For floating point, we limit the range
-    HOST_DATA_TYPE absMax;
-    absMax = (dataType == HALF) ? 254.0 : 32000.0;
-    min = -absMax;
-    max = absMax;
-
-    if (op == UnaryOpType::TAN) {
-      min = -1.2;
-      max = 1.2;
-    } else if (op == UnaryOpType::TANH) {
-      min = (dataType == FLOAT) ? 0.02 : -20.0;
-      max = (dataType == FLOAT) ? 8 : 20.0;
-    } else if (op == UnaryOpType::SIGMOID) {
-      min = (dataType == HALF) ? -3.0 : 0.55;
-      max = (dataType == HALF) ? 3.0 : 17.0;
-    } else if (op == UnaryOpType::LOGARITHM) {
-      min = 0.01;
-      max = 0.7;
-    } else if (op == UnaryOpType::LOGARITHM_ONE_PLUS) {
-      min = -0.9;
-    } else if (op == UnaryOpType::EXPONENT ||
-               op == UnaryOpType::EXPONENT_MINUS_ONE) {
-      // These limits also guarantee that the instructions have the highest
-      // latency
-      min = (dataType == HALF) ? -10 : -80.0;
-      max = 10.0;
-      nonZero = true;
-    } else if (op == UnaryOpType::SQRT || op == UnaryOpType::RSQRT) {
-      min = 0.1;
-    } else if (op == UnaryOpType::ASIN) {
-      min = -1;
-      max = 1;
-    }
+    min = (isSrcUnsigned || isDstUnsigned) ? 0 : -128;
+    max = 127;
   } else {
-    // Non floating point case (INT, UNSIGNED, BOOL).
-    // Note that for BOOL we ignore max, min.
-    min = (op == UnaryOpType::SQRT)
-              ? 0
-              : std::numeric_limits<HOST_DATA_TYPE>::min();
-    max = std::numeric_limits<HOST_DATA_TYPE>::max();
-  }
+    UnaryOpType unaryOp = std::get<UnaryOpType>(op);
+    if constexpr (std::is_floating_point<HostDataType>::value) {
+      // For floating point, we limit the range
+      HostDataType absMax;
+      absMax = (dataType == HALF) ? 254.0 : 32000.0;
+      min = -absMax;
+      max = absMax;
+
+      if (unaryOp == UnaryOpType::TAN) {
+        min = -1.2;
+        max = 1.2;
+      } else if (unaryOp == UnaryOpType::TANH) {
+        min = (dataType == FLOAT) ? 0.02 : -20.0;
+        max = (dataType == FLOAT) ? 8 : 20.0;
+      } else if (unaryOp == UnaryOpType::SIGMOID) {
+        min = (dataType == HALF) ? -3.0 : 0.55;
+        max = (dataType == HALF) ? 3.0 : 17.0;
+      } else if (unaryOp == UnaryOpType::LOGARITHM) {
+        min = 0.01;
+        max = 0.7;
+      } else if (unaryOp == UnaryOpType::LOGARITHM_ONE_PLUS) {
+        min = -0.9;
+      } else if (unaryOp == UnaryOpType::EXPONENT ||
+                 unaryOp == UnaryOpType::EXPONENT_MINUS_ONE) {
+        // These limits also guarantee that the instructions have the highest
+        // latency
+        min = (dataType == HALF) ? -10 : -80.0;
+        max = 10.0;
+        nonZero = true;
+      } else if (unaryOp == UnaryOpType::SQRT ||
+                 unaryOp == UnaryOpType::RSQRT) {
+        min = 0.1;
+      } else if (unaryOp == UnaryOpType::ASIN) {
+        min = -1;
+        max = 1;
+      }
+    } else {
+      // Non floating point case (INT, UNSIGNED, BOOL).
+      // Note that for BOOL we ignore max, min.
+      min = (unaryOp == UnaryOpType::SQRT)
+                ? 0
+                : std::numeric_limits<HostDataType>::min();
+      max = std::numeric_limits<HostDataType>::max();
+    }
+  } // not a cast
 
   fillBuffer(dataType, rndEng, buf, 10, min, max, nonZero);
 
   // If checking for infinities/nans, make sure we do have some infinities/nans
-  if (op == UnaryOpType::IS_FINITE || op == UnaryOpType::IS_INF ||
-      op == UnaryOpType::IS_NAN) {
-    // We want to make 1 in 5 elements the same
-    std::uniform_int_distribution<int> d(1, 5);
-    float val = (op == UnaryOpType::IS_NAN)
-                    ? std::numeric_limits<float>::infinity()
-                    : std::numeric_limits<float>::signaling_NaN();
-    for (unsigned i = 0; i < buf.size(); i++) {
-      if (d(*rndEng) == 1) {
-        buf[i] = val;
+  if constexpr (std::is_floating_point<HostDataType>::value) {
+    if (!isCast(op)) {
+      UnaryOpType unaryOp = std::get<UnaryOpType>(op);
+      if (unaryOp == UnaryOpType::IS_FINITE || unaryOp == UnaryOpType::IS_INF ||
+          unaryOp == UnaryOpType::IS_NAN) {
+        // We want to make 1 in 5 elements the same
+        std::uniform_int_distribution<int> d(1, 5);
+        float val = (unaryOp == UnaryOpType::IS_NAN)
+                        ? std::numeric_limits<float>::infinity()
+                        : std::numeric_limits<float>::signaling_NaN();
+        for (unsigned i = 0; i < buf.size(); i++) {
+          if (d(*rndEng) == 1) {
+            buf[i] = val;
+          }
+        }
       }
     }
   }
 }
+
+// Macros to help selecting and calling the appropriate templated function,
+// based on the runtime value of two poplar::Type variables (srcType, dstType)
+// that specify the type of input and output tensor for UnaryOp and Cast
+// vertices.
+// The code using this macros must first define another macro like the
+// following:
+//
+// #define SELECT_ONE(IPU_SRC_TYPE, IPU_DST_TYPE, HOST_SRC_TYPE, HOST_DST_TYPE)
+//           if (srcType == IPU_SRC_TYPE && dstType == IPU_DST_TYPE)
+//              func<HOST_DATA_TYPE, HOST_OUT_TYPE>(srcType, dstType, ...)
+//
+// and then invoke the SELECT_BY_TYPES macro, followed by the raising of an
+// exception to indicate that no match has been found:
+//
+//   SELECT_BY_TYPES()
+//   throw invalid_types(dataType, outputType);
+//
+// The type pairs defined here must include all pairs valid for UnaryOpType
+// and Cast operations
+//
+#define SELECT_BY_SRC_TYPE(IPU_SRC_TYPE, HOST_SRC_TYPE)                        \
+  SELECT_ONE(IPU_SRC_TYPE, FLOAT, HOST_SRC_TYPE, float)                        \
+  SELECT_ONE(IPU_SRC_TYPE, HALF, HOST_SRC_TYPE, float)                         \
+  SELECT_ONE(IPU_SRC_TYPE, INT, HOST_SRC_TYPE, int)                            \
+  SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_INT, HOST_SRC_TYPE, unsigned int)          \
+  SELECT_ONE(IPU_SRC_TYPE, SHORT, HOST_SRC_TYPE, short)                        \
+  SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_SHORT, HOST_SRC_TYPE, unsigned short)      \
+  SELECT_ONE(IPU_SRC_TYPE, BOOL, HOST_SRC_TYPE, unsigned char)                 \
+  SELECT_ONE(IPU_SRC_TYPE, CHAR, HOST_SRC_TYPE, char)                          \
+  SELECT_ONE(IPU_SRC_TYPE, SIGNED_CHAR, HOST_SRC_TYPE, signed char)            \
+  SELECT_ONE(IPU_SRC_TYPE, UNSIGNED_CHAR, HOST_SRC_TYPE, unsigned char)
+
+#define SELECT_BY_TYPES()                                                      \
+  SELECT_BY_SRC_TYPE(FLOAT, float)                                             \
+  SELECT_BY_SRC_TYPE(HALF, float)                                              \
+  SELECT_BY_SRC_TYPE(INT, int)                                                 \
+  SELECT_BY_SRC_TYPE(UNSIGNED_INT, unsigned int)                               \
+  SELECT_BY_SRC_TYPE(SHORT, short)                                             \
+  SELECT_BY_SRC_TYPE(UNSIGNED_SHORT, unsigned short)                           \
+  SELECT_BY_SRC_TYPE(BOOL, unsigned char)                                      \
+  SELECT_BY_SRC_TYPE(CHAR, char)                                               \
+  SELECT_BY_SRC_TYPE(SIGNED_CHAR, signed char)                                 \
+  SELECT_BY_SRC_TYPE(UNSIGNED_CHAR, unsigned char)
+
+// Just a way to have a common message when none of the above SELECT_ONE
+// matches, for all different places that use that macro.
+class invalid_types : public std::runtime_error {
+public:
+  invalid_types(const Type &src, const Type &dst)
+      : std::runtime_error("Combination of source type (" + src.toString() +
+                           ") and destination type (" + dst.toString() +
+                           ") not supported") {}
+};
 
 #endif // popops_UnaryCodeletsTest_hpp

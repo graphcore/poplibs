@@ -169,22 +169,31 @@ bool isLikelyToHaveNumericalErrorsUsingBernoulli(
 template <typename T>
 void copy(const poplar::Target &target, const T *src, std::size_t n,
           const poplar::Type &dstType, void *dst) {
-  if (dstType == poplar::FLOAT) {
-    std::copy(src, src + n, reinterpret_cast<float *>(dst));
-  } else if (dstType == poplar::HALF) {
+
+  // For HALF we have to convert ...
+  if (dstType == poplar::HALF) {
     detail::copyToDevice<T>(target, src, dst, n);
-  } else if (dstType == poplar::UNSIGNED_INT) {
-    std::copy(src, src + n, reinterpret_cast<unsigned *>(dst));
-  } else if (dstType == poplar::UNSIGNED_SHORT) {
-    std::copy(src, src + n, reinterpret_cast<unsigned short *>(dst));
-  } else if (dstType == poplar::INT) {
-    std::copy(src, src + n, reinterpret_cast<int *>(dst));
-  } else if (dstType == poplar::SHORT) {
-    std::copy(src, src + n, reinterpret_cast<short *>(dst));
-  } else {
-    assert(dstType == poplar::BOOL);
-    std::copy(src, src + n, reinterpret_cast<bool *>(dst));
+    return;
   }
+  // ... for all other types we just do a std::copy. We just need to cast to
+  // the appropriate pointer type
+#define STD_COPY(DEV_TYPE, HOST_TYPE)                                          \
+  if (dstType == poplar::DEV_TYPE) {                                           \
+    std::copy(src, src + n, reinterpret_cast<HOST_TYPE *>(dst));               \
+    return;                                                                    \
+  }
+  STD_COPY(FLOAT, float)
+  STD_COPY(INT, int)
+  STD_COPY(UNSIGNED_INT, unsigned int)
+  STD_COPY(SHORT, short)
+  STD_COPY(UNSIGNED_SHORT, unsigned short)
+  STD_COPY(CHAR, char)
+  STD_COPY(SIGNED_CHAR, signed char)
+  STD_COPY(UNSIGNED_CHAR, unsigned char)
+  STD_COPY(BOOL, bool)
+#undef STD_COPY
+  throw std::runtime_error("destination type " + dstType.toString() +
+                           " not supported in poplibs_test::util::copy()");
 }
 
 template <typename T, unsigned long N>
@@ -209,28 +218,33 @@ inline void copy(const poplar::Target &target,
 template <typename T>
 void copy(const poplar::Target &target, const poplar::Type &srcType, void *src,
           T *dst, size_t n) {
-  if (srcType == poplar::FLOAT) {
-    std::copy(reinterpret_cast<float *>(src),
-              reinterpret_cast<float *>(src) + n, dst);
-  } else if (srcType == poplar::HALF) {
+
+  // For HALF we have to convert ...
+  if (srcType == poplar::HALF) {
     detail::copyFromDevice<T>(target, src, dst, n);
-  } else if (srcType == poplar::UNSIGNED_INT) {
-    std::copy(reinterpret_cast<unsigned *>(src),
-              reinterpret_cast<unsigned *>(src) + n, dst);
-  } else if (srcType == poplar::UNSIGNED_SHORT) {
-    std::copy(reinterpret_cast<unsigned short *>(src),
-              reinterpret_cast<unsigned short *>(src) + n, dst);
-  } else if (srcType == poplar::INT) {
-    std::copy(reinterpret_cast<int *>(src), reinterpret_cast<int *>(src) + n,
-              dst);
-  } else if (srcType == poplar::SHORT) {
-    std::copy(reinterpret_cast<short *>(src),
-              reinterpret_cast<short *>(src) + n, dst);
-  } else {
-    assert(srcType == poplar::BOOL);
-    std::copy(reinterpret_cast<bool *>(src), reinterpret_cast<bool *>(src) + n,
-              dst);
+    return;
   }
+
+  // ... for all other types we just do a std::copy. We just need to cast to
+  // the appropriate pointer types
+#define STD_COPY(DEV_TYPE, HOST_TYPE)                                          \
+  if (srcType == poplar::DEV_TYPE) {                                           \
+    std::copy(reinterpret_cast<HOST_TYPE *>(src),                              \
+              reinterpret_cast<HOST_TYPE *>(src) + n, dst);                    \
+    return;                                                                    \
+  }
+  STD_COPY(FLOAT, float)
+  STD_COPY(INT, int)
+  STD_COPY(UNSIGNED_INT, unsigned int)
+  STD_COPY(SHORT, short)
+  STD_COPY(UNSIGNED_SHORT, unsigned short)
+  STD_COPY(CHAR, char)
+  STD_COPY(SIGNED_CHAR, signed char)
+  STD_COPY(UNSIGNED_CHAR, unsigned char)
+  STD_COPY(BOOL, bool)
+#undef STD_COPY
+  throw std::runtime_error("source type " + srcType.toString() +
+                           " not supported in poplibs_test::util::copy()");
 }
 
 template <typename T>

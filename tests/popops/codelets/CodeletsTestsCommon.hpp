@@ -8,6 +8,7 @@
 
 #include <poplar/Type.hpp>
 #include <poplibs_support/TestDevice.hpp>
+#include <poplibs_test/Util.hpp>
 #include <popops/ElementWise.hpp>
 
 #include <boost/algorithm/string.hpp>
@@ -24,11 +25,9 @@
 using namespace poplar;
 using namespace popops;
 using namespace poplibs_support;
-namespace po = boost::program_options;
+using namespace poplibs_test::util;
 
-// We use 'unsigned char' on the host instead of 'bool', because
-// std::vector<bool> gets specialised with 1 bit per element instead of 1 byte
-typedef unsigned char HostBool;
+namespace po = boost::program_options;
 
 // Overloaded & templated convertToString functions to print correctly
 // from inside the templated 'verifyResult()'  function
@@ -37,6 +36,16 @@ template <typename INT_T> std::string convertIntToHexStr(INT_T val) {
   std::stringstream ss;
   ss << val << " (0x" << std::hex << val << ")";
   return ss.str();
+}
+
+std::string convertToString(char val) { return convertIntToHexStr(int(val)); }
+
+std::string convertToString(signed char val) {
+  return convertIntToHexStr(int(val));
+}
+
+std::string convertToString(unsigned char val) {
+  return convertIntToHexStr(int(val));
 }
 
 std::string convertToString(int val) { return convertIntToHexStr(val); }
@@ -49,9 +58,7 @@ std::string convertToString(unsigned short val) {
   return convertIntToHexStr(val);
 }
 
-std::string convertToString(HostBool val) {
-  return convertToString(unsigned(val));
-}
+std::string convertToString(bool val) { return convertToString(unsigned(val)); }
 
 template <typename T> std::string convertToString(T val) {
   std::stringstream ss;
@@ -62,17 +69,6 @@ template <typename T> std::string convertToString(T val) {
 // A 'random generator' engine which might not be there (in which case it means
 // that we are not using random values to fill the data buffers).
 using RandomEngine = std::optional<std::minstd_rand>;
-
-// Filling one of the operand buffers, for boolean data. We always fill it with
-// random booleans, (ignoring 'i', 'min', 'max' and 'nonZero')
-void fillBuffer(const Type &dataType, RandomEngine &rndEng,
-                std::vector<HostBool> &buf, int i, HostBool min, HostBool max,
-                bool nonZero) {
-  std::bernoulli_distribution d(0.5);
-
-  for (auto &x : buf)
-    x = d(*rndEng);
-}
 
 // Filling one of the operand buffers for int data.
 void fillBufferInt(const Type &dataType, RandomEngine &rndEng, int *data,
@@ -133,6 +129,48 @@ void fillBuffer(const Type &dataType, RandomEngine &rndEng,
   // The 'short' filling is good for 'unsigned short' as well
   fillBufferShort(dataType, rndEng, (short *)(buf.data()), buf.size(), i, min,
                   max, nonZero);
+}
+
+// Filling one of the operand buffers for short/unsigned short data.
+void fillBufferChar(const Type &dataType, RandomEngine &rndEng, char *data,
+                    unsigned n, char i, char min, char max, bool nonZero) {
+  std::uniform_int_distribution<char> d(min, max);
+  for (unsigned k = 0; k < n; k++) {
+    if (rndEng) {
+      do {
+        data[k] = d(*rndEng);
+      } while (nonZero && data[k] == 0);
+    } else {
+      if (max != 0 && i > max)
+        i = 0;
+      data[k] = i++;
+    }
+  }
+}
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<char> &buf, char i, char min, char max,
+                bool nonZero) {
+  fillBufferChar(dataType, rndEng, buf.data(), buf.size(), i, min, max,
+                 nonZero);
+}
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<signed char> &buf, signed char i, signed char min,
+                signed char max, bool nonZero) {
+  fillBufferChar(dataType, rndEng, (char *)(buf.data()), buf.size(), i, min,
+                 max, nonZero);
+}
+void fillBuffer(const Type &dataType, RandomEngine &rndEng,
+                std::vector<unsigned char> &buf, unsigned char i,
+                unsigned char min, unsigned char max, bool nonZero) {
+  if (dataType == BOOL) {
+    std::bernoulli_distribution d(0.5);
+
+    for (auto &x : buf)
+      x = d(*rndEng);
+  } else {
+    fillBufferChar(dataType, rndEng, (char *)(buf.data()), buf.size(), i, min,
+                   max, nonZero);
+  }
 }
 
 // Filling one of the operand buffers for FLOAT and HALF data (both use 'float'
@@ -204,4 +242,114 @@ void parseOptions(int argc, char **argv, po::options_description &desc) {
     std::exit(1);
   }
 }
+
+// This contains the size of an operand for a UnaryOp, Cast or BinaryOp test.
+// It can contain a single value (for a 1D vertex), multiple values, for a 2D
+// vertex, or a 'ROW x COL' value (for a VectorOuter vertex or a 2D vertex)
+struct SizeDesc {
+  bool isRowsByCols = false;
+  std::vector<unsigned> val;
+};
+
+// Utility function to read a SizeDesc from a stream. Three formats are valid:
+//
+//   1234          - A single positive integer value
+//
+//   [11,22,33,44] - A list of integers
+//
+//   666x333       - A 'ROW x COL' value
+//
+std::istream &operator>>(std::istream &in, SizeDesc &sd) {
+  skipSpaces(in);
+  auto c = in.peek();
+  if (c == '[') {
+    // If it starts with '[' must be a comma separated list with square brackets
+    in.ignore();
+    skipSpaces(in);
+    auto c = in.peek();
+    if (c == ']') {
+      in.ignore();
+    } else {
+      while (true) {
+        sd.val.push_back(detail::readValue<unsigned>(in));
+        skipSpaces(in);
+        c = in.get();
+        if (c == ']') {
+          skipSpaces(in);
+          break;
+        } else if (c != ',') {
+          throw std::runtime_error(
+              "Invalid size descriptor; expected ',' or ']'");
+        }
+        skipSpaces(in);
+      }
+    }
+    return in;
+  } else {
+    // If it doesn't start with '[' must be a single number or <row>x<col>
+    if (!std::isdigit(c)) {
+      throw std::runtime_error(
+          "Invalid size descriptor; expected '[' or digit");
+    }
+    sd.val.push_back(detail::readValue<unsigned>(in));
+    skipSpaces(in);
+    in.clear();
+    c = in.peek();
+    if (c == 'x') {
+      sd.isRowsByCols = true;
+      in.ignore();
+      skipSpaces(in);
+      if (!std::isdigit(in.peek())) {
+        throw std::runtime_error("Invalid size descriptor; expected a digit");
+      }
+      sd.val.push_back(detail::readValue<unsigned>(in));
+      in.clear();
+      skipSpaces(in);
+    }
+  }
+  return in;
+}
+
+// Printing a SizeDesc to a stream
+std::ostream &operator<<(std::ostream &os, const SizeDesc &sd) {
+  unsigned n = sd.val.size();
+  if (sd.isRowsByCols) {
+    if (n != 2)
+      throw std::runtime_error("Invalid SizeDesc: 'isRowsByCols' is set, but "
+                               "'val' has " +
+                               std::to_string(n) + "element (instead of 2)");
+    os << sd.val.at(0) << "x" << sd.val.at(1);
+  } else {
+    os << "[";
+    for (unsigned i = 0; i < n - 1; i++)
+      os << sd.val[i] << ",";
+    if (n > 0)
+      os << sd.val[0];
+    os << "]";
+  }
+  return os;
+}
+
+// If we are comparing cycles, return the second device. If it was unspecified
+// ("default") we try to match Sim1 with IpuModel1 or Sim2 with IpuModel2,
+// otherwise we just use the specified device.
+// \param mainDevice        The main device to run on, from cmd line
+// \param compareDeviceStr  The 'cycle-compare' device string, from cmd line
+DeviceType getCycleCompareDevice(const DeviceType &mainDevice,
+                                 const std::string &compareDeviceStr) {
+  std::optional<DeviceType> compDev;
+  if (compareDeviceStr == "default") {
+    if (mainDevice == DeviceType::Sim1) {
+      compDev = DeviceType::IpuModel1;
+    } else if (mainDevice == DeviceType::Sim2) {
+      compDev = DeviceType::IpuModel2;
+    }
+  }
+  if (!compDev) {
+    std::istringstream is(compareDeviceStr);
+    is >> *compDev;
+  }
+  return *compDev;
+}
+
 #endif

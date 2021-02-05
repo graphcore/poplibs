@@ -109,6 +109,9 @@ target_include_directories(popops
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Cast.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastFromInt8.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastToInt8.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionNoAcc.S

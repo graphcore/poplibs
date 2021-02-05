@@ -627,8 +627,8 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
   auto copyBuffer = [&](Type type, std::vector<HOST_DATA_TYPE> &buf,
                         std::unique_ptr<char[]> &rawBuf) {
     copy(target, buf.data(), buf.size(), type, rawBuf.get());
-    // For HALF, we copy and convert back into the (float) host buffers so that
-    // the host buffers contain the exact HALF values (which are exactly
+    // For HALF, we copy and convert back into the (float) host buffers so
+    // that the host buffers contain the exact HALF values (which are exactly
     // representable in float). This helps with the validation for the
     // comparison operators
     if (type == HALF)
@@ -673,6 +673,7 @@ static bool doTest(const DeviceType &deviceType, const VertexDesc &vertex,
     // Get the result out of the device
     std::vector<HOST_OUT_TYPE> outHost(sizes.nElems1);
     copy(target, outputType, outHostRawPtr, outHost.data(), outHost.size());
+
     return verifyResult<HOST_DATA_TYPE, HOST_OUT_TYPE>(
         isIpuModel(deviceType), vertex, op, outputType, in1Host, in2Host,
         outHost, sizes);
@@ -719,28 +720,28 @@ static bool doVertexTest(const DeviceType &deviceType, VertexDesc &vertex,
   }
 
   // Note that for both HALF and FLOAT the host buffers are 'float'
-  DO_TEST(BOOL, BOOL, HostBool, HostBool)
+  DO_TEST(BOOL, BOOL, unsigned char, unsigned char)
 
   DO_TEST(HALF, HALF, float, float)
-  DO_TEST(HALF, BOOL, float, HostBool)
+  DO_TEST(HALF, BOOL, float, unsigned char)
 
   DO_TEST(FLOAT, FLOAT, float, float)
-  DO_TEST(FLOAT, BOOL, float, HostBool)
+  DO_TEST(FLOAT, BOOL, float, unsigned char)
 
   DO_TEST(HALF, FLOAT, float, float)
   DO_TEST(FLOAT, HALF, float, float)
 
   DO_TEST(INT, INT, int, int)
-  DO_TEST(INT, BOOL, int, HostBool)
+  DO_TEST(INT, BOOL, int, unsigned char)
 
   DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
-  DO_TEST(UNSIGNED_INT, BOOL, unsigned, HostBool)
+  DO_TEST(UNSIGNED_INT, BOOL, unsigned, unsigned char)
 
   DO_TEST(SHORT, SHORT, short, short)
   DO_TEST(UNSIGNED_SHORT, UNSIGNED_SHORT, unsigned short, unsigned short)
 
-  DO_TEST(SHORT, BOOL, short, HostBool)
-  DO_TEST(UNSIGNED_SHORT, BOOL, unsigned short, HostBool)
+  DO_TEST(SHORT, BOOL, short, unsigned char)
+  DO_TEST(UNSIGNED_SHORT, BOOL, unsigned short, unsigned char)
 
   // Reaching here means the combination of 'dataType' and 'outputType' was
   // invalid.

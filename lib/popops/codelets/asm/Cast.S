@@ -682,5 +682,23 @@ INSTANTIATE_SUPERVISOR bool int
 INSTANTIATE_SUPERVISOR bool unsigned_int
 INSTANTIATE_SUPERVISOR bool unsigned_short
 
+INSTANTIATE_SUPERVISOR unsigned_char float
+INSTANTIATE_SUPERVISOR unsigned_char half
+
+INSTANTIATE_SUPERVISOR signed_char float
+INSTANTIATE_SUPERVISOR signed_char half
+
+INSTANTIATE_SUPERVISOR char float
+INSTANTIATE_SUPERVISOR char half
+
+INSTANTIATE_SUPERVISOR half  unsigned_char
+INSTANTIATE_SUPERVISOR float unsigned_char
+
+INSTANTIATE_SUPERVISOR half  signed_char
+INSTANTIATE_SUPERVISOR float signed_char
+
+INSTANTIATE_SUPERVISOR half  char
+INSTANTIATE_SUPERVISOR float char
+
 #endif
 /* -------------------------------------------------------------------------- */

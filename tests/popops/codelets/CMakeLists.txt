@@ -104,7 +104,7 @@ endforeach()
 
 foreach(DATA_SIZE  1 2 3 4 5 6 7 8 99)
   foreach(DATA_TYPE half float)
-    foreach(DO_ABS true false)    
+    foreach(DO_ABS true false)
       foreach(LIMITS_SIZE 1 7)
         add_multitarget_test(NAME histogramSupervisor_by_data_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}_abs${DO_ABS}
                              COMMAND histogramCodeletTest
@@ -122,7 +122,7 @@ endforeach()
 
 foreach(DATA_SIZE  3 4 99)
   foreach(DATA_TYPE half float)
-    foreach(DO_ABS true false)    
+    foreach(DO_ABS true false)
       foreach(LIMITS_SIZE 1 10)
         foreach(ROWS 1 2)
           add_multitarget_test(NAME histogram2D_d${DATA_SIZE}_t${DATA_TYPE}_l${LIMITS_SIZE}_r${ROWS}_abs${DO_ABS}
@@ -777,7 +777,7 @@ add_multitarget_test(NAME  "Bitwise16BitUnaryOp"
 # Test all the BroadcastScalar codelets with all possible operations and
 # data types.
 # This is run with 6 different commands to avoid timeouts when running.
-# For details of the possible parameters of 'BinaryCodeletsTest' and usage 
+# For details of the possible parameters of 'BinaryCodeletsTest' and usage
 # examples, run it with the --help parameter:
 #   BinaryCodeletsTest --help
 add_multi_target_test_executable(BinaryCodeletsTest BinaryCodeletsTest.cpp)
@@ -802,16 +802,16 @@ add_multitarget_test(NAME  "ShortBinaryBroadcastOp"
 # Test cycle counters for a subset of Unary and Binary operators/types. These
 # combinations are run by C++ vertices, and the compiler generates RPT loops
 # for them. This test verifies if this is the case by checking that the cycles
-# taken when run by Sim are the same as the cycle estimators. For details of 
+# taken when run by Sim are the same as the cycle estimators. For details of
 # the test, see the --compare-cycles option of UnaryCodeletsTest/
 # BinaryCodeletsTest
-# Note how ${CMD} is run wrapped by a python script instead of being called 
+# Note how ${CMD} is run wrapped by a python script instead of being called
 # directly. Read the description in the script for details.
 find_package(Python3 3.6 REQUIRED COMPONENTS Interpreter)
 function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
   add_multitarget_test(
     NAME "RptLoopCycleTest_${TEST_TAG}"
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runRptLoopTest.py 
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/runRptLoopTest.py
             ./${CMD}
             --vertex ${VERTEX}
             --operation ${OPS}
@@ -823,9 +823,9 @@ function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
 endfunction()
 runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1DSupervisor"
                     "inverse;rsqrt;sqrt" float)
-runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1DSupervisor"  
+runRptLoopCycleTest("unary_float_half" UnaryCodeletsTest "UnaryOp1DSupervisor"
                     "exponent;logarithm;negate;square" "float;half")
-runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1DSupervisor" 
+runRptLoopCycleTest("binary_float_half" BinaryCodeletsTest "BinaryOp1DSupervisor"
                     "maximum;minimum" "float;half")
 
 #Cast<InType, OutType>
@@ -869,3 +869,22 @@ foreach(IN_TYPE half float)
                         LABELS codelet)
   endforeach()
 endforeach()
+
+add_multi_target_test_executable(CastCodeletsTest CastCodeletsTest.cpp)
+add_multitarget_test(NAME CastCodeletsTest_to_char
+              COMMAND CastCodeletsTest
+                  --data-type float half
+                  --cast char schar uchar
+                  --group-tests
+                  --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
+              LABELS codelet
+              TEST_IPUMODEL "true")
+
+add_multitarget_test(NAME CastCodeletsTest_from_char
+              COMMAND CastCodeletsTest
+                  --data-type char schar uchar
+                  --cast float half
+                  --group-tests
+                  --size 1 2 3 4 5 22 23 24 25 26 [8,3,6,120]
+              LABELS codelet
+              TEST_IPUMODEL "true")

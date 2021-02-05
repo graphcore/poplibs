@@ -1,5 +1,5 @@
 // Copyright (c) 2018 Graphcore Ltd. All rights reserved.
-#define BOOST_TEST_MODULE CastTest
+
 // Test for the Cast vertex
 //
 #include <poplar/Engine.hpp>
@@ -51,8 +51,13 @@ bool doTest(const DeviceType &deviceType, const Type &dataTypeIn,
   // Initialise input pattern, picking a numeric range and
   // tolerance (below) that works for halves as a limited size/resolution data
   // type with enough unique numbers to satisfy a large test size
-  for (unsigned i = 0; i < total_elems; i++)
-    inTest[i] = 0.1 * i + 1;
+  if (dataTypeIn == CHAR || dataTypeIn == SIGNED_CHAR) {
+    for (unsigned i = 0; i < total_elems; i++)
+      inTest[i] = static_cast<signed char>(i);
+  } else {
+    for (unsigned i = 0; i < total_elems; i++)
+      inTest[i] = 0.1 * i + 1;
+  }
 
   // Create Graph object, target and device
   auto device = createTestDevice(deviceType);

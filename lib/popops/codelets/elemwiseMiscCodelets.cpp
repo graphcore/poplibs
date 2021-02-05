@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cmath>
 #include <math.h>
+#include <tuple>
 
 #include "elementwiseCodelets.hpp"
 #include "poplar/AvailableVTypes.h"
@@ -117,27 +118,95 @@ template class Fill2d<int>;
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, int)                            \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned)                       \
   INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, unsigned short)                 \
-  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, bool)
+  INSTANTIATE_CAST_BY_SRC_TYPE(CastVertexName, bool)                           \
+  template class CastVertexName<float, unsigned char>;                         \
+  template class CastVertexName<float, signed char>;                           \
+  template class CastVertexName<float, char>;                                  \
+  template class CastVertexName<half, unsigned char>;                          \
+  template class CastVertexName<half, signed char>;                            \
+  template class CastVertexName<half, char>;                                   \
+  template class CastVertexName<unsigned char, float>;                         \
+  template class CastVertexName<unsigned char, half>;                          \
+  template class CastVertexName<signed char, float>;                           \
+  template class CastVertexName<signed char, half>;                            \
+  template class CastVertexName<char, float>;                                  \
+  template class CastVertexName<char, half>;
+
+// Returns some compile time parameters for Cast vertices, based on SrcType
+// and DstType, as a tuple where :
+//   element 0 is a boolean     : true if the vertex is implemented in assembly
+//   element 1 is an unsigned   : Alignment required for input data (bytes)
+//   element 2 is an unsigned   : Alignment required for output (bytes)
+//   element 3 is a VectorLayout: Layout for input data pointer
+//   element 4 is a VectorLayout: Layout for output pointer
+template <typename SrcType, typename DstType>
+constexpr std::tuple<bool, unsigned, unsigned, VectorLayout, VectorLayout>
+getCastParams() {
+  bool floatHalf =
+      std::is_same<SrcType, float>::value && std::is_same<DstType, half>::value;
+  bool halfFloat =
+      std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
+  bool charHalf = (std::is_same<SrcType, unsigned char>::value ||
+                   std::is_same<SrcType, signed char>::value ||
+                   std::is_same<SrcType, char>::value) &&
+                  std::is_same<DstType, half>::value;
+  bool charFloat = (std::is_same<SrcType, unsigned char>::value ||
+                    std::is_same<SrcType, signed char>::value ||
+                    std::is_same<SrcType, char>::value) &&
+                   std::is_same<DstType, float>::value;
+  bool halfChar = std::is_same<SrcType, half>::value &&
+                  (std::is_same<DstType, unsigned char>::value ||
+                   std::is_same<DstType, signed char>::value ||
+                   std::is_same<DstType, char>::value);
+  bool floatChar = std::is_same<SrcType, float>::value &&
+                   (std::is_same<DstType, unsigned char>::value ||
+                    std::is_same<DstType, signed char>::value ||
+                    std::is_same<DstType, char>::value);
+
+  bool ext =
+      halfFloat || floatHalf || charFloat || charHalf || halfChar || floatChar;
+
+  unsigned inAlign = alignof(SrcType);
+  unsigned outAlign = alignof(DstType);
+  if (halfFloat) {
+    inAlign = outAlign = 8;
+  } else if (floatHalf) {
+    inAlign = 8;
+    outAlign = 4;
+  } else if (charHalf || charFloat) {
+    inAlign = 8;
+    outAlign = 8;
+  } else if (halfChar || floatChar) {
+    inAlign = 8;
+    outAlign = 4;
+  }
+
+  VectorLayout inLayout = ONE_PTR;
+  VectorLayout outLayout = ONE_PTR;
+  if (ext) {
+    inLayout = PTR_ALIGN64;
+    outLayout = PTR_ALIGN32;
+  }
+  if (halfFloat) {
+    outLayout = PTR_ALIGN64;
+  }
+
+  return {ext, inAlign, outAlign, inLayout, outLayout};
+}
 
 template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(*src) != elem(*dst)")]] Cast : public Vertex {
 public:
   Cast();
 
-  // Logic for the minimum aligment based on Src and Dst Type
-  static const bool floatHalf =
-      std::is_same<SrcType, float>::value && std::is_same<DstType, half>::value;
-  static const bool halfFloat =
-      std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
+  // Structured binding would be nicer, but it doesn't work here
+  constexpr static auto t = getCastParams<SrcType, DstType>();
+  constexpr static bool ext = std::get<0>(t);
+  constexpr static unsigned inAlign = std::get<1>(t);
+  constexpr static unsigned outAlign = std::get<2>(t);
+  constexpr static VectorLayout inLayout = std::get<3>(t);
+  constexpr static VectorLayout outLayout = std::get<4>(t);
 
-  static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
-  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
-
-  static const poplar::VectorLayout inLayout =
-      inAlign == 8 ? PTR_ALIGN64 : ONE_PTR;
-  static const poplar::VectorLayout outLayout =
-      outAlign == 4 ? PTR_ALIGN32 : (outAlign == 8 ? PTR_ALIGN64 : ONE_PTR);
   Input<Vector<SrcType, inLayout, inAlign>> src;
   Output<Vector<DstType, outLayout, outAlign>> dst;
   const unsigned numElems;
@@ -163,20 +232,13 @@ class [[poplar::constraint("elem(*src) != elem(*dst)")]] CastWorker
 public:
   CastWorker();
 
-  // Logic for the minimum aligment based on Src and Dst Type
-  static const bool floatHalf =
-      std::is_same<SrcType, float>::value && std::is_same<DstType, half>::value;
-  static const bool halfFloat =
-      std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
+  constexpr static auto t = getCastParams<SrcType, DstType>();
+  constexpr static bool ext = std::get<0>(t);
+  constexpr static unsigned inAlign = std::get<1>(t);
+  constexpr static unsigned outAlign = std::get<2>(t);
+  constexpr static VectorLayout inLayout = std::get<3>(t);
+  constexpr static VectorLayout outLayout = std::get<4>(t);
 
-  static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
-  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
-
-  static const poplar::VectorLayout inLayout =
-      inAlign == 8 ? PTR_ALIGN64 : ONE_PTR;
-  static const poplar::VectorLayout outLayout =
-      outAlign == 4 ? PTR_ALIGN32 : (outAlign == 8 ? PTR_ALIGN64 : ONE_PTR);
   Input<Vector<SrcType, inLayout, inAlign>> src;
   Output<Vector<DstType, outLayout, outAlign>> dst;
   const unsigned partitionParams;
@@ -205,8 +267,9 @@ public:
 };
 
 // Note that we don't define here the following:
-//    1. FLOAT<->HALF conversion (defined in assembly)
-//    2. Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
+//    1. FLOAT <-> HALF conversion (defined in assembly)
+//    2. 8bit integer <-> HALF,FLOAT conversion (defined in assembly)
+//    3. Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
 //       replaced with Copy() in popops::cast()
 template class CastWorker<float, int>;
 template class CastWorker<float, unsigned>;
@@ -248,20 +311,12 @@ class [[poplar::constraint("elem(*src) != elem(*dst)")]] CastSupervisor
 public:
   CastSupervisor();
 
-  // Logic for the minimum aligment based on Src and Dst Type
-  static const bool floatHalf =
-      std::is_same<SrcType, float>::value && std::is_same<DstType, half>::value;
-  static const bool halfFloat =
-      std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
-
-  static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
-  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
-
-  static const poplar::VectorLayout inLayout =
-      inAlign == 8 ? PTR_ALIGN64 : ONE_PTR;
-  static const poplar::VectorLayout outLayout =
-      outAlign == 4 ? PTR_ALIGN32 : (outAlign == 8 ? PTR_ALIGN64 : ONE_PTR);
+  constexpr static auto t = getCastParams<SrcType, DstType>();
+  constexpr static bool ext = std::get<0>(t);
+  constexpr static unsigned inAlign = std::get<1>(t);
+  constexpr static unsigned outAlign = std::get<2>(t);
+  constexpr static VectorLayout inLayout = std::get<3>(t);
+  constexpr static VectorLayout outLayout = std::get<4>(t);
 
   Input<Vector<SrcType, inLayout, inAlign>> src;
   Output<Vector<DstType, outLayout, outAlign>> dst;
@@ -325,15 +380,10 @@ template <typename SrcType, typename DstType>
 class [[poplar::constraint("elem(**src) != elem(**dst)")]] Cast2d
     : public Vertex {
 public:
-  // Logic for the minimum aligment based on Src and Dst Type
-  static const bool floatHalf =
-      std::is_same<SrcType, float>::value && std::is_same<DstType, half>::value;
-  static const bool halfFloat =
-      std::is_same<SrcType, half>::value && std::is_same<DstType, float>::value;
-
-  static const bool ext = halfFloat || floatHalf;
-  static const unsigned outAlign = ext ? (halfFloat ? 8 : 4) : alignof(DstType);
-  static const unsigned inAlign = ext ? 8 : alignof(SrcType);
+  constexpr static auto t = getCastParams<SrcType, DstType>();
+  constexpr static bool ext = std::get<0>(t);
+  constexpr static unsigned inAlign = std::get<1>(t);
+  constexpr static unsigned outAlign = std::get<2>(t);
 
   Vector<Input<Vector<SrcType, ONE_PTR, inAlign>>, ONE_PTR> src;
   Vector<Output<Vector<DstType, SPAN, outAlign>>> dst;

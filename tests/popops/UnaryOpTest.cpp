@@ -1,6 +1,6 @@
 // Copyright (c) 2020 Graphcore Ltd. All rights reserved.
 //
-// Performs a unary operation between on a tensor with any desired shape,
+// Performs a unary operation or a cast on a tensor with any desired shape,
 // mapped in any desired way among tiles.
 
 #include <poplar/Engine.hpp>
@@ -11,22 +11,40 @@
 #include "../lib/popops/ExprOpUtil.hpp"
 #include <boost/format.hpp>
 #include <poplibs_test/Util.hpp>
+#include <popnn/NonLinearity.hpp>
 #include <popnn/codelets.hpp>
+#include <popops/Cast.hpp>
 #include <popops/codelets.hpp>
 #include <poputil/TileMapping.hpp>
 
 #include "codelets/UnaryCodeletsTest.hpp"
 #include <algorithm>
+#include <cfenv>
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <optional>
-#include <sstream>
 #include <type_traits>
 
 using namespace poplar::program;
 using namespace poputil;
 using namespace poplibs_test::util;
+
+// Some non linearities can be executed also via popnn calls as well, in
+// addition to the popops 'map' call.
+// This returns the equivalent popnn enum or nullopt if it doesn't exist.
+std::optional<popnn::NonLinearityType> popnnNLType(UnaryOpType op) {
+  switch (op) {
+  case UnaryOpType::TANH:
+    return popnn::NonLinearityType::TANH;
+  case UnaryOpType::SIGMOID:
+    return popnn::NonLinearityType::SIGMOID;
+  case UnaryOpType::RELU:
+    return popnn::NonLinearityType::RELU;
+  default:
+    return std::nullopt;
+  }
+}
 
 const poplar::OptionFlags options{{"debug.instrumentCompute", "true"}};
 
@@ -82,15 +100,34 @@ T get(const T data[], const std::vector<size_t> shape,
 /// \param outHost, outShape   Data (and shape) for result, obtained from
 ///                            device and converted to host types.
 /// \param operation           Operation performed on device.
-template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
-static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
-                         const std::vector<HOST_DATA_TYPE> &inHost,
-                         const std::vector<size_t> &shapeExt,
-                         const std::vector<HOST_OUT_TYPE> &outHost,
-                         const UnaryOpType op) {
+template <typename HostDataType, typename HostOutType>
+static bool
+verifyResult(const DeviceType &deviceType, const Type &dataType,
+             const Type &outType, const std::vector<HostDataType> &inHost,
+             const std::vector<size_t> &shapeExt,
+             const std::vector<HostOutType> &outHost, const Operation op) {
+  bool isIpuModel_ = isIpuModel(deviceType);
   unsigned errCount = 0; // how many mismatched elements we find
 
   unsigned n = shapeExt.size(); // How many dimensions we have
+
+  bool opIsCast = isCast(op);
+  UnaryOpType unaryOp;
+  std::string opStr;
+  if (opIsCast) {
+    opStr = "cast<" + outType.toString() + ">";
+    if (isSimulator(deviceType) || isHw(deviceType)) {
+      // Currently the IPU has only 1 rounding mode for floating point to int
+      // conversions (f32toi32/f32toui32 instructions): Round-To-Nearest,
+      // Ties-To-Even (see use of 'nearbyint()' in 'performCast'
+      std::fesetround(FE_TONEAREST);
+    } else {
+      std::fesetround(FE_TOWARDZERO);
+    }
+  } else {
+    unaryOp = std::get<UnaryOpType>(op);
+    opStr = unaryOpToString.at(unaryOp);
+  }
 
   // Perform the specified 'op'eration element-wise between in1 and in2 (on
   // the host) and compare with what is returned by the device.
@@ -109,22 +146,25 @@ static bool verifyResult(const DeviceType &deviceType, const Type &dataType,
         //                in1[ i[0], i[1],... ] *OP*  in2[ i[0], i[1],... ]
         // and compare with the actual value from the device
 
-        HOST_OUT_TYPE actual = get(outHost.data(), shapeExt, i); // from device
+        HostOutType actual = get(outHost.data(), shapeExt, i); // from device
 
-        HOST_DATA_TYPE val = get(inHost.data(), shapeExt, i);
+        HostDataType val = get(inHost.data(), shapeExt, i);
 
-        HOST_OUT_TYPE expected = 0;
+        HostOutType expected = 0;
 
-        performOp(op, val, expected);
+        if (opIsCast) {
+          performCast(isIpuModel_, val, expected, dataType, outType);
+        } else {
+          performOp(unaryOp, val, expected);
+        }
+        bool equal = equalValues(isIpuModel_, op, dataType, expected, actual);
 
-        if (!equalValues(isIpuModel(deviceType), op, dataType, expected,
-                         actual)) {
+        if (!equal) {
           std::cerr << "out[" << i[0];
           for (unsigned j = 1; j < n; j++)
             std::cerr << "," << i[j];
-          std::cerr << "] = " << unaryOpToString.at(op) << " "
-                    << convertToString(val)
-                    << " =>  expected:" << convertToString(expected)
+          std::cerr << "] = " << opStr << "(" << convertToString(val)
+                    << ") =>  expected:" << convertToString(expected)
                     << ";  actual:" << convertToString(actual) << "\n";
           errCount++;
         }
@@ -164,34 +204,45 @@ struct OperandDescriptor {
 /// \param doPrintTensors        Print the tensor (for verification).
 /// \param ignoreData            Do not verify results.
 /// \param enableOptimisations   Enable broadcasted vector op optimisations.
-template <typename HOST_DATA_TYPE, typename HOST_OUT_TYPE>
+template <typename HostDataType, typename HostOutType>
 static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
                           const Type &outputType, const OperandDescriptor &desc,
                           const unsigned tiles, const bool mapLinearly,
-                          const UnaryOpType operation, const bool inPlace,
+                          const Operation operation, const bool inPlace,
                           const bool doReport, const bool doPrintTensors,
                           const unsigned randomSeed, const bool ignoreData,
-                          const bool enableOptimisations) {
+                          const bool enableOptimisations,
+                          const bool popnnNonLinearity) {
+
+  UnaryOpType unaryOp = UnaryOpType::NEGATE;
+  std::string opStr;
+  bool isCastOp = isCast(operation);
+  if (!isCastOp) {
+    unaryOp = std::get<UnaryOpType>(operation);
+  }
 
   auto nElems = std::accumulate(desc.shape.begin(), desc.shape.end(),
                                 std::size_t(1), std::multiplies<std::size_t>());
 
-  if (inPlace && (outputType != dataType)) {
-    throw std::runtime_error("For in place operations, the data and output "
-                             "types must be the same (specified data type=" +
-                             dataType.toString() + ", specified output type=" +
-                             outputType.toString() + ")");
-  }
+  if (!isCastOp) {
+    if (inPlace && (outputType != dataType)) {
+      throw std::runtime_error(
+          "For in place operations, the data and output "
+          "types must be the same (specified data type=" +
+          dataType.toString() +
+          ", specified output type=" + outputType.toString() + ")");
+    }
 
-  if (isIntOp(operation) && (dataType == HALF || dataType == FLOAT)) {
-    throw std::runtime_error(unaryOpToString.at(operation) +
-                             " requires data "
-                             "of integer type (specified  data type=" +
-                             dataType.toString() + ")");
+    if (isIntOp(unaryOp) && (dataType == HALF || dataType == FLOAT)) {
+      throw std::runtime_error(unaryOpToString.at(unaryOp) +
+                               " requires data "
+                               "of integer type (specified  data type=" +
+                               dataType.toString() + ")");
+    }
   }
 
   // Allocate and initialise host buffers with appropriate values.
-  std::vector<HOST_DATA_TYPE> inHost(nElems);
+  std::vector<HostDataType> inHost(nElems);
   fillHostBuffer(operation, dataType, randomSeed, inHost);
 
   // Create Graph object, target and device
@@ -225,19 +276,32 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
   std::vector<poplar::Tensor> tensors;
   Tensor in = graph.addVariable(dataType, desc.shape, "in");
   mapTensor(in, desc.map);
-  expr::UnaryOp unaryOp = expr::UnaryOp(operation, expr::_1);
-
-  OptionFlags opOpts{{"enableVectorBroadcastOptimisations",
-                      (enableOptimisations ? "true" : "false")}};
 
   // Make a program sequence to run the operation
   Sequence prog;
   Tensor out;
-  if (inPlace) {
-    mapInPlace(graph, unaryOp, {in}, prog, "", opOpts);
-    out = in;
+
+  if (isCastOp) {
+    out = cast(graph, in, outputType, prog);
   } else {
-    out = map(graph, unaryOp, {in}, prog, "", opOpts);
+    std::optional<popnn::NonLinearityType> nlType = popnnNLType(unaryOp);
+    if (popnnNonLinearity && nlType) {
+      if (inPlace) {
+        nonLinearityInPlace(graph, *nlType, in, prog);
+        out = in;
+      } else {
+        out = nonLinearity(graph, *nlType, in, prog);
+      }
+    } else {
+      OptionFlags opOpts{{"enableVectorBroadcastOptimisations",
+                          (enableOptimisations ? "true" : "false")}};
+      if (inPlace) {
+        mapInPlace(graph, unaryOp, {in}, prog, "", opOpts);
+        out = in;
+      } else {
+        out = map(graph, unaryOp, {in}, prog, "", opOpts);
+      }
+    }
   }
 
   // Create host 'transfer' buffers with the right size for the device type
@@ -258,7 +322,7 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
 
   // Copy and convert the data from the initialised buffers to the transfer
   // buffers (still on host)
-  auto copyBuffer = [&](std::vector<HOST_DATA_TYPE> &buf,
+  auto copyBuffer = [&](std::vector<HostDataType> &buf,
                         std::unique_ptr<char[]> &rawBuf) {
     copy(target, buf.data(), buf.size(), dataType, rawBuf.get());
     // For HALF, we copy and convert back into the (float) host buffers so that
@@ -296,10 +360,11 @@ static bool doUnaryOpTest(const DeviceType &deviceType, const Type &dataType,
     std::cout << "Result not checked for correctness\n";
   } else {
     // Get the result out of the device
-    std::vector<HOST_OUT_TYPE> outHost(nElems);
+    std::vector<HostOutType> outHost(nElems);
     copy(target, outputType, outHostRawPtr, outHost.data(), outHost.size());
-    return verifyResult<HOST_DATA_TYPE, HOST_OUT_TYPE>(
-        deviceType, dataType, inHost, desc.shapeExt, outHost, operation);
+    return verifyResult<HostDataType, HostOutType>(
+        deviceType, dataType, outputType, inHost, desc.shapeExt, outHost,
+        operation);
   }
   return true;
 }
@@ -311,7 +376,7 @@ int main(int argc, char **argv) {
   DeviceType deviceType;
   Type dataType;
 
-  std::string operation;
+  std::string operationStr;
   bool doReport = false;
   bool doPrintTensors = false;
   bool inPlace = false;
@@ -319,6 +384,7 @@ int main(int argc, char **argv) {
   bool ignoreData = false;
   unsigned randomSeed = 1; // we use '0' to mean 'not random'
   bool enableOptimisations = true;
+  bool popnnNonLinearity = false;
   ShapeOption<size_t> shape;
   OperandDescriptor opDesc;
 
@@ -362,8 +428,8 @@ int main(int argc, char **argv) {
     ("tiles",
      po::value<unsigned>(&tiles)->default_value(tiles),
      "Number of tiles to use for linearly mapping the operands. If "
-     "unspecified, or 0, do not map lineraly the operands (use only the "
-     "explicit mapping specified by --map1, --map2)")
+     "unspecified, or 0, do not map linearly the operands (use only the "
+     "explicit mapping specified by --map)")
     ("shape",
      po::value<ShapeOption<size_t>>(&shape)->multitoken()->required(),
      "Shape for the operand, curly bracket delimited:  {d1,d2,...}.")
@@ -374,16 +440,20 @@ int main(int argc, char **argv) {
      "slice mapped on T. If not specified, the operand is mapped linearly on "
      "the allocated tiles.")
     ("operation",
-     po::value<std::string>(&operation)->required(),
-     ("Operation to perform, one of: " + allOpsStr()).c_str())
+     po::value<std::string>(&operationStr)->required(),
+     ("Operation to perform, one of: " + allOpsStr() + ", or 'cast<OUT_TYPE>'")
+     .c_str())
     ("enable-optimisations",
      po::value<bool>(&enableOptimisations)->default_value(enableOptimisations),
      "Enable broadcast operation optimisations")
+    ("popnn-non-linearity",
+     po::value<bool>(&popnnNonLinearity)->implicit_value(true),
+     "Run the non linearity through popnn library calls, if available")
     ;
   // clang-format on
   parseOptions(argc, argv, poDesc);
 
-  expr::UnaryOpType opType = stringToUnaryOp(operation);
+  auto [operation, outputType] = stringToOperation(operationStr, dataType);
 
   // Find the shape of the output, applying the broadcasting rules
   // First, get the 'extended to the left' operand shapes; for instance, if
@@ -403,37 +473,17 @@ int main(int argc, char **argv) {
     tiles++;
   }
 
-  Type outputType = isBoolOp(opType) ? BOOL : dataType;
-
-#define DO_TEST(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)            \
+#define SELECT_ONE(DATA_TYPE, OUT_TYPE, HOST_DATA_TYPE, HOST_OUT_TYPE)         \
   if (dataType == DATA_TYPE && outputType == OUT_TYPE) {                       \
     return doUnaryOpTest<HOST_DATA_TYPE, HOST_OUT_TYPE>(                       \
                deviceType, dataType, outputType, opDesc, tiles, mapLinearly,   \
-               opType, inPlace, doReport, doPrintTensors, randomSeed,          \
-               ignoreData, enableOptimisations)                                \
+               operation, inPlace, doReport, doPrintTensors, randomSeed,       \
+               ignoreData, enableOptimisations, popnnNonLinearity)             \
                ? 0                                                             \
                : 1;                                                            \
   } // nonzero value = error
-
-  // Note that for HALF and FLOAT the host buffers are 'float'
-  DO_TEST(BOOL, BOOL, HostBool, HostBool)
-
-  DO_TEST(HALF, HALF, float, float)
-  DO_TEST(HALF, BOOL, float, HostBool)
-
-  DO_TEST(FLOAT, FLOAT, float, float)
-  DO_TEST(FLOAT, BOOL, float, HostBool)
-
-  DO_TEST(INT, INT, int, int)
-  DO_TEST(INT, BOOL, int, HostBool)
-
-  DO_TEST(UNSIGNED_INT, UNSIGNED_INT, unsigned, unsigned)
-  DO_TEST(UNSIGNED_INT, BOOL, unsigned, HostBool)
-
-  // Reaching here means the combination of 'dataType' and 'outputType' was
-  // invalid.
-  std::cerr << "Combination of data type and operator not supported\n";
-  return 1;
+  SELECT_BY_TYPES()
+  throw invalid_types(dataType, outputType);
 }
 
 // Utility function to read a MappingDesc from a stream

@@ -1505,63 +1505,117 @@ static std::uint64_t castFlops(const Type &fromType, const Type &toType,
              : 0;
 }
 
-// Corresponds with 'XXX_XXX_core' functions in assembly.
+// Returns the cycles of one to the 'cast_XXX_XXX_core' functions in assembly,
+// or the equivalent section of code in one of the C++ codelets.
 static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
                                  const Type &fromType, const Type &toType) {
   std::uint64_t cycles = 0;
-
-  const auto dataPathWidth = target.getDataPathWidth() / 8;
-  const auto fromLoadWidth = dataPathWidth / target.getTypeSize(fromType);
-  const auto toStoreWidth = dataPathWidth / target.getTypeSize(toType);
-
-  // We take a guess that the vector width possible for the op will be a
-  // function of the available load/store bandwidth and number
-  // of read/write ports. e.g. f32v2tof16 is 2 reads of 64-bit and 1 write
-  // of 64-bits and f16v2tof32, a 64-bit write is the bottleneck.
-  constexpr std::size_t readPorts = 2, writePorts = 1;
-  const bool conversionIsAuxPipeline =
+  const bool isCharFloat = (fromType == UNSIGNED_CHAR ||
+                            fromType == SIGNED_CHAR || fromType == CHAR) &&
+                           (toType == FLOAT || toType == HALF);
+  const bool isFloatChar =
       (fromType == FLOAT || fromType == HALF) &&
-      (toType == FLOAT || toType == HALF);
+      (toType == UNSIGNED_CHAR || toType == SIGNED_CHAR || toType == CHAR);
 
-  // If not aux pipeline (i.e. not floating point conversion) we give an
-  // innaccurate guess anyhow as we will be using C++ code to perform
-  // the conversion.
-  const auto opVectorWidth =
-      conversionIsAuxPipeline
-          ? std::min(fromLoadWidth * readPorts, toStoreWidth * writePorts)
-          : 1;
+  if (isCharFloat || isFloatChar) {
+    // These assembly functions have a common structure, using an atom-sized
+    // (2/4 elems) pipelined loop and a "0,1,2 or 3" remainder section.
+    auto workCycles = [&](auto atomSize, auto fillDrainCycles,
+                          auto cyclesPerLoop, auto rem1, auto rem2, auto rem3) {
+      unsigned c = 0;
+      unsigned nAtom = numElems / atomSize;
+      if (nAtom > 0) {
+        c += fillDrainCycles + (nAtom - 1) * cyclesPerLoop;
+      }
+      unsigned rem = numElems % atomSize;
+      if (rem == 0) {
+        return c + 2;
+      } else if (rem == 1) {
+        return c + rem1;
+      } else if (rem == 2) {
+        return c + rem2;
+      } else if (rem == 3) {
+        return c + rem3;
+      } else {
+        throw poputil::poplibs_error("in castWorkerCycles/workCycles, "
+                                     "remainder must be 0..3, cannot be " +
+                                     std::to_string(rem));
+      }
+    };
+    // setup clamping when casting FROM int8 types
+    unsigned clampSetupCycles = (fromType == UNSIGNED_CHAR) ? 3 : 4;
+    cycles += 4; // all functions start with a 4 instruction sequence.
+    // CastFromInt8.S
+    if (fromType == UNSIGNED_CHAR && toType == HALF) {
+      cycles += workCycles(4, 14, 9, 12, 14, 22);
+    } else if ((fromType == SIGNED_CHAR || fromType == CHAR) &&
+               toType == HALF) {
+      cycles += workCycles(4, 15, 13, 12, 14, 22);
+    } else if (fromType == UNSIGNED_CHAR && toType == FLOAT) {
+      cycles += workCycles(4, 14, 10, 9, 15, 21);
+    } else if ((fromType == SIGNED_CHAR || fromType == CHAR) &&
+               toType == FLOAT) {
+      cycles += workCycles(2, 9, 7, 10, 0, 0);
+      // CastToInt8.S:
+    } else if (fromType == HALF) {
+      cycles += clampSetupCycles + workCycles(4, 15, 12, 13, 19, 26);
+    } else if (fromType == FLOAT) {
+      cycles += clampSetupCycles + workCycles(4, 14, 10, 12, 19, 25);
+    }
+  } else {
+    const auto dataPathWidth = target.getDataPathWidth() / 8;
+    const auto fromLoadWidth = dataPathWidth / target.getTypeSize(fromType);
+    const auto toStoreWidth = dataPathWidth / target.getTypeSize(toType);
 
-  // We then get the number of cycles to calculate each of these vectors.
-  // NOTE: We don't use interleaved memory currently hence we don't utilise
-  // multiple read ports. We do assume we use separate memory elements for
-  // load/store to overlap loads/stores where possible.
-  const auto loadCyclesPerVector =
-      opVectorWidth / std::min(opVectorWidth, fromLoadWidth);
-  const auto storeCyclesPerVector =
-      opVectorWidth / std::min(opVectorWidth, toStoreWidth);
-  const auto cyclesPerVector =
-      std::max(loadCyclesPerVector, storeCyclesPerVector) +
-      !conversionIsAuxPipeline;
+    // We take a guess that the vector width possible for the op will be a
+    // function of the available load/store bandwidth and number
+    // of read/write ports. e.g. f32v2tof16 is 2 reads of 64-bit and 1 write
+    // of 64-bits and f16v2tof32, a 64-bit write is the bottleneck.
+    constexpr std::size_t readPorts = 2, writePorts = 1;
+    const bool conversionIsAuxPipeline =
+        (fromType == FLOAT || fromType == HALF) &&
+        (toType == FLOAT || toType == HALF);
 
-  // Prologue cycles based on Half_Float_core assuming alignment and enough
-  // elements to process.
-  cycles += 19;
-  // Cycles for processing vectors
-  cycles += cyclesPerVector * (numElems / opVectorWidth);
+    // If not aux pipeline (i.e. not floating point conversion) we give an
+    // innaccurate guess anyhow as we will be using C++ code to perform
+    // the conversion.
+    const auto opVectorWidth =
+        conversionIsAuxPipeline
+            ? std::min(fromLoadWidth * readPorts, toStoreWidth * writePorts)
+            : 1;
 
-  // Rough estimation of cycles for processing remainders. This should be
-  // relatively insignificant so rough is fine.
-  const auto remainingElems = numElems % opVectorWidth;
-  const auto maxRemainderBit = ceilLog2(opVectorWidth);
-  for (unsigned i = 0; i < maxRemainderBit; ++i) {
-    const auto remainder = (1u << i);
-    // Check the remainder. Conservative in that some paths will
-    // exit early.
-    cycles += 1;
-    if (remainingElems & remainder) {
-      // 2 cycles, 1 to convert and 1 to store assuming input is
-      // already loaded in memory from vector path.
-      cycles += 2;
+    // We then get the number of cycles to calculate each of these vectors.
+    // NOTE: We don't use interleaved memory currently hence we don't utilise
+    // multiple read ports. We do assume we use separate memory elements for
+    // load/store to overlap loads/stores where possible.
+    const auto loadCyclesPerVector =
+        opVectorWidth / std::min(opVectorWidth, fromLoadWidth);
+    const auto storeCyclesPerVector =
+        opVectorWidth / std::min(opVectorWidth, toStoreWidth);
+    const auto cyclesPerVector =
+        std::max(loadCyclesPerVector, storeCyclesPerVector) +
+        !conversionIsAuxPipeline;
+
+    // Prologue cycles based on Half_Float_core assuming alignment and enough
+    // elements to process.
+    cycles += 19;
+    // Cycles for processing vectors
+    cycles += cyclesPerVector * (numElems / opVectorWidth);
+
+    // Rough estimation of cycles for processing remainders. This should be
+    // relatively insignificant so rough is fine.
+    const auto remainingElems = numElems % opVectorWidth;
+    const auto maxRemainderBit = ceilLog2(opVectorWidth);
+    for (unsigned i = 0; i < maxRemainderBit; ++i) {
+      const auto remainder = (1u << i);
+      // Check the remainder. Conservative in that some paths will
+      // exit early.
+      cycles += 1;
+      if (remainingElems & remainder) {
+        // 2 cycles, 1 to convert and 1 to store assuming input is
+        // already loaded in memory from vector path.
+        cycles += 2;
+      }
     }
   }
   return cycles;
@@ -2775,7 +2829,19 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, INT),                         \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_INT),                \
       CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, UNSIGNED_SHORT),              \
-      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, BOOL)
+      CAST_CYCLE_ESTIM_ENTRIES_BY_SRC_TYPE(name, BOOL),                        \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, FLOAT, UNSIGNED_CHAR),               \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, FLOAT, SIGNED_CHAR),                 \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, FLOAT, CHAR),                        \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, UNSIGNED_CHAR),                \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, SIGNED_CHAR),                  \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, HALF, CHAR),                         \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, FLOAT),               \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, UNSIGNED_CHAR, HALF),                \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, FLOAT),                 \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, SIGNED_CHAR, HALF),                  \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, FLOAT),                        \
+      CYCLE_ESTIMATOR_ENTRY(popops, name, CHAR, HALF)
 
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   poplibs::PerfEstimatorTable table = {
