@@ -69,7 +69,7 @@ struct ValidateCtcPlanConstraintsOption {
     for (const auto &child : t) {
       if (child.first == "parallel") {
         const std::vector<std::string> validParallelConstraints{
-            "batch",           "time",     "label",
+            "batch",           "time",     "timePartitionsPerTile", "label",
             "sliceIntoOutput", "alphabet", "sliceFromInput"};
         validatePlanConstraints(child.first, child.second,
                                 validParallelConstraints);
@@ -131,6 +131,8 @@ std::ostream &operator<<(std::ostream &o, const Plan::Impl &p) {
   o << "  Parallel Partition:\n";
   o << "    batch                      " << p.parallel.batch << "\n";
   o << "    time                       " << p.parallel.time << "\n";
+  o << "    timePartitionsPerTile      " << p.parallel.timePartitionsPerTile
+    << "\n";
   o << "    label                      " << p.parallel.label << "\n";
   o << "    sliceIntoOutput            "
     << (p.parallel.sliceIntoOutput ? "true" : "false") << "\n";
@@ -208,6 +210,8 @@ CycleEstimate estimateCycles(const CtcParams &params,
   if ((partition.parallel.time & 1) == (partition.parallel.label & 1)) {
     // Represents the stall when both alpha and beta are
     // available to be computed at the same step
+    // TODO - If implementing a supervisor vertex, and mapping > 2 timesteps
+    // per tile the window in which the stall happens will widen.
     steps += 1;
   }
   assert((steps & 1) == 0); // Implicit from above logic
@@ -227,33 +231,34 @@ CycleEstimate estimateCycles(const CtcParams &params,
       serialVertexExecutionsPerStep * (steps / 2);
   const unsigned exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
 
-  auto maxLabelElementsPerTile =
+  auto maxLabelElementsPerPartition =
       poplibs_support::ceildiv(params.maxLabelLength, partition.parallel.label);
-  auto maxTimeElementsPerTile =
+  auto maxTimeElementsPerPartition =
       poplibs_support::ceildiv(params.maxTime, partition.parallel.time);
   // Computing alpha/beta
   uint64_t alphaBetaComputeCyclesPerStep =
-      std::max(
-          cache.mAlphaCycles(maxTimeElementsPerTile, maxLabelElementsPerTile),
-          cache.mBetaCycles(maxTimeElementsPerTile, maxLabelElementsPerTile)) *
+      std::max(cache.mAlphaCycles(maxTimeElementsPerPartition,
+                                  maxLabelElementsPerPartition),
+               cache.mBetaCycles(maxTimeElementsPerPartition,
+                                 maxLabelElementsPerPartition)) *
       numWorkers;
   uint64_t alphaBetaComputeCycles =
       alphaBetaComputeCyclesPerStep * alphaOrBetaSteps;
   // Computing gradient from alpha/beta
   uint64_t gradComputeCyclesPerStep =
-      std::max(cache.mGradGivenAlphaCycles(maxTimeElementsPerTile,
-                                           maxLabelElementsPerTile),
-               cache.mGradGivenBetaCycles(maxTimeElementsPerTile,
-                                          maxLabelElementsPerTile)) *
+      std::max(cache.mGradGivenAlphaCycles(maxTimeElementsPerPartition,
+                                           maxLabelElementsPerPartition),
+               cache.mGradGivenBetaCycles(maxTimeElementsPerPartition,
+                                          maxLabelElementsPerPartition)) *
       numWorkers;
   uint64_t gradComputeCycles =
       gradComputeCyclesPerStep * gradGivenAlphaOrBetaSteps;
   // Exchange cost is the same per step per alpha/beta/grad
   const auto elementsPerTilePerStep =
-      2 * maxTimeElementsPerTile // If we are splitting by label, we need to
-                                 // exchange two rows of t
-      + maxLabelElementsPerTile; // If we are splitting by t, we need to
-                                 // exchange a column of label
+      2 * maxTimeElementsPerPartition // If we are splitting by label, we need
+                                      // to exchange two rows of t
+      + maxLabelElementsPerPartition; // If we are splitting by t, we need to
+                                      // exchange a column of label
   const auto bytesPerTilePerStep =
       elementsPerTilePerStep * target.getTypeSize(params.inType);
 
@@ -301,6 +306,8 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
       poplibs_support::ceildiv(params.batchSize, partition.parallel.batch);
   const uint64_t timePerPartition =
       poplibs_support::ceildiv(params.maxTime, partition.parallel.time);
+  const uint64_t timePerTile =
+      timePerPartition * partition.parallel.timePartitionsPerTile;
   const uint64_t maxLabelLengthPerPartition =
       poplibs_support::ceildiv(params.maxLabelLength, partition.parallel.label);
   uint64_t maxExtendedLabelLengthPerPartition = maxLabelLengthPerPartition * 2;
@@ -320,7 +327,7 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
           "Plan::parallel::sliceFromInput = true is currently unsupported");
     } else {
       // We copy the entire alphabet to every tile
-      return batchPerPartition * timePerPartition * alphabetPerPartition *
+      return batchPerPartition * timePerTile * alphabetPerPartition *
              inTypeBytes;
     }
   }();
@@ -332,7 +339,7 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
   const uint64_t gradientPerTileBytes = [&]() {
     if (partition.parallel.sliceIntoOutput) {
       // We need a working copy of gradient per tile
-      return (batchPerPartition * timePerPartition * alphabetPerPartition) *
+      return (batchPerPartition * timePerTile * alphabetPerPartition) *
              partialsTypeBytes;
     } else {
       throw poputil::poplibs_error(
@@ -341,8 +348,7 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
   }();
 
   const uint64_t alphaBetaTempPerTileBytes =
-      (batchPerPartition * timePerPartition *
-       maxExtendedLabelLengthPerPartition) *
+      (batchPerPartition * timePerTile * maxExtendedLabelLengthPerPartition) *
       partialsTypeBytes;
 
   // For time splits:
@@ -357,11 +363,35 @@ MemoryEstimate estimateMaxTileTempMemory(const CtcParams &params,
   const uint64_t tempDependanciesPerTileBytes =
       batchPerPartition *
       ((1 + 2) * maxExtendedLabelLengthPerPartition + // For time splits
-       (1 + 2) * timePerPartition) // For extended label splits
+       (1 + 2) * timePerTile) // For extended label splits
       * partialsTypeBytes;
 
   return {dataPerTileBytes, labelsPerTileBytes, gradientPerTileBytes,
           alphaBetaTempPerTileBytes, tempDependanciesPerTileBytes};
+}
+
+// Explicitly check that no partitions are empty.  If they are there will
+// always be another plan that has the same cost. An example is:
+// There are 25 timesteps.  We partition by 16, stepsPerPartition=ceildiv(25,16)
+// which is 2.  So the 16 partitions contain 2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0
+// timeSteps.  So we don't really get what we thought we had, and a plan with
+// time partitioned into 13 will be implemented identically anyhow!
+//
+// The cost model ought to avoid this but it is not always clear exactly how
+// this is going to always be the case.
+bool checkForEmptyPartitions(const CtcParams &params,
+                             const Plan::Impl &partition) {
+  const auto timePartitionSize =
+      poplibs_support::ceildiv(params.maxTime, partition.parallel.time);
+  const bool lastTimePartitionEmpty =
+      params.maxTime <= (timePartitionSize * (partition.parallel.time - 1));
+
+  const auto labelPartitionSize =
+      poplibs_support::ceildiv(params.maxLabelLength, partition.parallel.label);
+  const bool lastLabelPartitionEmpty =
+      params.maxLabelLength <=
+      (labelPartitionSize * (partition.parallel.label - 1));
+  return lastTimePartitionEmpty || lastLabelPartitionEmpty;
 }
 
 // Returns tuple of {Cycle estimate, Max temp memory estimate, Tiles used}
@@ -399,28 +429,46 @@ constructModel(popsolver::Model &m, const CtcParams &params,
       m.addVariable(false, true, "parallelSliceFromInput");
   m.equal(vars.parallel.sliceFromInput, m.addConstant(false)); // Unsupported
 
-  auto totalParallelSplit =
-      m.product({vars.parallel.batch, vars.parallel.time, vars.parallel.label},
-                "totalParallelSplit");
+  vars.parallel.timePartitionsPerTile =
+      m.addVariable("parallelTimePartitionsPerTile");
+  m.lessOrEqual(m.one(), vars.parallel.timePartitionsPerTile);
+  m.lessOrEqual(vars.parallel.timePartitionsPerTile, vars.parallel.time);
+
+  // Simply constrain this, as coupled with parallel.time the two
+  // parameters expand the seach space and things get too slow.
+  // In effect parallel.time and parallel.timePartitionsPerTile
+  // are complementary so the number of tiles used is much more variable.
+  // In addition throttling the number of splits that are possible here
+  // means that plans that take a long time to constuct a graph for aren't
+  // generated.
+  // TODO - make this less arbitrary or find a better way to speed up.
+  //        We should consider this when changing graph construction to
+  //        use a runtime loop.
+  m.lessOrEqual(vars.parallel.timePartitionsPerTile, m.addConstant(32));
+  auto tilesForAllTimePartitions =
+      m.ceildiv(vars.parallel.time, vars.parallel.timePartitionsPerTile,
+                "tilesForAllTimePartitions");
+
+  auto totalTilesUsed = m.product(
+      {vars.parallel.batch, tilesForAllTimePartitions, vars.parallel.label},
+      "totalTilesUsed");
+
   auto totalTiles = m.addConstant(target.getNumTiles(), "totalTiles");
-  m.lessOrEqual(totalParallelSplit, totalTiles);
+  m.lessOrEqual(totalTilesUsed, totalTiles);
 
   const std::vector<popsolver::Variable> planArray{
-      vars.serial.batch,
-      vars.serial.time,
-      vars.serial.label,
-      vars.parallel.batch,
-      vars.parallel.time,
-      vars.parallel.label,
-      vars.parallel.sliceIntoOutput,
-      vars.parallel.alphabet,
-      vars.parallel.sliceFromInput};
+      vars.serial.batch,      vars.serial.time,
+      vars.serial.label,      vars.parallel.batch,
+      vars.parallel.time,     vars.parallel.timePartitionsPerTile,
+      vars.parallel.label,    vars.parallel.sliceIntoOutput,
+      vars.parallel.alphabet, vars.parallel.sliceFromInput};
 
   const auto toPlanStruct =
       [](const std::vector<unsigned> &values) -> Plan::Impl {
     return {{values[0], values[1], values[2]},
-            {values[3], values[4], values[5], static_cast<bool>(values[6]),
-             values[7], static_cast<bool>(values[8])}};
+            {values[3], values[4], values[5], values[6],
+             static_cast<bool>(values[7]), values[8],
+             static_cast<bool>(values[9])}};
   };
 
   auto cycles = m.call<unsigned>(
@@ -447,7 +495,16 @@ constructModel(popsolver::Model &m, const CtcParams &params,
       maxTileTempMemory,
       m.addConstant(opts.availableMemoryProportion * target.getBytesPerTile()));
 
-  return {cycles, maxTileTempMemory, totalTiles};
+  auto emptyPartitions = m.call<unsigned>(
+      planArray,
+      [&params, &toPlanStruct](const std::vector<unsigned> &values)
+          -> boost::optional<popsolver::DataType> {
+        const Plan::Impl plan = toPlanStruct(values);
+        return popsolver::DataType{checkForEmptyPartitions(params, plan)};
+      });
+  m.equal(emptyPartitions, m.zero());
+
+  return {cycles, maxTileTempMemory, totalTilesUsed};
 }
 
 static void
@@ -465,6 +522,8 @@ applyPlanConstraints(popsolver::Model &m,
 
   constrainUnsignedVar("parallel.batch", vars.parallel.batch);
   constrainUnsignedVar("parallel.time", vars.parallel.time);
+  constrainUnsignedVar("parallel.timePartitionsPerTile",
+                       vars.parallel.timePartitionsPerTile);
   constrainUnsignedVar("parallel.label", vars.parallel.label);
   constrainUnsignedVar("parallel.sliceIntoOutput",
                        vars.parallel.sliceIntoOutput);
@@ -485,6 +544,8 @@ static Plan::Impl planFromSolution(const popsolver::Solution &solution,
   plan.serial.label = solution[vars.serial.label].getAs<unsigned>();
   plan.parallel.batch = solution[vars.parallel.batch].getAs<unsigned>();
   plan.parallel.time = solution[vars.parallel.time].getAs<unsigned>();
+  plan.parallel.timePartitionsPerTile =
+      solution[vars.parallel.timePartitionsPerTile].getAs<unsigned>();
   plan.parallel.label = solution[vars.parallel.label].getAs<unsigned>();
   plan.parallel.sliceIntoOutput =
       solution[vars.parallel.sliceIntoOutput].getAs<bool>();
@@ -547,6 +608,8 @@ template <> poplar::ProfileValue toProfileValue(const popnn::ctc::Plan &p) {
   v.insert({"serial.label", toProfileValue(p.impl->serial.label)});
   v.insert({"parallel.batch", toProfileValue(p.impl->parallel.batch)});
   v.insert({"parallel.time", toProfileValue(p.impl->parallel.time)});
+  v.insert({"parallel.timePartitionsPerTile",
+            toProfileValue(p.impl->parallel.timePartitionsPerTile)});
   v.insert({"parallel.label", toProfileValue(p.impl->parallel.label)});
   v.insert({"parallel.sliceIntoOutput",
             toProfileValue(p.impl->parallel.sliceIntoOutput)});

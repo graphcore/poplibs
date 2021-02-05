@@ -69,13 +69,13 @@ template <typename T, typename B> struct ParallelPartition {
   // Below we describe splitting each dimension on its own, but the two can be
   // combined.
 
-  // The number of tiles the time dimension is split over
+  // The number of partitions the time dimension is split into
   //
   // Suppose the amount of data and therefore work is the same in each case and
   // has a time `t` to calculate all of alpha, `t` to calculate all of beta
   // Splitting by 2 allows for parallel calculation of alpha, beta (with
   // exchange of alpha[El] and beta[El] elements).
-  // Continuing this logic:
+  // Continuing this logic, and describing one partition per tile
   // 1 tile : T0: alpha  (t)
   //          T0: beta   (t) Total: 2t
   // 2 tiles: T0: alpha  T1: beta (t/2)
@@ -91,7 +91,22 @@ template <typename T, typename B> struct ParallelPartition {
   // As the number of tiles increases (and is even) the pattern will follow that
   // of 4 tiles, but with more idle tiles.  Likewise odd and 3 tiles - where
   // one has to process alpha then beta while all others sit idle.
+  //
+  // As per the example above we have idle tiles, so the chosen partition
+  // could be mapped onto fewer tiles with no speed penalty.  Memory use will
+  // increase however.  The 4 partition 4 tile example becomes 2 tiles, but
+  // still 4 partitions.
+  // 2 tiles: P0: alpha  P1: idle  P2: idle P3: beta (t/4)
+  //          P0: idle   P1: alpha P2: beta P3: idle (t/4)
+  //          P0: idle   P1: grad  P2: grad P3: alpha (t/4)
+  //          P0: grad   P1: idle  P2: idle P3: grad (t/4)
+  //         ^___________________^ ^______________________^
+  //               Tile 0                  Tile 1
+  // As partition P0,P1 are never active together and similarly P2,P3 there is
+  // no speed cost to mapping them to the same time.  This method extends
+  // to cases where partitions are made in both time and label
   T time;
+  T timePartitionsPerTile;
 
   // The number of tiles the labels (equivalent to El) dimension is split over.
   // Each tile produces the results for a number of the labels results
@@ -235,13 +250,19 @@ public:
   }
 
   unsigned getTile(unsigned batch, unsigned time, unsigned label) const {
-    return batch * (parallel.time * parallel.label) // Batch
-           + time * parallel.label                  // Time
-           + label;                                 // Label
+    const unsigned tileForTimePartition = time / parallel.timePartitionsPerTile;
+    const unsigned tilesForAllTimePartitions =
+        poplibs_support::ceildiv(parallel.time, parallel.timePartitionsPerTile);
+    return batch * (tilesForAllTimePartitions * parallel.label) // Batch
+           + tileForTimePartition * parallel.label              // Time
+           + label;                                             // Label
   }
 
   unsigned numTiles() const {
-    return parallel.batch * parallel.time * parallel.label;
+    const unsigned tilesForAllTimePartitions =
+        poplibs_support::ceildiv(parallel.time, parallel.timePartitionsPerTile);
+
+    return parallel.batch * tilesForAllTimePartitions * parallel.label;
   }
 };
 
