@@ -584,6 +584,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                                 --partials-type=${PARTIALS_TYPE}
                                 --accumulators-type=${PARTIALS_TYPE}
                                 --cell-order=${CELL_ORDER}
+                                --shards=1
                                 VARIANTS ${TimesOutOnSim}
                                 LABELS lstm)
         endforeach()
@@ -602,6 +603,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --partials-type=${PARTIALS_TYPE}
                         --accumulators-type=${PARTIALS_TYPE}
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
         endforeach()
@@ -617,6 +619,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --phase all
                         --data-type=float
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
 
@@ -631,6 +634,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --phase fwd
                         --data-type=float
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
 
@@ -645,6 +649,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --phase bwd
                         --data-type=float
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
 
@@ -659,6 +664,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --phase wu
                         --data-type=float
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
 
@@ -676,6 +682,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --partials-type=${PARTIALS_TYPE}
                         --accumulators-type=${PARTIALS_TYPE}
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
         endforeach()
@@ -694,6 +701,7 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
                         --partials-type=${PARTIALS_TYPE}
                         --accumulators-type=${PARTIALS_TYPE}
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim}
                         LABELS lstm)
         endforeach()
@@ -711,6 +719,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
                         --reset-after=false
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -725,6 +734,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --data-type=float
                         --cell-order=${CELL_ORDER}
                         --reset-after=false
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -739,6 +749,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --data-type=float
                         --cell-order=${CELL_ORDER}
                         --reset-after=false
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -753,6 +764,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --runs 2
                         --cell-order=${CELL_ORDER}
                         --reset-after=false
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -767,6 +779,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --data-type=float
                         --cell-order=${CELL_ORDER}
                         --reset-after=true
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -780,6 +793,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase all
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -793,6 +807,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase all
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -807,6 +822,7 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase all
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
 
         add_multitarget_test(
@@ -821,7 +837,73 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --phase all
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
+                        --shards=1
                         VARIANTS ${TimesOutOnSim})
+endforeach()
+
+# Sharding tests
+foreach(NUM_SHARDS 3 5)
+        foreach(PARTIALS_TYPE half float)
+
+                # Test LSTM sharding
+                foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
+                        foreach(PRE_WEIGHT_INPUT 0 1)
+                                add_multitarget_test(
+                                        NAME lstm_16x2x32_seq_601_shards_${NUM_SHARDS}_partials_${PARTIALS_TYPE}_order_${CELL_ORDER}_pre_weight_${PRE_WEIGHT_INPUT}
+                                        COMMAND lstm_layer
+                                                --input-size 16
+                                                --batch-size=2
+                                                --output-size 32
+                                                --pre-weight-input=${PRE_WEIGHT_INPUT}
+                                                --tiles-per-ipu=20
+                                                --phase all
+                                                --sequence-size 601
+                                                --partials-type=${PARTIALS_TYPE}
+                                                --accumulators-type=${PARTIALS_TYPE}
+                                                --cell-order=${CELL_ORDER}
+                                                --shards=${NUM_SHARDS}
+                                                VARIANTS "Hw")
+                        endforeach()
+                endforeach()
+
+                # Test GRU sharding
+                foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
+                        add_multitarget_test(
+                                NAME gru_16x2x32_seq_200_shards_${NUM_SHARDS}_data_${PARTIALS_TYPE}_order_${CELL_ORDER}
+                                COMMAND gru_layer
+                                        --input-size 16
+                                        --batch-size=2
+                                        --output-size 8
+                                        --tiles-per-ipu=20
+                                        --phase all
+                                        --data-type=${PARTIALS_TYPE}
+                                        --sequence-size 200
+                                        --cell-order=${CELL_ORDER}
+                                        --reset-after=false
+                                        --shards=${NUM_SHARDS}
+                                        VARIANTS "Hw")
+
+                        foreach(ATTENTION false true)
+                                foreach(REAL_TIME_STEPS false true)
+                                        add_multitarget_test(
+                                                NAME augru_16x2x32_seq_102_shards_${NUM_SHARDS}_attention_${ATTENTION}_real_time_steps_${REAL_TIME_STEPS}_data_${PARTIALS_TYPE}_order_${CELL_ORDER}
+                                                COMMAND gru_layer
+                                                        --input-size 16
+                                                        --batch-size=2
+                                                        --with-attention ${ATTENTION}
+                                                        --with-real-time-steps ${REAL_TIME_STEPS}
+                                                        --output-size 8
+                                                        --tiles-per-ipu=20
+                                                        --phase all
+                                                        --data-type=${PARTIALS_TYPE}
+                                                        --sequence-size 102
+                                                        --cell-order=${CELL_ORDER}
+                                                        --shards=${NUM_SHARDS}
+                                                        VARIANTS "Hw")
+                                endforeach()
+                        endforeach()
+                endforeach()
+        endforeach()
 endforeach()
 
 add_unit_test(NormStatisticsTest
