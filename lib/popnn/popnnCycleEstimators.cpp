@@ -635,32 +635,36 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCAlpha)(
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return {alphaCycles(maxT, label.size()),
-          alphaFlops(maxT, label.size(), outType)};
+  // Label contains the previous symbol as a dependency, not an extra result
+  return {alphaCycles(maxT, label.size() - 1),
+          alphaFlops(maxT, label.size() - 1, outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return {betaCycles(maxT, label.size()),
-          betaFlops(maxT, label.size(), outType)};
+  // Label contains the previous symbol as a dependency, not an extra result
+  return {betaCycles(maxT, label.size() - 1),
+          betaFlops(maxT, label.size() - 1, outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return {gradGivenAlphaCycles(maxT, label.size()),
-          gradGivenAlphaFlops(maxT, label.size(), outType)};
+  // Label contains the previous symbol as a dependency, not an extra result
+  return {gradGivenAlphaCycles(maxT, label.size() - 1),
+          gradGivenAlphaFlops(maxT, label.size() - 1, outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
-  return {gradGivenBetaCycles(maxT, label.size()),
-          gradGivenBetaFlops(maxT, label.size(), outType)};
+  // Label contains the previous symbol as a dependency, not an extra result
+  return {gradGivenBetaCycles(maxT, label.size() - 1),
+          gradGivenBetaFlops(maxT, label.size() - 1, outType)};
 }
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {

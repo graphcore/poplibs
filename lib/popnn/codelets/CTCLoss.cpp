@@ -50,13 +50,12 @@ public:
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
   // Although the last `-` is only processed in one vertex when `label` is split
   // between vertices
-  Input<Vector<SymbolType>> label; // [maxLabel]
-  Input<SymbolType> prevSymbol;
+  Input<Vector<SymbolType>> label;                // [previous1 + maxLabel]
   Input<Vector<InType, ONE_PTR>> probabilities;   // [maxT,numClasses]
   Output<Vector<OutType, ONE_PTR>> alphas;        // [maxT][extendedLabel]
   Input<Vector<OutType, ONE_PTR>> alphaPrevTime;  // [extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> alphaPrevLabel; // [maxT]
-  // This vertex processes a labelSlice with size[label.size()] starting at
+  // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
   Input<unsigned short> validLabel;
@@ -83,10 +82,11 @@ public:
     if (validLabel < labelOffset || validTime <= timeOffset) {
       return true;
     }
-    const auto labelLength = clamp(validLabel, labelOffset, label.size());
+    const auto maxLabel = label.size() - 1;
+    const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
-    bool doLastBlank = labelLength != label.size() || isLastLabel;
-    const auto extendedLabel = label.size() * 2 + isLastLabel;
+    bool doLastBlank = labelLength != maxLabel || isLastLabel;
+    const auto extendedLabel = maxLabel * 2 + isLastLabel;
     // First time round reference the "previous alpha" which could be carried
     // from another vertex, or if starting up [0,-inf,-inf,...]
     auto alphaM1 = &alphaPrevTime[0];
@@ -98,38 +98,32 @@ public:
         alphaM1 = &alphas[extendedLabel * (t - 1)];
       }
       // 1st symbol takes its parents from the alphaPrevLabel input.
+      auto alphaPrevLabelValue = alphaPrevLabel[t];
       const auto blank = static_cast<OutType>(probability[blankClass]);
-      // 1st blank.  Can't skip the symbol before it so combine 2 probabilities
-      alpha[0] = logMul(logAdd(alphaM1[0], alphaPrevLabel[t]), blank);
       if (!labelLength) {
-        // Although we need to process the blank above this (as it could be the
-        // "last blank" there is no part of the label to process so continue
-        // (not break)
+        // 1st blank. Can't skip the symbol before it so combine 2 probabilities
+        alpha[0] = logMul(logAdd(alphaM1[0], alphaPrevLabelValue), blank);
+        // That was the "last blank", there is no part of the label to process
+        // so continue (not break)
         continue;
       }
-      // First symbol. Can skip the blank before it if the previous symbol is
-      // different
-      auto sum = logAdd(alphaM1[0], alphaM1[1]);
-      if (label[0] != prevSymbol) {
-        sum = logAdd(sum, alphaPrevLabel[t]);
-      }
-      alpha[1] = logMul(sum, static_cast<OutType>(probability[label[0]]));
       // Each loop outputs the result for the symbol and a blank, and consumes 1
       // index from the label[] input.
-      unsigned idx = 2;
-      for (unsigned symbol = 1; symbol < labelLength; symbol++) {
+      unsigned idx = 0;
+      for (unsigned symbol = 1; symbol < labelLength + 1; symbol++) {
         // The blank entry, therefore preceded by a symbol which cannot be
         // skipped So always combine only 2 probabilities
-        alpha[idx] = logMul(logAdd(alphaM1[idx - 1], alphaM1[idx]), blank);
+        alpha[idx] = logMul(logAdd(alphaPrevLabelValue, alphaM1[idx]), blank);
         // Next the non-blank entry, therefore preceded by a blank which can
         // be skipped if the symbol before it is different to this one
         idx++;
         auto sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
         if (label[symbol] != label[symbol - 1]) {
-          sum = logAdd(sum, alphaM1[idx - 2]);
+          sum = logAdd(sum, alphaPrevLabelValue);
         }
         alpha[idx] =
             logMul(sum, static_cast<OutType>(probability[label[symbol]]));
+        alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
         idx++;
       }
       if (doLastBlank) {
@@ -162,13 +156,12 @@ public:
   CTCBeta();
   // Label, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> label; // [maxLabel]
-  Input<SymbolType> prevSymbol;
+  Input<Vector<SymbolType>> label;               // [maxLabel, next1]
   Input<Vector<InType, ONE_PTR>> probabilities;  // [maxT,numClasses]
   Output<Vector<OutType, ONE_PTR>> betas;        // [maxT,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> betaPrevTime;  // [extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [maxT,2]
-  // This vertex processes a labelSlice with size[label.size()] starting at
+  // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
   Input<unsigned short> validLabel;
@@ -189,7 +182,8 @@ public:
     if (validLabel < labelOffset) {
       return true;
     }
-    const auto extendedLabel = label.size() * 2 + isFirstLabel;
+    const auto maxLabel = label.size() - 1;
+    const auto extendedLabel = maxLabel * 2 + isFirstLabel;
     if (validTime <= timeOffset) {
       // There is nothing to do, but propogate beta for the next vertex call
       // (Write the 1st beta timeslice)
@@ -198,9 +192,9 @@ public:
       }
       return true;
     }
-    const auto labelLength = clamp(validLabel, labelOffset, label.size());
+    const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
-    bool doLastBlank = labelLength != label.size() || isFirstLabel;
+    bool doLastBlank = labelLength != maxLabel || isFirstLabel;
     bool isLastLabel = (labelLength + labelOffset) == validLabel;
     bool doLastTimeStep = (timeSteps + timeOffset) == validTime;
     if (doLastTimeStep) {
@@ -278,8 +272,7 @@ public:
         // uses the probabilty of the previous blank, and conditionally that of
         // the previous symbol.
         auto sum = logAdd(betaP1[idx], betaPrevLabel[2 * (t - 1)]);
-        beta[idx] = logMul(sum, prob);
-        if (lastSymbol != prevSymbol) {
+        if (lastSymbol != label[maxLabel]) {
           sum = logAdd(sum, betaPrevLabel[1 + 2 * (t - 1)]);
         }
         beta[idx] = logMul(sum, prob);
@@ -309,14 +302,13 @@ public:
   CTCGradGivenAlpha();
   // Label, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> label; // [maxLabel]
-  Input<SymbolType> prevSymbol;
+  Input<Vector<SymbolType>> label;               // [maxLabel, next1]
   Input<Vector<InType, ONE_PTR>> probabilities;  // [maxT,numClasses]
   Input<Vector<OutType, ONE_PTR>> alphas;        // [maxT,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> betaPrevTime;  // [2,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> betaPrevLabel; // [maxT,2]
   InOut<Vector<OutType, ONE_PTR>> grads;         // [maxT,numClasses]
-  // This vertex processes a labelSlice with size[label.size()] starting at
+  // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
   Input<unsigned short> validLabel;
@@ -337,10 +329,11 @@ public:
     if (validLabel < labelOffset || validTime <= timeOffset) {
       return true;
     }
-    const auto extendedLabel = label.size() * 2 + isFirstLabel;
-    const auto labelLength = clamp(validLabel, labelOffset, label.size());
+    const auto maxLabel = label.size() - 1;
+    const auto extendedLabel = maxLabel * 2 + isFirstLabel;
+    const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
-    bool doLastBlank = labelLength != label.size() || isFirstLabel;
+    bool doLastBlank = labelLength != maxLabel || isFirstLabel;
     bool isLastLabel = (labelLength + labelOffset) == validLabel;
     bool doLastTimeStep = (timeSteps + timeOffset) == validTime;
     if (doLastTimeStep) {
@@ -442,7 +435,7 @@ public:
         // uses the probabilty of the previous blank, and conditionally that of
         // the previous symbol.
         auto sum = logAdd(betaP1[idx], betaPrevLabel[2 * (t - 1)]);
-        if (lastSymbol != prevSymbol) {
+        if (lastSymbol != label[maxLabel]) {
           sum = logAdd(sum, betaPrevLabel[1 + 2 * (t - 1)]);
         }
         beta[idx] = logMul(sum, prob);
@@ -475,14 +468,13 @@ public:
   CTCGradGivenBeta();
   // Label, not padded with blanks, this is done implicitly in the code.
   // Eg this contains abcbb  and the code processes -a-b-c-b-b-
-  Input<Vector<SymbolType>> label; // [maxLabel]
-  Input<SymbolType> prevSymbol;
+  Input<Vector<SymbolType>> label;                // [previous1 + maxLabel]
   Input<Vector<InType, ONE_PTR>> probabilities;   // [maxT,numClasses]
   Input<Vector<OutType, ONE_PTR>> betas;          // [maxT,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> alphaPrevTime;  // [2,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> alphaPrevLabel; // [maxT]
   InOut<Vector<OutType, ONE_PTR>> grads;          // [maxT,numClasses]
-  // This vertex processes a labelSlice with size[label.size()] starting at
+  // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
   Input<unsigned short> validLabel;
@@ -503,10 +495,11 @@ public:
     if (validLabel < labelOffset || validTime <= timeOffset) {
       return true;
     }
-    const auto labelLength = clamp(validLabel, labelOffset, label.size());
+    const auto maxLabel = label.size() - 1;
+    const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
-    const auto extendedLabel = label.size() * 2 + isLastLabel;
-    bool doLastBlank = labelLength != label.size() || isLastLabel;
+    const auto extendedLabel = maxLabel * 2 + isLastLabel;
+    bool doLastBlank = labelLength != maxLabel || isLastLabel;
     unsigned oldIdx = 0;
 
     for (unsigned t = 0; t < timeSteps; t++) {
@@ -517,35 +510,26 @@ public:
       auto alpha = &alphaPrevTime[oldIdx ^ extendedLabel];
       auto alphaM1 = &alphaPrevTime[oldIdx];
       // 1st symbol takes its parents from the alphaPrevLabel input.
+      auto alphaPrevLabelValue = alphaPrevLabel[t];
       const auto blank = static_cast<OutType>(probability[blankClass]);
-      // 1st blank.  Can't skip the symbol before it so combine 2 probabilities
-      auto sum = logAdd(alphaM1[0], alphaPrevLabel[t]);
-      alpha[0] = logMul(sum, blank);
-      grad[blankClass] = logAdd(logMul(sum, beta[0]), grad[blankClass]);
       if (!labelLength) {
-        // Although we need to process the blank above this (as it could be the
-        // "last blank" there is no part of label to process so continue
-        // (not break)
+        // 1st blank. Can't skip the symbol before it so combine 2 probabilities
+        auto sum = logAdd(alphaM1[0], alphaPrevLabelValue);
+        alpha[0] = logMul(sum, blank);
+        grad[blankClass] = logAdd(logMul(sum, beta[0]), grad[blankClass]);
+        // That was the "last blank", there is no part of the label to process
+        // so continue (not break)
         // Swap new <-> old in the alphaPrevTime buffer
         oldIdx = oldIdx ^ extendedLabel;
         continue;
       }
-      // First symbol. Can skip the blank before it if the previous symbol is
-      // different
-      sum = logAdd(alphaM1[0], alphaM1[1]);
-      if (label[0] != prevSymbol) {
-        sum = logAdd(sum, alphaPrevLabel[t]);
-      }
-      alpha[1] = logMul(sum, static_cast<OutType>(probability[label[0]]));
-      grad[label[0]] = logAdd(logMul(sum, beta[1]), grad[label[0]]);
-
       // Each loop outputs the result for the symbol and a blank, and consumes 1
       // index from the labels[] input.
-      unsigned idx = 2;
-      for (unsigned symbol = 1; symbol < labelLength; symbol++) {
+      unsigned idx = 0;
+      for (unsigned symbol = 1; symbol < labelLength + 1; symbol++) {
         // The blank entry, therefore preceded by a symbol which cannot be
         // skipped So always combine only 2 probabilities
-        auto sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
+        auto sum = logAdd(alphaPrevLabelValue, alphaM1[idx]);
         grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
         alpha[idx] = logMul(sum, blank);
         // Next the non-blank entry, therefore preceded by a blank which can
@@ -553,19 +537,20 @@ public:
         idx++;
         sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
         if (label[symbol] != label[symbol - 1]) {
-          sum = logAdd(sum, alphaM1[idx - 2]);
+          sum = logAdd(sum, alphaPrevLabelValue);
         }
         grad[label[symbol]] =
             logAdd(logMul(sum, beta[idx]), grad[label[symbol]]);
         alpha[idx] =
             logMul(sum, static_cast<OutType>(probability[label[symbol]]));
+        alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
         idx++;
       }
       // The final blank entry, therefore preceded by a symbol which cannot be
       // skipped. So always combine only 2 probabilities. Last blank in a
       // sequence
       if (doLastBlank) {
-        sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
+        auto sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
         alpha[idx] = logMul(sum, blank);
         grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
       }

@@ -296,15 +296,6 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   }
   auto vertex = graph.addVertex(cs, vertexName);
 
-  graph.setInitialValue(vertex["maxT"], maxT);
-  graph.setInitialValue(vertex["numClasses"], numClasses);
-  graph.setInitialValue(vertex["blankClass"], blankClass);
-  graph.setInitialValue(vertex["labelOffset"], 0);
-  graph.setInitialValue(vertex["timeOffset"], 0);
-  graph.connect(vertex["label"], labels);
-  graph.connect(vertex["prevSymbol"], prevSymbol);
-  graph.connect(vertex["probabilities"], probabilities.flatten());
-
   // TODO - Vertex features to support < maxT and < labelsLen sized
   // inputs, and accepting data from the previous label inputs
   // are only tested in the context of the whole IPU implementation.
@@ -315,6 +306,18 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   graph.setTileMapping(validTime, 0);
   graph.connect(vertex["validLabel"], validLabel);
   graph.connect(vertex["validTime"], validTime);
+
+  graph.setInitialValue(vertex["maxT"], maxT);
+  graph.setInitialValue(vertex["numClasses"], numClasses);
+  graph.setInitialValue(vertex["blankClass"], blankClass);
+  graph.setInitialValue(vertex["labelOffset"], 0);
+  graph.setInitialValue(vertex["timeOffset"], 0);
+
+  auto labelWithPreviousOrNext = findingAlpha
+                                     ? concat(prevSymbol.reshape({1}), labels)
+                                     : concat(labels, prevSymbol.reshape({1}));
+  graph.connect(vertex["label"], labelWithPreviousOrNext);
+  graph.connect(vertex["probabilities"], probabilities.flatten());
 
   if (vertexToTest == TestType::ALPHA) {
     graph.connect(vertex["alphas"], result.flatten());

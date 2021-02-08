@@ -31,39 +31,28 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
                     const Tensor &tempLabelAlphaOrBeta,
                     const Tensor &alphaOrBeta, boost::optional<Tensor &> grad,
                     ComputeSet &cs, unsigned tile, VertexType vertexType,
-                    unsigned batch, const Interval &timePartition,
-                    unsigned label, const Interval &labelPartition,
+                    unsigned batch, unsigned time,
+                    const Interval &timePartition, unsigned label,
                     const Interval &exLabelPartition, unsigned labelOffset,
                     unsigned timeOffset, bool processExtraBlank,
                     unsigned blankClass) {
 
   const auto numClasses = data.dim(3);
-  Slice<2> beginLabels = {batch, labelPartition.begin()};
-  Slice<2> endLabels = {batch + 1, labelPartition.end()};
-  auto tileLabel = labels.slice(beginLabels, endLabels);
-  auto tileValidLabel = validLabel.slice(batch, batch + 1);
-  auto tileValidTime = validTime.slice(batch, batch + 1);
+  auto tileValidLabel = validLabel[batch][time][label];
+  auto tileValidTime = validTime[batch][time][label];
 
+  // The labels input tensor contains a section of label: prev,a,b,c,...,next
+  // This vertex is responsible for the results for a,b,c.... but when finding
+  // alpha there is a dependency on prev - so attach the vertex to prev,a,b,c,..
+  // for beta there is a dependency on next = so attach a,b,c,...next
   auto isAlpha = vertexType == VertexType::ALPHA ||
                  vertexType == VertexType::GRAD_GIVEN_BETA;
-  Tensor prevSymbol;
-  if (isAlpha) {
-    if (label == 0) {
-      prevSymbol = tileLabel.flatten()[0];
-    } else {
-      Slice<2> beginLabels = {batch, labelPartition.begin() - 1};
-      Slice<2> endLabels = {batch + 1, labelPartition.begin()};
-      prevSymbol = labels.slice(beginLabels, endLabels);
-    }
-  } else {
-    if (processExtraBlank) {
-      prevSymbol = tileLabel.flatten()[tileLabel.numElements() - 1];
-    } else {
-      Slice<2> beginLabels = {batch, labelPartition.end()};
-      Slice<2> endLabels = {batch + 1, labelPartition.end() + 1};
-      prevSymbol = labels.slice(beginLabels, endLabels);
-    }
-  }
+  unsigned startOffset = isAlpha ? 0 : 1;
+  unsigned endOffset = isAlpha ? 1 : 0;
+  auto tileLabel =
+      labels.slice({batch, time, label, startOffset},
+                   {batch + 1, time + 1, label + 1, labels.dim(3) - endOffset});
+
   Slice<4> beginData = {label, timePartition.begin(), batch, 0};
   Slice<4> endData = {label + 1, timePartition.end(), batch + 1, numClasses};
   auto tileData = data.slice(beginData, endData);
@@ -115,24 +104,20 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
     graph.connect(v["alphas"], tileAlphaOrBeta.flatten());
     graph.connect(v["alphaPrevTime"], tempTimeAlphaOrBeta.flatten());
     graph.connect(v["alphaPrevLabel"], tempLabelAlphaOrBeta.flatten());
-    graph.connect(v["prevSymbol"], prevSymbol.reshape({}));
   } else if (vertexType == VertexType::BETA) {
     graph.connect(v["betas"], tileAlphaOrBeta.flatten());
     graph.connect(v["betaPrevTime"], tempTimeAlphaOrBeta.flatten());
     graph.connect(v["betaPrevLabel"], tempLabelAlphaOrBeta.flatten());
-    graph.connect(v["prevSymbol"], prevSymbol.reshape({}));
   } else if (vertexType == VertexType::GRAD_GIVEN_ALPHA) {
     graph.connect(v["grads"], grad.get().slice(beginGrad, endGrad).flatten());
     graph.connect(v["betaPrevTime"], tempTimeAlphaOrBeta.flatten());
     graph.connect(v["betaPrevLabel"], tempLabelAlphaOrBeta.flatten());
     graph.connect(v["alphas"], tileAlphaOrBeta.flatten());
-    graph.connect(v["prevSymbol"], prevSymbol.reshape({}));
   } else if (vertexType == VertexType::GRAD_GIVEN_BETA) {
     graph.connect(v["grads"], grad.get().slice(beginGrad, endGrad).flatten());
     graph.connect(v["alphaPrevTime"], tempTimeAlphaOrBeta.flatten());
     graph.connect(v["alphaPrevLabel"], tempLabelAlphaOrBeta.flatten());
     graph.connect(v["betas"], tileAlphaOrBeta.flatten());
-    graph.connect(v["prevSymbol"], prevSymbol.reshape({}));
   }
 }
 
@@ -282,6 +267,99 @@ void mapLabelsAccordingToPlan(Graph &graph, const Tensor &tensor,
     }
   }
 }
+// Broadcast and explicitly copy the label lengths or data lengths tensors.
+// Map to the tile where they are used to avoid any exchange between
+// compute steps.
+Tensor createTempLengths(Graph &graph, const Tensor &input,
+                         const popnn::ctc::Plan::Impl &plan, Sequence &prog,
+                         const poplar::DebugContext &di) {
+
+  const auto tilesForAllTimePartitions = plan.parallel.time;
+  const auto batchSize = input.dim(0);
+  auto result = graph.addVariable(
+      input.elementType(), {batchSize, plan.parallel.time, plan.parallel.label},
+      {di});
+
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned label = 0; label < plan.parallel.label; label++) {
+      for (unsigned time = 0; time < tilesForAllTimePartitions; time++) {
+        auto tile = plan.getTile(batch, time, label);
+        auto b = plan.partitionBatch(batchSize, batch);
+        graph.setTileMapping(result.slice({b.begin(), time, label},
+                                          {b.end(), time + 1, label + 1}),
+                             tile);
+      }
+    }
+  }
+  auto inReshape = input.reshape({batchSize, 1, 1});
+  inReshape = inReshape.broadcast(plan.parallel.time, 1);
+  inReshape = inReshape.broadcast(plan.parallel.label, 2);
+  prog.add(Copy(inReshape, result));
+
+  return result;
+}
+
+// Broadcast the labels tensor and copy into place on tiles.  Each tile's
+// vertices require  a window of [previousSymbol, sym0, sym1, ... , nextSymbol]
+// Where it actually only processes [sym0, sym1, ...] but relies on the
+// value of the previous/next symbol to determine dependencies.
+// Each tile used over the time dimension needs a copy of this tensor to avoid
+// exchange per compute step.
+Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
+                                 const popnn::ctc::Plan::Impl &plan,
+                                 Sequence &prog,
+                                 const poplar::DebugContext &di) {
+
+  const auto batchSize = labels.dim(0);
+  const auto maxLabelLength = labels.dim(1);
+  // Maximum partition of label + previous and next symbols
+  const auto perTileLength = 2 + plan.partitionLabel(maxLabelLength, 0).size();
+  const auto tilesForAllTimePartitions = plan.parallel.time;
+
+  auto broadcastLabels =
+      graph.addVariable(labels.elementType(),
+                        {batchSize, tilesForAllTimePartitions,
+                         plan.parallel.label, perTileLength},
+                        {di});
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned label = 0; label < plan.parallel.label; label++) {
+      for (unsigned time = 0; time < tilesForAllTimePartitions; time++) {
+        auto tile = plan.getTile(batch, time, label);
+        auto b = plan.partitionBatch(batchSize, batch);
+        graph.setTileMapping(broadcastLabels.slice(
+                                 {b.begin(), time, label, 0},
+                                 {b.end(), time + 1, label + 1, perTileLength}),
+                             tile);
+      }
+    }
+  }
+  for (unsigned label = 0; label < plan.parallel.label; label++) {
+    auto l = plan.partitionLabel(maxLabelLength, label);
+    // The broadcast destination slice to copy into.  Note that l.size()+2
+    // is not always equal to perTileLength in the case of uneven partitions
+    // in the label dimension.
+    Slice<4> beginOut = {0, 0, label, 0};
+    Slice<4> endOut = {batchSize, tilesForAllTimePartitions, label + 1,
+                       l.size() + 2};
+
+    unsigned startOffset = label == 0 ? 0u : 1u;
+    unsigned endOffset = (label == plan.parallel.label - 1) ? 0u : 1u;
+    Slice<2> beginIn = {0, l.begin() - startOffset};
+    Slice<2> endIn = {batchSize, l.end() + endOffset};
+
+    auto previous = labels.slice({0, 0}, {batchSize, 1 - startOffset});
+    auto next = labels.slice({0, maxLabelLength - 2 + endOffset},
+                             {batchSize, maxLabelLength - 1});
+    auto oneSlice =
+        concat(concat(previous, labels.slice(beginIn, endIn), 1), next, 1)
+            .expand({1, 1});
+
+    prog.add(Copy(oneSlice.broadcast(tilesForAllTimePartitions, 1),
+                  broadcastLabels.slice(beginOut, endOut)));
+  }
+  return broadcastLabels;
+}
+
 enum class VertexInitialiser { CONSTANT, PREVIOUS_RESULT, PREVIOUS_TEMP };
 
 std::ostream &operator<<(std::ostream &o, const VertexInitialiser v) {
@@ -810,6 +888,14 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
     }
   }();
 
+  // Create and broadcast the label lengths, time lengths and the labels
+  // themselves to avoid repeatedly exchanging evert compute step
+  auto tempLabelLengths = createTempLengths(
+      graph, labelLengths, plan, prog, {di, layer + "/broadCastLabelLengths"});
+  auto tempDataLengths = createTempLengths(
+      graph, dataLengths, plan, prog, {di, layer + "/broadCastDataLengths"});
+  auto tempLabel = createBroadcastTempLabels(graph, labels, plan, prog,
+                                             {di, layer + "/broadCastLabels"});
   logging::popnn::debug("Creating alpha/beta tensor for CTC Loss with Time:{}"
                         " Batches:{} ExtendedLabelLength:{}",
                         maxT, batchSize, extendedLabelsLength);
@@ -905,7 +991,6 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
             complete.previousResult(label, time, false, tileVertex.get());
 
         const auto timePartition = plan.partitionTime(maxT, time);
-        const auto labelPartition = plan.partitionLabel(labelsLength, label);
         const auto exLabelPartition =
             plan.partitionExtendedLabel(labelsLength, label);
 
@@ -943,12 +1028,12 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
                   timePartition, exLabelPartition, alphaBeta,
                   tempTimeAlphaBeta1, di);
 
-              generateVertex(graph, workingData, labels, labelLengths,
-                             dataLengths, tempTimeIn, tempLabelIn, alphaBeta,
-                             boost::none, cs, tile, tileVertex.get(), b,
-                             timePartition, label, labelPartition,
-                             exLabelPartition, labelOffset, timeOffset,
-                             processExtraBlank, blankClass);
+              generateVertex(graph, workingData, tempLabel, tempLabelLengths,
+                             tempDataLengths, tempTimeIn, tempLabelIn,
+                             alphaBeta, boost::none, cs, tile, tileVertex.get(),
+                             b, time, timePartition, label, exLabelPartition,
+                             labelOffset, timeOffset, processExtraBlank,
+                             blankClass);
             }
             if (tileVertex == VertexType::GRAD_GIVEN_ALPHA ||
                 tileVertex == VertexType::GRAD_GIVEN_BETA) {
@@ -963,12 +1048,12 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
                   timePartition, exLabelPartition, alphaBeta,
                   tempTimeAlphaBeta2, plan, maxT, di);
 
-              generateVertex(graph, workingData, labels, labelLengths,
-                             dataLengths, tempTimeIn, tempLabelIn, alphaBeta,
-                             gradient, cs, tile, tileVertex.get(), b,
-                             timePartition, label, labelPartition,
-                             exLabelPartition, labelOffset, timeOffset,
-                             processExtraBlank, blankClass);
+              generateVertex(graph, workingData, tempLabel, tempLabelLengths,
+                             tempDataLengths, tempTimeIn, tempLabelIn,
+                             alphaBeta, gradient, cs, tile, tileVertex.get(), b,
+                             time, timePartition, label, exLabelPartition,
+                             labelOffset, timeOffset, processExtraBlank,
+                             blankClass);
             }
           }
         }
