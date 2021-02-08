@@ -58,6 +58,14 @@ poplar::Tensor convolution(poplar::Graph &graph, const poplar::Tensor &in,
                            const poplar::DebugNameAndId &dnai,
                            const ConvOptions &options);
 
+void weightsTransposeChansFlipXY(
+    poplar::Graph &graph, const poplar::Tensor &weightsInUnGrouped,
+    const poplar::Tensor &weightsOutUnGrouped,
+    std::vector<poplar::program::Copy> &preTranspose,
+    poplar::ComputeSet transposeCS,
+    std::vector<poplar::program::Copy> &postTranspose,
+    const poplar::DebugContext &debugContext = {});
+
 poplar::Tensor
 calculateWeightDeltas(poplar::Graph &graph, const poplar::Tensor &zDeltas_,
                       const poplar::Tensor &activations_, const Plan &wuPlan,
