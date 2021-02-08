@@ -34,6 +34,8 @@ public:
   SlicePlan &operator=(SlicePlan &&other);
 
   friend std::ostream &operator<<(std::ostream &o, const SlicePlan &p);
+  friend bool operator<(const SlicePlan &a, const SlicePlan &b) noexcept;
+  friend bool operator==(const SlicePlan &a, const SlicePlan &b) noexcept;
   friend poplar::ProfileValue poputil::toProfileValue<>(const SlicePlan &p);
 
   // Implementation
@@ -43,6 +45,9 @@ public:
 private:
   std::unique_ptr<SlicePlanInternal> internal;
 };
+bool operator<(const SlicePlan &a, const SlicePlan &b) noexcept;
+bool operator==(const SlicePlan &a, const SlicePlan &b) noexcept;
+bool operator!=(const SlicePlan &a, const SlicePlan &b) noexcept;
 
 /** Create and map a tensor to be sliced/updated efficiently.
  *

@@ -8,6 +8,7 @@
 #include <poplibs_support/TestDevice.hpp>
 #include <popops/DynamicSlice.hpp>
 #include <popops/DynamicSliceInternal.hpp>
+#include <set>
 #include <sstream>
 #include <vector>
 
@@ -51,4 +52,40 @@ BOOST_AUTO_TEST_CASE(Square) {
 }
 BOOST_AUTO_TEST_CASE(Small) {
   checkPlanner(FLOAT, 50, 50, {20}, {2, 5, 50, 1});
+}
+
+BOOST_AUTO_TEST_CASE(PlanComparison) {
+  auto device = createTestDevice(TEST_TARGET, 1, 1216);
+  Graph graph(device.getTarget());
+  auto plan1a =
+      popops::embedding::plan(graph, poplar::HALF, 10000, 200, {400}, {});
+  auto plan1b =
+      popops::embedding::plan(graph, poplar::HALF, 10000, 200, {400}, {});
+  auto plan2 =
+      popops::embedding::plan(graph, poplar::HALF, 10000, 100, {300}, {});
+
+  BOOST_CHECK(plan1a == plan1b);
+  BOOST_CHECK(plan1a != plan2);
+
+  BOOST_CHECK(plan1b == plan1a);
+  BOOST_CHECK(plan1b != plan2);
+
+  BOOST_CHECK(plan2 != plan1a);
+  BOOST_CHECK(plan2 != plan1b);
+
+  std::set<popops::SlicePlan> plans;
+  plans.insert(plan1a);
+  BOOST_CHECK(plans.size() == 1);
+  plans.insert(plan1b);
+  BOOST_CHECK(plans.size() == 1);
+  plans.insert(plan2);
+  BOOST_CHECK(plans.size() == 2);
+  BOOST_CHECK(plans.count(plan1a) == 1);
+  BOOST_CHECK(plans.count(plan1b) == 1);
+  BOOST_CHECK(plans.count(plan2) == 1);
+  plans.erase(plan1a);
+  BOOST_CHECK(plans.count(plan1a) == 0);
+  BOOST_CHECK(plans.count(plan1b) == 0);
+  plans.erase(plan2);
+  BOOST_CHECK(plans.empty());
 }

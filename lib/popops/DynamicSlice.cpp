@@ -118,6 +118,18 @@ SlicePlan &SlicePlan::operator=(const SlicePlan &other) {
 }
 SlicePlan &SlicePlan::operator=(SlicePlan &&other) = default;
 
+bool operator<(const SlicePlan &a, const SlicePlan &b) noexcept {
+  return *a.internal < *b.internal;
+}
+
+bool operator==(const SlicePlan &a, const SlicePlan &b) noexcept {
+  return *a.internal == *b.internal;
+}
+
+bool operator!=(const SlicePlan &a, const SlicePlan &b) noexcept {
+  return !(a == b);
+}
+
 SlicePlan::SlicePlan(std::unique_ptr<SlicePlanInternal> internal)
     : internal(std::move(internal)) {}
 

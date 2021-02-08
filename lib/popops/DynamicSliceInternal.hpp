@@ -21,6 +21,21 @@ struct Partition {
   // are not sliced/updated on each tile.
   std::size_t unslicedGrainSize;
 };
+
+bool operator<(const Partition &a, const Partition &b) {
+  return std::tie(a.lookupSplit, a.slicedDimSplit, a.unslicedDimSplit,
+                  a.unslicedGrainSize) <
+         std::tie(b.lookupSplit, b.slicedDimSplit, b.unslicedDimSplit,
+                  b.unslicedGrainSize);
+}
+
+bool operator==(const Partition &a, const Partition &b) {
+  return std::tie(a.lookupSplit, a.slicedDimSplit, a.unslicedDimSplit,
+                  a.unslicedGrainSize) ==
+         std::tie(b.lookupSplit, b.slicedDimSplit, b.unslicedDimSplit,
+                  b.unslicedGrainSize);
+}
+
 } // namespace sliceInternal
 
 class SlicePlanInternal {
@@ -41,6 +56,21 @@ public:
     return std::make_unique<SlicePlanInternal>(*this);
   };
 };
+
+bool operator<(const SlicePlanInternal &a,
+               const SlicePlanInternal &b) noexcept {
+  return std::tie(a.isNull, a.partition, a.rank, a.slicedDims,
+                  a.slicedDimSizes) < std::tie(b.isNull, b.partition, b.rank,
+                                               b.slicedDims, b.slicedDimSizes);
+}
+
+bool operator==(const SlicePlanInternal &a,
+                const SlicePlanInternal &b) noexcept {
+  return std::tie(a.isNull, a.partition, a.rank, a.slicedDims,
+                  a.slicedDimSizes) == std::tie(b.isNull, b.partition, b.rank,
+                                                b.slicedDims, b.slicedDimSizes);
+}
+
 std::ostream &operator<<(std::ostream &o, const SlicePlanInternal &p);
 
 } // namespace popops
