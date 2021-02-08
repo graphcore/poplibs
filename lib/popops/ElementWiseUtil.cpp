@@ -125,7 +125,12 @@ Tensor createOutputForElementWiseOp(Graph &graph,
         "found, creating new variable with linear tile mapping",
         debugContext, inputs[0].shape());
     output = graph.addVariable(outputType, inputs[0].shape(), {di});
-    poputil::mapTensorLinearly(graph, output);
+    // create an output tensor with grain size that is equal to the vector
+    // width for the output type. Though this in itself doesn't help regrouping
+    // in all cases, it increases the chances of targeting more efficient
+    // rearrangements.
+    const auto grainSize = graph.getTarget().getVectorWidth(outputType);
+    poputil::mapTensorLinearly(graph, output, 0, grainSize);
   }
   di.addOutput(output);
   return output;
