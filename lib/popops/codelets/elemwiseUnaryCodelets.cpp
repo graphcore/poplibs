@@ -288,9 +288,10 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
                       const __attribute__((align_value(8))) half *in,
                       __attribute__((align_value(8))) half *out) {
     using arch = architecture::ipu;
+    const half4 *h4In = reinterpret_cast<const half4 *>(in);
+    half4 load = ipu::load_postinc(&h4In, 1);
 
     if (size >= 4) {
-      const half4 *h4In = reinterpret_cast<const half4 *>(in);
       half4 *h4Out = reinterpret_cast<half4 *>(out);
 
       // LLVM currently chooses to rotate the loop in a way that is not optimal
@@ -299,36 +300,40 @@ struct UnaryOpDispatch<op, half, half, architecture::ipu> {
       // a reasonable compromise over zero overlap and unrolling far enough to
       // overlap the store with calculation.
 
-      half4 load = ipu::load_postinc(&h4In, 1);
+      half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
+      load = ipu::load_postinc(&h4In, 1);
       const unsigned loopCount = maskForRepeat((size / 4u) - 1u);
-      asm volatile("# Thwart loop rotation (start)" ::: "memory");
+      size &= 3;
+      // These memory barriers currently make things worse. I'm leaving them
+      // as comments as a reminder of what may be useful if the compiler changes
+      // again.
+      // asm volatile("# Thwart loop rotation (start)" ::: "memory");
       for (unsigned i = 0; i < loopCount; ++i) {
-        half4 calc = UnaryOpFn<op, half4, arch>::fn(load);
-        load = ipu::load_postinc(&h4In, 1);
         *h4Out++ = calc;
+        calc = UnaryOpFn<op, half4, arch>::fn(load);
+        load = ipu::load_postinc(&h4In, 1);
       }
-      asm volatile("# Thwart loop rotation (end)" ::: "memory");
-      *h4Out++ = UnaryOpFn<op, half4, arch>::fn(load);
+      // asm volatile("# Thwart loop rotation (end)" ::: "memory");
+      *h4Out++ = calc;
 
-      in = reinterpret_cast<const half *>(h4In);
-      half *tmp = reinterpret_cast<half *>(h4Out);
-      size -= (tmp - out);
-      out = tmp;
+      out = reinterpret_cast<half *>(h4Out);
     }
 
-    const half2 *h2In = reinterpret_cast<const half2 *>(in);
+    // Do not change this to update from h4Out directly or the loop codegen
+    // becomes worse.
     half2 *h2Out = reinterpret_cast<half2 *>(out);
+    half2 finalPair{load[0], load[1]};
+    half finalSingle{load[0]}; // if size == 1
 
     if (size >= 2) {
-      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(ipu::load_postinc(&h2In, 1));
       size -= 2;
+      *h2Out++ = UnaryOpFn<op, half2, arch>::fn(finalPair);
+      finalSingle = load[2];
     }
 
-    if (size == 1) {
-      half2 res = (half2){
-          UnaryOpFn<op, half, arch>::fn((*h2In)[0]),
-          (*h2Out)[1],
-      };
+    if (size /* == 1 */) {
+      half2 res =
+          (half2){UnaryOpFn<op, half, arch>::fn(finalSingle), (*h2Out)[1]};
       *h2Out = res;
     }
   }
@@ -669,29 +674,36 @@ public:
     half4 *h4Out = reinterpret_cast<half4 *>(out) + worker;
 
     const unsigned loopCount = maskForRepeat(divideWork(size, 2, worker));
-    asm volatile("# Thwart loop rotation (start)" ::: "memory");
-    for (unsigned i = 0; i < loopCount; i++) {
-      half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+    half4 load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+    if (loopCount > 0) {
       half4 calc = UnaryOpFn<op, half4, architecture::ipu>::fn(load);
+      load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+      // Care is required for this to generate a rpt loop
+      auto l2 = loopCount - 1;
+      for (unsigned i = 0; i != maskForRepeat(l2); ++i) {
+        ipu::store_postinc(&h4Out, calc, CTXT_WORKERS);
+        calc = UnaryOpFn<op, half4, architecture::ipu>::fn(load);
+        load = ipu::load_postinc(&h4In, CTXT_WORKERS);
+      }
       *h4Out = calc;
       h4Out += CTXT_WORKERS;
     }
-    asm volatile("# Thwart loop rotation (end)" ::: "memory");
-    if (size & 3) {
-      const half2 *h2In = reinterpret_cast<const half2 *>(h4In);
+    const half2 finalPair{load[0], load[1]};
+    half finalSingle{load[0]}; // if size == 1
+
+    if ((size & 3) && h4Out == (half4 *)&out[size & (~3)]) {
+      // This is the one worker with a subvector to handle
+      size &= 3;
       half2 *h2Out = reinterpret_cast<half2 *>(h4Out);
       if (size & 2) {
-        if (h4Out == (half4 *)&out[size & (~3)]) {
-          *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(
-              ipu::load_postinc(&h2In, 1));
-        }
+        size &= 2;
+        *h2Out++ = UnaryOpFn<op, half2, architecture::ipu>::fn(finalPair);
+        finalSingle = load[2];
       }
-      assert(size != 0);
-      if (h2Out == (half2 *)&out[size - 1]) {
-        half2 res = (half2){
-            UnaryOpFn<op, half, architecture::ipu>::fn((*h2In)[0]),
-            (*h2Out)[1],
-        };
+      if (size /* == 1*/) {
+        half2 res =
+            (half2){UnaryOpFn<op, half, architecture::ipu>::fn(finalSingle),
+                    (*h2Out)[1]};
         *h2Out = res;
       }
     }
