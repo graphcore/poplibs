@@ -258,7 +258,13 @@ public:
   unsigned numTiles() const {
     return parallel.batch * parallel.time * parallel.label;
   }
+  std::unique_ptr<Plan::Impl> clone() const {
+    return std::make_unique<Plan::Impl>(*this);
+  };
 };
+
+bool operator<(const Plan::Impl &a, const Plan::Impl &b) noexcept;
+bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept;
 
 struct CycleEstimate {
   uint64_t alphaBetaComputeCycles;

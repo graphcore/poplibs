@@ -14,6 +14,19 @@
 namespace popnn {
 namespace ctc {
 
+static auto getTupleOfMembers(const Plan::Impl &p) {
+  return std::tie(p.serial.batch, p.serial.time, p.serial.label,
+                  p.parallel.alphabet, p.parallel.batch, p.parallel.label,
+                  p.parallel.sliceFromInput, p.parallel.sliceIntoOutput,
+                  p.parallel.time, p.parallel.timePartitionsPerTile);
+}
+bool operator<(const Plan::Impl &a, const Plan::Impl &b) noexcept {
+  return getTupleOfMembers(a) < getTupleOfMembers(b);
+}
+bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept {
+  return getTupleOfMembers(a) == getTupleOfMembers(b);
+}
+
 struct PartitionVariables {
   ParallelPartition<popsolver::Variable, popsolver::Variable> parallel;
   SerialPartition<popsolver::Variable> serial;
@@ -588,9 +601,25 @@ Plan plan(const poplar::Graph &graph, const poplar::Type &inType,
 }
 
 // Complete the definition of the Plan class
-Plan::~Plan() = default;
-Plan &Plan::operator=(Plan &&) = default;
+Plan::Plan() : impl(std::make_unique<Plan::Impl>()) {}
 Plan::Plan(std::unique_ptr<Plan::Impl> impl) : impl(std::move(impl)) {}
+Plan::~Plan() = default;
+
+Plan::Plan(const Plan &other) { impl = other.impl->clone(); }
+Plan::Plan(Plan &&other) = default;
+Plan &Plan::operator=(const Plan &other) {
+  impl = other.impl->clone();
+  return *this;
+}
+Plan &Plan::operator=(Plan &&other) = default;
+
+bool operator<(const Plan &a, const Plan &b) noexcept {
+  return *a.impl < *b.impl;
+}
+bool operator==(const Plan &a, const Plan &b) noexcept {
+  return *a.impl == *b.impl;
+}
+bool operator!=(const Plan &a, const Plan &b) noexcept { return !(a == b); }
 
 std::ostream &operator<<(std::ostream &o, const Plan &p) {
   o << *p.impl;

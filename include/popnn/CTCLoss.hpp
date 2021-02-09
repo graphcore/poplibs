@@ -23,7 +23,13 @@ class Plan {
 public:
   Plan();
   ~Plan();
-  Plan &operator=(Plan &&);
+  Plan(const Plan &other);
+  Plan(Plan &&other);
+  Plan &operator=(const Plan &other);
+  Plan &operator=(Plan &&other);
+
+  friend bool operator<(const Plan &a, const Plan &b) noexcept;
+  friend bool operator==(const Plan &a, const Plan &b) noexcept;
 
   friend std::ostream &operator<<(std::ostream &o, const Plan &p);
   friend poplar::ProfileValue poputil::toProfileValue<>(const Plan &p);
@@ -36,6 +42,10 @@ public:
 private:
   std::unique_ptr<Impl> impl;
 };
+
+bool operator<(const Plan &a, const Plan &b) noexcept;
+bool operator==(const Plan &a, const Plan &b) noexcept;
+bool operator!=(const Plan &a, const Plan &b) noexcept;
 
 /** Create a plan for implementing the CTC Loss (gradient) function
  *
