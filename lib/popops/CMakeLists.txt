@@ -108,9 +108,9 @@ target_include_directories(popops
 
 set(codelet_asm_sources
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/BroadcastSelect.S
-    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Cast.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastFromInt8.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastHalfFloat.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastToInt8.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/Clamp.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ContinuousReductionAcc.S
@@ -205,6 +205,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseScaledAddCodelets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/elemwiseUnaryCodelets.cpp
   HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/CastCommon.inc
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/ReductionsCommon.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/asm/unaryOpsOps.h.S
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.hpp

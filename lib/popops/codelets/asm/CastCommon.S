@@ -284,7 +284,8 @@ FN_SIZE FUNC_2D(\TYPES)
 
 .endm // INSTANTIATE_CAST
 
-
+INSTANTIATE_CAST half_float          NONE       16 32  0
+INSTANTIATE_CAST float_half          NONE       32 16  1
 
 INSTANTIATE_CAST unsigned_char_half  NONE        8 16  1
 INSTANTIATE_CAST unsigned_char_float NONE        8 32  1
@@ -295,5 +296,95 @@ INSTANTIATE_CAST half_unsigned_char  NONE       16  8  1  SETUP_UCHAR_OVERFLOW_C
 INSTANTIATE_CAST float_unsigned_char NONE       32  8  1  SETUP_UCHAR_OVERFLOW_CHECK
 INSTANTIATE_CAST half_signed_char    half_char  16  8  1  SETUP_SCHAR_OVERFLOW_CHECK
 INSTANTIATE_CAST float_signed_char   float_char 32  8  1  SETUP_SCHAR_OVERFLOW_CHECK
+
+
+
+//******************************************************************************
+//
+// Macro to create one supervisor vertex, which just runs the corresponding
+// 'CastWorker' threads, passing them the pointer to its own vertex state.
+//
+// TYPES        INTYPE and OUTTYPE separated by underscore (i.e.:
+//              'float_half', half_float', 'float_signed_char', ... etc)
+//
+// ALIAS_TYPES  If not empty, it must be a pair of types like
+//              TYPES, for which another entry point label will be setup (no
+//              duplication of code, just the labels).
+//              For instance, 'char_float' is the same as 'signed_char_float'
+//
+//******************************************************************************
+.macro INSTANTIATE_SUPERVISOR  TYPES  ALIAS_TYPES
+
+#define FUNC_SV(TYPES) __runCodelet_popops__CastSupervisor___##TYPES
+
+DEF_STACK_SIZE_OWN 0 .text.FUNC_SV(\TYPES)
+
+EXPORT_FN FUNC_SV(\TYPES)
+.section .text.FUNC_SV(\TYPES)
+.align 4
+.supervisor
+.ifnb \ALIAS_TYPES
+  EXPORT_FN FUNC_SV(\ALIAS_TYPES)
+  FUNC_SV(\ALIAS_TYPES):
+.endif
+FUNC_SV(\TYPES):
+  setzi       $m1, __runCodelet_popops__CastWorker___\TYPES
+  runall      $m1, $m0, 0
+  sync        TEXCH_SYNCZONE_LOCAL
+  br          $lr
+FN_SIZE FUNC_SV(\TYPES)
+.endm
+
+
+// We instantiate here the supervisor vertices for all possible casts.
+// Worker vertices not defined in assembly (above) are defined in C++
+
+// Note that we don't define here the following:
+//  Identity conversions (XXX->XXX) and INT<->UNSIGNED as these will be
+//  replaced with Copy() in popops::cast()
+
+INSTANTIATE_SUPERVISOR unsigned_char_float
+INSTANTIATE_SUPERVISOR unsigned_char_half
+
+INSTANTIATE_SUPERVISOR char_float            signed_char_float
+INSTANTIATE_SUPERVISOR char_half             signed_char_half
+
+INSTANTIATE_SUPERVISOR float_half
+INSTANTIATE_SUPERVISOR float_unsigned_char
+INSTANTIATE_SUPERVISOR float_char            float_signed_char
+INSTANTIATE_SUPERVISOR float_int
+INSTANTIATE_SUPERVISOR float_unsigned_int
+INSTANTIATE_SUPERVISOR float_bool
+INSTANTIATE_SUPERVISOR float_unsigned_short
+
+INSTANTIATE_SUPERVISOR half_float
+INSTANTIATE_SUPERVISOR half_unsigned_char
+INSTANTIATE_SUPERVISOR half_char             half_signed_char
+INSTANTIATE_SUPERVISOR half_int
+INSTANTIATE_SUPERVISOR half_unsigned_int
+INSTANTIATE_SUPERVISOR half_unsigned_short
+INSTANTIATE_SUPERVISOR half_bool
+
+INSTANTIATE_SUPERVISOR int_float
+INSTANTIATE_SUPERVISOR int_half
+INSTANTIATE_SUPERVISOR int_bool
+INSTANTIATE_SUPERVISOR int_unsigned_short
+
+INSTANTIATE_SUPERVISOR unsigned_int_float
+INSTANTIATE_SUPERVISOR unsigned_int_half
+INSTANTIATE_SUPERVISOR unsigned_int_bool
+INSTANTIATE_SUPERVISOR unsigned_int_unsigned_short
+
+INSTANTIATE_SUPERVISOR unsigned_short_float
+INSTANTIATE_SUPERVISOR unsigned_short_half
+INSTANTIATE_SUPERVISOR unsigned_short_int
+INSTANTIATE_SUPERVISOR unsigned_short_bool
+INSTANTIATE_SUPERVISOR unsigned_short_unsigned_int
+
+INSTANTIATE_SUPERVISOR bool_float
+INSTANTIATE_SUPERVISOR bool_half
+INSTANTIATE_SUPERVISOR bool_int
+INSTANTIATE_SUPERVISOR bool_unsigned_int
+INSTANTIATE_SUPERVISOR bool_unsigned_short
 
 #endif
