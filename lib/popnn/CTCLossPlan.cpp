@@ -126,8 +126,8 @@ std::ostream &operator<<(std::ostream &o, const CtcOpts &opt) {
 struct EstimateCache {
   decltype(poplibs_support::memoize(alphaCycles)) mAlphaCycles;
   decltype(poplibs_support::memoize(betaCycles)) mBetaCycles;
-  decltype(
-      poplibs_support::memoize(gradGivenAlphaCycles)) mGradGivenAlphaCycles;
+  decltype(poplibs_support::memoize(
+      gradGivenAlphaCycles)) mGradGivenAlphaCycles;
   decltype(poplibs_support::memoize(gradGivenBetaCycles)) mGradGivenBetaCycles;
   EstimateCache()
       : mAlphaCycles(alphaCycles), mBetaCycles(betaCycles),
