@@ -250,19 +250,13 @@ public:
   }
 
   unsigned getTile(unsigned batch, unsigned time, unsigned label) const {
-    const unsigned tileForTimePartition = time / parallel.timePartitionsPerTile;
-    const unsigned tilesForAllTimePartitions =
-        poplibs_support::ceildiv(parallel.time, parallel.timePartitionsPerTile);
-    return batch * (tilesForAllTimePartitions * parallel.label) // Batch
-           + tileForTimePartition * parallel.label              // Time
-           + label;                                             // Label
+    return batch * (parallel.time * parallel.label) // Batch
+           + time * parallel.label                  // Time
+           + label;                                 // Label
   }
 
   unsigned numTiles() const {
-    const unsigned tilesForAllTimePartitions =
-        poplibs_support::ceildiv(parallel.time, parallel.timePartitionsPerTile);
-
-    return parallel.batch * tilesForAllTimePartitions * parallel.label;
+    return parallel.batch * parallel.time * parallel.label;
   }
 };
 

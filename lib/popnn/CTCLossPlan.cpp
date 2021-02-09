@@ -444,7 +444,7 @@ constructModel(popsolver::Model &m, const CtcParams &params,
   // TODO - make this less arbitrary or find a better way to speed up.
   //        We should consider this when changing graph construction to
   //        use a runtime loop.
-  m.lessOrEqual(vars.parallel.timePartitionsPerTile, m.addConstant(32));
+  m.lessOrEqual(vars.parallel.timePartitionsPerTile, m.addConstant(1));
   auto tilesForAllTimePartitions =
       m.ceildiv(vars.parallel.time, vars.parallel.timePartitionsPerTile,
                 "tilesForAllTimePartitions");
