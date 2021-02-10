@@ -38,6 +38,9 @@ template <typename FPType> FPType div(const FPType a, const FPType b) {
 }
 
 #ifndef __POPC__
+
+// TODO Move out of log namespace, or do log(softmax(x)) - this is just
+// softmax(x)
 // Simply to save having to carefully enter values, use a softmax to
 // convert them into probabilities
 template <typename FPType>
@@ -54,6 +57,7 @@ boost::multi_array<FPType, 2> softMax(const boost::multi_array<FPType, 2> &in) {
   }
   return out;
 }
+
 // Converted each individual element to natural log.
 // Add a small constant to prevent numeric errors
 template <typename FPType>

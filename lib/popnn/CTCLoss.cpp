@@ -4,8 +4,10 @@
 #include "poplibs_support/logging.hpp"
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Graph.hpp>
+#include <poplar/Tensor.hpp>
 #include <poplibs_support/LogArithmetic.hpp>
 #include <popnn/CTCLoss.hpp>
+#include <popnn/LogSoftmax.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Expr.hpp>
 #include <popops/Reduce.hpp>
@@ -849,12 +851,12 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
   return labels;
 }
 
-poplar::Tensor
-gradient(poplar::Graph &graph, const poplar::Type &outType,
-         const poplar::Tensor &data, const poplar::Tensor &labels,
-         const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
-         poplar::program::Sequence &prog, const unsigned blankClass,
-         const Plan &plan_, const poplar::DebugContext &debugContext) {
+std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &data, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan_, const poplar::DebugContext &debugContext) {
 
   const auto plan = plan_.getImpl();
   poputil::PoplibsOpDebugInfo di(debugContext,
@@ -1106,9 +1108,13 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
   }
 
   logging::popnn::debug("CTCLoss implemented in {} computeSets", csNum);
+  // TODO: Return loss during gradient calculation
+  auto loss = graph.addVariable(outType, {batchSize}, {di, layer + "/loss"});
+  graph.setTileMapping(loss, 0);
+
   di.addOutput(gradient);
   if (gradient.dim(0) == 1) {
-    return gradient.reshape(data.shape());
+    return {loss, gradient.reshape(data.shape())};
   }
   // Reduce where data was split over label.
   // TODO: Mapping choice to spread according to the plan?  Or reduce into one
@@ -1118,7 +1124,21 @@ gradient(poplar::Graph &graph, const poplar::Type &outType,
       popops::reduce(graph, gradient, {0}, reduceParams, prog, {di});
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, {di});
-  return gradReduce;
+  return {loss, gradReduce};
+}
+
+std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &logits, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan_, const poplar::DebugContext &debugContext) {
+  // TODO sort out debug info
+  const auto logProbs = logSoftmax(graph, logits, prog, debugContext);
+
+  return calcLossAndGradientLogProbabilities(graph, outType, logProbs, labels,
+                                             dataLengths, labelLengths, prog,
+                                             blankClass, plan_, debugContext);
 }
 
 } // end namespace ctc

@@ -114,13 +114,15 @@ template <typename FPType> struct InputSequence {
   unsigned inputLength;
   // Labels, of the randomly chosen size for this batch
   std::vector<unsigned> labels;
+  bool isLogits;
 };
 
 InputSequence<double>
 getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
                    boost::optional<unsigned> testLabelLength,
                    size_t minLabelLength, size_t maxLabelLength,
-                   unsigned numClasses, unsigned batchNo, unsigned blankClass) {
+                   unsigned numClasses, unsigned batchNo, bool isLogits,
+                   unsigned blankClass) {
 
   std::mt19937 gen;
   // Seed with the batch number - resulting in repeatable pseudo random sizes
@@ -132,7 +134,7 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
 
   std::uniform_int_distribution<> randT(minT, maxT);
   std::uniform_int_distribution<> randLabels(0, numClasses - 2);
-  std::uniform_int_distribution<> randInput(0, 10);
+  std::uniform_int_distribution<> randInput(0, 100);
 
   unsigned inputLength =
       testTime.is_initialized() ? testTime.get() : randT(gen);
@@ -161,15 +163,21 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
       input[j][i] = randInput(gen);
     }
   }
-  input = transpose(log::softMax(transpose(input)));
+  if (!isLogits) { // Convert to log probs
+    input = log::log(transpose(log::softMax(transpose(input))));
+  }
 
-  return {input, inputLength, labels};
+  return {input, inputLength, labels, isLogits};
 }
 
 template <typename FPType>
-boost::multi_array<FPType, 2> gradReference(const InputSequence<FPType> &test,
+boost::multi_array<FPType, 2> gradReference(const InputSequence<FPType> &test_,
                                             unsigned blankClass,
                                             unsigned numClasses, bool verbose) {
+  auto test = test_;
+  if (test.isLogits) { // Convert to log probs
+    test.input = log::log(transpose(log::softMax(transpose(test.input))));
+  }
 
   auto paddedSequence = extendedLabels(test.labels, blankClass);
   auto in = transpose(test.input);
@@ -253,9 +261,19 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   // Create gradient
   Sequence prog;
-  const auto result =
-      popnn::ctc::gradient(graph, outType, data, labels, dataLengths,
-                           labelLengths, prog, blankSymbol, plan, "Gradient");
+  const auto result = [&]() {
+    if (inputs[0].isLogits) {
+      return popnn::ctc::calcLossAndGradientLogits(
+                 graph, outType, data, labels, dataLengths, labelLengths, prog,
+                 blankSymbol, plan, "GradientLogits")
+          .second;
+    } else {
+      return popnn::ctc::calcLossAndGradientLogProbabilities(
+                 graph, outType, data, labels, dataLengths, labelLengths, prog,
+                 blankSymbol, plan, "GradientLogProbs")
+          .second;
+    }
+  }();
 
   // Create handles for reading the result
   std::vector<std::unique_ptr<char[]>> rawResult(batchSize);
@@ -312,6 +330,7 @@ int main(int argc, char **argv) {
   boost::optional<unsigned> tiles = boost::none;
   Type inType = FLOAT;
   Type outType = FLOAT;
+  bool isLogits = true;
 
   po::options_description desc("Options");
   // clang-format off
@@ -352,6 +371,8 @@ int main(int argc, char **argv) {
      "Classes in the alphabet including blank")
     ("ignore-data", po::value(&ignoreData)->default_value(ignoreData),
      "Ignore data, to check execution time")
+    ("logit-inputs", po::value(&isLogits)->default_value(isLogits),
+     "pass logit inputs to ctc loss api, otherwise convert to logProbs prior")
     ("plan-only", "Only plan the requested passes, don't build or run a graph")
     ("verbose", po::value(&verbose)->default_value(verbose),
      "Provide debug printout");
@@ -436,7 +457,7 @@ int main(int argc, char **argv) {
   for (unsigned i = 0; i < batchSize; i++) {
     tests.push_back(getRandomTestInput(
         testTime, minTime, maxTime, testLabelLength, minLabelLength,
-        maxLabelLength, numClasses, i, blankClass));
+        maxLabelLength, numClasses, i, isLogits, blankClass));
 
     if (verbose) {
       std::cout << "\nBatch:" << i << " Time:" << tests[i].inputLength
@@ -444,11 +465,14 @@ int main(int argc, char **argv) {
     }
     print(" Test sequence[" + std::to_string(tests[i].labels.size()) + "] ",
           tests[i].labels, blankClass, verbose);
-    print("Input:", tests[i].input, blankClass, verbose);
-
-    // Provide the library function with log probabilities (log of softmax)
-    tests[i].input = log::log(tests[i].input);
-    print("Log Softmax in", tests[i].input, blankClass, verbose);
+    if (tests[i].isLogits) {
+      print("Logits in", tests[i].input, blankClass, verbose);
+      print("Log Softmax in",
+            log::log(transpose(log::softMax(transpose(tests[i].input)))),
+            blankClass, verbose);
+    } else {
+      print("Log Softmax in", tests[i].input, blankClass, verbose);
+    }
     references.push_back(
         gradReference<double>(tests[i], blankClass, numClasses, verbose));
     references.back() = maskResults(references.back(), tests[i].inputLength);

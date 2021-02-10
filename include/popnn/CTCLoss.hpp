@@ -112,12 +112,12 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
                                  const Plan &plan,
                                  const poplar::DebugContext &debugContext = {});
 
-/** Calculate the CTC loss gradient, creating and mapping the result tensor
+/** Calculate the CTC loss & gradient, creating and mapping the result tensor
  *  according to the plan provided
  *
  * \param graph        The graph the operation will be added to
  * \param outType      The data type of the gradient output
- * \param data         The data input [maxTime, batchSize, numClasses] tensor
+ * \param logProbs     The data input [maxTime, batchSize, numClasses] tensor
  * \param labels       The labels input [batchSize, maxLabelLength] tensor
  * \param dataLengths  A tensor of shape [batchSize] containing the number of
  *                     valid timesteps in each data[] batch entry
@@ -128,14 +128,42 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
  * \param plan         The plan which will specify how the output tensor is to
  *                     be mapped and how the operation is to be carried out
  * \param debugContext Optional debug information
- * \return             The gradient [maxTime, batchSize, numClasses] tensor
+ * \return             The loss[batchSize],
+ *                     and gradient [maxTime, batchSize, numClasses] tensor
  */
-poplar::Tensor
-gradient(poplar::Graph &graph, const poplar::Type &outType,
-         const poplar::Tensor &data, const poplar::Tensor &labels,
-         const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
-         poplar::program::Sequence &prog, const unsigned blankClass,
-         const Plan &plan, const poplar::DebugContext &debugContext = {});
+std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &logProbs, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan, const poplar::DebugContext &debugContext = {});
+
+/** Calculate the CTC loss & gradient, creating and mapping the result tensor
+ *  according to the plan provided. Prior to performing the gradient
+ *  calculation, applies log softmax to logits input.
+ *
+ * \param graph        The graph the operation will be added to
+ * \param outType      The data type of the gradient output
+ * \param logits       The data input [maxTime, batchSize, numClasses] tensor
+ * \param labels       The labels input [batchSize, maxLabelLength] tensor
+ * \param dataLengths  A tensor of shape [batchSize] containing the number of
+ *                     valid timesteps in each data[] batch entry
+ * \param labelLengths A tensor of shape [batchSize] containing the number of
+ *                     valid labels in each labels[] batch entry
+ * \param prog         A program sequence to append the operation to
+ * \param blankClass   The value associated with the blankClass
+ * \param plan         The plan which will specify how the output tensor is to
+ *                     be mapped and how the operation is to be carried out
+ * \param debugContext Optional debug information
+ * \return             The loss[batchSize],
+ *                     and gradient [maxTime, batchSize, numClasses] tensor
+ */
+std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &logits, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan, const poplar::DebugContext &debugContext = {});
 
 } // namespace ctc
 } // namespace popnn
