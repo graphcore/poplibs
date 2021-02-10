@@ -134,7 +134,7 @@ public:
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
-      alphaPrevLabel[t] = alpha[2 * labelLength - 1];
+      alphaPrevLabel[1] = alpha[2 * labelLength - 1];
     }
     return true;
   }
@@ -233,8 +233,8 @@ public:
         // For use when data is split by label, output this timestep, last label
         // result for use by the next vertex. Include prob=0 to avoid special
         // cases when this is used later
-        betaPrevLabel[2 * (t - 1)] = beta[0];
-        betaPrevLabel[1 + 2 * (t - 1)] = log::probabilityZero;
+        betaPrevLabel[2] = beta[0];
+        betaPrevLabel[3] = log::probabilityZero;
         continue;
       }
       // Each loop outputs the result for the symbol and a blank, and consumes 1
@@ -279,8 +279,8 @@ public:
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
-      betaPrevLabel[2 * (t - 1)] = beta[0];
-      betaPrevLabel[1 + 2 * (t - 1)] = beta[1];
+      betaPrevLabel[2] = beta[0];
+      betaPrevLabel[3] = beta[1];
     }
     return true;
   }
@@ -381,8 +381,8 @@ public:
         // For use when data is split by label, output this timestep, last label
         // result for use by the next vertex. Include prob=0 to avoid special
         // cases when this is used later
-        betaPrevLabel[2 * (t - 1)] = beta[0];
-        betaPrevLabel[1 + 2 * (t - 1)] = log::probabilityZero;
+        betaPrevLabel[2] = beta[0];
+        betaPrevLabel[3] = log::probabilityZero;
         // Swap new <-> old in the alphaTemp buffer
         oldIdx = oldIdx ^ extendedLabel;
         continue;
@@ -443,8 +443,8 @@ public:
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
-      betaPrevLabel[2 * (t - 1)] = beta[0];
-      betaPrevLabel[1 + 2 * (t - 1)] = beta[1];
+      betaPrevLabel[2] = beta[0];
+      betaPrevLabel[3] = beta[1];
       // Swap new <-> old in the alphaTemp buffer
       oldIdx = oldIdx ^ extendedLabel;
     }
@@ -556,7 +556,7 @@ public:
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
-      alphaPrevLabel[t] = alpha[2 * labelLength - 1];
+      alphaPrevLabel[1] = alpha[2 * labelLength - 1];
 
       // Swap new <-> old in the alphaPrevTime buffer
       oldIdx = oldIdx ^ extendedLabel;
