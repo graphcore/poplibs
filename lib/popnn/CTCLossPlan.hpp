@@ -52,19 +52,19 @@ template <typename T, typename B> struct ParallelPartition {
   // to splitting in this way.  Each can be processed in parallel
   T batch;
 
-  // When splitting work by time and label, dependencies operate in a grid
+  // When splitting work by time and label, dependencies operate in a grid.
+  // Implicitly we have a barrier at each timestep, so the dependencies are only
+  // horizontal as apparant from the diagram below.
   // (1a means in timestep 1 this tile can compute alpha
   //  2ab means that in timestep 2 this tile can compute alpha and beta)
-  // Scheduling could result in 4 timesteps if only 1 of alpha or beta is
+  // Scheduling could result in 4 steps if only 1 of alpha or beta is
   // calculated by a tile at once
-  //             T
-  //   +------------------------+
-  //   | 1a 2-     | 2ab        |
-  // El| 3b        |            |
-  //   +------------------------+
-  //   | 2ab       | 1b 2-      |
-  //   |           | 3a         |
-  //   +------------------------+
+  //                    T
+  //   +-----------+------------+------------+
+  //   | 1a 2- 3b  | 1- 2ab     | 1b 2- 3a   |
+  // El+-----------+------------+------------+
+  //   | 1a 2- 3b  | 1- 2ab     | 1b 2- 3a   |
+  //   +-----------+------------+------------+
   //
   // Below we describe splitting each dimension on its own, but the two can be
   // combined.
@@ -106,14 +106,12 @@ template <typename T, typename B> struct ParallelPartition {
   // no speed cost to mapping them to the same time.  This method extends
   // to cases where partitions are made in both time and label
   T time;
-  T timePartitionsPerTile;
 
-  // The number of tiles the labels (equivalent to El) dimension is split over.
-  // Each tile produces the results for a number of the labels results
-  // over multiple timesteps.  This will require an overlap of data as
-  // (consider alpha) there is a dependency on alpha[t-1,B,El],alpha[t-1,B,El-1]
-  // and alpha[t-1,B,El-2], where it is possible that the last 2 values are on a
-  // different tile.
+  // The number of times the labels (equivalent to El) dimension is split over.
+  // Each tile produces the results for a partition of the labels per timestep.
+  // This will require an overlap of data as (consider alpha) there is a
+  // dependency on alpha[t-1,B,El],alpha[t-1,B,El-1] and alpha[t-1,B,El-2],
+  // where it is possible that the last 2 values are on a different tile.
   //         t-1     t  ->Time....
   // El-3    a0
   // El-2    a1
@@ -127,14 +125,14 @@ template <typename T, typename B> struct ParallelPartition {
   // compute but lag behind.  This seems a simple method of allowing
   // parallel processing (Of course 1/2 is just an example)
   //
-  // Tile 0:    t0 .. t3 STOP,EXCHANGE  t4 .. t7
-  //      El=0  a  .. a                 a  .. a
-  //      El=1  a0 .. a6                a8 .. a14
-  //      El=2  a1 .. a7                a9 .. a15
+  // Tile 0:    t0 EXCHANGE t1 EXCHANGE t2 EXCHANGE t3
+  //      El=0  a     ..    a     ..    a     ..    a
+  //      El=1  a0    ..    a6    ..    a8    ..    a14
+  //      El=2  a1    ..    a7    ..    a9    ..    a15
   // Tile 1:
-  //      El=3  A0 .. A6                A8 .. A14
-  //      El=4  A1 .. A7                A9 .. A15
-  //      El=5  A  .. A                 A  .. A
+  //      El=3  A0    ..    A6    ..    A8    ..    A14
+  //      El=4  A1    ..    A7    ..    A9    ..    A15
+  //      El=5  A     ..    A     ..    A     ..    A
   //
   // When split by label each tile will produce gradients for a subset of the
   // labels that then need to be combined. (Eg blank appears on every tile,
@@ -268,16 +266,33 @@ bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept;
 
 struct CycleEstimate {
   uint64_t alphaBetaComputeCycles;
-  uint64_t alphaBetaExchangeCost;
+  unsigned alphaBetaSteps;
+  uint64_t alphaBetaIntraPartitionCost;
+  uint64_t alphaBetaTransPartitionCost;
+  unsigned alphaBetaIntraPartitionCount;
+  unsigned alphaBetaTransPartitionCount;
+
   uint64_t gradComputeCycles;
-  uint64_t gradExchangeCost;
-  unsigned steps;
+  unsigned gradSteps;
+  uint64_t gradIntraPartitionCost;
+  uint64_t gradTransPartitionCost;
+  unsigned gradIntraPartitionCount;
+  unsigned gradTransPartitionCount;
+
   unsigned serialVertexExecutions;
 
-  uint64_t total() const {
-    return alphaBetaComputeCycles + alphaBetaExchangeCost + gradComputeCycles +
-           gradExchangeCost;
+  uint64_t totalCompute() const {
+    return alphaBetaComputeCycles * alphaBetaSteps * serialVertexExecutions +
+           gradComputeCycles * gradSteps * serialVertexExecutions;
   }
+  uint64_t totalExchange() const {
+    return alphaBetaIntraPartitionCost * alphaBetaIntraPartitionCount +
+           alphaBetaTransPartitionCost * alphaBetaTransPartitionCount +
+           gradIntraPartitionCost * gradIntraPartitionCount +
+           gradTransPartitionCost * gradTransPartitionCount;
+  }
+
+  uint64_t total() const { return totalCompute() + totalExchange(); }
 };
 
 // Per tile memory estimate in bytes
