@@ -367,8 +367,8 @@ void scaledAritTensorImpl(Graph &graph, Tensor A, Tensor scaleA, Tensor B,
   if (scaleAType != scaleType) {
     scaleA = cast(graph, scaleA, scaleType, prog, {dnai, layer + "scaleA"});
   }
-  // We don't support float axpby vertex. Synthesize using mul and scaledAdd
-  if (A.elementType() == FLOAT) {
+  // We only support half axpby vertex. Synthesize using mul and scaledAdd
+  if (A.elementType() != HALF) {
     mulInPlace(graph, A, scaleA, prog, {dnai, layer});
     axpby = false;
   }
@@ -402,9 +402,12 @@ void scaledAritConstImpl(Graph &graph, Tensor A, float scaleA, Tensor B,
   const auto targetType = A.elementType();
   const std::string layer = subtract ? "scaledSubtract" : "scaledAdd";
 
-  // we do not support float axpby. Synthesize using mul and scaledAdd
-  if (A.elementType() == FLOAT && scaleA != 1.0f) {
-    mulInPlace(graph, A, scaleA, prog, {dnai, layer});
+  // we only support half axpby. Synthesize using mul and scaledAdd
+  if (A.elementType() != HALF && scaleA != 1.0f) {
+    const auto scaleATensor =
+        graph.addConstant(targetType, {}, scaleA, {dnai, layer + "/scaleA"});
+    graph.setTileMapping(scaleATensor, 0);
+    mulInPlace(graph, A, scaleATensor, prog, {dnai, layer});
     scaleA = 1.0f;
   }
 
