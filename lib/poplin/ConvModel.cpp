@@ -1136,6 +1136,7 @@ addReduceCycleEstimate(popsolver::Model &m,
                        const poplar::Target &target,
                        const std::vector<ConvTypes> &types,
                        std::vector<popsolver::Variable> &outputsPerLevel,
+                       unsigned int partialChansPerGroup,
                        const ConvOptions &options,
                        PlanningCacheImpl::CycleEstimationImpl *cache) {
   std::vector<popsolver::Variable> cycleSumOperands;
@@ -1164,13 +1165,14 @@ addReduceCycleEstimate(popsolver::Model &m,
          partitionVars[level].inChanSplit.serial},
         [floatOutput, floatPartials, numWorkers, dataPathWidth,
          partialsVectorWidth, outputVectorWidth, memoryElementOffsets,
-         bytesPerPartialsElement, options,
+         bytesPerPartialsElement, partialChansPerGroup, options,
          cache](const std::vector<unsigned> &vars) -> popsolver::DataType {
           return popsolver::DataType{cache->mEstimateConvReduceCycles(
               vars[0], vars[1], vars[2], floatOutput, floatPartials, numWorkers,
               dataPathWidth, partialsVectorWidth, outputVectorWidth,
               memoryElementOffsets, bytesPerPartialsElement,
-              options.enableMultiStageReduce, options.enableFastReduce)};
+              partialChansPerGroup, options.enableMultiStageReduce,
+              options.enableFastReduce)};
         });
     cycleSumOperands.push_back(cycleEstimate);
     // Temporary memory for the reduction will be given by the number of
@@ -1906,9 +1908,9 @@ static SinglePassEstimates<popsolver::Variable> addEstimates(
                 m.product({usedTiles, e.partialCalcCycles, serialSplits}));
 
   std::vector<popsolver::Variable> outputsPerLevel;
-  std::tie(e.reduceCycles, e.reduceTempBytes) =
-      addReduceCycleEstimate(m, partitionVars, partialsPerTile, target, types,
-                             outputsPerLevel, options, cache);
+  std::tie(e.reduceCycles, e.reduceTempBytes) = addReduceCycleEstimate(
+      m, partitionVars, partialsPerTile, target, types, outputsPerLevel,
+      convVertexType.partialChansPerGroup, options, cache);
 
   // if this convolution has been split serially and we aren't sure the weights
   // are laid out well for a dynamic slice, we must also add a one-off cost
