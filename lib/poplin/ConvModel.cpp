@@ -61,29 +61,37 @@ transformsEstimatesConvertBytes2Cycles(const ConvTransform &key,
   }
 }
 
-static unsigned getMaxInputRangeSize(unsigned outputRangeSize, unsigned dim,
-                                     const ConvParams &params,
-                                     unsigned tileKernelSize) {
-  if (outputRangeSize == 0)
-    return 0;
-
-  const auto wholeInputRange =
-      getInputRange(dim, {0, params.getOutputSize(dim)}, params);
+static popsolver::Variable
+getMaxInputRangeSize(popsolver::Model &m,
+                     const popsolver::Variable &outputRangeSize, unsigned dim,
+                     const ConvParams &params,
+                     const popsolver::Variable &tileKernelSize) {
+  const auto outputSize = params.getOutputSize(dim);
+  const auto wholeInputRange = getInputRange(dim, {0, outputSize}, params);
   const auto wholeInputRangeSize =
       wholeInputRange.second - wholeInputRange.first;
+  return m.call<unsigned>(
+      {outputRangeSize, tileKernelSize},
+      [outputSize, params, dim, wholeInputRangeSize](
+          const std::vector<unsigned> &values) -> popsolver::DataType {
+        const auto outputRangeSize = values[0];
+        const auto tileKernelSize = values[1];
+        if (outputRangeSize == outputSize &&
+            tileKernelSize == params.kernelShape[dim]) {
+          return popsolver::DataType{wholeInputRangeSize};
+        }
+        const auto stride = params.outputTransform.stride[dim];
+        const auto inputDilation = params.inputTransform.dilation[dim];
+        const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
+        const auto dilatedInputSize =
+            preDownSampleOutputSize + tileKernelSize - 1;
+        const auto inputRangeSize = (dilatedInputSize - 1) / inputDilation + 1;
 
-  if (outputRangeSize == params.getOutputSize(dim) &&
-      tileKernelSize == params.kernelShape[dim]) {
-    return wholeInputRangeSize;
-  }
-  const auto stride = params.outputTransform.stride[dim];
-  const auto inputDilation = params.inputTransform.dilation[dim];
-  const auto preDownSampleOutputSize = (outputRangeSize - 1) * stride + 1;
-  const auto dilatedInputSize = preDownSampleOutputSize + tileKernelSize - 1;
-  const auto inputRangeSize = (dilatedInputSize - 1) / inputDilation + 1;
-
-  // If inputRangeSize expands  beyond the input data range, clip the padding
-  return std::min(inputRangeSize, wholeInputRangeSize);
+        // If inputRangeSize expands  beyond the input data range, clip the
+        // padding
+        return popsolver::DataType{
+            std::min(inputRangeSize, wholeInputRangeSize)};
+      });
 }
 
 static bool canUseConvPartial1x1Vertex(
@@ -993,15 +1001,8 @@ ExchangeEstimates<popsolver::Variable> addExchangeCycleEstimates(
       if (transformedDimsPreviousLevel.count(dim)) {
         inputFieldSizes.push_back(outputFieldSize);
       } else {
-        auto inputFieldSize = m.call<unsigned>(
-            {outputFieldSize, sizesNextLevel.kernelSize[dim]},
-            [dim, params](
-                const std::vector<unsigned> &values) -> popsolver::DataType {
-              const auto outputFieldSize = values[0];
-              const auto kernelSizeForThisDim = values[1];
-              return popsolver::DataType{getMaxInputRangeSize(
-                  outputFieldSize, dim, params, kernelSizeForThisDim)};
-            });
+        auto inputFieldSize = getMaxInputRangeSize(
+            m, outputFieldSize, dim, params, sizesNextLevel.kernelSize[dim]);
         inputFieldSizes.push_back(inputFieldSize);
       }
     }
@@ -1399,13 +1400,9 @@ addTransformCycleEstimate(
     if (transformedDims[ipuLevel].count(dim)) {
       inputFieldSizes.push_back(outputFieldSize);
     } else {
-      auto inputFieldSize = m.call<unsigned>(
-          {outputFieldSize, convSize.kernelSize[dim]},
-          [dim, transformedOnceParams](
-              const std::vector<unsigned> &values) -> popsolver::DataType {
-            return popsolver::DataType{getMaxInputRangeSize(
-                values[0], dim, transformedOnceParams, values[1])};
-          });
+      auto inputFieldSize =
+          getMaxInputRangeSize(m, outputFieldSize, dim, transformedOnceParams,
+                               convSize.kernelSize[dim]);
       inputFieldSizes.push_back(inputFieldSize);
     }
   }
@@ -3003,14 +3000,9 @@ Estimates<popsolver::Variable> constructModel(
         if (level != 0 && transformedDims[level - 1].count(dim)) {
           inputSize = outputSize;
         } else {
-          inputSize = m.call<unsigned>(
-              {outputSize, transformedConvSize.back().kernelSize[dim]},
-              [dim, transformedOnceParams](
-                  const std::vector<unsigned> &values) -> popsolver::DataType {
-                return DataType{getMaxInputRangeSize(
-                    values[0], dim, transformedOnceParams, values[1])};
-              },
-              arrIndStr(level) + ".size.inputFieldSize" + arrIndStr(dim));
+          inputSize =
+              getMaxInputRangeSize(m, outputSize, dim, transformedOnceParams,
+                                   transformedConvSize.back().kernelSize[dim]);
         }
         transformedConvSize.back().numInChanGrains =
             m.product({transformedConvSize.back().numInChanGrains, inputSize},
