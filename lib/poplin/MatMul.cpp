@@ -851,11 +851,14 @@ poplar::Tensor preArrangeMatMulInputRHS(
 poplar::Tensor preArrangeMatMulGroupedInputRHS(
     poplar::Graph &graph, const std::vector<std::size_t> &aShape,
     const poplar::Tensor &B, poplar::program::Sequence &prog,
-    const poplar::DebugNameAndId &dnai, const poplar::OptionFlags &options_,
-    matmul::PlanningCache *cache, const Type &outputType) {
+    const Type &outputType, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options_, matmul::PlanningCache *cache) {
+  poputil::PoplibsOpDebugInfo di(debugContext,
+                                 DI_ARGS(B, aShape, options_, cache));
+
   const auto options = parseMatMulOptions(options_);
   matMulGroupedDimChecks(aShape, B.shape());
-  return preArrangeMatMulInputRHSImpl(graph, aShape, B, prog, {dnai}, options,
+  return preArrangeMatMulInputRHSImpl(graph, aShape, B, prog, di, options,
                                       cache, outputType);
 }
 
