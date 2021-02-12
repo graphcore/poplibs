@@ -1160,15 +1160,15 @@ inline std::uint64_t estimateCastCycles(unsigned outputSize,
   return (cycles + 26) * numWorkers;
 }
 
-inline std::uint64_t estimateConvReduceCycles(
-    unsigned outputSize, unsigned reductionDepth, unsigned inChanSerialSplit,
-    bool floatOutput, bool floatPartials, unsigned numWorkers,
-    unsigned dataPathWidth, unsigned partialsVectorWidth,
-    unsigned outputVectorWidth,
-    const std::vector<unsigned> &memoryElementOffsets,
-    unsigned bytesPerPartialsElement, unsigned partialChansPerGroup,
-    bool enableMultiStageReduce, bool enableFastReduce) {
-
+inline std::uint64_t
+estimateConvReduceCycles(unsigned outputSize, unsigned reductionDepth,
+                         unsigned inChanSerialSplit, bool floatOutput,
+                         bool floatPartials, unsigned numWorkers,
+                         unsigned dataPathWidth, unsigned partialsVectorWidth,
+                         unsigned outputVectorWidth,
+                         const std::vector<unsigned> &memoryElementOffsets,
+                         unsigned bytesPerPartialsElement,
+                         bool enableMultiStageReduce, bool enableFastReduce) {
   if (reductionDepth == 0)
     return 0;
   if (reductionDepth == 1) {
@@ -1181,12 +1181,6 @@ inline std::uint64_t estimateConvReduceCycles(
                                 outputVectorWidth, numWorkers);
     }
   }
-
-  // modify output size to have a grouping
-  const unsigned minGrainSize = outputVectorWidth;
-  const auto grainSize = std::max(partialChansPerGroup, outputVectorWidth);
-  const auto roundedGrainSize = ceildiv(grainSize, minGrainSize) * minGrainSize;
-  outputSize = ceildiv(outputSize, roundedGrainSize) * roundedGrainSize;
 
   // Determine number of stages used in the reduction
   auto reductionPlan =
