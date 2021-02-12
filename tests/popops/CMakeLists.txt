@@ -635,7 +635,7 @@ foreach(n RANGE 1 ${NUM_REDUCE_RANDOM_TESTS})
            VARIANTS "Hw;${IPUMODEL_VARIANTS}")
 endforeach()
 
-add_unit_test(ScaledAddEquivalenceTest ScaledAddEquivalenceTest.cpp)
+add_unit_test(ScaledAddTest ScaledAddTest.cpp)
 add_unit_test(ScatterTest ScatterTest.cpp)
 add_unit_test(ScatterUpdateTest ScatterUpdateTest.cpp)
 add_unit_test(SelectScalarFromRows SelectScalarFromRowsTest.cpp)
