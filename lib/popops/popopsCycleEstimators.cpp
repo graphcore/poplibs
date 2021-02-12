@@ -210,8 +210,11 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByColumnInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
-                                           allowMisaligned ? 25 : 7, false);
+  // If forcing use of interleaved memory, and in place, the overhead here
+  // can be reduced as we can utilise a ldst64pace in the inner loop.
+  return BroadcastVectorOuterCycleEstimate(
+      vertex, target, op, type, getForceInterleavedEstimates() ? 0 : 1,
+      allowMisaligned ? 25 : 7, false);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
     BroadcastVectorOuterByColumnSupervisor)(const VertexIntrospector &vertex,
@@ -228,8 +231,11 @@ MAKE_PERF_ESTIMATOR_NAME(BroadcastVectorOuterByRowInPlaceSupervisor)(
     const VertexIntrospector &vertex, const Target &target, BinaryOpType op,
     const Type &type, bool allowMisaligned) {
   // Improved loop overheads, as these are written in assembly
-  return BroadcastVectorOuterCycleEstimate(vertex, target, op, type, 1,
-                                           allowMisaligned ? 25 : 7, true);
+  // If forcing use of interleaved memory, and in place, the overhead here
+  // can be reduced as we can utilise a ldst64pace in the inner loop.
+  return BroadcastVectorOuterCycleEstimate(
+      vertex, target, op, type, getForceInterleavedEstimates() ? 0 : 1,
+      allowMisaligned ? 25 : 7, true);
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(
     BroadcastVectorOuterByRowSupervisor)(const VertexIntrospector &vertex,
