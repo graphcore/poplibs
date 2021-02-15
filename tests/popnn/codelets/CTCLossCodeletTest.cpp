@@ -260,7 +260,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
 
   auto probabilities =
       graph.addVariable(inType, {maxT, numClasses}, "probabilities");
-  auto labels = graph.addVariable(UNSIGNED_SHORT, {labelLen}, "label");
+  auto labels = graph.addVariable(UNSIGNED_INT, {labelLen}, "label");
   auto result = graph.addVariable(
       outType, {maxT, resultIsGrad ? numClasses : extendedLabelLen}, "result");
   auto prevTime = graph.addVariable(
@@ -269,8 +269,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   auto prevLabel =
       graph.addVariable(outType, {findingAlpha ? 1u : 2u, maxT}, "prevLabel");
   graph.setTileMapping(prevLabel, 0);
-  auto prevSymbol =
-      graph.addConstant<unsigned short>(UNSIGNED_SHORT, {}, input.idx[0]);
+  auto prevSymbol = graph.addConstant<unsigned>(UNSIGNED_INT, {}, input.idx[0]);
   graph.setTileMapping(prevSymbol, 0);
   Tensor initialAlphaOrBeta;
   if (resultIsGrad) {
@@ -282,17 +281,17 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   auto cs = graph.addComputeSet("cs");
   std::string vertexName;
   if (vertexToTest == TestType::ALPHA) {
-    vertexName = templateVertex("popnn::CTCAlpha", inType, outType,
-                                UNSIGNED_SHORT, true);
+    vertexName =
+        templateVertex("popnn::CTCAlpha", inType, outType, UNSIGNED_INT, true);
   } else if (vertexToTest == TestType::BETA) {
     vertexName =
-        templateVertex("popnn::CTCBeta", inType, outType, UNSIGNED_SHORT, true);
+        templateVertex("popnn::CTCBeta", inType, outType, UNSIGNED_INT, true);
   } else if (vertexToTest == TestType::GRAD_GIVEN_ALPHA) {
     vertexName = templateVertex("popnn::CTCGradGivenAlpha", inType, outType,
-                                UNSIGNED_SHORT, true);
+                                UNSIGNED_INT, true);
   } else if (vertexToTest == TestType::GRAD_GIVEN_BETA) {
     vertexName = templateVertex("popnn::CTCGradGivenBeta", inType, outType,
-                                UNSIGNED_SHORT, true);
+                                UNSIGNED_INT, true);
   }
   auto vertex = graph.addVertex(cs, vertexName);
 
@@ -300,8 +299,8 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   // inputs, and accepting data from the previous label inputs
   // are only tested in the context of the whole IPU implementation.
   // Suggest that when optimising the vertices this test is improved.
-  auto validLabel = graph.addConstant(UNSIGNED_SHORT, {}, labelLen);
-  auto validTime = graph.addConstant(UNSIGNED_SHORT, {}, maxT);
+  auto validLabel = graph.addConstant(UNSIGNED_INT, {}, labelLen);
+  auto validTime = graph.addConstant(UNSIGNED_INT, {}, maxT);
   graph.setTileMapping(validLabel, 0);
   graph.setTileMapping(validTime, 0);
   graph.connect(vertex["validLabel"], validLabel);

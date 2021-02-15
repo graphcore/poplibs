@@ -58,11 +58,11 @@ public:
   // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
-  Input<unsigned short> validLabel;
+  Input<unsigned> validLabel;
   // This vertex processes a timeSlice with size[maxT] starting at timeOffset
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
-  Input<unsigned short> validTime;
+  Input<unsigned> validTime;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -140,13 +140,13 @@ public:
   }
 };
 
-template class CTCAlpha<float, float, unsigned short, true>;
-template class CTCAlpha<half, half, unsigned short, true>;
-template class CTCAlpha<half, float, unsigned short, true>;
+template class CTCAlpha<float, float, unsigned, true>;
+template class CTCAlpha<half, half, unsigned, true>;
+template class CTCAlpha<half, float, unsigned, true>;
 
-template class CTCAlpha<float, float, unsigned short, false>;
-template class CTCAlpha<half, half, unsigned short, false>;
-template class CTCAlpha<half, float, unsigned short, false>;
+template class CTCAlpha<float, float, unsigned, false>;
+template class CTCAlpha<half, half, unsigned, false>;
+template class CTCAlpha<half, float, unsigned, false>;
 
 template <typename InType, typename OutType, typename SymbolType,
           bool isFirstLabel>
@@ -164,11 +164,11 @@ public:
   // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
-  Input<unsigned short> validLabel;
+  Input<unsigned> validLabel;
   // This vertex processes a timeSlice with size[maxT] starting at timeOffset
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
-  Input<unsigned short> validTime;
+  Input<unsigned> validTime;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -286,13 +286,13 @@ public:
   }
 };
 
-template class CTCBeta<float, float, unsigned short, true>;
-template class CTCBeta<half, half, unsigned short, true>;
-template class CTCBeta<half, float, unsigned short, true>;
+template class CTCBeta<float, float, unsigned, true>;
+template class CTCBeta<half, half, unsigned, true>;
+template class CTCBeta<half, float, unsigned, true>;
 
-template class CTCBeta<float, float, unsigned short, false>;
-template class CTCBeta<half, half, unsigned short, false>;
-template class CTCBeta<half, float, unsigned short, false>;
+template class CTCBeta<float, float, unsigned, false>;
+template class CTCBeta<half, half, unsigned, false>;
+template class CTCBeta<half, float, unsigned, false>;
 
 template <typename InType, typename OutType, typename SymbolType,
           bool isFirstLabel>
@@ -311,11 +311,11 @@ public:
   // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
-  Input<unsigned short> validLabel;
+  Input<unsigned> validLabel;
   // This vertex processes a timeSlice with size[maxT] starting at timeOffset
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
-  Input<unsigned short> validTime;
+  Input<unsigned> validTime;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -452,13 +452,13 @@ public:
   }
 };
 
-template class CTCGradGivenAlpha<float, float, unsigned short, true>;
-template class CTCGradGivenAlpha<half, half, unsigned short, true>;
-template class CTCGradGivenAlpha<half, float, unsigned short, true>;
+template class CTCGradGivenAlpha<float, float, unsigned, true>;
+template class CTCGradGivenAlpha<half, half, unsigned, true>;
+template class CTCGradGivenAlpha<half, float, unsigned, true>;
 
-template class CTCGradGivenAlpha<float, float, unsigned short, false>;
-template class CTCGradGivenAlpha<half, half, unsigned short, false>;
-template class CTCGradGivenAlpha<half, float, unsigned short, false>;
+template class CTCGradGivenAlpha<float, float, unsigned, false>;
+template class CTCGradGivenAlpha<half, half, unsigned, false>;
+template class CTCGradGivenAlpha<half, float, unsigned, false>;
 
 template <typename InType, typename OutType, typename SymbolType,
           bool isLastLabel>
@@ -477,11 +477,11 @@ public:
   // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
-  Input<unsigned short> validLabel;
+  Input<unsigned> validLabel;
   // This vertex processes a timeSlice with size[maxT] starting at timeOffset
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
-  Input<unsigned short> validTime;
+  Input<unsigned> validTime;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -565,12 +565,12 @@ public:
   }
 };
 
-template class CTCGradGivenBeta<float, float, unsigned short, true>;
-template class CTCGradGivenBeta<half, half, unsigned short, true>;
-template class CTCGradGivenBeta<half, float, unsigned short, true>;
+template class CTCGradGivenBeta<float, float, unsigned, true>;
+template class CTCGradGivenBeta<half, half, unsigned, true>;
+template class CTCGradGivenBeta<half, float, unsigned, true>;
 
-template class CTCGradGivenBeta<float, float, unsigned short, false>;
-template class CTCGradGivenBeta<half, half, unsigned short, false>;
-template class CTCGradGivenBeta<half, float, unsigned short, false>;
+template class CTCGradGivenBeta<float, float, unsigned, false>;
+template class CTCGradGivenBeta<half, half, unsigned, false>;
+template class CTCGradGivenBeta<half, float, unsigned, false>;
 
 } // namespace popnn

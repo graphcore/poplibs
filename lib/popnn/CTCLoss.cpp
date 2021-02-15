@@ -851,12 +851,39 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
   return labels;
 }
 
+void validateTensorTypes(const poplar::Tensor &data,
+                         const poplar::Tensor &labels,
+                         const poplar::Tensor &dataLengths,
+                         const poplar::Tensor &labelLengths,
+                         const poplar::Type &outType) {
+  if (data.elementType() != poplar::HALF &&
+      data.elementType() != poplar::FLOAT) {
+    throw poputil::poplibs_error("data tensor must be of type HALF or FLOAT");
+  }
+  if (labels.elementType() != poplar::UNSIGNED_INT) {
+    throw poputil::poplibs_error("labels tensor must be of type UNSIGNED_INT");
+  }
+  if (dataLengths.elementType() != poplar::UNSIGNED_INT) {
+    throw poputil::poplibs_error(
+        "dataLengths tensor must be of type UNSIGNED_INT");
+  }
+  if (labelLengths.elementType() != poplar::UNSIGNED_INT) {
+    throw poputil::poplibs_error(
+        "labelLengths tensor must be of type UNSIGNED_INT");
+  }
+  if (outType == poplar::HALF && data.elementType() == poplar::FLOAT) {
+    throw poputil::poplibs_error(
+        "outType HALF unsupported with input tensor type FLOAT");
+  }
+}
+
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     poplar::Graph &graph, const poplar::Type &outType,
     const poplar::Tensor &data, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan_, const poplar::DebugContext &debugContext) {
+  validateTensorTypes(data, labels, dataLengths, labelLengths, outType);
 
   const auto plan = plan_.getImpl();
   poputil::PoplibsOpDebugInfo di(debugContext,

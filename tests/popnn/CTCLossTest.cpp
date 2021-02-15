@@ -219,11 +219,11 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   auto data = popnn::ctc::createDataInput(graph, inType, batchSize, maxT,
                                           numClasses, plan, "DataInput");
-  auto labels = popnn::ctc::createLabelsInput(graph, UNSIGNED_SHORT, batchSize,
+  auto labels = popnn::ctc::createLabelsInput(graph, UNSIGNED_INT, batchSize,
                                               maxLabels, plan, "LabelsInput");
 
-  auto dataLengths = graph.addVariable(UNSIGNED_SHORT, {batchSize});
-  auto labelLengths = graph.addVariable(UNSIGNED_SHORT, {batchSize});
+  auto dataLengths = graph.addVariable(UNSIGNED_INT, {batchSize});
+  auto labelLengths = graph.addVariable(UNSIGNED_INT, {batchSize});
   graph.setTileMapping(dataLengths, 0);
   graph.setTileMapping(labelLengths, 0);
 
