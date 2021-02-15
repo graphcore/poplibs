@@ -1629,7 +1629,12 @@ static Plan getFullyConnectedWUPlan(const poplar::Target &target,
   plan.partitions.back().inChanGrainSize = wuConvVertexType.inChansPerGroup;
   plan.partitions.back().outChanGrainSize =
       wuConvVertexType.partialChansPerGroup;
-
+  if (plan.method == Plan::Method::OUTER_PRODUCT) {
+    // outer product method supports only conv groups per group of 1.
+    // T34320 is required to support conv group grouping in OUTER_PRODUCT
+    // vertex.
+    plan.convGroupsPerGroup = 1;
+  }
   plan.types =
       getConvTypes(target, wuConvVertexType.partialType, fwdParams->outputType,
                    getWeightUpdateOptions(fwdOptions));
