@@ -1609,7 +1609,10 @@ static uint64_t castWorkerCycles(const Target &target, const unsigned numElems,
     // multiple read ports. We do assume we use separate memory elements for
     // load/store to overlap loads/stores where possible.
     const auto loadCyclesPerVector =
-        opVectorWidth / std::min(opVectorWidth, fromLoadWidth);
+        opVectorWidth /
+        std::min(opVectorWidth,
+                 fromLoadWidth *
+                     (getForceInterleavedEstimates() ? readPorts : 1));
     const auto storeCyclesPerVector =
         opVectorWidth / std::min(opVectorWidth, toStoreWidth);
     const auto cyclesPerVector =
