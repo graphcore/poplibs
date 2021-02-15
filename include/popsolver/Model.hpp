@@ -198,7 +198,7 @@ public:
   const_iterator end() const { return domains.end(); }
   std::size_t size() const { return domains.size(); }
   void push_back(const Domain &d) { domains.push_back(d); }
-  template <typename... Args> void emplace_back(Args &&...args) {
+  template <typename... Args> void emplace_back(Args &&... args) {
     domains.emplace_back(std::forward<Args>(args)...);
   }
 };

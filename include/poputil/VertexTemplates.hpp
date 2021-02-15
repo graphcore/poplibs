@@ -21,18 +21,18 @@ inline std::string templateVertexParams(bool first) {
 
 template <typename... Args>
 inline std::string templateVertexParams(bool first, const std::string &val,
-                                        Args &&...args);
+                                        Args &&... args);
 
 template <typename... Args>
 inline std::string templateVertexParams(bool first, const char *val,
-                                        Args &&...args);
+                                        Args &&... args);
 
 template <typename... Args>
 inline std::string templateVertexParams(bool first, const poplar::Type &type,
-                                        Args &&...args);
+                                        Args &&... args);
 
 template <typename... Args>
-inline std::string templateVertexParams(bool first, bool b, Args &&...args);
+inline std::string templateVertexParams(bool first, bool b, Args &&... args);
 
 template <typename T> struct VertexTemplateToString {
   static std::string to_string(const T &x) { return std::to_string(x); }
@@ -44,7 +44,7 @@ template <> struct VertexTemplateToString<poplar::StringRef> {
 
 template <typename T, typename... Args>
 inline std::string templateVertexParams(bool first, const T &val,
-                                        Args &&...args) {
+                                        Args &&... args) {
   std::string p = first ? "<" : ",";
   p += VertexTemplateToString<T>::to_string(val) +
        templateVertexParams(false, std::forward<Args>(args)...);
@@ -53,7 +53,7 @@ inline std::string templateVertexParams(bool first, const T &val,
 
 template <typename... Args>
 inline std::string templateVertexParams(bool first, const poplar::Type &type,
-                                        Args &&...args) {
+                                        Args &&... args) {
   std::string p = first ? "<" : ",";
   p += type.toString() +
        templateVertexParams(false, std::forward<Args>(args)...);
@@ -62,7 +62,7 @@ inline std::string templateVertexParams(bool first, const poplar::Type &type,
 
 template <typename... Args>
 inline std::string templateVertexParams(bool first, const std::string &val,
-                                        Args &&...args) {
+                                        Args &&... args) {
   std::string p = first ? "<" : ",";
   p += val + templateVertexParams(false, std::forward<Args>(args)...);
   return p;
@@ -70,14 +70,14 @@ inline std::string templateVertexParams(bool first, const std::string &val,
 
 template <typename... Args>
 inline std::string templateVertexParams(bool first, const char *val,
-                                        Args &&...args) {
+                                        Args &&... args) {
   std::string p = first ? "<" : ",";
   p += val + templateVertexParams(false, std::forward<Args>(args)...);
   return p;
 }
 
 template <typename... Args>
-inline std::string templateVertexParams(bool first, bool b, Args &&...args) {
+inline std::string templateVertexParams(bool first, bool b, Args &&... args) {
   std::string p = first ? "<" : ",";
   auto bstr = (b ? "true" : "false");
   p += bstr + templateVertexParams(false, std::forward<Args>(args)...);
@@ -93,7 +93,7 @@ inline std::string templateVertexParams(bool first, bool b, Args &&...args) {
  * \return      A string representation of the vertex type.
  */
 template <typename... Args>
-inline std::string templateVertex(const std::string &name, Args &&...args) {
+inline std::string templateVertex(const std::string &name, Args &&... args) {
   return name + templateVertexParams(true, std::forward<Args>(args)...);
 }
 

@@ -25,7 +25,7 @@ static inline Tensor ungroupTensorAux(const Tensor &t, unsigned) { return t; }
 
 template <typename... G>
 static inline Tensor groupTensorAux(const Tensor &t, unsigned rank,
-                                    const GroupingInfo &g, G &&...gs) {
+                                    const GroupingInfo &g, G &&... gs) {
   return groupTensorAux(t.reshapePartial(g.first, g.first + 1,
                                          {t.dim(g.first) / g.second, g.second})
                             .dimRoll(g.first + 1, rank),
@@ -34,19 +34,19 @@ static inline Tensor groupTensorAux(const Tensor &t, unsigned rank,
 
 template <typename... G>
 static inline Tensor ungroupTensorAux(const Tensor &t, unsigned rank,
-                                      const GroupingInfo &g, G &&...gs) {
+                                      const GroupingInfo &g, G &&... gs) {
   return ungroupTensorAux(
       t.dimRoll(rank, g.first + 1).flatten(g.first, g.first + 2), rank,
       std::forward<G>(gs)...);
 }
 
 template <typename... G>
-static inline Tensor groupTensor(const Tensor &t, G &&...gs) {
+static inline Tensor groupTensor(const Tensor &t, G &&... gs) {
   return groupTensorAux(t, t.rank(), std::forward<G>(gs)...);
 }
 
 template <typename... G>
-static inline Tensor ungroupTensor(const Tensor &t, G &&...gs) {
+static inline Tensor ungroupTensor(const Tensor &t, G &&... gs) {
   return ungroupTensorAux(t, unsigned(t.rank() - sizeof...(gs)),
                           std::forward<G>(gs)...);
 }

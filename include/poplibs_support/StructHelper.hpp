@@ -12,7 +12,7 @@ namespace poplibs_support {
 template <typename... Ps> struct StructHelper {
   std::tuple<Ps...> members;
 
-  constexpr explicit StructHelper(Ps &&...ps)
+  constexpr explicit StructHelper(Ps &&... ps)
       : members{std::forward<Ps>(ps)...} {}
 
   template <typename T> constexpr bool lt(const T &lhs, const T &rhs) const {
@@ -39,7 +39,7 @@ private:
 };
 
 template <typename... Ps>
-constexpr StructHelper<Ps...> makeStructHelper(Ps &&...ps) {
+constexpr StructHelper<Ps...> makeStructHelper(Ps &&... ps) {
   return StructHelper<Ps...>{std::forward<Ps>(ps)...};
 }
 

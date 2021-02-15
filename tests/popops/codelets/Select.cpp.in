@@ -1,15 +1,13 @@
-// Copyright (c) 2020 Graphcore Ltd. All rights reserved.
-
 #include "poplar/Engine.hpp"
 #include "poplar/Target.hpp"
 // clang-format off
 #define BOOST_TEST_MODULE Select_@DATA_TYPE@
 // clang-format on
+#include <poplibs_support/TestDevice.hpp>
 #include "poplibs_test/Util.hpp"
 #include "popops/codelets.hpp"
 #include "poputil/VertexTemplates.hpp"
 #include <memory>
-#include <poplibs_support/TestDevice.hpp>
 // codelets
 #include "popops/ElementWise.hpp"
 

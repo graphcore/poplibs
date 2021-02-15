@@ -54,7 +54,7 @@ using PerfEstimatorTable =
 
 template <typename F, typename... Args>
 inline std::pair<std::string, poplar::PerfEstimateFunc>
-makePerfEstimatorEntry(const std::string &codelet, F f, Args &&...args) {
+makePerfEstimatorEntry(const std::string &codelet, F f, Args &&... args) {
   using std::placeholders::_1;
   using std::placeholders::_2;
   return std::make_pair(
