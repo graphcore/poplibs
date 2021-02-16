@@ -155,8 +155,8 @@ IpuModel1,default,inception_tr_bs4_layer5,245922,0.0,227490524,-0.0,199708,-0.0
 IpuModel1,default,inception_tr_bs4_layer8,100445,2.4,137875517,18.8,153976,0.0
 IpuModel1,default,lstm_16_25_1024_1024_half,408080,0.0,42705636,-0.0,133976,0.0
 IpuModel1,default,lstm_16_25_1024_1024_half_shuffled_cell_order,408080,0.0,42705636,-0.0,133976,0.0
-IpuModel1,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1257708,-0.8,66599886,1.5,145432,0.0
-IpuModel1,default,lstm_16_25_1024_1024_half_train,1257708,-0.8,66599886,1.5,145432,0.0
+IpuModel1,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1257408,-0.0,66599886,0.0,145432,0.0
+IpuModel1,default,lstm_16_25_1024_1024_half_train,1257408,-0.0,66599886,0.0,145432,0.0
 IpuModel1,default,lstm_8_25_1024_1024_float,452531,-0.1,44156918,0.0,134552,0.0
 IpuModel1,default,lstm_8_25_1024_1024_float_shuffled_cell_order,452531,-0.1,44156918,0.0,134552,0.0
 IpuModel1,default,lstm_8_25_1024_1024_float_shuffled_cell_order_train,1676696,-0.4,117329834,0.8,159768,0.0
@@ -405,8 +405,8 @@ IpuModel2,default,inception_tr_bs4_layer5,218953,0.0,181365087,0.0,231448,0.0
 IpuModel2,default,inception_tr_bs4_layer8,86913,1.5,142091379,0.3,231896,0.0
 IpuModel2,default,lstm_16_25_1024_1024_half,364928,9.4,44259578,22.7,215704,-1.4
 IpuModel2,default,lstm_16_25_1024_1024_half_shuffled_cell_order,364928,9.4,44259578,22.7,215704,-1.4
-IpuModel2,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1152752,-0.3,68091788,0.5,225304,0.0
-IpuModel2,default,lstm_16_25_1024_1024_half_train,1152752,-0.3,68091788,0.5,225304,0.0
+IpuModel2,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1152452,-0.0,68091788,0.0,225304,0.0
+IpuModel2,default,lstm_16_25_1024_1024_half_train,1152452,-0.0,68091788,0.0,225304,0.0
 IpuModel2,default,lstm_8_25_1024_1024_float,403254,-3.6,44230740,1.8,215896,0.1
 IpuModel2,default,lstm_8_25_1024_1024_float_shuffled_cell_order,403254,-3.6,44230740,1.8,215896,0.1
 IpuModel2,default,lstm_8_25_1024_1024_float_shuffled_cell_order_train,1522291,-0.8,118314220,0.8,237592,0.0

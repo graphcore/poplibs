@@ -818,7 +818,7 @@ function(runRptLoopCycleTest TEST_TAG CMD VERTEX OPS DATA_TYPES)
             --data-type ${DATA_TYPES}
             --size 1800
             --compare-cycles
-            --cycle-threshold 3
+            --cycle-threshold 4
     VARIANTS Sim1 Sim2)
 endfunction()
 runRptLoopCycleTest("unary_float" UnaryCodeletsTest "UnaryOp1DSupervisor"
