@@ -27,50 +27,147 @@ namespace {
 
 enum class VertexType { ALPHA, BETA, GRAD_GIVEN_ALPHA, GRAD_GIVEN_BETA };
 
-void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
-                    const Tensor &validLabel, const Tensor &validTime,
-                    const Tensor &tempTimeAlphaOrBeta,
-                    const Tensor &tempLabelAlphaOrBeta,
-                    const Tensor &alphaOrBeta, const Tensor &loss,
-                    boost::optional<Tensor &> grad, ComputeSet &cs,
-                    unsigned tile, VertexType vertexType, unsigned batch,
-                    unsigned timePartitionNum, unsigned label,
-                    const Interval &exLabelPartition, unsigned labelOffset,
-                    unsigned timeOffset, bool processExtraBlank,
-                    unsigned blankClass) {
+struct TempTensors {
+  // Timestep counter to count loop passes with a counter on each tile
+  // [timePartitions][batchSize][labelPartitions]
+  Tensor counter;
+  // A slice of the label input per tile, including previous/next symbol
+  // to satisfy dependencies
+  //[batchSize][timePartitions][labelPartitions][labelLengthPerPartition+2]
+  Tensor label;
+  // The actual valid length of each label in the batch, broadcast over all
+  // time, label partitions.
+  // [batchSize][timePartitions][labelPartitions]
+  Tensor validLabelLengths;
+  // The actual number of valid timesteps in the data input per batch entry,
+  // broadcast over all time, label partitions.
+  // [batchSize][timePartitions][labelPartitions]
+  Tensor validTimeSteps;
 
-  const auto numClasses = data.dim(3);
-  auto tileValidLabel = validLabel[batch][timePartitionNum][label];
-  auto tileValidTime = validTime[batch][timePartitionNum][label];
+  // The last timeslice of alpha/beta result exchanged
+  // from the previous time partition while calculating alpha/beta
+  // [maxT][batchSize][maxExtendedLabelLength]
+  Tensor timeAlphaBeta1;
+  // The gradGivenAlpha/beta vertex ping-pong working buffer containing 2
+  // timeslices
+  // [2 * maxT][batchSize][maxExtendedLabelLength]
+  Tensor timeAlphaBeta2;
+  // The timeAlphaBeta2 ping-pong data excahnged from the previous time
+  // partition so that a gradGivenAlpha/beta vertex can continue to compute
+  // alpha/beta
+  // [2 * maxT][batchSize][maxExtendedLabelLength]
+  Tensor timeAlphaBetaPrevPartition;
 
-  // The labels input tensor contains a section of label: prev,a,b,c,...,next
-  // This vertex is responsible for the results for a,b,c.... but when finding
-  // alpha there is a dependency on prev - so attach the vertex to prev,a,b,c,..
-  // for beta there is a dependency on next = so attach a,b,c,...next
-  auto isAlpha = vertexType == VertexType::ALPHA ||
-                 vertexType == VertexType::GRAD_GIVEN_BETA;
+  // A single alpha value written by the vertex to exchange to a tile in the
+  // next label, or label,time partition
+  // [labelPartitions][batchSize][timePartitions][1]
+  Tensor labelAlphaOut;
+  // A single alpha value exchanged from the previous label partition
+  // [labelPartitions][batchSize][timePartitions][1]
+  Tensor labelAlphaIn;
+  // A single alpha value exchanged from the previous label and time partition
+  // [labelPartitions][batchSize][timePartitions][1]
+  Tensor labelTimeAlphaIn; // Exchanged into
+
+  // A pair of beta values written by the vertex to exchange to a tile in the
+  // next label, or label,time partition
+  // [labelPartitions][batchSize][timePartitions][2]
+  Tensor labelBetaOut;
+  // A pair of beta values exchanged from the previous label partition
+  // [labelPartitions][batchSize][timePartitions][2]
+  Tensor labelBetaIn;
+  // A pair of beta values exchanged from the previous label and time partition
+  // [labelPartitions][batchSize][timePartitions][2]
+  Tensor labelTimeBetaIn;
+};
+
+TempTensors extractVertexSlices(const TempTensors &input, unsigned batch,
+                                unsigned time, unsigned label,
+                                const Interval &exLabelPartition,
+                                const Interval &timePartition, bool isAlpha) {
+
+  TempTensors output;
+  output.validLabelLengths = input.validLabelLengths[batch][time][label];
+  output.validTimeSteps = input.validTimeSteps[batch][time][label];
+  output.counter = input.counter[time][batch][label];
+
+  auto tempLabel = [&](const Tensor &toSlice) {
+    const auto innerDimSize = toSlice.dim(toSlice.rank() - 1);
+    Slice<4> begin = {label, batch, time, 0};
+    Slice<4> end = {label + 1, batch + 1, (time + 1), innerDimSize};
+    return toSlice.slice(begin, end).flatten();
+  };
+  output.labelAlphaIn = tempLabel(input.labelAlphaIn);
+  output.labelAlphaOut = tempLabel(input.labelAlphaOut);
+  output.labelTimeAlphaIn = tempLabel(input.labelTimeAlphaIn);
+
+  output.labelBetaIn = tempLabel(input.labelBetaIn);
+  output.labelBetaOut = tempLabel(input.labelBetaOut);
+  output.labelTimeBetaIn = tempLabel(input.labelTimeBetaIn);
+
+  // The temp.label input tensor contains a section of label:
+  // prev,a,b,c,...,next. This vertex is responsible for the results for
+  // a,b,c.... but when finding alpha there is a dependency on prev - so attach
+  // the vertex to prev,a,b,c,.. for beta there is a dependency on next = so
+  // attach a,b,c,...next
   unsigned startOffset = isAlpha ? 0 : 1;
   unsigned endOffset = isAlpha ? 1 : 0;
-  auto tileLabel = labels.slice(
-      {batch, timePartitionNum, label, startOffset},
-      {batch + 1, timePartitionNum + 1, label + 1, labels.dim(3) - endOffset});
 
-  // A single timestep slice for the input data, alphaBeta and grad outputs.
-  Slice<4> beginData = {label, timeOffset, batch, 0};
-  Slice<4> endData = {label + 1, timeOffset + 1, batch + 1, numClasses};
+  unsigned tileLabelSize = 2 + ceildiv(exLabelPartition.size() - 1, 2u);
+  output.label = input.label.slice(
+      {batch, time, label, startOffset},
+      {batch + 1, time + 1, label + 1, tileLabelSize - endOffset});
 
+  // Provide the temporary time input slices for a grad given
+  // alpha/beta vertex
+  auto tileTimeInputSlice = [&](const Tensor &in,
+                                unsigned elemsPerTimePartition) {
+    Slice<3> begin = {elemsPerTimePartition * time, batch,
+                      exLabelPartition.begin()};
+    Slice<3> end = {elemsPerTimePartition * (time + 1), batch + 1,
+                    exLabelPartition.end()};
+    return in.slice(begin, end).flatten();
+  };
+  output.timeAlphaBeta1 = tileTimeInputSlice(input.timeAlphaBeta1, 1);
+  output.timeAlphaBeta2 = tileTimeInputSlice(input.timeAlphaBeta2, 2);
+  output.timeAlphaBetaPrevPartition =
+      tileTimeInputSlice(input.timeAlphaBetaPrevPartition, 2);
+  return output;
+}
+
+void generateVertex(Graph &graph, const Tensor &data, const Tensor &alphaOrBeta,
+                    const Tensor &loss, boost::optional<Tensor &> grad,
+                    const TempTensors &temp, ComputeSet &cs, unsigned tile,
+                    VertexType vertexType, unsigned batch, unsigned time,
+                    unsigned label, const Interval &exLabelPartition,
+                    unsigned labelOffset, const Interval &timePartition,
+                    bool processExtraBlank, unsigned blankClass) {
+
+  auto isAlpha = vertexType == VertexType::ALPHA ||
+                 vertexType == VertexType::GRAD_GIVEN_BETA;
+
+  const auto numClasses = data.dim(3);
+
+  // Extract the slices of temporary tensors needed for this vertex
+  const auto tempSlices = extractVertexSlices(
+      temp, batch, time, label, exLabelPartition, timePartition, isAlpha);
+
+  // A single time partition slice for the input data, alphaBeta and grad
+  // outputs.
+  auto timeBegin = timePartition.begin();
+  auto timeEnd = timePartition.end();
+  Slice<4> beginData = {label, timeBegin, batch, 0};
+  Slice<4> endData = {label + 1, timeEnd, batch + 1, numClasses};
   auto tileData = data.slice(beginData, endData);
 
-  Slice<3> beginAlphaBeta = {timeOffset, batch, exLabelPartition.begin()};
-  Slice<3> endAlphaBeta = {timeOffset + 1, batch + 1, exLabelPartition.end()};
-  auto tileAlphaOrBeta = alphaOrBeta.slice(beginAlphaBeta, endAlphaBeta);
-
-  Slice<4> beginGrad = {label, timeOffset, batch, 0};
-  Slice<4> endGrad = {label + 1, timeOffset + 1, batch + 1, numClasses};
+  Slice<3> beginAlphaBeta = {timeBegin, batch, exLabelPartition.begin()};
+  Slice<3> endAlphaBeta = {timeEnd, batch + 1, exLabelPartition.end()};
+  auto tileAlphaOrBeta =
+      alphaOrBeta.slice(beginAlphaBeta, endAlphaBeta).flatten();
 
   const auto inType = data.elementType();
   const auto outType = alphaOrBeta.elementType();
-  const auto labelType = labels.elementType();
+  const auto labelType = temp.label.elementType();
   std::string vertexName;
   if (vertexType == VertexType::ALPHA) {
     vertexName = templateVertex("popnn::CTCAlpha", inType, outType, labelType,
@@ -87,45 +184,58 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
   }
   logging::popnn::trace("Making {} vertex on tile {} with label offset {}"
                         " and time offset {}",
-                        vertexName, tile, labelOffset, timeOffset);
+                        vertexName, tile, labelOffset, timeBegin);
   auto v = graph.addVertex(cs, vertexName);
   graph.setTileMapping(v, tile);
 
-  // TODO - We are connecting to just 1 time slice here, so maxT is always 1,
-  // however expect to revise the vertex so it will accept a maxT>1
-  // yet only process a specific timeStep in one call, so don't optimise out
-  // this parameter.
-  graph.setInitialValue(v["maxT"], 1);
+  graph.setInitialValue(v["maxT"], timePartition.size());
   graph.setInitialValue(v["numClasses"], numClasses);
   graph.setInitialValue(v["blankClass"], blankClass);
   graph.setInitialValue(v["labelOffset"], labelOffset);
-  graph.setInitialValue(v["timeOffset"], timeOffset);
+  graph.setInitialValue(v["timeOffset"], timeBegin);
 
   graph.connect(v["probabilities"], tileData.flatten());
-  graph.connect(v["label"], tileLabel.flatten());
-  graph.connect(v["validLabel"], tileValidLabel.reshape({}));
-  graph.connect(v["validTime"], tileValidTime.reshape({}));
+  graph.connect(v["label"], tempSlices.label.flatten());
+  graph.connect(v["validLabel"], tempSlices.validLabelLengths.reshape({}));
+  graph.connect(v["validTime"], tempSlices.validTimeSteps.reshape({}));
+  graph.connect(v["count"], tempSlices.counter);
 
+  Slice<4> beginGrad = {label, timeBegin, batch, 0};
+  Slice<4> endGrad = {label + 1, timeEnd, batch + 1, numClasses};
   if (vertexType == VertexType::ALPHA) {
-    graph.connect(v["alphas"], tileAlphaOrBeta.flatten());
-    graph.connect(v["alphaPrevTime"], tempTimeAlphaOrBeta.flatten());
-    graph.connect(v["alphaPrevLabel"], tempLabelAlphaOrBeta.flatten());
-    graph.connect(v["loss"], loss[batch][timePartitionNum][label]);
+    graph.connect(v["alphas"], tileAlphaOrBeta);
+    graph.connect(v["alphaPrevTime"], tempSlices.timeAlphaBeta1);
+    graph.connect(v["alphaPrevLabel"], tempSlices.labelAlphaIn.flatten());
+    graph.connect(v["alphaPrevLabelOut"], tempSlices.labelAlphaOut.flatten());
+    graph.connect(v["alphaPrevLabelTime"],
+                  tempSlices.labelTimeAlphaIn.flatten());
+    graph.connect(v["loss"], loss[batch][time][label]);
   } else if (vertexType == VertexType::BETA) {
-    graph.connect(v["betas"], tileAlphaOrBeta.flatten());
-    graph.connect(v["betaPrevTime"], tempTimeAlphaOrBeta.flatten());
-    graph.connect(v["betaPrevLabel"], tempLabelAlphaOrBeta.flatten());
+    graph.connect(v["betas"], tileAlphaOrBeta);
+    graph.connect(v["betaPrevTime"], tempSlices.timeAlphaBeta1);
+    graph.connect(v["betaPrevLabel"], tempSlices.labelBetaIn.flatten());
+    graph.connect(v["betaPrevLabelOut"], tempSlices.labelBetaOut.flatten());
+    graph.connect(v["betaPrevLabelTime"], tempSlices.labelTimeBetaIn.flatten());
   } else if (vertexType == VertexType::GRAD_GIVEN_ALPHA) {
+    graph.connect(v["alphas"], tileAlphaOrBeta);
     graph.connect(v["grads"], grad.get().slice(beginGrad, endGrad).flatten());
-    graph.connect(v["betaPrevTime"], tempTimeAlphaOrBeta.flatten());
-    graph.connect(v["betaPrevLabel"], tempLabelAlphaOrBeta.flatten());
-    graph.connect(v["alphas"], tileAlphaOrBeta.flatten());
+    graph.connect(v["betaPrevTime"], tempSlices.timeAlphaBeta2);
+    graph.connect(v["betaPrevPartition"],
+                  tempSlices.timeAlphaBetaPrevPartition);
+    graph.connect(v["betaPrevLabel"], tempSlices.labelBetaIn.flatten());
+    graph.connect(v["betaPrevLabelOut"], tempSlices.labelBetaOut.flatten());
+    graph.connect(v["betaPrevLabelTime"], tempSlices.labelTimeBetaIn.flatten());
   } else if (vertexType == VertexType::GRAD_GIVEN_BETA) {
+    graph.connect(v["betas"], tileAlphaOrBeta);
     graph.connect(v["grads"], grad.get().slice(beginGrad, endGrad).flatten());
-    graph.connect(v["alphaPrevTime"], tempTimeAlphaOrBeta.flatten());
-    graph.connect(v["alphaPrevLabel"], tempLabelAlphaOrBeta.flatten());
-    graph.connect(v["betas"], tileAlphaOrBeta.flatten());
-    graph.connect(v["loss"], loss[batch][timePartitionNum][label]);
+    graph.connect(v["alphaPrevTime"], tempSlices.timeAlphaBeta2);
+    graph.connect(v["alphaPrevPartition"],
+                  tempSlices.timeAlphaBetaPrevPartition);
+    graph.connect(v["alphaPrevLabel"], tempSlices.labelAlphaIn.flatten());
+    graph.connect(v["alphaPrevLabelOut"], tempSlices.labelAlphaOut.flatten());
+    graph.connect(v["alphaPrevLabelTime"],
+                  tempSlices.labelTimeAlphaIn.flatten());
+    graph.connect(v["loss"], loss[batch][time][label]);
   }
 }
 
@@ -244,12 +354,11 @@ void mapTempLabelAccordingToPlan(Graph &graph, const Tensor &tensor,
         const auto tile = plan.getTile(batch, time, label);
         auto l = plan.partitionLabel(labelSize, label);
         const auto b = plan.partitionBatch(batchSize, batch);
-        // Partition ignoring the 2 entries per tile
-        const auto t = plan.partitionTime(timeSize / 2, time);
+        const auto t = plan.partitionTime(timeSize, time);
 
         graph.setTileMapping(
-            tensor.slice({l.begin(), b.begin(), 2 * t.begin(), 0},
-                         {l.end(), b.end(), 2 * t.end(), tempTimeSlices}),
+            tensor.slice({l.begin(), b.begin(), t.begin(), 0},
+                         {l.end(), b.end(), t.end(), tempTimeSlices}),
             tile);
       }
     }
@@ -365,478 +474,498 @@ Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
   return broadcastLabels;
 }
 
-enum class VertexInitialiser { CONSTANT, PREVIOUS_RESULT, PREVIOUS_TEMP };
-
-std::ostream &operator<<(std::ostream &o, const VertexInitialiser v) {
-  if (v == VertexInitialiser::CONSTANT) {
-    o << "CONSTANT";
-  } else if (v == VertexInitialiser::PREVIOUS_RESULT) {
-    o << "PREVIOUS_RESULT";
-  } else if (v == VertexInitialiser::PREVIOUS_TEMP) {
-    o << "PREVIOUS_TEMPORARY_RESULT";
-  }
-  return o;
-}
-// Struct to track and check which alpha, beta time steps have already been
-// calculated and therefore what can be calculated next.
-struct CompletionFlags {
-  unsigned timeSplits;
-  unsigned labelSplits;
-  std::vector<bool> alphaImpl;
-  std::vector<bool> betaImpl;
-
-  CompletionFlags(unsigned label, unsigned time) {
-    timeSplits = time;
-    labelSplits = label;
-    alphaImpl.resize(timeSplits, false);
-    betaImpl.resize(timeSplits, false);
-  }
-  // Wrapper to access alphaImpl, betaImpl
-  bool alpha(unsigned time) const { return alphaImpl[time]; }
-  bool beta(unsigned time) const { return betaImpl[time]; }
-
-  void set(unsigned time, VertexType vertex) {
-    if (vertex == VertexType::ALPHA || vertex == VertexType::GRAD_GIVEN_BETA) {
-      alphaImpl[time] = true;
-    } else {
-      betaImpl[time] = true;
-    }
-  }
-
-  // Return the type of vertex that can be run on the time step specified
-  boost::optional<VertexType> vertexToRun(unsigned time,
-                                          bool equalTimePartitions) const {
-
-    if (alpha(time) && beta(time)) {
-      // Nothing left to do
-      return boost::none;
-    }
-    // Control calculating alpha/beta as a first priority.
-    // This is a bit cryptic but should be re-done when the implementation is
-    // loop based. We need to:
-    // Find alpha first if there is 1 partition only as the initialiser is there
-    // Continue to find alpha/beta when using the gradGivenAlpha or Beta vertex
-    // in the temporary input (Finding beta 1st would overwrite it)
-    // and reading from a previous temporary input.  Otherwise if we find alpha
-    // then beta at any point the previous alpha is treated as previous beta.
-    //
-    // Conditionally prioritising alpha means that this all works out
-
-    bool prevTimeAlpha = time == 0 || alpha(time - 1);
-
-    if (equalTimePartitions) {
-      if (!alpha(time) && prevTimeAlpha) {
-        // We need to find alpha, can find alpha, we can find grad if we have
-        // beta
-        return beta(time) ? VertexType::GRAD_GIVEN_BETA : VertexType::ALPHA;
-      }
-    }
-    bool prevTimeBeta = time == timeSplits - 1 || beta(time + 1);
-    if (!beta(time) && prevTimeBeta) {
-      // We need to find beta, can find beta, we can find grad if we have alpha
-      return alpha(time) ? VertexType::GRAD_GIVEN_ALPHA : VertexType::BETA;
-    }
-    if (!alpha(time) && prevTimeAlpha) {
-      // We need to find alpha, can find alpha, we can find grad if we have beta
-      return beta(time) ? VertexType::GRAD_GIVEN_BETA : VertexType::ALPHA;
-    }
-    return boost::none;
-  }
-
-  // Return the type of previous timeStep result to attach to the vertex.
-  VertexInitialiser previousTimeResult(unsigned split,
-                                       VertexType vertex) const {
-    if (timeSplits == 1) {
-      // No split, no tile to get a previous result from
-      return VertexInitialiser::CONSTANT;
-    }
-    if (split == 0 && (vertex == VertexType::ALPHA ||
-                       vertex == VertexType::GRAD_GIVEN_BETA)) {
-      // First split, finding alpha - start up with a constant
-      return VertexInitialiser::CONSTANT;
-    }
-    if (split == timeSplits - 1 && (vertex == VertexType::BETA ||
-                                    vertex == VertexType::GRAD_GIVEN_ALPHA)) {
-      // Last split, finding beta - start up with a constant
-      return VertexInitialiser::CONSTANT;
-    }
-    if (split > 0 && vertex == VertexType::GRAD_GIVEN_BETA) {
-      bool prevAlpha = alpha(split - 1);
-      bool prevBeta = beta(split - 1);
-      if (prevAlpha && prevBeta) {
-        return VertexInitialiser::PREVIOUS_TEMP;
-      }
-    }
-    if (split < timeSplits - 1 && vertex == VertexType::GRAD_GIVEN_ALPHA) {
-      bool prevAlpha = alpha(split + 1);
-      bool prevBeta = beta(split + 1);
-      if (prevAlpha && prevBeta) {
-        return VertexInitialiser::PREVIOUS_TEMP;
-      }
-    }
-    return VertexInitialiser::PREVIOUS_RESULT;
-  }
-
-  // Return the type of previous label result to attach to the vertex.
-  VertexInitialiser previousLabelResult(unsigned split,
-                                        VertexType vertex) const {
-    if (labelSplits == 1) {
-      // No split, no tile to get a previous result from
-      return VertexInitialiser::CONSTANT;
-    }
-    if (split == 0 && (vertex == VertexType::ALPHA ||
-                       vertex == VertexType::GRAD_GIVEN_BETA)) {
-      // First split, finding alpha - start up with a constant
-      return VertexInitialiser::CONSTANT;
-    }
-    if (split == labelSplits - 1 && (vertex == VertexType::BETA ||
-                                     vertex == VertexType::GRAD_GIVEN_ALPHA)) {
-      // Last split, finding beta - start up with a constant
-      return VertexInitialiser::CONSTANT;
-    }
-    return VertexInitialiser::PREVIOUS_TEMP;
-  }
-};
-// *****************************************************************************
-// Comments above the 3 functions below explain temporary inputs to the vertices
-// They will make more sense if read in order!
-
-// Connect the required temporary time input to an alpha or beta vertex.
-// Suppose we split data by time as follows:
-//
-//  el      time ----->
-//        tile 0          tile 1
-//  |  1  a b c d         a'b'c'd'
-//  |  0  e f g h         e'f'g'h'
-//  V  0  i j k l         i'j'k'l
-//  alpha propagates--->  <------- beta propagates
-//
-// Before execution, the data is set to the required CONSTANT initialiser
-// with all elements set to zero except for the 1st column[1,0,0].
-// One time column is calculated per compute step
-//
-// ComputeStep1: tile 0 will use the CONSTANT initialiser column[1,0,0] in order
-//    to calculate alpha for the first time step col[a,e,i].
-// ComputeStep2: The PREVIOUS_RESULT initialiser col[a,e,i] is then used to
-//    calculate column[b,f,j]
-// ComputeSteps3,4 continue using PREVIOUS_RESULT on tile 0
-// ComputeStep5: For tile 1 to continue, it needs the PREVIOUS_RESULT
-//    initialiser col[d,h,l]
-// ComputeSteps6,7,8 continue using PREVIOUS_RESULT on tile 1
-//
-// Note that PREVIOUS_RESULT is the previously calculated alpha stored in the
-// alphaBeta tensor by a previously executed vertex. There isn't really any
-// difference between steps on the same tile and steps where we change tile
-// except that exchange will be necessary.
-//
-// The input will always come from the alphaBeta tensor, not a temporary result
-// (see tempTimeInputToGradVertex). Temporary results come from
-// vertices that calculate `gradGivenX`.
-//
-// All of this can apply to alpha or beta but with beta propagating towards
-// t=0.  The initialiser for tile1 in the case of beta would be col[0,0,1] which
-// would begin to the right of tile 1 col[d',h',l']
-
-Tensor tempTimeInputToAlphaOrBetaVertex(
-    Sequence &prog, VertexInitialiser initialiser, VertexType tileVertex,
-    unsigned batch, unsigned timePartitionNum, unsigned timeStep,
-    const Interval &timePartition, const Interval &exLabelPartition,
-    const Tensor &alphaBeta, const Tensor &tempAlphaBeta,
-    const poplar::DebugContext &di) {
-
-  // Definition of the output slice to attach this vertex to if we are to use
-  // a temporary input
-  Slice<3> beginT = {timePartitionNum, batch, exLabelPartition.begin()};
-  Slice<3> endT = {timePartitionNum + 1, batch + 1, exLabelPartition.end()};
-  Tensor result;
-  bool isLastInPartition = timeStep == timePartition.end() - 1;
-  bool isFirstInPartition = timeStep == 0;
-  bool isAlpha = (tileVertex == VertexType::ALPHA);
-  if (initialiser == VertexInitialiser::PREVIOUS_RESULT) {
-    if ((isFirstInPartition && isAlpha) || (isLastInPartition && !isAlpha)) {
-      // Initialiser from the previous timeStep alpha or beta, earlier if alpha,
-      // later if beta, copy from the previous tile
-      result = tempAlphaBeta.slice(beginT, endT).flatten();
-      const auto offset = isAlpha ? 0u : 2u;
-      Slice<3> begin = {timeStep - 1 + offset, batch, exLabelPartition.begin()};
-      Slice<3> end = {timeStep + offset, batch + 1, exLabelPartition.end()};
-      prog.add(
-          Copy(alphaBeta.slice(begin, end).flatten(), result, false, {di}));
-    } else {
-      const auto offset = isAlpha ? 0u : 2u;
-      Slice<3> begin = {timeStep - 1 + offset, batch, exLabelPartition.begin()};
-      Slice<3> end = {timeStep + offset, batch + 1, exLabelPartition.end()};
-      // Temporary input is found in the alpha/beta tensor on the same tile as
-      // the vertex.  Just reference it, don't copy
-      result = alphaBeta.slice(begin, end).flatten();
-    }
-  } else {
-    // Temporary input is needed, and was already initialised
-    result = tempAlphaBeta.slice(beginT, endT).flatten();
-  }
-  return result;
-}
-
-// Connect the required temporary time input to a gradGivenAlpha or
-// gradGivenBeta vertex.
-// Suppose we split data by time as follows:
-//
-//  el      time ----->
-//        tile 0      tile 1       tile 2         tile 3
-//  |     a b c d     a'b'c'd'     a"b"c"d"       a^b^c^d^
-//  |     e f g h     e'f'g'h'     e"f"g"h"       e^f^g^h^
-//  V     i j k l     i'j'k'l'     i"j"k"l"       i^j^k^l^
-//  alpha propagates--->          <------- beta propagates
-//
-// Temp: u v          u'v'         u"v"           u^v^
-//       w x          w'x'         w"x"           w^x^
-//       y z          y'z'         y"z"           y^z^
-//
-// Data dependencies say that we need to run the following compute sets:
-//      Tile 0        Tile 1       Tile 2         Tile 3
-// Step
-//  0   alpha         -            -              beta
-//  1   -             alpha        beta           -
-//  2   -             gradGivA     gradGivB       -
-//  3   gradGivA      -            -              gradGivB
-//
-// Step0 and Step1
-// Will run non-gradient vertices whose temporary inputs are dealt
-// with by the tempTimeInputToAlphaOrBetaVertex function.  Those vertices write
-// into the alphaBeta tensor.
-// So: alphaBeta a..l and a'..l'  will be populated with alpha
-//     alphaBeta a"..l" and a^..l^  will be populated with beta
-// alphaBeta will not change in later compute sets as the data needs to be used
-// for calculation of the gradient.
-//
-// Step2
-// Will calculate gradientGivenAlpha on tile1 (a'..l' contains alpha).
-// So it is calculating beta. It needs a temporary input from tile2 of
-// column[a"e"i"]
-// That is stored in a PREVIOUS_RESULT on tile 2 from where it is copied into
-// tile 1 working temporary data col[u'w'y'].
-// As tile 1 calculates beta it creates the beta that would be in col[d'h'l']
-// but it can't overwrite. Instead this goes into col[v'x'z'], which is used as
-// tile 1 calculates beta col[c'g'k'].
-// Each timestep the use of col[u'w'y'] and col[v'x'z'] as input and output
-// swaps. So after an even number of timesteps on tile 1 the last beta result
-// will be in col[u'w'y'], if an odd number it will be col[v'x'z']
-//
-// In Step2 tile2 calculates gradientGivenBeta in a similar manner with temp
-// input col[d'h'j'] which is the PREVIOUS_RESULT
-//
-// Step3
-// Here we calculate gradientGivenAlpha on tile0 (a..l contains alpha).
-// So it is calculating beta. It needs a temporary input from tile1 of
-// col[a'e'i'], however that was stored in the PREVIOUS_TEMP data col[u'w'y'],
-// so it needs to be initialised from there.  (If tile 1 had an odd number of
-// timesteps it would come from col[v'x'z']. Ongoing calculation on tile 0 is
-// similar to that described in Step2.
-//
-// In Step3 tile3 calculates gradientGivenBeta in a similar manner with temp
-// input [d"h"j"] which is the PREVIOUS_TEMP col[u"w"y"]
-//
-// Further splits result in PREVIOUS_TEMP continuing to propagate with
-// increasing time for alpha, and decreasing time for beta
-
-Tensor tempTimeInputToGradVertex(
-    Sequence &prog, VertexInitialiser initialiser, VertexType tileVertex,
-    unsigned batch, unsigned timePartitionNum, unsigned timeStep,
-    const Interval &timePartition, const Interval &exLabelPartition,
-    const Tensor &alphaBeta, const Tensor &tempAlphaBeta,
-    const popnn::ctc::Plan::Impl &plan, unsigned maxT,
-    const poplar::DebugContext &di) {
-
-  // The piece of the temporary input tensor to attach to this vertex
-  Slice<3> beginT = {2 * timePartitionNum, batch, exLabelPartition.begin()};
-  Slice<3> endT = {2 * (timePartitionNum + 1), batch + 1,
-                   exLabelPartition.end()};
-  auto result = tempAlphaBeta.slice(beginT, endT);
-
-  // The vertex will overwrite the data, so a copy is required in each case
-  if (initialiser == VertexInitialiser::PREVIOUS_RESULT) {
-    // Initialiser from the previous tile's alpha or beta.
-    // Take the last timeslice (alpha) or 1st (beta)
-    if (tileVertex == VertexType::GRAD_GIVEN_ALPHA) {
-      Slice<3> begin = {timeStep + 1, batch, exLabelPartition.begin()};
-      Slice<3> end = {timeStep + 2, batch + 1, exLabelPartition.end()};
-      prog.add(Copy(alphaBeta.slice(begin, end), result.slice(0, 1, 0), false,
-                    {di}));
-    } else {
-      Slice<3> begin = {timeStep - 1, batch, exLabelPartition.begin()};
-      Slice<3> end = {timeStep, batch + 1, exLabelPartition.end()};
-      prog.add(Copy(alphaBeta.slice(begin, end), result.slice(0, 1, 0), false,
-                    {di}));
-    }
-  } else if (initialiser == VertexInitialiser::PREVIOUS_TEMP) {
-    // Initialiser from the previous timeStep temporary result.
-    // This can be from this time partition or the previously computed one.
-    // Has shape[2][extendedLabels].  We always process one timeStep at once
-    // and with the input in shape[0][extendedLabels] the output will always be
-    // in shape[1][extendedLabels]
-    if (tileVertex == VertexType::GRAD_GIVEN_ALPHA) {
-      bool isLastInPartition = timeStep == timePartition.end() - 1;
-      unsigned inOffset = isLastInPartition ? 3 : 1;
-      Slice<3> begin = {2 * timePartitionNum + inOffset, batch,
-                        exLabelPartition.begin()};
-      Slice<3> end = {2 * timePartitionNum + inOffset + 1, batch + 1,
-                      exLabelPartition.end()};
-      prog.add(Copy(tempAlphaBeta.slice(begin, end), result.slice(0, 1, 0),
-                    false, {di}));
-    } else {
-      bool isFirstInPartition = timeStep == timePartition.begin();
-      unsigned inOffset = isFirstInPartition ? 0 : 2;
-      Slice<3> begin = {2 * timePartitionNum - 1 + inOffset, batch,
-                        exLabelPartition.begin()};
-      Slice<3> end = {2 * timePartitionNum + inOffset, batch + 1,
-                      exLabelPartition.end()};
-      prog.add(Copy(tempAlphaBeta.slice(begin, end), result.slice(0, 1, 0),
-                    false, {di}));
-    }
-  }
-  return result;
-}
-// Connect the required temporary label input to an alpha, beta, gradGivenAlpha
-// or gradGivenBeta vertex.
-//
-// For a full explanation we need to consider a time and label split together.
-// Time split temporary data is explained above the 2 functions involved.
-//
-// Suppose we split data by time as follows:
-//
-//  el        time ----->
-//    sym     tile 0      tile 2
-//  |  -      a b c d     a"b"c"d"
-//  |  0      e f g h     e"f"g"h"
-//  |
-//  |       w x y z     w"x"y"z"  (tempAlpha - Tile temporary alpha data)
-//  |
-//  | sym     tile 1      tile 3
-//  V  -      a'b'c'd'    a^b^c^d^
-//     1      e'f'g'h'    e^f^g^h^
-//
-//          w'x'y'z     e^f^g^h^ (tempAlpha - Tile temporary alpha data)
-//
-//      alpha propagates tile 0, tiles (1 and 2), tile 3
-//
-// Each tile will contain data corresponding to a number of labels which will
-// each expand: 0 to {-,0}, 1 to {-,1} etc.
-// The sequence will end with an extra {-}.
-// Given this decision at the split between tiles alpha depends only upon
-// the row above it (consider trellis/blank dependencies).  Beta depends on the
-// 2 rows below (As they contain {-,symbol} and the {-} can be skipped over
-// when symbol!=previousSymbol, so the value of "symbol" can be used).
-//
-// Vertices take the 1st row input from `tempAlpha` but this also relies on
-// an element from a previous timestep, so as an input the [w x y z] vector is
-// used like this:
-//  w  x y z
-//  M  a b c d        (a=fn(w,M) b=fn(x,a) c=fn(y,b) and d=fn(z,c))
-//  N  e f g h        ([M, N] come from the time initialiser - functions above)
-//
-//  And as an output:
-//  M  a b c d
-//  N  e f g h
-//     w x y z        (w=copy of alpha at e, x=alpha[f], y=alpha[g] z=alpha[h])
-//
-// The same `tempAlpha` is used as input and output, data being overwritten as
-// we go.
-//
-// So to initialise, and per compute set:
-// Step0
-// tile0 `tempAlpha` input [wxyz]=[0000](All zero as this is the 1st row of El)
-//      produces an output [wxyz]=alpha at [efgh]
-// Step1
-// tile1 `tempAlpha` input [w`x`y`z`]=[0wxy]. (0 as there is no previous `t`)
-//      produces an output [w`x`y`z`]=alpha at [e'f'g'h']
-// tile2 `tempAlpha` input [w"x"y"z"]=[0000]
-//      produces an output [w"x"y"z"] = alpha at [e"f"g"h"]
-// Step2
-// tile3 `tempAlpha` input [w^x^y^z^]=[zw"x"y"]
-//      produces an output [w^x^y^z^] = alpha at [e^f^g^h^]
-//
-// This pattern continues. Note the detail:
-// if (First row)        initialise with [0000]
-// Else if(First column) initialise with [0wxy] or [0w'x'y'] etc
-// Else                  initialise with [zw"x"y"]
-//
-// Exactly the same happens for beta, but 2 rows are maintained to pass up
-// from tile to tile, and everything else is in reverse working from tile 3
-// toward tile 0.  Call this [[stuv],[wxyz]].  The bottom row requires
-// initialising with [[0000],[0000]] and
-// the last column means [[tuv0],[xyz0]]
-
-Tensor tempLabelInputToVertex(Sequence &prog, VertexInitialiser initialiser,
-                              VertexType tileVertex, unsigned batch,
-                              unsigned label, unsigned timePartitionNum,
-                              unsigned timeStep, const Interval &timePartition,
-                              bool isLastTimePartition, const Interval &exLabel,
-                              const Tensor &tempAlpha, const Tensor &tempBeta,
-                              const poplar::DebugContext &di) {
-  bool vertexCalculatesAlpha = (tileVertex == VertexType::ALPHA ||
-                                tileVertex == VertexType::GRAD_GIVEN_BETA);
-
-  // The piece of the temporary input tensor to attach to this vertex
-  // tempAlpha Tensor shape : {1, 1, 2 * parallel.time, 1}
-  // tempBeta Tensor shape: {1, 1, 2 * parallel.time, 2}
-  // dim 0: single slice in the label dimension
-  // dim 1: single slice in the batch dimension
-  // dim 2: 2 per time partition [0] as input, [1] as output
-  // dim 3: 1 row for alpha, 2 rows for beta as we need to propagate more
-  // data due to the dependency on blank and symbols in the trellis.
-
-  // Reference the vertex input slice.
-  const auto resultOffset = timePartitionNum * 2;
-  const auto inOffset = timePartitionNum * 2 + 1;
-  Slice<4> begin = {label, batch, resultOffset, 0};
-  Slice<4> end = {label + 1, batch + 1, resultOffset + 2,
-                  vertexCalculatesAlpha ? 1ul : 2ul};
-
-  const auto result = vertexCalculatesAlpha
-                          ? tempAlpha.slice(begin, end).flatten()
-                          : tempBeta.slice(begin, end).flatten();
-
-  // Copy the required previous tile's alpha or beta temporary data into the
-  // result tensor (which represents this tile's temporary memory input)
-  auto isLastTimeStep =
-      isLastTimePartition && timeStep == timePartition.end() - 1;
-  if (initialiser == VertexInitialiser::PREVIOUS_TEMP) {
-    // Initialise from the previous tile's temporary output.
-    if (vertexCalculatesAlpha && timeStep != 0) {
-      // Take the previous label result from the tile partition before
-      auto timeOffset = timeStep == timePartition.begin() ? 2u : 0u;
-      Slice<4> begin = {label - 1, batch, inOffset - timeOffset, 0};
-      Slice<4> end = {label, batch + 1, inOffset + 1 - timeOffset, 1};
-      prog.add(Copy(tempAlpha.slice(begin, end).flatten(),
-                    result.slice(0, 1, 0), false, {di}));
-    } else if (!vertexCalculatesAlpha && !isLastTimeStep) {
-      // Take the previous label result, from the time partition after
-      auto timeOffset = timeStep == timePartition.end() - 1 ? 2u : 0u;
-      Slice<4> begin = {label + 1, batch, inOffset + timeOffset, 0};
-      Slice<4> end = {label + 2, batch + 1, inOffset + 1 + timeOffset, 2};
-      prog.add(Copy(tempBeta.slice(begin, end).flatten(), result.slice(0, 2, 0),
-                    false, {di}));
-    }
-  }
-  return result;
-}
-
 void initialise(Graph &graph, const Tensor &input, Sequence &prog,
                 const poplar::DebugContext &di) {
-  const auto rank = input.rank();
-  const auto baseDim = input.shape()[rank - 1];
-  // TODO - If there is no speed penalty we could initialise with a scalar
-  // to save space
-  std::vector<float> initialData(baseDim, log::probabilityZero);
-  auto initialiser = graph.addConstant<float>(input.elementType(), {1, baseDim},
-                                              initialData, {di});
+  auto initialiser = graph.addConstant<float>(input.elementType(), {1},
+                                              {log::probabilityZero}, {di});
   graph.setTileMapping(initialiser, 0);
-
-  auto inputReshape = input.reshape({input.numElements() / baseDim, baseDim});
-  prog.add(Copy(initialiser.broadcast(inputReshape.dim(0), 0), inputReshape,
+  prog.add(Copy(initialiser.broadcast(input.numElements(), 0), input.flatten(),
                 false, {di}));
 }
 
+// Initialise a loop counter per tile.  Those below "midPointTile" are
+// initialised with lowerT, the rest with higherT
+void initialiseCounters(Graph &graph, const Tensor &input,
+                        unsigned short lowerT, unsigned short higherT,
+                        Sequence &prog, const poplar::DebugContext &di) {
+
+  const auto timePartitions = input.dim(0);
+  auto midPointTile = ceildiv(timePartitions, 2u);
+
+  auto initialiserZero = graph.addConstant<unsigned short>(input.elementType(),
+                                                           {1}, {lowerT}, {di});
+  graph.setTileMapping(initialiserZero, 0);
+
+  auto initialiserMaxCount = graph.addConstant<unsigned short>(
+      input.elementType(), {1}, {higherT}, {di});
+  graph.setTileMapping(initialiserMaxCount, 0);
+
+  auto firstTimePartitions = input.slice(0, midPointTile, 0).flatten();
+  prog.add(Copy(initialiserZero.broadcast(firstTimePartitions.numElements(), 0),
+                firstTimePartitions, false, {di}));
+
+  auto lastTimePartitions =
+      input.slice(midPointTile, input.dim(0), 0).flatten();
+  prog.add(
+      Copy(initialiserMaxCount.broadcast(lastTimePartitions.numElements(), 0),
+           lastTimePartitions, false, {di}));
+}
+
+// Add a copy program to exchange the src tensor to the dst tensor which is
+// offset by + or - 1 label partition
+void exchangeToNextLabelPartition(Sequence &prog, const Tensor &src,
+                                  const Tensor &dst, const Interval &time,
+                                  const Interval &label, bool isAlpha,
+                                  unsigned batchSize) {
+  // Copy to the next label partition: 1 more or 1 less
+  const auto dstOffsetBegin = isAlpha ? label.begin() + 1 : label.begin() - 1;
+  const auto dstOffsetEnd = isAlpha ? label.end() + 1 : label.end() - 1;
+
+  Slice<4> srcBegin = {label.begin(), 0, time.begin(), 0};
+  Slice<4> srcEnd = {label.end(), batchSize, time.end(), src.dim(3)};
+  Slice<4> dstBegin = {dstOffsetBegin, 0, time.begin(), 0};
+  Slice<4> dstEnd = {dstOffsetEnd, batchSize, time.end(), src.dim(3)};
+  prog.add(Copy(src.slice(srcBegin, srcEnd), dst.slice(dstBegin, dstEnd)));
+}
+
+// Add a copy program to exchange the src tensor to the dst tensor which is
+// offset by + or - 1 label and time partition
+void exchangeToNextLabelTimePartition(Sequence &prog, const Tensor &src,
+                                      const Tensor &dst, const Interval &time,
+                                      const Interval &label, bool isAlpha,
+                                      unsigned batchSize) {
+  // Copy to the next label and time  partition, both 1 more or 1 less
+  const auto dstLabelBegin = isAlpha ? label.begin() + 1 : label.begin() - 1;
+  const auto dstLabelEnd = isAlpha ? label.end() + 1 : label.end() - 1;
+  const auto dstTimeBegin = isAlpha ? time.begin() + 1 : time.begin() - 1;
+  const auto dstTimeEnd = isAlpha ? time.end() + 1 : time.end() - 1;
+
+  Slice<4> srcBegin = {label.begin(), 0, time.begin(), 0};
+  Slice<4> srcEnd = {label.end(), batchSize, time.end(), src.dim(3)};
+  Slice<4> dstBegin = {dstLabelBegin, 0, dstTimeBegin, 0};
+  Slice<4> dstEnd = {dstLabelEnd, batchSize, dstTimeEnd, src.dim(3)};
+  prog.add(Copy(src.slice(srcBegin, srcEnd), dst.slice(dstBegin, dstEnd)));
+}
+
+// Add copy programs to exchange small temporary alpha/beta result tensors
+// to the next time and label partitions
+void addLabelExchangeAlphaBeta(Sequence &prog,
+                               const popnn::ctc::Plan::Impl &plan,
+                               TempTensors &temp, unsigned alphaTimeSteps,
+                               unsigned batchSize) {
+  if (plan.parallel.label > 1) {
+    // Copy alphas to the next (1 more) label partition
+    exchangeToNextLabelPartition(prog, temp.labelAlphaOut, temp.labelAlphaIn,
+                                 {0, alphaTimeSteps},
+                                 {0, plan.parallel.label - 1}, true, batchSize);
+    // Copy betas to the next (1 less) label partition
+    exchangeToNextLabelPartition(prog, temp.labelBetaOut, temp.labelBetaIn,
+                                 {alphaTimeSteps, plan.parallel.time},
+                                 {1, plan.parallel.label}, false, batchSize);
+
+    if (plan.parallel.time > 1) {
+      // Copy alphas to the next label AND time partition (1 more in each case)
+      exchangeToNextLabelTimePartition(
+          prog, temp.labelAlphaOut, temp.labelTimeAlphaIn,
+          {0, alphaTimeSteps - 1}, {0, plan.parallel.label - 1}, true,
+          batchSize);
+      // Copy betas to the next label AND time partition (1 less in each case)
+      exchangeToNextLabelTimePartition(
+          prog, temp.labelBetaOut, temp.labelTimeBetaIn,
+          {alphaTimeSteps + 1, plan.parallel.time}, {1, plan.parallel.label},
+          false, batchSize);
+    }
+  }
+}
+
+// Add copy programs to exchange small temporary alpha/beta result tensors
+// to the next time and label partitions
+void addLabelExchangeAlphaBetaGrad(Sequence &prog,
+                                   const popnn::ctc::Plan::Impl &plan,
+                                   TempTensors &temp, unsigned alphaTimeSteps,
+                                   unsigned batchSize) {
+  if (plan.parallel.label > 1) {
+    // Copy alphas to the next (1 more) label partition
+    exchangeToNextLabelPartition(prog, temp.labelAlphaOut, temp.labelAlphaIn,
+                                 {alphaTimeSteps, plan.parallel.time},
+                                 {0, plan.parallel.label - 1}, true, batchSize);
+    // Copy betas to the next (1 less) label partition
+    exchangeToNextLabelPartition(prog, temp.labelBetaOut, temp.labelBetaIn,
+                                 {0, alphaTimeSteps}, {1, plan.parallel.label},
+                                 false, batchSize);
+
+    if (plan.parallel.time > 1) {
+      // Copy alphas to the next label AND time partition (1 more in each case)
+      exchangeToNextLabelTimePartition(
+          prog, temp.labelAlphaOut, temp.labelTimeAlphaIn,
+          {alphaTimeSteps - 1, plan.parallel.time - 1},
+          {0, plan.parallel.label - 1}, true, batchSize);
+      // Copy betas to the next label AND time partition (1 less in each case)
+      exchangeToNextLabelTimePartition(
+          prog, temp.labelBetaOut, temp.labelTimeBetaIn,
+          {1, alphaTimeSteps + 1}, {1, plan.parallel.label}, false, batchSize);
+    }
+  }
+}
+
+// Each vertex is connected to a partition (in time and extended label) of the
+// alpha beta array representing the work it needs to do (al0,1,2) or (be3,4,5).
+// In this pass we are filling that with alpha in the earlier time partitions or
+// beta in the later time partitions.
+// Although connected to the whole of the alpha beta array partition on the tile
+// a vertex only writes a single timeslice per call, or nothing at all if the
+// `count` references a timeslice in another partition.  Which timeslice is
+// determined by a `count` variable.
+// Picture a single time partition at the position (T=t, El=el) within the
+// partitions of time, and extended label.
+//
+//      time  ------->
+//                        Tile (T=t, El=el)
+//      plptIn(t-1,el-1)            plIn(el-1)
+//                       ---------------------------
+// El   ptIn(t-1)        | al0       al1       al2 |
+//  |   ptIn(t-1)        | al0       al1       al2 |
+//  |   ptIn(t-1)        | al0       al1       al2 |
+//  |   ptIn(t-1)        | al0       al1*      al2 |
+//  v                    ---------------------------
+//                                   plOut
+//
+// On every loop pass previous alpha results (plptIn, plIn, ptIn) are exchanged
+// to this tile.  They aren't always all used by the vertex depending on the
+// count.
+// ptIn[elSizePerPartition]: (previous time In)
+//            The last timeSlice from the previous time partition - partition
+//            t-1 (al2 on this tile will be the ptIn of the next tile)
+// plIn[1]:   (previous label In)
+//            The plOut value from the previous label partition el-1
+// plptIn[1]: (previous label and previous time In)
+//            The plOut value from the previous label partition el-1
+//            and previous time partiton t-1.
+// plOut[1]:  (previous label out)
+//            The vertex stores the last alpha value in the timeslice it
+//            processes into plOut for exchange to other tiles in the next label
+//            partition.
+//            If processing the column al1 this would be equal to the value al1*
+//
+// The idea is to always have a complete previous timeslice of alpha including
+// `one above` available in order to compute a column of alpha.
+// So when the count references the timesteps in this partition this happens:
+// Count** Computing `one above`                   previous timeslice
+// 0       al0        plptIn == plOut(t-1,el-1)    ptIn
+// 1       al1        plIn == plOut(t,el-1)        al0
+// 2       al2        plIn == plOut(t,el-1)        al1
+//
+// -----------------------------------------------------------------------------
+// When calculating beta (in the later time partitions) everything is in
+// reverse, and the plptIn,plOut,plIn tensors each contain 2 elements per tile.
+//
+//          Tile (T=t, El=el)
+//                      plOut
+//          ---------------------------
+// El       | be0       be1*      be2 |    ptIn(t+1)
+//  |       | be0       be1*      be2 |    ptIn(t+1)
+//  |       | be0       be1       be2 |    ptIn(t+1)
+//  |       | be0       be1       be2 |    ptIn(t+1)
+//  v       ---------------------------
+//                      plIn(el+1)         plptIn(t+1,el+1)
+//
+// We compute be2,be1,be0 in that order as the `count` decrements so:
+// Count** Computing `one below`                   previous timeslice
+// 2       be2        plptIn == plOut(t+1,el+1)    ptIn
+// 1       be1        plIn == plOut(t,el+1)        be2
+// 0       be0        plIn == plOut(t,el+1)        be1
+//
+// ** For partitions computing alpha, the count increments 0...alphaPartitions
+//    For partitions computing beta, the count decements maxT...alphaPartitions
+//    Where if evenly divided alphaPartitions=maxT/2
+//    Above we illustrate `count with in that tile's partition`.
+
+// Make a program to run in the loop which exchanges temporary tensors over
+// time and label partitions and makes an alpha or beta vertex on each tile.
+Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::Plan::Impl &plan,
+                             const Tensor &data, const Tensor &alphaBeta,
+                             const Tensor &loss, TempTensors &temp,
+                             unsigned labelsLength, unsigned blankClass,
+                             const poplar::DebugNameAndId &dnai) {
+
+  logging::popnn::trace("Creating program to find alpha/beta");
+  Sequence prog;
+  const auto maxT = data.dim(1);
+  const auto batchSize = data.dim(2);
+
+  auto cs = graph.addComputeSet({dnai, "/alphaBetaLoop"});
+  // Partitions in the time dimension calculate either alpha or beta.
+  // The time partitions that are less than this value calculate alpha.
+  // The remaining partitions calculate beta.
+  const auto alphaTimePartitions = ceildiv(plan.parallel.time, 2u);
+
+  for (unsigned time = 0; time < plan.parallel.time; time++) {
+    const auto vertexCalculatesAlpha = time < alphaTimePartitions;
+    const auto timePartition = plan.partitionTime(maxT, time);
+    // Copy the last timestep in the alphaBeta tensor from one tile into
+    // the temporary time input for the next tile
+    // We don't (can't) copy into the first partition from the one before it,
+    // or into the last from the one after it. Therefore those partition's
+    // timeAlphaBeta1 data remains as initialised before the loop started.
+    if (vertexCalculatesAlpha && time != 0) {
+      prog.add(Copy(
+          alphaBeta.slice(timePartition.begin() - 1, timePartition.begin(), 0),
+          temp.timeAlphaBeta1.slice(time, time + 1, 0)));
+    } else if (!vertexCalculatesAlpha && time != plan.parallel.time - 1) {
+      prog.add(
+          Copy(alphaBeta.slice(timePartition.end(), timePartition.end() + 1, 0),
+               temp.timeAlphaBeta1.slice(time, time + 1, 0)));
+    }
+  }
+  addLabelExchangeAlphaBeta(prog, plan, temp, alphaTimePartitions, batchSize);
+
+  // generate alpha, beta vertices for a single timestep to be run in a loop
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    const auto batchPartition = plan.partitionBatch(batchSize, batch);
+    for (unsigned b = batchPartition.begin(); b < batchPartition.end(); b++) {
+      for (unsigned time = 0; time < plan.parallel.time; time++) {
+        for (unsigned label = 0; label < plan.parallel.label; label++) {
+          const auto tile = plan.getTile(batch, time, label);
+
+          auto vertexCalculatesAlpha = time < alphaTimePartitions;
+          auto tileVertex =
+              vertexCalculatesAlpha ? VertexType::ALPHA : VertexType::BETA;
+          const auto labelOffset =
+              plan.partitionLabel(labelsLength, 0).size() * label;
+          const auto exLabelPartition =
+              plan.partitionExtendedLabel(labelsLength, label);
+          const auto timePartition = plan.partitionTime(maxT, time);
+          const auto processExtraBlank = label == plan.parallel.label - 1;
+
+          generateVertex(graph, data, alphaBeta, loss, boost::none, temp, cs,
+                         tile, tileVertex, b, time, label, exLabelPartition,
+                         labelOffset, timePartition, processExtraBlank,
+                         blankClass);
+        }
+      }
+    }
+  }
+  prog.add(Execute(cs, {dnai}));
+  return prog;
+}
+
+// When computing gradGivenAlpha/beta the alphaBeta array is unchanged, an
+// extra working data array is used to compute alpha (gradGivenBeta) or beta
+// (gradGivenAlpha).  Other than the changes this detail implies this loop
+// is the same as the createAlphaBetaProg loop.
+// So we calculate grad given beta (calculating alpha in the pingPong working
+// data buffer) as follows
+//
+//      time  ------->
+//                        Tile (T=t, El=el)
+//      plptIn(t-1,el-1)                                    plIn(el-1)
+//                         ---------------------------      -----------
+// El   ptPPIn(t-1)        | be0       be1       be2 |     | pp0  pp1 | (Ping
+//  |   ptPPIn(t-1)        | be0       be1       be2 |     | pp0  pp1 |  pong)
+//  |   ptPPIn(t-1)        | be0       ae1       be2 |     | pp0  pp1 |
+//  |   ptPPIn(t-1)        | be0       be1       be2 |     | pp0* pp1*|
+//  v                      ---------------------------      -----------
+//                                                          plOut
+//
+// On every loop pass previous alpha results (plptIn,plIn,ptPPIn) are exchanged
+// to this tile.  They aren't always all used by the vertex depending on the
+// count.
+// ptPPIn[elSizePerPartition]: (previous time Ping Pong In)
+//            The pingPong buffer from the previous time partition (t-1)
+//            (swapping between pp0 and pp1 as input/output continues over tile
+//            partitions)
+// plIn[1]:   (previous label In)
+//            The plOut value from the previous label partition (el-1)
+// plptIn[1]: (previous label and previous time In)
+//            The plOut value from the previous label partition (el,1) and
+//            previous time partiton (t-1).
+// plOut[1]:  (previous label out)
+//            The vertex stores the last alpha value in the timeslice it
+//            processes into plOut for exchange to tiles in the next label
+//            partitions. If processing the column pp0 this would be equal to
+//            the value pp0*, or if processing pp1, pp1*.
+//
+// So when the count references the timesteps in this partition this happens:
+// Count   Computing          `one above`                 previous timeslice
+// 0       grad at be0        plptIn == plOut(t-1,el-1)   ptPPIn pp0/pp1
+// 1       grad at be1        plIn == plOut(t,el-1)       PingPong pp0/pp1
+// 2       grad at be2        plIn == plOut(t,el-1)       PingPong pp0/pp1
+//
+// The stored alpha values for any timeslice are always written to the pingPong
+// buffer regardless of if the previous timeslice values came from that pingPong
+// buffer or the ptPPIn input.
+
+// Make a program to run in the loop which exchanges temporary tensors over
+// time and label partitions and makes an gradGivenAlpha or gradGivenBeta
+// vertex on each tile
+Sequence createAlphaBetaGradProg(Graph &graph,
+                                 const popnn::ctc::Plan::Impl &plan,
+                                 const Tensor &data, const Tensor &alphaBeta,
+                                 const Tensor &loss, Tensor &gradient,
+                                 TempTensors &temp, unsigned labelsLength,
+                                 unsigned blankClass,
+                                 const poplar::DebugNameAndId &dnai) {
+
+  logging::popnn::trace("Creating program to find gradient given alpha/beta");
+  Sequence prog;
+  const auto maxT = data.dim(1);
+  const auto batchSize = data.dim(2);
+  const auto extendedLabelSize = temp.timeAlphaBeta2.dim(2);
+
+  auto cs = graph.addComputeSet({dnai, "/gradGivenAlphaBetaLoop"});
+  // The partitions that were calculating alpha on the first pass are now
+  // calculating beta (running a gradGivenAlpha vertex).  They are the time
+  // partitions that are less than this value.  The remaining partitions
+  // calculate alpha (running a gradGivenBeta vertex).
+  const auto betaTimePartitions = ceildiv(plan.parallel.time, 2u);
+
+  // We don't (can't) copy into the first partition from the one before it,
+  // or into the last from the one after it. Therefore those partition's
+  // timeAlphaBeta2 data remains as initialised before the loop started.
+  if (betaTimePartitions > 0) {
+    // Exchange temporary ping-pong buffers toward t=0 for the partitions that
+    // are computing beta
+    Slice<3> srcBegin = {2, 0, 0};
+    Slice<3> srcEnd = {betaTimePartitions * 2, batchSize, extendedLabelSize};
+    Slice<3> dstBegin = {0, 0, 0};
+    Slice<3> dstEnd = {(betaTimePartitions - 1) * 2, batchSize,
+                       extendedLabelSize};
+    prog.add(Copy(temp.timeAlphaBeta2.slice(srcBegin, srcEnd),
+                  temp.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
+  }
+  if (plan.parallel.time - betaTimePartitions > 0) {
+    // Exchange temporary ping-pong buffers toward t=maxT for the partitions
+    // that are computing alpha
+    Slice<3> srcBegin = {betaTimePartitions * 2, 0, 0};
+    Slice<3> srcEnd = {(plan.parallel.time - 1) * 2, batchSize,
+                       extendedLabelSize};
+    Slice<3> dstBegin = {(betaTimePartitions + 1) * 2, 0, 0};
+    Slice<3> dstEnd = {plan.parallel.time * 2, batchSize, extendedLabelSize};
+    prog.add(Copy(temp.timeAlphaBeta2.slice(srcBegin, srcEnd),
+                  temp.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
+  }
+  addLabelExchangeAlphaBetaGrad(prog, plan, temp, betaTimePartitions,
+                                batchSize);
+
+  // generate gradGivenAlpha, beta vertices for a single timestep to be run
+  // in a loop
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    const auto batchPartition = plan.partitionBatch(batchSize, batch);
+    for (unsigned b = batchPartition.begin(); b < batchPartition.end(); b++) {
+      for (unsigned time = 0; time < plan.parallel.time; time++) {
+        for (unsigned label = 0; label < plan.parallel.label; label++) {
+          const auto tile = plan.getTile(batch, time, label);
+
+          auto vertexCalculatesBeta = time < betaTimePartitions;
+          auto tileVertex = vertexCalculatesBeta ? VertexType::GRAD_GIVEN_ALPHA
+                                                 : VertexType::GRAD_GIVEN_BETA;
+          const auto labelOffset =
+              plan.partitionLabel(labelsLength, 0).size() * label;
+          const auto exLabelPartition =
+              plan.partitionExtendedLabel(labelsLength, label);
+          const auto timePartition = plan.partitionTime(maxT, time);
+          const auto processExtraBlank = label == plan.parallel.label - 1;
+
+          generateVertex(graph, data, alphaBeta, loss, gradient, temp, cs, tile,
+                         tileVertex, b, time, label, exLabelPartition,
+                         labelOffset, timePartition, processExtraBlank,
+                         blankClass);
+        }
+      }
+    }
+  }
+  prog.add(Execute(cs, {dnai}));
+  return prog;
+}
+
+TempTensors createAndInitialiseTemporaryTensors(
+    Graph &graph, const popnn::ctc::Plan::Impl &plan, const Tensor &dataLengths,
+    const Tensor &labelLengths, const Tensor &labels, const Type &outType,
+    Sequence &prog, const poputil::PoplibsOpDebugInfo &di,
+    const std::string &layer) {
+
+  const auto batchSize = labels.dim(0);
+  const auto labelsLength = labels.dim(1);
+  const auto extendedLabelsLength = 2 * labelsLength + 1;
+
+  TempTensors tempTensors;
+  // Create and broadcast the label lengths, time lengths and the labels
+  // themselves to avoid repeatedly exchanging every compute step
+  tempTensors.validLabelLengths = createTempLengths(
+      graph, labelLengths, plan, prog, {di, layer + "/broadcastLabelLengths"});
+  tempTensors.validTimeSteps = createTempLengths(
+      graph, dataLengths, plan, prog, {di, layer + "/broadcastDataLengths"});
+  tempTensors.label = createBroadcastTempLabels(
+      graph, labels, plan, prog, {di, layer + "/broadcastLabels"});
+
+  logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
+                        "Time partitions"
+                        " with Time:2 Batches:{} ExtendedLabelsLength:{}",
+                        batchSize, extendedLabelsLength);
+  tempTensors.timeAlphaBeta1 = graph.addVariable(
+      outType, {plan.parallel.time, batchSize, extendedLabelsLength},
+      {di, layer + "/tempTimeAlphaBeta1"});
+  mapAlphaBetaAccordingToPlan(graph, tempTensors.timeAlphaBeta1, plan);
+
+  tempTensors.timeAlphaBeta2 = graph.addVariable(
+      outType, {2 * plan.parallel.time, batchSize, extendedLabelsLength},
+      {di, layer + "/tempTimeAlphaBeta2"});
+  mapAlphaBetaAccordingToPlan(graph, tempTensors.timeAlphaBeta2, plan);
+  tempTensors.timeAlphaBetaPrevPartition =
+      graph.clone(tempTensors.timeAlphaBeta2,
+                  {di, layer + "/tempTimeAlphaBetaPrePartition"});
+
+  logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
+                        "Label partitions"
+                        " with Partitions:{} Time:{} Batches:{} Labels:2",
+                        plan.parallel.label, plan.parallel.time, batchSize);
+
+  tempTensors.labelAlphaIn = graph.addVariable(
+      outType, {plan.parallel.label, batchSize, plan.parallel.time, 1},
+      {di, layer + "/tempLabelAlphaIn"});
+  mapTempLabelAccordingToPlan(graph, tempTensors.labelAlphaIn, plan);
+  tempTensors.labelAlphaOut =
+      graph.clone(tempTensors.labelAlphaIn, {di, layer + "/tempLabelAlphaOut"});
+  tempTensors.labelTimeAlphaIn = graph.clone(
+      tempTensors.labelAlphaIn, {di, layer + "/tempLabelTimeAlphaIn"});
+
+  tempTensors.labelBetaIn = graph.addVariable(
+      outType, {plan.parallel.label, batchSize, plan.parallel.time, 2},
+      {di, layer + "/tempLabelBetaIn"});
+  mapTempLabelAccordingToPlan(graph, tempTensors.labelBetaIn, plan);
+  tempTensors.labelBetaOut =
+      graph.clone(tempTensors.labelBetaIn, {di, layer + "/tempLabelBetaOut"});
+  tempTensors.labelTimeBetaIn = graph.clone(
+      tempTensors.labelBetaIn, {di, layer + "/tempLabelTimeBetaIn"});
+
+  // Make a counter per tile for the vertices to use
+  tempTensors.counter = graph.addVariable(
+      UNSIGNED_SHORT, {plan.parallel.time, batchSize, plan.parallel.label},
+      {di, "counter"});
+  mapAccordingToPlan(graph, tempTensors.counter, plan);
+
+  // Initialise the temporary inputs to the vertices, all to probabilityZero,
+  // except for a single "previous alpha" element which equals probabilityOne.
+  // The equivalent "previous beta" element is initialised at runtime in the
+  // required place based on the time,label size of each individual input.
+  initialise(graph, tempTensors.timeAlphaBeta1, prog, {di, layer});
+  auto initialiserOne = graph.addConstant<float>(
+      outType, {1, 1, 1}, static_cast<float>(log::probabilityOne), {di});
+  graph.setTileMapping(initialiserOne, 0);
+  auto tempTimeAlphaBeta1Slice =
+      tempTensors.timeAlphaBeta1.slice({0, 0, 0}, {1, batchSize, 1});
+  prog.add(Copy(initialiserOne.broadcast(batchSize, 1), tempTimeAlphaBeta1Slice,
+                false, {di}));
+
+  initialise(graph, tempTensors.timeAlphaBeta2, prog, {di, layer});
+  initialise(graph, tempTensors.labelAlphaIn, prog, {di, layer});
+  initialise(graph, tempTensors.labelBetaIn, prog, {di, layer});
+  initialise(graph, tempTensors.labelAlphaOut, prog, {di, layer});
+  initialise(graph, tempTensors.labelBetaOut, prog, {di, layer});
+  initialise(graph, tempTensors.labelTimeAlphaIn, prog, {di, layer});
+  initialise(graph, tempTensors.labelTimeBetaIn, prog, {di, layer});
+  return tempTensors;
+}
 } // namespace
 namespace popnn {
 namespace ctc {
@@ -963,15 +1092,6 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
       return data.expand({0});
     }
   }();
-
-  // Create and broadcast the label lengths, time lengths and the labels
-  // themselves to avoid repeatedly exchanging every compute step
-  auto tempLabelLengths = createTempLengths(
-      graph, labelLengths, plan, prog, {di, layer + "/broadCastLabelLengths"});
-  auto tempDataLengths = createTempLengths(
-      graph, dataLengths, plan, prog, {di, layer + "/broadCastDataLengths"});
-  auto tempLabel = createBroadcastTempLabels(graph, labels, plan, prog,
-                                             {di, layer + "/broadCastLabels"});
   logging::popnn::debug("Creating alpha/beta tensor for CTC Loss with Time:{}"
                         " Batches:{} ExtendedLabelLength:{}",
                         maxT, batchSize, extendedLabelsLength);
@@ -980,50 +1100,9 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
                         {di, layer + "/alphaBeta"});
   mapAlphaBetaAccordingToPlan(graph, alphaBeta, plan);
 
-  logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
-                        "Time partitions"
-                        " with Time:2 Batches:{} ExtendedLabelsLength:{}",
-                        batchSize, extendedLabelsLength);
-  auto tempTimeAlphaBeta1 = graph.addVariable(
-      outType, {plan.parallel.time, batchSize, extendedLabelsLength},
-      {di, layer + "/tempTimeAlphaBeta1"});
-  mapAlphaBetaAccordingToPlan(graph, tempTimeAlphaBeta1, plan);
-
-  auto tempTimeAlphaBeta2 = graph.addVariable(
-      outType, {2 * plan.parallel.time, batchSize, extendedLabelsLength},
-      {di, layer + "/tempTimeAlphaBeta2"});
-  mapAlphaBetaAccordingToPlan(graph, tempTimeAlphaBeta2, plan);
-
-  // The temporary data for each label is copied and shifted by 1 timestep
-  // Make it 1 element larger to account for this.
-  const auto tempLabelTimesteps = plan.parallel.time * 2;
-  logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
-                        "Label partitions"
-                        " with Partitions:{} Time:{} Batches:{} Labels:2",
-                        plan.parallel.label, tempLabelTimesteps, batchSize);
-
-  auto tempLabelAlpha = graph.addVariable(
-      outType, {plan.parallel.label, batchSize, tempLabelTimesteps, 1},
-      {di, layer + "/tempLabelAlpha"});
-  mapTempLabelAccordingToPlan(graph, tempLabelAlpha, plan);
-
-  auto tempLabelBeta = graph.addVariable(
-      outType, {plan.parallel.label, batchSize, tempLabelTimesteps, 2},
-      {di, layer + "/tempLabelBeta"});
-  mapTempLabelAccordingToPlan(graph, tempLabelBeta, plan);
-
-  // Initialise the temporary inputs to the vertices, all to probabilityZero,
-  // except for a single "previous alpha" element which equals probabilityOne.
-  // The equivalent "previous beta" element is initialised at runtime in the
-  // required place based on the time,label size of each individual input.
-  initialise(graph, tempTimeAlphaBeta1, prog, {di, layer});
-  auto initialiserOne = graph.addConstant<float>(
-      outType, {1, 1, 1}, static_cast<float>(log::probabilityOne), {di});
-  graph.setTileMapping(initialiserOne, 0);
-  auto tempTimeAlphaBeta1Slice =
-      tempTimeAlphaBeta1.slice({0, 0, 0}, {1, batchSize, 1});
-  prog.add(Copy(initialiserOne.broadcast(batchSize, 1), tempTimeAlphaBeta1Slice,
-                false, {di}));
+  // Make the temporary tensors to exchange between tiles, keep loop count etc
+  auto tempTensors = createAndInitialiseTemporaryTensors(
+      graph, plan, dataLengths, labelLengths, labels, outType, prog, di, layer);
 
   auto loss = graph.addVariable(
       outType, {batchSize, plan.parallel.time, plan.parallel.label},
@@ -1031,141 +1110,63 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   mapLossAccordingToPlan(graph, loss, plan);
   initialise(graph, loss, prog, {di, layer});
 
-  initialise(graph, tempTimeAlphaBeta2, prog, {di, layer});
-  initialise(graph, tempLabelAlpha, prog, {di, layer});
-  initialise(graph, tempLabelBeta, prog, {di, layer});
   // Initialise the gradient to probabilityZero, to accumulate into
   initialise(graph, gradient, prog, di);
 
-  // Flags to remember which partitions of alpha and beta are already done, so
-  // dependencies can be checked
-  CompletionFlags complete(plan.parallel.label, maxT);
-  CompletionFlags updated(plan.parallel.label, maxT);
-  bool allComplete = false;
-  unsigned csNum = 0;
-  // Add more compute sets until we are done
-  while (!allComplete) {
-    allComplete = true;
-    auto cs =
-        graph.addComputeSet({di, layer + "/csNum" + std::to_string(csNum++)});
-    logging::popnn::trace("");
-    logging::popnn::trace("**** Compute Set:{}", csNum);
-    // There can be only 1 vertex created per partition, or per timestep in
-    // a partition.  This is because making more will re-use the same temporary
-    // input, output - and also imply that we calculate alpha,beta at the same
-    // time on the same tile.
-    std::vector<bool> vertexCreated(plan.parallel.time, false);
-    // Loop over partitions, then timeStep in a partition as we need to know the
-    // partition (to connect the correct temporary dat slices) and the timeStep
-    // to connect the vertex.
-    for (unsigned timePartitionNum = 0; timePartitionNum < plan.parallel.time;
-         timePartitionNum++) {
-      const auto timePartition = plan.partitionTime(maxT, timePartitionNum);
-      for (unsigned timeStep = timePartition.begin();
-           timeStep < timePartition.end(); timeStep++) {
+  // Make the program to find alpha, beta and run it in a loop
+  const auto alphaTimePartitions = ceildiv(plan.parallel.time, 2u);
+  auto lastAlphaTimePartition =
+      plan.partitionTime(maxT, alphaTimePartitions - 1);
+  const auto numLoops = lastAlphaTimePartition.end();
+  initialiseCounters(graph, tempTensors.counter, 0, maxT, prog, {di, layer});
+  auto alphaBetaProg =
+      createAlphaBetaProg(graph, plan, workingData, alphaBeta, loss,
+                          tempTensors, labelsLength, blankClass, {di, layer});
+  prog.add(Repeat(numLoops, alphaBetaProg, {di}));
 
-        // What vertex if any can be run on this time step in this
-        // computeSet?
-        bool equalTimePartitions = (maxT % plan.parallel.time) == 0;
-        auto tileVertex = complete.vertexToRun(timeStep, equalTimePartitions);
-        if (tileVertex && !vertexCreated[timePartitionNum]) {
-          updated.set(timeStep, tileVertex.get());
-        }
-        if (!updated.alpha(timeStep) || !updated.beta(timeStep)) {
-          allComplete = false;
-        }
-        if (!tileVertex || vertexCreated[timePartitionNum]) {
-          // Nothing to run - either already done or not yet able to do more
-          continue;
-        }
-        vertexCreated[timePartitionNum] = true;
-        // As we can run a vertex on this timeslice we can run it on all
-        // label and batch partitions in that same timeslice
-        for (unsigned label = 0; label < plan.parallel.label; label++) {
+  // Copy the last timestep in the alphaBeta tensor from one tile into
+  // the temporary time input for the next tile
+  if (plan.parallel.time > 1) {
+    logging::popnn::trace("Creating copy program to interface alpha/beta "
+                          " loop to gradGivenAlpha/Beta loop");
 
-          // What type of input is to initialise the vertex ?
-          const auto timeInitialiser =
-              complete.previousTimeResult(timeStep, tileVertex.get());
-          const auto labelInitialiser =
-              complete.previousLabelResult(label, tileVertex.get());
+    // Copy the last computed alpha, broadcast into the 1st temporary alpha
+    // input
+    Slice<3> dstBegin = {alphaTimePartitions * 2, 0, 0};
+    Slice<3> dstEnd = {(alphaTimePartitions + 1) * 2, batchSize,
+                       extendedLabelsLength};
+    prog.add(
+        Copy(alphaBeta
+                 .slice(lastAlphaTimePartition.end() - 1,
+                        lastAlphaTimePartition.end(), 0)
+                 .broadcast(2, 0),
+             tempTensors.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
 
-          const auto exLabelPartition =
-              plan.partitionExtendedLabel(labelsLength, label);
-
-          // We only now need to loop over the batch partitions as each will be
-          // an identical copy of what was already decided
-          for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
-            const auto tile = plan.getTile(batch, timePartitionNum, label);
-            bool isBeta = tileVertex.get() == VertexType::BETA ||
-                          tileVertex.get() == VertexType::GRAD_GIVEN_ALPHA;
-            logging::popnn::trace(
-                "Tile: {} Initialiser: Time: {}, Label:{} Beta:{}", tile,
-                timeInitialiser, labelInitialiser, isBeta);
-
-            const auto batchPartition = plan.partitionBatch(batchSize, batch);
-            const auto labelOffset =
-                plan.partitionLabel(labelsLength, 0).size() * label;
-
-            const auto processExtraBlank = label == plan.parallel.label - 1;
-            const auto isLastTimePartition =
-                timePartitionNum == plan.parallel.time - 1;
-
-            // Loop to cope with multiple batch entries per tile
-            for (unsigned b = batchPartition.begin(); b < batchPartition.end();
-                 b++) {
-
-              if (tileVertex == VertexType::ALPHA ||
-                  tileVertex == VertexType::BETA) {
-                // Generate ALPHA or BETA vertices where possible
-                auto tempLabelIn = tempLabelInputToVertex(
-                    prog, labelInitialiser, tileVertex.get(), b, label,
-                    timePartitionNum, timeStep, timePartition,
-                    isLastTimePartition, exLabelPartition, tempLabelAlpha,
-                    tempLabelBeta, di);
-
-                auto tempTimeIn = tempTimeInputToAlphaOrBetaVertex(
-                    prog, timeInitialiser, tileVertex.get(), b,
-                    timePartitionNum, timeStep, timePartition, exLabelPartition,
-                    alphaBeta, tempTimeAlphaBeta1, di);
-
-                generateVertex(graph, workingData, tempLabel, tempLabelLengths,
-                               tempDataLengths, tempTimeIn, tempLabelIn,
-                               alphaBeta, loss, boost::none, cs, tile,
-                               tileVertex.get(), b, timePartitionNum, label,
-                               exLabelPartition, labelOffset, timeStep,
-                               processExtraBlank, blankClass);
-              }
-              if (tileVertex == VertexType::GRAD_GIVEN_ALPHA ||
-                  tileVertex == VertexType::GRAD_GIVEN_BETA) {
-                // Generate GRAD_GIVEN_ALPHA or BETA vertices where possible
-                auto tempLabelIn = tempLabelInputToVertex(
-                    prog, labelInitialiser, tileVertex.get(), b, label,
-                    timePartitionNum, timeStep, timePartition,
-                    isLastTimePartition, exLabelPartition, tempLabelAlpha,
-                    tempLabelBeta, di);
-
-                auto tempTimeIn = tempTimeInputToGradVertex(
-                    prog, timeInitialiser, tileVertex.get(), b,
-                    timePartitionNum, timeStep, timePartition, exLabelPartition,
-                    alphaBeta, tempTimeAlphaBeta2, plan, maxT, di);
-
-                generateVertex(graph, workingData, tempLabel, tempLabelLengths,
-                               tempDataLengths, tempTimeIn, tempLabelIn,
-                               alphaBeta, loss, gradient, cs, tile,
-                               tileVertex.get(), b, timePartitionNum, label,
-                               exLabelPartition, labelOffset, timeStep,
-                               processExtraBlank, blankClass);
-              }
-            }
-          }
-        }
-      }
-    }
-    complete = updated;
-    prog.add(Execute(cs, {di, layer}));
+    // Copy the last computed beta, broadcast into the 1st temporary beta
+    // input
+    dstBegin = {(alphaTimePartitions - 1) * 2, 0, 0};
+    dstEnd = {(alphaTimePartitions - 1) * 2 + 2, batchSize,
+              extendedLabelsLength};
+    prog.add(
+        Copy(alphaBeta
+                 .slice(lastAlphaTimePartition.end(),
+                        lastAlphaTimePartition.end() + 1, 0)
+                 .broadcast(2, 0),
+             tempTensors.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
   }
 
-  logging::popnn::debug("CTCLoss implemented in {} computeSets", csNum);
+  // Make the program to find gradient given alpha, beta and run it in a loop
+  auto gradInitialCount = lastAlphaTimePartition.end();
+  initialiseCounters(graph, tempTensors.counter, gradInitialCount,
+                     gradInitialCount, prog, {di, layer});
+
+  auto alphaBetaGradProg = createAlphaBetaGradProg(
+      graph, plan, workingData, alphaBeta, loss, gradient, tempTensors,
+      labelsLength, blankClass, {di, layer});
+  prog.add(Repeat(numLoops, alphaBetaGradProg, {di}));
+
+  di.addOutput(gradient);
+
   // Reduce where data was split over label.
   // TODO: Mapping choice to spread according to the plan?  Or reduce into one
   //  of the copies of the gradient for less temporarary memory
@@ -1203,6 +1204,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan_, const poplar::DebugContext &debugContext) {
   // TODO sort out debug info
+  // TODO As this becomes the new input, take care over the mapping of this
+  //      tensor
   const auto logProbs = logSoftmax(graph, logits, prog, debugContext);
 
   return calcLossAndGradientLogProbabilities(graph, outType, logProbs, labels,

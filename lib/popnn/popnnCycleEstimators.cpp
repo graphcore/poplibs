@@ -633,38 +633,34 @@ MAKE_PERF_ESTIMATOR_NAME(CalcAccuracy)(const VertexIntrospector &vertex,
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
-  CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {alphaCycles(maxT, label.size() - 1),
-          alphaFlops(maxT, label.size() - 1, outType)};
+  return {alphaCycles(1, label.size() - 1),
+          alphaFlops(1, label.size() - 1, outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
-  CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {betaCycles(maxT, label.size() - 1),
-          betaFlops(maxT, label.size() - 1, outType)};
+  return {betaCycles(1, label.size() - 1),
+          betaFlops(1, label.size() - 1, outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
-  CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {gradGivenAlphaCycles(maxT, label.size() - 1),
-          gradGivenAlphaFlops(maxT, label.size() - 1, outType)};
+  return {gradGivenAlphaCycles(1, label.size() - 1),
+          gradGivenAlphaFlops(1, label.size() - 1, outType)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
-  CODELET_SCALAR_VAL(maxT, unsigned);
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {gradGivenBetaCycles(maxT, label.size() - 1),
-          gradGivenBetaFlops(maxT, label.size() - 1, outType)};
+  return {gradGivenBetaCycles(1, label.size() - 1),
+          gradGivenBetaFlops(1, label.size() - 1, outType)};
 }
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {

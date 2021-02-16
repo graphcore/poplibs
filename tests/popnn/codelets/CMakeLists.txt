@@ -73,9 +73,22 @@ endforeach()
 add_multi_target_test_executable(CTCLossCodeletTest CTCLossCodeletTest.cpp)
 
 foreach (VERTEX alpha beta gradGivenAlpha gradGivenBeta)
+  if(VERTEX STREQUAL "alpha")
+    set(TIME_STEP "3")
+  endif()
+  if(VERTEX STREQUAL "gradGivenAlpha")
+    set(TIME_STEP "8")
+  endif()
+  if(VERTEX STREQUAL "beta")
+    set(TIME_STEP "5")
+  endif()
+  if(VERTEX STREQUAL "gradGivenBeta")
+    set(TIME_STEP "0")
+  endif()
   add_multitarget_test(NAME "CTCLossCodeletTest_${VERTEX}"
     COMMAND CTCLossCodeletTest
       --time=8
+      --time-step=${TIME_STEP}
       --num-classes=4
       --test=${VERTEX}
     LABELS codelet)

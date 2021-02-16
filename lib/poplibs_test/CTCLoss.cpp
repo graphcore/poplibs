@@ -182,9 +182,9 @@ FPType loss(const boost::multi_array<FPType, 2> &sequence,
   const auto finalBlank = alphas[alphas.size() - 1][validTimesteps - 1];
 
   if (logValues) {
-    return log::add(finalSymbol, finalBlank);
+    return -log::add(finalSymbol, finalBlank);
   } else {
-    return finalSymbol + finalBlank;
+    return -(finalSymbol + finalBlank);
   }
 }
 

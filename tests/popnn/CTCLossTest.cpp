@@ -134,7 +134,7 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
 
   std::uniform_int_distribution<> randT(minT, maxT);
   std::uniform_int_distribution<> randLabels(0, numClasses - 2);
-  std::uniform_int_distribution<> randInput(0, 100);
+  std::uniform_int_distribution<> randInput(0, 10);
 
   unsigned inputLength =
       testTime.is_initialized() ? testTime.get() : randT(gen);
@@ -195,7 +195,7 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
                    test.inputLength, true);
 
   auto negLogLoss =
-      -loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
+      loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
   auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
                        numClasses, blankClass, test.inputLength, true);
   return {negLogLoss, transpose(gradient)};
@@ -328,11 +328,11 @@ int main(int argc, char **argv) {
   boost::optional<std::string> planConstraints;
   bool ignoreData = false;
   boost::optional<unsigned> testTime = boost::none;
-  unsigned minTime = 15;
+  unsigned minTime = 1;
   unsigned maxTime = 15;
   boost::optional<unsigned> testLabelLength = boost::none;
   unsigned blankClass = 0;
-  unsigned minLabelLength = 5;
+  unsigned minLabelLength = 1;
   unsigned maxLabelLength = 5;
   unsigned numClasses = 4;
   unsigned batchSize = 1;
@@ -498,6 +498,9 @@ int main(int argc, char **argv) {
     outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);
     print("Result gradient, batch:" + std::to_string(i), outputs[i].second,
           blankClass, verbose);
+    if (verbose) {
+      std::cout << "Result loss = " << outputs[i].first << "\n";
+    }
   }
   double relativeTolerance = inType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
   double absoluteTolerance = inType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;

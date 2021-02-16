@@ -93,6 +93,22 @@ maskResults(const boost::multi_array<double, 2> &in) {
   return out;
 }
 
+boost::multi_array<double, 2>
+maskTimeSteps(const boost::multi_array<double, 2> &in, unsigned timeStep,
+              bool invertMask) {
+  auto out = in;
+  const auto symbols = out.shape()[0];
+  const auto timeSteps = out.shape()[1];
+  for (unsigned time = 0; time < timeSteps; time++) {
+    if ((invertMask && time == timeStep) || (!invertMask && time != timeStep)) {
+      for (unsigned sym = 0; sym < symbols; sym++) {
+        out[sym][time] = 0;
+      }
+    }
+  }
+  return out;
+}
+
 // Print a sequence, inserting `-` for the blank symbol
 void print(const std::string &prefix, const std::vector<unsigned> &idx,
            unsigned blank, bool verbose = true) {
@@ -239,8 +255,8 @@ gradReference(const InputSequence<FPType> &test, unsigned blankClass,
 }
 
 boost::multi_array<double, 2>
-gradIPU(const InputSequence<double> &input, unsigned blankClass,
-        const boost::optional<boost::multi_array<double, 2>> &initialValues,
+gradIPU(const InputSequence<double> &input, unsigned timeStep,
+        unsigned blankClass, const boost::multi_array<double, 2> &initialValues,
         TestType vertexToTest, Type inType, Type outType,
         const DeviceType &deviceType, bool profile) {
 
@@ -248,6 +264,8 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   const auto &target = device.getTarget();
   Graph graph(target);
   popnn::addCodelets(graph);
+  Sequence prog;
+
   const auto labelLen = input.idx.size();
   const auto extendedLabelLen = 2 * labelLen + 1;
   const auto maxT = input.input.shape()[1];
@@ -305,10 +323,16 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
   // Suggest that when optimising the vertices this test is improved.
   auto validLabel = graph.addConstant(UNSIGNED_INT, {}, labelLen);
   auto validTime = graph.addConstant(UNSIGNED_INT, {}, maxT);
+  auto initialCount = graph.addConstant(UNSIGNED_SHORT, {}, timeStep);
+  auto count = graph.addVariable(UNSIGNED_SHORT, {}, "count");
+  prog.add(Copy(initialCount, count));
   graph.setTileMapping(validLabel, 0);
   graph.setTileMapping(validTime, 0);
+  graph.setTileMapping(initialCount, 0);
+  graph.setTileMapping(count, 0);
   graph.connect(vertex["validLabel"], validLabel);
   graph.connect(vertex["validTime"], validTime);
+  graph.connect(vertex["count"], count);
 
   graph.setInitialValue(vertex["maxT"], maxT);
   graph.setInitialValue(vertex["numClasses"], numClasses);
@@ -327,21 +351,35 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
     graph.connect(vertex["alphaPrevTime"], prevTime.flatten());
     graph.connect(vertex["alphaPrevLabel"], prevLabel.flatten());
     graph.connect(vertex["loss"], loss);
+
+    graph.connect(vertex["alphaPrevLabelOut"], prevLabel.flatten());
+    graph.connect(vertex["alphaPrevLabelTime"], prevLabel.flatten());
   } else if (vertexToTest == TestType::BETA) {
     graph.connect(vertex["betas"], result.flatten());
     graph.connect(vertex["betaPrevTime"], prevTime.flatten());
     graph.connect(vertex["betaPrevLabel"], prevLabel.flatten());
+
+    graph.connect(vertex["betaPrevLabelOut"], prevLabel.flatten());
+    graph.connect(vertex["betaPrevLabelTime"], prevLabel.flatten());
   } else if (vertexToTest == TestType::GRAD_GIVEN_ALPHA) {
     graph.connect(vertex["grads"], result.flatten());
     graph.connect(vertex["alphas"], initialAlphaOrBeta.flatten());
     graph.connect(vertex["betaPrevTime"], prevTime.flatten());
     graph.connect(vertex["betaPrevLabel"], prevLabel.flatten());
+
+    graph.connect(vertex["betaPrevPartition"], prevTime.flatten());
+    graph.connect(vertex["betaPrevLabelOut"], prevLabel.flatten());
+    graph.connect(vertex["betaPrevLabelTime"], prevLabel.flatten());
   } else if (vertexToTest == TestType::GRAD_GIVEN_BETA) {
     graph.connect(vertex["grads"], result.flatten());
     graph.connect(vertex["betas"], initialAlphaOrBeta.flatten());
     graph.connect(vertex["alphaPrevTime"], prevTime.flatten());
     graph.connect(vertex["alphaPrevLabel"], prevLabel.flatten());
     graph.connect(vertex["loss"], loss);
+
+    graph.connect(vertex["alphaPrevPartition"], prevTime.flatten());
+    graph.connect(vertex["alphaPrevLabelOut"], prevLabel.flatten());
+    graph.connect(vertex["alphaPrevLabelTime"], prevLabel.flatten());
   }
 
   graph.setTileMapping(probabilities, 0);
@@ -366,18 +404,20 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
        rawLabels.get());
 
   // Initialise alpha or beta if needed by the test, otherwise uninitialised
-  if (initialValues) {
+  if (resultIsGrad) {
     rawInitialAlphaOrBeta =
         allocateHostMemoryForTensor(initialAlphaOrBeta, "initialAlphaOrBeta",
                                     graph, uploadProg, downloadProg, tmap);
-    copy(target, transpose(initialValues.get()), outType,
-         rawInitialAlphaOrBeta.get());
-    boost::multi_array<double, 2> zeroResult(
-        boost::extents[result.dim(0)][result.dim(1)]);
-    std::fill(zeroResult.data(), zeroResult.data() + zeroResult.num_elements(),
-              log::probabilityZero);
-    copy(target, zeroResult, outType, rawResult.get());
+  } else {
+    rawInitialAlphaOrBeta = allocateHostMemoryForTensor(
+        result, "initialResult", graph, uploadProg, downloadProg, tmap);
   }
+  copy(target, transpose(initialValues), outType, rawInitialAlphaOrBeta.get());
+  boost::multi_array<double, 2> zeroResult(
+      boost::extents[result.dim(0)][result.dim(1)]);
+  std::fill(zeroResult.data(), zeroResult.data() + zeroResult.num_elements(),
+            log::probabilityZero);
+  copy(target, zeroResult, outType, rawResult.get());
   // Initialise the first Timeslice input of the vertex - in practice this could
   // be "carried over" from a previous vertex alpha or beta calculation
   rawPrevTime = allocateHostMemoryForTensor(prevTime, "prevTime", graph,
@@ -407,7 +447,6 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
             log::probabilityZero);
   copy(target, prevLabelInit, outType, rawPrevLabel.get());
 
-  Sequence prog;
   prog.add(Execute(cs));
   OptionFlags engineOptions;
   if (profile) {
@@ -439,6 +478,7 @@ int main(int argc, char **argv) {
   unsigned testTime = 15;
   unsigned testSymbols = 5;
   unsigned numClasses = 4;
+  unsigned timeStep = 0;
   TestType vertexToTest = TestType::ALPHA;
   Type inType = FLOAT;
   Type outType = FLOAT;
@@ -466,6 +506,8 @@ int main(int argc, char **argv) {
      "Test length (time)")
     ("num-classes", po::value(&numClasses)->default_value(numClasses),
      "Classes in the alphabet including blank")
+    ("time-step", po::value(&timeStep)->default_value(timeStep),
+     "The timestep (loop count) to process")
     ("verbose", po::value(&verbose)->default_value(verbose),
      "Provide debug printout");
   // clang-format on
@@ -496,22 +538,25 @@ int main(int argc, char **argv) {
   test.input = log::log(test.input);
   print("Test sequence:", test.idx, blankClass, verbose);
 
-  // When testing gradGivenAlpha or Beta vertices, produce a sensible input by
-  // calling the model, otherwise this data is unused.
-  boost::optional<boost::multi_array<double, 2>> initialOutput;
-
-  if (vertexToTest == TestType::GRAD_GIVEN_ALPHA) {
-    initialOutput =
-        gradReference<double>(test, blankClass, TestType::ALPHA, false);
-  } else if (vertexToTest == TestType::GRAD_GIVEN_BETA) {
-    initialOutput =
-        gradReference<double>(test, blankClass, TestType::BETA, false);
+  // Produce a sensible input by calling the model.
+  // This will contain all alpha/beta inputs for a gradGivenAlpha/Beta vertex
+  // test, or all but the timeStep to be tested for alpha/beta vertices
+  auto initialOutputType = (vertexToTest == TestType::ALPHA ||
+                            vertexToTest == TestType::GRAD_GIVEN_ALPHA)
+                               ? TestType::ALPHA
+                               : TestType::BETA;
+  auto initialOutput =
+      gradReference<double>(test, blankClass, initialOutputType, false);
+  if (vertexToTest == TestType::ALPHA || vertexToTest == TestType::BETA) {
+    // For alpha, beta vertices an effective test can by made by masking out
+    // the one timeslice that the vertex should be calculating
+    auto timeOffset = vertexToTest == TestType::ALPHA ? timeStep : timeStep - 1;
+    initialOutput = maskTimeSteps(initialOutput, timeOffset, true);
   }
-
   auto reference =
       gradReference<double>(test, blankClass, vertexToTest, verbose);
-  auto output = gradIPU(test, blankClass, initialOutput, vertexToTest, inType,
-                        outType, deviceType, profile);
+  auto output = gradIPU(test, timeStep, blankClass, initialOutput, vertexToTest,
+                        inType, outType, deviceType, profile);
 
   double relativeTolerance = inType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
   double absoluteTolerance = inType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
@@ -524,6 +569,14 @@ int main(int argc, char **argv) {
     output = maskResults(output);
   } else {
     print("IPU result:", output, blankClass, verbose);
+    // Mask out all but the timestep processed.
+    // TODO - This is a bit of a cheat, only the 1st (alpha) or last (beta)
+    // timestep works at the moment, plus we should verify the whole output
+    // is untouched.  Suggest doing this when making assembler vertices
+    auto timeOffset =
+        vertexToTest == TestType::GRAD_GIVEN_ALPHA ? timeStep - 1 : timeStep;
+    output = maskTimeSteps(output, timeOffset, false);
+    reference = maskTimeSteps(reference, timeOffset, false);
   }
 
   bool success = checkIsClose("result", output, reference, relativeTolerance,
