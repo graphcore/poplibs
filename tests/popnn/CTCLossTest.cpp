@@ -171,9 +171,9 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
 }
 
 template <typename FPType>
-boost::multi_array<FPType, 2> gradReference(const InputSequence<FPType> &test_,
-                                            unsigned blankClass,
-                                            unsigned numClasses, bool verbose) {
+std::pair<FPType, boost::multi_array<FPType, 2>>
+gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
+              unsigned numClasses, bool verbose) {
   auto test = test_;
   if (test.isLogits) { // Convert to log probs
     test.input = log::log(transpose(log::softMax(transpose(test.input))));
@@ -193,12 +193,15 @@ boost::multi_array<FPType, 2> gradReference(const InputSequence<FPType> &test_,
   auto expandedGradient =
       expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
                    test.inputLength, true);
+
+  auto negLogLoss =
+      -loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
   auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
                        numClasses, blankClass, test.inputLength, true);
-  return transpose(gradient);
+  return {negLogLoss, transpose(gradient)};
 }
 
-std::vector<boost::multi_array<double, 2>>
+std::vector<std::pair<double, boost::multi_array<double, 2>>>
 gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
         unsigned blankSymbol, std::size_t numClasses, Type inType, Type outType,
         OptionFlags opts, const DeviceType &deviceType,
@@ -264,23 +267,27 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   const auto result = [&]() {
     if (inputs[0].isLogits) {
       return popnn::ctc::calcLossAndGradientLogits(
-                 graph, outType, data, labels, dataLengths, labelLengths, prog,
-                 blankSymbol, plan, "GradientLogits")
-          .second;
+          graph, outType, data, labels, dataLengths, labelLengths, prog,
+          blankSymbol, plan, "GradientLogits");
     } else {
       return popnn::ctc::calcLossAndGradientLogProbabilities(
-                 graph, outType, data, labels, dataLengths, labelLengths, prog,
-                 blankSymbol, plan, "GradientLogProbs")
-          .second;
+          graph, outType, data, labels, dataLengths, labelLengths, prog,
+          blankSymbol, plan, "GradientLogProbs");
     }
   }();
 
+  auto lossResult = result.first;
+  auto gradResult = result.second;
   // Create handles for reading the result
-  std::vector<std::unique_ptr<char[]>> rawResult(batchSize);
+  std::vector<std::unique_ptr<char[]>> rawLossResult(batchSize);
+  std::vector<std::unique_ptr<char[]>> rawGradResult(batchSize);
   for (unsigned i = 0; i < batchSize; i++) {
-    rawResult[i] = allocateHostMemoryForTensor(
-        result.slice(i, i + 1, 1), "result_" + std::to_string(i), graph,
-        uploadProg, downloadProg, tmap);
+    rawLossResult[i] = allocateHostMemoryForTensor(
+        lossResult.slice(i, i + 1, 0), "result_loss_" + std::to_string(i),
+        graph, uploadProg, downloadProg, tmap);
+    rawGradResult[i] = allocateHostMemoryForTensor(
+        gradResult.slice(i, i + 1, 1), "result_grad_" + std::to_string(i),
+        graph, uploadProg, downloadProg, tmap);
   }
 
   // Run input, gradient, output
@@ -296,11 +303,13 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   });
 
   // Fetch the result
-  std::vector<boost::multi_array<double, 2>> output(batchSize);
+  std::vector<std::pair<double, boost::multi_array<double, 2>>> output(
+      batchSize);
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {
-      output[i].resize(boost::extents[maxT][numClasses]);
-      copy(target, outType, rawResult[i].get(), output[i]);
+      copy(target, outType, rawLossResult[i].get(), &output[i].first, 1);
+      output[i].second.resize(boost::extents[maxT][numClasses]);
+      copy(target, outType, rawGradResult[i].get(), output[i].second);
     }
   }
 
@@ -453,7 +462,7 @@ int main(int argc, char **argv) {
 
   // For test call the reference function for each batch input
   std::vector<InputSequence<double>> tests;
-  std::vector<boost::multi_array<double, 2>> references;
+  std::vector<std::pair<double, boost::multi_array<double, 2>>> references;
   for (unsigned i = 0; i < batchSize; i++) {
     tests.push_back(getRandomTestInput(
         testTime, minTime, maxTime, testLabelLength, minLabelLength,
@@ -475,16 +484,20 @@ int main(int argc, char **argv) {
     }
     references.push_back(
         gradReference<double>(tests[i], blankClass, numClasses, verbose));
-    references.back() = maskResults(references.back(), tests[i].inputLength);
-    print("Reference gradient", references.back(), blankClass, verbose);
+    references.back().second =
+        maskResults(references.back().second, tests[i].inputLength);
+    if (verbose) {
+      std::cout << "Reference loss = " << references.back().first << "\n";
+    }
+    print("Reference gradient", references.back().second, blankClass, verbose);
   }
   auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
                          outType, opts, deviceType, tiles, ignoreData, profile);
 
   for (unsigned i = 0; i < batchSize; i++) {
-    outputs[i] = maskResults(outputs[i], tests[i].inputLength);
-    print("Result gradient, batch:" + std::to_string(i), outputs[i], blankClass,
-          verbose);
+    outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);
+    print("Result gradient, batch:" + std::to_string(i), outputs[i].second,
+          blankClass, verbose);
   }
   double relativeTolerance = inType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
   double absoluteTolerance = inType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
@@ -492,9 +505,11 @@ int main(int argc, char **argv) {
   bool success = true;
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {
-      bool batchSuccess =
-          checkIsClose("Batch:" + std::to_string(i) + " result", outputs[i],
-                       references[i], relativeTolerance, absoluteTolerance);
+      bool batchSuccess = checkIsClose(outputs[i].first, references[i].first,
+                                       relativeTolerance) &&
+                          checkIsClose("Batch:" + std::to_string(i) + " result",
+                                       outputs[i].second, references[i].second,
+                                       relativeTolerance, absoluteTolerance);
       if (!batchSuccess) {
         success = false;
       }

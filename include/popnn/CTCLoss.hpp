@@ -128,7 +128,7 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
  * \param plan         The plan which will specify how the output tensor is to
  *                     be mapped and how the operation is to be carried out
  * \param debugContext Optional debug information
- * \return             The loss[batchSize],
+ * \return             The loss[batchSize] (negative log probability),
  *                     and gradient [maxTime, batchSize, numClasses] tensor
  */
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
@@ -155,7 +155,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
  * \param plan         The plan which will specify how the output tensor is to
  *                     be mapped and how the operation is to be carried out
  * \param debugContext Optional debug information
- * \return             The loss[batchSize],
+ * \return             The loss[batchSize] (negative log probability),
  *                     and gradient [maxTime, batchSize, numClasses] tensor
  */
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(

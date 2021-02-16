@@ -55,6 +55,7 @@ public:
   Output<Vector<OutType, ONE_PTR>> alphas;        // [maxT][extendedLabel]
   Input<Vector<OutType, ONE_PTR>> alphaPrevTime;  // [extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> alphaPrevLabel; // [maxT]
+  InOut<OutType> loss;
   // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
@@ -85,7 +86,9 @@ public:
     const auto maxLabel = label.size() - 1;
     const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
+    bool nextPartitionOnlyBlank = labelOffset + maxLabel == validLabel;
     bool doLastBlank = labelLength != maxLabel || isLastLabel;
+    bool doLastTimeStep = (timeSteps + timeOffset) == validTime;
     const auto extendedLabel = maxLabel * 2 + isLastLabel;
     // First time round reference the "previous alpha" which could be carried
     // from another vertex, or if starting up [0,-inf,-inf,...]
@@ -104,6 +107,14 @@ public:
         // 1st blank. Can't skip the symbol before it so combine 2 probabilities
         alpha[0] = logMul(logAdd(alphaM1[0], alphaPrevLabelValue), blank);
         // That was the "last blank", there is no part of the label to process
+
+        // Loss is the sum of the last two alpha values computed (symbol and
+        // blank). Each tile can contribute to these, all tiles results are
+        // reduced to get the result. In this case only the result for the
+        // last blank is on this tile
+        if (doLastTimeStep) {
+          *loss = alpha[0];
+        }
         // so continue (not break)
         continue;
       }
@@ -126,11 +137,25 @@ public:
         alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
         idx++;
       }
+      if (nextPartitionOnlyBlank && doLastTimeStep) {
+        // Loss is the sum of the last two alpha values computed (symbol and
+        // blank). Each tile can contribute to these, all tiles results are
+        // reduced to get the result. In this case only the result for the
+        // last symbol is on this tile
+        *loss = alpha[idx - 1];
+      }
       if (doLastBlank) {
         // The final blank entry, therefore preceded by a symbol which cannot
         // be skipped. So always combine only 2 probabilities. Last blank in a
         // sequence
         alpha[idx] = logMul(logAdd(alphaM1[idx - 1], alphaM1[idx]), blank);
+        if (doLastTimeStep) {
+          // Loss is the sum of the last two alpha values computed (symbol and
+          // blank). Each tile can contribute to these, all tiles results are
+          // reduced to get the result. In this case both the result for the
+          // last symbol and last blank is on this tile
+          *loss = logAdd(alpha[idx - 1], alpha[idx]);
+        }
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex
@@ -474,6 +499,7 @@ public:
   InOut<Vector<OutType, ONE_PTR>> alphaPrevTime;  // [2,extendedLabel]
   InOut<Vector<OutType, ONE_PTR>> alphaPrevLabel; // [maxT]
   InOut<Vector<OutType, ONE_PTR>> grads;          // [maxT,numClasses]
+  InOut<OutType> loss;
   // This vertex processes a labelSlice with size[label.size()-1] starting at
   // labelOffset within the whole input.  Only validLabel (of the whole input)
   // is to be processed). This may mean it has nothing to do
@@ -499,7 +525,9 @@ public:
     const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     const auto timeSteps = clamp(validTime, timeOffset, maxT);
     const auto extendedLabel = maxLabel * 2 + isLastLabel;
+    bool nextPartitionOnlyBlank = labelOffset + maxLabel == validLabel;
     bool doLastBlank = labelLength != maxLabel || isLastLabel;
+    bool doLastTimeStep = (timeSteps + timeOffset) == validTime;
     unsigned oldIdx = 0;
 
     for (unsigned t = 0; t < timeSteps; t++) {
@@ -516,6 +544,14 @@ public:
         // 1st blank. Can't skip the symbol before it so combine 2 probabilities
         auto sum = logAdd(alphaM1[0], alphaPrevLabelValue);
         alpha[0] = logMul(sum, blank);
+
+        // Loss is the sum of the last two alpha values computed (symbol and
+        // blank). Each tile can contribute to these, all tiles results are
+        // reduced to get the result. In this case only the result for the
+        // last blank is on this tile
+        if (doLastTimeStep) {
+          *loss = alpha[0];
+        }
         grad[blankClass] = logAdd(logMul(sum, beta[0]), grad[blankClass]);
         // That was the "last blank", there is no part of the label to process
         // so continue (not break)
@@ -546,6 +582,14 @@ public:
         alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
         idx++;
       }
+
+      if (nextPartitionOnlyBlank && doLastTimeStep) {
+        // Loss is the sum of the last two alpha values computed (symbol and
+        // blank). Each tile can contribute to these, all tiles results are
+        // reduced to get the result. In this case only the result for the
+        // last symbol is on this tile
+        *loss = alpha[idx - 1];
+      }
       // The final blank entry, therefore preceded by a symbol which cannot be
       // skipped. So always combine only 2 probabilities. Last blank in a
       // sequence
@@ -553,6 +597,13 @@ public:
         auto sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
         alpha[idx] = logMul(sum, blank);
         grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
+        if (doLastTimeStep) {
+          // Loss is the sum of the last two alpha values computed (symbol and
+          // blank). Each tile can contribute to these, all tiles results are
+          // reduced to get the result. In this case both the result for the
+          // last symbol and last blank is on this tile
+          *loss = logAdd(alpha[idx - 1], alpha[idx]);
+        }
       }
       // For use when data is split by label, output this timestep, last label
       // result for use by the next vertex

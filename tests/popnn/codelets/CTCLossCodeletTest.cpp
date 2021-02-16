@@ -277,7 +277,11 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
                                            "initialAlphaOrBeta");
     graph.setTileMapping(initialAlphaOrBeta, 0);
   }
-
+  Tensor loss;
+  if (findingAlpha) {
+    loss = graph.addVariable(outType, {}, "loss");
+    graph.setTileMapping(loss, 0);
+  }
   auto cs = graph.addComputeSet("cs");
   std::string vertexName;
   if (vertexToTest == TestType::ALPHA) {
@@ -322,6 +326,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
     graph.connect(vertex["alphas"], result.flatten());
     graph.connect(vertex["alphaPrevTime"], prevTime.flatten());
     graph.connect(vertex["alphaPrevLabel"], prevLabel.flatten());
+    graph.connect(vertex["loss"], loss);
   } else if (vertexToTest == TestType::BETA) {
     graph.connect(vertex["betas"], result.flatten());
     graph.connect(vertex["betaPrevTime"], prevTime.flatten());
@@ -336,6 +341,7 @@ gradIPU(const InputSequence<double> &input, unsigned blankClass,
     graph.connect(vertex["betas"], initialAlphaOrBeta.flatten());
     graph.connect(vertex["alphaPrevTime"], prevTime.flatten());
     graph.connect(vertex["alphaPrevLabel"], prevLabel.flatten());
+    graph.connect(vertex["loss"], loss);
   }
 
   graph.setTileMapping(probabilities, 0);

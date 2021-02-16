@@ -23,6 +23,11 @@ beta(const boost::multi_array<FPType, 2> &sequence,
      unsigned validTimesteps, bool logValues);
 
 template <typename FPType>
+FPType loss(const boost::multi_array<FPType, 2> &sequence,
+            const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
+            unsigned validTimesteps, bool logValues);
+
+template <typename FPType>
 boost::multi_array<FPType, 2>
 expandedGrad(const boost::multi_array<FPType, 2> &sequence,
              const boost::multi_array<FPType, 2> &alpha,

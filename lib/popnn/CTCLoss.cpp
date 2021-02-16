@@ -31,9 +31,10 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
                     const Tensor &validLabel, const Tensor &validTime,
                     const Tensor &tempTimeAlphaOrBeta,
                     const Tensor &tempLabelAlphaOrBeta,
-                    const Tensor &alphaOrBeta, boost::optional<Tensor &> grad,
-                    ComputeSet &cs, unsigned tile, VertexType vertexType,
-                    unsigned batch, unsigned timePartitionNum, unsigned label,
+                    const Tensor &alphaOrBeta, const Tensor &loss,
+                    boost::optional<Tensor &> grad, ComputeSet &cs,
+                    unsigned tile, VertexType vertexType, unsigned batch,
+                    unsigned timePartitionNum, unsigned label,
                     const Interval &exLabelPartition, unsigned labelOffset,
                     unsigned timeOffset, bool processExtraBlank,
                     unsigned blankClass) {
@@ -109,6 +110,7 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
     graph.connect(v["alphas"], tileAlphaOrBeta.flatten());
     graph.connect(v["alphaPrevTime"], tempTimeAlphaOrBeta.flatten());
     graph.connect(v["alphaPrevLabel"], tempLabelAlphaOrBeta.flatten());
+    graph.connect(v["loss"], loss[batch][timePartitionNum][label]);
   } else if (vertexType == VertexType::BETA) {
     graph.connect(v["betas"], tileAlphaOrBeta.flatten());
     graph.connect(v["betaPrevTime"], tempTimeAlphaOrBeta.flatten());
@@ -123,6 +125,7 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &labels,
     graph.connect(v["alphaPrevTime"], tempTimeAlphaOrBeta.flatten());
     graph.connect(v["alphaPrevLabel"], tempLabelAlphaOrBeta.flatten());
     graph.connect(v["betas"], tileAlphaOrBeta.flatten());
+    graph.connect(v["loss"], loss[batch][timePartitionNum][label]);
   }
 }
 
@@ -146,6 +149,28 @@ void mapAlphaBetaAccordingToPlan(Graph &graph, const Tensor &tensor,
         auto l = plan.partitionExtendedLabel(labelSize, label);
         graph.setTileMapping(tensor.slice({t.begin(), b.begin(), l.begin()},
                                           {t.end(), b.end(), l.end()}),
+                             tile);
+      }
+    }
+  }
+}
+
+void mapLossAccordingToPlan(Graph &graph, const Tensor &tensor,
+                            const popnn::ctc::Plan::Impl &plan) {
+  const auto batchSize = tensor.dim(0);
+  const auto timeSize = tensor.dim(1);
+  const auto labelSize = tensor.dim(2);
+
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned time = 0; time < plan.parallel.time; time++) {
+      for (unsigned label = 0; label < plan.parallel.label; label++) {
+
+        auto tile = plan.getTile(batch, time, label);
+        auto b = plan.partitionBatch(batchSize, batch);
+        auto t = plan.partitionTime(timeSize, time);
+        auto l = plan.partitionLabel(labelSize, label);
+        graph.setTileMapping(tensor.slice({b.begin(), t.begin(), l.begin()},
+                                          {b.end(), t.end(), l.end()}),
                              tile);
       }
     }
@@ -1000,6 +1025,12 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   prog.add(Copy(initialiserOne.broadcast(batchSize, 1), tempTimeAlphaBeta1Slice,
                 false, {di}));
 
+  auto loss = graph.addVariable(
+      outType, {batchSize, plan.parallel.time, plan.parallel.label},
+      {di, layer + "/loss"});
+  mapLossAccordingToPlan(graph, loss, plan);
+  initialise(graph, loss, prog, {di, layer});
+
   initialise(graph, tempTimeAlphaBeta2, prog, {di, layer});
   initialise(graph, tempLabelAlpha, prog, {di, layer});
   initialise(graph, tempLabelBeta, prog, {di, layer});
@@ -1099,7 +1130,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
 
                 generateVertex(graph, workingData, tempLabel, tempLabelLengths,
                                tempDataLengths, tempTimeIn, tempLabelIn,
-                               alphaBeta, boost::none, cs, tile,
+                               alphaBeta, loss, boost::none, cs, tile,
                                tileVertex.get(), b, timePartitionNum, label,
                                exLabelPartition, labelOffset, timeStep,
                                processExtraBlank, blankClass);
@@ -1120,10 +1151,10 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
 
                 generateVertex(graph, workingData, tempLabel, tempLabelLengths,
                                tempDataLengths, tempTimeIn, tempLabelIn,
-                               alphaBeta, gradient, cs, tile, tileVertex.get(),
-                               b, timePartitionNum, label, exLabelPartition,
-                               labelOffset, timeStep, processExtraBlank,
-                               blankClass);
+                               alphaBeta, loss, gradient, cs, tile,
+                               tileVertex.get(), b, timePartitionNum, label,
+                               exLabelPartition, labelOffset, timeStep,
+                               processExtraBlank, blankClass);
               }
             }
           }
@@ -1135,23 +1166,34 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   }
 
   logging::popnn::debug("CTCLoss implemented in {} computeSets", csNum);
-  // TODO: Return loss during gradient calculation
-  auto loss = graph.addVariable(outType, {batchSize}, {di, layer + "/loss"});
-  graph.setTileMapping(loss, 0);
-
-  di.addOutput(gradient);
-  if (gradient.dim(0) == 1) {
-    return {loss, gradient.reshape(data.shape())};
-  }
   // Reduce where data was split over label.
   // TODO: Mapping choice to spread according to the plan?  Or reduce into one
   //  of the copies of the gradient for less temporarary memory
   ReduceParams reduceParams = {popops::Operation::LOG_ADD, false};
-  auto gradReduce =
-      popops::reduce(graph, gradient, {0}, reduceParams, prog, {di});
+
+  auto lossReduced = [&]() {
+    loss = loss.flatten(1, 3);
+    if (loss.dim(1) == 1) {
+      return loss.reshape({batchSize});
+    } else {
+      return popops::reduce(graph, loss, {1}, reduceParams, prog, {di});
+    }
+  }();
+  auto gradReduced = [&]() {
+    if (gradient.dim(0) == 1) {
+      return gradient.reshape(data.shape());
+    } else {
+      return popops::reduce(graph, gradient, {0}, reduceParams, prog, {di});
+    }
+  }();
+
+  popops::negInPlace(graph, lossReduced, prog, {di});
+
+  di.addOutput(lossReduced);
+  di.addOutput(gradReduced);
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, {di});
-  return {loss, gradReduce};
+  return {lossReduced, gradReduced};
 }
 
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(

@@ -170,6 +170,24 @@ beta(const boost::multi_array<FPType, 2> &sequence,
   return betas;
 }
 
+template <typename FPType>
+FPType loss(const boost::multi_array<FPType, 2> &sequence,
+            const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
+            unsigned validTimesteps, bool logValues) {
+  auto alphas =
+      alpha(sequence, paddedSequence, blankIndex, validTimesteps, logValues);
+
+  // alpha[labels][time]
+  const auto finalSymbol = alphas[alphas.size() - 2][validTimesteps - 1];
+  const auto finalBlank = alphas[alphas.size() - 1][validTimesteps - 1];
+
+  if (logValues) {
+    return log::add(finalSymbol, finalBlank);
+  } else {
+    return finalSymbol + finalBlank;
+  }
+}
+
 // Note - not an accumulated gradient, the full input shape
 template <typename FPType>
 boost::multi_array<FPType, 2>
@@ -250,6 +268,16 @@ template boost::multi_array<double, 2>
 beta(const boost::multi_array<double, 2> &sequence,
      const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
      unsigned validTimesteps, bool logValues);
+
+template float loss(const boost::multi_array<float, 2> &sequence,
+                    const std::vector<unsigned> &paddedSequence,
+                    unsigned blankIndex, unsigned validTimesteps,
+                    bool logValues);
+
+template double loss(const boost::multi_array<double, 2> &sequence,
+                     const std::vector<unsigned> &paddedSequence,
+                     unsigned blankIndex, unsigned validTimesteps,
+                     bool logValues);
 
 template boost::multi_array<float, 2>
 expandedGrad(const boost::multi_array<float, 2> &sequence,
