@@ -233,6 +233,9 @@ Tensor multiStageGroupedReduce(Graph &graph, Tensor partials,
   for (unsigned i = 0; i != partialsDepth; ++i) {
     const auto tileMapping = graph.getTileMapping(partials[i]);
     for (unsigned tile = 0; tile != tileMapping.size(); ++tile) {
+      if (tileMapping[tile].empty()) {
+        continue;
+      }
       // for each tile remember which row's data it contains.  Some of these
       // tiles will be used to reduce later, and the row will be used to
       // reference the tile local data
