@@ -250,14 +250,10 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       poplar::Tensor inputB = graph.addVariable(
           b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputB");
       poputil::mapTensorLinearly(graph, inputB);
-      poplar::Tensor inputX = graph.addVariable(
-          b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputX");
-      poputil::mapTensorLinearly(graph, inputX);
-      inputX = inputX.dimShuffle({0, 2, 1}).reshape(inputX.shape());
       params.solver.reset(new poputil::graphfn::VoidFunction(
           graph,
           {poputil::graphfn::input(inputA), poputil::graphfn::input(inputB),
-           poputil::graphfn::inout(inputX)},
+           poputil::graphfn::inout(inputB)}, // X has the same shape as B
           [&graph, &params, &dnai](std::vector<poplar::Tensor> &args,
                                    poplar::program::Sequence &prog) {
             auto a = args.at(0), b = args.at(1), x = args.at(2);
@@ -290,25 +286,22 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
                       : x.slice({0, an - idx, 0}, {totalBatches, an, bn});
 
               poplar::Tensor dot;
-              poplar::DebugNameAndId dnaiSubstitution{
-                  dnai, "substitution" + std::to_string(idx) + "-" +
-                            std::to_string(params.k)};
-
-              bool vectorB = params.k == 1;
-              if (vectorB) {
+              if (params.k == 1) {
                 auto prod =
                     popops::mul(graph, row, xValue.dimShuffle({0, 2, 1}), prog,
-                                dnaiSubstitution);
+                                {dnai, "dot/mul"});
                 dot = popops::reduce(graph, prod, {2}, {popops::Operation::ADD},
-                                     prog, dnaiSubstitution);
+                                     prog, {dnai, "dot/reduce"});
                 dot = dot.expand({1});
               } else {
-                dot = poplin::matMulGrouped(graph, row, xValue, prog,
-                                            a.elementType(), dnaiSubstitution,
-                                            params.options, params.cache);
+                dot = poplin::matMulGrouped(
+                    graph, row, xValue, prog, a.elementType(),
+                    {dnai, "substituteX" + std::to_string(idx)}, params.options,
+                    params.cache);
               }
 
-              dot = popops::sub(graph, bValue, dot, prog, dnaiSubstitution);
+              dot = popops::sub(graph, bValue, dot, prog,
+                                {dnai, "substituteB" + std::to_string(idx)});
 
               prog.add(poplar::program::Copy(
                   dot,
@@ -422,37 +415,34 @@ poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
   const auto g = shape[0];
   const auto n = shape[leftSide ? 1 : 2];
   const auto m = shape[leftSide ? 2 : 1];
-
-  poplar::Tensor tensor;
-  if (n > blockSize) {
-    const auto nb = poplibs_support::ceildiv(n, blockSize);
-    const auto mb = poplibs_support::ceildiv(m, blockSize);
-
-    // Allocating "blockwise layout", instead of
-    //   B1 B1 B2 B2
-    //   B1 B1 B2 B2
-    //   B3 B3 B4 B4
-    //   B3 B3 B4 B4
-    // Layout block elements as:
-    //   B1 B1 B1 B1
-    //   B2 B2 B2 B2
-    //   B3 B3 B3 B3
-    //   B4 B4 B4 B4
-    // It will keep block elements closer to each other,
-    // so they can share the same tile
-
-    const std::vector<std::size_t> blockShape = {g, nb, mb, blockSize,
-                                                 blockSize};
-    tensor = graph.addVariable(type, blockShape, debugContext);
-    poputil::mapTensorLinearly(graph, tensor);
-
-    tensor = tensor.dimShuffle({0, 1, 3, 2, 4});
-    tensor = tensor.reshape({g, nb * blockSize, mb * blockSize});
-    tensor = tensor.slice({0, 0, 0}, {g, n, m});
-  } else {
-    tensor = graph.addVariable(type, shape, debugContext);
-    poputil::mapTensorLinearly(graph, tensor);
+  if (n <= blockSize && m <= blockSize) {
+    blockSize = 1; // No blocks
   }
+
+  const auto nb = poplibs_support::ceildiv(n, blockSize);
+  const auto mb = poplibs_support::ceildiv(m, blockSize);
+
+  // Allocating "blockwise layout", instead of
+  //   B1 B1 B2 B2
+  //   B1 B1 B2 B2
+  //   B3 B3 B4 B4
+  //   B3 B3 B4 B4
+  // Layout block elements as:
+  //   B1 B1 B1 B1
+  //   B2 B2 B2 B2
+  //   B3 B3 B3 B3
+  //   B4 B4 B4 B4
+  // It will keep block elements closer to each other,
+  // so they can share the same tile
+
+  const std::vector<std::size_t> blockShape = {g, nb, mb, blockSize, blockSize};
+  auto tensor = graph.addVariable(type, blockShape, debugContext);
+
+  poputil::mapTensorLinearly(graph, tensor);
+
+  tensor = tensor.dimShuffle({0, 1, 3, 2, 4});
+  tensor = tensor.reshape({g, nb * blockSize, mb * blockSize});
+  tensor = tensor.slice({0, 0, 0}, {g, n, m});
 
   if (!leftSide)
     tensor = tensor.dimShuffle({0, 2, 1});
