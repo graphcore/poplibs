@@ -311,6 +311,38 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
   }
 }
 
+void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
+                                 const popnn::ctc::Plan::Impl &plan) {
+  // Map the data input according to the plan, but the innermost dimension
+  // isn't really compatible with the plan, as it is the number of classes
+  // whereas we planned for the label length.
+  // Choose to split the time dimension as much as possible over the combined
+  // time and label partitions.  This avoids splitting the innermost dimension
+  // which would result in increased exchange code size.
+  const unsigned timeSize = tensor.dim(0);
+  const auto batchSize = tensor.dim(1);
+  const auto numClasses = tensor.dim(2);
+
+  auto numNonBatchPartitions = plan.parallel.time * plan.parallel.label;
+  auto remappedTimePartitions = std::min(numNonBatchPartitions, timeSize);
+  auto timePartitionSize = ceildiv(timeSize, remappedTimePartitions);
+
+  for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
+    for (unsigned time = 0; time < remappedTimePartitions; time++) {
+      const auto timeBegin = time * timePartitionSize;
+      if (timeBegin < timeSize) {
+        auto tile = plan.getTile(batch, time);
+        auto b = plan.partitionBatch(batchSize, batch);
+        const auto timeEnd = std::min(timeSize, (time + 1) * timePartitionSize);
+
+        graph.setTileMapping(tensor.slice({timeBegin, b.begin(), 0},
+                                          {timeEnd, b.end(), numClasses}),
+                             tile);
+      }
+    }
+  }
+}
+
 void mapGradientAccordingToPlan(Graph &graph, const Tensor &tensor,
                                 const popnn::ctc::Plan::Impl &plan) {
   // Map the rank 4 gradient tensor used in this process to the correct tiles
@@ -983,7 +1015,7 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
                         maxTime, batchSize, numClasses);
   const auto data =
       graph.addVariable(type, {maxTime, batchSize, numClasses}, {di, "data"});
-  mapAccordingToPlan(graph, data, plan.getImpl());
+  mapDataInputAccordingToPlan(graph, data, plan.getImpl());
   di.addOutput(data);
   return data;
 }
@@ -1168,8 +1200,6 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   di.addOutput(gradient);
 
   // Reduce where data was split over label.
-  // TODO: Mapping choice to spread according to the plan?  Or reduce into one
-  //  of the copies of the gradient for less temporarary memory
   ReduceParams reduceParams = {popops::Operation::LOG_ADD, false};
 
   auto lossReduced = [&]() {
@@ -1184,7 +1214,12 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     if (gradient.dim(0) == 1) {
       return gradient.reshape(data.shape());
     } else {
-      return popops::reduce(graph, gradient, {0}, reduceParams, prog, {di});
+
+      // Ensure we preserve mapping of the result to fit in with the plan
+      auto gradientReduced = graph.clone(outType, data, debugContext);
+      popops::reduceWithOutput(graph, gradient, gradientReduced, {0},
+                               reduceParams, prog, {di});
+      return gradientReduced;
     }
   }();
 
@@ -1204,9 +1239,11 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan_, const poplar::DebugContext &debugContext) {
   // TODO sort out debug info
-  // TODO As this becomes the new input, take care over the mapping of this
-  //      tensor
-  const auto logProbs = logSoftmax(graph, logits, prog, debugContext);
+
+  // Ensure we preserve mapping of the result to fit in with the plan
+  auto logProbs = graph.clone(logits, debugContext);
+  prog.add(Copy(logits, logProbs));
+  logSoftmaxInPlace(graph, logProbs, prog, debugContext);
 
   return calcLossAndGradientLogProbabilities(graph, outType, logProbs, labels,
                                              dataLengths, labelLengths, prog,

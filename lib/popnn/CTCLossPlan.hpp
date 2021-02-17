@@ -252,6 +252,11 @@ public:
            + time * parallel.label                  // Time
            + label;                                 // Label
   }
+  // Tile allocation when splitting across batch and time dimensions only
+  unsigned getTile(unsigned batch, unsigned time) const {
+    return batch * (parallel.time * parallel.label) // Batch
+           + time;                                  // Time
+  }
 
   unsigned numTiles() const {
     return parallel.batch * parallel.time * parallel.label;
