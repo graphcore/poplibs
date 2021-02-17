@@ -1176,8 +1176,28 @@ static Tensor createSliceableTensorGivenOrder(
   // number of tiles used - i.e. we could have multiple tiles with
   // fewer than unslicedElemsPerSplit elements mapped to them.
   const auto numTiles = graph.getTarget().getNumTiles();
-  const auto unslicedElemsPerSplit =
+  auto unslicedElemsPerSplit =
       std::max(ceildiv(numUnslicedElems, numTiles), minGrainSize);
+
+  if (createShape.size() == 2 && minGrainSize > 1) {
+    // If we're slicing individaul elements coerce the slices to be atomic write
+    // aligned if that matches the specified minGrainSize
+    const auto &target = graph.getTarget();
+    const auto bytesPerElement = target.getTypeSize(type);
+    const auto granularity = target.getAtomicStoreGranularity();
+    if (granularity > bytesPerElement &&
+        minGrainSize * bytesPerElement >= granularity) {
+      const auto elemPerAtom = granularity / bytesPerElement;
+      const auto unrounded = unslicedElemsPerSplit;
+      auto remainder = unslicedElemsPerSplit % elemPerAtom;
+      if (remainder != 0) {
+        unslicedElemsPerSplit += granularity - remainder;
+        logging::popops::trace("createSliceableTensor rounded {} to {}",
+                               unrounded, unslicedElemsPerSplit);
+      }
+    }
+  }
+
   const auto tilesUsed = ceildiv(numUnslicedElems, unslicedElemsPerSplit);
   std::vector<std::size_t> nPartitions(createShape.size(), 1);
   nPartitions.back() = tilesUsed;
