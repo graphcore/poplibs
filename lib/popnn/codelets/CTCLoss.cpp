@@ -37,6 +37,12 @@ inline unsigned clamp(unsigned value, unsigned offset, unsigned limit) {
   assert(!(value < offset));
   return (value - offset > limit) ? limit : value - offset;
 }
+
+inline bool timestepOutOfRange(unsigned begin, unsigned end, unsigned validTime,
+                               unsigned currentTimestep) {
+  return validTime <= begin || currentTimestep < begin ||
+         currentTimestep >= end || currentTimestep >= validTime;
+}
 }; // namespace
 namespace popnn {
 
@@ -76,16 +82,9 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    // How much does this vertex need to process ?
-    // Eg: Maximum planned 10 labelLength, partitioned into 3:
-    // Partition sizes:4,4,2
-    // But this data entry has validLabel = 6.
-    // Partition 0, labelOffset=0 processes 4 items
-    // Partition 1, labelOffset=4 processes 2 items
-    // Partition 2, labelOffset=8 processes 0 items
-    if (validLabel < labelOffset || validTime <= timeOffset ||
-        count < timeOffset || count >= timeOffset + maxT ||
-        count >= validTime) {
+    // This vertex may have nothing to process.
+    if (validLabel < labelOffset ||
+        timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count++;
       return true;
     }
@@ -93,11 +92,9 @@ public:
     count++;
     const auto maxLabel = label.size() - 1;
     const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
-    const auto timeSteps = clamp(validTime, timeOffset, maxT);
-    bool nextPartitionOnlyBlank = labelOffset + maxLabel == validLabel;
-    bool doLastBlank = labelLength != maxLabel || isLastLabel;
-    bool doLastTimeStep = (t + 1 + timeOffset) == validTime;
     const auto extendedLabel = maxLabel * 2 + isLastLabel;
+    bool doLastBlank = labelLength != maxLabel || isLastLabel;
+    bool doLastTimeStep = t + timeOffset == validTime - 1;
     // First time round reference the "previous alpha" which could be carried
     // from another vertex, or if starting up [0,-inf,-inf,...]
     auto alphaM1 =
@@ -107,12 +104,11 @@ public:
     auto probability = &probabilities[numClasses * t];
     auto alpha = &alphas[extendedLabel * t];
     // 1st symbol takes its parents from the alphaPrevLabel input.
-    auto alphaPrevLabelValue = (t == 0 && timeOffset != 0 && labelOffset != 0)
-                                   ? alphaPrevLabelTime[0]
-                                   : alphaPrevLabel[0];
+    auto alphaPrevLabelValue =
+        t == 0 ? alphaPrevLabelTime[0] : alphaPrevLabel[0];
     const auto blank = static_cast<OutType>(probability[blankClass]);
     if (!labelLength) {
-      // 1st blank. Can't skip the symbol before it so combine 2 probabilities
+      // A blank. Can't skip the symbol before it so combine 2 probabilities
       alpha[0] = logMul(logAdd(alphaM1[0], alphaPrevLabelValue), blank);
       // That was the "last blank", there is no part of the label to process
 
@@ -130,16 +126,22 @@ public:
     // index from the label[] input.
     unsigned idx = 0;
     for (unsigned symbol = 1; symbol < labelLength + 1; symbol++) {
+      // If idx references a symbol's output
+      // The blank entry before the symbol (at idx-1) has a result:
+      // pBlank * (alphaM1[idx-1] + alphaM1[idx-2])
+      // The symbol result is
+      // pSym * (alphaM1[idx] + alphaM1[idx-1] + sameSym ? 0: alphaM1[idx-2])
+      // So we only compute commonSum = (alphaM1[idx-1] + alphaM1[idx-2]) once
+      const auto commonSum = logAdd(alphaPrevLabelValue, alphaM1[idx]);
       // The blank entry, therefore preceded by a symbol which cannot be
       // skipped So always combine only 2 probabilities
-      alpha[idx] = logMul(logAdd(alphaPrevLabelValue, alphaM1[idx]), blank);
+      alpha[idx] = logMul(commonSum, blank);
       // Next the non-blank entry, therefore preceded by a blank which can
       // be skipped if the symbol before it is different to this one
+      auto sum =
+          (label[symbol] == label[symbol - 1]) ? alphaM1[idx] : commonSum;
       idx++;
-      auto sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
-      if (label[symbol] != label[symbol - 1]) {
-        sum = logAdd(sum, alphaPrevLabelValue);
-      }
+      sum = logAdd(sum, alphaM1[idx]);
       alpha[idx] =
           logMul(sum, static_cast<OutType>(probability[label[symbol]]));
       alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
@@ -150,21 +152,21 @@ public:
       // be skipped. So always combine only 2 probabilities. Last blank in a
       // sequence
       alpha[idx] = logMul(logAdd(alphaM1[idx - 1], alphaM1[idx]), blank);
-      if (doLastTimeStep) {
-        // Loss is the sum of the last two alpha values computed (symbol and
-        // blank). Each tile can contribute to these, all tiles results are
-        // reduced to get the result. In this case both the result for the
-        // last symbol and last blank is on this tile
-        *loss = logAdd(alpha[idx - 1], alpha[idx]);
-      }
-    } else if (nextPartitionOnlyBlank && doLastTimeStep) {
+    }
+    if (doLastTimeStep) {
       // Loss is the sum of the last two alpha values computed (symbol and
       // blank). Each tile can contribute to these, all tiles results are
-      // reduced to get the result. In this case only the result for the
-      // last symbol is on this tile
-      *loss = alpha[idx - 1];
+      // reduced to get the result.
+      bool nextPartitionOnlyBlank = labelOffset + maxLabel == validLabel;
+      if (doLastBlank) {
+        // In this case both the result for the last symbol and last blank is on
+        // this tile
+        *loss = logAdd(alpha[idx - 1], alpha[idx]);
+      } else if (nextPartitionOnlyBlank) {
+        // In this case only the result for the last symbol is on this tile
+        *loss = alpha[idx - 1];
+      }
     }
-
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
     alphaPrevLabelOut[0] = alpha[2 * labelLength - 1];
@@ -214,9 +216,9 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    // How much does this vertex need to process ?
-    if (validLabel < labelOffset || count < timeOffset + 1 ||
-        count >= timeOffset + maxT + 1) {
+    // This vertex may have nothing to process.
+    if (validLabel < labelOffset ||
+        timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count--;
       return true;
     }
@@ -224,21 +226,12 @@ public:
     count--;
     const auto maxLabel = label.size() - 1;
     const auto extendedLabel = maxLabel * 2 + isFirstLabel;
-    if (validTime <= timeOffset || count >= validTime) {
-      // There is nothing to do, but setup beta=probabilityZero for the next
-      // vertex call (Write the 1st beta timeslice)
-      for (unsigned i = 0; i < extendedLabel; i++) {
-        betas[i] = log::probabilityZero;
-      }
-      return true;
-    }
     const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
     bool doLastBlank = labelLength != maxLabel || isFirstLabel;
     bool isLastLabel = (labelLength + labelOffset) == validLabel;
-    bool doLastTimeStep = (t + timeOffset) == validTime;
+    bool doLastTimeStep = t + timeOffset == validTime - 1;
 
-    auto betaPrev =
-        (t == maxT && !isFirstLabel) ? betaPrevLabelTime : betaPrevLabel;
+    auto betaPrev = t == maxT - 1 ? betaPrevLabelTime : betaPrevLabel;
     auto betaPrev0 = betaPrev[0];
     auto betaPrev1 = betaPrev[1];
     if (doLastTimeStep) {
@@ -254,16 +247,15 @@ public:
         betaPrev0 = log::probabilityOne;
       }
     }
+    // References to each row, previous row of the input and output
+    auto probability = &probabilities[numClasses * t];
+    auto beta = &betas[extendedLabel * t];
     // First time round reference the "previous beta" which could be carried
     // from another vertex, or if starting up [-inf,-inf,....-inf] with the
     // 0 inserted in the correct place above
-    auto betaP1 = (t == maxT || doLastTimeStep) ? &betaPrevTime[0]
-                                                : &betas[0 + extendedLabel * t];
-    // References to each row, previous row of the input and output
-    auto probability = &probabilities[numClasses * (t - 1)];
-    // Write using an offset into the beta array so we can carry data from
-    // vertex to vertex when there are < maxLabel in the sequence
-    auto beta = &betas[0 + extendedLabel * (t - 1)];
+    auto betaP1 = (t == maxT - 1 || doLastTimeStep)
+                      ? &betaPrevTime[0]
+                      : &betas[extendedLabel * (t + 1)];
     const auto blank = static_cast<OutType>(probability[blankClass]);
 
     // Suppose we have a sequence: - a - a - b - c - .
@@ -278,35 +270,14 @@ public:
       betaPrevLabelOut[1] = log::probabilityZero;
       return true;
     }
-    // Each loop outputs the result for the symbol and a blank, and consumes 1
-    // index from the label[] input.
-    unsigned idx = 0;
-    for (unsigned symbol = 0; symbol < labelLength - 1; symbol++) {
-      // The blank entry, therefore preceded by a symbol which cannot be
-      // skipped So always combine only 2 probabilities
-      beta[idx] = logMul(logAdd(betaP1[idx + 1], betaP1[idx]), blank);
-      // Next the non-blank entry, therefore preceded by a blank which can
-      // be skipped if the symbol before it is different to this one
-      idx++;
-      auto sum = logAdd(betaP1[idx + 1], betaP1[idx]);
-      if (label[symbol] != label[symbol + 1]) {
-        sum = logAdd(sum, betaP1[idx + 2]);
-      }
-      beta[idx] = logMul(sum, static_cast<OutType>(probability[label[symbol]]));
-      idx++;
-    }
-    // Process `X` (always needed).  As X is a blank then it is preceded
-    // by a symbol which cannot be skipped and we need only 2 probabilities
-    beta[idx] = logMul(logAdd(betaP1[idx + 1], betaP1[idx]), blank);
-    idx++;
+    unsigned idx = 2 * (labelLength - 1) + 1 + doLastBlank;
     const auto lastSymbol = label[labelLength - 1];
     const auto prob = static_cast<OutType>(probability[lastSymbol]);
     if (doLastBlank) {
       // Write `Y` and `Z`. There is no previous label's beta to use.
-      // Writing `Y`
-      beta[idx] = logMul(logAdd(betaP1[idx], betaP1[idx + 1]), prob);
-      idx++;
       beta[idx] = logMul(betaP1[idx], blank); //`Z`
+      idx--;
+      beta[idx] = logMul(logAdd(betaP1[idx], betaP1[idx + 1]), prob); // `Y`
     } else {
       // We are not writing the last blank (`Z`) So just write `Y`, which
       // uses the probabilty of the previous blank, and conditionally that of
@@ -317,6 +288,34 @@ public:
       }
       beta[idx] = logMul(sum, prob);
     }
+    idx--;
+    // If idx references a symbol's output
+    // The blank entry before the symbol (at idx+1) has a result:
+    // pBlank * (betaP1[idx+1] + betaP1[idx+2])
+    // The symbol result is
+    // pSym * (betaP1[idx] + betaP1[idx+1] + sameSym ? 0: betaP1[idx+2])
+    // So we only compute commonSum = (betaP1[idx+1] + betaP1[idx+2]) once
+
+    // Each loop outputs the result for the symbol and a blank, and consumes 1
+    // index from the label[] input.
+    // The first blank processed in the loop is `X`
+    for (unsigned s = 0; s < labelLength - 1; s++) {
+      unsigned symbol = labelLength - 2 - s;
+      // The blank entry, therefore preceded by a symbol which cannot be
+      // skipped So always combine only 2 probabilities
+      auto commonSum = logAdd(betaP1[idx + 1], betaP1[idx]);
+      beta[idx] = logMul(commonSum, blank);
+      idx--;
+      // The non-blank entry, therefore preceded by a blank which can
+      // be skipped if the symbol before it is different to this one
+      auto sum =
+          label[symbol] == label[symbol + 1] ? betaP1[idx + 1] : commonSum;
+      sum = logAdd(sum, betaP1[idx]);
+      beta[idx] = logMul(sum, static_cast<OutType>(probability[label[symbol]]));
+      idx--;
+    }
+    // Remaining blank entry
+    beta[idx] = logMul(logAdd(betaP1[idx + 1], betaP1[idx]), blank);
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
     betaPrevLabelOut[0] = beta[0];
@@ -368,10 +367,9 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    // How much does this vertex need to process ?
-    if (validLabel < labelOffset || validTime <= timeOffset ||
-        count < timeOffset + 1 || count >= timeOffset + maxT + 1 ||
-        count > validTime) {
+    // This vertex may have nothing to process.
+    if (validLabel < labelOffset ||
+        timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count--;
       return true;
     }
@@ -380,13 +378,11 @@ public:
     const auto maxLabel = label.size() - 1;
     const auto extendedLabel = maxLabel * 2 + isFirstLabel;
     const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
-    const auto timeSteps = clamp(validTime, timeOffset, maxT);
     bool doLastBlank = labelLength != maxLabel || isFirstLabel;
     bool isLastLabel = (labelLength + labelOffset) == validLabel;
-    bool doLastTimeStep = (t + timeOffset) == validTime;
+    bool doLastTimeStep = t + timeOffset == validTime - 1;
 
-    auto betaPrev =
-        (t == maxT && !isFirstLabel) ? betaPrevLabelTime : betaPrevLabel;
+    auto betaPrev = t == maxT - 1 ? betaPrevLabelTime : betaPrevLabel;
     auto betaPrev0 = betaPrev[0];
     auto betaPrev1 = betaPrev[1];
     if (doLastTimeStep) {
@@ -407,15 +403,16 @@ public:
     }
     // Select an index to ping-pong between the 1st/2nd timslices in the
     // temporary alpha input
-    unsigned oldIdx = ((count + 1) & 1) ? extendedLabel : 0;
+    unsigned oldIdx = (count & 1) ? extendedLabel : 0;
 
     // References to each row, next row of the input and output
-    auto probability = &probabilities[numClasses * (t - 1)];
-    auto alpha = &alphas[extendedLabel * (t - 1)];
-    auto grad = &grads[numClasses * (t - 1)];
+    auto probability = &probabilities[numClasses * t];
+    auto alpha = &alphas[extendedLabel * t];
+    auto grad = &grads[numClasses * t];
     auto beta = &betaPrevTime[oldIdx ^ extendedLabel];
-    auto betaP1 = (t == maxT && !doLastTimeStep) ? &betaPrevPartition[oldIdx]
-                                                 : &betaPrevTime[oldIdx];
+    auto betaP1 = (t == maxT - 1 && !doLastTimeStep)
+                      ? &betaPrevPartition[oldIdx]
+                      : &betaPrevTime[oldIdx];
 
     const auto blank = static_cast<OutType>(probability[blankClass]);
     // Suppose we have a sequence: - a - a - b - c - .
@@ -432,48 +429,21 @@ public:
       betaPrevLabelOut[1] = log::probabilityZero;
       return true;
     }
-    // Each loop outputs the result for the symbol and a blank, and consumes 1
-    // index from the label[] input.
-    unsigned idx = 0;
-    for (unsigned symbol = 0; symbol < labelLength - 1; symbol++) {
-
-      // The blank entry, therefore preceded by a symbol which cannot be
-      // skipped So always combine only 2 probabilities
-      auto sum = logAdd(betaP1[idx], betaP1[idx + 1]);
-      grad[blankClass] = logAdd(logMul(sum, alpha[idx]), grad[blankClass]);
-      beta[idx] = logMul(sum, blank);
-      // Next the non-blank entry, therefore preceded by a blank which can
-      // be skipped if the symbol before it is different to this one
-      idx++;
-      sum = logAdd(betaP1[idx + 1], betaP1[idx]);
-      if (label[symbol] != label[symbol + 1]) {
-        sum = logAdd(sum, betaP1[idx + 2]);
-      }
-      grad[label[symbol]] =
-          logAdd(logMul(sum, alpha[idx]), grad[label[symbol]]);
-      beta[idx] = logMul(sum, static_cast<OutType>(probability[label[symbol]]));
-      idx++;
-    }
-    // Process `X` (always needed).  As X is a blank then it is preceded
-    // by a symbol which cannot be skipped and we need only 2 probabilities
-    auto sum = logAdd(betaP1[idx + 1], betaP1[idx]);
-    beta[idx] = logMul(sum, blank);
-    grad[blankClass] = logAdd(logMul(sum, alpha[idx]), grad[blankClass]);
-    idx++;
+    unsigned idx = 2 * (labelLength - 1) + 1 + doLastBlank;
     const auto lastSymbol = label[labelLength - 1];
     const auto prob = static_cast<OutType>(probability[lastSymbol]);
 
     if (doLastBlank) {
       // Write `Y` and `Z`. There is no previous label's beta to use.
-      // Writing `Y`
-      auto sum = logAdd(betaP1[idx], betaP1[idx + 1]);
-      grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
-      beta[idx] = logMul(sum, prob);
-      idx++;
       // Writing `Z`
       grad[blankClass] =
           logAdd(logMul(betaP1[idx], alpha[idx]), grad[blankClass]);
       beta[idx] = logMul(betaP1[idx], blank);
+      idx--;
+      // Writing `Y`
+      auto sum = logAdd(betaP1[idx], betaP1[idx + 1]);
+      grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
+      beta[idx] = logMul(sum, prob);
     } else {
       // We are not writing the last blank (`Z`) So just write `Y`, which
       // uses the probabilty of the previous blank, and conditionally that of
@@ -485,6 +455,40 @@ public:
       beta[idx] = logMul(sum, prob);
       grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
     }
+    idx--;
+    // If idx references a symbol's output
+    // The blank entry before the symbol (at idx+1) has a result:
+    // pBlank * (betaP1[idx+1] + betaP1[idx+2])
+    // The symbol result is
+    // pSym * (betaP1[idx] + betaP1[idx+1] + sameSym ? 0: betaP1[idx+2])
+    // So we only compute commonSum = (betaP1[idx+1] + betaP1[idx+2]) once
+
+    // Each loop outputs the result for the symbol and a blank, and consumes 1
+    // index from the label[] input.
+    // The first loop pass processes `X`
+    for (unsigned s = 0; s < labelLength - 1; s++) {
+      unsigned symbol = labelLength - 2 - s;
+      // The blank entry, therefore preceded by a symbol which cannot be
+      // skipped So always combine only 2 probabilities
+      auto commonSum = logAdd(betaP1[idx + 1], betaP1[idx]);
+      beta[idx] = logMul(commonSum, blank);
+      grad[blankClass] =
+          logAdd(logMul(commonSum, alpha[idx]), grad[blankClass]);
+      idx--;
+      // The non-blank entry, therefore preceded by a blank which can
+      // be skipped if the symbol before it is different to this one
+      auto sum =
+          label[symbol] == label[symbol + 1] ? betaP1[idx + 1] : commonSum;
+      sum = logAdd(sum, betaP1[idx]);
+      grad[label[symbol]] =
+          logAdd(logMul(sum, alpha[idx]), grad[label[symbol]]);
+      beta[idx] = logMul(sum, static_cast<OutType>(probability[label[symbol]]));
+      idx--;
+    }
+    // The last blank entry
+    auto commonSum = logAdd(betaP1[idx], betaP1[idx + 1]);
+    grad[blankClass] = logAdd(logMul(commonSum, alpha[idx]), grad[blankClass]);
+    beta[idx] = logMul(commonSum, blank);
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
     betaPrevLabelOut[0] = beta[0];
@@ -537,10 +541,9 @@ public:
   IS_EXTERNAL_CODELET(false);
 
   bool compute() {
-    // How much does this vertex need to process ?
-    if (validLabel < labelOffset || validTime <= timeOffset ||
-        count < timeOffset || count >= timeOffset + maxT ||
-        count >= validTime) {
+    // This vertex may have nothing to process.
+    if (validLabel < labelOffset ||
+        timestepOutOfRange(timeOffset, timeOffset + maxT, validTime, count)) {
       count++;
       return true;
     }
@@ -548,11 +551,9 @@ public:
     count++;
     const auto maxLabel = label.size() - 1;
     const auto labelLength = clamp(validLabel, labelOffset, maxLabel);
-    const auto timeSteps = clamp(validTime, timeOffset, maxT);
     const auto extendedLabel = maxLabel * 2 + isLastLabel;
-    bool nextPartitionOnlyBlank = labelOffset + maxLabel == validLabel;
     bool doLastBlank = labelLength != maxLabel || isLastLabel;
-    bool doLastTimeStep = (t + 1 + timeOffset) == validTime;
+    bool doLastTimeStep = t + timeOffset == validTime - 1;
 
     // Select an index to ping-pong between the 1st/2nd timslices in the
     // temporary alpha input
@@ -565,12 +566,11 @@ public:
     auto alphaM1 =
         t == 0 ? &alphaPrevPartition[oldIdx] : &alphaPrevTime[oldIdx];
     // 1st symbol takes its parents from the alphaPrevLabel input.
-    auto alphaPrevLabelValue = (t == 0 && timeOffset != 0 && labelOffset != 0)
-                                   ? alphaPrevLabelTime[0]
-                                   : alphaPrevLabel[0];
+    auto alphaPrevLabelValue =
+        t == 0 ? alphaPrevLabelTime[0] : alphaPrevLabel[0];
     const auto blank = static_cast<OutType>(probability[blankClass]);
     if (!labelLength) {
-      // 1st blank. Can't skip the symbol before it so combine 2 probabilities
+      // A blank. Can't skip the symbol before it so combine 2 probabilities
       auto sum = logAdd(alphaM1[0], alphaPrevLabelValue);
       alpha[0] = logMul(sum, blank);
       // Loss is the sum of the last two alpha values computed (symbol and
@@ -582,25 +582,30 @@ public:
       }
       grad[blankClass] = logAdd(logMul(sum, beta[0]), grad[blankClass]);
       // That was the "last blank", there is no part of the label to process
-      // so continue (not break)
+      // so we are done
       return true;
     }
     // Each loop outputs the result for the symbol and a blank, and consumes 1
     // index from the labels[] input.
     unsigned idx = 0;
     for (unsigned symbol = 1; symbol < labelLength + 1; symbol++) {
+      // If idx references a symbol's output
+      // The blank entry before the symbol (at idx-1) has a result:
+      // pBlank * (alphaM1[idx-1] + alphaM1[idx-2])
+      // The symbol result is
+      // pSym * (alphaM1[idx] + alphaM1[idx-1] + sameSym ? 0: alphaM1[idx-2])
+      // So we only compute commonSum = (alphaM1[idx-1] + alphaM1[idx-2]) once
+      auto commonSum = logAdd(alphaPrevLabelValue, alphaM1[idx]);
       // The blank entry, therefore preceded by a symbol which cannot be
       // skipped So always combine only 2 probabilities
-      auto sum = logAdd(alphaPrevLabelValue, alphaM1[idx]);
-      grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
-      alpha[idx] = logMul(sum, blank);
+      grad[blankClass] = logAdd(logMul(commonSum, beta[idx]), grad[blankClass]);
+      alpha[idx] = logMul(commonSum, blank);
       // Next the non-blank entry, therefore preceded by a blank which can
       // be skipped if the symbol before it is different to this one
+      auto sum =
+          (label[symbol] == label[symbol - 1]) ? alphaM1[idx] : commonSum;
       idx++;
-      sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
-      if (label[symbol] != label[symbol - 1]) {
-        sum = logAdd(sum, alphaPrevLabelValue);
-      }
+      sum = logAdd(sum, alphaM1[idx]);
       grad[label[symbol]] = logAdd(logMul(sum, beta[idx]), grad[label[symbol]]);
       alpha[idx] =
           logMul(sum, static_cast<OutType>(probability[label[symbol]]));
@@ -614,21 +619,21 @@ public:
       auto sum = logAdd(alphaM1[idx - 1], alphaM1[idx]);
       alpha[idx] = logMul(sum, blank);
       grad[blankClass] = logAdd(logMul(sum, beta[idx]), grad[blankClass]);
-      if (doLastTimeStep) {
-        // Loss is the sum of the last two alpha values computed (symbol and
-        // blank). Each tile can contribute to these, all tiles results are
-        // reduced to get the result. In this case both the result for the
-        // last symbol and last blank is on this tile
-        *loss = logAdd(alpha[idx - 1], alpha[idx]);
-      }
-    } else if (nextPartitionOnlyBlank && doLastTimeStep) {
+    }
+    if (doLastTimeStep) {
       // Loss is the sum of the last two alpha values computed (symbol and
       // blank). Each tile can contribute to these, all tiles results are
-      // reduced to get the result. In this case only the result for the
-      // last symbol is on this tile
-      *loss = alpha[idx - 1];
+      // reduced to get the result.
+      bool nextPartitionOnlyBlank = labelOffset + maxLabel == validLabel;
+      if (doLastBlank) {
+        // In this case both the result for the last symbol and last blank is on
+        // this tile
+        *loss = logAdd(alpha[idx - 1], alpha[idx]);
+      } else if (nextPartitionOnlyBlank) {
+        // In this case only the result for the last symbol is on this tile
+        *loss = alpha[idx - 1];
+      }
     }
-
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
     alphaPrevLabelOut[0] = alpha[2 * labelLength - 1];

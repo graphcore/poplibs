@@ -550,8 +550,7 @@ int main(int argc, char **argv) {
   if (vertexToTest == TestType::ALPHA || vertexToTest == TestType::BETA) {
     // For alpha, beta vertices an effective test can by made by masking out
     // the one timeslice that the vertex should be calculating
-    auto timeOffset = vertexToTest == TestType::ALPHA ? timeStep : timeStep - 1;
-    initialOutput = maskTimeSteps(initialOutput, timeOffset, true);
+    initialOutput = maskTimeSteps(initialOutput, timeStep, true);
   }
   auto reference =
       gradReference<double>(test, blankClass, vertexToTest, verbose);
@@ -573,10 +572,8 @@ int main(int argc, char **argv) {
     // TODO - This is a bit of a cheat, only the 1st (alpha) or last (beta)
     // timestep works at the moment, plus we should verify the whole output
     // is untouched.  Suggest doing this when making assembler vertices
-    auto timeOffset =
-        vertexToTest == TestType::GRAD_GIVEN_ALPHA ? timeStep - 1 : timeStep;
-    output = maskTimeSteps(output, timeOffset, false);
-    reference = maskTimeSteps(reference, timeOffset, false);
+    output = maskTimeSteps(output, timeStep, false);
+    reference = maskTimeSteps(reference, timeStep, false);
   }
 
   bool success = checkIsClose("result", output, reference, relativeTolerance,

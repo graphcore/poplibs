@@ -1145,12 +1145,23 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   // Initialise the gradient to probabilityZero, to accumulate into
   initialise(graph, gradient, prog, di);
 
-  // Make the program to find alpha, beta and run it in a loop
+  // Initialise the beta time partitions first timestep as this can be the
+  // initial beta when number of timesteps < maxT
   const auto alphaTimePartitions = ceildiv(plan.parallel.time, 2u);
+  for (unsigned time = alphaTimePartitions; time < plan.parallel.time; time++) {
+    auto timePartition = plan.partitionTime(maxT, time);
+    initialise(
+        graph,
+        alphaBeta.slice(timePartition.begin(), timePartition.begin() + 1, 0),
+        prog, di);
+  }
+
+  // Make the program to find alpha, beta and run it in a loop
   auto lastAlphaTimePartition =
       plan.partitionTime(maxT, alphaTimePartitions - 1);
   const auto numLoops = lastAlphaTimePartition.end();
-  initialiseCounters(graph, tempTensors.counter, 0, maxT, prog, {di, layer});
+  initialiseCounters(graph, tempTensors.counter, 0, maxT - 1, prog,
+                     {di, layer});
   auto alphaBetaProg =
       createAlphaBetaProg(graph, plan, workingData, alphaBeta, loss,
                           tempTensors, labelsLength, blankClass, {di, layer});
@@ -1189,7 +1200,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
 
   // Make the program to find gradient given alpha, beta and run it in a loop
   auto gradInitialCount = lastAlphaTimePartition.end();
-  initialiseCounters(graph, tempTensors.counter, gradInitialCount,
+  initialiseCounters(graph, tempTensors.counter, gradInitialCount - 1,
                      gradInitialCount, prog, {di, layer});
 
   auto alphaBetaGradProg = createAlphaBetaGradProg(
