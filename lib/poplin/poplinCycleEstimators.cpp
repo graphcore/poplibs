@@ -544,6 +544,29 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceAdd)(
   return {cycles, convertToTypeFlops(flops, partialsType)};
 }
 
+VertexPerfEstimate
+MAKE_PERF_ESTIMATOR_NAME(TriangularSolve)(const VertexIntrospector &vertex,
+                                          const Target &target,
+                                          const Type &type, bool lower) {
+  CODELET_FIELD(a);
+  CODELET_FIELD(b);
+  CODELET_FIELD(x);
+  CODELET_SCALAR_VAL(an, unsigned short);
+
+  std::uint64_t cycles =
+      0x22 /*prologue*/ + 4 * an /* before dot product */ +
+      (8 - 2) * (an - 1) * an /
+          2 /*dot loop 1..an, minus 2 co-issued instruction*/
+      + (26 - 1) * an /*outer loop epilogue, minus 1 co-issued instruction*/ +
+      7 /*epilogue*/
+      ;
+  std::uint64_t flops =
+      static_cast<std::uint64_t>(an * (an - 1) / 2) * flopsForMultiply() +
+      an * flopsForAdd();
+
+  return {cycles, convertToTypeFlops(flops, type)};
+}
+
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
       CYCLE_ESTIMATOR_ENTRY(poplin, OuterProduct, FLOAT),
@@ -766,7 +789,13 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, FLOAT, false, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, FLOAT, false, false),
       CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, FLOAT, HALF, false, false),
-      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF, false, false)};
+      CYCLE_ESTIMATOR_ENTRY(poplin, ReduceAdd, HALF, HALF, false, false),
+
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, FLOAT, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, FLOAT, false),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, HALF, true),
+      CYCLE_ESTIMATOR_ENTRY(poplin, TriangularSolve, HALF, false),
+  };
 }
 
 } // end namespace poplin

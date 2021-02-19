@@ -123,6 +123,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/InverseStdDeviation.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/OuterProduct.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ReduceAdd.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TriangularSolve.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdConvComplete.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdDataTransform.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/WgdInverseTransform.cpp

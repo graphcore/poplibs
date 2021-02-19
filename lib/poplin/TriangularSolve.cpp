@@ -241,6 +241,47 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       throw poputil::poplibs_error("minor RHS dimension passed to direct "
                                    "solver is larger than solverSize");
     }
+    if (bn == 1) {
+      auto totalBatches = a.dim(0);
+      auto an = a.dim(2), bn = b.dim(2);
+
+      auto cs = graph.addComputeSet({dnai, "triangularSolve"});
+      auto x = params.x.slice({0, bTopPos, bLeftPos},
+                              {totalBatches, bTopPos + an, bLeftPos + bn});
+
+      for (std::size_t i = 0; i < totalBatches; ++i) {
+        auto aSlice = a.slice({i, 0, 0}, {i + 1, an, an});
+        auto mappings = graph.getTileMapping(aSlice);
+        std::size_t best = 0;
+        std::size_t bestElements = 0;
+        for (std::size_t tile = 0; tile != mappings.size(); ++tile) {
+          auto &mapping = mappings[tile];
+          auto numElements =
+              std::accumulate(mapping.begin(), mapping.end(), std::size_t(0),
+                              [](std::size_t total, const poplar::Interval &i) {
+                                return total + i.size();
+                              });
+          if (numElements > bestElements) {
+            best = tile;
+            bestElements = numElements;
+          }
+        }
+        if (bestElements == 0)
+          throw poputil::poplibs_error("invalid tile mapping in direct solver");
+
+        auto v = graph.addVertex(
+            cs,
+            poputil::templateVertex("poplin::TriangularSolve", a.elementType(),
+                                    params.lower),
+            {{"a", aSlice.reshape({an * an})},
+             {"b", b.slice({i, 0, 0}, {i + 1, an, bn}).reshape({an * bn})},
+             {"x", x.slice({i, 0, 0}, {i + 1, an, bn}).reshape({an * bn})}});
+        graph.setInitialValue(v["an"], an);
+        graph.setTileMapping(v, best);
+      }
+      prog.add(poplar::program::Execute(cs));
+      return;
+    }
     if (!params.solver) {
       // Create nicely layed out tensors for function input, so clone won't
       // expand padding.
@@ -250,10 +291,14 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       poplar::Tensor inputB = graph.addVariable(
           b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputB");
       poputil::mapTensorLinearly(graph, inputB);
+      poplar::Tensor inputX = graph.addVariable(
+          b.elementType(), {b.dim(0), b.dim(1), params.solverSize}, "inputX");
+      poputil::mapTensorLinearly(graph, inputX);
+      inputX = inputX.dimShuffle({0, 2, 1}).reshape(inputX.shape());
       params.solver.reset(new poputil::graphfn::VoidFunction(
           graph,
           {poputil::graphfn::input(inputA), poputil::graphfn::input(inputB),
-           poputil::graphfn::inout(inputB)}, // X has the same shape as B
+           poputil::graphfn::inout(inputX)},
           [&graph, &params, &dnai](std::vector<poplar::Tensor> &args,
                                    poplar::program::Sequence &prog) {
             auto a = args.at(0), b = args.at(1), x = args.at(2);
@@ -415,7 +460,7 @@ poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
   const auto g = shape[0];
   const auto n = shape[leftSide ? 1 : 2];
   const auto m = shape[leftSide ? 2 : 1];
-  if (n <= blockSize && m <= blockSize) {
+  if (n <= blockSize) {
     blockSize = 1; // No blocks
   }
 
@@ -438,7 +483,9 @@ poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
   const std::vector<std::size_t> blockShape = {g, nb, mb, blockSize, blockSize};
   auto tensor = graph.addVariable(type, blockShape, debugContext);
 
-  poputil::mapTensorLinearly(graph, tensor);
+  auto &target = graph.getTarget();
+  unsigned grainSize = target.getVectorWidth(type);
+  poputil::mapTensorLinearly(graph, tensor, blockSize, grainSize);
 
   tensor = tensor.dimShuffle({0, 1, 3, 2, 4});
   tensor = tensor.reshape({g, nb * blockSize, mb * blockSize});
