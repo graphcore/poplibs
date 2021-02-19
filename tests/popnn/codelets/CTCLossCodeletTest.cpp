@@ -323,8 +323,8 @@ gradIPU(const InputSequence<double> &input, unsigned timeStep,
   // Suggest that when optimising the vertices this test is improved.
   auto validLabel = graph.addConstant(UNSIGNED_INT, {}, labelLen);
   auto validTime = graph.addConstant(UNSIGNED_INT, {}, maxT);
-  auto initialCount = graph.addConstant(UNSIGNED_SHORT, {}, timeStep);
-  auto count = graph.addVariable(UNSIGNED_SHORT, {}, "count");
+  auto initialCount = graph.addConstant(UNSIGNED_INT, {}, timeStep);
+  auto count = graph.addVariable(UNSIGNED_INT, {}, "count");
   prog.add(Copy(initialCount, count));
   graph.setTileMapping(validLabel, 0);
   graph.setTileMapping(validTime, 0);

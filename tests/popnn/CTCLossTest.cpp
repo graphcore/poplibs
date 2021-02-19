@@ -138,11 +138,9 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
 
   unsigned inputLength =
       testTime.is_initialized() ? testTime.get() : randT(gen);
-
   // Constrain the sequence of labels to conform to the randomly chosen
   // input length - enforcing time >= 1 + 2 * labels
-  size_t maxS =
-      std::min(maxLabelLength, static_cast<size_t>((inputLength + 1) / 2 - 1));
+  size_t maxS = std::min(maxLabelLength, static_cast<size_t>(inputLength));
   size_t minS = std::min(minLabelLength, maxS);
   std::uniform_int_distribution<> randLabelLength(minS, maxS);
   unsigned labelLength = testLabelLength.is_initialized()
@@ -193,7 +191,6 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
   auto expandedGradient =
       expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
                    test.inputLength, true);
-
   auto negLogLoss =
       loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
   auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,

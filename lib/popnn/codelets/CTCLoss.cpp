@@ -72,7 +72,7 @@ public:
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
   Input<unsigned> validTime;
-  InOut<unsigned short> count;
+  InOut<unsigned> count;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -206,7 +206,7 @@ public:
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
   Input<unsigned> validTime;
-  InOut<unsigned short> count;
+  InOut<unsigned> count;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -357,7 +357,7 @@ public:
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
   Input<unsigned> validTime;
-  InOut<unsigned short> count;
+  InOut<unsigned> count;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
@@ -531,7 +531,7 @@ public:
   // within the whole input.  Only validTime (of the whole input) is to be
   // processed. This may mean it has nothing to do
   Input<unsigned> validTime;
-  InOut<unsigned short> count;
+  InOut<unsigned> count;
   const unsigned short labelOffset;
   const unsigned short timeOffset;
   const unsigned short maxT;
