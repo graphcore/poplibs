@@ -53,18 +53,18 @@
   \F32FROMINT $a1, $a1}
   f32v2tof16  $a0, $a0:1
   st32step    $a0, $mzero, $OUT_PTR+=, 1
-  // Were there 3 trailing elems? if not, bail  out
+  // Were there 3 trailing elems? if not, bail out
   brz         $SCRATCH, .Lend_remainder_char_to_half\@
 
 .L_1_char_to_half\@:
-  ld32        $a2, $mzero, $OUT_PTR, 1  // load existing word from memory
+  ldb16       $a2, $mzero, $OUT_PTR, 1 // load to-be-preserved hword from mem
   \LDCHAR     $ACCUM, $mzero, $IN_PTR+=, 1
   // Use the output word as storage to move from 'm' reg to 'a' reg
   st32        $ACCUM, $mzero, $OUT_PTR, 0
   ld32        $a0, $mzero, $OUT_PTR, 0
   \F32FROMINT $a0, $a0
   f32tof16    $a0, $a0
-  sort4x16lo  $a0, $a0, $a2
+  sort4x16lo  $a0, $a0, $a2 // mix last result and to-be-preserved hword
   st32step    $a0, $mzero, $OUT_PTR+=, 1
 .Lend_remainder_char_to_half\@:
   br          $lr
@@ -92,7 +92,7 @@ cast_unsigned_char_half_core:
 
   // Prologue (fill)
   ldz16step   $m0, $mzero, $IN_PTR+=, 1 # load 2 x 8-bit values into MRF
-  shuf8x8lo   $m0, $m0, $mzero          # change the 2 8-bitto 2 x 16-bit
+  shuf8x8lo   $m0, $m0, $mzero          # change the 2 8-bit to 2 x 16-bit
   st32        $m0, $mzero, $OUT_PTR, 0  # store the 2x16-bit values
   ld32        $a4, $mzero, $OUT_PTR, 0  # load the 2x16-bit values into the ARF
  {ldz16step   $m0, $mzero, $IN_PTR+=, 1
