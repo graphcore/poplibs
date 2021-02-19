@@ -62,6 +62,16 @@ set(ALL_POSSIBLE_TEST_VARIANTS "NoTarget;Cpu;IpuModel1;IpuModel2;Sim1;Sim2;Sim1:
 set(DEFAULT_TEST_VARIANTS "${IPUMODEL_VARIANTS};${SIM_VARIANTS};${SIMCPP_VARIANTS};Hw" CACHE STRING
     "The device variants to run tests on when no variants are set explicitly")
 
+# If the user has specified ENABLED_TEST_VARIANTS then validate the values.
+if (DEFINED ENABLED_TEST_VARIANTS)
+  foreach(variant ${ENABLED_TEST_VARIANTS})
+    if (NOT ${variant} IN_LIST ALL_POSSIBLE_TEST_VARIANTS)
+      message(FATAL_ERROR "Unknown ENABLED_TEST_VARIANTS element: ${variant}\n"
+                          "All possible test variants are: ${ALL_POSSIBLE_TEST_VARIANTS}")
+    endif()
+  endforeach()
+endif()
+
 if (DEFINED ENV{POPLAR_SDK_ENABLED})
 set(ENABLED_TEST_VARIANTS "NoTarget;${CPU_VARIANTS};${IPUMODEL_VARIANTS}" CACHE STRING
       "Generate tests for these devices and variants")
