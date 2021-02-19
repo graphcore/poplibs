@@ -341,7 +341,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostWeightsOutputDeltas;
   std::unique_ptr<char[]> rawHostBiasDeltas;
 
-  std::vector<std::unique_ptr<char[]>> rawHostNextAct;
+  std::unique_ptr<char[]> rawHostNextAct;
 
   if (!ignoreData) {
     rawHostWeightsInput =
@@ -380,12 +380,8 @@ int main(int argc, char **argv) {
                                       uploadProg, downloadProg, tmap);
     }
 
-    for (auto s = 0U; s != sequenceSize; ++s) {
-      auto nextAct = fwdOutputSeq[s];
-      rawHostNextAct.push_back(
-          allocateHostMemoryForTensor(nextAct, "nextAct" + std::to_string(s),
-                                      graph, uploadProg, downloadProg, tmap));
-    }
+    rawHostNextAct = allocateHostMemoryForTensor(
+        fwdOutputSeq, "nextAct", graph, uploadProg, downloadProg, tmap);
   }
 
   auto engineOptions = defaultEngineOptions;
@@ -506,13 +502,14 @@ int main(int argc, char **argv) {
           params.cellOrder);
     }
 
-    for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
-      boost::multi_array<double, 2> subMatImp(
-          boost::extents[batchSize][outputSize]);
-      copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
+    boost::multi_array<double, 3> matImpl(
+        boost::extents[sequenceSize][batchSize][outputSize]);
+    copy(target, dataType, rawHostNextAct.get(), matImpl);
+    for (auto s = 0U; s != sequenceSize; ++s) {
+      boost::multi_array<double, 2> subMatImpl = matImpl[s];
       boost::multi_array<double, 2> subMatRef =
           modelFwdState[LSTM_FWD_STATE_ACTS_IDX][s];
-      matchesModel &= checkIsClose("nextLayerAct", subMatImp, subMatRef,
+      matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
                                    relativeTolerance, absoluteTolerance);
     }
 

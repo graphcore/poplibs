@@ -432,7 +432,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<char[]> rawHostBiasDeltas;
   std::unique_ptr<char[]> rawHostRecurrantBiasDeltas;
 
-  std::vector<std::unique_ptr<char[]>> rawHostNextAct;
+  std::unique_ptr<char[]> rawHostNextAct;
 
   if (!ignoreData) {
     rawHostWeightsInput =
@@ -502,17 +502,8 @@ int main(int argc, char **argv) {
                                       uploadProg, downloadProg, tmap);
     }
 
-    if (params.outputFullSequence) {
-      for (auto s = 0U; s != sequenceSize; ++s) {
-        auto nextAct = fwdOutputSeq[s];
-        rawHostNextAct.push_back(
-            allocateHostMemoryForTensor(nextAct, "nextAct" + std::to_string(s),
-                                        graph, uploadProg, downloadProg, tmap));
-      }
-    } else {
-      rawHostNextAct.push_back(allocateHostMemoryForTensor(
-          fwdOutputSeq, "nextAct", graph, uploadProg, downloadProg, tmap));
-    }
+    rawHostNextAct = allocateHostMemoryForTensor(
+        fwdOutputSeq, "nextAct", graph, uploadProg, downloadProg, tmap);
   }
 
   auto engineOptions = defaultEngineOptions;
@@ -699,27 +690,25 @@ int main(int argc, char **argv) {
       }
     }
 
+    boost::multi_array<double, 3> matImpl(
+        boost::extents[sequenceSize][batchSize][outputSize]);
+    copy(target, dataType, rawHostNextAct.get(), matImpl);
     if (params.outputFullSequence) {
-      for (auto s = 0U; s != rawHostNextAct.size(); ++s) {
-        boost::multi_array<double, 2> subMatImp(
-            boost::extents[batchSize][outputSize]);
-        copy(target, dataType, rawHostNextAct[s].get(), subMatImp);
-        boost::multi_array<double, 2> subMatRef =
+      for (auto s = 0U; s != sequenceSize; ++s) {
+        const boost::multi_array<double, 2> subMatImpl = matImpl[s];
+        const boost::multi_array<double, 2> subMatRef =
             modelFwdState[GRU_FWD_STATE_ACTS_IDX][s];
-        bool ret = checkIsClose("nextLayerAct", subMatImp, subMatRef,
+        bool ret = checkIsClose("nextLayerAct", subMatImpl, subMatRef,
                                 relativeTolerance, absoluteTolerance);
         if (!ret)
           printf("step = %d\n", s);
         matchesModel &= ret;
       }
     } else {
-      boost::multi_array<double, 2> subMatImp(
-          boost::extents[batchSize][outputSize]);
-      copy(target, dataType, rawHostNextAct[0].get(), subMatImp);
-
-      boost::multi_array<double, 2> subMatRef =
+      const boost::multi_array<double, 2> subMatImpl = matImpl[0];
+      const boost::multi_array<double, 2> subMatRef =
           modelFwdState[GRU_FWD_STATE_ACTS_IDX][sequenceSize - 1];
-      matchesModel &= checkIsClose("nextLayerAct", subMatImp, subMatRef,
+      matchesModel &= checkIsClose("nextLayerAct", subMatImpl, subMatRef,
                                    relativeTolerance, absoluteTolerance);
     }
 
