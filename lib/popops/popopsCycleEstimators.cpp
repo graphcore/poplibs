@@ -2384,6 +2384,34 @@ MAKE_PERF_ESTIMATOR_NAME(MultiUpdateAdd)(const VertexIntrospector &vertex,
                        flopsPerBinaryOpElement(BinaryOpType::MULTIPLY))};
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(SequenceSlice)(
+    const VertexIntrospector &vertex, const Target &target, const Type &type) {
+  CODELET_FIELD(srcOffsetT);
+  CODELET_FIELD(dstT);
+  CODELET_FIELD(srcT);
+  CODELET_SCALAR_VAL(regionSize, unsigned short);
+  if (srcOffsetT.size() == 0)
+    return 40;
+
+  const auto tN = vertex.getFieldInfo("nElementsT").size();
+  std::uint64_t cycles = 60; // call overhead
+  // We don't know how much was requested so assume all of one of the buffers is
+  // copied. This may be quite pessimistic.
+  const unsigned bytesPerAtom = target.getTypeSize(type);
+  unsigned nElementsCopied = std::min(dstT.size(), srcT.size());
+  unsigned nAtomsCopies = nElementsCopied * regionSize;
+  // Assume 32bits/2 cycles for worker c++ codelet.
+  // Assume all subsequences are the same size. This may be optimistic.
+  auto oneWorkerCycles = (nAtomsCopies * bytesPerAtom / 4 * 2 + tN - 1) / tN;
+  // Some workers may be idle.
+  unsigned numWorkerContexts = target.getNumWorkerContexts();
+  auto numWorkerRuns = (tN + numWorkerContexts - 1) / numWorkerContexts;
+  cycles += oneWorkerCycles * numWorkerContexts * numWorkerRuns;
+  // Outerloop overhead of 60 cycles for supervisor c++ codelet.
+  cycles += tN * 60;
+  return cycles;
+}
+
 VertexPerfEstimate
 MAKE_PERF_ESTIMATOR_NAME(CircBufIncrIndex)(const VertexIntrospector &vertex,
                                            const Target &target) {
@@ -3060,6 +3088,11 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, FLOAT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, INT, false),
       CYCLE_ESTIMATOR_ENTRY(popops, MultiUpdateAdd, UNSIGNED_INT, false),
+
+      CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, HALF),
+      CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, SequenceSlice, UNSIGNED_INT),
 
       CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popops, CircBufIncrIndex),
       CYCLE_ESTIMATOR_ENTRY_NOPARAMS(popops, CircOffset),

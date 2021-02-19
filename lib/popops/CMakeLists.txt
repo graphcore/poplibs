@@ -34,6 +34,7 @@ add_library(popops SHARED
   ScaledAdd.cpp
   Scatter.cpp
   SelectScalarFromRows.cpp
+  SequenceSlice.cpp
   Sort.cpp
   SparseUtils.cpp
   UpdateScalarInRows.cpp
@@ -58,6 +59,7 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Operation.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Pad.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/SequenceSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp
@@ -193,6 +195,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromInterval.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromIntervals.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SelectFromRowsInColumns.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/SeqSlice.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/Transpose2d.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/TransposeSupervisor.cpp

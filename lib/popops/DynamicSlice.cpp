@@ -1185,13 +1185,14 @@ static Tensor createSliceableTensorGivenOrder(
     const auto &target = graph.getTarget();
     const auto bytesPerElement = target.getTypeSize(type);
     const auto granularity = target.getAtomicStoreGranularity();
+
     if (granularity > bytesPerElement &&
         minGrainSize * bytesPerElement >= granularity) {
       const auto elemPerAtom = granularity / bytesPerElement;
       const auto unrounded = unslicedElemsPerSplit;
       auto remainder = unslicedElemsPerSplit % elemPerAtom;
       if (remainder != 0) {
-        unslicedElemsPerSplit += granularity - remainder;
+        unslicedElemsPerSplit += elemPerAtom - remainder;
         logging::popops::trace("createSliceableTensor rounded {} to {}",
                                unrounded, unslicedElemsPerSplit);
       }

@@ -124,12 +124,14 @@ add_multitarget_test(NAME BroadcastGeneratePatterns_multiply_inplace
   --operation MULTIPLY
   --in-place 1)
 
+add_unit_test(BertSlicing BertSlicing.cpp VARIANTS Cpu;Hw;${IPUMODEL_VARIANTS})
 add_unit_test(CircBufTests CircBufTests.cpp)
 add_unit_test(DynamicSliceCreation.cpp DynamicSliceCreation.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(DynamicSlicePlanningTest DynamicSlicePlanningTest.cpp VARIANTS Hw;Sim2;IpuModel2)
 add_unit_test(DynamicSliceTest DynamicSliceTest.cpp
               SUITES SingleDim MultiDim LargeBuffer Update Misc MultiSlice
                      MultiUpdate MultiUpdateSingles MultiUpdateMultiples)
+add_unit_test(SeqSliceTest SeqSliceTest.cpp)
 add_unit_test(DynamicSliceTestCpu DynamicSliceTest.cpp SUITES CpuChecks VARIANTS Cpu)
 add_unit_test(ElementWiseUtilTest ElementWiseUtilTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 add_unit_test(EncodingTest EncodingTest.cpp)
