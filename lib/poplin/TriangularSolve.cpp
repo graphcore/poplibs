@@ -11,12 +11,17 @@
 #include "poputil/GraphFunction.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
+#include <boost/functional/hash.hpp>
 #include <sstream>
-
-namespace pe = popops::expr;
 
 namespace poplin {
 namespace {
+
+struct ShapeHash {
+  bool operator()(const std::vector<std::size_t> &shape) const {
+    return boost::hash_range(shape.begin(), shape.end());
+  }
+};
 
 struct SolveParams {
   std::size_t k;
@@ -26,14 +31,49 @@ struct SolveParams {
   poplar::OptionFlags options;
   matmul::PlanningCache *cache;
   poplar::Tensor x;
-  mutable std::unique_ptr<poputil::graphfn::VoidFunction> solver;
+  std::unique_ptr<poputil::graphfn::VoidFunction> solver;
   std::size_t solverSize;
+  std::unordered_map<std::vector<std::size_t>,
+                     std::unique_ptr<poputil::graphfn::VoidFunction>, ShapeHash>
+      matmuls;
 
   SolveParams(std::size_t k, bool lower, bool unitDiagonal,
               std::size_t blockSize, poplar::OptionFlags options,
               matmul::PlanningCache *cache)
       : k(k), lower(lower), unitDiagonal(unitDiagonal), blockSize(blockSize),
         options(options), cache(cache), solverSize(0) {}
+
+  poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &a,
+                        const poplar::Tensor &b, poplar::program::Sequence &seq,
+                        const poplar::DebugNameAndId &dnai) {
+    auto shape = a.shape();
+    auto bShape = b.shape();
+    shape.insert(shape.end(), bShape.begin(), bShape.end());
+    auto &matmul = matmuls[shape];
+    if (!matmul) {
+      auto inputA = createMatMulGroupedInputLHS(
+          graph, a.elementType(), b.elementType(), a.shape(), b.shape(),
+          {dnai, "matmulInputA"}, options, cache);
+      auto inputB = createMatMulGroupedInputRHS(
+          graph, a.elementType(), b.elementType(), a.shape(), b.shape(),
+          {dnai, "matmulInputB"}, options, cache);
+
+      matmul.reset(new poputil::graphfn::VoidFunction(
+          graph,
+          {poputil::graphfn::input(inputA), poputil::graphfn::input(inputB),
+           poputil::graphfn::created()},
+          [&graph, this, &dnai](std::vector<poplar::Tensor> &args,
+                                poplar::program::Sequence &prog) {
+            args[2] =
+                matMulGrouped(graph, args[0], args[1], prog,
+                              args[0].elementType(), dnai, options, cache);
+          },
+          false));
+    }
+    std::vector<poplar::Tensor> args = {a, b, poplar::Tensor()};
+    (*matmul)(args, seq);
+    return args[2];
+  }
 };
 
 template <typename S, typename T>
@@ -50,8 +90,7 @@ S &operator<<(S &stream, const std::vector<T> &value) {
 }
 
 poplar::Tensor triangle(poplar::Graph &graph, const poplar::Tensor &a,
-                        const SolveParams &params,
-                        poplar::program::Sequence &prog,
+                        SolveParams &params, poplar::program::Sequence &prog,
                         const poplar::DebugNameAndId &dnai) {
   if (a.rank() != 3) {
     throw poputil::poplibs_error("triangle: tensor must have rank of 3");
@@ -121,7 +160,7 @@ poplar::Tensor diag(const poplar::Tensor &a) {
 
 void solve(poplar::Graph &graph, const poplar::Tensor &a,
            const poplar::Tensor &b, std::size_t bLeftPos, std::size_t bTopPos,
-           const SolveParams &params, poplar::program::Sequence &prog,
+           SolveParams &params, poplar::program::Sequence &prog,
            const poplar::DebugNameAndId &dnai) {
   if (a.rank() != 3) {
     throw poputil::poplibs_error("solve: invalid rank of tensor A");
@@ -178,20 +217,16 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
         auto x11 =
             params.x.slice({0, bTopPos, bLeftPos},
                            {totalBatches, bTopPos + an2, bLeftPos + bn2});
-        auto a21x11 =
-            matMulGrouped(graph, a21, x11, prog, a.elementType(),
-                          {dnai, "A21*X11"}, params.options, params.cache);
+        auto a21x11 = params.matMul(graph, a21, x11, prog, {dnai, "A21*X11"});
         b21 = popops::sub(graph, b21, a21x11, prog, {dnai, "B21-A21*X11"});
       }
       solve(graph, a22, b21, bLeftPos, bTopPos + an2, params, prog,
             {dnai, "X21"});
 
-      if (bMiddlePos < params.k) {
+      if (bMiddlePos < params.k && bn2 < bn) {
         auto x12 = params.x.slice({0, bTopPos, bLeftPos + bn2},
                                   {totalBatches, bTopPos + an2, bLeftPos + bn});
-        auto a21x12 =
-            matMulGrouped(graph, a21, x12, prog, a.elementType(),
-                          {dnai, "A21*X12"}, params.options, params.cache);
+        auto a21x12 = params.matMul(graph, a21, x12, prog, {dnai, "A21*X12"});
         b22 = popops::sub(graph, b22, a21x12, prog, {dnai, "B22-A21*X12"});
         solve(graph, a22, b22, bMiddlePos, bTopPos + an2, params, prog,
               {dnai, "X22"});
@@ -217,19 +252,15 @@ void solve(poplar::Graph &graph, const poplar::Tensor &a,
       {
         auto x21 = params.x.slice({0, bTopPos + an2, bLeftPos},
                                   {totalBatches, bTopPos + an, bLeftPos + bn2});
-        auto a12x21 =
-            matMulGrouped(graph, a12, x21, prog, a.elementType(),
-                          {dnai, "A12*X21"}, params.options, params.cache);
+        auto a12x21 = params.matMul(graph, a12, x21, prog, {dnai, "A12*X21"});
         b11 = popops::sub(graph, b11, a12x21, prog, {dnai, "B11-A12*X21"});
       }
       solve(graph, a11, b11, bLeftPos, bTopPos, params, prog, {dnai, "X11"});
 
-      if (bMiddlePos < params.k) {
+      if (bMiddlePos < params.k && bn2 < bn) {
         auto x22 = params.x.slice({0, bTopPos + an2, bLeftPos + bn2},
                                   {totalBatches, bTopPos + an, bLeftPos + bn});
-        auto a12x22 =
-            matMulGrouped(graph, a12, x22, prog, a.elementType(),
-                          {dnai, "A12*X22"}, params.options, params.cache);
+        auto a12x22 = params.matMul(graph, a12, x22, prog, {dnai, "A12*X22"});
         b12 = popops::sub(graph, b12, a12x22, prog, {dnai, "B12-A12*X22"});
         solve(graph, a11, b12, bLeftPos + bn2, bTopPos, params, prog,
               {dnai, "X12"});
