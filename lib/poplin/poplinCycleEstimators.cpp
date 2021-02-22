@@ -2,6 +2,7 @@
 #include "poplinCycleEstimators.hpp"
 #include "PerformanceEstimation.hpp"
 #include "poplibs_support/FlopEstimation.hpp"
+#include "poplibs_support/forceInterleavedEstimates.hpp"
 
 #include <cassert>
 
@@ -572,6 +573,10 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(ReduceAdd)(
 
   std::uint64_t flops =
       static_cast<std::uint64_t>(numElems) * (numPartials - 1) * flopsForAdd();
+
+  if (getForceInterleavedEstimates()) {
+    constrainPartials = true;
+  }
 
   auto cycles = getReduceCycleEstimate(out.size(), numPartials, dataPathWidth,
                                        outType == FLOAT, partialsType == FLOAT,
