@@ -81,6 +81,7 @@ boost::multi_array<FPType, 2> exp(const boost::multi_array<FPType, 2> &in) {
   }
   return out;
 }
+
 #endif // ifndef __POPC__
 } // namespace log
 } // namespace poplibs_support

@@ -140,7 +140,8 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
       testTime.is_initialized() ? testTime.get() : randT(gen);
   // Constrain the sequence of labels to conform to the randomly chosen
   // input length - enforcing time >= 1 + 2 * labels
-  size_t maxS = std::min(maxLabelLength, static_cast<size_t>(inputLength));
+  size_t maxS =
+      std::min(maxLabelLength, static_cast<size_t>((inputLength + 1) / 2 - 1));
   size_t minS = std::min(minLabelLength, maxS);
   std::uniform_int_distribution<> randLabelLength(minS, maxS);
   unsigned labelLength = testLabelLength.is_initialized()
@@ -176,7 +177,6 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
   if (test.isLogits) { // Convert to log probs
     test.input = log::log(transpose(log::softMax(transpose(test.input))));
   }
-
   auto paddedSequence = extendedLabels(test.labels, blankClass);
   auto in = transpose(test.input);
   boost::multi_array<FPType, 2> logSequence(
@@ -187,14 +187,14 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
       alpha(logSequence, paddedSequence, blankClass, test.inputLength, true);
   auto betaLog =
       beta(logSequence, paddedSequence, blankClass, test.inputLength, true);
-
   auto expandedGradient =
       expandedGrad(logSequence, alphaLog, betaLog, paddedSequence, blankClass,
                    test.inputLength, true);
   auto negLogLoss =
       loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
-  auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
+  auto gradient = grad(logSequence, in, alphaLog, betaLog, paddedSequence,
                        numClasses, blankClass, test.inputLength, true);
+
   return {negLogLoss, transpose(gradient)};
 }
 

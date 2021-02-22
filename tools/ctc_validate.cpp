@@ -183,9 +183,9 @@ void testTraining(const InputSequence<FPType> &test, bool useLogArithmetic,
                         useLogArithmetic);
     print("Betas(log)", betaLog, paddedSequence, blankClass, verbose);
     print("Betas", log::exp(betaLog), paddedSequence, blankClass, verbose);
-    auto gradient = grad(logSequence, alphaLog, betaLog, paddedSequence,
-                         test.input.shape()[0], blankClass, validTimesteps,
-                         useLogArithmetic);
+    auto gradient = grad(logSequence, test.input, alphaLog, betaLog,
+                         paddedSequence, test.input.shape()[0], blankClass,
+                         validTimesteps, useLogArithmetic);
     print("Gradient(log)", gradient, verbose);
     print("Gradient",
           toLinear(gradient, static_cast<FPType>(1 / std::exp(prodSum))),
@@ -204,9 +204,9 @@ void testTraining(const InputSequence<FPType> &test, bool useLogArithmetic,
     auto betaLinear = beta(sequence, paddedSequence, blankClass, validTimesteps,
                            useLogArithmetic);
     print("Betas", betaLinear, paddedSequence, blankClass, verbose);
-    auto gradient = grad(sequence, alphaLinear, betaLinear, paddedSequence,
-                         test.input.shape()[0], blankClass, validTimesteps,
-                         useLogArithmetic);
+    auto gradient = grad(sequence, test.input, alphaLinear, betaLinear,
+                         paddedSequence, test.input.shape()[0], blankClass,
+                         validTimesteps, useLogArithmetic);
     print("Gradient", scale(gradient, 1 / prodSum), blankClass);
   }
   std::cout << "\n";

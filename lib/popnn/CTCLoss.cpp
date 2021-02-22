@@ -11,7 +11,9 @@
 #include <popops/ElementWise.hpp>
 #include <popops/Expr.hpp>
 #include <popops/Reduce.hpp>
+#include <poputil/OptionParsing.hpp>
 #include <poputil/TileMapping.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <boost/optional.hpp>
 
@@ -1079,13 +1081,34 @@ void validateTensorTypes(const poplar::Tensor &data,
   }
 }
 
+struct CalcLossAndGradLogProbOptions {
+  bool includeSoftmaxGradient = true;
+};
+
+static CalcLossAndGradLogProbOptions
+parseCalcLossAndGradLogProbOptions(const poplar::OptionFlags &options) {
+  CalcLossAndGradLogProbOptions opts;
+
+  const poplibs::OptionSpec spec{
+      {"includeSoftmaxGradient",
+       poplibs::OptionHandler::createWithBool(opts.includeSoftmaxGradient)},
+  };
+  for (const auto &entry : options) {
+    spec.parse(entry.first, entry.second);
+  }
+
+  return opts;
+}
+
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     poplar::Graph &graph, const poplar::Type &outType,
     const poplar::Tensor &data, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan &plan_, const poplar::DebugContext &debugContext) {
+    const Plan &plan_, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options) {
   validateTensorTypes(data, labels, dataLengths, labelLengths, outType);
+  auto opts = parseCalcLossAndGradLogProbOptions(options);
 
   const auto plan = plan_.getImpl();
   poputil::PoplibsOpDebugInfo di(debugContext,
@@ -1225,8 +1248,6 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
       labelsLength, blankClass, {di, layer});
   prog.add(Repeat(numLoops, alphaBetaGradProg, {di}));
 
-  di.addOutput(gradient);
-
   // Reduce where data was split over label.
   ReduceParams reduceParams = {popops::Operation::LOG_ADD, false};
 
@@ -1253,8 +1274,17 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
 
   popops::negInPlace(graph, lossReduced, prog, {di});
 
+  auto lossShaped = lossReduced.reshape({1, batchSize, 1});
+  popops::mapInPlace(graph, Neg(Sub(Exp(Add(_1, _2)), Exp(Cast(_3, outType)))),
+                     {gradReduced, lossShaped, data}, prog, {di});
   di.addOutput(lossReduced);
   di.addOutput(gradReduced);
+
+  if (!opts.includeSoftmaxGradient) {
+    // TODO: Remove gradient from LogSoftmax
+    throw poputil::poplibs_error(
+        "includeSoftmaxGradient = false is currently an unsupported option");
+  }
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, {di});
   return {lossReduced, gradReduced};
@@ -1265,7 +1295,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     const poplar::Tensor &logits, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan &plan_, const poplar::DebugContext &debugContext) {
+    const Plan &plan_, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags & /*unused*/) {
   // TODO sort out debug info
 
   // Ensure we preserve mapping of the result to fit in with the plan

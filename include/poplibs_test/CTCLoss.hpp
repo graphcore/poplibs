@@ -35,9 +35,19 @@ expandedGrad(const boost::multi_array<FPType, 2> &sequence,
              const std::vector<unsigned> &paddedSequence, unsigned blankIndex,
              unsigned validTimesteps, bool logValues);
 
+// TODO: Not really CTC grad, as this returns Prob * ctcGrad
+template <typename FPType>
+boost::multi_array<FPType, 2>
+ctcGrad(const boost::multi_array<FPType, 2> &sequence,
+        const boost::multi_array<FPType, 2> &alpha,
+        const boost::multi_array<FPType, 2> &beta,
+        const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
+        unsigned blankIndex, unsigned validTimesteps, bool logValues);
+
 template <typename FPType>
 boost::multi_array<FPType, 2>
 grad(const boost::multi_array<FPType, 2> &sequence,
+     const boost::multi_array<FPType, 2> &logProbs,
      const boost::multi_array<FPType, 2> &alpha,
      const boost::multi_array<FPType, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,

@@ -246,8 +246,8 @@ gradReference(const InputSequence<FPType> &test, unsigned blankClass,
         blankClass, verbose);
 
   auto gradient =
-      grad(logSequence, alphaLog, betaLog, paddedSequence,
-           test.alphabetSizeIncBlank, blankClass, validTimesteps, true);
+      ctcGrad(logSequence, alphaLog, betaLog, paddedSequence,
+              test.alphabetSizeIncBlank, blankClass, validTimesteps, true);
   print("Reference gradient", gradient, blankClass, verbose);
 
   std::cout << "\n";
@@ -476,7 +476,7 @@ int main(int argc, char **argv) {
   bool profile = false;
   unsigned blankClass = 0;
   unsigned testTime = 15;
-  unsigned testSymbols = 5;
+  unsigned testSymbols = 3;
   unsigned numClasses = 4;
   unsigned timeStep = 0;
   TestType vertexToTest = TestType::ALPHA;

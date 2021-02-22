@@ -115,6 +115,15 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
 /** Calculate the CTC loss & gradient, creating and mapping the result tensor
  *  according to the plan provided
  *
+ * **calcLossAndGradientLogProbabilities  options**
+ *
+ *    * `includeSoftmaxGradient` (true, false) [=true]
+ *
+ *      Whether or not to include LogSoftmax in gradient calculation. To avoid
+ *      numerical issues, it is recommended to be included. But care must be
+ *      taken to not include gradient of the LogSoftmax (created external to
+ *      this function call) twice.
+ *
  * \param graph        The graph the operation will be added to
  * \param outType      The data type of the gradient output
  * \param logProbs     The data input [maxTime, batchSize, numClasses] tensor
@@ -128,6 +137,8 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
  * \param plan         The plan which will specify how the output tensor is to
  *                     be mapped and how the operation is to be carried out
  * \param debugContext Optional debug information
+ * \param options      Any implementation/debug options for the operation
+ *
  * \return             The loss[batchSize] (negative log probability),
  *                     and gradient [maxTime, batchSize, numClasses] tensor
  */
@@ -136,7 +147,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     const poplar::Tensor &logProbs, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan &plan, const poplar::DebugContext &debugContext = {});
+    const Plan &plan, const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {});
 
 /** Calculate the CTC loss & gradient, creating and mapping the result tensor
  *  according to the plan provided. Prior to performing the gradient
@@ -155,6 +167,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
  * \param plan         The plan which will specify how the output tensor is to
  *                     be mapped and how the operation is to be carried out
  * \param debugContext Optional debug information
+ * \param options      Any implementation/debug options for the operation
+ *
  * \return             The loss[batchSize] (negative log probability),
  *                     and gradient [maxTime, batchSize, numClasses] tensor
  */
@@ -163,7 +177,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     const poplar::Tensor &logits, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan &plan, const poplar::DebugContext &debugContext = {});
+    const Plan &plan, const poplar::DebugContext &debugContext = {},
+    const poplar::OptionFlags &options = {});
 
 } // namespace ctc
 } // namespace popnn

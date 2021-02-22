@@ -914,6 +914,13 @@ add_unit_test(NormStatisticsTest
 add_multi_target_test_executable(CTCLossTest CTCLossTest.cpp)
 add_unit_test(CTCLossPlanTest CTCLossPlanTest.cpp VARIANTS ${IPUMODEL_VARIANTS})
 
+# Sanity check that LogProbs API works as expected
+add_multitarget_test(
+      NAME CTCLossTest_LogProbs_santity
+      COMMAND CTCLossTest
+              --logit-inputs=false
+      VARIANTS ${IPUMODEL_VARIANTS})
+
 # Verify cases where the individual entry is <= the maximum timesteps or
 # maximum label length defined.
 foreach(time 25 28 32)

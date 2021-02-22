@@ -2,6 +2,7 @@
 #include <poplibs_support/LogArithmetic.hpp>
 #include <poplibs_test/CTCLoss.hpp>
 #include <poplibs_test/Embedding.hpp>
+#include <poputil/exceptions.hpp>
 
 #include <iostream>
 
@@ -216,14 +217,13 @@ expandedGrad(const boost::multi_array<FPType, 2> &sequence,
   return gradient;
 }
 
-// Accumulated gradient - reduction of the results with the same symbol
 template <typename FPType>
 boost::multi_array<FPType, 2>
-grad(const boost::multi_array<FPType, 2> &sequence,
-     const boost::multi_array<FPType, 2> &alpha,
-     const boost::multi_array<FPType, 2> &beta,
-     const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues) {
+ctcGrad(const boost::multi_array<FPType, 2> &sequence,
+        const boost::multi_array<FPType, 2> &alpha,
+        const boost::multi_array<FPType, 2> &beta,
+        const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
+        unsigned blankIndex, unsigned validTimesteps, bool logValues) {
 
   // A result: 1 row per valid symbol, 1 column per timestep
   // Initialise to zero as some symbols may be unused.
@@ -246,6 +246,39 @@ grad(const boost::multi_array<FPType, 2> &sequence,
       }
     }
   }
+
+  return gradient;
+}
+
+// Accumulated gradient - reduction of the results with the same symbol
+template <typename FPType>
+boost::multi_array<FPType, 2>
+grad(const boost::multi_array<FPType, 2> &sequence,
+     const boost::multi_array<FPType, 2> &logProbs,
+     const boost::multi_array<FPType, 2> &alpha,
+     const boost::multi_array<FPType, 2> &beta,
+     const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
+     unsigned blankIndex, unsigned validTimesteps, bool logValues) {
+
+  auto gradient =
+      ctcGrad(sequence, alpha, beta, paddedSequence, symbolsIncBlank,
+              blankIndex, validTimesteps, logValues);
+
+  if (logValues) {
+    const auto finalSymbol = alpha[alpha.size() - 2][validTimesteps - 1];
+    const auto finalBlank = alpha[alpha.size() - 1][validTimesteps - 1];
+    const auto negLogLoss = -log::add(finalSymbol, finalBlank);
+    for (unsigned y = 0; y < gradient.size(); y++) {
+      for (unsigned x = 0; x < gradient[0].size(); x++) {
+        gradient[y][x] = -(std::exp(log::mul(gradient[y][x], negLogLoss)) -
+                           std::exp(logProbs[y][x]));
+      }
+    }
+  } else {
+    throw poputil::poplibs_error(
+        "Unsupported linear values for ctc loss reference grad");
+  }
+
   return gradient;
 }
 
@@ -294,7 +327,22 @@ expandedGrad(const boost::multi_array<double, 2> &sequence,
              unsigned validTimesteps, bool logValues);
 
 template boost::multi_array<float, 2>
+ctcGrad(const boost::multi_array<float, 2> &sequence,
+        const boost::multi_array<float, 2> &alpha,
+        const boost::multi_array<float, 2> &beta,
+        const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
+        unsigned blankIndex, unsigned validTimesteps, bool logValues);
+
+template boost::multi_array<double, 2>
+ctcGrad(const boost::multi_array<double, 2> &sequence,
+        const boost::multi_array<double, 2> &alpha,
+        const boost::multi_array<double, 2> &beta,
+        const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
+        unsigned blankIndex, unsigned validTimesteps, bool logValues);
+
+template boost::multi_array<float, 2>
 grad(const boost::multi_array<float, 2> &sequence,
+     const boost::multi_array<float, 2> &logProbs,
      const boost::multi_array<float, 2> &alpha,
      const boost::multi_array<float, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
@@ -302,6 +350,7 @@ grad(const boost::multi_array<float, 2> &sequence,
 
 template boost::multi_array<double, 2>
 grad(const boost::multi_array<double, 2> &sequence,
+     const boost::multi_array<double, 2> &logProbs,
      const boost::multi_array<double, 2> &alpha,
      const boost::multi_array<double, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
