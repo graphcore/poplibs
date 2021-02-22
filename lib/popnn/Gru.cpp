@@ -1,6 +1,7 @@
 // Copyright (c) 2019 Graphcore Ltd. All rights reserved.
 #include <poplibs_support/Algorithm.hpp>
 #include <popnn/Gru.hpp>
+#include <popnn/NonLinearityDef.hpp>
 #include <popops/Cast.hpp>
 
 #include "RnnUtil.hpp"
@@ -95,6 +96,15 @@ struct GruInternalState {
   Tensor candidateRecurrant;
 };
 
+namespace { // Anonymous namespace
+bool isCSNotSupported(popnn::NonLinearityType nl) {
+  return (nl == popnn::NonLinearityType::SOFTMAX ||
+          nl == popnn::NonLinearityType::SOFTMAX_STABLE ||
+          nl == popnn::NonLinearityType::SOFTMAX_SCALED ||
+          nl == popnn::NonLinearityType::HARD_SIGMOID);
+}
+} // Anonymous namespace
+
 // Computes the output before nonlinearities to all the units are applied
 static Tensor basicGruUnitsNlInput(Graph &graph, Tensor prevAct,
                                    Tensor prevOutput, size_t num_unit,
@@ -115,9 +125,12 @@ namespace popnn {
 namespace gru {
 
 GruParams::GruParams(poplar::Type dataType, std::size_t batchSize,
-                     std::size_t timeSteps, std::vector<std::size_t> layerSizes)
+                     std::size_t timeSteps, std::vector<std::size_t> layerSizes,
+                     NonLinearityType activation,
+                     NonLinearityType recurrentActivation)
     : rnn(dataType, batchSize, timeSteps, layerSizes), dataType(dataType),
-      batchSize(batchSize), timeSteps(timeSteps), layerSizes(layerSizes) {}
+      batchSize(batchSize), timeSteps(timeSteps), layerSizes(layerSizes),
+      activation(activation), recurrentActivation(recurrentActivation) {}
 
 GruParams::GruParams(const GruParams &other) = default;
 
@@ -514,8 +527,8 @@ static void gruCellForwardPassCalcUnits(
     Graph &graph, bool forCandidate, const Tensor &in, const Tensor &prevOutput,
     const Tensor &biases, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const GruOpts &opt,
-    const Tensor &unitsOutputRearranged, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    const Tensor &unitsOutputRearranged, const GruParams &params,
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   const unsigned outputSize = prevOutput.dim(1);
   const unsigned batchSize = prevOutput.dim(0);
 
@@ -577,17 +590,28 @@ static void gruCellForwardPassCalcUnits(
   addInPlace(graph, unitsOutputRearranged, bBiases, prog, {dnai, "AddBias"});
 
   // Apply non linear function
-  auto cs = graph.addComputeSet({dnai, "non-linear"});
-
-  if (forCandidate) {
-    nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
-                        unitsOutputRearranged, cs, {dnai, "Candidate Tanh"});
+  if (isCSNotSupported(params.activation) ||
+      isCSNotSupported(params.recurrentActivation)) {
+    if (forCandidate) {
+      nonLinearityInPlace(graph, params.activation, unitsOutputRearranged, prog,
+                          {dnai, "Candidate Tanh"});
+    } else {
+      nonLinearityInPlace(graph, params.recurrentActivation,
+                          unitsOutputRearranged, prog,
+                          {dnai, "update/reset sigmod"});
+    }
   } else {
-    nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID,
-                        unitsOutputRearranged, cs,
-                        {dnai, "update/reset sigmod"});
+    auto cs = graph.addComputeSet({dnai, "non-linear"});
+    if (forCandidate) {
+      nonLinearityInPlace(graph, params.activation, unitsOutputRearranged, cs,
+                          {dnai, "Candidate Tanh"});
+    } else {
+      nonLinearityInPlace(graph, params.recurrentActivation,
+                          unitsOutputRearranged, cs,
+                          {dnai, "update/reset sigmod"});
+    }
+    prog.add(Execute(cs, {dnai}));
   }
-  prog.add(Execute(cs, {dnai}));
 }
 
 static void gruCellForwardPassCalcUnitsResetAfter(
@@ -595,7 +619,8 @@ static void gruCellForwardPassCalcUnitsResetAfter(
     const Tensor &biases, const Tensor *weightsInput,
     const Tensor &weightsOutput, Tensor *candidateRecurrant, Sequence &prog,
     const GruOpts &opt, const Tensor &unitsOutputRearranged,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    const GruParams &params, const DebugNameAndId &dnai,
+    matmul::PlanningCache *cache) {
   const unsigned outputSize = prevOutput.dim(1);
   const unsigned batchSize = prevOutput.dim(0);
 
@@ -693,7 +718,7 @@ static void gruCellForwardPassCalcUnitsResetAfter(
              prog, {dnai, "Weights"});
 
   // Apply non-linearity for Reset/Update
-  nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID,
+  nonLinearityInPlace(graph, params.recurrentActivation,
                       unitsOutputRearranged_ru, prog,
                       {dnai, "update/reset sigmod"});
 
@@ -706,8 +731,8 @@ static void gruCellForwardPassCalcUnitsResetAfter(
              prog, {dnai, "Weights"});
 
   // Apply non linear function to Candidate
-  nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
-                      unitsOutputRearranged_c, prog, {dnai, "Candidate Tanh"});
+  nonLinearityInPlace(graph, params.activation, unitsOutputRearranged_c, prog,
+                      {dnai, "Candidate Tanh"});
 }
 
 static std::pair<Tensor, GruInternalState>
@@ -716,8 +741,8 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
                         const Tensor &weightsOutput,
                         const boost::optional<const Tensor &> &attScoreOpt,
                         Sequence &prog, const GruOpts &opt,
-                        const DebugNameAndId &dnai,
-                        matmul::PlanningCache *cache, bool resetAfter) {
+                        const GruParams &params, const DebugNameAndId &dnai,
+                        matmul::PlanningCache *cache) {
   debug_tensor(prog, "fwd h_prev", prevOutput);
   debug_tensor(prog, "fwd input", in);
 
@@ -730,20 +755,21 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
   Tensor candidateRecurrant;
 
   std::vector<Tensor> toConcat;
-  toConcat.reserve(resetAfter ? BASIC_GRU_CELL_NUM_UNITS
-                              : BASIC_GRU_CELL_NUM_UNITS - 1);
+  toConcat.reserve(params.resetAfter ? BASIC_GRU_CELL_NUM_UNITS
+                                     : BASIC_GRU_CELL_NUM_UNITS - 1);
 
   toConcat.push_back(resetGate.expand({0}));
   toConcat.push_back(updateGate.expand({0}));
-  if (resetAfter)
+  if (params.resetAfter)
     toConcat.push_back(candidate.expand({0}));
 
   auto unitsOutput = concat(toConcat);
 
-  if (resetAfter) {
+  if (params.resetAfter) {
     gruCellForwardPassCalcUnitsResetAfter(
         graph, false, in, prevOutput, biases, weightsInput, weightsOutput,
-        &candidateRecurrant, prog, opt, unitsOutput, {dnai, baseStr}, cache);
+        &candidateRecurrant, prog, opt, unitsOutput, params, {dnai, baseStr},
+        cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
   } else {
     const Tensor weightsInput2 = weightsInput->slice(0, 2);
@@ -751,7 +777,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
     const Tensor biases2 = biases.slice(0, 2);
     gruCellForwardPassCalcUnits(graph, false, in, prevOutput, biases2,
                                 &weightsInput2, weightsOutput2, prog, opt,
-                                unitsOutput, {dnai, baseStr}, cache);
+                                unitsOutput, params, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
   }
 
@@ -760,7 +786,7 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
 
   Tensor resetGateOut;
 
-  if (resetAfter) {
+  if (params.resetAfter) {
     resetGateOut = resetGate;
     candidate = unitsOutput[BASIC_GRU_CELL_CANDIDATE];
   } else {
@@ -772,9 +798,9 @@ basicGruCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
     mulInPlace(graph, resetGate, prevOutput, prog,
                {dnai, baseStr + "resetGate * prevOutput"});
     Tensor candidateExpand = candidate.expand({0});
-    gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
-                                &weightsInput3, weightsOutput3, prog, opt,
-                                candidateExpand, {dnai, baseStr}, cache);
+    gruCellForwardPassCalcUnits(
+        graph, true, in, resetGate, biases, &weightsInput3, weightsOutput3,
+        prog, opt, candidateExpand, params, {dnai, baseStr}, cache);
     candidate = candidateExpand[0];
   }
 
@@ -802,7 +828,7 @@ static void basicGruCellForwardPassInPlace(
     Graph &graph, const Tensor &in, const Tensor &biases, const Tensor &output,
     const Tensor *weightsInput, const Tensor &weightsOutput,
     const boost::optional<const Tensor &> &attScoreOpt, Sequence &prog,
-    const GruOpts &opt, const DebugNameAndId &dnai,
+    const GruOpts &opt, const GruParams &params, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache, bool resetAfter) {
   debug_tensor(prog, "fwd h_prev", output);
   debug_tensor(prog, "fwd input", in);
@@ -812,29 +838,29 @@ static void basicGruCellForwardPassInPlace(
   Tensor updateGate = graph.clone(output, {dnai, "Reset Gate Rearranged"});
   Tensor candidate = graph.clone(output, {dnai, "candidate Rearranged"});
 
-  int numToConcat =
-      resetAfter ? BASIC_GRU_CELL_NUM_UNITS : BASIC_GRU_CELL_NUM_UNITS - 1;
+  int numToConcat = params.resetAfter ? BASIC_GRU_CELL_NUM_UNITS
+                                      : BASIC_GRU_CELL_NUM_UNITS - 1;
   std::vector<Tensor> toConcat;
   toConcat.reserve(numToConcat);
 
   toConcat.push_back(resetGate.expand({0}));
   toConcat.push_back(updateGate.expand({0}));
-  if (resetAfter)
+  if (params.resetAfter)
     toConcat.push_back(candidate.expand({0}));
 
   auto unitsOutput = concat(toConcat);
 
-  if (resetAfter) {
+  if (params.resetAfter) {
     gruCellForwardPassCalcUnitsResetAfter(
         graph, false, in, output, biases, weightsInput, weightsOutput, nullptr,
-        prog, opt, unitsOutput, {dnai, baseStr}, cache);
+        prog, opt, unitsOutput, params, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS);
   } else {
     const Tensor weightsInput2 = weightsInput->slice(0, 2);
     const Tensor weightsOutput2 = weightsOutput.slice(0, 2);
     gruCellForwardPassCalcUnits(graph, false, in, output, biases,
                                 &weightsInput2, weightsOutput2, prog, opt,
-                                unitsOutput, {dnai, baseStr}, cache);
+                                unitsOutput, params, {dnai, baseStr}, cache);
     assert(unitsOutput.dim(0) == BASIC_GRU_CELL_NUM_UNITS - 1);
   }
 
@@ -851,7 +877,7 @@ static void basicGruCellForwardPassInPlace(
   debug_tensor(prog, "fwd resetGate", resetGate);
   debug_tensor(prog, "fwd updateGate", updateGate);
 
-  if (resetAfter) {
+  if (params.resetAfter) {
     candidate = unitsOutput[BASIC_GRU_CELL_CANDIDATE];
   } else {
     const Tensor weightsInput3 = weightsInput->slice(2, 3);
@@ -859,9 +885,9 @@ static void basicGruCellForwardPassInPlace(
     mulInPlace(graph, resetGate, output, prog,
                {dnai, baseStr + "resetGate * output"});
     Tensor candidateExpand = candidate.expand({0});
-    gruCellForwardPassCalcUnits(graph, true, in, resetGate, biases,
-                                &weightsInput3, weightsOutput3, prog, opt,
-                                candidateExpand, {dnai, baseStr}, cache);
+    gruCellForwardPassCalcUnits(
+        graph, true, in, resetGate, biases, &weightsInput3, weightsOutput3,
+        prog, opt, candidateExpand, params, {dnai, baseStr}, cache);
     candidate = candidateExpand[0];
   }
 
@@ -918,8 +944,8 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
         if (interimOut.valid()) {
           auto [newOutput, internalState] = basicGruCellForwardPass(
               graph, fwdInput, weights.biases, sliceOutput, inputWeightsPtr,
-              weights.outputWeights, sliceAttScoresOpt, loop, opt, {dnai},
-              cache, params.resetAfter);
+              weights.outputWeights, sliceAttScoresOpt, loop, opt, params,
+              {dnai}, cache);
           if (realTimeStepsOpt) {
             auto mask = gt(graph, seqLen, seqIdxAbsolute, loop, {dnai});
             mask = cast(graph, mask, newOutput.elementType(), loop,
@@ -940,8 +966,8 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
         } else {
           basicGruCellForwardPassInPlace(
               graph, fwdInput, weights.biases, sliceOutput, inputWeightsPtr,
-              weights.outputWeights, sliceAttScoresOpt, loop, opt, {dnai},
-              cache, params.resetAfter);
+              weights.outputWeights, sliceAttScoresOpt, loop, opt, params,
+              {dnai}, cache, params.resetAfter);
           if (realTimeStepsOpt) {
             auto mask = gt(graph, seqLen, seqIdxAbsolute, loop, {dnai});
             mask = cast(graph, mask, sliceOutput.elementType(), loop,
@@ -1184,7 +1210,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImpl(
     bool weightsIncludeInputs, const boost::optional<const Tensor &> &maskOpt,
     const boost::optional<const Tensor &> &attScoresOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &prog,
-    const GruOpts &opt, const DebugNameAndId &dnai,
+    const GruOpts &opt, const GruParams &params, const DebugNameAndId &dnai,
     matmul::PlanningCache *cache) {
   const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
@@ -1234,10 +1260,22 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImpl(
   debug_tensor(prog, "bwd outputGrad", d_h);
   debug_tensor(prog, "bwd h_prev_c", h_prev_c);
 
-  auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
-  auto d_c = nonLinearityInputGradient(graph, NonLinearityType::TANH, c,
-                                       gradAtCandidateInput, cs1,
-                                       {dnai, fPrefix + "/OutputTanh"});
+  ComputeSet cs1;
+  Tensor d_c;
+
+  bool usingSoftMax = isCSNotSupported(params.activation) ||
+                      isCSNotSupported(params.recurrentActivation);
+
+  if (usingSoftMax) {
+    d_c = nonLinearityInputGradient(graph, params.activation, c,
+                                    gradAtCandidateInput, prog,
+                                    {dnai, fPrefix + "/OutputTanh"});
+  } else {
+    cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
+    d_c = nonLinearityInputGradient(graph, params.activation, c,
+                                    gradAtCandidateInput, cs1,
+                                    {dnai, fPrefix + "/OutputTanh"});
+  }
 
   Tensor d_u;
   if (attScoresOpt) {
@@ -1252,15 +1290,29 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImpl(
     mapInPlace(graph, _1 - (_1 * _2), {gradAtUpdateGateInput, *attScoresOpt},
                prog, {dnai, fPrefix + "/UpdateGateGrad"});
 
-    d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u0,
-                                    gradAtUpdateGateInput, cs1,
-                                    {dnai, fPrefix + "/OutputGate"});
+    if (usingSoftMax) {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u0,
+                                      gradAtUpdateGateInput, prog,
+                                      {dnai, fPrefix + "/OutputGate"});
+    } else {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u0,
+                                      gradAtUpdateGateInput, cs1,
+                                      {dnai, fPrefix + "/OutputGate"});
+    }
   } else {
-    d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u,
-                                    gradAtUpdateGateInput, cs1,
-                                    {dnai, fPrefix + "/OutputGate"});
+    if (usingSoftMax) {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u,
+                                      gradAtUpdateGateInput, prog,
+                                      {dnai, fPrefix + "/OutputGate"});
+    } else {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u,
+                                      gradAtUpdateGateInput, cs1,
+                                      {dnai, fPrefix + "/OutputGate"});
+    }
   }
-  prog.add(Execute(cs1, {dnai}));
+
+  if (!usingSoftMax)
+    prog.add(Execute(cs1, {dnai}));
 
   if (maskOpt) {
     auto mask = cast(graph, *maskOpt, c.elementType(), prog, {dnai});
@@ -1299,7 +1351,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImpl(
   Tensor d_r;
   {
     auto t = mul(graph, d_hr, h_prev, prog, {dnai, fPrefix + "/d_hr * h_prev"});
-    d_r = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, r, t,
+    d_r = nonLinearityInputGradient(graph, params.recurrentActivation, r, t,
                                     prog, {dnai, fPrefix + "/t * r * (1-r)"});
   }
 
@@ -1339,8 +1391,8 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     bool weightsIncludeInputs, const boost::optional<const Tensor &> &maskOpt,
     const boost::optional<const Tensor &> &attScoresOpt,
     const boost::optional<Tensor &> &attScoresGradsOpt, Sequence &prog,
-    const GruOpts &opt, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache, bool outputFullSequence) {
+    const GruOpts &opt, const GruParams &params, const DebugNameAndId &dnai,
+    matmul::PlanningCache *cache) {
   const std::string fPrefix = "GruBwdOneStep";
   auto outputGroupingIntoLayer = detectInnermostGrouping(graph, outputGrad);
   Tensor d_h = graph.clone(outputGrad, {dnai});
@@ -1357,7 +1409,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
   auto c = fwdIntermediates[GRU_FWD_INTERMEDIATE_CANDIDATE];
 
   unsigned c_recurrent_index = GRU_FWD_INTERMEDIATE_CANDIDATE_RECURRANT;
-  if (outputFullSequence) {
+  if (params.outputFullSequence) {
     c_recurrent_index -= 1;
   }
 
@@ -1396,11 +1448,24 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
   debug_tensor(prog, "bwd outputGrad", d_h);
   debug_tensor(prog, "bwd h_prev_c", h_prev_c);
 
-  auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
-  auto d_c = nonLinearityInputGradient(graph, NonLinearityType::TANH, c,
-                                       gradAtCandidateInput, cs1,
-                                       {dnai, fPrefix + "/OutputTanh"});
+  ComputeSet cs1;
+  Tensor d_c;
+
+  bool usingSoftMax = isCSNotSupported(params.activation) ||
+                      isCSNotSupported(params.recurrentActivation);
+
+  if (usingSoftMax) {
+    auto d_c = nonLinearityInputGradient(graph, params.activation, c,
+                                         gradAtCandidateInput, prog,
+                                         {dnai, fPrefix + "/OutputTanh"});
+  } else {
+    cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
+    d_c = nonLinearityInputGradient(graph, params.activation, c,
+                                    gradAtCandidateInput, cs1,
+                                    {dnai, fPrefix + "/OutputTanh"});
+  }
   Tensor d_u;
+
   if (attScoresOpt) {
     auto u0 = map(graph, _1 / (Const(1) - _2), {u, *attScoresOpt}, prog,
                   {dnai, fPrefix + "/UpdateScores"});
@@ -1413,15 +1478,29 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
     mapInPlace(graph, _1 - (_1 * _2), {gradAtUpdateGateInput, *attScoresOpt},
                prog, {dnai, fPrefix + "/UpdateGateGrad"});
 
-    d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u0,
-                                    gradAtUpdateGateInput, cs1,
-                                    {dnai, fPrefix + "/OutputGate"});
+    if (usingSoftMax) {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u0,
+                                      gradAtUpdateGateInput, prog,
+                                      {dnai, fPrefix + "/OutputGate"});
+    } else {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u0,
+                                      gradAtUpdateGateInput, cs1,
+                                      {dnai, fPrefix + "/OutputGate"});
+    }
   } else {
-    d_u = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, u,
-                                    gradAtUpdateGateInput, cs1,
-                                    {dnai, fPrefix + "/OutputGate"});
+    if (usingSoftMax) {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u,
+                                      gradAtUpdateGateInput, prog,
+                                      {dnai, fPrefix + "/OutputGate"});
+    } else {
+      d_u = nonLinearityInputGradient(graph, params.recurrentActivation, u,
+                                      gradAtUpdateGateInput, cs1,
+                                      {dnai, fPrefix + "/OutputGate"});
+    }
   }
-  prog.add(Execute(cs1, {dnai}));
+
+  if (!usingSoftMax)
+    prog.add(Execute(cs1, {dnai}));
 
   if (maskOpt) {
     auto mask = cast(graph, *maskOpt, c.elementType(), prog);
@@ -1431,7 +1510,7 @@ static std::tuple<Tensor, Tensor, Tensor> backwardStepImplResetAfter(
 
   auto gradAtResetGateInput =
       mul(graph, d_c, c_recurrant, prog, {dnai, fPrefix + "/d_c * h_prev2"});
-  auto d_r = nonLinearityInputGradient(graph, NonLinearityType::SIGMOID, r,
+  auto d_r = nonLinearityInputGradient(graph, params.recurrentActivation, r,
                                        gradAtResetGateInput, prog);
 
   debug_tensor(prog, "bwd d_c", d_c);
@@ -1497,12 +1576,12 @@ basicGruBackwardStep(Graph &graph, const GruParams &params,
     return backwardStepImplResetAfter(
         graph, gradNextLayer, fwdIntermediates, prevStepOut, outGrad, weights,
         weightsIncludeInputs, maskOpt, attScoreOpt, attScoresGradsOpt, prog,
-        opt, {dnai}, cache, params.outputFullSequence);
+        opt, params, {dnai}, cache);
   } else {
     return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, prevStepOut,
                             outGrad, weights, weightsIncludeInputs, maskOpt,
-                            attScoreOpt, attScoresGradsOpt, prog, opt, {dnai},
-                            cache);
+                            attScoreOpt, attScoresGradsOpt, prog, opt, params,
+                            {dnai}, cache);
   }
 }
 

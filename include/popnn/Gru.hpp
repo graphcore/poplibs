@@ -6,6 +6,7 @@
 #include <poplar/Tensor.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/GruDef.hpp>
+#include <popnn/NonLinearityDef.hpp>
 #include <popnn/Rnn.hpp>
 
 namespace popnn {
@@ -50,9 +51,15 @@ struct GruParams {
   /// Controls whether the reset gate is applied before or after the candidate
   /// weights and biases.
   bool resetAfter = false;
+  /// Activation function
+  NonLinearityType activation = NonLinearityType::TANH;
+  /// Recurrent activation function.
+  NonLinearityType recurrentActivation = NonLinearityType::SIGMOID;
 
   GruParams(poplar::Type dataType, std::size_t batchSize, std::size_t timeSteps,
-            std::vector<std::size_t> layerSizes);
+            std::vector<std::size_t> layerSizes,
+            NonLinearityType activation = NonLinearityType::TANH,
+            NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
   GruParams(const GruParams &other);
 };
 

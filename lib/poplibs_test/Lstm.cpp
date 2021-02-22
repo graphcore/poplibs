@@ -76,7 +76,9 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
     const Array3dRef input, const Array2dRef biases,
     const Array2dRef prevOutput, const Array3dRef weightsInput,
     const Array3dRef weightsOutput, Array2dRef prevCellState, Array4dRef state,
-    const std::vector<BasicLstmCellUnit> &cellOrder) {
+    const std::vector<BasicLstmCellUnit> &cellOrder,
+    const popnn::NonLinearityType activation,
+    const popnn::NonLinearityType recurrentActivation) {
   const auto sequenceSize = state.shape()[1];
   const auto batchSize = state.shape()[2];
   const auto outputSize = state.shape()[3];
@@ -113,7 +115,7 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, forgetGate,
                          cellMapping.at(BASIC_LSTM_CELL_FORGET_GATE),
-                         popnn::NonLinearityType::SIGMOID);
+                         recurrentActivation);
     state[LSTM_FWD_STATE_FORGET_GATE][s] = forgetGate;
 
     /* input gate */
@@ -121,15 +123,14 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, inputGate,
                          cellMapping.at(BASIC_LSTM_CELL_INPUT_GATE),
-                         popnn::NonLinearityType::SIGMOID);
+                         recurrentActivation);
     state[LSTM_FWD_STATE_INPUT_GATE][s] = inputGate;
 
     /* new candidate contribution to this cell */
     Array2d candidate(boost::extents[batchSize][outputSize]);
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, candidate,
-                         cellMapping.at(BASIC_LSTM_CELL_CANDIDATE),
-                         popnn::NonLinearityType::TANH);
+                         cellMapping.at(BASIC_LSTM_CELL_CANDIDATE), activation);
     state[LSTM_FWD_STATE_CAND_TANH][s] = candidate;
 
     /* output gate */
@@ -137,7 +138,7 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
     processBasicLstmUnit(prevOutputThisStep, inputThisStep, weightsInput,
                          weightsOutput, biases, outputGate,
                          cellMapping.at(BASIC_LSTM_CELL_OUTPUT_GATE),
-                         popnn::NonLinearityType::SIGMOID);
+                         recurrentActivation);
     state[LSTM_FWD_STATE_OUTPUT_GATE][s] = outputGate;
 
     poplibs_test::gemm::hadamardProduct(forgetGate, cellState, cellState);
@@ -146,7 +147,7 @@ void poplibs_test::lstm::basicLstmCellForwardPass(
 
     /* need to maintain the cell state for next step */
     Array2d outputThisStep = cellState;
-    nonLinearity(popnn::NonLinearityType::TANH, outputThisStep);
+    nonLinearity(activation, outputThisStep);
     state[LSTM_FWD_STATE_OUTPUT_TANH][s] = outputThisStep;
     gemm::hadamardProduct(outputThisStep, outputGate, outputThisStep);
 
@@ -169,7 +170,9 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
     const Array3dRef weightsInput, const Array3dRef weightsOutput,
     const Array3dRef gradsNextLayer, const Array2dRef prevCellState,
     const Array4dRef fwdState, Array4dRef bwdState, Array3dRef gradsPrevLayer,
-    const std::vector<BasicLstmCellUnit> &cellOrder) {
+    const std::vector<BasicLstmCellUnit> &cellOrder,
+    const popnn::NonLinearityType activation,
+    const popnn::NonLinearityType recurrentActivation) {
   const auto sequenceSize = fwdState.shape()[1];
   const auto batchSize = fwdState.shape()[2];
   const auto outputSize = fwdState.shape()[3];
@@ -232,11 +235,9 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
 
     gemm::hadamardProduct(actTanhOutGate, sumGradOut, gradAtOutGate);
 
-    bwdNonLinearity(popnn::NonLinearityType::TANH, actTanhOutGate,
-                    gradAtOTanhInp);
+    bwdNonLinearity(activation, actTanhOutGate, gradAtOTanhInp);
 
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, actOutGate,
-                    gradAtOutGate);
+    bwdNonLinearity(recurrentActivation, actOutGate, gradAtOutGate);
 
     Array2dRef gradAtCellStateSum = gradAtOTanhInp;
     axpby::add(gradAtOTanhInp, gradCellState, gradAtCellStateSum);
@@ -249,9 +250,8 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
     Array2d gradAtInpGate(boost::extents[batchSize][outputSize]);
     ;
     gemm::hadamardProduct(actCand, gradAtCellStateSum, gradAtInpGate);
-    bwdNonLinearity(popnn::NonLinearityType::TANH, actCand, gradAtCand);
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, actInpGate,
-                    gradAtInpGate);
+    bwdNonLinearity(activation, actCand, gradAtCand);
+    bwdNonLinearity(recurrentActivation, actInpGate, gradAtInpGate);
 
     Array2d actForgetGate = fwdState[LSTM_FWD_STATE_FORGET_GATE][s];
     gemm::hadamardProduct(actForgetGate, gradAtCellStateSum, gradCellState);
@@ -267,8 +267,7 @@ void poplibs_test::lstm::basicLstmCellBackwardPass(
     ;
 
     gemm::hadamardProduct(pCellAct, gradAtCellStateSum, gradAtForgetGate);
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, actForgetGate,
-                    gradAtForgetGate);
+    bwdNonLinearity(recurrentActivation, actForgetGate, gradAtForgetGate);
 
     Array2d gradIn(boost::extents[batchSize][inputSize]);
     ;

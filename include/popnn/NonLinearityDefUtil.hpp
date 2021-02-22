@@ -86,6 +86,7 @@ template <> struct VertexTemplateToString<popnn::NonLinearityType> {
     case popnn::NonLinearityType::SWISH:
       return "popnn::NonLinearityType::SWISH";
     case popnn::NonLinearityType::HARD_SIGMOID:
+      return "popnn::NonLinearityType::HARD_SIGMOID";
     case popnn::NonLinearityType::SOFTMAX:
     case popnn::NonLinearityType::SOFTMAX_STABLE:
     case popnn::NonLinearityType::SOFTMAX_SCALED:

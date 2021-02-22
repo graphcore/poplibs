@@ -200,7 +200,9 @@ void poplibs_test::gru::basicGruCellForwardPass(
     const boost::optional<boost::multi_array_ref<double, 2>> &attScoresOpt,
     const boost::optional<boost::multi_array_ref<int, 1>> &realTimeStepsOpt,
     Array4dRef state, const std::vector<BasicGruCellUnit> &cellOrder,
-    bool resetAfter, const boost::optional<Array2dRef> recurrantBiases) {
+    bool resetAfter, const boost::optional<Array2dRef> recurrantBiases,
+    const popnn::NonLinearityType activation,
+    const popnn::NonLinearityType recurrentActivation) {
   const auto sequenceSize = state.shape()[1];
   const auto batchSize = state.shape()[2];
   const auto outputSize = state.shape()[3];
@@ -260,7 +262,7 @@ void poplibs_test::gru::basicGruCellForwardPass(
     processBasicGruUnit(prevOutputThisStep, inputThisStep, weightsInput,
                         weightsOutput, (resetAfter ? totalBiases : biases),
                         updateGate, cellMapping.at(BASIC_GRU_CELL_UPDATE_GATE),
-                        popnn::NonLinearityType::SIGMOID);
+                        recurrentActivation);
     applyAtt(attScoresOpt, s, updateGate);
     applySeqMask(realTimeStepsOpt, s, outputFullSequence, updateGate);
     state[GRU_FWD_STATE_UPDATE_GATE_IDX][s] = updateGate;
@@ -270,7 +272,7 @@ void poplibs_test::gru::basicGruCellForwardPass(
     processBasicGruUnit(prevOutputThisStep, inputThisStep, weightsInput,
                         weightsOutput, (resetAfter ? totalBiases : biases),
                         resetGate, cellMapping.at(BASIC_GRU_CELL_RESET_GATE),
-                        popnn::NonLinearityType::SIGMOID);
+                        recurrentActivation);
     applySeqMask(realTimeStepsOpt, s, outputFullSequence, resetGate);
     state[GRU_FWD_STATE_RESET_GATE_IDX][s] = resetGate;
 
@@ -303,13 +305,12 @@ void poplibs_test::gru::basicGruCellForwardPass(
         }
       }
       /* apply non-linearity */
-      nonLinearity(popnn::NonLinearityType::TANH, candidate);
+      nonLinearity(activation, candidate);
     } else {
       poplibs_test::gemm::hadamardProduct(resetGate, prevOutputThisStep, tmp1);
       processBasicGruUnit(tmp1, inputThisStep, weightsInput, weightsOutput,
                           (resetAfter ? totalBiases : biases), candidate,
-                          cellMapping.at(BASIC_GRU_CELL_CANDIDATE),
-                          popnn::NonLinearityType::TANH);
+                          cellMapping.at(BASIC_GRU_CELL_CANDIDATE), activation);
     }
     applySeqMask(realTimeStepsOpt, s, outputFullSequence, candidate);
 
@@ -409,7 +410,9 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     const boost::optional<Array2dRef> &attScoresOpt,
     const boost::optional<Array2dRef> &attScoresGradsOpt, Array4dRef bwdState,
     Array3dRef gradsPrevLayer, const std::vector<BasicGruCellUnit> &cellOrder,
-    bool resetAfter, const boost::optional<Array2dRef> recurrantBiases) {
+    bool resetAfter, const boost::optional<Array2dRef> recurrantBiases,
+    const popnn::NonLinearityType activation,
+    const popnn::NonLinearityType recurrentActivation) {
   const auto sequenceSize = fwdState.shape()[1];
   const auto batchSize = fwdState.shape()[2];
   const auto outputSize = fwdState.shape()[3];
@@ -501,7 +504,7 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     poplibs_test::axpby::add(matOne, u, u_comp, 1.0, -1.0);
     Array2d d_c(boost::extents[batchSize][outputSize]);
     gemm::hadamardProduct(u_comp, d_h, d_c);
-    bwdNonLinearity(popnn::NonLinearityType::TANH, c, d_c);
+    bwdNonLinearity(activation, c, d_c);
     applySeqMask(realTimeStepsOpt, s, outputFullSequence, d_c);
 
     Array2d h_prev(boost::extents[batchSize][outputSize]);
@@ -521,11 +524,11 @@ void poplibs_test::gru::basicGruCellBackwardPass(
     if (attScoresOpt) {
       Array2d u0(boost::extents[batchSize][outputSize]);
       applyAttBwd(attScoresOpt, u, s, d_u, u0, *attScoresGradsOpt);
-      bwdNonLinearity(popnn::NonLinearityType::SIGMOID, u0, d_u);
+      bwdNonLinearity(recurrentActivation, u0, d_u);
       printMatrix2d(fp, "bwd d_u", d_u);
       printMatrix2d(fp, "bwd attGrad", *attScoresGradsOpt);
     } else {
-      bwdNonLinearity(popnn::NonLinearityType::SIGMOID, u, d_u);
+      bwdNonLinearity(recurrentActivation, u, d_u);
       printMatrix2d(fp, "bwd d_u", d_u);
     }
 
@@ -554,7 +557,7 @@ void poplibs_test::gru::basicGruCellBackwardPass(
       gemm::hadamardProduct(d_h_prev2r, h_prev, d_r);
       gemm::hadamardProduct(d_h_prev2r, r, d_h_prev2);
     }
-    bwdNonLinearity(popnn::NonLinearityType::SIGMOID, r, d_r);
+    bwdNonLinearity(recurrentActivation, r, d_r);
 
     // [1st_component_of_d_x 1st_component_of_d_h_prev] = [d_r d_u] X w_ru^T
     Array2d d_r_d_u = concatMatrix2D(d_r, d_u, 1);

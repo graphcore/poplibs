@@ -21,6 +21,7 @@
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/Lstm.hpp>
+#include <popnn/NonLinearityDefUtil.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/Cast.hpp>
 #include <popops/Zero.hpp>
@@ -135,6 +136,9 @@ int main(int argc, char **argv) {
   ShapeOption<std::string> cellOrder;
   boost::optional<std::string> jsonProfileOut;
   boost::optional<std::string> profileFormat;
+  popnn::NonLinearityType activation = popnn::NonLinearityType::TANH;
+  popnn::NonLinearityType recurrentActivation =
+      popnn::NonLinearityType::SIGMOID;
 
   po::options_description desc("Options");
   // clang-format off
@@ -215,6 +219,12 @@ int main(int argc, char **argv) {
     ("cell-order",
      po::value<ShapeOption<std::string>>(&cellOrder)->default_value(cellOrder),
      "The order that the gates are stored in the weights and bias tensors")
+    ("activation",
+     po::value<popnn::NonLinearityType>(&activation)->default_value(activation),
+     "Activation function for LSTM")
+    ("recurrent-activation",
+     po::value<popnn::NonLinearityType>(&recurrentActivation)->default_value(recurrentActivation),
+     "Recurrent activation function for LSTM")
   ;
   // clang-format on
 
@@ -275,7 +285,8 @@ int main(int argc, char **argv) {
 
   poplin::matmul::PlanningCache cache;
   lstm::LstmParams params(dataType, batchSize, sequenceSize,
-                          {inputSize, outputSize});
+                          {inputSize, outputSize}, activation,
+                          recurrentActivation);
   if (!cellOrder.val.empty()) {
     params.cellOrder = getCellOrder(cellOrder.val);
   }
@@ -514,13 +525,14 @@ int main(int argc, char **argv) {
   if (!ignoreData) {
     poplibs_test::lstm::basicLstmCellForwardPass(
         hostPrevLayerAct, hostBiases, hostOutputInit, hostWeightsInput,
-        hostWeightsOutput, modelCellState, modelFwdState, params.cellOrder);
+        hostWeightsOutput, modelCellState, modelFwdState, params.cellOrder,
+        activation, recurrentActivation);
 
     if (doBwdPass) {
       poplibs_test::lstm::basicLstmCellBackwardPass(
           hostWeightsInput, hostWeightsOutput, hostNextLayerGrads,
           hostCellStateInit, modelFwdState, modelBwdState, modelPrevLayerGrads,
-          params.cellOrder);
+          params.cellOrder, activation, recurrentActivation);
     }
 
     boost::multi_array<double, 3> matImpl(

@@ -21,6 +21,7 @@
 #include <poplin/MatMul.hpp>
 #include <poplin/codelets.hpp>
 #include <popnn/Gru.hpp>
+#include <popnn/NonLinearityDefUtil.hpp>
 #include <popnn/codelets.hpp>
 #include <popops/Zero.hpp>
 #include <popops/codelets.hpp>
@@ -130,6 +131,9 @@ int main(int argc, char **argv) {
   boost::optional<std::string> jsonProfileOut;
   boost::optional<std::string> profileFormat;
   bool resetAfter = false;
+  popnn::NonLinearityType activation = popnn::NonLinearityType::TANH;
+  popnn::NonLinearityType recurrentActivation =
+      popnn::NonLinearityType::SIGMOID;
 
   po::options_description desc("Options");
   // clang-format off
@@ -213,6 +217,12 @@ int main(int argc, char **argv) {
      ("reset-after",
      po::value<bool>(&resetAfter)->default_value(resetAfter),
       "Apply reset gate after matrix multiplication (1 / 0)")
+    ("activation",
+     po::value<popnn::NonLinearityType>(&activation)->default_value(activation),
+     "Activation function for LSTM")
+    ("recurrent-activation",
+     po::value<popnn::NonLinearityType>(&recurrentActivation)->default_value(recurrentActivation),
+     "Recurrent activation function for LSTM")
   ;
   // clang-format on
 
@@ -274,7 +284,8 @@ int main(int argc, char **argv) {
 
   poplin::matmul::PlanningCache cache;
   gru::GruParams params(dataType, batchSize, sequenceSize,
-                        {inputSize, outputSize});
+                        {inputSize, outputSize}, activation,
+                        recurrentActivation);
   params.outputFullSequence = outputAllSequence;
   if (!cellOrder.val.empty()) {
     params.cellOrder = getCellOrder(cellOrder.val);
@@ -683,12 +694,13 @@ int main(int argc, char **argv) {
           params.outputFullSequence, hostPrevLayerAct, hostBiases,
           hostOutputInit, hostWeightsInput, hostWeightsOutput, hostAttScoresOpt,
           hostRealTimeStepsOpt, modelFwdState, params.cellOrder, true,
-          hostRecurrantBiases);
+          hostRecurrantBiases, activation, recurrentActivation);
     } else {
       poplibs_test::gru::basicGruCellForwardPass(
           params.outputFullSequence, hostPrevLayerAct, hostBiases,
           hostOutputInit, hostWeightsInput, hostWeightsOutput, hostAttScoresOpt,
-          hostRealTimeStepsOpt, modelFwdState, params.cellOrder, false);
+          hostRealTimeStepsOpt, modelFwdState, params.cellOrder, false,
+          boost::none, activation, recurrentActivation);
     }
 
     if (doBwdPass) {
@@ -698,13 +710,14 @@ int main(int argc, char **argv) {
             hostNextLayerGrads, modelFwdState, hostOutputInit,
             hostRealTimeStepsOpt, hostAttScoresOpt, hostAttScoresGradsOpt,
             modelBwdState, modelPrevLayerGrads, params.cellOrder, true,
-            hostRecurrantBiases);
+            hostRecurrantBiases, activation, recurrentActivation);
       } else {
         poplibs_test::gru::basicGruCellBackwardPass(
             params.outputFullSequence, hostWeightsInput, hostWeightsOutput,
             hostNextLayerGrads, modelFwdState, hostOutputInit,
             hostRealTimeStepsOpt, hostAttScoresOpt, hostAttScoresGradsOpt,
-            modelBwdState, modelPrevLayerGrads, params.cellOrder, false);
+            modelBwdState, modelPrevLayerGrads, params.cellOrder, false,
+            boost::none, activation, recurrentActivation);
       }
     }
 

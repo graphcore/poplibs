@@ -6,6 +6,7 @@
 #include <boost/multi_array.hpp>
 #include <boost/optional.hpp>
 #include <popnn/GruDef.hpp>
+#include <popnn/NonLinearityDef.hpp>
 
 namespace poplibs_test {
 namespace gru {
@@ -48,6 +49,8 @@ namespace gru {
  *                            side of each gate
  *                            Only used when resetAfter=true
  *                            shape: [BASIC_GRU_CELL_NUM_UNITS][output ch]
+ * \param activation          Activation function.
+ * \param recurrentActivation Recurrent activation function.
  */
 void basicGruCellForwardPass(
     bool outputFullSequence, const boost::multi_array_ref<double, 3> input,
@@ -60,7 +63,10 @@ void basicGruCellForwardPass(
     boost::multi_array_ref<double, 4> state,
     const std::vector<BasicGruCellUnit> &cellOrder, bool resetAfter = false,
     const boost::optional<boost::multi_array_ref<double, 2>> recurrantBiases =
-        boost::none);
+        boost::none,
+    const popnn::NonLinearityType activation = popnn::NonLinearityType::TANH,
+    const popnn::NonLinearityType recurrentActivation =
+        popnn::NonLinearityType::SIGMOID);
 
 /** Run backward pass given forward sequence
  *
@@ -92,6 +98,8 @@ void basicGruCellForwardPass(
  *                            side of each gate
  *                            Only used when resetAfter=true
  *                            shape: [BASIC_GRU_CELL_NUM_UNITS][output ch]
+ * \param activation          Activation function.
+ * \param recurrentActivation Recurrent activation function.
  */
 void basicGruCellBackwardPass(
     bool outputFullSequence,
@@ -107,7 +115,10 @@ void basicGruCellBackwardPass(
     boost::multi_array_ref<double, 3> gradsPrevLayer,
     const std::vector<BasicGruCellUnit> &cellOrder, bool resetAfter = false,
     const boost::optional<boost::multi_array_ref<double, 2>> recurrantBiases =
-        boost::none);
+        boost::none,
+    const popnn::NonLinearityType activation = popnn::NonLinearityType::TANH,
+    const popnn::NonLinearityType recurrentActivation =
+        popnn::NonLinearityType::SIGMOID);
 
 /** Param update
  *

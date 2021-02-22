@@ -6,6 +6,7 @@
 #include <poplar/Tensor.hpp>
 #include <poplin/MatMul.hpp>
 #include <popnn/LstmDef.hpp>
+#include <popnn/NonLinearityDef.hpp>
 #include <popnn/Rnn.hpp>
 
 namespace popnn {
@@ -53,9 +54,15 @@ struct LstmParams {
   /// The default order is:
   /// [Forget gate, Input gate, Candidate, Output Gate].
   std::vector<BasicLstmCellUnit> cellOrder = getDefaultBasicLstmCellOrder();
+  /// Activation function.
+  NonLinearityType activation = NonLinearityType::TANH;
+  /// Recurrent activation function.
+  NonLinearityType recurrentActivation = NonLinearityType::SIGMOID;
 
   LstmParams(poplar::Type dataType, std::size_t batchSize,
-             std::size_t timeSteps, std::vector<std::size_t> layerSizes);
+             std::size_t timeSteps, std::vector<std::size_t> layerSizes,
+             NonLinearityType activation = NonLinearityType::TANH,
+             NonLinearityType recurrentActivation = NonLinearityType::SIGMOID);
 };
 
 /**

@@ -700,6 +700,27 @@ foreach(CELL_ORDER "{forget,input,cell,output}" "{input,output,forget,cell}")
         endforeach()
 endforeach()
 
+foreach(ACTIVATION tanh sigmoid hard_sigmoid relu softmax)
+        foreach(RECURRENT_ACTIVATION tanh sigmoid hard_sigmoid softmax)
+                add_multitarget_test(
+                        NAME basic_lstm_act_config_40x1x38_seq_2_float_${ACTIVATION}_${RECURRENT_ACTIVATION}
+                        COMMAND lstm_layer
+                                --input-size 40
+                                --output-size 38
+                                --tiles-per-ipu=16
+                                --data-type=float
+                                --sequence-size 2
+                                --shards=1
+                                --phase all
+                                --activation ${ACTIVATION}
+                                --recurrent-activation ${RECURRENT_ACTIVATION}
+                                VARIANTS ${TimesOutOnSim}
+                                LABELS lstm)
+                endforeach()
+endforeach()
+
+
+
 foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
         add_multitarget_test(
                 NAME basic_gru_40x4x38_seq_2_half_data_${CELL_ORDER}
@@ -823,6 +844,38 @@ foreach(CELL_ORDER "{reset,update,cell}" "{update,cell,reset}")
                         --sequence-size 2
                         --cell-order=${CELL_ORDER}
                         VARIANTS ${TimesOutOnSim})
+endforeach()
+
+foreach(ACTIVATION tanh sigmoid hard_sigmoid relu softmax)
+        foreach(RECURRENT_ACTIVATION tanh sigmoid hard_sigmoid softmax) # relu cannot be used for recurrent activation, must be in [0,1] range.
+                add_multitarget_test(
+                        NAME basic_gru_act_config_40x1x38_seq_2_float_${ACTIVATION}_${RECURRENT_ACTIVATION}
+                        COMMAND gru_layer
+                                --input-size 40
+                                --output-size 38
+                                --tiles-per-ipu=16
+                                --data-type=float
+                                --sequence-size 2
+                                --shards=1
+                                --phase all
+                                --activation ${ACTIVATION}
+                                --recurrent-activation ${RECURRENT_ACTIVATION}
+                                VARIANTS ${TimesOutOnSim})
+                add_multitarget_test(
+                        NAME augru_act_config_40x1x38_seq_2_float_${ACTIVATION}_${RECURRENT_ACTIVATION}
+                        COMMAND gru_layer
+                                --input-size 40
+                                --output-size 38
+                                --tiles-per-ipu=16
+                                --data-type=float
+                                --sequence-size 2
+                                --shards=1
+                                --phase all
+                                --with-attention true
+                                --activation ${ACTIVATION}
+                                --recurrent-activation ${RECURRENT_ACTIVATION}
+                                VARIANTS ${TimesOutOnSim})
+        endforeach()
 endforeach()
 
 # Sharding tests

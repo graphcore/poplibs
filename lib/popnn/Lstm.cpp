@@ -2,6 +2,7 @@
 #include <cmath>
 #include <poplibs_support/logging.hpp>
 #include <popnn/Lstm.hpp>
+#include <popnn/NonLinearityDef.hpp>
 #include <popops/Cast.hpp>
 
 #include "RnnUtil.hpp"
@@ -11,6 +12,7 @@ using namespace poplar;
 using namespace poplar::program;
 
 using namespace poplin;
+using namespace popnn;
 using namespace popnn::Rnn;
 using namespace popops;
 using namespace poputil;
@@ -43,19 +45,82 @@ enum BwdStateTensorElems {
   LSTM_NUM_BWD_STATES
 };
 
+namespace { // Anonymous namespace
+bool isCSNotSupported(popnn::NonLinearityType nl) {
+  return (nl == popnn::NonLinearityType::SOFTMAX ||
+          nl == popnn::NonLinearityType::SOFTMAX_STABLE ||
+          nl == popnn::NonLinearityType::SOFTMAX_SCALED ||
+          nl == popnn::NonLinearityType::HARD_SIGMOID);
+}
+
+expr::BinaryOp
+fusedNonLinearityMulInPlaceExpr(NonLinearityType nonLinearityType) {
+  using namespace popops::expr;
+
+  switch (nonLinearityType) {
+  case NonLinearityType::SIGMOID:
+    return _1 * Sigmoid(_2);
+
+  case NonLinearityType::HARD_SIGMOID:
+    return _1 * Max(Const(0), Min(Const(1), Const(0.2f) * _2 + Const(0.5f)));
+
+  case NonLinearityType::RELU:
+    return _1 * Select(Gte(_2, Const(0)), _2, Const(0));
+
+  case NonLinearityType::TANH:
+    return _1 * Tanh(_2);
+
+  default:
+    throw poputil::poplibs_error("Cannot compute expression for nonLinearity");
+  }
+}
+
+void fusedNonLinearityMulInPlace(poplar::Graph &graph,
+                                 popnn::NonLinearityType nonLinearityType,
+                                 poplar::Tensor t1, poplar::Tensor t2,
+                                 poplar::program::Sequence &prog,
+                                 const DebugNameAndId &dnai) {
+  switch (nonLinearityType) {
+  case NonLinearityType::SIGMOID:
+  case NonLinearityType::HARD_SIGMOID:
+  case NonLinearityType::RELU:
+  case NonLinearityType::TANH:
+    mapInPlace(graph, fusedNonLinearityMulInPlaceExpr(nonLinearityType),
+               {t1, t2}, prog, {dnai, "mapInPlace"});
+    break;
+
+  default: {
+    auto nonlin = popnn::nonLinearity(graph, nonLinearityType, t2, prog,
+                                      {dnai, "nonLinearity"});
+    popops::mulInPlace(graph, t1, t2, prog, {dnai, "mulInPlace"});
+  } break;
+  }
+}
+} // Anonymous namespace
+
 static void applyGateNonlinearities(Graph &graph, const Tensor &t,
                                     Sequence &prog,
                                     const std::vector<std::size_t> &cellIndices,
+                                    const popnn::lstm::LstmParams &params,
                                     const DebugNameAndId &dnai) {
   auto sigmoidIn = concat({t[cellIndices[BASIC_LSTM_CELL_INPUT_GATE]],
                            t[cellIndices[BASIC_LSTM_CELL_FORGET_GATE]],
                            t[cellIndices[BASIC_LSTM_CELL_OUTPUT_GATE]]});
-  auto cs = graph.addComputeSet({dnai, "OutputGate"});
-  nonLinearityInPlace(graph, popnn::NonLinearityType::SIGMOID, sigmoidIn, cs,
-                      {dnai});
-  nonLinearityInPlace(graph, popnn::NonLinearityType::TANH,
-                      t[cellIndices[BASIC_LSTM_CELL_CANDIDATE]], cs, {dnai});
-  prog.add(Execute(cs, {dnai}));
+  if (isCSNotSupported(params.activation) ||
+      isCSNotSupported(params.recurrentActivation)) {
+    nonLinearityInPlace(graph, params.recurrentActivation, sigmoidIn, prog,
+                        {dnai});
+    nonLinearityInPlace(graph, params.activation,
+                        t[cellIndices[BASIC_LSTM_CELL_CANDIDATE]], prog,
+                        {dnai});
+  } else {
+    auto cs = graph.addComputeSet({dnai, "OutputGate"});
+    nonLinearityInPlace(graph, params.recurrentActivation, sigmoidIn, cs,
+                        {dnai});
+    nonLinearityInPlace(graph, params.activation,
+                        t[cellIndices[BASIC_LSTM_CELL_CANDIDATE]], cs, {dnai});
+    prog.add(Execute(cs, {dnai}));
+  }
 }
 
 // Computes the output before nonlinearities to all the units are applies
@@ -590,8 +655,8 @@ static void lstmCellForwardPassCalcUnits(
     const LstmState &prevState, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
     bool inferenceOnly, const Tensor &unitsOutputRearranged,
-    const std::vector<std::size_t> &cellIndices, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    const std::vector<std::size_t> &cellIndices, const LstmParams &params,
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   auto prevCellState = prevState.cellState;
   auto prevOutput = prevState.output;
   const unsigned outputSize = prevOutput.dim(1);
@@ -645,23 +710,24 @@ static void lstmCellForwardPassCalcUnits(
   }
   addInPlace(graph, unitsOutputRearranged, bBiases, prog, {dnai, "AddBias"});
   applyGateNonlinearities(graph, unitsOutputRearranged, prog, cellIndices,
-                          {dnai});
+                          params, {dnai});
 }
 
-static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
-    Graph &graph, const Tensor &in, const Tensor &biases,
-    const LstmState &prevState, const Tensor *weightsInput,
-    const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
-    bool inferenceOnly, const std::vector<BasicLstmCellUnit> &cellOrder,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+static std::pair<LstmState, LstmInternalState>
+basicLstmCellForwardPass(Graph &graph, const Tensor &in, const Tensor &biases,
+                         const LstmState &prevState, const Tensor *weightsInput,
+                         const Tensor &weightsOutput, Sequence &prog,
+                         const LstmOpts &opt, bool inferenceOnly,
+                         const LstmParams &params, const DebugNameAndId &dnai,
+                         matmul::PlanningCache *cache) {
   const auto &prevCellState = prevState.cellState;
   const std::string baseStr = "BasicLstmCell";
 
   std::vector<Tensor> toConcat;
   toConcat.reserve(BASIC_LSTM_CELL_NUM_UNITS);
-  assert(cellOrder.size() == BASIC_LSTM_CELL_NUM_UNITS);
+  assert(params.cellOrder.size() == BASIC_LSTM_CELL_NUM_UNITS);
   for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
-    const auto unit = cellOrder.at(i);
+    const auto unit = params.cellOrder.at(i);
     toConcat.push_back(
         graph.clone(prevCellState, {dnai, getUnitName(unit) + "Rearranged"})
             .expand({0}));
@@ -669,14 +735,14 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
 
   // build reverse mapping of cellOrder
   std::vector<std::size_t> cellIndices(BASIC_LSTM_CELL_NUM_UNITS);
-  for (unsigned i = 0; i < cellOrder.size(); ++i) {
-    cellIndices[cellOrder[i]] = i;
+  for (unsigned i = 0; i < params.cellOrder.size(); ++i) {
+    cellIndices[params.cellOrder[i]] = i;
   }
 
   auto unitsOutput = concat(toConcat);
   lstmCellForwardPassCalcUnits(
       graph, in, biases, prevState, weightsInput, weightsOutput, prog, opt,
-      inferenceOnly, unitsOutput, cellIndices, {dnai, baseStr}, cache);
+      inferenceOnly, unitsOutput, cellIndices, params, {dnai, baseStr}, cache);
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto forgetGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_FORGET_GATE]];
   auto candidate = unitsOutput[cellIndices[BASIC_LSTM_CELL_CANDIDATE]];
@@ -692,8 +758,8 @@ static std::pair<LstmState, LstmInternalState> basicLstmCellForwardPass(
 
   addInPlace(graph, updatedCellState, updatedCandidate, prog,
              {dnai, baseStr + "/AddCellCand"});
-  auto tanhOutput =
-      popops::tanh(graph, updatedCellState, prog, {dnai, baseStr});
+  auto tanhOutput = popnn::nonLinearity(
+      graph, params.activation, updatedCellState, prog, {dnai, baseStr});
   auto output =
       mul(graph, tanhOutput, outputGate, prog, {dnai, baseStr + "/OutputGate"});
   LstmState recurrentState = {output, updatedCellState};
@@ -706,17 +772,17 @@ static void basicLstmCellForwardPassInPlace(
     Graph &graph, const Tensor &in, const Tensor &biases,
     const LstmState &state, const Tensor *weightsInput,
     const Tensor &weightsOutput, Sequence &prog, const LstmOpts &opt,
-    bool inferenceOnly, const std::vector<BasicLstmCellUnit> &cellOrder,
-    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
+    bool inferenceOnly, const LstmParams &params, const DebugNameAndId &dnai,
+    matmul::PlanningCache *cache) {
   auto cellState = state.cellState;
   auto output = state.output;
   const std::string baseStr = "BasicLstmCell";
 
   std::vector<Tensor> toConcat;
   toConcat.reserve(BASIC_LSTM_CELL_NUM_UNITS);
-  assert(cellOrder.size() == BASIC_LSTM_CELL_NUM_UNITS);
+  assert(params.cellOrder.size() == BASIC_LSTM_CELL_NUM_UNITS);
   for (unsigned i = 0; i != BASIC_LSTM_CELL_NUM_UNITS; ++i) {
-    const auto unit = cellOrder.at(i);
+    const auto unit = params.cellOrder.at(i);
     if (unit == BASIC_LSTM_CELL_OUTPUT_GATE) {
       toConcat.push_back(output.expand({0}));
     } else {
@@ -728,28 +794,27 @@ static void basicLstmCellForwardPassInPlace(
 
   // build reverse mapping of cellOrder
   std::vector<std::size_t> cellIndices(BASIC_LSTM_CELL_NUM_UNITS);
-  for (unsigned i = 0; i < cellOrder.size(); ++i) {
-    cellIndices[cellOrder[i]] = i;
+  for (unsigned i = 0; i < params.cellOrder.size(); ++i) {
+    cellIndices[params.cellOrder[i]] = i;
   }
 
   auto unitsOutput = concat(toConcat);
 
   lstmCellForwardPassCalcUnits(
       graph, in, biases, state, weightsInput, weightsOutput, prog, opt,
-      inferenceOnly, unitsOutput, cellIndices, {dnai, baseStr}, cache);
+      inferenceOnly, unitsOutput, cellIndices, params, {dnai, baseStr}, cache);
 
   assert(unitsOutput.dim(0) == BASIC_LSTM_CELL_NUM_UNITS);
   auto forgetGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_FORGET_GATE]];
   auto candidate = unitsOutput[cellIndices[BASIC_LSTM_CELL_CANDIDATE]];
   auto outputGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_OUTPUT_GATE]];
   auto inputGate = unitsOutput[cellIndices[BASIC_LSTM_CELL_INPUT_GATE]];
-  using namespace popops::expr;
   mulInPlace(graph, concat(cellState, candidate), concat(forgetGate, inputGate),
              prog, {dnai, baseStr + "/{Forget + Input}Gate"});
   addInPlace(graph, cellState, candidate, prog,
              {dnai, baseStr + "/AddCellCand"});
-  mapInPlace(graph, _1 * Tanh(_2), {outputGate, cellState}, prog,
-             {dnai, baseStr + "/CalcNextOutput"});
+  fusedNonLinearityMulInPlace(graph, params.activation, outputGate, cellState,
+                              prog, {dnai, baseStr + "/CalcNextOutput"});
 }
 
 static Tensor getFwdIntermediatesToSave(const LstmState &state,
@@ -840,9 +905,12 @@ static Tensor reconstructIntermediatesFromRecomputed(
 
 LstmParams::LstmParams(poplar::Type dataType, std::size_t batchSize,
                        std::size_t timeSteps,
-                       std::vector<std::size_t> layerSizes)
+                       std::vector<std::size_t> layerSizes,
+                       NonLinearityType activation,
+                       NonLinearityType recurrentActivation)
     : rnn(dataType, batchSize, timeSteps, layerSizes), dataType(dataType),
-      batchSize(batchSize), timeSteps(timeSteps), layerSizes(layerSizes) {}
+      batchSize(batchSize), timeSteps(timeSteps), layerSizes(layerSizes),
+      activation(activation), recurrentActivation(recurrentActivation) {}
 
 std::pair<Tensor, Tensor>
 lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
@@ -892,8 +960,8 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
           LstmInternalState internalState;
           std::tie(newState, internalState) = basicLstmCellForwardPass(
               graph, fwdInput, weights.biases, state, inputWeightsPtr,
-              weights.outputWeights, loop, opt, opt.inferenceOnly,
-              params.cellOrder, {dnai}, cache);
+              weights.outputWeights, loop, opt, opt.inferenceOnly, params,
+              {dnai}, cache);
           auto fwdIntermediates = getFwdIntermediatesToSave(
               state, newState, internalState, opt, params);
           loop.add(Copy(fwdIntermediates, interimOut, false, {dnai}));
@@ -903,8 +971,8 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
         } else {
           basicLstmCellForwardPassInPlace(
               graph, fwdInput, weights.biases, state, inputWeightsPtr,
-              weights.outputWeights, loop, opt, opt.inferenceOnly,
-              params.cellOrder, {dnai}, cache);
+              weights.outputWeights, loop, opt, opt.inferenceOnly, params,
+              {dnai}, cache);
         }
         return loop;
       };
@@ -975,8 +1043,7 @@ static std::tuple<LstmState, Tensor, Tensor>
 backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
                  const Tensor &fwdIntermediates, const LstmState &stateGrad,
                  bool inputGradSupplied, const Tensor weights, Sequence &prog,
-                 const LstmOpts &opt,
-                 const std::vector<BasicLstmCellUnit> &cellOrder,
+                 const LstmOpts &opt, const LstmParams &params,
                  const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   const std::string fPrefix = "LstmBwd";
   auto outputGrad = stateGrad.output;
@@ -994,14 +1061,26 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
   auto gradAtOutputGateInput =
       t.slice(outputGrad.dim(0), 2 * outputGrad.dim(0));
 
-  auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
-  auto gradAtOTanhOutput = nonLinearityInputGradient(
-      graph, NonLinearityType::TANH, actOutputTanh, gradAtOTanhInput, cs1,
-      {dnai, fPrefix + "/OuputTanh"});
-  auto gradOutputGate = nonLinearityInputGradient(
-      graph, NonLinearityType::SIGMOID, actOutputGate, gradAtOutputGateInput,
-      cs1, {dnai, fPrefix + "/OutputGate"});
-  prog.add(Execute(cs1, {dnai}));
+  poplar::Tensor gradAtOTanhOutput;
+  poplar::Tensor gradOutputGate;
+  if (isCSNotSupported(params.activation) ||
+      isCSNotSupported(params.recurrentActivation)) {
+    gradAtOTanhOutput = nonLinearityInputGradient(
+        graph, params.activation, actOutputTanh, gradAtOTanhInput, prog,
+        {dnai, fPrefix + "/OuputTanh"});
+    gradOutputGate = nonLinearityInputGradient(
+        graph, params.recurrentActivation, actOutputGate, gradAtOutputGateInput,
+        prog, {dnai, fPrefix + "/OutputGate"});
+  } else {
+    auto cs1 = graph.addComputeSet({dnai, fPrefix + "/OutputGate"});
+    gradAtOTanhOutput = nonLinearityInputGradient(
+        graph, params.activation, actOutputTanh, gradAtOTanhInput, cs1,
+        {dnai, fPrefix + "/OuputTanh"});
+    gradOutputGate = nonLinearityInputGradient(
+        graph, params.recurrentActivation, actOutputGate, gradAtOutputGateInput,
+        cs1, {dnai, fPrefix + "/OutputGate"});
+    prog.add(Execute(cs1, {dnai}));
+  }
 
   auto gradCellState = stateGrad.cellState;
 
@@ -1020,21 +1099,37 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
   auto gradAtForgetGateInput = t1.slice(2 * batchSize, 3 * batchSize);
   auto newGradCellState = t1.slice(3 * batchSize, 4 * batchSize);
 
-  auto cs2 = graph.addComputeSet({dnai, fPrefix + "/{Input+Candidate}Gate"});
-  auto gradInputGate = nonLinearityInputGradient(
-      graph, NonLinearityType::SIGMOID, actInputGate, gradAtInputGateInput, cs2,
-      {dnai, fPrefix + "/InputGate"});
-  auto gradCandidate = nonLinearityInputGradient(
-      graph, NonLinearityType::TANH, actCandidate, gradAtCandTanhInput, cs2,
-      {dnai, fPrefix + "/Cand"});
-  auto gradForgetGate = nonLinearityInputGradient(
-      graph, NonLinearityType::SIGMOID, actForgetGate, gradAtForgetGateInput,
-      cs2, {dnai, fPrefix + "/Cand"});
-  prog.add(Execute(cs2, {dnai}));
+  poplar::Tensor gradInputGate;
+  poplar::Tensor gradCandidate;
+  poplar::Tensor gradForgetGate;
+  if (isCSNotSupported(params.activation) ||
+      isCSNotSupported(params.recurrentActivation)) {
+    gradInputGate = nonLinearityInputGradient(
+        graph, params.recurrentActivation, actInputGate, gradAtInputGateInput,
+        prog, {dnai, fPrefix + "/InputGate"});
+    gradCandidate = nonLinearityInputGradient(graph, params.activation,
+                                              actCandidate, gradAtCandTanhInput,
+                                              prog, {dnai, fPrefix + "/Cand"});
+    gradForgetGate = nonLinearityInputGradient(
+        graph, params.recurrentActivation, actForgetGate, gradAtForgetGateInput,
+        prog, {dnai, fPrefix + "/Cand"});
+  } else {
+    auto cs2 = graph.addComputeSet({dnai, fPrefix + "/{Input+Candidate}Gate"});
+    gradInputGate = nonLinearityInputGradient(
+        graph, params.recurrentActivation, actInputGate, gradAtInputGateInput,
+        cs2, {dnai, fPrefix + "/InputGate"});
+    gradCandidate = nonLinearityInputGradient(graph, params.activation,
+                                              actCandidate, gradAtCandTanhInput,
+                                              cs2, {dnai, fPrefix + "/Cand"});
+    gradForgetGate = nonLinearityInputGradient(
+        graph, params.recurrentActivation, actForgetGate, gradAtForgetGateInput,
+        cs2, {dnai, fPrefix + "/Cand"});
+    prog.add(Execute(cs2, {dnai}));
+  }
 
   const auto gradUnits = [&] {
     std::vector<Tensor> gradUnitsT;
-    for (const auto cell : cellOrder) {
+    for (const auto cell : params.cellOrder) {
       switch (cell) {
       case BASIC_LSTM_CELL_FORGET_GATE:
         gradUnitsT.push_back(gradForgetGate.expand({0}));
@@ -1090,12 +1185,11 @@ backwardStepImpl(Graph &graph, const Tensor *gradNextLayer,
 std::tuple<LstmState, Tensor, Tensor> basicLstmBackwardStep(
     Graph &graph, const Tensor *gradNextLayer, const Tensor &fwdIntermediates,
     const LstmState &stateGrad, bool inputGradSupplied, const Tensor &weights,
-    Sequence &prog, const LstmOpts &opt,
-    const std::vector<BasicLstmCellUnit> &cellOrder, const DebugNameAndId &dnai,
-    matmul::PlanningCache *cache) {
+    Sequence &prog, const LstmOpts &opt, const LstmParams &params,
+    const DebugNameAndId &dnai, matmul::PlanningCache *cache) {
   return backwardStepImpl(graph, gradNextLayer, fwdIntermediates, stateGrad,
-                          inputGradSupplied, weights, prog, opt, cellOrder,
-                          {dnai}, cache);
+                          inputGradSupplied, weights, prog, opt, params, {dnai},
+                          cache);
 }
 
 /// Add the partial weight gradients from this timestep to the accumulated
@@ -1275,7 +1369,8 @@ static Tensor recomputeCellAndTanhImpl(Graph &graph, const LstmParams &params,
       addInPlace(graph, newCellState, updatedCandidate, loop,
                  {dnai, "AddCellCand"});
       newTanhOutput =
-          popops::tanh(graph, newCellState, loop, {dnai, "TanhCellState"});
+          popnn::nonLinearity(graph, params.activation, newCellState, loop,
+                              {dnai, "TanhCellState"});
     }
 
     loop.add(Copy(concat(newTanhOutput.expand({0}), prevCellState.expand({0})),
@@ -1366,8 +1461,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
           std::tie(newStateGrads, nextInputGrad, bwdIntermediates) =
               popnn::lstm::basicLstmBackwardStep(
                   graph, &gradLayerNext, fwdIntermediates, stateGrads, true,
-                  weightsRearranged, loop, options, params.cellOrder, {dnai},
-                  cache);
+                  weightsRearranged, loop, options, params, {dnai}, cache);
           if (inputGrad.valid()) {
             loop.add(Copy(nextInputGrad, inputGrad, false, {dnai}));
           }
@@ -1375,7 +1469,7 @@ lstmBwdImpl(Graph &graph, const LstmParams &params, program::Sequence &prog,
           std::tie(newStateGrads, std::ignore, bwdIntermediates) =
               basicLstmBackwardStep(graph, &gradLayerNext, fwdIntermediates,
                                     stateGrads, false, weightsRearranged, loop,
-                                    options, params.cellOrder, {dnai}, cache);
+                                    options, params, {dnai}, cache);
         }
         if (interimOut.valid()) {
           loop.add(Copy(bwdIntermediates, interimOut, false, {dnai}));
