@@ -1275,7 +1275,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   popops::negInPlace(graph, lossReduced, prog, {di});
 
   auto lossShaped = lossReduced.reshape({1, batchSize, 1});
-  popops::mapInPlace(graph, Neg(Sub(Exp(Add(_1, _2)), Exp(Cast(_3, outType)))),
+  popops::mapInPlace(graph, Sub(Exp(Cast(_3, outType)), Exp(Add(_1, _2))),
                      {gradReduced, lossShaped, data}, prog, {di});
   di.addOutput(lossReduced);
   di.addOutput(gradReduced);

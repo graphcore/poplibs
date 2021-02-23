@@ -270,8 +270,8 @@ grad(const boost::multi_array<FPType, 2> &sequence,
     const auto negLogLoss = -log::add(finalSymbol, finalBlank);
     for (unsigned y = 0; y < gradient.size(); y++) {
       for (unsigned x = 0; x < gradient[0].size(); x++) {
-        gradient[y][x] = -(std::exp(log::mul(gradient[y][x], negLogLoss)) -
-                           std::exp(logProbs[y][x]));
+        gradient[y][x] = std::exp(logProbs[y][x]) -
+                         std::exp(log::mul(gradient[y][x], negLogLoss));
       }
     }
   } else {
