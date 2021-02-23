@@ -1091,6 +1091,7 @@ void validateTensorTypes(const poplar::Tensor &data,
 
 struct CalcLossAndGradLogProbOptions {
   bool includeSoftmaxGradient = true;
+  bool returnReducedCodeletGradient = false; // Internal only, for test
 };
 
 static CalcLossAndGradLogProbOptions
@@ -1100,6 +1101,8 @@ parseCalcLossAndGradLogProbOptions(const poplar::OptionFlags &options) {
   const poplibs::OptionSpec spec{
       {"includeSoftmaxGradient",
        poplibs::OptionHandler::createWithBool(opts.includeSoftmaxGradient)},
+      {"returnReducedCodeletGradient", poplibs::OptionHandler::createWithBool(
+                                           opts.returnReducedCodeletGradient)},
   };
   for (const auto &entry : options) {
     spec.parse(entry.first, entry.second);
@@ -1281,10 +1284,11 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   }();
 
   popops::negInPlace(graph, lossReduced, prog, {di});
-
-  auto lossShaped = lossReduced.reshape({1, batchSize, 1});
-  popops::mapInPlace(graph, Sub(Exp(Cast(_3, outType)), Exp(Add(_1, _2))),
-                     {gradReduced, lossShaped, data}, prog, {di});
+  if (!opts.returnReducedCodeletGradient) {
+    auto lossShaped = lossReduced.reshape({1, batchSize, 1});
+    popops::mapInPlace(graph, Sub(Exp(Cast(_3, outType)), Exp(Add(_1, _2))),
+                       {gradReduced, lossShaped, data}, prog, {di});
+  }
   di.addOutput(lossReduced);
   di.addOutput(gradReduced);
 
@@ -1304,7 +1308,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan &plan_, const poplar::DebugContext &debugContext,
-    const poplar::OptionFlags & /*unused*/) {
+    const poplar::OptionFlags &options) {
   // TODO sort out debug info
 
   // Ensure we preserve mapping of the result to fit in with the plan
@@ -1312,9 +1316,9 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
   prog.add(Copy(logits, logProbs));
   logSoftmaxInPlace(graph, logProbs, prog, debugContext);
 
-  return calcLossAndGradientLogProbabilities(graph, outType, logProbs, labels,
-                                             dataLengths, labelLengths, prog,
-                                             blankClass, plan_, debugContext);
+  return calcLossAndGradientLogProbabilities(
+      graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
+      blankClass, plan_, debugContext, options);
 }
 
 } // end namespace ctc

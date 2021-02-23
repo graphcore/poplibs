@@ -1016,3 +1016,9 @@ foreach(time_partitions 1 2 3)
       VARIANTS ${IPUMODEL_VARIANTS})
   endforeach()
 endforeach()
+
+add_multitarget_test(
+  NAME CTCLossTest_Codelet_Result_only
+  COMMAND CTCLossTest
+          --test-reduced-codelet-result=1
+  VARIANTS ${IPUMODEL_VARIANTS})

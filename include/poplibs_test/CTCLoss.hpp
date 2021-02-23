@@ -51,7 +51,8 @@ grad(const boost::multi_array<FPType, 2> &sequence,
      const boost::multi_array<FPType, 2> &alpha,
      const boost::multi_array<FPType, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues);
+     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     bool testReducedCodeletGradient);
 
 } // namespace ctc
 } // namespace poplibs_test

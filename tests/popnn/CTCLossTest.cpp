@@ -32,10 +32,17 @@ using namespace poplibs_support;
 using namespace poputil;
 
 // Default tolerances used in tests
-#define FLOAT_REL_TOL 0.01
+#define FLOAT_REL_TOL 0.04
 #define HALF_REL_TOL 0.1
-#define FLOAT_ABS_TOL 1e-6
-#define HALF_ABS_TOL 1e-5
+#define FLOAT_ABS_TOL 1e-3
+#define HALF_ABS_TOL 1e-2
+
+// The result returned by the codelet / reduction stages can be checked more
+// precisely for all tests - especially those with larger lengths
+#define CODELET_TEST_FLOAT_REL_TOL 0.01
+#define CODELET_TEST_HALF_REL_TOL 0.1
+#define CODELET_TEST_FLOAT_ABS_TOL 1e-6
+#define CODELET_TEST_HALF_ABS_TOL 1e-5
 
 template <typename FPType>
 boost::multi_array<FPType, 2>
@@ -105,6 +112,65 @@ void print(const std::string &prefix, const boost::multi_array<FPType, 2> &in,
   }
   std::cout << "\n";
 }
+// Apply an increased probability to a sequence using the input label and
+// padding it to represent a probable sequence
+boost::multi_array<double, 2>
+providePath(const boost::multi_array<double, 2> &input,
+            const std::vector<unsigned> &label, unsigned blankClass,
+            unsigned batchNo) {
+
+  auto timeSteps = input.shape()[0];
+  std::vector<unsigned> expandedLabel;
+  expandedLabel.reserve(timeSteps);
+  // The input sequence, padding with blanks as needed for repeat
+  // symbols. This is the shortest path that could represent the input sequence
+  // Eg:
+  // Input sequence a b c c d d d e
+  // Pad with blanks: a b c - c d - d - d e
+  for (unsigned i = 0; i < label.size(); i++) {
+    if (i != 0 && label[i] == label[i - 1]) {
+      expandedLabel.push_back(blankClass);
+    }
+    expandedLabel.push_back(label[i]);
+  }
+  if (expandedLabel.size() > timeSteps) {
+    // The expanded input sequence is already bigger than timeSteps so we
+    // can't increase the probability at all points matching the sequence
+    std::cerr << "\n\nMinimum timesteps for this sequence (blank padded from "
+              << label.size() << ") is " << expandedLabel.size()
+              << " but the test has " << timeSteps << " timesteps."
+              << " Expect -inf loss and likely comparison errors.\n";
+    return input;
+  }
+  // We are able to add this many random symbols to make a expanded sequence
+  // with the same number of timeSteps as the input.  This is a random path
+  // of length timeSteps that has correlation with the input
+  auto padSymbols = timeSteps - expandedLabel.size();
+
+  std::mt19937 gen;
+  gen.seed(batchNo);
+  // Add symbols at random points to duplicate the symbol found at that
+  // point. Eg
+  // Pad with blanks gave us: a b c - c d - d - d e
+  // Pad with 4 random symbols at the points marked ^
+  // a a b c - - - c d - d - d d e
+  //   ^       ^ ^             ^
+  for (unsigned i = 0; i < padSymbols; i++) {
+    std::uniform_int_distribution<> rand(0, expandedLabel.size() - 1);
+    auto insertPoint = rand(gen);
+    auto insertValue =
+        insertPoint == 0 ? blankClass : expandedLabel[insertPoint - 1];
+    expandedLabel.insert(expandedLabel.begin() + insertPoint, insertValue);
+  }
+
+  auto output = input;
+  // Now increase the probability of the points in the path generated to provide
+  // a more realistic input with a reasonable loss
+  for (unsigned i = 0; i < timeSteps; i++) {
+    output[i][expandedLabel[i]] += 10.0;
+  }
+  return output;
+}
 
 // Struct and function to return the test inputs
 template <typename FPType> struct InputSequence {
@@ -162,6 +228,9 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
       input[j][i] = randInput(gen);
     }
   }
+  // If the input sequence is a compatible length, increase its probability to
+  // stop the loss getting very small (important in large tests)
+  input = providePath(input, labels, blankClass, batchNo);
   if (!isLogits) { // Convert to log probs
     input = log::log(transpose(log::softMax(transpose(input))));
   }
@@ -172,7 +241,8 @@ getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
 template <typename FPType>
 std::pair<FPType, boost::multi_array<FPType, 2>>
 gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
-              unsigned numClasses, bool verbose) {
+              unsigned numClasses, bool testReducedCodeletGradient,
+              bool verbose) {
   auto test = test_;
   if (test.isLogits) { // Convert to log probs
     test.input = log::log(transpose(log::softMax(transpose(test.input))));
@@ -192,8 +262,9 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
                    test.inputLength, true);
   auto negLogLoss =
       loss(logSequence, paddedSequence, blankClass, test.inputLength, true);
-  auto gradient = grad(logSequence, in, alphaLog, betaLog, paddedSequence,
-                       numClasses, blankClass, test.inputLength, true);
+  auto gradient =
+      grad(logSequence, in, alphaLog, betaLog, paddedSequence, numClasses,
+           blankClass, test.inputLength, true, testReducedCodeletGradient);
 
   return {negLogLoss, transpose(gradient)};
 }
@@ -201,8 +272,9 @@ gradReference(const InputSequence<FPType> &test_, unsigned blankClass,
 std::vector<std::pair<double, boost::multi_array<double, 2>>>
 gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
         unsigned blankSymbol, std::size_t numClasses, Type inType, Type outType,
-        OptionFlags opts, const DeviceType &deviceType,
-        boost::optional<unsigned> tiles, bool ignoreData, bool profile) {
+        OptionFlags planOpts, OptionFlags debugOpts,
+        const DeviceType &deviceType, boost::optional<unsigned> tiles,
+        bool ignoreData, bool profile) {
 
   auto device = createTestDevice(deviceType, 1, tiles);
   const auto &target = device.getTarget();
@@ -215,7 +287,7 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
 
   // Create the inputs to the gradient function
   const auto plan = popnn::ctc::plan(graph, inType, outType, batchSize, maxT,
-                                     maxLabels, numClasses, opts);
+                                     maxLabels, numClasses, planOpts);
 
   auto data = popnn::ctc::createDataInput(graph, inType, batchSize, maxT,
                                           numClasses, plan, "DataInput");
@@ -265,11 +337,11 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
     if (inputs[0].isLogits) {
       return popnn::ctc::calcLossAndGradientLogits(
           graph, outType, data, labels, dataLengths, labelLengths, prog,
-          blankSymbol, plan, "GradientLogits");
+          blankSymbol, plan, "GradientLogits", debugOpts);
     } else {
       return popnn::ctc::calcLossAndGradientLogProbabilities(
           graph, outType, data, labels, dataLengths, labelLengths, prog,
-          blankSymbol, plan, "GradientLogProbs");
+          blankSymbol, plan, "GradientLogProbs", debugOpts);
     }
   }();
 
@@ -337,6 +409,7 @@ int main(int argc, char **argv) {
   Type inType = FLOAT;
   Type outType = FLOAT;
   bool isLogits = true;
+  bool testReducedCodeletGradient = false;
 
   po::options_description desc("Options");
   // clang-format off
@@ -379,6 +452,11 @@ int main(int argc, char **argv) {
      "Ignore data, to check execution time")
     ("logit-inputs", po::value(&isLogits)->default_value(isLogits),
      "pass logit inputs to ctc loss api, otherwise convert to logProbs prior")
+    ("test-reduced-codelet-result",
+        po::value(&testReducedCodeletGradient)->
+            default_value(testReducedCodeletGradient),
+     "Test the reduced result: alpha * beta / probability, omitting any further"
+     " processing")
     ("plan-only", "Only plan the requested passes, don't build or run a graph")
     ("verbose", po::value(&verbose)->default_value(verbose),
      "Provide debug printout");
@@ -438,9 +516,14 @@ int main(int argc, char **argv) {
         " length");
   }
 
-  poplar::OptionFlags opts;
+  poplar::OptionFlags planOpts;
   if (planConstraints) {
-    opts.set("planConstraints", *planConstraints);
+    planOpts.set("planConstraints", *planConstraints);
+  }
+
+  poplar::OptionFlags debugOpts;
+  if (testReducedCodeletGradient) {
+    debugOpts.set("returnReducedCodeletGradient", "true");
   }
 
   if (planOnly) {
@@ -450,7 +533,7 @@ int main(int argc, char **argv) {
 
     const auto plan =
         popnn::ctc::plan(graph, inType, outType, batchSize, maxTime,
-                         maxLabelLength, numClasses, opts);
+                         maxLabelLength, numClasses, planOpts);
 
     std::cout << plan << std::endl;
     std::cout << "No test run - plan only" << std::endl;
@@ -479,8 +562,8 @@ int main(int argc, char **argv) {
     } else {
       print("Log Softmax in", tests[i].input, blankClass, verbose);
     }
-    references.push_back(
-        gradReference<double>(tests[i], blankClass, numClasses, verbose));
+    references.push_back(gradReference<double>(
+        tests[i], blankClass, numClasses, testReducedCodeletGradient, verbose));
     references.back().second =
         maskResults(references.back().second, tests[i].inputLength);
     if (verbose) {
@@ -488,8 +571,9 @@ int main(int argc, char **argv) {
     }
     print("Reference gradient", references.back().second, blankClass, verbose);
   }
-  auto outputs = gradIPU(tests, maxLabelLength, blankClass, numClasses, inType,
-                         outType, opts, deviceType, tiles, ignoreData, profile);
+  auto outputs =
+      gradIPU(tests, maxLabelLength, blankClass, numClasses, inType, outType,
+              planOpts, debugOpts, deviceType, tiles, ignoreData, profile);
 
   for (unsigned i = 0; i < batchSize; i++) {
     outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);
@@ -499,9 +583,16 @@ int main(int argc, char **argv) {
       std::cout << "Result loss = " << outputs[i].first << "\n";
     }
   }
-  double relativeTolerance = inType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
-  double absoluteTolerance = inType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
-
+  double relativeTolerance, absoluteTolerance;
+  if (testReducedCodeletGradient) {
+    relativeTolerance = outType == FLOAT ? CODELET_TEST_FLOAT_REL_TOL
+                                         : CODELET_TEST_HALF_REL_TOL;
+    absoluteTolerance = outType == FLOAT ? CODELET_TEST_FLOAT_ABS_TOL
+                                         : CODELET_TEST_HALF_ABS_TOL;
+  } else {
+    relativeTolerance = outType == FLOAT ? FLOAT_REL_TOL : HALF_REL_TOL;
+    absoluteTolerance = outType == FLOAT ? FLOAT_ABS_TOL : HALF_ABS_TOL;
+  }
   bool success = true;
   if (!ignoreData) {
     for (unsigned i = 0; i < batchSize; i++) {

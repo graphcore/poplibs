@@ -258,13 +258,14 @@ grad(const boost::multi_array<FPType, 2> &sequence,
      const boost::multi_array<FPType, 2> &alpha,
      const boost::multi_array<FPType, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues) {
+     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     bool testReducedCodeletGradient) {
 
   auto gradient =
       ctcGrad(sequence, alpha, beta, paddedSequence, symbolsIncBlank,
               blankIndex, validTimesteps, logValues);
 
-  if (logValues) {
+  if (!testReducedCodeletGradient) {
     const auto finalSymbol = alpha[alpha.size() - 2][validTimesteps - 1];
     const auto finalBlank = alpha[alpha.size() - 1][validTimesteps - 1];
     const auto negLogLoss = -log::add(finalSymbol, finalBlank);
@@ -274,11 +275,11 @@ grad(const boost::multi_array<FPType, 2> &sequence,
                          std::exp(log::mul(gradient[y][x], negLogLoss));
       }
     }
-  } else {
+  }
+  if (!logValues) {
     throw poputil::poplibs_error(
         "Unsupported linear values for ctc loss reference grad");
   }
-
   return gradient;
 }
 
@@ -346,7 +347,8 @@ grad(const boost::multi_array<float, 2> &sequence,
      const boost::multi_array<float, 2> &alpha,
      const boost::multi_array<float, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues);
+     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     bool testReducedCodeletGradient);
 
 template boost::multi_array<double, 2>
 grad(const boost::multi_array<double, 2> &sequence,
@@ -354,7 +356,8 @@ grad(const boost::multi_array<double, 2> &sequence,
      const boost::multi_array<double, 2> &alpha,
      const boost::multi_array<double, 2> &beta,
      const std::vector<unsigned> &paddedSequence, unsigned symbolsIncBlank,
-     unsigned blankIndex, unsigned validTimesteps, bool logValues);
+     unsigned blankIndex, unsigned validTimesteps, bool logValues,
+     bool testReducedCodeletGradient);
 
 } // namespace ctc
 } // namespace poplibs_test
