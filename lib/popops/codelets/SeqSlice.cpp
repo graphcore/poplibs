@@ -8,9 +8,7 @@
 #include <print.h>
 #include <type_traits>
 
-#ifdef __IPU__
-#include "colossus/tileimplconsts.h"
-#endif
+#include "poplibs_support/TileConstants.hpp"
 
 using namespace poplar;
 
