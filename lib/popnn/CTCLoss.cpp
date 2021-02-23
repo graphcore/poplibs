@@ -492,16 +492,24 @@ Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
     unsigned endOffset = (label == plan.parallel.label - 1) ? 0u : 1u;
     Slice<2> beginIn = {0, l.begin() - startOffset};
     Slice<2> endIn = {batchSize, l.end() + endOffset};
+    if (maxLabelLength == 1) {
+      // If the label length = 1 just broadcast over all time partitions and
+      // fill the previous/next entries with the single symbol
+      auto oneSlice = labels.slice(beginIn, endIn).expand({1, 1});
+      oneSlice = oneSlice.broadcast(3, 3);
+      oneSlice = oneSlice.broadcast(tilesForAllTimePartitions, 1);
+      prog.add(Copy(oneSlice, broadcastLabels.slice(beginOut, endOut)));
 
-    auto previous = labels.slice({0, 0}, {batchSize, 1 - startOffset});
-    auto next = labels.slice({0, maxLabelLength - 2 + endOffset},
-                             {batchSize, maxLabelLength - 1});
-    auto oneSlice =
-        concat(concat(previous, labels.slice(beginIn, endIn), 1), next, 1)
-            .expand({1, 1});
+    } else {
+      auto previous = labels.slice({0, 0}, {batchSize, 1 - startOffset});
 
-    prog.add(Copy(oneSlice.broadcast(tilesForAllTimePartitions, 1),
-                  broadcastLabels.slice(beginOut, endOut)));
+      auto next = labels.slice({0, maxLabelLength - 2 + endOffset},
+                               {batchSize, maxLabelLength - 1});
+      auto oneSlice = concat(previous, labels.slice(beginIn, endIn), 1);
+      oneSlice = concat(oneSlice, next, 1).expand({1, 1});
+      prog.add(Copy(oneSlice.broadcast(tilesForAllTimePartitions, 1),
+                    broadcastLabels.slice(beginOut, endOut)));
+    }
   }
   return broadcastLabels;
 }
