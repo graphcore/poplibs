@@ -417,9 +417,11 @@ public:
     const auto blank = static_cast<OutType>(probability[blankClass]);
     // Suppose we have a sequence: - a - a - b - c - .
     // The non loop part is the result for - c - . Call these X Y Z below
+    // We are writing gradient - the first write of gradient for blank and the
+    // first symbol need not be added to a previous result.
     if (!labelLength) {
       // Writing `Z`
-      grad[blankClass] = logAdd(logMul(betaP1[0], alpha[0]), grad[blankClass]);
+      grad[blankClass] = logMul(betaP1[0], alpha[0]);
       beta[0] = logMul(betaP1[0], blank);
 
       // For use when data is split by label, output this timestep, last label
@@ -436,13 +438,12 @@ public:
     if (doLastBlank) {
       // Write `Y` and `Z`. There is no previous label's beta to use.
       // Writing `Z`
-      grad[blankClass] =
-          logAdd(logMul(betaP1[idx], alpha[idx]), grad[blankClass]);
+      grad[blankClass] = logMul(betaP1[idx], alpha[idx]);
       beta[idx] = logMul(betaP1[idx], blank);
       idx--;
       // Writing `Y`
       auto sum = logAdd(betaP1[idx], betaP1[idx + 1]);
-      grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
+      grad[lastSymbol] = logMul(sum, alpha[idx]);
       beta[idx] = logMul(sum, prob);
     } else {
       // We are not writing the last blank (`Z`) So just write `Y`, which
@@ -453,7 +454,7 @@ public:
         sum = logAdd(sum, betaPrev1);
       }
       beta[idx] = logMul(sum, prob);
-      grad[lastSymbol] = logAdd(logMul(sum, alpha[idx]), grad[lastSymbol]);
+      grad[lastSymbol] = logMul(sum, alpha[idx]);
     }
     idx--;
     // If idx references a symbol's output
@@ -466,6 +467,8 @@ public:
     // Each loop outputs the result for the symbol and a blank, and consumes 1
     // index from the label[] input.
     // The first loop pass processes `X`
+    // When writing gradient, assume that the value in question has already been
+    // written and add to it
     for (unsigned s = 0; s < labelLength - 1; s++) {
       unsigned symbol = labelLength - 2 - s;
       // The blank entry, therefore preceded by a symbol which cannot be
@@ -486,8 +489,12 @@ public:
       idx--;
     }
     // The last blank entry
+    // When writing gradient, with label length 1 (common use case) the value in
+    // question has not been written to so we need not use logAdd
     auto commonSum = logAdd(betaP1[idx], betaP1[idx + 1]);
-    grad[blankClass] = logAdd(logMul(commonSum, alpha[idx]), grad[blankClass]);
+    grad[blankClass] = labelLength == 1 ? logMul(commonSum, alpha[idx])
+                                        : logAdd(logMul(commonSum, alpha[idx]),
+                                                 grad[blankClass]);
     beta[idx] = logMul(commonSum, blank);
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex
@@ -565,6 +572,9 @@ public:
     auto alpha = &alphaPrevTime[oldIdx ^ extendedLabel];
     auto alphaM1 =
         t == 0 ? &alphaPrevPartition[oldIdx] : &alphaPrevTime[oldIdx];
+
+    // We are writing gradient - the first write of gradient for blank and the
+    // first symbol need not be added to a previous result.
     // 1st symbol takes its parents from the alphaPrevLabel input.
     auto alphaPrevLabelValue =
         t == 0 ? alphaPrevLabelTime[0] : alphaPrevLabel[0];
@@ -580,25 +590,23 @@ public:
       if (doLastTimeStep) {
         *loss = alpha[0];
       }
-      grad[blankClass] = logAdd(logMul(sum, beta[0]), grad[blankClass]);
+      grad[blankClass] = logMul(sum, beta[0]);
       // That was the "last blank", there is no part of the label to process
       // so we are done
       return true;
     }
     // Each loop outputs the result for the symbol and a blank, and consumes 1
     // index from the labels[] input.
+    // When writing any gradient result for the first time we need not use
+    // a logAdd.  Structure the code so this happens cleanly in the common
+    // labelLength=1 case.
     unsigned idx = 0;
-    for (unsigned symbol = 1; symbol < labelLength + 1; symbol++) {
-      // If idx references a symbol's output
-      // The blank entry before the symbol (at idx-1) has a result:
-      // pBlank * (alphaM1[idx-1] + alphaM1[idx-2])
-      // The symbol result is
-      // pSym * (alphaM1[idx] + alphaM1[idx-1] + sameSym ? 0: alphaM1[idx-2])
-      // So we only compute commonSum = (alphaM1[idx-1] + alphaM1[idx-2]) once
+    if (labelLength == 1) {
+      const unsigned symbol = 1;
       auto commonSum = logAdd(alphaPrevLabelValue, alphaM1[idx]);
       // The blank entry, therefore preceded by a symbol which cannot be
       // skipped So always combine only 2 probabilities
-      grad[blankClass] = logAdd(logMul(commonSum, beta[idx]), grad[blankClass]);
+      grad[blankClass] = logMul(commonSum, beta[idx]);
       alpha[idx] = logMul(commonSum, blank);
       // Next the non-blank entry, therefore preceded by a blank which can
       // be skipped if the symbol before it is different to this one
@@ -606,11 +614,37 @@ public:
           (label[symbol] == label[symbol - 1]) ? alphaM1[idx] : commonSum;
       idx++;
       sum = logAdd(sum, alphaM1[idx]);
-      grad[label[symbol]] = logAdd(logMul(sum, beta[idx]), grad[label[symbol]]);
+      grad[label[symbol]] = logMul(sum, beta[idx]);
       alpha[idx] =
           logMul(sum, static_cast<OutType>(probability[label[symbol]]));
-      alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
       idx++;
+    } else {
+      for (unsigned symbol = 1; symbol < labelLength + 1; symbol++) {
+        // If idx references a symbol's output
+        // The blank entry before the symbol (at idx-1) has a result:
+        // pBlank * (alphaM1[idx-1] + alphaM1[idx-2])
+        // The symbol result is
+        // pSym * (alphaM1[idx] + alphaM1[idx-1] + sameSym ? 0: alphaM1[idx-2])
+        // So we only compute commonSum = (alphaM1[idx-1] + alphaM1[idx-2]) once
+        auto commonSum = logAdd(alphaPrevLabelValue, alphaM1[idx]);
+        // The blank entry, therefore preceded by a symbol which cannot be
+        // skipped So always combine only 2 probabilities
+        grad[blankClass] =
+            logAdd(logMul(commonSum, beta[idx]), grad[blankClass]);
+        alpha[idx] = logMul(commonSum, blank);
+        // Next the non-blank entry, therefore preceded by a blank which can
+        // be skipped if the symbol before it is different to this one
+        auto sum =
+            (label[symbol] == label[symbol - 1]) ? alphaM1[idx] : commonSum;
+        idx++;
+        sum = logAdd(sum, alphaM1[idx]);
+        grad[label[symbol]] =
+            logAdd(logMul(sum, beta[idx]), grad[label[symbol]]);
+        alpha[idx] =
+            logMul(sum, static_cast<OutType>(probability[label[symbol]]));
+        alphaPrevLabelValue = alphaM1[idx]; // For the next loop pass
+        idx++;
+      }
     }
     // The final blank entry, therefore preceded by a symbol which cannot be
     // skipped. So always combine only 2 probabilities. Last blank in a
