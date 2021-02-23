@@ -158,22 +158,14 @@ std::ostream &operator<<(std::ostream &o, const CycleEstimate &e) {
   o << "Estimated cycles:\n";
   o << "  Alpha/Beta:\n";
   o << "    compute                    " << e.alphaBetaComputeCycles << "\n";
-  o << "    compute count              " << e.alphaBetaSteps << "\n";
-  o << "    intra partition copy cost  " << e.alphaBetaIntraPartitionCost
-    << "\n";
-  o << "    intra partition copy count " << e.alphaBetaIntraPartitionCount
-    << "\n";
-  o << "    trans partition copy cost  " << e.alphaBetaTransPartitionCost
-    << "\n";
-  o << "    trans partition copy count " << e.alphaBetaTransPartitionCount
-    << "\n";
+  o << "    exchange                   " << e.alphaBetaExchangeCycles << "\n";
+  o << "    sync                       " << e.alphaBetaSyncCycles << "\n";
+  o << "    count                      " << e.alphaBetaSteps << "\n";
   o << "  Grad given Alpha/Beta:\n";
   o << "    compute                    " << e.gradComputeCycles << "\n";
-  o << "    compute count              " << e.gradSteps << "\n";
-  o << "    intra partition copy cost  " << e.gradIntraPartitionCost << "\n";
-  o << "    intra partition copy count " << e.gradIntraPartitionCount << "\n";
-  o << "    trans partition copy cost  " << e.gradTransPartitionCost << "\n";
-  o << "    trans partition copy count " << e.gradTransPartitionCount << "\n";
+  o << "    exchange                   " << e.gradExchangeCycles << "\n";
+  o << "    sync                       " << e.gradSyncCycles << "\n";
+  o << "    count                      " << e.gradSteps << "\n";
   o << "  Total:\n";
   if (e.serialVertexExecutions > 1) {
     o << "    serial vertex executions\n"
@@ -182,6 +174,7 @@ std::ostream &operator<<(std::ostream &o, const CycleEstimate &e) {
   }
   o << "    compute                    " << e.totalCompute() << "\n";
   o << "    exchange                   " << e.totalExchange() << "\n";
+  o << "    sync                       " << e.totalSync() << "\n";
   o << "    cycles                     " << e.total() << "\n";
   return o;
 }
@@ -272,50 +265,59 @@ CycleEstimate estimateCycles(const CtcParams &params,
           cache.mGradGivenBetaCycles(timesteps, maxLabelElementsPerPartition)) *
       numWorkers;
 
-  // We model the exchange cost as two distinct exchanges, one when we are not
-  // transitioning a timestep partition boundary, and another when we are. The
-  // exchange cost is the same for alpha/beta/grad stages.
+  // After each compute set, we do the same exchange (slightly different for
+  // alpha/beta and grad phases). Since the exchange is quite small, we model a
+  // fixed overhead which usually dominates the exchange cost.
+  const auto fixedOverheadExchangeCycles = 100;
 
-  // timestep                  0 1 2 3   4 5 6 7   8 9 10 11
-  // partition                [0 1 2 3] [4 5 6 7] [8 9 10 11]
-  // intra partition exchange   x x x     x x x     x x  x
-  // trans partition exchange          x         x
-
-  const auto intraPartitionExchangeCount = maxTimeStepsPerPartition - 1;
-  const auto transPartitionExchangeCount = partitionSteps / 2;
-
+  // There's an exchange of a column of El from the previous timestep (either
+  // already on tile because it is the same timestep partition, or exchanged
+  // across partitions).
+  const auto timePartitionExchangeElements =
+      partition.parallel.time > 2 ? maxLabelElementsPerPartition : 0;
   // There's overlap of +1 for alpha, +2 for beta in each exchange from
-  // neighbouring partitions (of El), otherwise there's implied column El
-  // exchanged from the previous timestep (either already on tile because it is
-  // the same timestep partition, or exchanged across partitions).
-  const auto intraPartitionExchangeElements = (1 + 2);
-  // When crossing a partition (and therefore tile) boundary we need to exchange
-  // a column of the previous extended label as mentioned in previous comment.
-  const auto transPartitionExchangeElements =
-      maxLabelElementsPerPartition + (1 + 2);
+  // neighbouring partitions (of El), we only need consider +2 as the larger
+  // exchange.
+  const auto labelPartitionExchangeElements =
+      partition.parallel.label > 1 ? 2 : 0;
+  // If partitioned in both time and label, we also need to exchange elements
+  // from previous timestep and El label partition
+  const auto labelAndTimePartitionExchangeElements =
+      (partition.parallel.label > 1 && partition.parallel.time > 2) ? 2 : 0;
+  const auto alphaBetaExchangeElements = timePartitionExchangeElements +
+                                         labelPartitionExchangeElements +
+                                         labelAndTimePartitionExchangeElements;
 
-  // We model a fixed overhead for exchange as the exchanges here are quite
-  // small so it is insignificant percentage of the overall exchange cycles
-  const auto fixedIntraPartitionCopyOverhead = 300;
-  const auto fixedTransPartitionCopyOverhead = 100;
+  // For grad calculation we exchange two ping pong buffers of a column of El,
+  // one containing previous timeslices, and the other containing alpha/beta of
+  // the previous time partition. We also have +2 elements as before from
+  // neighbouring partition of El for beta calculation.
+  const auto gradExchangeElements = 2 + 2 * (2 * maxLabelElementsPerPartition);
+
   const unsigned exchangeBytesPerCycle = target.getExchangeBytesPerCycle();
 
-  const auto intraPartitionExchangeCost =
-      fixedIntraPartitionCopyOverhead + intraPartitionExchangeElements *
-                                            target.getTypeSize(params.inType) /
-                                            exchangeBytesPerCycle;
-  const auto transPartitionExchangeCost =
-      fixedTransPartitionCopyOverhead + transPartitionExchangeElements *
-                                            target.getTypeSize(params.inType) /
-                                            exchangeBytesPerCycle;
+  const auto alphaBetaExchangeCost =
+      fixedOverheadExchangeCycles +
+      (alphaBetaExchangeElements * target.getTypeSize(params.outType)) /
+          exchangeBytesPerCycle;
+  const auto gradExchangeCost =
+      fixedOverheadExchangeCycles +
+      (gradExchangeElements * target.getTypeSize(params.outType)) /
+          exchangeBytesPerCycle;
 
-  return {alphaBetaComputeCyclesPerTimestep, alphaOrBetaSteps,
-          intraPartitionExchangeCost,        transPartitionExchangeCost,
-          intraPartitionExchangeCount,       transPartitionExchangeCount,
+  // We also sync prior to each exchange which has approximately the same cost
+  // each time
+  const auto syncCycles = 90;
 
-          gradComputeCyclesPerTimestep,      gradGivenAlphaOrBetaSteps,
-          intraPartitionExchangeCost,        transPartitionExchangeCost,
-          intraPartitionExchangeCount,       transPartitionExchangeCount,
+  return {alphaBetaComputeCyclesPerTimestep,
+          alphaBetaExchangeCost,
+          syncCycles,
+          alphaOrBetaSteps,
+
+          gradComputeCyclesPerTimestep,
+          gradExchangeCost,
+          syncCycles,
+          gradGivenAlphaOrBetaSteps,
 
           serialVertexExecutionsPerStep};
 }

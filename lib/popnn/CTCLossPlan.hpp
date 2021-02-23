@@ -271,18 +271,14 @@ bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept;
 
 struct CycleEstimate {
   uint64_t alphaBetaComputeCycles;
+  uint64_t alphaBetaExchangeCycles;
+  uint64_t alphaBetaSyncCycles;
   unsigned alphaBetaSteps;
-  uint64_t alphaBetaIntraPartitionCost;
-  uint64_t alphaBetaTransPartitionCost;
-  unsigned alphaBetaIntraPartitionCount;
-  unsigned alphaBetaTransPartitionCount;
 
   uint64_t gradComputeCycles;
+  uint64_t gradExchangeCycles;
+  uint64_t gradSyncCycles;
   unsigned gradSteps;
-  uint64_t gradIntraPartitionCost;
-  uint64_t gradTransPartitionCost;
-  unsigned gradIntraPartitionCount;
-  unsigned gradTransPartitionCount;
 
   unsigned serialVertexExecutions;
 
@@ -291,13 +287,17 @@ struct CycleEstimate {
            gradComputeCycles * gradSteps * serialVertexExecutions;
   }
   uint64_t totalExchange() const {
-    return alphaBetaIntraPartitionCost * alphaBetaIntraPartitionCount +
-           alphaBetaTransPartitionCost * alphaBetaTransPartitionCount +
-           gradIntraPartitionCost * gradIntraPartitionCount +
-           gradTransPartitionCost * gradTransPartitionCount;
+    return alphaBetaExchangeCycles * alphaBetaSteps * serialVertexExecutions +
+           gradExchangeCycles * gradSteps * serialVertexExecutions;
+  }
+  uint64_t totalSync() const {
+    return alphaBetaSyncCycles * alphaBetaSteps * serialVertexExecutions +
+           gradSyncCycles * gradSteps * serialVertexExecutions;
   }
 
-  uint64_t total() const { return totalCompute() + totalExchange(); }
+  uint64_t total() const {
+    return totalCompute() + totalExchange() + totalSync();
+  }
 };
 
 // Per tile memory estimate in bytes
