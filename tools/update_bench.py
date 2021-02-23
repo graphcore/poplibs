@@ -82,7 +82,7 @@ def main():
     expected_dict = read_results_file(args.expected_csv)
     number_of_benchmarks = len(expected_dict)
 
-    nproc = os.cpu_count()
+    nproc = len(os.sched_getaffinity(0))
     cmd = [args.test_script, 'poplibs', '-L', 'benchmarks',
            '--output-on-failure', f'-j{nproc}']
     if args.tests_regex:
