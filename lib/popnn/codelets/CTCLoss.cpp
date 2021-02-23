@@ -492,9 +492,10 @@ public:
     // When writing gradient, with label length 1 (common use case) the value in
     // question has not been written to so we need not use logAdd
     auto commonSum = logAdd(betaP1[idx], betaP1[idx + 1]);
-    grad[blankClass] = labelLength == 1 ? logMul(commonSum, alpha[idx])
-                                        : logAdd(logMul(commonSum, alpha[idx]),
-                                                 grad[blankClass]);
+    grad[blankClass] =
+        (labelLength == 1 && !doLastBlank)
+            ? logMul(commonSum, alpha[idx])
+            : logAdd(logMul(commonSum, alpha[idx]), grad[blankClass]);
     beta[idx] = logMul(commonSum, blank);
     // For use when data is split by label, output this timestep, last label
     // result for use by the next vertex

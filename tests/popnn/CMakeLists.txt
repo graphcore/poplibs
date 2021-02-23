@@ -987,6 +987,18 @@ foreach(blank_class 0 4 10)
     VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
+# Specific test asking the grad-given-alpha codelet to do more work
+add_multitarget_test(
+  NAME CTCLossTest_One_Time_Partition_Codelet
+  COMMAND CTCLossTest
+          --batch=1
+          --max-time=16
+          --time=16
+          --max-label-length=4
+          --label-length=4
+          --plan-constraints={\"parallel\":{\"time\":1}}
+  VARIANTS ${IPUMODEL_VARIANTS})
+
 # Edge cases caused by specific partitioning in time or label dimension
 foreach(time_partitions 1 2 3)
   foreach(label_partitions 1 2 3)
