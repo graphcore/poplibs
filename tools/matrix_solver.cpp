@@ -204,12 +204,13 @@ int main(int argc, char **argv) try {
 
   poplar::DebugContext debugContext;
 
+  if (blockSizeParam) {
+    options.set("blockSize", std::to_string(*blockSizeParam));
+  }
+
   if (runCholesky) {
     bRank = 0;
     unitDiagonal = false;
-    if (blockSizeParam) {
-      options.set("blockSize", std::to_string(*blockSizeParam));
-    }
 
     if (!leftSide)
       throw poplar::poplar_error(
@@ -223,8 +224,6 @@ int main(int argc, char **argv) try {
   std::vector<std::size_t> inputBShape{numBatches, leftSide ? aRank : bRank,
                                        leftSide ? bRank : aRank};
 
-  auto blockSize = blockSizeParam ? *blockSizeParam : aRank;
-
   std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>>
       matmulOptPairs;
   if (runCholesky) {
@@ -232,8 +231,7 @@ int main(int argc, char **argv) try {
         dataType, inputAShape, lower, options);
   } else {
     matmulOptPairs = poplin::getTriangularSolveMatMulPrePlanParameters(
-        dataType, dataType, inputAShape, inputBShape, leftSide, lower,
-        blockSize, options);
+        dataType, dataType, inputAShape, inputBShape, leftSide, lower, options);
   }
 
   std::set<poplin::MatMulPlanParams> params;
@@ -248,14 +246,14 @@ int main(int argc, char **argv) try {
   } else {
     inputA = poplin::createTriangularSolveInputLHS(
         graph, dataType, dataType, inputAShape, inputBShape, leftSide,
-        blockSize, debugContext, options, &cache);
+        debugContext, options, &cache);
   }
 
   poplar::Tensor inputB;
   if (!runCholesky) {
     inputB = poplin::createTriangularSolveInputRHS(
         graph, dataType, dataType, inputAShape, inputBShape, leftSide,
-        blockSize, debugContext, options, &cache);
+        debugContext, options, &cache);
   }
 
   poplar::Tensor out;
@@ -265,8 +263,8 @@ int main(int argc, char **argv) try {
     out = inputA;
   } else {
     out = poplin::triangularSolve(graph, inputA, inputB, leftSide, lower,
-                                  unitDiagonal, blockSize, prog, debugContext,
-                                  options, &cache);
+                                  unitDiagonal, prog, debugContext, options,
+                                  &cache);
   }
 
   std::vector<std::pair<std::string, char *>> tmap;

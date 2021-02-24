@@ -9,6 +9,7 @@
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/GraphFunction.hpp"
+#include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include <boost/functional/hash.hpp>
@@ -20,6 +21,21 @@ namespace {
 struct ShapeHash {
   bool operator()(const std::vector<std::size_t> &shape) const {
     return boost::hash_range(shape.begin(), shape.end());
+  }
+};
+
+struct SolveOptions {
+  std::size_t blockSize;
+  poplar::OptionFlags matmulOptions;
+
+  SolveOptions(const poplar::OptionFlags &opts) : blockSize(64) {
+    for (auto &opt : opts) {
+      if (opt.first == "blockSize") {
+        blockSize = poplibs::parse::asInteger<std::size_t>(opt.second);
+      } else {
+        matmulOptions.set(opt.first, opt.second);
+      }
+    }
   }
 };
 
@@ -37,11 +53,11 @@ struct SolveParams {
                      std::unique_ptr<poputil::graphfn::VoidFunction>, ShapeHash>
       matmuls;
 
-  SolveParams(std::size_t k, bool lower, bool unitDiagonal,
-              std::size_t blockSize, poplar::OptionFlags options,
-              matmul::PlanningCache *cache)
-      : k(k), lower(lower), unitDiagonal(unitDiagonal), blockSize(blockSize),
-        options(options), cache(cache), solverSize(0) {}
+  SolveParams(const SolveOptions &options, std::size_t k, bool lower,
+              bool unitDiagonal, matmul::PlanningCache *cache)
+      : k(k), lower(lower), unitDiagonal(unitDiagonal),
+        blockSize(options.blockSize), options(options.matmulOptions),
+        cache(cache), solverSize(0) {}
 
   poplar::Tensor matMul(poplar::Graph &graph, const poplar::Tensor &a,
                         const poplar::Tensor &b, poplar::program::Sequence &seq,
@@ -486,11 +502,13 @@ std::vector<std::size_t> groupedShape(const std::vector<std::size_t> &shape) {
 
 poplar::Tensor createInput(poplar::Graph &graph, poplar::Type type,
                            const std::vector<std::size_t> &shape, bool leftSide,
-                           std::size_t blockSize,
-                           const poplar::DebugContext &debugContext) {
+                           const poplar::DebugContext &debugContext,
+                           const SolveOptions &options) {
   const auto g = shape[0];
   const auto n = shape[leftSide ? 1 : 2];
   const auto m = shape[leftSide ? 2 : 1];
+
+  auto blockSize = options.blockSize;
   if (n <= blockSize) {
     blockSize = 1; // No blocks
   }
@@ -536,8 +554,8 @@ poplar::Tensor createTriangularSolveOutput(
     const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
   auto xGrouped = groupedShape(xShape);
 
-  auto tensor = createInput(graph, inputType, xGrouped, false, blockSize,
-                            {debugContext, "X"});
+  auto tensor = createInput(graph, inputType, xGrouped, false,
+                            {debugContext, "X"}, options);
 
   return tensor.reshape(xShape);
 }
@@ -548,13 +566,13 @@ poplar::Tensor createTriangularSolveInputLHS(
     poplar::Graph &graph, const poplar::Type &inputType,
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide,
-    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
   validateInputs(aShape, bShape, leftSide);
   auto aGrouped = groupedShape(aShape);
 
-  auto tensor = createInput(graph, inputType, aGrouped, leftSide, blockSize,
-                            {debugContext, "A"});
+  auto tensor = createInput(graph, inputType, aGrouped, leftSide,
+                            {debugContext, "A"}, options);
 
   return tensor.reshape(aShape);
 }
@@ -563,7 +581,7 @@ poplar::Tensor createTriangularSolveInputRHS(
     poplar::Graph &graph, const poplar::Type &inputType,
     const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide,
-    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options, matmul::PlanningCache *cache) {
   validateInputs(aShape, bShape, leftSide);
   auto bGrouped = groupedShape(bShape);
@@ -590,7 +608,8 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
 
   validateInput(a.shape());
 
-  SolveParams params(0, lower, unitDiagonal, 0, {}, nullptr);
+  SolveOptions options({});
+  SolveParams params(options, 0, lower, unitDiagonal, nullptr);
 
   auto batchShape = a.shape();
   batchShape.resize(batchShape.size() - 2);
@@ -602,15 +621,20 @@ poplar::Tensor triangularMask(poplar::Graph &graph, const poplar::Tensor &a,
   return output;
 }
 
-poplar::Tensor triangularSolve(
-    poplar::Graph &graph, const poplar::Tensor &a, const poplar::Tensor &b,
-    bool leftSide, bool lower, bool unitDiagonal, std::size_t blockSize,
-    poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
-    poplar::OptionFlags options, matmul::PlanningCache *cache) {
+poplar::Tensor triangularSolve(poplar::Graph &graph, const poplar::Tensor &a,
+                               const poplar::Tensor &b, bool leftSide,
+                               bool lower, bool unitDiagonal,
+                               poplar::program::Sequence &prog,
+                               const poplar::DebugContext &debugContext,
+                               const poplar::OptionFlags &options,
+                               matmul::PlanningCache *cache) {
   poputil::PoplibsOpDebugInfo di(
       debugContext,
-      DI_ARGS(a, b, leftSide, lower, unitDiagonal, blockSize, options, cache));
+      DI_ARGS(a, b, leftSide, lower, unitDiagonal, options, cache));
 
+  SolveOptions solveOptions(options);
+
+  auto blockSize = solveOptions.blockSize;
   if (blockSize == 0) {
     throw poputil::poplibs_error("blockSize must be greater than zero");
   }
@@ -631,7 +655,7 @@ poplar::Tensor triangularSolve(
   // even though cache == null, matmul could benefit of planning cache,
   // provide local ephemeral cache for the solver only.
   matmul::PlanningCache localCache;
-  SolveParams params(bn, lower, unitDiagonal, blockSize, options,
+  SolveParams params(solveOptions, bn, lower, unitDiagonal,
                      cache ? cache : &localCache);
 
   bool needPadding = an > blockSize;
@@ -743,8 +767,11 @@ getTriangularSolveMatMulPrePlanParameters(
     const poplar::Type &inputType, const poplar::Type &outputType,
     const std::vector<std::size_t> &aShape,
     const std::vector<std::size_t> &bShape, bool leftSide, bool lower,
-    std::size_t blockSize, poplar::OptionFlags opts) {
+    const poplar::OptionFlags &options) {
   std::vector<std::pair<poplin::MatMulParams, poplar::OptionFlags>> matmuls;
+
+  SolveOptions solveOptions(options);
+  auto blockSize = solveOptions.blockSize;
 
   const auto [an, bn] = validateInputs(aShape, bShape, leftSide);
   bool blocked = an > blockSize;
@@ -798,10 +825,56 @@ getTriangularSolveMatMulPrePlanParameters(
   }
 
   for (auto &params : paramSet) {
-    matmuls.emplace_back(params, opts);
+    matmuls.emplace_back(params, solveOptions.matmulOptions);
   }
 
   return matmuls;
+}
+
+// Deprecated
+poplar::Tensor createTriangularSolveInputLHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    poplar::OptionFlags options, matmul::PlanningCache *cache) {
+  options.set("blockSize", std::to_string(blockSize));
+  return createTriangularSolveInputLHS(graph, inputType, outputType, aShape,
+                                       bShape, leftSide, debugContext, options,
+                                       cache);
+}
+
+poplar::Tensor createTriangularSolveInputRHS(
+    poplar::Graph &graph, const poplar::Type &inputType,
+    const poplar::Type &outputType, const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide,
+    std::size_t blockSize, const poplar::DebugContext &debugContext,
+    poplar::OptionFlags options, matmul::PlanningCache *cache) {
+  options.set("blockSize", std::to_string(blockSize));
+  return createTriangularSolveInputRHS(graph, inputType, outputType, aShape,
+                                       bShape, leftSide, debugContext, options,
+                                       cache);
+}
+
+poplar::Tensor triangularSolve(
+    poplar::Graph &graph, const poplar::Tensor &a, const poplar::Tensor &b,
+    bool leftSide, bool lower, bool unitDiagonal, std::size_t blockSize,
+    poplar::program::Sequence &prog, const poplar::DebugContext &debugContext,
+    poplar::OptionFlags options, matmul::PlanningCache *cache) {
+  options.set("blockSize", std::to_string(blockSize));
+  return triangularSolve(graph, a, b, leftSide, lower, unitDiagonal, prog,
+                         debugContext, options, cache);
+}
+
+std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
+getTriangularSolveMatMulPrePlanParameters(
+    const poplar::Type &inputType, const poplar::Type &outputType,
+    const std::vector<std::size_t> &aShape,
+    const std::vector<std::size_t> &bShape, bool leftSide, bool lower,
+    std::size_t blockSize, poplar::OptionFlags options) {
+  options.set("blockSize", std::to_string(blockSize));
+  return getTriangularSolveMatMulPrePlanParameters(
+      inputType, outputType, aShape, bShape, leftSide, lower, options);
 }
 
 } // namespace poplin
