@@ -179,8 +179,8 @@ IpuModel1,default,inception_tr_bs4_layer5,245922,0.0,227543172,0.0,199760,0.0
 IpuModel1,default,inception_tr_bs4_layer8,98044,0.0,116091479,0.0,153976,0.0
 IpuModel1,default,lstm_16_25_1024_1024_half,408080,0.0,42705636,-0.0,133976,0.0
 IpuModel1,default,lstm_16_25_1024_1024_half_shuffled_cell_order,408080,0.0,42705636,-0.0,133976,0.0
-IpuModel1,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1257408,-0.0,66599886,0.0,145432,0.0
-IpuModel1,default,lstm_16_25_1024_1024_half_train,1257408,-0.0,66599886,0.0,145432,0.0
+IpuModel1,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1257708,0.0,66599886,0.0,145432,0.0
+IpuModel1,default,lstm_16_25_1024_1024_half_train,1257708,0.0,66599886,0.0,145432,0.0
 IpuModel1,default,lstm_8_25_1024_1024_float,452531,-0.1,44156918,0.0,134552,0.0
 IpuModel1,default,lstm_8_25_1024_1024_float_shuffled_cell_order,452531,-0.1,44156918,0.0,134552,0.0
 IpuModel1,default,lstm_8_25_1024_1024_float_shuffled_cell_order_train,1676696,-0.4,117329834,0.8,159768,0.0
@@ -453,8 +453,8 @@ IpuModel2,default,inception_tr_bs4_layer5,218869,0.0,181421253,-0.0,231448,0.0
 IpuModel2,default,inception_tr_bs4_layer8,85605,0.0,141761387,0.0,231896,0.0
 IpuModel2,default,lstm_16_25_1024_1024_half,334603,-7.9,36073260,-18.5,218776,1.4
 IpuModel2,default,lstm_16_25_1024_1024_half_shuffled_cell_order,334603,-7.9,36073260,-18.5,218776,1.4
-IpuModel2,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1153875,0.5,67745876,-0.5,225304,0.0
-IpuModel2,default,lstm_16_25_1024_1024_half_train,1153875,0.5,67745876,-0.5,225304,0.0
+IpuModel2,default,lstm_16_25_1024_1024_half_shuffled_cell_order_train,1154175,0.0,67745876,0.0,225304,0.0
+IpuModel2,default,lstm_16_25_1024_1024_half_train,1154175,0.0,67745876,0.0,225304,0.0
 IpuModel2,default,lstm_8_25_1024_1024_float,418054,3.6,43453948,-1.8,215704,-0.1
 IpuModel2,default,lstm_8_25_1024_1024_float_shuffled_cell_order,418054,3.6,43453948,-1.8,215704,-0.1
 IpuModel2,default,lstm_8_25_1024_1024_float_shuffled_cell_order_train,1521991,-0.0,118314220,0.0,237592,0.0
