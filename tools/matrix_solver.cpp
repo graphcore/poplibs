@@ -200,12 +200,16 @@ int main(int argc, char **argv) try {
 
   poplin::matmul::PlanningCache cache;
   poplar::program::Sequence uploadProg, prog, downloadProg;
+  poplar::OptionFlags options;
 
   poplar::DebugContext debugContext;
 
   if (runCholesky) {
     bRank = 0;
     unitDiagonal = false;
+    if (blockSizeParam) {
+      options.set("blockSize", std::to_string(*blockSizeParam));
+    }
 
     if (!leftSide)
       throw poplar::poplar_error(
@@ -225,11 +229,11 @@ int main(int argc, char **argv) try {
       matmulOptPairs;
   if (runCholesky) {
     matmulOptPairs = poplin::getCholeskyMatMulPrePlanParameters(
-        dataType, inputAShape, lower, blockSize, {});
+        dataType, inputAShape, lower, options);
   } else {
     matmulOptPairs = poplin::getTriangularSolveMatMulPrePlanParameters(
         dataType, dataType, inputAShape, inputBShape, leftSide, lower,
-        blockSize, {});
+        blockSize, options);
   }
 
   std::set<poplin::MatMulPlanParams> params;
@@ -240,29 +244,29 @@ int main(int argc, char **argv) try {
   poplar::Tensor inputA;
   if (runCholesky) {
     inputA = poplin::createCholeskyInput(graph, dataType, inputAShape, lower,
-                                         blockSize, debugContext, {}, &cache);
+                                         debugContext, options, &cache);
   } else {
     inputA = poplin::createTriangularSolveInputLHS(
         graph, dataType, dataType, inputAShape, inputBShape, leftSide,
-        blockSize, debugContext, {}, &cache);
+        blockSize, debugContext, options, &cache);
   }
 
   poplar::Tensor inputB;
   if (!runCholesky) {
     inputB = poplin::createTriangularSolveInputRHS(
         graph, dataType, dataType, inputAShape, inputBShape, leftSide,
-        blockSize, debugContext, {}, &cache);
+        blockSize, debugContext, options, &cache);
   }
 
   poplar::Tensor out;
   if (runCholesky) {
-    poplin::choleskyInPlace(graph, inputA, lower, blockSize, prog, debugContext,
-                            {}, &cache);
+    poplin::choleskyInPlace(graph, inputA, lower, prog, debugContext, options,
+                            &cache);
     out = inputA;
   } else {
     out = poplin::triangularSolve(graph, inputA, inputB, leftSide, lower,
                                   unitDiagonal, blockSize, prog, debugContext,
-                                  {}, &cache);
+                                  options, &cache);
   }
 
   std::vector<std::pair<std::string, char *>> tmap;

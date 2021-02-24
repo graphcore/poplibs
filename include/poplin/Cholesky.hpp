@@ -23,17 +23,17 @@ class PlanningCache;
  * \param type       The data type of the input tensor.
  * \param shape      The shape of the input tensor.
  * \param lower      Lower triangular matrix if true, else upper triangular.
- * \param blockSize  Block size for blocked solver.
  * \param options    A structure describing options on how the
- *                   multiplication should be implemented.
- *                   See matMul() for details.
+ *                   decomposition should be implemented.
+ *                   Supported options:
+ *                      'blockSize' - blockSize hint
+ *                   See matMul() for additional options.
  * \returns          Matmul preplan parameters.
  */
 std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
                                    const std::vector<std::size_t> &shape,
-                                   bool lower, std::size_t blockSize,
-                                   poplar::OptionFlags options);
+                                   bool lower, poplar::OptionFlags options);
 
 /**
  * Create a tensor that is used as the input for the cholesky solver.
@@ -45,11 +45,12 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
  * \param graph           The Poplar graph.
  * \param type            The input data type.
  * \param shape           The shape of the tensor.
- * \param blockSize       Block size for blocked solver.
  * \param debugContext    Debug information.
  * \param options         A structure describing options on how the
- *                        multiplication should be implemented.
- *                        See matMul() for details.
+ *                        decomposition should be implemented.
+ *                        Supported options:
+ *                          'blockSize' - blockSize hint
+ *                        See matMul() for additional options.
  * \param cache           Optional pointer to a planning cache to use.
  *
  * \returns               A matrix of type \p type and shape \p shape. The
@@ -58,7 +59,7 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
 poplar::Tensor createCholeskyInput(poplar::Graph &graph,
                                    const poplar::Type &type,
                                    const std::vector<std::size_t> &shape,
-                                   bool lower, std::size_t blockSize,
+                                   bool lower,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &options = {},
                                    matmul::PlanningCache *cache = nullptr);
@@ -70,22 +71,21 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
  *  \param a              Tensor of floating-point type with shape [..., N,N].
  *  \param lower          If true, return a lower triangular matrix, else return
  *                        an upper triangular matrix.
- *  \param blockSize      Block size to use when
- *                        factorizing the tensor
  *  \param prog           A reference to a program
  *                        sequence which the code to perform the arrangement
  *                        will be appended to.
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
- *                        multiplication should be implemented.
- *                        See matMul() for details.
+ *                        decomposition should be implemented.
+ *                        Supported options:
+ *                          'blockSize' - blockSize hint
+ *                        See matMul() for additional options.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              A tensor with the same shape as \p a with a
  *                        triangular factor.
  */
 poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
-                        bool lower, std::size_t blockSize,
-                        poplar::program::Sequence &prog,
+                        bool lower, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext = {},
                         poplar::OptionFlags options = {},
                         matmul::PlanningCache *cache = nullptr);
@@ -97,20 +97,20 @@ poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
  *  \param a              Tensor of floating-point type with shape [..., N,N].
  *  \param lower          If true, return a lower triangular matrix, else return
  *                        an upper triangular matrix.
- *  \param blockSize      Block size to use when
- *                        factorizing the tensor
  *  \param prog           A reference to a program
  *                        sequence which the code to perform the arrangement
  *                        will be appended to.
  *  \param debugContext   Optional debug information.
  *  \param options        A structure describing options on how the
- *                        multiplication should be implemented.
- *                        See matMul() for details.
+ *                        decomposition should be implemented.
+ *                        Supported options:
+ *                          'blockSize' - blockSize hint
+ *                        See matMul() for additional options.
  *  \param cache          Optional pointer to a planning cache to use.
  *  \returns              None
  */
 void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
-                     std::size_t blockSize, poplar::program::Sequence &prog,
+                     poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext = {},
                      poplar::OptionFlags options = {},
                      matmul::PlanningCache *cache = nullptr);

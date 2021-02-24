@@ -12,6 +12,7 @@
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/GraphFunction.hpp"
+#include "poputil/OptionParsing.hpp"
 #include "poputil/TileMapping.hpp"
 #include "poputil/exceptions.hpp"
 #include <sstream>
@@ -23,15 +24,34 @@ namespace {
 
 using VoidFunctionPtr = std::unique_ptr<poputil::graphfn::VoidFunction>;
 
+struct CholeskyOptions {
+  std::size_t blockSize;
+  poplar::OptionFlags matmulOptions;
+
+  CholeskyOptions(const poplar::OptionFlags &opts, std::size_t maxBlockSize)
+      : blockSize(64) {
+    for (auto &opt : opts) {
+      if (opt.first == "blockSize") {
+        blockSize = poplibs::parse::asInteger<std::size_t>(opt.second);
+      } else {
+        matmulOptions.set(opt.first, opt.second);
+      }
+    }
+    if (blockSize > maxBlockSize)
+      blockSize = maxBlockSize;
+  }
+};
+
 struct CholeskyParams {
   bool lower;
   std::size_t blockSize;
   poplar::OptionFlags options;
   matmul::PlanningCache *cache;
 
-  CholeskyParams(bool lower, std::size_t blockSize, poplar::OptionFlags options,
+  CholeskyParams(bool lower, const CholeskyOptions &options,
                  matmul::PlanningCache *cache)
-      : lower(lower), blockSize(blockSize), options(options), cache(cache) {}
+      : lower(lower), blockSize(options.blockSize),
+        options(options.matmulOptions), cache(cache) {}
 };
 
 void validateInput(std::vector<uint64_t> shape) {
@@ -272,21 +292,22 @@ std::vector<std::size_t> groupedShape(const std::vector<std::size_t> &shape) {
 
 void computePrePlanParametersNonBlocked(
     const poplar::Type &type, std::size_t g, std::size_t n,
-    poplar::OptionFlags &options, std::set<poplin::MatMulParams> &paramSet) {
+    const CholeskyOptions &options, std::set<poplin::MatMulParams> &paramSet) {
   // No matmuls at the moment
 }
 
 void computePrePlanParametersBlocked(const poplar::Type &type, std::size_t g,
-                                     std::size_t n, std::size_t b, bool lower,
-                                     poplar::OptionFlags &options,
+                                     std::size_t n, bool lower,
+                                     const CholeskyOptions &options,
                                      std::set<poplin::MatMulParams> &paramSet) {
+  auto b = options.blockSize;
   if (n <= b) {
-    computePrePlanParametersNonBlocked(type, g, b, options, paramSet);
+    computePrePlanParametersNonBlocked(type, g, n, options, paramSet);
     return;
   }
 
   // factorise A11
-  computePrePlanParametersNonBlocked(type, g, b, options, paramSet);
+  computePrePlanParametersNonBlocked(type, g, n, options, paramSet);
 
   if (lower) {
     // A21 * inv(transpose(A11))
@@ -303,7 +324,7 @@ void computePrePlanParametersBlocked(const poplar::Type &type, std::size_t g,
   }
 
   // A22
-  computePrePlanParametersBlocked(type, g, n - b, b, lower, options, paramSet);
+  computePrePlanParametersBlocked(type, g, n - b, lower, options, paramSet);
 }
 
 } // anonymous namespace
@@ -311,8 +332,7 @@ void computePrePlanParametersBlocked(const poplar::Type &type, std::size_t g,
 std::vector<std::pair<MatMulParams, poplar::OptionFlags>>
 getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
                                    const std::vector<std::size_t> &shape,
-                                   bool lower, std::size_t blockSize,
-                                   poplar::OptionFlags options) {
+                                   bool lower, poplar::OptionFlags options) {
   validateInput(shape);
   auto gshape = groupedShape(shape);
 
@@ -320,14 +340,14 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
   auto n = gshape[1];
 
   std::set<poplin::MatMulParams> paramSet;
+  CholeskyOptions choleskyOptions(options, n);
 
-  computePrePlanParametersBlocked(type, g, n, blockSize, lower, options,
-                                  paramSet);
+  computePrePlanParametersBlocked(type, g, n, lower, choleskyOptions, paramSet);
 
   std::vector<std::pair<MatMulParams, poplar::OptionFlags>> matmulParams;
 
   for (auto &param : paramSet) {
-    matmulParams.emplace_back(param, options);
+    matmulParams.emplace_back(param, choleskyOptions.matmulOptions);
   }
 
   return matmulParams;
@@ -336,7 +356,7 @@ getCholeskyMatMulPrePlanParameters(const poplar::Type &type,
 poplar::Tensor createCholeskyInput(poplar::Graph &graph,
                                    const poplar::Type &type,
                                    const std::vector<std::size_t> &shape,
-                                   bool lower, std::size_t blockSize,
+                                   bool lower,
                                    const poplar::DebugContext &debugContext,
                                    const poplar::OptionFlags &options,
                                    matmul::PlanningCache *cache) {
@@ -350,6 +370,9 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
   if (m != n)
     throw poputil::poplibs_error(
         "createCholeskyInput: last two dimensions must be of the same size.");
+
+  CholeskyOptions choleskyOptions(options, n);
+  auto blockSize = choleskyOptions.blockSize;
 
   const auto nb = poplibs_support::ceildiv(n, blockSize);
 
@@ -371,7 +394,7 @@ poplar::Tensor createCholeskyInput(poplar::Graph &graph,
 }
 
 void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
-                     std::size_t blockSize, poplar::program::Sequence &prog,
+                     poplar::program::Sequence &prog,
                      const poplar::DebugContext &debugContext,
                      poplar::OptionFlags options,
                      matmul::PlanningCache *cache) {
@@ -386,30 +409,26 @@ void choleskyInPlace(poplar::Graph &graph, const poplar::Tensor &a, bool lower,
   else
     As = a.reshape({1, a.dim(rank - 2), a.dim(rank - 1)});
 
-  if (blockSize > As.dim(1)) {
-    blockSize = As.dim(1);
-  }
+  CholeskyOptions choleskyOptions(options, As.dim(1));
 
   matmul::PlanningCache localCache;
-  CholeskyParams params(lower, blockSize, options, cache ? cache : &localCache);
+  CholeskyParams params(lower, choleskyOptions, cache ? cache : &localCache);
 
   factoriseBlocked(graph, As, prog, {di, "factoriseBlockedTop"}, params);
   maskOutput(graph, As, prog, {di, "maskOutput"}, params);
 }
 
 poplar::Tensor cholesky(poplar::Graph &graph, const poplar::Tensor &a,
-                        bool lower, std::size_t blockSize,
-                        poplar::program::Sequence &prog,
+                        bool lower, poplar::program::Sequence &prog,
                         const poplar::DebugContext &debugContext,
                         poplar::OptionFlags options,
                         matmul::PlanningCache *cache) {
 
   auto a2 = createCholeskyInput(graph, a.elementType(), a.shape(), lower,
-                                blockSize, debugContext, options, cache);
+                                debugContext, options, cache);
   prog.add(poplar::program::Copy(a, a2));
 
-  choleskyInPlace(graph, a2, lower, blockSize, prog, debugContext, options,
-                  cache);
+  choleskyInPlace(graph, a2, lower, prog, debugContext, options, cache);
 
   return a2;
 }

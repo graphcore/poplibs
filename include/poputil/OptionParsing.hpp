@@ -21,6 +21,34 @@
 /// PopLibs classes and functions
 namespace poplibs {
 
+namespace parse {
+template <typename T> T asInteger(const poplar::StringRef &str) {
+  std::string stdStr = str.cloneAsString();
+  std::istringstream iss(stdStr);
+  T result;
+  if (stdStr.find("0x") != std::string::npos) {
+    iss >> std::hex >> result;
+  } else {
+    iss >> std::dec >> result;
+  }
+  if (iss.fail() || !iss.eof()) {
+    throw poplar::invalid_option("Not a valid integer");
+  }
+  return result;
+}
+
+template <typename T> T asFloatingPoint(const poplar::StringRef &str) {
+  std::stringstream s(str);
+  T result;
+  s >> result;
+  if (s.fail()) {
+    throw poplar::invalid_option("Not a floating point number");
+  }
+  return result;
+}
+
+} // namespace parse
+
 /** Represents the various options types.
  *
  */
@@ -69,18 +97,7 @@ public:
   template <typename T>
   static inline OptionHandler createWithInteger(T &output) {
     return OptionHandler{[&output](poplar::StringRef value) {
-      auto stdStr = value.cloneAsString();
-      int result;
-      std::istringstream iss(stdStr);
-      if (stdStr.find("0x") != std::string::npos) {
-        iss >> std::hex >> result;
-      } else {
-        iss >> std::dec >> result;
-      }
-      if (iss.fail() || !iss.eof()) {
-        throw poplar::invalid_option("Not a valid integer");
-      }
-      output = result;
+      output = parse::asInteger<int>(value);
     }};
   }
 
@@ -93,13 +110,7 @@ public:
   template <typename T>
   static inline OptionHandler createWithDouble(T &output) {
     return OptionHandler{[&output](poplar::StringRef value) {
-      std::stringstream s(value);
-      double val;
-      s >> val;
-      if (s.fail()) {
-        throw poplar::invalid_option("Not a floating point number");
-      }
-      output = val;
+      output = parse::asFloatingPoint<double>(value);
     }};
   }
 

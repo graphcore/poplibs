@@ -83,8 +83,9 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
                                     prog, T.elementType());
   graph.createHostRead("A", A);
 
+  poplar::OptionFlags options{{"blockSize", std::to_string(blockSize)}};
   auto matmulOptPairs = getCholeskyMatMulPrePlanParameters(
-      A.elementType(), A.shape(), lower, blockSize, {});
+      A.elementType(), A.shape(), lower, options);
 
   std::set<MatMulPlanParams> params;
   for (auto &pair : matmulOptPairs)
@@ -93,10 +94,16 @@ BOOST_DATA_TEST_CASE(CholeskyTest,
   preplanMatMuls(params, cache);
   BOOST_TEST(cache.size() == matmulOptPairs.size());
 
+  if (N > blockSize) {
+    BOOST_TEST(cache.size() > 0);
+  } else {
+    BOOST_TEST(cache.size() == 0);
+  }
+
   poplar::DebugContext debugContext;
 
-  auto T2 = poplin::cholesky(graph, A, lower, blockSize, prog, debugContext, {},
-                             &cache);
+  auto T2 =
+      poplin::cholesky(graph, A, lower, prog, debugContext, options, &cache);
   BOOST_TEST(cache.size() == matmulOptPairs.size());
 
   auto A2 =
