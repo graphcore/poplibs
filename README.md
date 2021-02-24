@@ -73,9 +73,9 @@ For more information, see: https://www.boost.org/doc/libs/1_70_0/more/getting_st
 
 ### Zoltan Version 3.83 (or compatible with, optional but needed to build popsparse)
 
-PopLibs' sparsity support (popsparse) comes in two flavours: static and dynamic. Zoltan (http://www.cs.sandia.gov/Zoltan/) is a third party computational graph partitioning tool that is used to generate efficient parallel graphs for static sparsity problems. Even if you are only using the dynamic sparsity support in popsparse, you will still need to acquire and build Zoltan to build popsparse.
+The sparsity support in PopLibs (popsparse) comes in two flavours: static and dynamic. Zoltan (https://cs.sandia.gov/Zoltan/) is a third party computational graph partitioning tool that is used to generate efficient parallel graphs for static sparsity problems. Even if you are only using the dynamic sparsity support in popsparse, you will still need to acquire and build Zoltan to build popsparse.
 
-Acquire Zoltan from http://www.cs.sandia.gov/Zoltan/ under the LGPL license then build and install it as follows:
+Acquire Zoltan from https://cs.sandia.gov/Zoltan/ under the LGPL license then build and install it as follows:
 
 On Ubuntu 18.04:
 
