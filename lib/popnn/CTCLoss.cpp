@@ -310,7 +310,6 @@ void mapAccordingToPlan(Graph &graph, const Tensor &tensor,
     }
   }
 }
-
 void mapDataInputAccordingToPlan(Graph &graph, const Tensor &tensor,
                                  const popnn::ctc::Plan::Impl &plan) {
   // Map the data input according to the plan, but the innermost dimension
@@ -1039,11 +1038,11 @@ poplar::Tensor createDataInput(poplar::Graph &graph, const poplar::Type &type,
   logging::popnn::debug("Creating data tensor for CTC Loss with Time:{}"
                         " Batches:{} Classes:{}",
                         maxTime, batchSize, numClasses);
-  const auto data =
-      graph.addVariable(type, {maxTime, batchSize, numClasses}, {di, "data"});
-  mapDataInputAccordingToPlan(graph, toInternalShape(data), plan.getImpl());
+  const auto data = graph.addVariable(type, {1, batchSize, maxTime, numClasses},
+                                      {di, "data"});
+  mapDataInputAccordingToPlan(graph, data, plan.getImpl());
   di.addOutput(data);
-  return data;
+  return toExternalShape(data.squeeze({0}));
 }
 
 poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
