@@ -235,10 +235,9 @@ int main(int argc, char **argv) try {
   auto device = createTestDevice(deviceType, 1, tilesPerIPU, alwaysCompileCode);
   const auto &target = device.getTarget();
   Graph graph(target);
+  popops::addCodelets(graph);
   if (api == API::Popnn) {
     popnn::addCodelets(graph);
-  } else if (api == API::Popops || api == API::PopopsSort) {
-    popops::addCodelets(graph);
   }
 
   const std::vector<std::size_t> inShape = {batchSize, n};
@@ -257,10 +256,13 @@ int main(int argc, char **argv) try {
   if (api == API::Popnn) {
     const bool sorted = sortOrder != popops::SortOrder::NONE;
     outValues = popnn::topK(graph, in, outIndices, k, sorted, prog, "top-k");
-    // Weirdly this interface seems to return the partials dimension as part of
-    // the result, even though this is always 1?
+    // For some reason the popnn topK API leaves a singleton dimension due
+    // to an implementation detail so we get a 3-dimensional tensor back
+    // that we must squeeze.
     outValues = outValues.squeeze({1});
-    outIndices = outIndices.squeeze({1});
+    if (returnIndices) {
+      outIndices = outIndices.squeeze({1});
+    }
   } else if (api == API::Popops) {
     const popops::TopKParams params(k, largest, sortOrder);
     if (returnIndices) {

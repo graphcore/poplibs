@@ -5,6 +5,8 @@
 #include <poplibs_support/Algorithms.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Reduce.hpp>
+#include <popops/TopK.hpp>
+#include <poputil/Util.hpp>
 #include <poputil/VertexTemplates.hpp>
 #include <poputil/exceptions.hpp>
 
@@ -265,10 +267,20 @@ poplar::Tensor sort(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
                     const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(t, dim));
 
-  poplar::Tensor result = graph.clone(t, {di});
-  prog.add(poplar::program::Copy(t, result, false, {di}));
+  poplar::Tensor result;
+  if (t.elementType() == poplar::FLOAT || t.elementType() == poplar::HALF) {
+    const auto n = t.dim(dim);
+    const bool largest = true;
+    const popops::TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+    auto in = t.dimRoll(dim, t.rank() - 1);
+    result = popops::topK(graph, prog, in, params, {di});
+    result = result.dimRoll(result.rank() - 1, dim);
+  } else {
+    result = graph.clone(t, {di});
+    prog.add(poplar::program::Copy(t, result, false, {di}));
 
-  sortInPlace(graph, result, dim, prog, {di});
+    sortInPlace(graph, result, dim, prog, {di});
+  }
   di.addOutput(result);
   return result;
 }
@@ -284,27 +296,39 @@ void sortInPlace(poplar::Graph &graph, const poplar::Tensor &t, unsigned dim,
         "dimension in the input tensor");
   }
 
-  poplar::Tensor tView = flattenDimension(t, dim);
-  poplar::ComputeSet sortCS = sortSlice(graph, tView, {di});
+  if (t.elementType() == poplar::FLOAT || t.elementType() == poplar::HALF) {
+    const auto n = t.dim(dim);
+    const bool largest = true;
+    const popops::TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+    auto in = t.dimRoll(dim, t.rank() - 1);
+    // We just use the non in-place API with a copy after the fact
+    // as with bitonic sort there is not much difference.
+    auto result = popops::topK(graph, prog, in, params, {di});
+    result = result.dimRoll(result.rank() - 1, dim);
+    prog.add(poplar::program::Copy(result, t));
+  } else {
+    poplar::Tensor tView = flattenDimension(t, dim);
+    poplar::ComputeSet sortCS = sortSlice(graph, tView, {di});
 
-  poplar::program::Sequence sortStep({}, {di});
+    poplar::program::Sequence sortStep({}, {di});
 
-  // swap the even interval edges
-  sortStep.add(createEvenExchange(graph, tView, {di}));
+    // swap the even interval edges
+    sortStep.add(createEvenExchange(graph, tView, {di}));
 
-  // swap the odd interval edges
-  sortStep.add(createOddExchange(graph, tView, {di}));
+    // swap the odd interval edges
+    sortStep.add(createOddExchange(graph, tView, {di}));
 
-  // Sort each interval
-  sortStep.add(poplar::program::Execute(sortCS, {di}));
+    // Sort each interval
+    sortStep.add(poplar::program::Execute(sortCS, {di}));
 
-  // Perform an initial sort of each interval
-  prog.add(poplar::program::Execute(sortCS, {di}));
+    // Perform an initial sort of each interval
+    prog.add(poplar::program::Execute(sortCS, {di}));
 
-  // Repeat the sort step until all edges are in order
-  poplar::program::Sequence cond({}, {di});
-  poplar::Tensor pred = isNotSortedPredicate(graph, cond, tView, {di});
-  prog.add(poplar::program::RepeatWhileTrue(cond, pred, sortStep, {di}));
+    // Repeat the sort step until all edges are in order
+    poplar::program::Sequence cond({}, {di});
+    poplar::Tensor pred = isNotSortedPredicate(graph, cond, tView, {di});
+    prog.add(poplar::program::RepeatWhileTrue(cond, pred, sortStep, {di}));
+  }
 }
 
 poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
@@ -312,13 +336,27 @@ poplar::Tensor sortKeyValue(poplar::Graph &graph, const poplar::Tensor &k,
                             poplar::program::Sequence &prog,
                             const poplar::DebugContext &debugContext) {
   poputil::PoplibsOpDebugInfo di(debugContext, DI_ARGS(k, v, dim));
-  poplar::Tensor key = graph.clone(k, {di});
-  poplar::Tensor value = graph.clone(v, {di});
 
-  prog.add(poplar::program::Copy(k, key, false, {di}));
-  prog.add(poplar::program::Copy(v, value, false, {di}));
+  auto key = k;
+  auto value = v;
+  if (v.elementType() == poplar::UNSIGNED_INT &&
+      (k.elementType() == poplar::FLOAT || k.elementType() == poplar::HALF)) {
+    // k == n for full sort.
+    const auto n = k.dim(dim);
+    const bool largest = true;
+    const TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+    key = key.dimRoll(dim, key.rank() - 1);
+    value = value.dimRoll(dim, value.rank() - 1);
+    std::tie(key, value) =
+        popops::topKKeyValue(graph, prog, key, value, params, {di});
+    key = key.dimRoll(key.rank() - 1, dim);
+    value = value.dimRoll(value.rank() - 1, dim);
+  } else {
+    key = poputil::duplicate(graph, key, prog, {di});
+    value = poputil::duplicate(graph, value, prog, {di});
+    sortKeyValueInPlace(graph, key, value, dim, prog, {di});
+  }
 
-  sortKeyValueInPlace(graph, key, value, dim, prog, {di});
   di.addOutput(value);
   return value;
 }
@@ -339,30 +377,48 @@ void sortKeyValueInPlace(poplar::Graph &graph, const poplar::Tensor &k,
         "dimension in the input tensor");
   }
 
-  poplar::Tensor keyView = flattenDimension(k, dim);
-  poplar::Tensor valueView = flattenDimension(v, dim);
+  if (v.elementType() == poplar::UNSIGNED_INT &&
+      (k.elementType() == poplar::FLOAT || k.elementType() == poplar::HALF)) {
+    const auto n = k.dim(dim);
+    const bool largest = true;
+    const TopKParams params(n, largest, popops::SortOrder::ASCENDING);
+    auto key = k.dimRoll(dim, k.rank() - 1);
+    auto value = v.dimRoll(dim, v.rank() - 1);
+    // We just use the non in-place API with a copy after the fact
+    // as with bitonic sort there is not much difference.
+    std::tie(key, value) =
+        popops::topKKeyValue(graph, prog, key, value, params, {di});
+    key = key.dimRoll(key.rank() - 1, dim);
+    value = value.dimRoll(value.rank() - 1, dim);
 
-  poplar::ComputeSet sortCS = sortSlice(graph, keyView, valueView, {di});
+    prog.add(poplar::program::Copy(std::move(key), k));
+    prog.add(poplar::program::Copy(std::move(value), v));
+  } else {
+    poplar::Tensor keyView = flattenDimension(k, dim);
+    poplar::Tensor valueView = flattenDimension(v, dim);
 
-  poplar::program::Sequence sortStep({}, {di});
+    poplar::ComputeSet sortCS = sortSlice(graph, keyView, valueView, {di});
 
-  // swap the even interval edges
-  sortStep.add(createEvenExchange(graph, keyView, valueView, {di}));
+    poplar::program::Sequence sortStep({}, {di});
 
-  // swap the odd interval edges
-  sortStep.add(createOddExchange(graph, keyView, valueView, {di}));
+    // swap the even interval edges
+    sortStep.add(createEvenExchange(graph, keyView, valueView, {di}));
 
-  // Sort each interval
-  sortStep.add(poplar::program::Execute(sortCS, {di}));
+    // swap the odd interval edges
+    sortStep.add(createOddExchange(graph, keyView, valueView, {di}));
 
-  // Perform an initial sort of each interval
-  prog.add(poplar::program::Execute(sortCS, {di}));
+    // Sort each interval
+    sortStep.add(poplar::program::Execute(sortCS, {di}));
 
-  // Repeat the sort step until all edges are in order
-  poplar::program::Sequence cond({}, {di});
-  poplar::Tensor pred = isNotSortedPredicate(graph, cond, keyView, {di});
-  poplar::program::RepeatWhileTrue repeat(cond, pred, sortStep, {di});
-  prog.add(repeat);
+    // Perform an initial sort of each interval
+    prog.add(poplar::program::Execute(sortCS, {di}));
+
+    // Repeat the sort step until all edges are in order
+    poplar::program::Sequence cond({}, {di});
+    poplar::Tensor pred = isNotSortedPredicate(graph, cond, keyView, {di});
+    poplar::program::RepeatWhileTrue repeat(cond, pred, sortStep, {di});
+    prog.add(repeat);
+  }
 }
 
 } // namespace popops

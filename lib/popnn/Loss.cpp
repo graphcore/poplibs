@@ -9,6 +9,7 @@
 #include "popops/ElementWise.hpp"
 #include "popops/Encoding.hpp"
 #include "popops/Reduce.hpp"
+#include "popops/TopK.hpp"
 #include "poputil/Broadcast.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/TileMapping.hpp"
@@ -711,10 +712,24 @@ Tensor topK(Graph &graph, const Tensor &input, Tensor &indices, unsigned K,
                         "dimensions which the TopK is being calculated for.");
   }
 
-  // TODO: T12906 Map the output tensor.
-  unsigned numCorrectTile = 0;
-  auto output = TopKImpl(graph, input, indices, K, sort, UNSIGNED_INT, prog,
-                         numCorrectTile, {di});
+  Tensor output;
+  if (input.elementType() == FLOAT || input.elementType() == HALF) {
+    const bool largest = true;
+    const auto sortOrder =
+        sort ? popops::SortOrder::DESCENDING : popops::SortOrder::NONE;
+    const popops::TopKParams params(K, largest, sortOrder);
+    std::tie(output, indices) =
+        popops::topKWithPermutation(graph, prog, input, params, {di});
+    // Match behaviour of existing API that adds an extra singleton
+    // dimension to the return
+    output = output.expand({1});
+    indices = indices.expand({1});
+  } else {
+    // TODO: T12906 Map the output tensor.
+    unsigned numCorrectTile = 0;
+    output = TopKImpl(graph, input, indices, K, sort, UNSIGNED_INT, prog,
+                      numCorrectTile, {di});
+  }
   di.addOutput(output);
   return output;
 }
