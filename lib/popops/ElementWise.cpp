@@ -420,6 +420,8 @@ unsigned maxVertexElementsPerRegion(const Target &target, const Type &outType,
       return 2;
     } else if (eType == FLOAT) {
       return 3;
+    } else if (eType == UNSIGNED_INT) {
+      return 4;
     } else {
       throw poplibs_error("Requested type to index conversion doesn't exist");
     }
@@ -428,22 +430,24 @@ unsigned maxVertexElementsPerRegion(const Target &target, const Type &outType,
   /* Assembler codelet implementations indicate how many elements are processed
    * per HW loop. If HW loop isn't in use or a codelet has only C implementation
    * them UINT_MAX shall be returned */
-  constexpr unsigned convMap[2][NR_OF_CODELETS][4] = {
+  constexpr unsigned convMap[2][NR_OF_CODELETS][5] = {
       {
           // None inPlace
-          {0, UINT_MAX, 2, 1},                      // Clamp
-          {0, UINT_MAX, 2, 1},                      // BroadcastClamp
-          {UINT_MAX, 1, UINT_MAX, 1},               // Select
-          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastSelect
-          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
+          {0, UINT_MAX, 2, 1, UINT_MAX},                      // Clamp
+          {0, UINT_MAX, 2, 1, UINT_MAX},                      // BroadcastClamp
+          {UINT_MAX, 1, UINT_MAX, 1, UINT_MAX},               // Select
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // BroadcastSelect
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX,
+           UINT_MAX} // BroadcastSelectorSelect
       },
       {
           // inPlace
-          {0, UINT_MAX, UINT_MAX, UINT_MAX},        // Clamp
-          {0, UINT_MAX, UINT_MAX, UINT_MAX},        // BroadcastClamp
-          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // Select
-          {0, 0, 0, 0},                             // BroadcastSelect
-          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}  // BroadcastSelectorSelect
+          {0, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX},        // Clamp
+          {0, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX},        // BroadcastClamp
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX}, // Select
+          {0, 0, 0, 0, 0},                                    // BroadcastSelect
+          {UINT_MAX, UINT_MAX, UINT_MAX, UINT_MAX,
+           UINT_MAX} // BroadcastSelectorSelect
       }};
 
   unsigned inPlaceIdx = static_cast<unsigned>(inPlace);

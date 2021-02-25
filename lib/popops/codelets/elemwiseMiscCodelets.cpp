@@ -459,6 +459,7 @@ public:
 template class Select<float>;
 template class Select<half>;
 template class Select<int>;
+template class Select<unsigned>;
 template class Select<bool>;
 
 template <typename InType> class BroadcastClamp : public Vertex {
@@ -517,6 +518,7 @@ public:
 template class BroadcastSelect<float>;
 template class BroadcastSelect<half>;
 template class BroadcastSelect<int>;
+template class BroadcastSelect<unsigned>;
 template class BroadcastSelect<bool>;
 
 // 'Select' ternary operator where the selector (boolean third operand) is a
@@ -544,6 +546,7 @@ public:
 template class BroadcastSelectorSelect<float>;
 template class BroadcastSelectorSelect<half>;
 template class BroadcastSelectorSelect<int>;
+template class BroadcastSelectorSelect<unsigned>;
 template class BroadcastSelectorSelect<bool>;
 
 template <typename InType> class ClampInPlace : public Vertex {
@@ -615,6 +618,7 @@ public:
 template class SelectInPlace<float>;
 template class SelectInPlace<half>;
 template class SelectInPlace<int>;
+template class SelectInPlace<unsigned>;
 template class SelectInPlace<bool>;
 
 template <typename InType>
@@ -640,6 +644,7 @@ public:
 template class BroadcastSelectorSelectInPlace<float>;
 template class BroadcastSelectorSelectInPlace<half>;
 template class BroadcastSelectorSelectInPlace<int>;
+template class BroadcastSelectorSelectInPlace<unsigned>;
 template class BroadcastSelectorSelectInPlace<bool>;
 
 template <typename InType, bool isAbsolute> class Histogram2D : public Vertex {

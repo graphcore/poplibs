@@ -1,3 +1,5 @@
+// Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+
 // Tests for 'BroadcastSelect' and 'BroadcastSelectorSelect[InPlace]' codelets.
 // This file will create 3 boost test cases (one for each codelet).
 //
@@ -38,6 +40,8 @@
 typedef float TEST_TYPE;
 #elif defined(DATA_TYPE_bool)
 typedef unsigned char TEST_TYPE;
+#elif defined(DATA_TYPE_unsigned_int)
+typedef unsigned TEST_TYPE;
 #else
 typedef @DATA_TYPE@ TEST_TYPE;
 #endif
@@ -211,7 +215,7 @@ BOOST_AUTO_TEST_CASE(BROADCAST_SELECT_TYPE) {
   BroadcastSelectTest(false, false, true);
   BroadcastSelectTest(true, true, true);
   BroadcastSelectTest(false, false, true);
-#elif defined(DATA_TYPE_int)
+#elif defined(DATA_TYPE_int) || defined(DATA_TYPE_unsigned_int)
   BroadcastSelectTest(0xcafebabe, 0xdeadbeef, 0x12345678);
 #else
   BroadcastSelectTest(31.4159, 27.1828, 666.0);

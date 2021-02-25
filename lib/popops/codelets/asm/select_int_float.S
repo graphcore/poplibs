@@ -4,10 +4,14 @@
 #include "poplar/StackSizeDefs.hpp"
 
 #define SELECT_INT __runCodelet_popops__Select___int
+#define SELECT_UNSIGNED_INT __runCodelet_popops__Select___unsigned_int
 #define SELECT_FLOAT __runCodelet_popops__Select___float
 
 .globl SELECT_INT
 .type SELECT_INT, @function
+
+.globl SELECT_UNSIGNED_INT
+.type SELECT_UNSIGNED_INT, @function
 
 .globl SELECT_FLOAT
 .type SELECT_FLOAT, @function
@@ -40,6 +44,7 @@ DEF_STACK_USAGE 0 .text.SELECT_INT
 
 nop // Required for alignment of rpt
 SELECT_INT:
+SELECT_UNSIGNED_INT:
 SELECT_FLOAT:
   // Load the vertex state.
   ld32 $in1, $mvertex_base, $mzero, VERTEX_IN1_OFFSET

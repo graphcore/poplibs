@@ -5,6 +5,8 @@ get_target_property(POPC_EXECUTABLE popc_bin LOCATION)
 
 add_library(popops SHARED
   AllTrue.cpp
+  BitonicTopK.cpp
+  BitonicTopK.hpp
   Cast.cpp
   CircBuf.cpp
   TensorCollectives.cpp
@@ -36,7 +38,9 @@ add_library(popops SHARED
   SelectScalarFromRows.cpp
   SequenceSlice.cpp
   Sort.cpp
+  SortOrder.cpp
   SparseUtils.cpp
+  TopK.cpp
   UpdateScalarInRows.cpp
   VarianceToOrFromInvStdDev.cpp
   Zero.cpp
@@ -61,6 +65,8 @@ add_library(popops SHARED
   ${CMAKE_SOURCE_DIR}/include/popops/Rearrange.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/SequenceSlice.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Reduce.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/SortOrder.hpp
+  ${CMAKE_SOURCE_DIR}/include/popops/TopK.hpp
   ${CMAKE_SOURCE_DIR}/include/popops/Zero.hpp
   ${CMAKE_SOURCE_DIR}/include/poplibs_support/popopsPerformanceEstimation.hpp
 
@@ -175,6 +181,7 @@ add_gp_library(
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/BroadcastVectorInnerSupervisor.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircBufIncrIndex.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CircOffset.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/codelets/CompareAndSwapAtDistance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/ContinuousReduce.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice1d.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/codelets/DynamicSlice2d.cpp

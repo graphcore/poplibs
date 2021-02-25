@@ -2821,6 +2821,20 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(TransposeSupervisor)(
   return 7 + 6 * maxCycles;
 }
 
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistance)(
+    const VertexIntrospector &vertex, const Target &target,
+    const Type &keyType) {
+  // TODO:
+  return 0;
+}
+
+VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
+    const VertexIntrospector &vertex, const Target &target, const Type &keyType,
+    const Type &valueType) {
+  // TODO:
+  return 0;
+}
+
 #define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
   CYCLE_ESTIMATOR_ENTRY(popops, vertexName,                                    \
                         BinaryOpType::VARIANCE_TO_INV_STD_DEV, FLOAT, HALF),   \
@@ -3106,26 +3120,32 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, Select, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, Select, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, Select, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, Select, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, Select, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelect, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelect, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, SelectInPlace, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace,
+                            UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, BroadcastSelectorSelectInPlace, BOOL),
 
       CYCLE_ESTIMATOR_ENTRY(popops, Histogram2D, FLOAT, true),
@@ -3193,9 +3213,11 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, INT, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, INT, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, FLOAT, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, INT),
+      CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, UNSIGNED_INT),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, FLOAT),
       CYCLE_ESTIMATOR_ENTRY(popops, HeapSortVertexKV, HALF, HALF),
 
@@ -3236,7 +3258,10 @@ poplibs::PerfEstimatorTable makePerfFunctionTable() {
       CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, HALF),
       CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, UNSIGNED_SHORT),
       CYCLE_ESTIMATOR_ENTRY(popops, TransposeSupervisor, SHORT),
-  };
+
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistance, FLOAT),
+      CYCLE_ESTIMATOR_ENTRY(popops, CompareAndSwapAtDistanceKeyVal, FLOAT,
+                            UNSIGNED_INT)};
 
   for (const auto &entry : unaryOpPerfInfo) {
     table.push_back(CYCLE_ESTIMATOR_ENTRY(popops, UnaryOp2D, entry.first.first,

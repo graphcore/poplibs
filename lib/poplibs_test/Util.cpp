@@ -199,6 +199,7 @@ bool checkIsClose(FPType a, FPType b, double relativeTolerance) {
 
 template bool checkIsClose<bool>(bool, bool, double);
 template bool checkIsClose<int>(int, int, double);
+template bool checkIsClose<unsigned>(unsigned, unsigned, double);
 template bool checkIsClose<float>(float, float, double);
 template bool checkIsClose<double>(double, double, double);
 

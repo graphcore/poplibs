@@ -26,6 +26,11 @@ template <typename T, typename U> constexpr static auto ceildiv(T x, U y) {
   return (x + y - 1) / y;
 }
 
+/// ceildiv with 0/0 = 0
+template <typename T> static inline T ceildiv0(T q, T d) {
+  return q + d != 0 ? (q + d - 1) / d : 0;
+}
+
 template <typename T, typename U> constexpr static auto floordiv(T x, U y) {
   static_assert(std::is_unsigned<T>::value && std::is_unsigned<U>::value,
                 "Only valid for unsigned integral types");
@@ -77,6 +82,18 @@ constexpr static std::pair<T, T> balancedPartition(T n, T d) {
   const auto a = d - b;
 
   return std::make_pair(a, b);
+}
+
+/// Compute the nth triangular number.
+template <typename T> static inline T nthTriangular(T n) {
+  static_assert(std::is_unsigned_v<T>);
+  return (n * (n + 1)) / 2;
+}
+
+/// Check if a number is a power of 2.
+template <typename T> static inline bool isPowerOf2(T n) {
+  static_assert(std::is_unsigned_v<T>);
+  return ((n & (n - 1)) == 0);
 }
 
 } // end namespace poplibs_support

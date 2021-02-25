@@ -126,12 +126,17 @@ private:
 
 template class HeapSortVertexKV<float, float>;
 template class HeapSortVertexKV<float, int>;
+template class HeapSortVertexKV<float, unsigned>;
 template class HeapSortVertexKV<float, half>;
 template class HeapSortVertexKV<int, float>;
 template class HeapSortVertexKV<int, int>;
 template class HeapSortVertexKV<int, half>;
+template class HeapSortVertexKV<unsigned, float>;
+template class HeapSortVertexKV<unsigned, int>;
+template class HeapSortVertexKV<unsigned, half>;
 template class HeapSortVertexKV<half, float>;
 template class HeapSortVertexKV<half, int>;
+template class HeapSortVertexKV<half, unsigned>;
 template class HeapSortVertexKV<half, half>;
 
 } // namespace popops

@@ -14,17 +14,20 @@
 
 #define BCAST_SELECT_FLOAT __runCodelet_popops__BroadcastSelect___float
 #define BCAST_SELECT_INT __runCodelet_popops__BroadcastSelect___int
+#define BCAST_SELECT_UNSIGNED_INT __runCodelet_popops__BroadcastSelect___unsigned_int
 #define BCAST_SELECT_HALF __runCodelet_popops__BroadcastSelect___half
 #define BCAST_SELECT_BOOL __runCodelet_popops__BroadcastSelect___bool
 
 #define BCAST_SELECTOR_SELECT_HALF __runCodelet_popops__BroadcastSelectorSelect___half
 #define BCAST_SELECTOR_SELECT_FLOAT __runCodelet_popops__BroadcastSelectorSelect___float
 #define BCAST_SELECTOR_SELECT_INT __runCodelet_popops__BroadcastSelectorSelect___int
+#define BCAST_SELECTOR_SELECT_UNSIGNED_INT __runCodelet_popops__BroadcastSelectorSelect___unsigned_int
 #define BCAST_SELECTOR_SELECT_BOOL __runCodelet_popops__BroadcastSelectorSelect___bool
 
 #define BCAST_SELECTOR_SELECT_INPLACE_HALF __runCodelet_popops__BroadcastSelectorSelectInPlace___half
 #define BCAST_SELECTOR_SELECT_INPLACE_FLOAT __runCodelet_popops__BroadcastSelectorSelectInPlace___float
 #define BCAST_SELECTOR_SELECT_INPLACE_INT __runCodelet_popops__BroadcastSelectorSelectInPlace___int
+#define BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT __runCodelet_popops__BroadcastSelectorSelectInPlace___unsigned_int
 #define BCAST_SELECTOR_SELECT_INPLACE_BOOL __runCodelet_popops__BroadcastSelectorSelectInPlace___bool
 
 
@@ -34,6 +37,7 @@
 .endm
 
 EXPORT_FN BCAST_SELECT_INT
+EXPORT_FN BCAST_SELECT_UNSIGNED_INT
 EXPORT_FN BCAST_SELECT_FLOAT
 EXPORT_FN BCAST_SELECT_HALF
 EXPORT_FN BCAST_SELECT_BOOL
@@ -41,11 +45,13 @@ EXPORT_FN BCAST_SELECT_BOOL
 EXPORT_FN BCAST_SELECTOR_SELECT_HALF
 EXPORT_FN BCAST_SELECTOR_SELECT_FLOAT
 EXPORT_FN BCAST_SELECTOR_SELECT_INT
+EXPORT_FN BCAST_SELECTOR_SELECT_UNSIGNED_INT
 EXPORT_FN BCAST_SELECTOR_SELECT_BOOL
 
 EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_HALF
 EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_FLOAT
 EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_INT
+EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT
 EXPORT_FN BCAST_SELECTOR_SELECT_INPLACE_BOOL
 
 
@@ -87,6 +93,7 @@ DEF_STACK_USAGE 0 .text.BCAST_SELECT_FLOAT
 .align 8
 
 BCAST_SELECT_INT:
+BCAST_SELECT_UNSIGNED_INT:
 BCAST_SELECT_FLOAT:
   // Load the vertex state. Bail out straight away if no rows to do
   ld32 $nRows, $mvertex_base, $mzero, VERTEX_OUT_ROWS_OFFSET
@@ -544,6 +551,7 @@ DEF_STACK_SIZE_OWN 0 .text.BCAST_SELECTOR_SELECT_FLOAT
 // ---- InPlace entry points
 BCAST_SELECTOR_SELECT_INPLACE_FLOAT:
 BCAST_SELECTOR_SELECT_INPLACE_INT:
+BCAST_SELECTOR_SELECT_INPLACE_UNSIGNED_INT:
   setzi  $BYTES_PER_WORD, 4
   bri    1f
 BCAST_SELECTOR_SELECT_INPLACE_BOOL:
@@ -565,6 +573,7 @@ BCAST_SELECTOR_SELECT_INPLACE_HALF:
 // --- Non-inplace entry points.
 BCAST_SELECTOR_SELECT_FLOAT:
 BCAST_SELECTOR_SELECT_INT:
+BCAST_SELECTOR_SELECT_UNSIGNED_INT:
   setzi  $BYTES_PER_WORD, 4
   bri    2f
 BCAST_SELECTOR_SELECT_BOOL:

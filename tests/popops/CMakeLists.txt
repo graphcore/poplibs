@@ -720,9 +720,14 @@ add_std_operators_test(SelectFloatRHSConst)
 add_std_operators_test(SelectFloatLHSAndRHSConst)
 add_std_operators_test(SelectHalfLHSAndRHSConst)
 add_std_operators_test(SelectInt)
+add_std_operators_test(SelectUInt)
+add_std_operators_test(SelectInPlaceInt)
+add_std_operators_test(SelectInPlaceUInt)
 add_std_operators_test(BroadcastSelectorSelectInt)
+add_std_operators_test(BroadcastSelectorSelectUInt)
 add_std_operators_test(BroadcastSelectorSelectFloat)
 add_std_operators_test(BroadcastSelectorSelectInPlaceInt)
+add_std_operators_test(BroadcastSelectorSelectInPlaceUInt)
 add_std_operators_test(BroadcastSelectorSelectInPlaceFloat)
 add_std_operators_test(ClampFloat)
 add_std_operators_test(ClampFloatMinConst)
@@ -1098,90 +1103,227 @@ foreach(dType half float)
   endforeach()
 endforeach()
 
-add_multitarget_test(NAME topk_f32_u32_n1000_k1000_sorted
-  COMMAND topk
-    --n 1000
-    --k 1000
-    --data-type float
-    --index-type uint
-    --sort-output=1
-    --tiles-per-ipu=16)
 
-add_multitarget_test(NAME topk_f32_u32_n1000_k100_sorted
-  COMMAND topk
-    --n 1000
-    --k 100
-    --data-type float
-    --index-type uint
-    --sort-output=1
-    --tiles-per-ipu=16)
+foreach(DATA_TYPE half float)
+  add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_b0_n1000_k100_edge_case
+    COMMAND topk
+      --n 1000
+      --k 100
+      --b 0
+      --data-type ${DATA_TYPE}
+      --index-type uint
+      --api=popops
+      --tiles-per-ipu=4
+    VARIANTS ${IPUMODEL_VARIANTS})
+  foreach(BATCH_SIZE 1 3)
+    add_multitarget_test(NAME topk_popnn_${DATA_TYPE}_unsigned_b${BATCH_SIZE}_n1000_k1000_sorted
+      COMMAND topk
+        --n 1000
+        --k 1000
+        --batch-size ${BATCH_SIZE}
+        --data-type ${DATA_TYPE}
+        --index-type uint
+        --sort-order=descending
+        --api=popnn
+        --tiles-per-ipu=4)
 
-add_multitarget_test(NAME topk_f32_u32_n1000_k1
-  COMMAND topk
-    --n 1000
-    --k 100
-    --data-type float
-    --index-type uint
-    --tiles-per-ipu=16)
+    add_multitarget_test(NAME topk_popnn_${DATA_TYPE}_unsigned_b${BATCH_SIZE}_n1000_k100_sorted
+      COMMAND topk
+        --n 1000
+        --k 100
+        --batch-size ${BATCH_SIZE}
+        --data-type ${DATA_TYPE}
+        --index-type uint
+        --sort-order=descending
+        --api=popnn
+        --tiles-per-ipu=4)
 
-add_multitarget_test(NAME topk_f32_u32_n1000_k1000_unsorted
-  COMMAND topk
-    --n 1000
-    --k 1000
-    --data-type float
-    --index-type uint
-    --sort-output=0
-    --tiles-per-ipu=16)
+    add_multitarget_test(NAME topk_popnn_${DATA_TYPE}_unsigned_b${BATCH_SIZE}_n1000_k1
+      COMMAND topk
+        --n 1000
+        --k 100
+        --batch-size ${BATCH_SIZE}
+        --data-type ${DATA_TYPE}
+        --index-type uint
+        --api=popnn
+        --tiles-per-ipu=4
+      VARIANTS ${IPUMODEL_VARIANTS})
 
-add_multitarget_test(NAME topk_f32_u32_n1000_k100_unsorted
-  COMMAND topk
-    --n 1000
-    --k 100
-    --data-type float
-    --index-type uint
-    --sort-output=0
-    --tiles-per-ipu=16)
+    add_multitarget_test(NAME topk_popnn_${DATA_TYPE}_unsigned_b${BATCH_SIZE}_n1000_k1000_unsorted
+      COMMAND topk
+        --n 1000
+        --k 1000
+        --batch-size ${BATCH_SIZE}
+        --data-type ${DATA_TYPE}
+        --index-type uint
+        --sort-order=none
+        --api=popnn
+        --tiles-per-ipu=4
+      VARIANTS ${IPUMODEL_VARIANTS})
 
-add_multitarget_test(NAME topk_f16_u32_n1000_k1000_sorted
-  COMMAND topk
-    --n 1000
-    --k 1000
-    --data-type half
-    --index-type uint
-    --sort-output=1
-    --tiles-per-ipu=16)
+    add_multitarget_test(NAME topk_popnn_${DATA_TYPE}_unsigned_b${BATCH_SIZE}_n1000_k100_unsorted
+      COMMAND topk
+        --n 1000
+        --k 100
+        --batch-size ${BATCH_SIZE}
+        --data-type ${DATA_TYPE}
+        --index-type uint
+        --sort-order=none
+        --api=popnn
+        --tiles-per-ipu=4
+      VARIANTS ${IPUMODEL_VARIANTS})
+  endforeach()
 
-add_multitarget_test(NAME topk_f16_u32_n1000_k100_sorted
-  COMMAND topk
-    --n 1000
-    --k 100
-    --data-type half
-    --index-type uint
-    --sort-output=1
-    --tiles-per-ipu=16)
+  foreach(INDICES 0 1)
+    foreach(BATCH_SIZE 1 3)
+      foreach(SORT_ORDER ascending descending)
 
-add_multitarget_test(NAME topk_f16_u32_n1000_k1
-  COMMAND topk
-    --n 1000
-    --k 100
-    --data-type half
-    --index-type uint
-    --tiles-per-ipu=16)
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1_k1_${SORT_ORDER}_edge_case
+          COMMAND topk
+            --n 1
+            --k 1
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices ${INDICES}
+            --api=popops
+            --sort-order=${SORT_ORDER}
+            --tiles-per-ipu=4
+          VARIANTS ${IPUMODEL_VARIANTS})
 
-add_multitarget_test(NAME topk_f16_u32_n1000_k1000_unsorted
-  COMMAND topk
-    --n 1000
-    --k 1000
-    --data-type half
-    --index-type uint
-    --sort-output=0
-    --tiles-per-ipu=16)
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k1000_${SORT_ORDER}
+          COMMAND topk
+            --n 1000
+            --k 1000
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices ${INDICES}
+            --sort-order=${SORT_ORDER}
+            --api=popops
+            --tiles-per-ipu=4
+          VARIANTS ${IPUMODEL_VARIANTS})
 
-add_multitarget_test(NAME topk_f16_u32_n1000_k100_unsorted
-  COMMAND topk
-    --n 1000
-    --k 100
-    --data-type half
-    --index-type uint
-    --sort-output=0
-    --tiles-per-ipu=16)
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1234_k1234_${SORT_ORDER}
+          COMMAND topk
+            --n 1234
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices ${INDICES}
+            --api=popops
+            --sort-order=${SORT_ORDER}
+            --tiles-per-ipu=4)
+
+        foreach(LARGEST 0 1)
+          add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k100_largest${LARGEST}_${SORT_ORDER}
+            COMMAND topk
+              --n 1000
+              --k 100
+              --batch-size ${BATCH_SIZE}
+              --data-type ${DATA_TYPE}
+              --index-type uint
+              --return-indices ${INDICES}
+              --largest ${LARGEST}
+              --sort-order=${SORT_ORDER}
+              --api=popops
+              --tiles-per-ipu=4
+            VARIANTS ${IPUMODEL_VARIANTS})
+
+          add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1234_k123_largest${LARGEST}_${SORT_ORDER}
+            COMMAND topk
+              --n 1234
+              --k 123
+              --batch-size ${BATCH_SIZE}
+              --data-type ${DATA_TYPE}
+              --index-type uint
+              --return-indices ${INDICES}
+              --api=popops
+              --largest ${LARGEST}
+              --sort-order=${SORT_ORDER}
+              --tiles-per-ipu=4)
+        endforeach()
+      endforeach()
+
+      add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k0_edge_case
+        COMMAND topk
+          --n 1000
+          --k 0
+          --batch-size ${BATCH_SIZE}
+          --data-type ${DATA_TYPE}
+          --index-type uint
+          --return-indices ${INDICES}
+          --api=popops
+          --tiles-per-ipu=4
+        VARIANTS ${IPUMODEL_VARIANTS})
+
+      add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k1000_unsorted
+        COMMAND topk
+          --n 1000
+          --k 1000
+          --batch-size ${BATCH_SIZE}
+          --data-type ${DATA_TYPE}
+          --index-type uint
+          --return-indices ${INDICES}
+          --sort-order=none
+          --api=popops
+          --tiles-per-ipu=4
+        VARIANTS ${IPUMODEL_VARIANTS})
+
+      add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1234_k1234_unsorted
+        COMMAND topk
+          --n 1234
+          --batch-size ${BATCH_SIZE}
+          --data-type ${DATA_TYPE}
+          --index-type uint
+          --return-indices ${INDICES}
+          --api=popops
+          --sort-order=none
+          --tiles-per-ipu=4
+        VARIANTS ${IPUMODEL_VARIANTS})
+
+      foreach(LARGEST 0 1)
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k100_largest${LARGEST}_unsorted
+          COMMAND topk
+            --n 1000
+            --k 100
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices ${INDICES}
+            --largest ${LARGEST}
+            --sort-order=none
+            --api=popops
+            --tiles-per-ipu=4
+          VARIANTS ${IPUMODEL_VARIANTS})
+
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1000_k1_largest${LARGEST}
+          COMMAND topk
+            --n 1000
+            --k 100
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices ${INDICES}
+            --largest ${LARGEST}
+            --api=popops
+            --tiles-per-ipu=4
+          VARIANTS ${IPUMODEL_VARIANTS})
+
+        add_multitarget_test(NAME topk_popops_${DATA_TYPE}_unsigned_indices${INDICES}_b${BATCH_SIZE}_n1234_k123_largest${LARGEST}_unsorted
+          COMMAND topk
+            --n 1234
+            --k 123
+            --batch-size ${BATCH_SIZE}
+            --data-type ${DATA_TYPE}
+            --index-type uint
+            --return-indices ${INDICES}
+            --api=popops
+            --largest ${LARGEST}
+            --sort-order=none
+            --tiles-per-ipu=4
+          VARIANTS ${IPUMODEL_VARIANTS})
+      endforeach()
+    endforeach()
+  endforeach()
+endforeach()

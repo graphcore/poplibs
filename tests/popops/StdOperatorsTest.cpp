@@ -186,6 +186,26 @@ static void setBinaryOpInputs(int hIn1[DIM_SIZE][DIM_SIZE],
   }
 }
 
+static void setBinaryOpInputs(unsigned hIn1[DIM_SIZE][DIM_SIZE],
+                              unsigned hIn2[DIM_SIZE][DIM_SIZE],
+                              bool isShift = false) {
+  int val1 = 25;
+  int val2 = 59;
+  for (auto r = 0U; r != DIM_SIZE; ++r) {
+    for (auto c = 0U; c != DIM_SIZE; ++c) {
+      hIn1[r][c] = (1 - 2 * (r & 1)) * (r + val1);
+      hIn2[r][c] = (1 - 2 * ((r + c) & 1)) * (r + c + val2);
+
+      // Shifting by more than 32 is undefined.
+      if (isShift) {
+        hIn2[r][c] = hIn2[r][c] % 32;
+        if (hIn2[r][c] < 0)
+          hIn2[r][c] = -hIn2[r][c];
+      }
+    }
+  }
+}
+
 template <typename T> void convertToPositive(T array[DIM_SIZE][DIM_SIZE]) {
   for (auto i = 0U; i < DIM_SIZE; ++i) {
     for (auto j = 0U; j < DIM_SIZE; ++j) {
@@ -399,7 +419,7 @@ void powTest() {
   }
 }
 
-template <typename InType> void selectTest() {
+template <typename InType> void selectTest(bool inPlace = false) {
   auto type = equivalent_device_type<InType>().value;
   auto device = createTestDevice(deviceType);
   Graph graph(device.getTarget());
@@ -420,7 +440,12 @@ template <typename InType> void selectTest() {
   Tensor in3 = mapUnaryOpTensor(graph, BOOL);
 
   auto prog = Sequence();
-  auto out = select(graph, in1, in2, in3, prog);
+  Tensor out = in1;
+  if (!inPlace) {
+    out = select(graph, in1, in2, in3, prog);
+  } else {
+    selectInPlace(graph, in1, in2, in3, prog);
+  }
   graph.createHostWrite("in1", in1);
   graph.createHostWrite("in2", in2);
   graph.createHostWrite("in3", in3);
@@ -2087,13 +2112,23 @@ int main(int argc, char **argv) {
   } else if (test == "SelectHalfLHSAndRHSConst") {
     selectTestHalfLHSAndRHSConst();
   } else if (test == "SelectInt") {
-    selectTest<int>();
+    selectTest<int>(false);
+  } else if (test == "SelectUInt") {
+    selectTest<unsigned>(false);
+  } else if (test == "SelectInPlaceInt") {
+    selectTest<int>(true);
+  } else if (test == "SelectInPlaceUInt") {
+    selectTest<unsigned>(true);
   } else if (test == "BroadcastSelectorSelectInt") {
     broadcastSelectorSelectTest<int>(false);
+  } else if (test == "BroadcastSelectorSelectUInt") {
+    broadcastSelectorSelectTest<unsigned>(false);
   } else if (test == "BroadcastSelectorSelectFloat") {
     broadcastSelectorSelectTest<float>(false);
   } else if (test == "BroadcastSelectorSelectInPlaceInt") {
     broadcastSelectorSelectTest<int>(true);
+  } else if (test == "BroadcastSelectorSelectInPlaceUInt") {
+    broadcastSelectorSelectTest<unsigned>(true);
   } else if (test == "BroadcastSelectorSelectInPlaceFloat") {
     broadcastSelectorSelectTest<float>(true);
   } else if (test == "ClampFloat") {

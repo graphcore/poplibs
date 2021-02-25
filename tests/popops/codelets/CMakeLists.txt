@@ -384,7 +384,7 @@ foreach(TYPE half float)
 endforeach()
 
 # Select
-foreach(DATA_TYPE int float half bool)
+foreach(DATA_TYPE int unsigned_int float half bool)
   set(VARIANT_NAME "Select_${DATA_TYPE}")
   set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
   string(TOUPPER "${DATA_TYPE}" TYPE)
@@ -395,7 +395,7 @@ foreach(DATA_TYPE int float half bool)
 endforeach()
 
 # BroadcastSelect
-foreach(DATA_TYPE int float half bool)
+foreach(DATA_TYPE int unsigned_int float half bool)
   set(VARIANT_NAME "BroadcastSelect_${DATA_TYPE}")
   set(VARIANT_SRC "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT_NAME}.cpp")
   string(TOUPPER "${DATA_TYPE}" TYPE)
