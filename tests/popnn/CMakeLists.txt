@@ -930,9 +930,7 @@ foreach(time 25 28 32)
       COMMAND CTCLossTest
               --batch=1
               --max-time=32
-              --min-time=3
               --max-label-length=12
-              --min-label-length=1
               --time=${time}
               --label-length=${labels}
               --plan-constraints={\"parallel\":{\"time\":4,\"label\":4}}
@@ -947,9 +945,7 @@ foreach(time 12 15 16)
       COMMAND CTCLossTest
               --batch=1
               --max-time=32
-              --min-time=3
               --max-label-length=12
-              --min-label-length=1
               --time=${time}
               --label-length=${labels}
               --plan-constraints={\"parallel\":{\"time\":4,\"label\":4}}
@@ -1007,9 +1003,7 @@ foreach(time_partitions 1 2 3)
       COMMAND CTCLossTest
               --batch=1
               --max-time=32
-              --min-time=3
               --max-label-length=12
-              --min-label-length=1
               --time=20
               --label-length=10
               --plan-constraints={\"parallel\":{\"time\":${time_partitions},\"label\":${label_partitions}}}

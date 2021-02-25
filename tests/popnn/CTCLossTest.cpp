@@ -95,9 +95,9 @@ void print(const std::string &prefix, const boost::multi_array<FPType, 2> &in,
   if (!verbose) {
     return;
   }
-  std::cout << "\n" << prefix << "\n        ";
+  std::cout << prefix << "\n        ";
   for (unsigned i = 0; i < in.size(); i++) {
-    std::cout << "         t" << i;
+    std::cout << std::setw(11) << (std::string{"t"} + std::to_string(i));
   }
 
   for (unsigned i = 0; i < in[0].size(); i++) {
@@ -110,14 +110,14 @@ void print(const std::string &prefix, const boost::multi_array<FPType, 2> &in,
       std::cout << std::setw(10) << std::setprecision(4) << in[j][i] << ",";
     }
   }
-  std::cout << "\n";
+  std::cout << "\n\n";
 }
 // Apply an increased probability to a sequence using the input label and
 // padding it to represent a probable sequence
 boost::multi_array<double, 2>
 providePath(const boost::multi_array<double, 2> &input,
             const std::vector<unsigned> &label, unsigned blankClass,
-            unsigned batchNo) {
+            const std::function<unsigned(unsigned, unsigned)> &randRange) {
 
   auto timeSteps = input.shape()[0];
   std::vector<unsigned> expandedLabel;
@@ -147,8 +147,6 @@ providePath(const boost::multi_array<double, 2> &input,
   // of length timeSteps that has correlation with the input
   auto padSymbols = timeSteps - expandedLabel.size();
 
-  std::mt19937 gen;
-  gen.seed(batchNo);
   // Add symbols at random points to duplicate the symbol found at that
   // point. Eg
   // Pad with blanks gave us: a b c - c d - d - d e
@@ -156,8 +154,7 @@ providePath(const boost::multi_array<double, 2> &input,
   // a a b c - - - c d - d - d d e
   //   ^       ^ ^             ^
   for (unsigned i = 0; i < padSymbols; i++) {
-    std::uniform_int_distribution<> rand(0, expandedLabel.size() - 1);
-    auto insertPoint = rand(gen);
+    auto insertPoint = randRange(0, expandedLabel.size() - 1);
     auto insertValue =
         insertPoint == 0 ? blankClass : expandedLabel[insertPoint - 1];
     expandedLabel.insert(expandedLabel.begin() + insertPoint, insertValue);
@@ -183,59 +180,112 @@ template <typename FPType> struct InputSequence {
   bool isLogits;
 };
 
-InputSequence<double>
-getRandomTestInput(boost::optional<unsigned> testTime, size_t minT, size_t maxT,
-                   boost::optional<unsigned> testLabelLength,
-                   size_t minLabelLength, size_t maxLabelLength,
-                   unsigned numClasses, unsigned batchNo, bool isLogits,
-                   unsigned blankClass) {
+// Return a Generator for the given the input range
+std::function<unsigned()>
+getInputGen(const boost::optional<unsigned> &min,
+            const boost::optional<unsigned> &fixed, unsigned max,
+            const std::function<unsigned(unsigned, unsigned)> &randRange) {
+  if (fixed) {
+    return [=]() { return *fixed; };
+  } else {
+    return [=]() { return randRange(*min, max); };
+  }
+}
 
-  std::mt19937 gen;
-  // Seed with the batch number - resulting in repeatable pseudo random sizes
-  // of each batch[n] test to run with pseudo random data content. Each batch[n]
-  // entry can have a different size to the others (and different data)
-  gen.seed(batchNo);
+// Return a Random Generator for the given the input range
+std::function<unsigned()>
+getInputGen(unsigned min, unsigned max,
+            const std::function<unsigned(unsigned, unsigned)> &randRange) {
+  return [=]() { return randRange(min, max); };
+}
 
+// {T, LabelLength}
+std::pair<unsigned, unsigned>
+getRandomSize(const boost::optional<unsigned> &minT,
+              const boost::optional<unsigned> &fixedT, unsigned maxT,
+              const boost::optional<unsigned> &minLabelLength,
+              const boost::optional<unsigned> &fixedLabelLength,
+              unsigned maxLabelLength,
+              const std::function<unsigned(unsigned, unsigned)> &randRange) {
+  auto checkSatisfiable = [&](unsigned t, unsigned labelLength) -> void {
+    if (!(t >= labelLength * 2 - 1)) {
+      throw poputil::poplibs_error(
+          std::string{"Length of t ("} + std::to_string(t) +
+          std::string{") is too short to always be able to represent a label "
+                      "(of length "} +
+          std::to_string(labelLength) + std::string{")"});
+    }
+  };
+
+  if (fixedT && fixedLabelLength) {
+    auto t = *fixedT;
+    auto labelLength = *fixedLabelLength;
+    return {t, labelLength};
+  } else if (fixedT || fixedLabelLength) {
+    if (fixedT) {
+      auto t = *fixedT;
+      auto maxLabelLengthForT = (t + 1) / 2;
+      auto upperBound = std::min(maxLabelLengthForT, maxLabelLength);
+      auto labelLength = randRange(*minLabelLength, upperBound);
+      checkSatisfiable(t, labelLength);
+      return {t, labelLength};
+    } else {
+      auto labelLength = *fixedLabelLength;
+      auto minTForLabelLength = labelLength * 2 - 1;
+      auto lowerBound = std::max(minTForLabelLength, *minT);
+      auto t = randRange(lowerBound, maxT);
+      checkSatisfiable(t, labelLength);
+      return {t, labelLength};
+    }
+  } else { // Generate both randomly
+    // Prune upper bound of label
+    auto minTForMinLabelLength = *minLabelLength * 2 - 1;
+    auto TLowerBound = std::max(minTForMinLabelLength, *minT);
+
+    auto t = randRange(TLowerBound, maxT);
+    // Prune upper bound of label for given T
+    auto maxLabelLengthForT = (t + 1) / 2;
+    auto labelLengthUpperBound = std::min(maxLabelLengthForT, maxLabelLength);
+
+    auto labelLength = randRange(*minLabelLength, labelLengthUpperBound);
+
+    checkSatisfiable(t, labelLength);
+    return {t, labelLength};
+  }
+}
+
+InputSequence<double> getRandomTestInput(
+    unsigned t, unsigned maxT, unsigned labelLength, unsigned maxLabelLength,
+    unsigned numClasses, unsigned blankClass, bool isLogits,
+    const std::function<unsigned(unsigned, unsigned)> &randRange) {
   boost::multi_array<double, 2> input(boost::extents[maxT][numClasses]);
 
-  std::uniform_int_distribution<> randT(minT, maxT);
-  std::uniform_int_distribution<> randLabels(0, numClasses - 2);
-  std::uniform_int_distribution<> randInput(0, 10);
-
-  unsigned inputLength =
-      testTime.is_initialized() ? testTime.get() : randT(gen);
-  // Constrain the sequence of labels to conform to the randomly chosen
-  // input length - enforcing time >= 1 + 2 * labels
-  size_t maxS =
-      std::min(maxLabelLength, static_cast<size_t>((inputLength + 1) / 2 - 1));
-  size_t minS = std::min(minLabelLength, maxS);
-  std::uniform_int_distribution<> randLabelLength(minS, maxS);
-  unsigned labelLength = testLabelLength.is_initialized()
-                             ? testLabelLength.get()
-                             : randLabelLength(gen);
+  auto randClass =
+      getInputGen(0U, static_cast<unsigned>(numClasses - 2), randRange);
+  auto randInput = getInputGen(0U, 10U, randRange);
 
   std::vector<unsigned> labels(labelLength);
 
   // Random label sequence of the right length
   for (size_t i = 0; i < labelLength; i++) {
-    const unsigned random = randLabels(gen);
+    const unsigned random = randClass();
     labels[i] = static_cast<unsigned>(random >= blankClass) + random;
   }
 
   // Input sequence of max length
   for (size_t i = 0; i < numClasses; i++) {
     for (size_t j = 0; j < maxT; j++) {
-      input[j][i] = randInput(gen);
+      input[j][i] = randInput();
     }
   }
   // If the input sequence is a compatible length, increase its probability to
   // stop the loss getting very small (important in large tests)
-  input = providePath(input, labels, blankClass, batchNo);
+  input = providePath(input, labels, blankClass, randRange);
   if (!isLogits) { // Convert to log probs
     input = log::log(transpose(log::softMax(transpose(input))));
   }
 
-  return {input, inputLength, labels, isLogits};
+  return {input, t, labels, isLogits};
 }
 
 template <typename FPType>
@@ -389,20 +439,70 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   return output;
 }
 
+void validateBounds(const std::string &ref,
+                    const boost::optional<unsigned> &min,
+                    const boost::optional<unsigned> &fixed, unsigned max) {
+  if (min && fixed) {
+    throw poputil::poplibs_error(std::string{"Cannot specify both `"} + ref +
+                                 std::string{"` and `min-"} + ref +
+                                 std::string{"`"});
+  }
+  if (min) {
+    if (*min > max) {
+      throw poputil::poplibs_error(
+          std::string{"`min-"} + ref +
+          std::string{"` cannot be greater than `max-"} + ref +
+          std::string{"`"});
+    }
+  } else if (fixed) {
+    if (*fixed > max) {
+      throw poputil::poplibs_error(
+          std::string{"`"} + ref +
+          std::string{"` cannot be greater than `max-"} + ref +
+          std::string{"`"});
+    }
+  } else {
+    throw poputil::poplibs_error(std::string{"Neither `"} + ref +
+                                 std::string{"`, nor `min-"} + ref +
+                                 std::string{"` specified"});
+  }
+}
+
+void validateTimeAndLabelBounds(
+    const boost::optional<unsigned> &minRandomTime,
+    const boost::optional<unsigned> &fixedTime, unsigned maxTime,
+    const boost::optional<unsigned> &minRandomLabelLength,
+    const boost::optional<unsigned> &fixedLabelLength,
+    unsigned maxLabelLength) {
+  validateBounds("time", minRandomTime, fixedTime, maxTime);
+  validateBounds("label-length", minRandomLabelLength, fixedLabelLength,
+                 maxLabelLength);
+
+  auto maxTimestepsGenerated = fixedTime ? *fixedTime : maxTime;
+  auto minLabelLengthGenerated =
+      minRandomLabelLength ? *minRandomLabelLength : *fixedLabelLength;
+
+  if (!(maxTimestepsGenerated >= 2 * minLabelLengthGenerated - 1)) {
+    // Worst case is duplicate characters `aaa` -> `a-a-a`
+    // Such that: t >= 2*l-1
+    throw poputil::poplibs_error(
+        "Combination of time and label-length cannot create valid sequences. "
+        "Either increase `max-time`/`time` or decrease "
+        "`min-label-length`/`label-length`");
+  }
+}
+
 int main(int argc, char **argv) {
   // Default input parameters.
   DeviceType deviceType = DeviceType::IpuModel2;
-  bool verbose = false;
-  bool profile = false;
   boost::optional<std::string> planConstraints;
-  bool ignoreData = false;
-  boost::optional<unsigned> testTime = boost::none;
-  unsigned minTime = 1;
+  boost::optional<unsigned> minRandomTime = boost::none;
+  boost::optional<unsigned> fixedTime = boost::none;
   unsigned maxTime = 15;
-  boost::optional<unsigned> testLabelLength = boost::none;
-  unsigned blankClass = 0;
-  unsigned minLabelLength = 1;
+  boost::optional<unsigned> minRandomLabelLength = boost::none;
+  boost::optional<unsigned> fixedLabelLength = boost::none;
   unsigned maxLabelLength = 5;
+  unsigned blankClass = 0;
   unsigned numClasses = 4;
   unsigned batchSize = 1;
   boost::optional<unsigned> tiles = boost::none;
@@ -420,8 +520,7 @@ int main(int argc, char **argv) {
      deviceTypeHelp)
     ("tiles-per-ipu",po::value<boost::optional<unsigned>>(&tiles),
       "Number of tiles per IPU")
-    ("profile", po::value(&profile)->default_value(profile),
-     "Show profile report")
+    ("profile", "Show profile report")
     ("plan-constraints", po::value(&planConstraints),
      "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
     ("in-type", po::value(&inType)->default_value(inType),
@@ -430,26 +529,25 @@ int main(int argc, char **argv) {
      "Output data type")
     ("batch", po::value(&batchSize)->default_value(batchSize),
      "Batch size")
-    ("label-length", po::value<boost::optional<unsigned>>(&testLabelLength),
-     "Test length (labels)")
+    ("label-length", po::value(&fixedLabelLength),
+     "If set, forces every label to be of length `label-length`")
     ("min-label-length",
-      po::value(&minLabelLength)->default_value(minLabelLength),
-     "Min test length (labels)")
+      po::value(&minRandomLabelLength),
+     "If set, minimum randomly generated label length")
     ("max-label-length",
       po::value(&maxLabelLength)->default_value(maxLabelLength),
      "Max test length (labels)")
-    ("time", po::value<boost::optional<unsigned>>(&testTime),
-     "Test length (time)")
-    ("min-time", po::value(&minTime)->default_value(minTime),
-     "Min test length (time)")
+    ("time", po::value(&fixedTime),
+     "If set, forces every sequence to be of length `time`")
+    ("min-time", po::value(&minRandomTime),
+     "If set, minimum randomly generated time length")
     ("max-time", po::value(&maxTime)->default_value(maxTime),
      "Max test length (time)")
     ("blank-class", po::value(&blankClass)->default_value(blankClass),
      "Index of the blank symbol. Range 0 to (num-classes-1)")
     ("num-classes", po::value(&numClasses)->default_value(numClasses),
      "Classes in the alphabet including blank")
-    ("ignore-data", po::value(&ignoreData)->default_value(ignoreData),
-     "Ignore data, to check execution time")
+    ("ignore-data", "Ignore data, to check execution time")
     ("logit-inputs", po::value(&isLogits)->default_value(isLogits),
      "pass logit inputs to ctc loss api, otherwise convert to logProbs prior")
     ("test-reduced-codelet-result",
@@ -458,8 +556,7 @@ int main(int argc, char **argv) {
      "Test the reduced result: alpha * beta / probability, omitting any further"
      " processing")
     ("plan-only", "Only plan the requested passes, don't build or run a graph")
-    ("verbose", po::value(&verbose)->default_value(verbose),
-     "Provide debug printout");
+    ("verbose", "Provide debug printout");
   // clang-format on
 
   po::variables_map vm;
@@ -474,6 +571,10 @@ int main(int argc, char **argv) {
     std::cerr << "error parsing command line: " << e.what() << "\n";
     return 1;
   }
+
+  const bool profile = vm.count("profile");
+  const bool verbose = vm.count("verbose");
+  const bool ignoreData = vm.count("ignore-data");
   const bool planOnly = vm.count("plan-only");
 
   // Needed to set default arguments.
@@ -483,38 +584,15 @@ int main(int argc, char **argv) {
     throw poputil::poplibs_error("The blank class must be in the range 0 to "
                                  "(number of classes - 1)");
   }
-  if (maxTime < maxLabelLength) {
-    throw poputil::poplibs_error(
-        "The max test time must be >= max test label length");
+  if (!minRandomTime && !fixedTime) {
+    fixedTime = maxTime;
   }
-  if (minTime < minLabelLength) {
-    throw poputil::poplibs_error(
-        "The min test time must be >= min test label length ");
+  if (!minRandomLabelLength && !fixedLabelLength) {
+    fixedLabelLength = maxLabelLength;
   }
-  if (maxTime < minTime) {
-    throw poputil::poplibs_error("The max test time must be >= min test time");
-  }
-  if (maxLabelLength < minLabelLength) {
-    throw poputil::poplibs_error(
-        "The max test label length must be >= min test label length");
-  }
-  if (testTime && testTime.get() > maxTime) {
-    throw poputil::poplibs_error(
-        "The non random test time must be <= max test time");
-  }
-  if (testLabelLength && testLabelLength.get() > maxLabelLength) {
-    throw poputil::poplibs_error(
-        "The non random test label length must be <= max test label length");
-  }
-  if ((!testTime && testLabelLength) || (testLabelLength && !testTime)) {
-    throw poputil::poplibs_error(
-        "Use non random test time and non random label length together");
-  }
-  if (testTime && testLabelLength && testTime.get() < testLabelLength.get()) {
-    throw poputil::poplibs_error(
-        "The non random test time must be >= non random test label"
-        " length");
-  }
+  validateTimeAndLabelBounds(minRandomTime, fixedTime, maxTime,
+                             minRandomLabelLength, fixedLabelLength,
+                             maxLabelLength);
 
   poplar::OptionFlags planOpts;
   if (planConstraints) {
@@ -540,13 +618,24 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  std::mt19937 gen;
+  gen.seed(1234);
+
+  const auto randRange = [&](unsigned min, unsigned max) -> unsigned {
+    std::uniform_int_distribution<> range(min, max);
+    return range(gen);
+  };
+
   // For test call the reference function for each batch input
   std::vector<InputSequence<double>> tests;
   std::vector<std::pair<double, boost::multi_array<double, 2>>> references;
   for (unsigned i = 0; i < batchSize; i++) {
-    tests.push_back(getRandomTestInput(
-        testTime, minTime, maxTime, testLabelLength, minLabelLength,
-        maxLabelLength, numClasses, i, isLogits, blankClass));
+    const auto [t, labelLength] =
+        getRandomSize(minRandomTime, fixedTime, maxTime, minRandomLabelLength,
+                      fixedLabelLength, maxLabelLength, randRange);
+    tests.push_back(getRandomTestInput(t, maxTime, labelLength, maxLabelLength,
+                                       numClasses, blankClass, isLogits,
+                                       randRange));
 
     if (verbose) {
       std::cout << "\nBatch:" << i << " Time:" << tests[i].inputLength
@@ -577,11 +666,11 @@ int main(int argc, char **argv) {
 
   for (unsigned i = 0; i < batchSize; i++) {
     outputs[i].second = maskResults(outputs[i].second, tests[i].inputLength);
-    print("Result gradient, batch:" + std::to_string(i), outputs[i].second,
-          blankClass, verbose);
     if (verbose) {
       std::cout << "Result loss = " << outputs[i].first << "\n";
     }
+    print("Result gradient, batch:" + std::to_string(i), outputs[i].second,
+          blankClass, verbose);
   }
   double relativeTolerance, absoluteTolerance;
   if (testReducedCodeletGradient) {
