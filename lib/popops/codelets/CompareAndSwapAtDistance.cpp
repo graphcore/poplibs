@@ -109,7 +109,7 @@ public:
   InOut<Vector<KeyType, ONE_PTR>> keys;
 
   // Outer dimension of array indexed by worker context id
-  Input<VectorList<WorklistType, DELTAN, 4>> worklists;
+  Vector<Input<Vector<WorklistType, ONE_PTR, 4>>> worklists;
 
   // Used with the logical offset to determine the direction of comparison for
   // a given comparison.
@@ -132,7 +132,7 @@ template class CompareAndSwapAtDistance<float>;
 
 template <typename KeyType, typename ValueType>
 constexpr inline bool hasAssemblyVersionKeyVal() {
-  return false;
+  return std::is_same_v<KeyType, float> && std::is_same_v<ValueType, unsigned>;
 }
 
 template <typename KeyType, typename ValueType> struct KeyValImpl {
@@ -160,7 +160,7 @@ public:
   InOut<Vector<ValueType, ONE_PTR>> values;
 
   // Outer dimension of array indexed by worker context id
-  Input<VectorList<WorklistType, DELTAN, 4>> worklists;
+  Vector<Input<Vector<WorklistType, ONE_PTR, 4>>> worklists;
 
   // Used with the logical offset to determine the direction of comparison for
   // a given comparison.

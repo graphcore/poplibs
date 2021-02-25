@@ -2831,8 +2831,74 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistance)(
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CompareAndSwapAtDistanceKeyVal)(
     const VertexIntrospector &vertex, const Target &target, const Type &keyType,
     const Type &valueType) {
-  // TODO:
-  return 0;
+  std::uint64_t cycles = 0;
+  std::uint64_t flops = 0;
+
+  CODELET_VECTOR_2D_VALS(worklists, unsigned short);
+  CODELET_SCALAR_VAL(distanceToChangeOrder, unsigned);
+
+  assert(keyType == FLOAT && valueType == UNSIGNED_INT);
+
+  const auto usedWorkers = worklists.size();
+  std::uint64_t maxWorkerCycles = 0;
+  for (unsigned wid = 0; wid < usedWorkers; ++wid) {
+    auto worklistIt = worklists[wid].cbegin();
+    const unsigned numEntriesM1 = *worklistIt++;
+    const auto numEntries = numEntriesM1 + 1;
+    const auto initialOffset = *worklistIt++;
+    (void)initialOffset;
+    const unsigned lower = *worklistIt++;
+    const unsigned upper = *worklistIt++;
+    const unsigned packedOrderAndCount = (lower | (upper << 16u));
+    const auto initialCount = packedOrderAndCount >> 1u;
+    unsigned firstInnerElemCount = *worklistIt++;
+    unsigned changeOrderCounter = distanceToChangeOrder - initialCount;
+
+    std::uint64_t thisWorkerCycles = 0;
+
+    // cycles for constant overhead pre/post numEntries loop
+    thisWorkerCycles += 23;
+
+    // cycles per entry in the worklist
+    thisWorkerCycles += numEntries * 4;
+
+    bool firstEntry = true;
+    for (unsigned entry = 0; entry < numEntries; ++entry) {
+      const unsigned distance = *worklistIt++;
+      const unsigned numElems = *worklistIt++;
+      const auto innerElemCount =
+          firstEntry ? firstInnerElemCount : std::min(distance, numElems);
+      // Total number of elements
+      const auto numInnerLoops = numElems;
+      const auto numOuterLoops =
+          1 + (ceildiv(numElems - innerElemCount, distance));
+      const auto numChangesOfOrder =
+          numElems >= changeOrderCounter
+              ? (1 + (numElems - changeOrderCounter) / distanceToChangeOrder)
+              : 0;
+
+      // Cycles per element. Note we assume the worst case where every
+      // pair of elements must be swapped but this is data dependent in
+      // reality.
+      thisWorkerCycles += 8 + (numInnerLoops - 1) * 11;
+      // 1 floating point comparison per element
+      flops += numInnerLoops;
+      // additional cycles for each outer loop until numElems is exhausted
+      thisWorkerCycles += numOuterLoops * 11;
+      // cycles to change order and reset change order counter
+      thisWorkerCycles += numChangesOfOrder * 2;
+
+      firstEntry = false;
+    }
+
+    maxWorkerCycles = std::max(maxWorkerCycles, thisWorkerCycles);
+  }
+
+  static constexpr std::uint64_t supervisorCycles = 19;
+  cycles += supervisorCycles;
+  cycles += maxWorkerCycles * target.getNumWorkerContexts();
+
+  return VertexPerfEstimate(cycles, flops);
 }
 
 #define BROADCAST_2TYPE_CYCLE_ESTIM_ENTRIES(vertexName)                        \
