@@ -277,6 +277,8 @@ public:
 bool operator<(const Plan::Impl &a, const Plan::Impl &b) noexcept;
 bool operator==(const Plan::Impl &a, const Plan::Impl &b) noexcept;
 
+std::ostream &operator<<(std::ostream &o, const Plan::Impl &p);
+
 struct CycleEstimate {
   uint64_t alphaBetaComputeCycles;
   uint64_t alphaBetaExchangeCycles;

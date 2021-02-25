@@ -384,14 +384,15 @@ gradIPU(const std::vector<InputSequence<double>> &inputs, unsigned maxLabels,
   // Create gradient
   Sequence prog;
   const auto result = [&]() {
+    const auto layer = "CTCLossTest";
     if (inputs[0].isLogits) {
       return popnn::ctc::calcLossAndGradientLogits(
           graph, outType, data, labels, dataLengths, labelLengths, prog,
-          blankSymbol, plan, "GradientLogits", debugOpts);
+          blankSymbol, plan, layer, debugOpts);
     } else {
       return popnn::ctc::calcLossAndGradientLogProbabilities(
           graph, outType, data, labels, dataLengths, labelLengths, prog,
-          blankSymbol, plan, "GradientLogProbs", debugOpts);
+          blankSymbol, plan, layer, debugOpts);
     }
   }();
 

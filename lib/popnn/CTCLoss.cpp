@@ -423,7 +423,7 @@ Tensor createTempLengths(Graph &graph, const Tensor &input,
   const auto batchSize = input.dim(0);
   auto result = graph.addVariable(
       input.elementType(), {batchSize, plan.parallel.time, plan.parallel.label},
-      {di});
+      di);
 
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned label = 0; label < plan.parallel.label; label++) {
@@ -439,7 +439,7 @@ Tensor createTempLengths(Graph &graph, const Tensor &input,
   auto inReshape = input.reshape({batchSize, 1, 1});
   inReshape = inReshape.broadcast(plan.parallel.time, 1);
   inReshape = inReshape.broadcast(plan.parallel.label, 2);
-  prog.add(Copy(inReshape, result));
+  prog.add(Copy(inReshape, result, false, di));
 
   return result;
 }
@@ -465,7 +465,7 @@ Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
       graph.addVariable(labels.elementType(),
                         {batchSize, tilesForAllTimePartitions,
                          plan.parallel.label, perTileLength},
-                        {di});
+                        di);
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
     for (unsigned label = 0; label < plan.parallel.label; label++) {
       for (unsigned time = 0; time < tilesForAllTimePartitions; time++) {
@@ -497,7 +497,8 @@ Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
       auto oneSlice = labels.slice(beginIn, endIn).expand({1, 1});
       oneSlice = oneSlice.broadcast(3, 3);
       oneSlice = oneSlice.broadcast(tilesForAllTimePartitions, 1);
-      prog.add(Copy(oneSlice, broadcastLabels.slice(beginOut, endOut)));
+      prog.add(
+          Copy(oneSlice, broadcastLabels.slice(beginOut, endOut), false, di));
 
     } else {
       auto previous = labels.slice({0, 0}, {batchSize, 1 - startOffset});
@@ -507,7 +508,7 @@ Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
       auto oneSlice = concat(previous, labels.slice(beginIn, endIn), 1);
       oneSlice = concat(oneSlice, next, 1).expand({1, 1});
       prog.add(Copy(oneSlice.broadcast(tilesForAllTimePartitions, 1),
-                    broadcastLabels.slice(beginOut, endOut)));
+                    broadcastLabels.slice(beginOut, endOut), false, di));
     }
   }
   return broadcastLabels;
@@ -516,10 +517,10 @@ Tensor createBroadcastTempLabels(Graph &graph, const Tensor &labels,
 void initialise(Graph &graph, const Tensor &input, Sequence &prog,
                 const poplar::DebugContext &di) {
   auto initialiser = graph.addConstant<float>(input.elementType(), {1},
-                                              log::probabilityZero, {di});
+                                              log::probabilityZero, di);
   graph.setTileMapping(initialiser, 0);
   prog.add(Copy(initialiser.broadcast(input.numElements(), 0), input.flatten(),
-                false, {di}));
+                false, di));
 }
 
 // Initialise a loop counter per tile.  Those below "midPointTile" are
@@ -532,22 +533,22 @@ void initialiseCounters(Graph &graph, const Tensor &input, unsigned lowerT,
   auto midPointTile = ceildiv(timePartitions, 2u);
 
   auto initialiserZero =
-      graph.addConstant<unsigned>(input.elementType(), {1}, lowerT, {di});
+      graph.addConstant<unsigned>(input.elementType(), {1}, lowerT, di);
   graph.setTileMapping(initialiserZero, 0);
 
   auto initialiserMaxCount =
-      graph.addConstant<unsigned>(input.elementType(), {1}, higherT, {di});
+      graph.addConstant<unsigned>(input.elementType(), {1}, higherT, di);
   graph.setTileMapping(initialiserMaxCount, 0);
 
   auto firstTimePartitions = input.slice(0, midPointTile, 1).flatten();
   prog.add(Copy(initialiserZero.broadcast(firstTimePartitions.numElements(), 0),
-                firstTimePartitions, false, {di}));
+                firstTimePartitions, false, di));
 
   auto lastTimePartitions =
       input.slice(midPointTile, input.dim(1), 1).flatten();
   prog.add(
       Copy(initialiserMaxCount.broadcast(lastTimePartitions.numElements(), 0),
-           lastTimePartitions, false, {di}));
+           lastTimePartitions, false, di));
 }
 
 // Add a copy program to exchange the src tensor to the dst tensor which is
@@ -555,7 +556,8 @@ void initialiseCounters(Graph &graph, const Tensor &input, unsigned lowerT,
 void exchangeToNextLabelPartition(Sequence &prog, const Tensor &src,
                                   const Tensor &dst, const Interval &time,
                                   const Interval &label, bool isAlpha,
-                                  unsigned batchSize) {
+                                  unsigned batchSize,
+                                  const poplar::DebugContext &di) {
   // Copy to the next label partition: 1 more or 1 less
   const auto dstOffsetBegin = isAlpha ? label.begin() + 1 : label.begin() - 1;
   const auto dstOffsetEnd = isAlpha ? label.end() + 1 : label.end() - 1;
@@ -564,7 +566,8 @@ void exchangeToNextLabelPartition(Sequence &prog, const Tensor &src,
   Slice<4> srcEnd = {label.end(), batchSize, time.end(), src.dim(3)};
   Slice<4> dstBegin = {dstOffsetBegin, 0, time.begin(), 0};
   Slice<4> dstEnd = {dstOffsetEnd, batchSize, time.end(), src.dim(3)};
-  prog.add(Copy(src.slice(srcBegin, srcEnd), dst.slice(dstBegin, dstEnd)));
+  prog.add(Copy(src.slice(srcBegin, srcEnd), dst.slice(dstBegin, dstEnd), false,
+                di));
 }
 
 // Add a copy program to exchange the src tensor to the dst tensor which is
@@ -572,7 +575,8 @@ void exchangeToNextLabelPartition(Sequence &prog, const Tensor &src,
 void exchangeToNextLabelTimePartition(Sequence &prog, const Tensor &src,
                                       const Tensor &dst, const Interval &time,
                                       const Interval &label, bool isAlpha,
-                                      unsigned batchSize) {
+                                      unsigned batchSize,
+                                      const poplar::DebugContext &di) {
   // Copy to the next label and time  partition, both 1 more or 1 less
   const auto dstLabelBegin = isAlpha ? label.begin() + 1 : label.begin() - 1;
   const auto dstLabelEnd = isAlpha ? label.end() + 1 : label.end() - 1;
@@ -583,7 +587,8 @@ void exchangeToNextLabelTimePartition(Sequence &prog, const Tensor &src,
   Slice<4> srcEnd = {label.end(), batchSize, time.end(), src.dim(3)};
   Slice<4> dstBegin = {dstLabelBegin, 0, dstTimeBegin, 0};
   Slice<4> dstEnd = {dstLabelEnd, batchSize, dstTimeEnd, src.dim(3)};
-  prog.add(Copy(src.slice(srcBegin, srcEnd), dst.slice(dstBegin, dstEnd)));
+  prog.add(Copy(src.slice(srcBegin, srcEnd), dst.slice(dstBegin, dstEnd), false,
+                di));
 }
 
 // Add copy programs to exchange small temporary alpha/beta result tensors
@@ -591,28 +596,30 @@ void exchangeToNextLabelTimePartition(Sequence &prog, const Tensor &src,
 void addLabelExchangeAlphaBeta(Sequence &prog,
                                const popnn::ctc::Plan::Impl &plan,
                                TempTensors &temp, unsigned alphaTimeSteps,
-                               unsigned batchSize) {
+                               unsigned batchSize,
+                               const poplar::DebugContext &di) {
   if (plan.parallel.label > 1) {
     // Copy alphas to the next (1 more) label partition
-    exchangeToNextLabelPartition(prog, temp.labelAlphaOut, temp.labelAlphaIn,
-                                 {0, alphaTimeSteps},
-                                 {0, plan.parallel.label - 1}, true, batchSize);
+    exchangeToNextLabelPartition(
+        prog, temp.labelAlphaOut, temp.labelAlphaIn, {0, alphaTimeSteps},
+        {0, plan.parallel.label - 1}, true, batchSize, di);
     // Copy betas to the next (1 less) label partition
     exchangeToNextLabelPartition(prog, temp.labelBetaOut, temp.labelBetaIn,
                                  {alphaTimeSteps, plan.parallel.time},
-                                 {1, plan.parallel.label}, false, batchSize);
+                                 {1, plan.parallel.label}, false, batchSize,
+                                 di);
 
     if (plan.parallel.time > 1) {
       // Copy alphas to the next label AND time partition (1 more in each case)
       exchangeToNextLabelTimePartition(
           prog, temp.labelAlphaOut, temp.labelTimeAlphaIn,
           {0, alphaTimeSteps - 1}, {0, plan.parallel.label - 1}, true,
-          batchSize);
+          batchSize, di);
       // Copy betas to the next label AND time partition (1 less in each case)
       exchangeToNextLabelTimePartition(
           prog, temp.labelBetaOut, temp.labelTimeBetaIn,
           {alphaTimeSteps + 1, plan.parallel.time}, {1, plan.parallel.label},
-          false, batchSize);
+          false, batchSize, di);
     }
   }
 }
@@ -622,27 +629,30 @@ void addLabelExchangeAlphaBeta(Sequence &prog,
 void addLabelExchangeAlphaBetaGrad(Sequence &prog,
                                    const popnn::ctc::Plan::Impl &plan,
                                    TempTensors &temp, unsigned alphaTimeSteps,
-                                   unsigned batchSize) {
+                                   unsigned batchSize,
+                                   const poplar::DebugContext &di) {
   if (plan.parallel.label > 1) {
     // Copy alphas to the next (1 more) label partition
     exchangeToNextLabelPartition(prog, temp.labelAlphaOut, temp.labelAlphaIn,
                                  {alphaTimeSteps, plan.parallel.time},
-                                 {0, plan.parallel.label - 1}, true, batchSize);
+                                 {0, plan.parallel.label - 1}, true, batchSize,
+                                 di);
     // Copy betas to the next (1 less) label partition
     exchangeToNextLabelPartition(prog, temp.labelBetaOut, temp.labelBetaIn,
                                  {0, alphaTimeSteps}, {1, plan.parallel.label},
-                                 false, batchSize);
+                                 false, batchSize, di);
 
     if (plan.parallel.time > 1) {
       // Copy alphas to the next label AND time partition (1 more in each case)
       exchangeToNextLabelTimePartition(
           prog, temp.labelAlphaOut, temp.labelTimeAlphaIn,
           {alphaTimeSteps - 1, plan.parallel.time - 1},
-          {0, plan.parallel.label - 1}, true, batchSize);
+          {0, plan.parallel.label - 1}, true, batchSize, di);
       // Copy betas to the next label AND time partition (1 less in each case)
       exchangeToNextLabelTimePartition(
           prog, temp.labelBetaOut, temp.labelTimeBetaIn,
-          {1, alphaTimeSteps + 1}, {1, plan.parallel.label}, false, batchSize);
+          {1, alphaTimeSteps + 1}, {1, plan.parallel.label}, false, batchSize,
+          di);
     }
   }
 }
@@ -725,14 +735,12 @@ Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::Plan::Impl &plan,
                              const Tensor &data, const Tensor &alphaBeta,
                              const Tensor &loss, TempTensors &temp,
                              unsigned labelsLength, unsigned blankClass,
-                             const poplar::DebugNameAndId &dnai) {
-
+                             const poplar::DebugContext &di) {
   logging::popnn::trace("Creating program to find alpha/beta");
   Sequence prog;
   const auto batchSize = data.dim(1);
   const auto maxT = data.dim(2);
-
-  auto cs = graph.addComputeSet({dnai, "/alphaBetaLoop"});
+  auto cs = graph.addComputeSet(di);
   // Partitions in the time dimension calculate either alpha or beta.
   // The time partitions that are less than this value calculate alpha.
   // The remaining partitions calculate beta.
@@ -749,14 +757,15 @@ Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::Plan::Impl &plan,
     if (vertexCalculatesAlpha && time != 0) {
       prog.add(Copy(
           alphaBeta.slice(timePartition.begin() - 1, timePartition.begin(), 1),
-          temp.timeAlphaBeta1.slice(time, time + 1, 1)));
+          temp.timeAlphaBeta1.slice(time, time + 1, 1), false, di));
     } else if (!vertexCalculatesAlpha && time != plan.parallel.time - 1) {
       prog.add(
           Copy(alphaBeta.slice(timePartition.end(), timePartition.end() + 1, 1),
-               temp.timeAlphaBeta1.slice(time, time + 1, 1)));
+               temp.timeAlphaBeta1.slice(time, time + 1, 1), false, di));
     }
   }
-  addLabelExchangeAlphaBeta(prog, plan, temp, alphaTimePartitions, batchSize);
+  addLabelExchangeAlphaBeta(prog, plan, temp, alphaTimePartitions, batchSize,
+                            di);
 
   // generate alpha, beta vertices for a single timestep to be run in a loop
   for (unsigned batch = 0; batch < plan.parallel.batch; batch++) {
@@ -783,7 +792,7 @@ Sequence createAlphaBetaProg(Graph &graph, const popnn::ctc::Plan::Impl &plan,
       }
     }
   }
-  prog.add(Execute(cs, {dnai}));
+  prog.add(Execute(cs, di));
   return prog;
 }
 
@@ -842,14 +851,13 @@ Sequence createAlphaBetaGradProg(Graph &graph,
                                  const Tensor &loss, Tensor &gradient,
                                  TempTensors &temp, unsigned labelsLength,
                                  unsigned blankClass,
-                                 const poplar::DebugNameAndId &dnai) {
-
+                                 const poplar::DebugContext &di) {
   logging::popnn::trace("Creating program to find gradient given alpha/beta");
   Sequence prog;
   const auto batchSize = data.dim(1);
   const auto maxT = data.dim(2);
   const auto extendedLabelSize = temp.timeAlphaBeta2.dim(2);
-  auto cs = graph.addComputeSet({dnai, "/gradGivenAlphaBetaLoop"});
+  auto cs = graph.addComputeSet(di);
   // The partitions that were calculating alpha on the first pass are now
   // calculating beta (running a gradGivenAlpha vertex).  They are the time
   // partitions that are less than this value.  The remaining partitions
@@ -868,7 +876,8 @@ Sequence createAlphaBetaGradProg(Graph &graph,
     Slice<3> dstEnd = {batchSize, (betaTimePartitions - 1) * 2,
                        extendedLabelSize};
     prog.add(Copy(temp.timeAlphaBeta2.slice(srcBegin, srcEnd),
-                  temp.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
+                  temp.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd),
+                  false, di));
   }
   if (plan.parallel.time - betaTimePartitions > 0) {
     // Exchange temporary ping-pong buffers toward t=maxT for the partitions
@@ -879,10 +888,11 @@ Sequence createAlphaBetaGradProg(Graph &graph,
     Slice<3> dstBegin = {0, (betaTimePartitions + 1) * 2, 0};
     Slice<3> dstEnd = {batchSize, plan.parallel.time * 2, extendedLabelSize};
     prog.add(Copy(temp.timeAlphaBeta2.slice(srcBegin, srcEnd),
-                  temp.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
+                  temp.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd),
+                  false, di));
   }
-  addLabelExchangeAlphaBetaGrad(prog, plan, temp, betaTimePartitions,
-                                batchSize);
+  addLabelExchangeAlphaBetaGrad(prog, plan, temp, betaTimePartitions, batchSize,
+                                di);
 
   // generate gradGivenAlpha, beta vertices for a single timestep to be run
   // in a loop
@@ -911,15 +921,14 @@ Sequence createAlphaBetaGradProg(Graph &graph,
       }
     }
   }
-  prog.add(Execute(cs, {dnai}));
+  prog.add(Execute(cs, di));
   return prog;
 }
 
 TempTensors createAndInitialiseTemporaryTensors(
     Graph &graph, const popnn::ctc::Plan::Impl &plan, const Tensor &dataLengths,
     const Tensor &labelLengths, const Tensor &labels, const Type &outType,
-    Sequence &prog, const poputil::PoplibsOpDebugInfo &di,
-    const std::string &layer) {
+    Sequence &prog, const poplar::DebugContext &di) {
 
   const auto batchSize = labels.dim(0);
   const auto labelsLength = labels.dim(1);
@@ -929,11 +938,11 @@ TempTensors createAndInitialiseTemporaryTensors(
   // Create and broadcast the label lengths, time lengths and the labels
   // themselves to avoid repeatedly exchanging every compute step
   tempTensors.validLabelLengths = createTempLengths(
-      graph, labelLengths, plan, prog, {di, layer + "/broadcastLabelLengths"});
-  tempTensors.validTimeSteps = createTempLengths(
-      graph, dataLengths, plan, prog, {di, layer + "/broadcastDataLengths"});
-  tempTensors.label = createBroadcastTempLabels(
-      graph, labels, plan, prog, {di, layer + "/broadcastLabels"});
+      graph, labelLengths, plan, prog, {di, "broadcastLabelLengths"});
+  tempTensors.validTimeSteps = createTempLengths(graph, dataLengths, plan, prog,
+                                                 {di, "broadcastDataLengths"});
+  tempTensors.label = createBroadcastTempLabels(graph, labels, plan, prog,
+                                                {di, "broadcastLabels"});
 
   logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
                         "Time partitions"
@@ -941,16 +950,15 @@ TempTensors createAndInitialiseTemporaryTensors(
                         batchSize, extendedLabelLength);
   tempTensors.timeAlphaBeta1 = graph.addVariable(
       outType, {batchSize, plan.parallel.time, extendedLabelLength},
-      {di, layer + "/tempTimeAlphaBeta1"});
+      {di, "tempTimeAlphaBeta1"});
   mapAlphaBetaAccordingToPlan(graph, tempTensors.timeAlphaBeta1, plan);
 
   tempTensors.timeAlphaBeta2 = graph.addVariable(
       outType, {batchSize, 2 * plan.parallel.time, extendedLabelLength},
-      {di, layer + "/tempTimeAlphaBeta2"});
+      {di, "tempTimeAlphaBeta2"});
   mapAlphaBetaAccordingToPlan(graph, tempTensors.timeAlphaBeta2, plan);
-  tempTensors.timeAlphaBetaPrevPartition =
-      graph.clone(tempTensors.timeAlphaBeta2,
-                  {di, layer + "/tempTimeAlphaBetaPrePartition"});
+  tempTensors.timeAlphaBetaPrevPartition = graph.clone(
+      tempTensors.timeAlphaBeta2, {di, "tempTimeAlphaBetaPrePartition"});
 
   logging::popnn::debug("Creating temporary alpha/beta tensor for CTC Loss "
                         "Label partitions"
@@ -959,21 +967,21 @@ TempTensors createAndInitialiseTemporaryTensors(
 
   tempTensors.labelAlphaIn = graph.addVariable(
       outType, {plan.parallel.label, batchSize, plan.parallel.time, 1},
-      {di, layer + "/tempLabelAlphaIn"});
+      {di, "tempLabelAlphaIn"});
   mapTempLabelAccordingToPlan(graph, tempTensors.labelAlphaIn, plan);
   tempTensors.labelAlphaOut =
-      graph.clone(tempTensors.labelAlphaIn, {di, layer + "/tempLabelAlphaOut"});
-  tempTensors.labelTimeAlphaIn = graph.clone(
-      tempTensors.labelAlphaIn, {di, layer + "/tempLabelTimeAlphaIn"});
+      graph.clone(tempTensors.labelAlphaIn, {di, "tempLabelAlphaOut"});
+  tempTensors.labelTimeAlphaIn =
+      graph.clone(tempTensors.labelAlphaIn, {di, "tempLabelTimeAlphaIn"});
 
   tempTensors.labelBetaIn = graph.addVariable(
       outType, {plan.parallel.label, batchSize, plan.parallel.time, 2},
-      {di, layer + "/tempLabelBetaIn"});
+      {di, "tempLabelBetaIn"});
   mapTempLabelAccordingToPlan(graph, tempTensors.labelBetaIn, plan);
   tempTensors.labelBetaOut =
-      graph.clone(tempTensors.labelBetaIn, {di, layer + "/tempLabelBetaOut"});
-  tempTensors.labelTimeBetaIn = graph.clone(
-      tempTensors.labelBetaIn, {di, layer + "/tempLabelTimeBetaIn"});
+      graph.clone(tempTensors.labelBetaIn, {di, "tempLabelBetaOut"});
+  tempTensors.labelTimeBetaIn =
+      graph.clone(tempTensors.labelBetaIn, {di, "tempLabelTimeBetaIn"});
 
   // Make a counter per tile for the vertices to use
   // Note - making these unsigned short would mean the vertex has to do a
@@ -990,22 +998,22 @@ TempTensors createAndInitialiseTemporaryTensors(
   // except for a single "previous alpha" element which equals probabilityOne.
   // The equivalent "previous beta" element is initialised at runtime in the
   // required place based on the time,label size of each individual input.
-  initialise(graph, tempTensors.timeAlphaBeta1, prog, {di, layer});
+  initialise(graph, tempTensors.timeAlphaBeta1, prog, di);
   auto initialiserOne = graph.addConstant<float>(
-      outType, {1, 1, 1}, static_cast<float>(log::probabilityOne), {di});
+      outType, {1, 1, 1}, static_cast<float>(log::probabilityOne), di);
   graph.setTileMapping(initialiserOne, 0);
   auto tempTimeAlphaBeta1Slice =
       tempTensors.timeAlphaBeta1.slice({0, 0, 0}, {batchSize, 1, 1});
   prog.add(Copy(initialiserOne.broadcast(batchSize, 0), tempTimeAlphaBeta1Slice,
-                false, {di}));
+                false, di));
 
-  initialise(graph, tempTensors.timeAlphaBeta2, prog, {di, layer});
-  initialise(graph, tempTensors.labelAlphaIn, prog, {di, layer});
-  initialise(graph, tempTensors.labelBetaIn, prog, {di, layer});
-  initialise(graph, tempTensors.labelAlphaOut, prog, {di, layer});
-  initialise(graph, tempTensors.labelBetaOut, prog, {di, layer});
-  initialise(graph, tempTensors.labelTimeAlphaIn, prog, {di, layer});
-  initialise(graph, tempTensors.labelTimeBetaIn, prog, {di, layer});
+  initialise(graph, tempTensors.timeAlphaBeta2, prog, di);
+  initialise(graph, tempTensors.labelAlphaIn, prog, di);
+  initialise(graph, tempTensors.labelBetaIn, prog, di);
+  initialise(graph, tempTensors.labelAlphaOut, prog, di);
+  initialise(graph, tempTensors.labelBetaOut, prog, di);
+  initialise(graph, tempTensors.labelTimeAlphaIn, prog, di);
+  initialise(graph, tempTensors.labelTimeBetaIn, prog, di);
   return tempTensors;
 }
 
@@ -1110,30 +1118,29 @@ parseCalcLossAndGradLogProbOptions(const poplar::OptionFlags &options) {
   return opts;
 }
 
-std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
+static std::pair<poplar::Tensor, poplar::Tensor>
+calcLossAndGradientLogProbabilitiesImpl(
     poplar::Graph &graph, const poplar::Type &outType,
     const poplar::Tensor &data, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan &plan_, const poplar::DebugContext &debugContext,
+    const Plan::Impl &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
   validateTensorTypes(data, labels, dataLengths, labelLengths, outType);
   auto opts = parseCalcLossAndGradLogProbOptions(options);
-
-  const auto plan = plan_.getImpl();
-  poputil::PoplibsOpDebugInfo di(debugContext,
+  poputil::PoplibsOpDebugInfo di({debugContext, "CTCGradient"},
                                  DI_ARGS(outType, data, labels, dataLengths,
-                                         labelLengths, blankClass, plan_));
-  const std::string layer = "CTCGradient";
+                                         labelLengths, blankClass, plan,
+                                         options));
 
   logging::popnn::debug("Disabled NANOO for CTC Loss operation");
   poplar::FloatingPointBehaviour clear{false, false, false, false,
                                        true}; // Mask out nanoo
   poplar::FloatingPointBehaviour set{false, false, false, false, false};
   auto fpCSRToRestore =
-      poplar::getAndModifyFloatingPointBehaviour(graph, prog, clear, set, {di});
+      poplar::getAndModifyFloatingPointBehaviour(graph, prog, clear, set, di);
 
-  logging::popnn::debug("Creating CTCLoss using {}", plan_);
+  logging::popnn::debug("Creating CTCLoss using {}", plan);
   const auto maxT = data.dim(0);
   const auto batchSize = data.dim(1);
   const auto numClasses = data.dim(2);
@@ -1158,7 +1165,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   }
 
   auto gradient =
-      graph.addVariable(outType, internalGradShape, {di, layer + "/gradient"});
+      graph.addVariable(outType, internalGradShape, {di, "gradient"});
   mapGradientAccordingToPlan(graph, gradient, plan);
 
   // Broadcast the data input and map according to the planned label splits
@@ -1166,10 +1173,10 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   const auto workingData = [&]() {
     if (plan.parallel.label != 1) {
       auto result = graph.addVariable(data.elementType(), internalGradShape,
-                                      {di, layer + "/broadcastInput"});
+                                      {di, "broadcastInput"});
       mapGradientAccordingToPlan(graph, result, plan);
       auto broadcastData = internalData.broadcast(plan.parallel.label, 0);
-      prog.add(Copy(broadcastData, result, false, {di}));
+      prog.add(Copy(broadcastData, result, false, di));
       return result;
     } else {
       // No broadcast/copy to do
@@ -1180,20 +1187,19 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
       "Creating alpha/beta tensor for CTC Loss with Batchsize:{}"
       " Time:{} ExtendedLabelLength:{}",
       batchSize, maxT, extendedLabelLength);
-  auto alphaBeta =
-      graph.addVariable(outType, {batchSize, maxT, extendedLabelLength},
-                        {di, layer + "/alphaBeta"});
+  auto alphaBeta = graph.addVariable(
+      outType, {batchSize, maxT, extendedLabelLength}, {di, "alphaBeta"});
   mapAlphaBetaAccordingToPlan(graph, alphaBeta, plan);
 
   // Make the temporary tensors to exchange between tiles, keep loop count etc
   auto tempTensors = createAndInitialiseTemporaryTensors(
-      graph, plan, dataLengths, labelLengths, labels, outType, prog, di, layer);
+      graph, plan, dataLengths, labelLengths, labels, outType, prog, di);
 
   auto loss = graph.addVariable(
       outType, {batchSize, plan.parallel.time, plan.parallel.label},
-      {di, layer + "/loss"});
+      {di, "loss"});
   mapLossAccordingToPlan(graph, loss, plan);
-  initialise(graph, loss, prog, {di, layer});
+  initialise(graph, loss, prog, di);
   // Initialise the gradient to probabilityZero, to accumulate into
   initialise(graph, gradient, prog, di);
 
@@ -1212,12 +1218,11 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
   auto lastAlphaTimePartition =
       plan.partitionTime(maxT, alphaTimePartitions - 1);
   const auto numLoops = lastAlphaTimePartition.end();
-  initialiseCounters(graph, tempTensors.counter, 0, maxT - 1, prog,
-                     {di, layer});
-  auto alphaBetaProg =
-      createAlphaBetaProg(graph, plan, workingData, alphaBeta, loss,
-                          tempTensors, labelsLength, blankClass, {di, layer});
-  prog.add(Repeat(numLoops, alphaBetaProg, {di}));
+  initialiseCounters(graph, tempTensors.counter, 0, maxT - 1, prog, di);
+  auto alphaBetaProg = createAlphaBetaProg(graph, plan, workingData, alphaBeta,
+                                           loss, tempTensors, labelsLength,
+                                           blankClass, {di, "alphaBetaLoop"});
+  prog.add(Repeat(numLoops, alphaBetaProg, di));
 
   // Copy the last timestep in the alphaBeta tensor from one tile into
   // the temporary time input for the next tile
@@ -1234,7 +1239,8 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
                                           lastAlphaTimePartition.end(), 1);
     prog.add(
         Copy(alphaBetaSlice.broadcast(2, 1),
-             tempTensors.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
+             tempTensors.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd),
+             false, di));
 
     // Copy the last computed beta, broadcast into the 1st temporary beta
     // input
@@ -1245,18 +1251,19 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
                                      lastAlphaTimePartition.end() + 1, 1);
     prog.add(
         Copy(alphaBetaSlice.broadcast(2, 1),
-             tempTensors.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd)));
+             tempTensors.timeAlphaBetaPrevPartition.slice(dstBegin, dstEnd),
+             false, di));
   }
 
   // Make the program to find gradient given alpha, beta and run it in a loop
   auto gradInitialCount = lastAlphaTimePartition.end();
   initialiseCounters(graph, tempTensors.counter, gradInitialCount - 1,
-                     gradInitialCount, prog, {di, layer});
+                     gradInitialCount, prog, di);
 
   auto alphaBetaGradProg = createAlphaBetaGradProg(
       graph, plan, workingData, alphaBeta, loss, gradient, tempTensors,
-      labelsLength, blankClass, {di, layer});
-  prog.add(Repeat(numLoops, alphaBetaGradProg, {di}));
+      labelsLength, blankClass, {di, "gradGivenAlphaBetaLoop"});
+  prog.add(Repeat(numLoops, alphaBetaGradProg, di));
 
   // Reduce where data was split over label.
   ReduceParams reduceParams = {popops::Operation::LOG_ADD, false};
@@ -1266,7 +1273,7 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
     if (loss.dim(1) == 1) {
       return loss.reshape({batchSize});
     } else {
-      return popops::reduce(graph, loss, {1}, reduceParams, prog, {di});
+      return popops::reduce(graph, loss, {1}, reduceParams, prog, di);
     }
   }();
   auto gradReduced = [&]() {
@@ -1277,19 +1284,19 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
       auto gradientReduced =
           graph.clone(outType, internalData, debugContext).squeeze({0});
       popops::reduceWithOutput(graph, gradient, gradientReduced, {0},
-                               reduceParams, prog, {di});
+                               reduceParams, prog, di);
       return toExternalShape(gradientReduced);
     }
   }();
 
-  popops::negInPlace(graph, lossReduced, prog, {di});
+  popops::negInPlace(graph, lossReduced, prog, di);
   if (!opts.returnReducedCodeletGradient) {
     auto lossShaped = lossReduced.reshape({1, batchSize, 1});
     popops::mapInPlace(graph, Sub(Exp(Cast(_3, outType)), Exp(Add(_1, _2))),
-                       {gradReduced, lossShaped, data}, prog, {di});
+                       {gradReduced, lossShaped, data}, prog, di);
   }
-  di.addOutput(lossReduced);
-  di.addOutput(gradReduced);
+  di.addOutputs({{"loss", poputil::toProfileValue(lossReduced)},
+                 {"grad", poputil::toProfileValue(gradReduced)}});
 
   if (!opts.includeSoftmaxGradient) {
     // TODO: Remove gradient from LogSoftmax
@@ -1297,8 +1304,21 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
         "includeSoftmaxGradient = false is currently an unsupported option");
   }
 
-  poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, {di});
+  poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, di);
   return {lossReduced, gradReduced};
+}
+
+std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(
+    poplar::Graph &graph, const poplar::Type &outType,
+    const poplar::Tensor &logProbs, const poplar::Tensor &labels,
+    const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
+    poplar::program::Sequence &prog, const unsigned blankClass,
+    const Plan &plan, const poplar::DebugContext &debugContext,
+    const poplar::OptionFlags &options) {
+  return calcLossAndGradientLogProbabilitiesImpl(
+      graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
+      blankClass, plan.getImpl(), {debugContext, "CTCLossAndGradientLogProbs"},
+      options);
 }
 
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
@@ -1306,18 +1326,19 @@ std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogits(
     const poplar::Tensor &logits, const poplar::Tensor &labels,
     const poplar::Tensor &dataLengths, const poplar::Tensor &labelLengths,
     poplar::program::Sequence &prog, const unsigned blankClass,
-    const Plan &plan_, const poplar::DebugContext &debugContext,
+    const Plan &plan, const poplar::DebugContext &parentDebugContext,
     const poplar::OptionFlags &options) {
-  // TODO sort out debug info
+  poplar::DebugContext debugContext{parentDebugContext,
+                                    "CTCLossAndGradientLogits"};
 
   // Ensure we preserve mapping of the result to fit in with the plan
   auto logProbs = graph.clone(logits, debugContext);
-  prog.add(Copy(logits, logProbs));
+  prog.add(Copy(logits, logProbs, false, debugContext));
   logSoftmaxInPlace(graph, logProbs, prog, debugContext);
 
-  return calcLossAndGradientLogProbabilities(
+  return calcLossAndGradientLogProbabilitiesImpl(
       graph, outType, logProbs, labels, dataLengths, labelLengths, prog,
-      blankClass, plan_, debugContext, options);
+      blankClass, plan.getImpl(), debugContext, options);
 }
 
 } // end namespace ctc

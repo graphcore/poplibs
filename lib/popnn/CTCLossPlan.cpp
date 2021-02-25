@@ -669,22 +669,27 @@ std::ostream &operator<<(std::ostream &o, const Plan &p) {
 } // namespace popnn
 
 namespace poputil {
-template <> poplar::ProfileValue toProfileValue(const popnn::ctc::Plan &p) {
+template <>
+poplar::ProfileValue toProfileValue(const popnn::ctc::Plan::Impl &p) {
   poplar::ProfileValue::Map v;
-  v.insert({"serial.batch", toProfileValue(p.impl->serial.batch)});
-  v.insert({"serial.time", toProfileValue(p.impl->serial.time)});
-  v.insert({"serial.label", toProfileValue(p.impl->serial.label)});
-  v.insert({"parallel.batch", toProfileValue(p.impl->parallel.batch)});
-  v.insert({"parallel.time", toProfileValue(p.impl->parallel.time)});
-  v.insert({"parallel.label", toProfileValue(p.impl->parallel.label)});
-  v.insert({"parallel.sliceIntoOutput",
-            toProfileValue(p.impl->parallel.sliceIntoOutput)});
+  v.insert({"serial.batch", toProfileValue(p.serial.batch)});
+  v.insert({"serial.time", toProfileValue(p.serial.time)});
+  v.insert({"serial.label", toProfileValue(p.serial.label)});
+  v.insert({"parallel.batch", toProfileValue(p.parallel.batch)});
+  v.insert({"parallel.time", toProfileValue(p.parallel.time)});
+  v.insert({"parallel.label", toProfileValue(p.parallel.label)});
+  v.insert(
+      {"parallel.sliceIntoOutput", toProfileValue(p.parallel.sliceIntoOutput)});
   v.insert({"parallel.lastBlankOnSeparateTile",
-            toProfileValue(p.impl->parallel.lastBlankOnSeparateTile)});
-  v.insert({"parallel.alphabet", toProfileValue(p.impl->parallel.alphabet)});
-  v.insert({"parallel.sliceFromInput",
-            toProfileValue(p.impl->parallel.sliceFromInput)});
+            toProfileValue(p.parallel.lastBlankOnSeparateTile)});
+  v.insert({"parallel.alphabet", toProfileValue(p.parallel.alphabet)});
+  v.insert(
+      {"parallel.sliceFromInput", toProfileValue(p.parallel.sliceFromInput)});
 
   return v;
+}
+
+template <> poplar::ProfileValue toProfileValue(const popnn::ctc::Plan &p) {
+  return toProfileValue(p.getImpl());
 }
 } // namespace poputil
