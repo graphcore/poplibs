@@ -1268,12 +1268,13 @@ calcLossAndGradientLogProbabilitiesImpl(
   // Reduce where data was split over label.
   ReduceParams reduceParams = {popops::Operation::LOG_ADD, false};
 
+  std::vector<poplar::ComputeSet> reductionCS;
   auto lossReduced = [&]() {
     loss = loss.flatten(1, 3);
     if (loss.dim(1) == 1) {
       return loss.reshape({batchSize});
     } else {
-      return popops::reduce(graph, loss, {1}, reduceParams, prog, di);
+      return popops::reduce(graph, loss, {1}, reduceParams, reductionCS, di);
     }
   }();
   auto gradReduced = [&]() {
@@ -1284,10 +1285,13 @@ calcLossAndGradientLogProbabilitiesImpl(
       auto gradientReduced =
           graph.clone(outType, internalData, debugContext).squeeze({0});
       popops::reduceWithOutput(graph, gradient, gradientReduced, {0},
-                               reduceParams, prog, di);
+                               reduceParams, reductionCS, di);
       return toExternalShape(gradientReduced);
     }
   }();
+  for (const auto &cs : reductionCS) {
+    prog.add(Execute(cs));
+  }
 
   popops::negInPlace(graph, lossReduced, prog, di);
   if (!opts.returnReducedCodeletGradient) {
