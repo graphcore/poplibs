@@ -923,33 +923,37 @@ add_multitarget_test(
 
 # Verify cases where the individual entry is <= the maximum timesteps or
 # maximum label length defined.
-foreach(time 25 28 32)
-  foreach(labels 2 3 6 8 12)
-    add_multitarget_test(
-      NAME CTCLossTest1_Time_${time}_Labels_${labels}
-      COMMAND CTCLossTest
-              --batch=1
-              --max-time=32
-              --max-label-length=12
-              --time=${time}
-              --label-length=${labels}
-              --plan-constraints={\"parallel\":{\"time\":4,\"label\":4}}
-      VARIANTS ${IPUMODEL_VARIANTS})
+foreach(last_blank_separate 0 1)
+  foreach(time 25 28 32)
+    foreach(labels 2 3 6 8 12)
+      add_multitarget_test(
+        NAME CTCLossTest1_Time_${time}_Labels_${labels}_${last_blank_separate}
+        COMMAND CTCLossTest
+                --batch=1
+                --max-time=32
+                --max-label-length=12
+                --time=${time}
+                --label-length=${labels}
+                --plan-constraints={\"parallel\":{\"time\":4,\"label\":4,\"lastBlankOnSeparateTile\":${last_blank_separate}}}
+        VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
   endforeach()
 endforeach()
 
-foreach(time 12 15 16)
-  foreach(labels 3 5)
-    add_multitarget_test(
-      NAME CTCLossTest2_Time_${time}_Labels_${labels}
-      COMMAND CTCLossTest
-              --batch=1
-              --max-time=32
-              --max-label-length=12
-              --time=${time}
-              --label-length=${labels}
-              --plan-constraints={\"parallel\":{\"time\":4,\"label\":4}}
-      VARIANTS ${IPUMODEL_VARIANTS})
+foreach(last_blank_separate 0 1)
+  foreach(time 12 15 16)
+    foreach(labels 3 5)
+      add_multitarget_test(
+        NAME CTCLossTest2_Time_${time}_Labels_${labels}_${last_blank_separate}
+        COMMAND CTCLossTest
+                --batch=1
+                --max-time=32
+                --max-label-length=12
+                --time=${time}
+                --label-length=${labels}
+                --plan-constraints={\"parallel\":{\"time\":4,\"label\":4,\"lastBlankOnSeparateTile\":${last_blank_separate}}}
+        VARIANTS ${IPUMODEL_VARIANTS})
+    endforeach()
   endforeach()
 endforeach()
 

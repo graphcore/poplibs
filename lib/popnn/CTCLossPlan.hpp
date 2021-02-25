@@ -224,6 +224,9 @@ class Plan::Impl {
 public:
   SerialPartition<unsigned> serial;
   ParallelPartition<unsigned, bool> parallel;
+  unsigned getLabelPartitionTiles(void) const {
+    return parallel.label + (parallel.lastBlankOnSeparateTile ? 1 : 0);
+  }
 
   // Given a batch size and partition index, return range of batch elements
   // represented in this partition
@@ -240,29 +243,47 @@ public:
   // Given a label size and partition index, return range of label elements
   // represented in this partition
   poplar::Interval partitionLabel(unsigned labelSize, unsigned index) const {
+    return partition(labelSize, getLabelPartitionTiles(), index);
+  }
+  poplar::Interval partitionLabelSizeOnly(unsigned labelSize,
+                                          unsigned index) const {
     return partition(labelSize, parallel.label, index);
   }
 
   // Note passed labelSize NOT extendedLabelSize - result made to match
   // partitionLabel result when partitioning the label
   poplar::Interval partitionExtendedLabel(const std::size_t labelSize,
-                                          const std::size_t partition) const {
-    const auto labelPartition = partitionLabel(labelSize, partition);
+                                          const std::size_t index) const {
+    // Partition the label itself
+    const auto labelPartition = partition(labelSize, parallel.label, index);
+    // The extended label partition is double the size, other than the extra
+    // blank
     const auto begin = 2 * labelPartition.begin();
-    const auto end =
-        2 * labelPartition.end() + (partition == parallel.label - 1);
+    auto end = 2 * labelPartition.end();
+    if (parallel.lastBlankOnSeparateTile) {
+      // Don't include the extra blank, instead for the last empty partition
+      // make a partition with size 1
+      if (labelPartition.size() == 0) {
+        end++;
+      }
+    } else if (index == parallel.label - 1) {
+      // Always include the extra blank in the last partition
+      end++;
+    }
     return {begin, end};
   }
 
   unsigned getTile(unsigned batch, unsigned time, unsigned label) const {
-    return batch * (parallel.time * parallel.label) // Batch
-           + time * parallel.label                  // Time
-           + label;                                 // Label
+    const auto labelPartitionTiles = getLabelPartitionTiles();
+    return batch * (parallel.time * labelPartitionTiles) // Batch
+           + time * labelPartitionTiles                  // Time
+           + label;                                      // Label
   }
   // Tile allocation when splitting across batch and time dimensions only
   unsigned getTile(unsigned batch, unsigned time) const {
-    return batch * (parallel.time * parallel.label) // Batch
-           + time;                                  // Time
+    const auto labelPartitionTiles = getLabelPartitionTiles();
+    return batch * (parallel.time * labelPartitionTiles) // Batch
+           + time;                                       // Time
   }
 
   unsigned numTiles() const {

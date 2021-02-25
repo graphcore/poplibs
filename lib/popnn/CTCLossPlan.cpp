@@ -488,8 +488,6 @@ constructModel(popsolver::Model &m, const CtcParams &params,
 
   vars.parallel.lastBlankOnSeparateTile =
       m.addVariable(false, true, "parallelLastBlankOnSeparateTile");
-  m.equal(vars.parallel.lastBlankOnSeparateTile,
-          m.addConstant(false)); // Unsupported
 
   // If we put the last blank on a separate tile, label partitions increase by 1
   auto labelPartitions =
@@ -604,7 +602,6 @@ static Plan::Impl planFromSolution(const popsolver::Solution &solution,
   plan.parallel.alphabet = solution[vars.parallel.alphabet].getAs<unsigned>();
   plan.parallel.sliceFromInput =
       solution[vars.parallel.sliceFromInput].getAs<bool>();
-
   return plan;
 }
 
