@@ -142,6 +142,13 @@ template <typename T, typename B> struct ParallelPartition {
   // while generating gradient).  Choice using the sliceIntoOutput flag
   T label;
   B sliceIntoOutput;
+  // Whether or not to compute the last blank on a separate tile.
+  // e.g. -a-b-c-d-, with label split = 4 would partition in the following way
+  // `-a`, `-b`, `-c`, `-d-`, where the last partition computes the last blank.
+  // This is undesirable because we are only as fast as the slowest partition.
+  // When true, we create an extra label partition to compute the last blank
+  // (`-a`, `-b`, `-c`, `-d`, `-`)
+  B lastBlankOnSeparateTile;
 
   // We can choose to split the storage of the prob[] alphabet dimension over
   // tiles, however as each input requires a dynamicSlice based on the content
@@ -259,7 +266,8 @@ public:
   }
 
   unsigned numTiles() const {
-    return parallel.batch * parallel.time * parallel.label;
+    return parallel.batch * parallel.time *
+           (parallel.label + (parallel.lastBlankOnSeparateTile ? 1 : 0));
   }
   std::unique_ptr<Plan::Impl> clone() const {
     return std::make_unique<Plan::Impl>(*this);

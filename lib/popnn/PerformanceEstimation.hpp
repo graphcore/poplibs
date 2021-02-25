@@ -283,7 +283,9 @@ From the equation 2, it's apparent that we need 1 add and a multiply operation,
 and it follows for three paths we need 2 add operations and a multiply. So for a
 given class in l (and including one adjacent blank), the number of operations
 required is: 3 add, 2 multiply (2 add + 1 mul for non-blank class, 1 add + 1 mul
-for blank class)
+for blank class). However the partial result calculating the previous blank
+symbol can be reused if the previous symbol is different can be reused to
+require only 2 add and 2 multiply operations.
 
 We have illustrated computing alpha here, however it's equivalent costing for
 beta as it is just the same operation with the data reversed.
@@ -301,54 +303,69 @@ This is by:
   3.  alpha = sum * prob
 
 */
-inline uint64_t alphaFlops(unsigned t, unsigned l, const poplar::Type &type) {
-  auto flopsPerInputElement = 3 * poplibs_support::flopsForLogAdd() +
+inline uint64_t alphaFlops(unsigned t, unsigned l, const poplar::Type &type,
+                           bool extraBlank) {
+  auto flopsPerInputElement = 2 * poplibs_support::flopsForLogAdd() +
                               2 * poplibs_support::flopsForLogMultiply();
-  return poplibs_support::convertToTypeFlops(flopsPerInputElement * t * l,
-                                             type);
+  auto flopsLastBlank = poplibs_support::flopsForLogAdd() +
+                        poplibs_support::flopsForLogMultiply();
+  return poplibs_support::convertToTypeFlops(
+      flopsPerInputElement * t * l + extraBlank ? flopsLastBlank : 0, type);
 }
 
-inline uint64_t betaFlops(unsigned t, unsigned l, const poplar::Type &type) {
-  return alphaFlops(t, l, type);
+inline uint64_t betaFlops(unsigned t, unsigned l, const poplar::Type &type,
+                          bool extraBlank) {
+  return alphaFlops(t, l, type, extraBlank);
 }
 
 inline uint64_t gradGivenAlphaFlops(unsigned t, unsigned l,
-                                    const poplar::Type &type) {
+                                    const poplar::Type &type, bool extraBlank) {
   auto gradFlopsPerInputElement = 2 * (poplibs_support::flopsForLogMultiply() +
                                        poplibs_support::flopsForLogAdd());
-  auto flops = betaFlops(t, l, type) + (t * l * gradFlopsPerInputElement);
+  auto gradFlopsLastBlank = 2 * (poplibs_support::flopsForLogAdd() +
+                                 poplibs_support::flopsForLogMultiply());
+  auto flops =
+      betaFlops(t, l, type, extraBlank) +
+      (t * l * gradFlopsPerInputElement + extraBlank ? gradFlopsLastBlank : 0);
   return poplibs_support::convertToTypeFlops(flops, type);
 }
 
 inline uint64_t gradGivenBetaFlops(unsigned t, unsigned l,
-                                   const poplar::Type &type) {
-  return gradGivenAlphaFlops(t, l, type);
+                                   const poplar::Type &type, bool extraBlank) {
+  return gradGivenAlphaFlops(t, l, type, extraBlank);
 }
 
 // Estimated cycles for a given region of size {t, l}
-inline uint64_t alphaCycles(unsigned t, unsigned l) {
+inline uint64_t alphaCycles(unsigned t, unsigned l, bool extraBlank) {
   auto readWriteCost =
       (1    // -> Writing to output
        + 3) // -> Reading from 3 inputs (previous non-blank in label, in
             // addition to current blank and non-blank at previous t)
       * 2;  // For both blank and non-blank class
-  auto arithmeticCost = (3 * logAddCycles() + 2 * logMulCycles()); // Each path
+  auto arithmeticCost = (2 * logAddCycles() + 2 * logMulCycles()); // Each path
   auto controlFlowCost = 2; // Conditional for duplicate non-blank class
 
   auto cyclesPerSymbolAndAdjacentBlankPerT =
       readWriteCost + arithmeticCost + controlFlowCost;
-  return cyclesPerSymbolAndAdjacentBlankPerT * l * t;
+
+  auto cycles = cyclesPerSymbolAndAdjacentBlankPerT * l * t;
+  if (extraBlank) {
+    cycles += logAddCycles() + logMulCycles();
+  }
+  return cycles;
 }
 
 // Beta is approximately the same as alpha in the inverse direction, so
 // estimates are equivalent
-inline uint64_t betaCycles(unsigned t, unsigned l) { return alphaCycles(t, l); }
+inline uint64_t betaCycles(unsigned t, unsigned l, bool extraBlank) {
+  return alphaCycles(t, l, extraBlank);
+}
 
 // For gradGiven[Alpha/Beta], this calculates the compliment [Beta/Alpha], and
 // with the working state, combines them to compute the gradient
-inline uint64_t gradGivenAlphaCycles(unsigned t, unsigned l) {
+inline uint64_t gradGivenAlphaCycles(unsigned t, unsigned l, bool extraBlank) {
   // This is based on beta vertex, but does additional work
-  auto baseBetaCalcuationCost = betaCycles(t, l);
+  auto baseBetaCalculationCost = betaCycles(t, l, extraBlank);
 
   // The following estimates are calculating grad, given beta has been
   // calculated (and alpha in a previous step)
@@ -362,13 +379,18 @@ inline uint64_t gradGivenAlphaCycles(unsigned t, unsigned l) {
       * 2;             // For both blank and non-blank class
 
   auto cyclesPerSymbolAndAdjacentBlankPerT = readWriteCost + arithmeticCost;
-  return baseBetaCalcuationCost + cyclesPerSymbolAndAdjacentBlankPerT * l * t;
+  auto cycles =
+      baseBetaCalculationCost + cyclesPerSymbolAndAdjacentBlankPerT * l * t;
+  if (extraBlank) {
+    cycles += logAddCycles() + logMulCycles();
+  }
+  return cycles;
 }
 
 // Similarly, gradGivenBeta is approximately the same as gradGivenAlpha, so
 // estimates are equivalent
-inline uint64_t gradGivenBetaCycles(unsigned t, unsigned l) {
-  return gradGivenAlphaCycles(t, l);
+inline uint64_t gradGivenBetaCycles(unsigned t, unsigned l, bool extraBlank) {
+  return gradGivenAlphaCycles(t, l, extraBlank);
 }
 
 #endif // _performance_estimation_h_

@@ -82,8 +82,13 @@ struct ValidateCtcPlanConstraintsOption {
     for (const auto &child : t) {
       if (child.first == "parallel") {
         const std::vector<std::string> validParallelConstraints{
-            "batch",           "time",     "label",
-            "sliceIntoOutput", "alphabet", "sliceFromInput"};
+            "batch",
+            "time",
+            "label",
+            "sliceIntoOutput",
+            "lastBlankOnSeparateTile",
+            "alphabet",
+            "sliceFromInput"};
         validatePlanConstraints(child.first, child.second,
                                 validParallelConstraints);
       } else if (child.first == "serial") {
@@ -147,6 +152,8 @@ std::ostream &operator<<(std::ostream &o, const Plan::Impl &p) {
   o << "    label                      " << p.parallel.label << "\n";
   o << "    sliceIntoOutput            "
     << (p.parallel.sliceIntoOutput ? "true" : "false") << "\n";
+  o << "    lastBlankOnSeparateTile    "
+    << (p.parallel.lastBlankOnSeparateTile ? "true" : "false") << "\n";
   o << "    alphabet                   " << p.parallel.alphabet << "\n";
   o << "    sliceFromInput             "
     << (p.parallel.sliceFromInput ? "true" : "false") << "\n";
@@ -250,19 +257,29 @@ CycleEstimate estimateCycles(const CtcParams &params,
   auto maxLabelElementsPerPartition =
       poplibs_support::ceildiv(params.maxLabelLength, partition.parallel.label);
 
+  auto balancedLabelPartitions =
+      maxLabelElementsPerPartition ==
+      params.maxLabelLength / partition.parallel.label;
+  auto partitionSlowedByExtraBlank =
+      (balancedLabelPartitions && !partition.parallel.lastBlankOnSeparateTile);
+
   // Consider 1 timestep {compute + exchange}, and repeat this for the partition
   const auto timesteps = 1;
 
   // Computing alpha/beta
   uint64_t alphaBetaComputeCyclesPerTimestep =
-      std::max(cache.mAlphaCycles(timesteps, maxLabelElementsPerPartition),
-               cache.mBetaCycles(timesteps, maxLabelElementsPerPartition)) *
+      std::max(cache.mAlphaCycles(timesteps, maxLabelElementsPerPartition,
+                                  partitionSlowedByExtraBlank),
+               cache.mBetaCycles(timesteps, maxLabelElementsPerPartition,
+                                 partitionSlowedByExtraBlank)) *
       numWorkers;
   // Computing gradient from alpha/beta
   uint64_t gradComputeCyclesPerTimestep =
       std::max(
-          cache.mGradGivenAlphaCycles(timesteps, maxLabelElementsPerPartition),
-          cache.mGradGivenBetaCycles(timesteps, maxLabelElementsPerPartition)) *
+          cache.mGradGivenAlphaCycles(timesteps, maxLabelElementsPerPartition,
+                                      partitionSlowedByExtraBlank),
+          cache.mGradGivenBetaCycles(timesteps, maxLabelElementsPerPartition,
+                                     partitionSlowedByExtraBlank)) *
       numWorkers;
 
   // After each compute set, we do the same exchange (slightly different for
@@ -469,26 +486,41 @@ constructModel(popsolver::Model &m, const CtcParams &params,
       m.addVariable(false, true, "parallelSliceFromInput");
   m.equal(vars.parallel.sliceFromInput, m.addConstant(false)); // Unsupported
 
+  vars.parallel.lastBlankOnSeparateTile =
+      m.addVariable(false, true, "parallelLastBlankOnSeparateTile");
+  m.equal(vars.parallel.lastBlankOnSeparateTile,
+          m.addConstant(false)); // Unsupported
+
+  // If we put the last blank on a separate tile, label partitions increase by 1
+  auto labelPartitions =
+      m.sum({vars.parallel.label, vars.parallel.lastBlankOnSeparateTile});
+
   auto totalTilesUsed =
-      m.product({vars.parallel.batch, vars.parallel.time, vars.parallel.label},
+      m.product({vars.parallel.batch, vars.parallel.time, labelPartitions},
                 "totalTilesUsed");
 
   auto totalTiles = m.addConstant(target.getNumTiles(), "totalTiles");
   m.lessOrEqual(totalTilesUsed, totalTiles);
 
   const std::vector<popsolver::Variable> planArray{
-      vars.serial.batch,      vars.serial.time,
+      vars.serial.batch,
+      vars.serial.time,
       vars.serial.label,
 
-      vars.parallel.batch,    vars.parallel.time,
-      vars.parallel.label,    vars.parallel.sliceIntoOutput,
-      vars.parallel.alphabet, vars.parallel.sliceFromInput};
+      vars.parallel.batch,
+      vars.parallel.time,
+      vars.parallel.label,
+      vars.parallel.sliceIntoOutput,
+      vars.parallel.lastBlankOnSeparateTile,
+      vars.parallel.alphabet,
+      vars.parallel.sliceFromInput};
 
   const auto toPlanStruct =
       [](const std::vector<unsigned> &values) -> Plan::Impl {
     return {{values[0], values[1], values[2]},
             {values[3], values[4], values[5], static_cast<bool>(values[6]),
-             values[7], static_cast<bool>(values[8])}};
+             static_cast<bool>(values[7]), values[8],
+             static_cast<bool>(values[9])}};
   };
 
   auto cycles = m.call<unsigned>(
@@ -545,6 +577,8 @@ applyPlanConstraints(popsolver::Model &m,
   constrainUnsignedVar("parallel.label", vars.parallel.label);
   constrainUnsignedVar("parallel.sliceIntoOutput",
                        vars.parallel.sliceIntoOutput);
+  constrainUnsignedVar("parallel.lastBlankOnSeparateTile",
+                       vars.parallel.lastBlankOnSeparateTile);
   constrainUnsignedVar("parallel.alphabet", vars.parallel.alphabet);
   constrainUnsignedVar("parallel.sliceFromInput", vars.parallel.sliceFromInput);
 
@@ -565,6 +599,8 @@ static Plan::Impl planFromSolution(const popsolver::Solution &solution,
   plan.parallel.label = solution[vars.parallel.label].getAs<unsigned>();
   plan.parallel.sliceIntoOutput =
       solution[vars.parallel.sliceIntoOutput].getAs<bool>();
+  plan.parallel.lastBlankOnSeparateTile =
+      solution[vars.parallel.lastBlankOnSeparateTile].getAs<bool>();
   plan.parallel.alphabet = solution[vars.parallel.alphabet].getAs<unsigned>();
   plan.parallel.sliceFromInput =
       solution[vars.parallel.sliceFromInput].getAs<bool>();
@@ -643,6 +679,8 @@ template <> poplar::ProfileValue toProfileValue(const popnn::ctc::Plan &p) {
   v.insert({"parallel.label", toProfileValue(p.impl->parallel.label)});
   v.insert({"parallel.sliceIntoOutput",
             toProfileValue(p.impl->parallel.sliceIntoOutput)});
+  v.insert({"parallel.lastBlankOnSeparateTile",
+            toProfileValue(p.impl->parallel.lastBlankOnSeparateTile)});
   v.insert({"parallel.alphabet", toProfileValue(p.impl->parallel.alphabet)});
   v.insert({"parallel.sliceFromInput",
             toProfileValue(p.impl->parallel.sliceFromInput)});

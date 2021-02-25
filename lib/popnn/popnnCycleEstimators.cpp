@@ -635,32 +635,32 @@ VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCAlpha)(
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {alphaCycles(1, label.size() - 1),
-          alphaFlops(1, label.size() - 1, outType)};
+  return {alphaCycles(1, label.size() - 1, false),
+          alphaFlops(1, label.size() - 1, outType, false)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {betaCycles(1, label.size() - 1),
-          betaFlops(1, label.size() - 1, outType)};
+  return {betaCycles(1, label.size() - 1, false),
+          betaFlops(1, label.size() - 1, outType, false)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenAlpha)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isFirstLabel) {
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {gradGivenAlphaCycles(1, label.size() - 1),
-          gradGivenAlphaFlops(1, label.size() - 1, outType)};
+  return {gradGivenAlphaCycles(1, label.size() - 1, false),
+          gradGivenAlphaFlops(1, label.size() - 1, outType, false)};
 }
 VertexPerfEstimate MAKE_PERF_ESTIMATOR_NAME(CTCGradGivenBeta)(
     const VertexIntrospector &vertex, const Target &target, const Type &inType,
     const Type &outType, const Type symbolType, const bool isLastLabel) {
   CODELET_FIELD(label);
   // Label contains the previous symbol as a dependency, not an extra result
-  return {gradGivenBetaCycles(1, label.size() - 1),
-          gradGivenBetaFlops(1, label.size() - 1, outType)};
+  return {gradGivenBetaCycles(1, label.size() - 1, false),
+          gradGivenBetaFlops(1, label.size() - 1, outType, false)};
 }
 poplibs::PerfEstimatorTable makePerfFunctionTable() {
   return {
