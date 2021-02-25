@@ -56,6 +56,28 @@ struct ReduceSquareAdd {
   }
 };
 
+#ifdef __IPU__
+struct ReduceLogAdd {
+  template <typename T> static T init() {
+    return poplibs_support::log::probabilityZero;
+  }
+  template <typename OutType, typename PartialsType>
+  static void update(OutType &acc, PartialsType val) {
+    // Casting required as exp<half>() undefined
+    const auto a = static_cast<float>(val);
+    const auto b = static_cast<float>(acc);
+    // Compiled code doesn't produce optimal f32max, f32min instructions
+    float max, min;
+    asm(" f32max %[asm_max], %[asm_a], %[asm_b]"
+        : [asm_max] "=r"(max)
+        : [asm_a] "r"(a), [asm_b] "r"(b));
+    asm(" f32min %[asm_min], %[asm_a], %[asm_b]"
+        : [asm_min] "=r"(min)
+        : [asm_a] "r"(a), [asm_b] "r"(b));
+    acc = static_cast<OutType>(max + std::log(1 + std::exp(min - max)));
+  }
+};
+#else
 struct ReduceLogAdd {
   template <typename T> static T init() {
     return poplibs_support::log::probabilityZero;
@@ -63,13 +85,14 @@ struct ReduceLogAdd {
   template <typename OutType, typename PartialsType>
   static void update(OutType &acc, PartialsType val_) {
     OutType val = static_cast<float>(val_);
-    OutType a = val < acc ? acc : val;
-    OutType b = val < acc ? val : acc;
-    acc = a + static_cast<OutType>(
-                  std::log(1 + std::exp(static_cast<float>(b - a))));
+    OutType max = val < acc ? acc : val;
+    OutType min = val < acc ? val : acc;
+    // Casting required as exp<half>() undefined
+    acc = max + static_cast<OutType>(
+                    std::log(1 + std::exp(static_cast<float>(min - max))));
   }
 };
-
+#endif
 struct ReduceMul {
   template <typename T> static T init() { return 1; }
   template <typename OutType, typename PartialsType>
