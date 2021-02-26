@@ -893,7 +893,12 @@ Tensor gruFwdImpl(Graph &graph, const GruParams &params,
   debug_tensor(fwdProg, "fwd weightsOutput", weights.outputWeights);
   debug_tensor(fwdProg, "fwd bias", weights.biases);
 
-  std::vector<Tensor> inputs = {prevLayerActs, attScores};
+  // make a copy of the activations so that they are sliced efficiently
+  auto prevLayerActsCopy =
+      createInput(graph, params, {dnai, "prevLayerActsCopy"}, options, cache);
+  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy, false, {dnai}));
+
+  std::vector<Tensor> inputs = {prevLayerActsCopy, attScores};
   std::vector<Tensor> initState = {fwdOutputInit.expand({0})};
   rnn::StateSequence stateSequence;
   if (params.outputFullSequence) {

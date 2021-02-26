@@ -830,7 +830,13 @@ lstmFwd(Graph &graph, const LstmParams &params, const LstmState &fwdStateInit,
     return loop;
   };
   bool useWeightedIn = !params.doInputWeightCalc || opt.preCalcWeights;
-  auto input = useWeightedIn ? weightedIn : prevLayerActs;
+
+  // make a copy of the activations so that they are sliced efficiently
+  auto prevLayerActsCopy =
+      createInput(graph, params, {di, "prevLayerActsCopy"}, opt, cache);
+  fwdProg.add(Copy(prevLayerActs, prevLayerActsCopy, false, {di}));
+
+  auto input = useWeightedIn ? weightedIn : prevLayerActsCopy;
   auto numIntermediates =
       intermediatesSeq ? getNumFwdIntermediatesToSave(opt) : 0;
   rnn::StateSequence stateSequence;
