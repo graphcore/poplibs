@@ -224,6 +224,8 @@ class Plan::Impl {
 public:
   SerialPartition<unsigned> serial;
   ParallelPartition<unsigned, bool> parallel;
+  poplar::Type partialsType;
+
   unsigned getLabelPartitionTiles(void) const {
     return parallel.label + (parallel.lastBlankOnSeparateTile ? 1 : 0);
   }

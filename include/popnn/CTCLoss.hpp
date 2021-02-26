@@ -51,6 +51,10 @@ bool operator!=(const Plan &a, const Plan &b) noexcept;
  *
  * **CTC Loss options**
  *
+ *    * `partialsType` poplar::Type [=poplar::FLOAT]
+ *
+ *      The type to use for partial results.
+ *
  *    * `availableMemoryProportion` Decimal between 0 and 1 (inclusive) [=0.6]
  *
  *      The maximum proportion of available memory on each tile that this
@@ -115,7 +119,7 @@ poplar::Tensor createLabelsInput(poplar::Graph &graph, const poplar::Type &type,
 /** Calculate the CTC loss & gradient, creating and mapping the result tensor
  *  according to the plan provided
  *
- * **calcLossAndGradientLogProbabilities  options**
+ * **calcLossAndGradientLogProbabilities options**
  *
  *    * `includeSoftmaxGradient` (true, false) [=true]
  *

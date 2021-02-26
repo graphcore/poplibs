@@ -973,6 +973,16 @@ foreach(out_type half float)
       VARIANTS ${IPUMODEL_VARIANTS})
 endforeach()
 
+foreach(partials_type half float)
+    add_multitarget_test(
+      NAME CTCLossTest_in_half_partials_${partials_type}_out_half
+      COMMAND CTCLossTest
+              --in-type=half
+              --partials-type=${partials_type}
+              --out-type=half
+      VARIANTS ${IPUMODEL_VARIANTS})
+endforeach()
+
 foreach(blank_class 0 4 10)
   add_multitarget_test(
     NAME CTCLossTest_Blank_${blank_class}

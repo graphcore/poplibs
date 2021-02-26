@@ -1,13 +1,16 @@
 // Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 
 #include "CTCLossPlan.hpp"
-#include "poplibs_support/logging.hpp"
+
 #include <poplar/CSRFunctions.hpp>
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
+
 #include <poplibs_support/LogArithmetic.hpp>
+#include <poplibs_support/logging.hpp>
 #include <popnn/CTCLoss.hpp>
 #include <popnn/LogSoftmax.hpp>
+#include <popops/Cast.hpp>
 #include <popops/ElementWise.hpp>
 #include <popops/Expr.hpp>
 #include <popops/Reduce.hpp>
@@ -166,20 +169,20 @@ void generateVertex(Graph &graph, const Tensor &data, const Tensor &alphaOrBeta,
       alphaOrBeta.slice(beginAlphaBeta, endAlphaBeta).flatten();
 
   const auto inType = data.elementType();
-  const auto outType = alphaOrBeta.elementType();
+  const auto partialsType = alphaOrBeta.elementType();
   const auto labelType = temp.label.elementType();
   std::string vertexName;
   if (vertexType == VertexType::ALPHA) {
-    vertexName = templateVertex("popnn::CTCAlpha", inType, outType, labelType,
-                                processExtraBlank);
-  } else if (vertexType == VertexType::BETA) {
-    vertexName = templateVertex("popnn::CTCBeta", inType, outType, labelType,
-                                processExtraBlank);
-  } else if (vertexType == VertexType::GRAD_GIVEN_ALPHA) {
-    vertexName = templateVertex("popnn::CTCGradGivenAlpha", inType, outType,
+    vertexName = templateVertex("popnn::CTCAlpha", inType, partialsType,
                                 labelType, processExtraBlank);
+  } else if (vertexType == VertexType::BETA) {
+    vertexName = templateVertex("popnn::CTCBeta", inType, partialsType,
+                                labelType, processExtraBlank);
+  } else if (vertexType == VertexType::GRAD_GIVEN_ALPHA) {
+    vertexName = templateVertex("popnn::CTCGradGivenAlpha", inType,
+                                partialsType, labelType, processExtraBlank);
   } else if (vertexType == VertexType::GRAD_GIVEN_BETA) {
-    vertexName = templateVertex("popnn::CTCGradGivenBeta", inType, outType,
+    vertexName = templateVertex("popnn::CTCGradGivenBeta", inType, partialsType,
                                 labelType, processExtraBlank);
   }
   logging::popnn::trace("Making {} vertex on tile {} with label offset {}"
@@ -897,7 +900,7 @@ Sequence createAlphaBetaGradProg(Graph &graph,
 
 TempTensors createAndInitialiseTemporaryTensors(
     Graph &graph, const popnn::ctc::Plan::Impl &plan, const Tensor &dataLengths,
-    const Tensor &labelLengths, const Tensor &labels, const Type &outType,
+    const Tensor &labelLengths, const Tensor &labels, const Type &partialsType,
     Sequence &prog, const poplar::DebugContext &di) {
 
   const auto batchSize = labels.dim(0);
@@ -919,12 +922,12 @@ TempTensors createAndInitialiseTemporaryTensors(
                         " with Time:2 Batches:{} ExtendedLabelLength:{}",
                         batchSize, extendedLabelLength);
   tempTensors.timeAlphaBeta1 = graph.addVariable(
-      outType, {batchSize, plan.parallel.time, extendedLabelLength},
+      partialsType, {batchSize, plan.parallel.time, extendedLabelLength},
       {di, "tempTimeAlphaBeta1"});
   mapAlphaBetaAccordingToPlan(graph, tempTensors.timeAlphaBeta1, plan);
 
   tempTensors.timeAlphaBeta2 = graph.addVariable(
-      outType, {batchSize, 2 * plan.parallel.time, extendedLabelLength},
+      partialsType, {batchSize, 2 * plan.parallel.time, extendedLabelLength},
       {di, "tempTimeAlphaBeta2"});
   mapAlphaBetaAccordingToPlan(graph, tempTensors.timeAlphaBeta2, plan);
   tempTensors.timeAlphaBetaPrevPartition = graph.clone(
@@ -937,7 +940,7 @@ TempTensors createAndInitialiseTemporaryTensors(
                         batchSize);
 
   tempTensors.labelAlphaIn = graph.addVariable(
-      outType,
+      partialsType,
       {plan.getLabelPartitionTiles(), batchSize, plan.parallel.time, 1},
       {di, "tempLabelAlphaIn"});
   mapAccordingToPlan(graph, tempTensors.labelAlphaIn, plan);
@@ -947,7 +950,7 @@ TempTensors createAndInitialiseTemporaryTensors(
       graph.clone(tempTensors.labelAlphaIn, {di, "tempLabelTimeAlphaIn"});
 
   tempTensors.labelBetaIn = graph.addVariable(
-      outType,
+      partialsType,
       {plan.getLabelPartitionTiles(), batchSize, plan.parallel.time, 2},
       {di, "tempLabelBetaIn"});
   mapAccordingToPlan(graph, tempTensors.labelBetaIn, plan);
@@ -974,7 +977,7 @@ TempTensors createAndInitialiseTemporaryTensors(
   // required place based on the time,label size of each individual input.
   initialise(graph, tempTensors.timeAlphaBeta1, prog, di);
   auto initialiserOne = graph.addConstant<float>(
-      outType, {1, 1, 1}, static_cast<float>(log::probabilityOne), di);
+      partialsType, {1, 1, 1}, static_cast<float>(log::probabilityOne), di);
   graph.setTileMapping(initialiserOne, 0);
   auto tempTimeAlphaBeta1Slice =
       tempTensors.timeAlphaBeta1.slice({0, 0, 0}, {batchSize, 1, 1});
@@ -1048,6 +1051,7 @@ void validateTensorTypes(const poplar::Tensor &data,
                          const poplar::Tensor &labels,
                          const poplar::Tensor &dataLengths,
                          const poplar::Tensor &labelLengths,
+                         const poplar::Type &partialsType,
                          const poplar::Type &outType) {
   if (data.elementType() != poplar::HALF &&
       data.elementType() != poplar::FLOAT) {
@@ -1064,9 +1068,12 @@ void validateTensorTypes(const poplar::Tensor &data,
     throw poputil::poplibs_error(
         "labelLengths tensor must be of type UNSIGNED_INT");
   }
-  if (outType == poplar::HALF && data.elementType() == poplar::FLOAT) {
+  if (partialsType == poplar::HALF && data.elementType() == poplar::FLOAT) {
     throw poputil::poplibs_error(
-        "outType HALF unsupported with input tensor type FLOAT");
+        "partials type HALF unsupported with input tensor type FLOAT");
+  }
+  if (outType != poplar::HALF && outType != poplar::FLOAT) {
+    throw poputil::poplibs_error("outType must be of type HALF or FLOAT");
   }
 }
 
@@ -1100,8 +1107,10 @@ calcLossAndGradientLogProbabilitiesImpl(
     poplar::program::Sequence &prog, const unsigned blankClass,
     const Plan::Impl &plan, const poplar::DebugContext &debugContext,
     const poplar::OptionFlags &options) {
-  validateTensorTypes(data, labels, dataLengths, labelLengths, outType);
-  auto opts = parseCalcLossAndGradLogProbOptions(options);
+  const auto opts = parseCalcLossAndGradLogProbOptions(options);
+  const auto partialsType = plan.partialsType;
+  validateTensorTypes(data, labels, dataLengths, labelLengths, partialsType,
+                      outType);
   poputil::PoplibsOpDebugInfo di({debugContext, "CTCGradient"},
                                  DI_ARGS(outType, data, labels, dataLengths,
                                          labelLengths, blankClass, plan,
@@ -1140,9 +1149,8 @@ calcLossAndGradientLogProbabilitiesImpl(
   }
 
   auto gradient =
-      graph.addVariable(outType, internalGradShape, {di, "gradient"});
+      graph.addVariable(partialsType, internalGradShape, {di, "gradient"});
   mapAccordingToPlan(graph, gradient, plan);
-
   // Broadcast the data input and map according to the planned label splits
   // which require a copy of the data and the gradient while computing
   const auto workingData = [&]() {
@@ -1163,15 +1171,16 @@ calcLossAndGradientLogProbabilitiesImpl(
       " Time:{} ExtendedLabelLength:{}",
       batchSize, maxT, extendedLabelLength);
   auto alphaBeta = graph.addVariable(
-      outType, {batchSize, maxT, extendedLabelLength}, {di, "alphaBeta"});
+      partialsType, {batchSize, maxT, extendedLabelLength}, {di, "alphaBeta"});
   mapAlphaBetaAccordingToPlan(graph, alphaBeta, plan);
 
   // Make the temporary tensors to exchange between tiles, keep loop count etc
   auto tempTensors = createAndInitialiseTemporaryTensors(
-      graph, plan, dataLengths, labelLengths, labels, outType, prog, di);
+      graph, plan, dataLengths, labelLengths, labels, partialsType, prog, di);
 
   auto loss = graph.addVariable(
-      outType, {batchSize, plan.parallel.time, plan.getLabelPartitionTiles()},
+      partialsType,
+      {batchSize, plan.parallel.time, plan.getLabelPartitionTiles()},
       {di, "loss"});
   mapAccordingToPlan(graph, loss, plan);
   initialise(graph, loss, prog, di);
@@ -1258,24 +1267,39 @@ calcLossAndGradientLogProbabilitiesImpl(
     } else {
       // Ensure we preserve mapping of the result to fit in with the plan
       auto gradientReduced =
-          graph.clone(outType, internalData, debugContext).squeeze({0});
+          graph.clone(partialsType, internalData, debugContext).squeeze({0});
       popops::reduceWithOutput(graph, gradient, gradientReduced, {0},
                                reduceParams, reductionCS, di);
       return toExternalShape(gradientReduced);
     }
   }();
   for (const auto &cs : reductionCS) {
-    prog.add(Execute(cs));
+    prog.add(Execute(cs, di));
   }
 
   popops::negInPlace(graph, lossReduced, prog, di);
   if (!opts.returnReducedCodeletGradient) {
     auto lossShaped = lossReduced.reshape({1, batchSize, 1});
-    popops::mapInPlace(graph, Sub(Exp(Cast(_3, outType)), Exp(Add(_1, _2))),
-                       {gradReduced, lossShaped, data}, prog, di);
+    popops::mapInPlace(graph,
+                       Sub(Exp(Cast(_3, partialsType)), Exp(Add(_1, _2))),
+                       {gradReduced, lossShaped, data}, prog, {di, "CalcGrad"});
   }
-  di.addOutputs({{"loss", poputil::toProfileValue(lossReduced)},
-                 {"grad", poputil::toProfileValue(gradReduced)}});
+
+  auto [lossOut, gradOut] = [&]() -> std::pair<poplar::Tensor, poplar::Tensor> {
+    if (partialsType != outType) {
+      poplar::DebugContext castDebug{di, "Cast"};
+      auto castCS = graph.addComputeSet(castDebug);
+      auto loss = popops::cast(graph, lossReduced, outType, castCS, castDebug);
+      auto grad = popops::cast(graph, gradReduced, outType, castCS, castDebug);
+      prog.add(Execute(castCS, castDebug));
+      return {loss, grad};
+    } else {
+      return {lossReduced, gradReduced};
+    };
+  }();
+
+  di.addOutputs({{"loss", poputil::toProfileValue(lossOut)},
+                 {"grad", poputil::toProfileValue(gradOut)}});
 
   if (!opts.includeSoftmaxGradient) {
     // TODO: Remove gradient from LogSoftmax
@@ -1284,7 +1308,7 @@ calcLossAndGradientLogProbabilitiesImpl(
   }
 
   poplar::setFloatingPointBehaviour(graph, prog, fpCSRToRestore, di);
-  return {lossReduced, gradReduced};
+  return {lossOut, gradOut};
 }
 
 std::pair<poplar::Tensor, poplar::Tensor> calcLossAndGradientLogProbabilities(

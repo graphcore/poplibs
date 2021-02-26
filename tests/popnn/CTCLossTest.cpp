@@ -508,6 +508,7 @@ int main(int argc, char **argv) {
   unsigned batchSize = 1;
   boost::optional<unsigned> tiles = boost::none;
   Type inType = FLOAT;
+  Type partialsType = FLOAT;
   Type outType = FLOAT;
   bool isLogits = true;
   bool testReducedCodeletGradient = false;
@@ -525,6 +526,8 @@ int main(int argc, char **argv) {
     ("plan-constraints", po::value(&planConstraints),
      "JSON constraints for planner, e.g. {\"parallel\": {\"batch\": 1}}")
     ("in-type", po::value(&inType)->default_value(inType),
+     "Input data type")
+    ("partials-type", po::value(&partialsType)->default_value(partialsType),
      "Input data type")
     ("out-type", po::value(&outType)->default_value(outType),
      "Output data type")
@@ -599,6 +602,7 @@ int main(int argc, char **argv) {
   if (planConstraints) {
     planOpts.set("planConstraints", *planConstraints);
   }
+  planOpts.set("partialsType", partialsType.toString());
 
   poplar::OptionFlags debugOpts;
   if (testReducedCodeletGradient) {
