@@ -659,6 +659,14 @@ Tensor regroupIfBeneficial(Graph &graph, const Tensor &in_,
 
   // TODO: T10360 Consider avoiding regrouping float inputs.
   auto grainSize = getMinimumRegroupGrainSize(in.elementType());
+  logging::popops::trace(
+      "beneficialRegroup decision: !empty {}, groupingChange "
+      "{}, in matches grainsize {}, out matches grainsize {} "
+      "(grainSize {})",
+      !inGrouping.empty(),
+      inGrouping.empty() ? 0 : inGrouping[0].first != preferredGrouping.first,
+      inGrouping.empty() ? 0 : inGrouping[0].second % grainSize == 0,
+      preferredGrouping.second % grainSize == 0, grainSize);
   if (!inGrouping.empty() && inGrouping[0].first != preferredGrouping.first &&
       inGrouping[0].second % grainSize == 0 &&
       preferredGrouping.second % grainSize == 0) {

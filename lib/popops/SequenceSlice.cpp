@@ -7,6 +7,7 @@
 #include "poplibs_support/ContiguousRegionsByTile.hpp"
 #include "poplibs_support/logging.hpp"
 #include "popops/DynamicSlice.hpp"
+#include "popops/Rearrange.hpp"
 #include "popops/Zero.hpp"
 #include "poputil/DebugInfo.hpp"
 #include "poputil/OptionParsing.hpp"
@@ -129,12 +130,21 @@ static void generateSequenceSliceVertices(
   // We will map vertices based on whichever of the input and output is
   // the biggest in the hope of minimising exchange. Exchanging the destination
   // is more expensive as it's an InOut.
-  // TODO: When zeroing unused elements it may be better to do specialise the
+  // TODO: When zeroing unused elements it may be better to specialise the
   // vertices to include the zeroing. This would give them an Output rather than
   // InOut and remove the need for a precopy.
-  bool baseIsSrc = tSrc.numElements() >= tDst.numElements() / 2;
+  bool baseIsSrc = tSrc.numElements() > tDst.numElements() * 2;
+
+  // When the source isn't the base it may be exchanged, which is very
+  // expensive for subword entities. regroupIfBeneficial only rearranges when a
+  // group of at least 4 halves is requested.
+  if (!baseIsSrc && target.getTypeSize(type) <= 4) {
+    auto preferredGrouping = 8 / target.getTypeSize(type);
+    tSrc = rearrange::regroupIfBeneficial(graph, tSrc, preferredGrouping, prog,
+                                          {dnai, "groupIfBeneficial-4"});
+  }
   auto &base = baseIsSrc ? tSrc : tDst;
-  logging::popops::debug("baseIsSrc {} because {} >= {}", baseIsSrc,
+  logging::popops::debug("baseIsSrc {} ({} > 2*{})", baseIsSrc,
                          tSrc.numElements(), tDst.numElements());
   logging::popops::debug("base shape {}", base.shape());
 

@@ -1212,15 +1212,16 @@ static Tensor createSliceableTensorGivenOrder(
       t, nPartitions, [&](const std::vector<std::size_t> &, const Tensor &s) {
         graph.setTileMapping(s, tile++);
       });
-
   t = t.reshapePartial(t.rank() - 1, t.rank(), unslicedShape)
           .dimShuffle(inversePermutation);
 
   logging::popops::debug("createSliceableTensor {}, minGrainSize {}, dims {}, "
                          "used tiles {}, "
+                         "elem size {}, "
                          "{} tiles with {} elems, "
                          "{} tiles with {} elems",
                          t.shape(), minGrainSize, dims, tilesUsed,
+                         graph.getTarget().getTypeSize(type),
                          // Tiles with ceildiv(numElems, numSplits) elements
                          numUnslicedElems / unslicedElemsPerSplit,
                          unslicedElemsPerSplit,
